@@ -499,14 +499,24 @@ export class ProjectRegistry {
   private addFolder(real: string, options: { inUse?: boolean; dbPath?: string } = {}): AddedProject {
     const dbPath = options.dbPath ?? projectDbPath(real);
     const { facts, start } = this.startOf(real, dbPath, !!options.inUse);
-    const { project, restored } = this.mutate((state) => {
+    const { project, restored, moved } = this.mutate((state) => {
       if (state.projects.some((p) => p.path === real)) throw new ProjectError('exists', `${this.display(real)} is already in the dashboard.`);
+      // A project moved with a link left at its old path (`mv agent agent-v2 && ln -s agent-v2 agent`)
+      // is the same folder and the same store, as find() resolves it: its entry moves to the real path
+      // instead of the folder being listed twice, where deleting one entry's recordings would delete
+      // the store the other still lists.
+      const same = state.projects.find((p) => realpathOrNull(p.path) === real);
+      if (same) {
+        same.path = real;
+        return { project: same, restored: false, moved: true };
+      }
       const remembered = removedEntries(state.raw).filter((r) => r.path === real).at(-1) ?? null;
       const entry = remembered ? this.restoredEntry(remembered, state.projects, facts) : this.newEntry(real, state.projects, start);
       if (remembered) state.raw.removed = forgetRemoved(state.raw, real);
       state.projects.push(entry);
-      return { project: entry, restored: !!remembered };
+      return { project: entry, restored: !!remembered, moved: false };
     });
+    if (moved) throw new ProjectError('exists', `${this.display(real)} is already in the dashboard, as ${project.name}.`);
     const again = facts.addedBefore || restored;
     this.activity(project, { kind: 'project.added', ref: project.id, data: { path: this.display(real), name: project.name, ...(again ? { again: true } : {}) } }, true, dbPath);
     return { project, again, runs: facts.runs };

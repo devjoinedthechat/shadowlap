@@ -162,6 +162,8 @@ export class ImportWriter {
   readonly skipped: Skip[] = [];
   private callNo = 1;
   private endedAt: number;
+  /** When the capture started: the run's start once it has ended. */
+  private readonly capturedAt: number;
   private readonly occurrences = new Map<string, number>();
 
   constructor(
@@ -169,10 +171,13 @@ export class ImportWriter {
     opts: ImportOptions & { startedAt: number; covers: NonNullable<RunMeta['covers']> },
   ) {
     const labels = [IMPORTED_LABEL, ...(opts.labels ?? []).filter((l) => l !== IMPORTED_LABEL)];
+    // Started as of now while it is written, and given the capture's start when it ends: a run is
+    // judged live by when the store last heard from it (its start or its latest call), and a capture
+    // a month old would otherwise read as one its importer left while that is still writing it, for
+    // gc to delete and push to send half of.
     this.run = store.createRun({
       mode: 'record',
       command: { argv: [NO_COMMAND], cwd: opts.cwd ?? process.cwd() },
-      startedAt: opts.startedAt,
       meta: {
         imported: { at: Date.now(), from: opts.source },
         normalizersHash: normalizersHash([], 'exact', false),
@@ -181,6 +186,7 @@ export class ImportWriter {
         ...(opts.author ? { author: opts.author } : {}),
       },
     });
+    this.capturedAt = opts.startedAt;
     this.endedAt = opts.startedAt;
   }
 
@@ -196,9 +202,16 @@ export class ImportWriter {
   api(c: CapturedCall): boolean {
     let url: URL;
     try {
+      if (typeof c.url !== 'string') throw new TypeError('not a URL');
       url = new URL(c.url);
     } catch {
-      this.skipped.push({ url: c.url || '(no url)', reason: 'not a URL' });
+      this.skipped.push({ url: (typeof c.url === 'string' && c.url) || '(no url)', reason: 'not a URL' });
+      return false;
+    }
+    // The readers check each entry's shape; this is the last line, so a call of the wrong shape is a skip, never a raw error.
+    const shape = callShapeProblem(c);
+    if (shape) {
+      this.skipped.push({ url: c.url, reason: shape });
       return false;
     }
     const provider = providerFor(url);
@@ -222,7 +235,7 @@ export class ImportWriter {
     for (const h of provider.fingerprintHeaders) if (headers[h] !== undefined) fingerprintHeaders[h] = headers[h];
 
     const callNo = this.callNo++;
-    const at = c.startedAt ?? this.run.startedAt;
+    const at = c.startedAt ?? this.capturedAt;
     const took = c.timeMs !== undefined && c.timeMs >= 0 ? Math.round(c.timeMs) : 0;
     const identity = { kind: 'api' as const, name, fingerprint, occurrence };
     this.store.appendCallStart({
@@ -268,7 +281,7 @@ export class ImportWriter {
     const { fingerprint } = fingerprintTool(name, args, []);
     const occurrence = this.occurrence('tool', fingerprint);
     const callNo = this.callNo++;
-    const at = t.startedAt ?? this.run.startedAt;
+    const at = t.startedAt ?? this.capturedAt;
     const took = t.timeMs !== undefined && t.timeMs >= 0 ? Math.round(t.timeMs) : 0;
     const identity = { kind: 'tool' as const, name, fingerprint, occurrence };
     this.store.appendCallStart({ runId: this.run.runId, callNo, ...identity, origin: 'live', effect: t.effect ?? null, requestRef: this.store.putJson({ args }), meta: {}, at });
@@ -280,18 +293,60 @@ export class ImportWriter {
     this.imported.push({ callNo, kind: 'tool', name, provider: null, model: null });
   }
 
+  /** Deletes the run, for an import that failed part way: it leaves nothing behind. */
+  discard(): void {
+    this.store.deleteRun(this.run.runId);
+  }
+
   /** Ends the run and returns what it holds. */
   finish(): ImportResult {
-    this.store.endRun(this.run.runId, 'completed', this.endedAt);
+    this.store.transaction(() => {
+      this.store.setRunStart(this.run.runId, this.capturedAt);
+      this.store.endRun(this.run.runId, 'completed', this.endedAt);
+    });
     return { run: this.store.getRun(this.run.runId)!, imported: this.imported, skipped: this.skipped };
+  }
+}
+
+const isStrings = (v: unknown): boolean => typeof v === 'object' && v !== null && !Array.isArray(v) && Object.values(v).every((x) => typeof x === 'string');
+
+/** What is wrong with a captured call's shape, or null. */
+function callShapeProblem(c: CapturedCall): string | null {
+  if (typeof c.method !== 'string') return "the call's method isn't text";
+  if (!Number.isInteger(c.status)) return "the call's status isn't a number";
+  if (!isStrings(c.requestHeaders)) return "the call's request headers aren't text";
+  if (!isStrings(c.responseHeaders)) return "the call's response headers aren't text";
+  if (!Buffer.isBuffer(c.responseBytes)) return "the call's response isn't bytes";
+  if (c.startedAt !== undefined && !Number.isFinite(c.startedAt)) return "the call's start isn't a time";
+  if (c.timeMs !== undefined && !Number.isFinite(c.timeMs)) return "the call's duration isn't a number";
+  return null;
+}
+
+/**
+ * Writes one run through an {@link ImportWriter} and finishes it. When writing throws part way, the
+ * run it started is deleted before the error goes on: a failed import leaves no empty run marked
+ * running behind.
+ */
+export function writeImport<T>(writer: ImportWriter, write: () => T): T {
+  try {
+    return write();
+  } catch (err) {
+    try {
+      writer.discard();
+    } catch {
+      // the store itself failed: the error that stopped the import says more
+    }
+    throw err;
   }
 }
 
 /** Turns captured calls into one run in `store`. A capture of the network only ever saw model API calls. */
 export function importCaptured(store: Store, captured: Captured, opts: ImportOptions): ImportResult {
-  const startedAt = captured.calls.find((c) => c.startedAt !== undefined)?.startedAt ?? Date.now();
+  const startedAt = captured.calls.find((c) => typeof c.startedAt === 'number' && Number.isFinite(c.startedAt))?.startedAt ?? Date.now();
   const writer = new ImportWriter(store, { ...opts, startedAt, covers: ['api'] });
-  append(writer.skipped, captured.skipped);
-  for (const c of captured.calls) writer.api(c);
-  return writer.finish();
+  return writeImport(writer, () => {
+    append(writer.skipped, captured.skipped);
+    for (const c of captured.calls) writer.api(c);
+    return writer.finish();
+  });
 }

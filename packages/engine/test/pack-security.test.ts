@@ -155,6 +155,39 @@ describe('unpack: a pack is untrusted input', () => {
     expect(unpackRun(store, dir)).toMatchObject({ imported: [], skipped: [expect.any(String)] });
     store.close();
   });
+
+  it('brings in a run marked running as interrupted: nothing here records it', () => {
+    const dir = copyGolden();
+    const m = manifest(dir);
+    const run = m.runs[0]!;
+    run.status = 'running';
+    delete run.endedAt; // left out, not null: imports all the same
+    writeManifest(dir, m);
+    const lastAt = Math.max(...callLines(dir).flatMap((c) => [c.at as number, ((c.end as { at?: number } | null)?.at ?? 0)]));
+    const store = Store.open(':memory:');
+    const id = unpackRun(store, dir).imported[0]!;
+    expect(store.getRun(id)).toMatchObject({ status: 'crashed', endedAt: lastAt });
+    // So rm and gc don't take it for a recording.
+    expect(store.recordingRuns().live).toEqual([]);
+    expect(store.deletionHold(id)).toBeNull();
+    store.close();
+  });
+
+  it('rejects times further ahead than another machine\'s clock could be', () => {
+    const dir = copyGolden();
+    const m = manifest(dir);
+    m.runs[0]!.status = 'running';
+    m.runs[0]!.endedAt = null;
+    m.runs[0]!.startedAt = Date.now() + 10 * 365 * 24 * 3600_000;
+    writeManifest(dir, m);
+    rejects(dir, /runs\[0\]\.startedAt: is more than a day in the future/);
+
+    const dir2 = copyGolden();
+    const calls = callLines(dir2);
+    calls[0]!.at = Date.now() + 2 * 24 * 3600_000;
+    writeCalls(dir2, calls);
+    rejects(dir2, /line 1\.at: is more than a day in the future/);
+  });
 });
 
 describe('terminal-safe text', () => {

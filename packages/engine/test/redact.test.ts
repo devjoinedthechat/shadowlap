@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -92,6 +93,44 @@ describe('redactRun', () => {
     expect(dst.getRun(run.runId)?.meta?.redactions).toEqual([EMAIL, KEY]);
     // The source store was not modified by packing.
     expect(src.getRun(run.runId)?.meta).toBeUndefined();
+    src.close();
+    dst.close();
+  });
+
+  it('packs into a folder that holds an earlier pack with only what the new pack holds', () => {
+    const src = Store.open(':memory:');
+    const run = seed(src);
+    const dir = join(mkdtempSync(join(tmpdir(), 'fp-redact-')), 'refund');
+    packRun(src, run.runId, dir);
+    writeFileSync(join(dir, 'README.md'), 'Refund over the limit\n');
+    const leaks = () => readdirSync(join(dir, 'blobs')).filter((f) => /example\.com|sk-secret/.test(readFileSync(join(dir, 'blobs', f), 'utf8')));
+    expect(leaks().length).toBeGreaterThan(0);
+    // A redaction rule added since, and the same pack command again.
+    const again = packRun(src, run.runId, dir, { redact: [EMAIL, KEY] });
+    expect(leaks()).toEqual([]);
+    const fresh = join(mkdtempSync(join(tmpdir(), 'fp-redact-')), 'fresh');
+    packRun(src, run.runId, fresh, { redact: [EMAIL, KEY] });
+    expect(readdirSync(join(dir, 'blobs')).sort()).toEqual(readdirSync(join(fresh, 'blobs')).sort());
+    expect(readdirSync(join(dir, 'blobs'))).toHaveLength(again.blobs);
+    // What else the folder holds stays, and nothing is left beside it.
+    expect(readFileSync(join(dir, 'README.md'), 'utf8')).toBe('Refund over the limit\n');
+    expect(readdirSync(join(dir, '..'))).toEqual(['refund']);
+    src.close();
+  });
+
+  it('unpacks only the blobs the calls need, whatever else the folder holds', () => {
+    const src = Store.open(':memory:');
+    const run = seed(src);
+    const dir = join(mkdtempSync(join(tmpdir(), 'fp-redact-')), 'pack');
+    packRun(src, run.runId, dir, { redact: [EMAIL, KEY] });
+    // A blob no call references: an earlier pack's, written into the same folder by hand.
+    const stray = Buffer.from('{"args":{"api_key":"sk-secret-123"}}');
+    const strayHash = createHash('sha256').update(stray).digest('hex');
+    writeFileSync(join(dir, 'blobs', strayHash), stray);
+    const dst = Store.open(':memory:');
+    expect(unpackRun(dst, dir).imported).toEqual([run.runId]);
+    expect(dst.hasBlob(strayHash)).toBe(false);
+    expect(dst.getCalls(run.runId)).toHaveLength(2);
     src.close();
     dst.close();
   });

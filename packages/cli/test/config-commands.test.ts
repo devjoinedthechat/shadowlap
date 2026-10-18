@@ -448,6 +448,34 @@ describe('shadowlap gc', () => {
     expect(JSON.parse((await shadowlap(['gc', '--dry-run', '--json'])).out).store).toEqual({ path: dbPath(), before: expect.any(Number), after: null, free: expect.any(Number) });
   });
 
+  it('leaves the run a replay in progress reads from, as rm does', async () => {
+    const store = Store.open(dbPath());
+    const old = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd }, startedAt: Date.now() - 40 * 86_400_000 });
+    store.endRun(old.runId, 'completed');
+    const other = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd }, startedAt: Date.now() - 40 * 86_400_000 });
+    store.endRun(other.runId, 'completed');
+    // `replay <old> --repeat 2`, between its attempts: this process records it.
+    const replay = store.createRun({ mode: 'replay', parentRunId: old.runId, command: { argv: ['node', 'agent.js'], cwd } });
+    store.close();
+
+    let r = await shadowlap(['gc', '--keep', '1', '--dry-run', '--json']);
+    const plan = JSON.parse(r.out) as GcPlan & { held: Array<{ runId: string; why: string }>; heldCount: number };
+    expect(plan.runs.map((x) => x.runId)).toEqual([other.runId]);
+    expect(plan.held).toEqual([expect.objectContaining({ runId: old.runId, why: 'a replay of it is still running' })]);
+    expect(plan.heldCount).toBe(1);
+    r = await shadowlap(['gc', '--keep', '1']);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain(`! left ${old.runId.slice(0, 10)}: a replay of it is still running; gc deletes it once that has ended`);
+    expect(r.out).toContain('✓ deleted 1 run');
+    const after = Store.open(dbPath());
+    expect(after.getRun(old.runId)).not.toBeNull();
+    expect(after.getRun(other.runId)).toBeNull();
+    // Once the replay has ended, gc deletes it.
+    after.endRun(replay.runId, 'completed');
+    after.close();
+    expect(JSON.parse((await shadowlap(['gc', '--keep', '1', '--json'])).out)).toMatchObject({ count: 1, held: [], heldCount: 0 });
+  });
+
   it('offers to give back what deleted runs left unused when no run is old enough, without a command that deletes runs', async () => {
     const store = Store.open(dbPath());
     // 3 MB of blobs only deleted runs used, as `rm` or the dashboard's Delete leave them, and the pages they leave unused.

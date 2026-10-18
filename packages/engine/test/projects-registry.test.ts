@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { Store } from '../src/index.js';
 import { ProjectError, ProjectRegistry, nameConfirms, projectDbPath, setupRunOf, type ProjectEntry, type SetupFindings } from '../src/projects/index.js';
@@ -135,6 +136,24 @@ describe('ProjectRegistry: adding', () => {
     expect(registry.find('~/triage-bot')?.id).toBe('triage-bot');
     expect(registry.find(join(home, 'tb'))?.id).toBe('triage-bot');
     expect(registry.find('~/elsewhere')).toBeNull();
+  });
+
+  it('knows a project moved with a link left at its old path, and keeps it once, at its new path', () => {
+    const { registry, agent, home } = setup();
+    const folder = agent('agent');
+    agent('other');
+    record(folder);
+    registry.add('~/agent');
+    registry.add('~/other');
+    // mv agent agent-v2 && ln -s agent-v2 agent
+    renameSync(folder, join(home, 'agent-v2'));
+    symlinkSync(join(home, 'agent-v2'), folder);
+    const moved = join(home, 'agent-v2');
+    expect(() => registry.add('~/agent-v2')).toThrow(expect.objectContaining({ code: 'exists', status: 409, message: '~/agent-v2 is already in the dashboard, as agent.' }));
+    expect(registry.list().map((p) => [p.id, p.path])).toEqual([['agent', moved], ['other', join(home, 'other')]]);
+    expect(registry.find('~/agent-v2')?.id).toBe('agent');
+    expect(registry.ensure(moved).id).toBe('agent');
+    expect(registry.list()).toHaveLength(2);
   });
 
   it('adds the folder a dashboard starts in without the dashboard’s limits, once', () => {
@@ -335,6 +354,45 @@ describe('ProjectRegistry: removing', () => {
     registry.add('~/linked');
     expect(() => registry.remove('linked', { deleteRecordings: true, typedName: 'linked' })).toThrow(expect.objectContaining({ code: 'store' }));
     expect(existsSync(projectDbPath(elsewhere))).toBe(true);
+  });
+
+  it('tells a recording from a run whose process was killed by the process the store names, not by when it started', async () => {
+    const { registry, agent } = setup();
+    agent('triage-bot');
+    const killed = agent('support-agent');
+    const long = agent('research-agent');
+    registry.add('~/triage-bot');
+    registry.add('~/support-agent');
+    registry.add('~/research-agent');
+    const engine = fileURLToPath(new URL('../dist/index.js', import.meta.url));
+    const recorder = (folder: string, startedAt: number, hold: boolean) => `
+      const { Store } = await import(${JSON.stringify('file://' + engine)});
+      const s = Store.open(${JSON.stringify(projectDbPath(folder))});
+      const r = s.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: ${startedAt} });
+      s.close();
+      process.stdout.write(r.runId + '\\n');
+      ${hold ? "process.stdin.resume(); process.stdin.on('end', () => process.exit(0));" : 'process.exit(0);'}`;
+
+    // A run killed between calls a minute ago: its process is gone, and .shadowlap/active.json still names it.
+    record(killed);
+    const gone = spawnSync(process.execPath, ['--input-type=module', '-e', recorder(killed, Date.now() - 60_000, false)], { encoding: 'utf8' });
+    writeFileSync(join(killed, '.shadowlap', 'active.json'), JSON.stringify({ url: 'http://127.0.0.1:1', runId: gone.stdout.trim(), pid: gone.pid }));
+    const removed = registry.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' });
+    expect(removed.deleted).toContain('.shadowlap/shadowlap.db');
+    expect(existsSync(projectDbPath(killed))).toBe(false);
+
+    // A recording two hours long whose process is still there, after another run in the folder removed active.json.
+    record(long);
+    const child = spawn(process.execPath, ['--input-type=module', '-e', recorder(long, Date.now() - 2 * 3600_000, true)], { stdio: ['pipe', 'pipe', 'inherit'] });
+    try {
+      await new Promise<void>((resolve) => child.stdout!.once('data', () => resolve()));
+      expect(existsSync(join(long, '.shadowlap', 'active.json'))).toBe(false);
+      expect(() => registry.remove('research-agent', { deleteRecordings: true, typedName: 'research-agent' })).toThrow(expect.objectContaining({ code: 'recording', status: 409 }));
+      expect(existsSync(projectDbPath(long))).toBe(true);
+    } finally {
+      child.stdin!.end();
+      await new Promise((resolve) => child.once('exit', resolve));
+    }
   });
 });
 

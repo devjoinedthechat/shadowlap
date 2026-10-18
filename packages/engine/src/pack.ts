@@ -1,11 +1,12 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { pulledRun } from './classify.js';
 import { sha256 } from './ids.js';
 import { loadApiRequest, manifestRefs } from './manifest.js';
 import { PACK_LIMITS, PackError, callRefs, validateCall, validateRun } from './pack-schema.js';
 import { redactRun } from './redact.js';
 import { Store } from './store.js';
+import { safeLine } from './text.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
 
 /**
@@ -59,6 +60,20 @@ export function asTheyStand<R extends RunRecord>(store: Store, runs: readonly R[
   });
 }
 
+/**
+ * A run as a copy brings it into a store (a pack, the team store): no process here records it, so
+ * one marked running (a pack edited by hand, or made by another tool) comes in as interrupted,
+ * `crashed` and ended at its last call or its start, as gc ends one its recorder left. Kept running,
+ * it would read as recording and hold up rm and gc for a day, or for good with a start time ahead.
+ * The fields a copy may leave out get their empty value.
+ */
+export function asImportedRun(run: RunRecord, calls: readonly CallRecord[]): RunRecord {
+  const copy: RunRecord = { ...run, parentRunId: run.parentRunId ?? null, codeVersion: run.codeVersion ?? null, endedAt: run.endedAt ?? null, divergence: run.divergence ?? null };
+  if (run.status !== 'running') return copy;
+  const last = calls.reduce((n, c) => Math.max(n, c.at, c.end?.at ?? 0, ...c.attempts.map((a) => a.at)), run.startedAt);
+  return { ...copy, status: 'crashed', endedAt: run.endedAt ?? last };
+}
+
 export interface PackResult {
   dir: string;
   runs: string[];
@@ -106,29 +121,106 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
     runs = runs.map((r) => redactRun(source, r.runId, opts.redact!, store));
   }
 
-  mkdirSync(join(dir, 'blobs'), { recursive: true });
   const lines: string[] = [];
   const blobs = new Set<string>();
-  for (const run of runs) {
-    for (const call of store.getCalls(run.runId)) {
-      lines.push(JSON.stringify(call));
-      for (const ref of blobRefs(call)) {
-        blobs.add(ref);
-        if (call.kind === 'api' && ref === call.requestRef) for (const child of manifestChildren(store, ref)) blobs.add(child);
+  try {
+    for (const run of runs) {
+      for (const call of store.getCalls(run.runId)) {
+        lines.push(JSON.stringify(call));
+        for (const ref of blobRefs(call)) {
+          blobs.add(ref);
+          if (call.kind === 'api' && ref === call.requestRef) for (const child of manifestChildren(store, ref)) blobs.add(child);
+        }
       }
     }
+    // A run its recorder left goes in as interrupted, never as recording: unpacked, it would read running.
+    const manifest: PackManifest = { format: PACK_FORMAT, version: PACK_VERSION, createdAt: Date.now(), runs: asTheyStand(source, runs).map((r) => forPack(r, opts.keepAuthor === true)) };
+    writePack(dir, (into) => {
+      mkdirSync(join(into, 'blobs'));
+      for (const hash of blobs) {
+        const bytes = store.getBlob(hash);
+        if (!bytes) throw new Error(`missing blob ${hash}`);
+        writeFileSync(join(into, 'blobs', hash), bytes);
+      }
+      writeFileSync(join(into, 'calls.jsonl'), lines.join('\n') + (lines.length ? '\n' : ''));
+      writeFileSync(join(into, 'run.json'), JSON.stringify(manifest, null, 2) + '\n');
+    });
+  } finally {
+    if (store !== source) store.close();
   }
-  for (const hash of blobs) {
-    const bytes = store.getBlob(hash);
-    if (!bytes) throw new Error(`missing blob ${hash}`);
-    writeFileSync(join(dir, 'blobs', hash), bytes);
-  }
-  // A run its recorder left goes in as interrupted, never as recording: unpacked, it would read running.
-  const manifest: PackManifest = { format: PACK_FORMAT, version: PACK_VERSION, createdAt: Date.now(), runs: asTheyStand(source, runs).map((r) => forPack(r, opts.keepAuthor === true)) };
-  writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest, null, 2) + '\n');
-  writeFileSync(join(dir, 'calls.jsonl'), lines.join('\n') + (lines.length ? '\n' : ''));
-  if (store !== source) store.close();
   return { dir, runs: runs.map((r) => r.runId), calls: lines.length, blobs: blobs.size, redacted };
+}
+
+/** What a pack is made of; run.json last, since a folder is taken for a pack by it. */
+const PACK_ENTRIES = ['blobs', 'calls.jsonl', 'run.json'] as const;
+
+const present = (path: string) => {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** A rename, or across filesystems (a folder that is a link to another disk) a copy and a removal. */
+function move(from: string, to: string): void {
+  try {
+    renameSync(from, to);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+    cpSync(from, to, { recursive: true, verbatimSymlinks: true });
+    rmSync(from, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Writes a pack into `dir` as a whole. A folder that already holds one (the same golden packed again,
+ * the dashboard's export of a run made twice) gets this pack's run.json, calls.jsonl and blobs/ in
+ * place of its own: written beside it first, then swapped in, so the folder never holds an earlier
+ * pack's blobs (one the redaction rules added since would have masked) and an error leaves the old
+ * pack as it was. Anything else in the folder (a README, notes) stays.
+ */
+function writePack(dir: string, write: (into: string) => void): void {
+  const target = resolve(dir);
+  mkdirSync(dirname(target), { recursive: true });
+  const stage = mkdtempSync(join(dirname(target), `.${basename(target)}.pack-`));
+  let keep = false;
+  try {
+    const fresh = join(stage, 'new');
+    mkdirSync(fresh);
+    write(fresh);
+    if (!existsSync(target)) {
+      move(fresh, target);
+      return;
+    }
+    const aside = join(stage, 'old');
+    mkdirSync(aside);
+    const moved: Array<{ name: string; had: boolean }> = [];
+    try {
+      for (const name of PACK_ENTRIES) {
+        const had = present(join(target, name));
+        if (had) move(join(target, name), join(aside, name));
+        moved.push({ name, had });
+        move(join(fresh, name), join(target, name));
+      }
+    } catch (err) {
+      // The old entries go back, so the folder holds the old pack or the new one, never a mix.
+      for (const { name, had } of moved.reverse()) {
+        try {
+          if (had && !present(join(aside, name))) continue;
+          rmSync(join(target, name), { recursive: true, force: true });
+          if (had) move(join(aside, name), join(target, name));
+        } catch {
+          keep = true;
+        }
+      }
+      if (keep) throw new Error(`${(err as Error).message}; the old pack's files are in ${aside}`);
+      throw err;
+    }
+  } finally {
+    if (!keep) rmSync(stage, { recursive: true, force: true });
+  }
 }
 
 export interface UnpackResult {
@@ -136,6 +228,92 @@ export interface UnpackResult {
   skipped: string[];
   /** The command each imported run would execute on replay. */
   commands: Array<{ runId: string; argv: string[] }>;
+  /**
+   * Runs skipped because the store already holds that id, where the store's run is not the pack's
+   * recording: its command differs (`command`: the pack's), or its calls do. Nothing about them was
+   * changed; whoever replays the pack must not replay the store's run in its place.
+   */
+  mismatched: RecordingMismatch[];
+}
+
+/** How the run a store holds under a pack's run id differs from the pack's. */
+export interface RecordingMismatch {
+  runId: string;
+  /** The pack's command, when the store's run was recorded with another; null when it is the same. */
+  command: RunRecord['command'] | null;
+  /** The calls differ: other calls, or other requests or responses, the pack's redaction aside. */
+  calls: boolean;
+}
+
+/** Writes a run's calls into a store, each call's attempts and end after its start. */
+function appendCalls(store: Store, calls: readonly CallRecord[]): void {
+  for (const call of calls) {
+    const { end, attempts, ...start } = call;
+    store.appendCallStart(start);
+    const identity = { kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence };
+    for (const a of attempts) store.appendCallEnd(identity, a);
+    if (end) store.appendCallEnd(identity, end);
+  }
+}
+
+/**
+ * Whether the store's run holds the calls a pack holds under the same id. Either may carry more
+ * redaction rules than the other, after the ones both carry: the pack, when it is the golden packed
+ * from the run recorded here; the store's copy, when it came from a newer pack of the run (packed
+ * again after a rule was added) and the pack is an older one, as an older checkout holds it. Then
+ * the one with fewer is redacted with the rest, as `pack` did, and compared with the other.
+ */
+function sameCalls(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): boolean {
+  const ours = store.getCalls(held.runId);
+  const theirs = [...packedCalls].sort((a, b) => a.callNo - b.callNo);
+  if (ours.length !== theirs.length) return false;
+  const identity = (c: CallRecord) => JSON.stringify([c.callNo, c.kind, c.name, c.fingerprint, c.occurrence]);
+  if (ours.some((c, i) => identity(c) !== identity(theirs[i]!))) return false;
+  const refs = (c: CallRecord) => JSON.stringify(callRefs(c));
+  const same = (a: readonly CallRecord[], b: readonly CallRecord[]) => a.length === b.length && a.every((c, i) => refs(c) === refs(b[i]!));
+  const mine = held.meta?.redactions ?? [];
+  const rules = packed.meta?.redactions ?? [];
+  const json = (v: unknown) => JSON.stringify(v);
+  if (json(rules) === json(mine)) return same(ours, theirs);
+  const into = Store.open(':memory:');
+  try {
+    if (rules.length > mine.length && json(rules.slice(0, mine.length)) === json(mine)) {
+      // Packed with more rules than this copy carries: this copy redacted with the rest.
+      redactRun(store, held.runId, rules.slice(mine.length), into);
+      return same(into.getCalls(held.runId), theirs);
+    }
+    if (mine.length > rules.length && json(mine.slice(0, rules.length)) === json(rules)) {
+      // This copy carries more rules than the pack: the pack's run, as unpack would bring it in, redacted with the rest.
+      const from = Store.open(':memory:');
+      try {
+        from.transaction(() => {
+          from.importRun(asImportedRun(packed, theirs));
+          for (const c of theirs) {
+            for (const h of callRefs(c)) if (blobs.has(h)) from.putBlob(blobs.get(h)!);
+            if (c.kind === 'api' && c.requestRef) for (const h of manifestRefs(from, c.requestRef)) if (blobs.has(h)) from.putBlob(blobs.get(h)!);
+          }
+          appendCalls(from, theirs);
+        });
+        redactRun(from, packed.runId, mine.slice(rules.length), into);
+      } catch {
+        // A blob the pack's calls need is missing or unreadable: not a recording to compare with.
+        return false;
+      } finally {
+        from.close();
+      }
+      return same(ours, into.getCalls(held.runId));
+    }
+    return false;
+  } finally {
+    into.close();
+  }
+}
+
+/** How the store's run under a pack run's id differs from it, or null when it is that recording. */
+function mismatch(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): RecordingMismatch | null {
+  const sameCommand = JSON.stringify(held.command.argv) === JSON.stringify(packed.command.argv) && held.command.cwd === packed.command.cwd;
+  const calls = !sameCalls(store, held, packed, packedCalls, blobs);
+  return sameCommand && !calls ? null : { runId: packed.runId, command: sameCommand ? null : { argv: packed.command.argv, cwd: packed.command.cwd }, calls };
 }
 
 /** A pack file, read only if it is a regular file (never a symlink) within the size limit. */
@@ -150,7 +328,8 @@ function readPackFile(path: string, limit: number, what: string): Buffer {
 /**
  * Imports a pack. A pack is untrusted input: every record is validated before anything is written,
  * blobs are verified against their hash, and every blob a call needs must be present. Runs that
- * already exist are skipped. Imported runs are marked, because replaying them runs a command that
+ * already exist are skipped, and said to differ (`mismatched`) when the store's run under that id is
+ * not the pack's recording. Imported runs are marked, because replaying them runs a command that
  * someone else recorded.
  */
 export function unpackRun(store: Store, dir: string): UnpackResult {
@@ -218,10 +397,20 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
   const from = basename(root);
   // One time for everything one unpack brings in, so the runs of a pack read as one import.
   const at = Date.now();
+  const packed = new Map(blobs.map((b) => [b.name, b.bytes]));
   store.transaction(() => {
-    for (const b of blobs) store.putBlob(b.bytes);
+    const fresh = new Set(runs.filter((r) => !store.getRun(r.runId)).map((r) => r.runId));
+    const needed = calls.filter((c) => fresh.has(c.runId));
+    // Only the blobs the runs it brings in need: a pack's folder may hold others (an earlier pack
+    // written there, a file slipped in), and those never come into the store.
+    const bring = (h: string) => {
+      const bytes = packed.get(h);
+      if (bytes && !store.hasBlob(h)) store.putBlob(bytes);
+    };
+    for (const c of needed) for (const h of callRefs(c)) bring(h);
+    for (const c of needed) if (c.kind === 'api' && c.requestRef) for (const h of manifestRefs(store, c.requestRef)) bring(h);
     // Every blob a call needs must now exist, including the parts of a chunked request.
-    for (const c of calls) {
+    for (const c of needed) {
       for (const h of callRefs(c)) if (!store.getBlob(h)) throw new PackError(`calls.jsonl: call #${c.callNo} of run ${c.runId} needs blob ${h}, which the pack does not contain`);
       if (c.kind === 'api' && c.requestRef) {
         for (const h of manifestRefs(store, c.requestRef)) if (!store.getBlob(h)) throw new PackError(`calls.jsonl: the request of call #${c.callNo} needs blob ${h}, which the pack does not contain`);
@@ -239,19 +428,23 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
       }
       // Whatever the pack claims, the run is marked as imported here.
       const { imported: _claimed, commandFromImport: _also, ...rest } = run.meta ?? {};
-      store.importRun({ ...run, meta: { ...rest, imported: { at, from } } });
-      for (const call of calls.filter((c) => c.runId === run.runId)) {
-        const { end, attempts, ...start } = call;
-        store.appendCallStart(start);
-        const identity = { kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence };
-        for (const a of attempts) store.appendCallEnd(identity, a);
-        if (end) store.appendCallEnd(identity, end);
-      }
+      const own = calls.filter((c) => c.runId === run.runId);
+      store.importRun({ ...asImportedRun(run, own), meta: { ...rest, imported: { at, from } } });
+      appendCalls(store, own);
       imported.push(run.runId);
       commands.push({ runId: run.runId, argv: run.command.argv });
     }
   });
-  return { imported, skipped, commands };
+  // A run skipped because the store holds its id may be another recording: a copy pulled from a pull
+  // request's folder, a pack someone sent that reused the id, a golden copied and edited by hand.
+  const mismatched: RecordingMismatch[] = [];
+  for (const run of runs) {
+    if (!skipped.includes(run.runId)) continue;
+    const held = store.getRun(run.runId);
+    const m = held && mismatch(store, held, run, calls.filter((c) => c.runId === run.runId), packed);
+    if (m) mismatched.push(m);
+  }
+  return { imported, skipped, commands, mismatched };
 }
 
 /** Whether replaying this run would execute a command that came from an imported pack, or from the team store. */
@@ -265,6 +458,18 @@ export function commandIsImported(run: RunRecord): boolean {
  */
 export function importedCommandSource(run: Pick<RunRecord, 'meta'>): 'the team store' | 'an imported pack' {
   return pulledRun(run) ? 'the team store' : 'an imported pack';
+}
+
+/**
+ * Where the store's copy of a run came from, in words for a message: "recorded on this machine",
+ * "pulled from pull request 12's folder in the team store", "pulled from the team store" or
+ * "unpacked from <folder>". Terminal-safe.
+ */
+export function heldFrom(run: Pick<RunRecord, 'meta'>): string {
+  const imported = run.meta?.imported;
+  if (!imported) return 'recorded on this machine';
+  if (imported.pr) return `pulled from pull request ${safeLine(String(imported.pr))}'s folder in the team store`;
+  return pulledRun(run) ? 'pulled from the team store' : `unpacked from ${safeLine(String(imported.from))}`;
 }
 
 /**

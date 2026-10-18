@@ -101,7 +101,8 @@ describe('packs', () => {
       const { fork } = family(source);
       packRun(source, fork, join(dir, 'lineage'), { lineage: true });
       // A large pack takes a while to unpack: the clock moves on between its runs, and they still share one time.
-      let now = 1_000_000;
+      // Today's clock, moving: unpack refuses a time more than a day ahead of it.
+      let now = Date.now();
       const clock = vi.spyOn(Date, 'now').mockImplementation(() => now++);
       let imported: string[];
       try {

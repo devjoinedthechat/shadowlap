@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -557,6 +557,80 @@ describe('shadowlap tasks', () => {
     expect(r.out).toContain('skipped goldens/budget is not a task: its checks only cap tokens and cost');
     // A golden that isn't a task was skipped, so not every task named was scored.
     expect(r.code).toBe(1);
+  }, 120_000);
+});
+
+describe("a task whose golden's run id the store holds as another recording", () => {
+  let work = '';
+  let pack = '';
+  const TESTS = { 'goldens/refund-over-limit': { expect: { tools: { issue_refund: 0, escalate: 1 } }, task: { takeover: 5, why: 'decides between refunding and escalating', rewards: 'escalate above the limit' } } };
+
+  beforeAll(async () => {
+    policy = 'models';
+    ({ work } = workdir('sl-tasks-held-'));
+    const golden = await record(work, [AGENT, '--stream']);
+    const r = await shadowlap(work, ['pack', golden, 'goldens/refund-over-limit']);
+    expect(r.code, r.out).toBe(0);
+    pack = join(work, 'goldens', 'refund-over-limit');
+  }, 60_000);
+  afterAll(() => {
+    if (work) rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+
+  /**
+   * A project whose store holds the golden's run id as a copy edited by `edit` (as a pull request's
+   * folder or a pack someone sent brings it), next to the golden itself.
+   */
+  async function heldElsewhere(edit: (copy: string) => void): Promise<{ work: string; db: string }> {
+    const other = workdir('sl-tasks-copy-');
+    const sent = join(other.work, 'sent');
+    cpSync(pack, sent, { recursive: true });
+    edit(sent);
+    const u = await shadowlap(other.work, ['unpack', 'sent']);
+    expect(u.code, u.out).toBe(0);
+    cpSync(pack, join(other.work, 'goldens', 'refund-over-limit'), { recursive: true });
+    writeFileSync(join(other.work, 'shadowlap.config.json'), JSON.stringify({ tests: TESTS }));
+    return other;
+  }
+  const editRun = (dir: string, fn: (run: { command: { argv: string[] } }) => void) => {
+    const m = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> };
+    fn(m.runs.at(-1)!);
+    writeFileSync(join(dir, 'run.json'), JSON.stringify(m));
+  };
+
+  it("scores the golden's own command, never the command of the store's copy", async () => {
+    const argv = (JSON.parse(readFileSync(join(pack, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> }).runs.at(-1)!.command.argv;
+    const other = await heldElsewhere((sent) => editRun(sent, (run) => (run.command.argv = ['sh', '-c', 'echo ran the copy command > PWNED.txt'])));
+    try {
+      const r = await shadowlap(other.work, ['tasks', 'score', 'goldens/refund-over-limit', '--model', 'weak-model', '--attempts', '1']);
+      expect(r.code, r.out).toBe(0);
+      expect(existsSync(join(other.work, 'PWNED.txt'))).toBe(false);
+      withStore(other.db, (s) => {
+        const [row] = s.listTaskScores();
+        expect(s.getRun(row!.runId!)!.command.argv).toEqual(argv);
+      });
+    } finally {
+      rmSync(other.work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  }, 120_000);
+
+  it("refuses to score it when the store's copy holds other calls, and runs nothing", async () => {
+    const other = await heldElsewhere((sent) => {
+      editRun(sent, (run) => (run.command.argv = ['sh', '-c', 'echo ran the copy command > PWNED.txt']));
+      const lines = readFileSync(join(sent, 'calls.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { fingerprint: string });
+      lines[0]!.fingerprint = 'f'.repeat(64);
+      writeFileSync(join(sent, 'calls.jsonl'), `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`);
+    });
+    try {
+      const runs = withStore(other.db, (s) => s.allRuns().length);
+      const r = await shadowlap(other.work, ['tasks', 'score', 'goldens/refund-over-limit', '--model', 'weak-model', '--attempts', '1']);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain("the store already holds another recording under this golden's run id");
+      expect(existsSync(join(other.work, 'PWNED.txt'))).toBe(false);
+      expect(withStore(other.db, (s) => s.allRuns().length)).toBe(runs);
+    } finally {
+      rmSync(other.work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
   }, 120_000);
 });
 

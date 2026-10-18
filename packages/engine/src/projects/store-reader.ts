@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { SCHEMA_VERSION, rowToRun, type StoredEvent } from '../store.js';
+import { RECORDING_RUNS_SQL, SCHEMA_VERSION, rowToRun, splitRecordingRuns, type StoredEvent } from '../store.js';
 import type { RunRecord } from '../types.js';
 import { emptyStoreFacts, storeFacts, type FactsSource, type GoldenTestFact, type StoreFacts } from './setup.js';
 
@@ -45,6 +45,20 @@ export class StoreReader implements FactsSource {
   runningRuns(): RunRecord[] {
     if (!this.tables.has('runs')) return [];
     return this.db.prepare(`SELECT * FROM runs WHERE status = 'running' ORDER BY started_at DESC`).all().map(rowToRun);
+  }
+
+  /**
+   * The runs a process is recording right now, by the store's own record of who records each
+   * (run_owners), as Store.recordingRuns tells them from runs their process left. A store older than
+   * that record names no process: its runs still running count as recorded until a day passes
+   * without a call.
+   */
+  liveRecordings(now: number): RunRecord[] {
+    if (!this.tables.has('runs')) return [];
+    const rows = this.tables.has('run_owners') && this.tables.has('call_events')
+      ? this.db.prepare(RECORDING_RUNS_SQL).all()
+      : this.db.prepare(`SELECT * FROM runs WHERE status = 'running' ORDER BY started_at, run_id`).all();
+    return splitRecordingRuns(rows, now).live.map((r) => r.run);
   }
 
   countCalls(runId: string): number {

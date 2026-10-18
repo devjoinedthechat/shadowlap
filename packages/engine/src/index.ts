@@ -50,7 +50,7 @@ export { formatDivergence, formatSummary, formatTokens, plain, storedModelResolv
 export type { ModelResolver, SummaryOptions } from './report.js';
 export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
 export type { Price } from './prices.js';
-export { NO_COMMAND, PACK_FORMAT, PACK_VERSION, asTheyStand, commandIsImported, hasRecordedCommand, importedCommandSource, packRun, unpackRun } from './pack.js';
+export { NO_COMMAND, PACK_FORMAT, PACK_VERSION, asImportedRun, asTheyStand, commandIsImported, hasRecordedCommand, heldFrom, importedCommandSource, packRun, unpackRun } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { callRefs, validateCall, validateRun } from './pack-schema.js';
 export { quoteArgv, safeLine, safeText } from './text.js';
@@ -79,7 +79,7 @@ export { normalizeConversation } from './conversation.js';
 export type { Conversation, Turn, TurnBlock } from './conversation.js';
 export { applyDeltas, finalAnswer, normalizeResponse } from './responses.js';
 export type { Block, Delta, NormalizedResponse } from './responses.js';
-export type { PackOptions, PackResult, UnpackResult } from './pack.js';
+export type { PackOptions, PackResult, RecordingMismatch, UnpackResult } from './pack.js';
 export type { Palette } from './report.js';
 export { conversationRequest, conversationRequestFor, Lru, responseInfo, runConversations, runStamp } from './conversations.js';
 export type { CallConversation, ConversationOptions, ConversationSpan, RequestedTool, RunConversations } from './conversations.js';

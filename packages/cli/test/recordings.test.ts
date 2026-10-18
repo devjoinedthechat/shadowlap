@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,6 +72,26 @@ describe('recorded calls for tests', () => {
     expect(seen.answer).toBeNull();
     expect((await api<RecordingResult>('end', { runId: replay.runId, passed: true })).body).toMatchObject({ ok: false });
     expect((await api('calls', { runId: replay.runId })).status).toBe(404);
+  });
+
+  it("replays a test's own recording, never another the store holds under its run id", async () => {
+    const rec = (await api<{ runId: string }>('start', { recording: 'recs/lookup', slot: 'w' })).body;
+    await tool('lookup_order', 'read', { order_id: 'A-1042' }, { status: 'delivered' });
+    expect((await api<RecordingResult>('end', { runId: rec.runId, passed: true })).body).toMatchObject({ saved: true });
+    // The folder copied to another test, and its call changed by hand: the same run id, other calls.
+    cpSync(join(root, 'recs', 'lookup'), join(root, 'recs', 'lookup-copy'), { recursive: true });
+    const callsFile = join(root, 'recs', 'lookup-copy', 'calls.jsonl');
+    const calls = readFileSync(callsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { fingerprint: string });
+    calls[0]!.fingerprint = 'e'.repeat(64);
+    writeFileSync(callsFile, calls.map((c) => JSON.stringify(c)).join('\n') + '\n');
+    const refused = await api<{ error: string }>('start', { recording: 'recs/lookup-copy', slot: 'w', mode: 'none' });
+    expect(refused.status).toBe(409);
+    expect(JSON.stringify(refused.body)).toContain(`the store already holds another recording under its run id ${rec.runId.slice(0, 10)} (recorded on this machine)`);
+    // A copy left as it was is the same recording, and replays.
+    cpSync(join(root, 'recs', 'lookup'), join(root, 'recs', 'lookup-same'), { recursive: true });
+    const same = (await api<{ runId: string; mode: string }>('start', { recording: 'recs/lookup-same', slot: 'w', mode: 'none' })).body;
+    expect(same.mode).toBe('replay');
+    await api('end', { runId: same.runId, passed: true });
   });
 });
 

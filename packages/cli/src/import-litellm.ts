@@ -34,11 +34,26 @@ export interface LitellmRecord {
   responseBody?: string;
   startedAt?: number;
   timeMs?: number;
-  runKey?: string;
+  runKey?: string | null;
 }
 
 const pairs = (raw: Record<string, unknown> | undefined): Array<[string, string]> =>
   Object.entries(raw ?? {}).map(([k, v]) => [k, String(v ?? '')] as [string, string]);
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** What is wrong with a capture record's shape, or null: a line of the wrong shape is skipped with the reason. */
+function recordProblem(r: Record<string, unknown>): string | null {
+  const text = (k: string) => r[k] === undefined || typeof r[k] === 'string';
+  if (!text('url')) return "url isn't text";
+  if (!text('method')) return "method isn't text";
+  if (r.status !== undefined && !Number.isInteger(r.status)) return "status isn't a number";
+  if (!text('responseBody')) return "responseBody isn't text";
+  if (r.requestHeaders !== undefined && !isObject(r.requestHeaders)) return "requestHeaders isn't an object";
+  if (r.responseHeaders !== undefined && !isObject(r.responseHeaders)) return "responseHeaders isn't an object";
+  if (r.runKey !== undefined && r.runKey !== null && typeof r.runKey !== 'string') return "runKey isn't text";
+  return null;
+}
 
 /** The provider endpoint the agent believed it was calling. */
 export function providerEndpoint(url: string): { host: string; path: string } | null {
@@ -83,18 +98,25 @@ export function readLitellmGroups(contents: string): LitellmGroup[] {
   };
 
   for (const [i, line] of lines.entries()) {
-    let record: LitellmRecord;
+    let parsed: unknown;
     try {
-      record = JSON.parse(line) as LitellmRecord;
+      parsed = JSON.parse(line);
     } catch {
       skipped.push({ url: `line ${i + 1}`, reason: 'not JSON (a partly written line?)' });
       continue;
     }
-    if (record.format !== 'shadowlap-capture') {
-      skipped.push({ url: record.url ?? `line ${i + 1}`, reason: 'not a Shadowlap capture record' });
+    const urlOf = (r: unknown) => (isObject(r) && typeof r.url === 'string' && r.url ? r.url : `line ${i + 1}`);
+    if (!isObject(parsed) || parsed.format !== 'shadowlap-capture') {
+      skipped.push({ url: urlOf(parsed), reason: 'not a Shadowlap capture record' });
       continue;
     }
     recognised++;
+    const problem = recordProblem(parsed);
+    if (problem) {
+      skipped.push({ url: urlOf(parsed), reason: `not a Shadowlap capture record: ${problem}` });
+      continue;
+    }
+    const record = parsed as LitellmRecord;
     const endpoint = record.url ? providerEndpoint(record.url) : null;
     if (!endpoint) {
       skipped.push({ url: record.url ?? `line ${i + 1}`, reason: 'not a route Shadowlap recognises as a model API' });

@@ -292,7 +292,7 @@ export interface RecordedVerdict {
  * fix stays verified whatever a later verdict says.
  */
 export function recordVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {
-  return store.transaction(() => keepVerdict(store, input), 'immediate');
+  return store.transaction(() => keepVerdict(store, input));
 }
 
 function keepVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {
@@ -432,14 +432,17 @@ export function settleAppliedFixes(store: Store, passed: ReadonlySet<string>, at
   }, 'immediate');
 }
 
-/** Gives a fix a title of its own; blames that join it later keep it. */
-export function setFixTitle(store: Store, fixId: string, title: string): StoredFix {
+/**
+ * Gives a fix a title of its own; blames that join it later keep it. When it was given goes with
+ * it, so a teammate's copy renamed earlier never puts its title back (mergeFixDocs).
+ */
+export function setFixTitle(store: Store, fixId: string, title: string, at: number = Date.now()): StoredFix {
   const clean = cleanTitle(title);
   if (!clean) throw new Error('a title needs some text');
   return store.transaction(() => {
     if (!store.getFix(fixId)) throw new Error(`unknown fix ${fixId}`);
     store.updateFix(fixId, { title: clean });
-    store.mergeFixData(fixId, { titleEdited: true });
+    store.mergeFixData(fixId, { titleEdited: true, titleEditedAt: at });
     return store.getFix(fixId)!;
   }, 'immediate');
 }

@@ -160,20 +160,13 @@ function checkMeta(meta: unknown, where: string): void {
 }
 
 /**
- * Checks a run record from the bucket as strictly as a pack's, and its metadata as above. One
- * difference from a pack: a command line may hold a tab or a line break (python -c '…', node -e
- * '…'), as a run recorded on any machine can. It is checked with those blanked and kept as
- * recorded; terminals show it escaped.
+ * Checks a run record from the bucket as strictly as a pack's, and its metadata as above. A command
+ * line may hold a tab or a line break (python -c '…', node -e '…'), in a pack as here; terminals
+ * show it escaped.
  */
 export function checkStoredRun(raw: unknown, where: string): RunRecord {
-  let candidate = raw;
-  if (isObject(raw) && isObject(raw.command)) {
-    const blank = (v: unknown) => (typeof v === 'string' && !CONTROL_BUT_LINES.test(v) ? v.replace(/[\t\n]/g, ' ') : v);
-    const c = raw.command;
-    candidate = { ...raw, command: { ...c, argv: Array.isArray(c.argv) ? c.argv.map(blank) : c.argv, cwd: blank(c.cwd) } };
-  }
   try {
-    validateRun(candidate, where);
+    validateRun(raw, where);
   } catch (err) {
     throw new LayoutError((err as Error).message);
   }

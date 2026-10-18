@@ -8,7 +8,9 @@ import { canonicalize, sha256, type RunMeta, type RunNote } from '@shadowlap/eng
  *   on either side is removed. Without a base (a copy that never synced with the store, such as a
  *   golden unpacked in CI), both sides' are joined.
  * - Results (blame, verify, checks) belong to the machine that made the run: its push writes them,
- *   and this machine takes the store's only for a run made elsewhere (pulled, or unpacked).
+ *   and this machine takes the store's only for a run made elsewhere (pulled, or unpacked). A
+ *   result this machine made of a run made elsewhere (a blame of a teammate's run) stays on its own
+ *   copy while the store's has none of that kind, and never goes up (keptHere).
  *
  * Everything else describes the recording itself: who made it, what it covers, its redaction rules,
  * the normalizers its fingerprints were computed under, its repeat group. It goes to the store with
@@ -103,6 +105,34 @@ export function reconcile(local: AnyMeta, remote: AnyMeta, base: SharedMeta | nu
   const results = origin ? l : r;
   for (const k of RESULT_META) if (results[k] !== undefined) out[k] = results[k];
   return out;
+}
+
+/**
+ * The synced metadata this machine's copy keeps once it agrees with the store on `merged`. For a
+ * run made elsewhere, `merged` carries the store's results; one this machine made that the store
+ * has none of (a blame of a teammate's run, which repair reuses and the run page shows) stays here,
+ * unless the store had it at the last sync (`base`) and has since dropped it. It never goes up:
+ * what the store holds is still `merged`.
+ */
+export function keptHere(local: AnyMeta, merged: SharedMeta, base: SharedMeta | null, origin: boolean): SharedMeta {
+  if (origin) return merged;
+  const l = (local ?? {}) as Record<string, unknown>;
+  const out: SharedMeta = { ...merged };
+  for (const k of RESULT_META) if (out[k] === undefined && l[k] !== undefined && base?.[k] === undefined) out[k] = l[k];
+  return out;
+}
+
+/**
+ * The synced part of this machine's copy as the store would hold it, to tell whether it has
+ * anything to send: all of it for a run made here; for one made elsewhere, its labels and notes
+ * with the results of `base` (the store's, which this machine never changes).
+ */
+export function asTheStoreHolds(local: AnyMeta, base: SharedMeta | null, origin: boolean): SharedMeta {
+  const synced = syncedMeta(local);
+  if (origin) return synced;
+  for (const k of RESULT_META) delete synced[k];
+  for (const k of RESULT_META) if (base?.[k] !== undefined) synced[k] = base[k];
+  return synced;
 }
 
 /** A run's metadata with its synced part replaced, every other key kept as it is. */

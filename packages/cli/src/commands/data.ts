@@ -322,6 +322,13 @@ export interface GcReport {
    */
   abandoned: GcRun[];
   abandonedCount: number;
+  /**
+   * Runs that matched but are left because a run in progress replays from them (a replay, fork or
+   * attempt serves its answers from one), with why, as `rm` and the dashboard leave them: the first
+   * 100, and how many. A later gc deletes them once that has ended.
+   */
+  held: Array<GcRun & { why: string }>;
+  heldCount: number;
   /** Blobs were left for a later gc because runs were still recording. */
   deferred: boolean;
   /**
@@ -344,7 +351,7 @@ const listed = (r: RunRecord): GcRun => {
 function emptyReport(dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
   const expect = expectToken([]);
   if (flags.expect !== undefined && flags.expect !== expect) throw new Error(`gc would delete 0 runs, not the ${flags.expect.split('-')[0]} the dry run listed: there is no store at ${dbPath}`);
-  return { dryRun: flags.dryRun === true, olderThanDays: flags.olderThan ?? null, keep: flags.keep ?? null, cutoff: cutoffOf(flags, now), total: 0, count: 0, runs: [], expect, blobs: 0, bytes: 0, recording: [], recordingCount: 0, abandoned: [], abandonedCount: 0, deferred: false, store: { path: dbPath, before: 0, free: 0, after: flags.dryRun ? null : 0 } };
+  return { dryRun: flags.dryRun === true, olderThanDays: flags.olderThan ?? null, keep: flags.keep ?? null, cutoff: cutoffOf(flags, now), total: 0, count: 0, runs: [], expect, blobs: 0, bytes: 0, recording: [], recordingCount: 0, abandoned: [], abandonedCount: 0, held: [], heldCount: 0, deferred: false, store: { path: dbPath, before: 0, free: 0, after: flags.dryRun ? null : 0 } };
 }
 
 function cutoffOf(flags: GcFlags, now: number): number | null {
@@ -353,7 +360,8 @@ function cutoffOf(flags: GcFlags, now: number): number | null {
 
 /**
  * Picks the runs `gc` deletes, says what that frees, and deletes unless it is a dry run. A run still
- * recording is never picked; one its process abandoned is picked like any ended run, and a real gc
+ * recording is never picked, nor one a run in progress replays from (Store.deletionHold, the rule rm
+ * and the dashboard follow); one its process abandoned is picked like any ended run, and a real gc
  * marks it interrupted.
  */
 export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
@@ -361,7 +369,13 @@ export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date
   const { live, abandoned } = store.recordingRuns(now);
   const recording = new Set(live.map((r) => r.run.runId));
   const cutoff = cutoffOf(flags, now);
-  const doomed = runs.filter((r, i) => !recording.has(r.runId) && ((cutoff !== null && r.startedAt < cutoff) || (flags.keep !== undefined && i >= flags.keep)));
+  const matching = runs.filter((r, i) => !recording.has(r.runId) && ((cutoff !== null && r.startedAt < cutoff) || (flags.keep !== undefined && i >= flags.keep)));
+  const liveRuns = live.map((r) => r.run);
+  const held = matching.flatMap((run) => {
+    const why = store.deletionHold(run.runId, liveRuns);
+    return why ? [{ ...listed(run), why }] : [];
+  });
+  const doomed = matching.filter((r) => !held.some((h) => h.runId === r.runId));
   const expect = expectToken(doomed.map((r) => r.runId));
   if (flags.expect !== undefined && flags.expect !== expect) {
     const was = Number(flags.expect.split('-')[0]);
@@ -385,6 +399,8 @@ export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date
     recordingCount: live.length,
     abandoned: abandoned.slice(0, LISTED).map((r) => listed(r.run)),
     abandonedCount: abandoned.length,
+    held: held.slice(0, LISTED),
+    heldCount: held.length,
     deferred: live.length > 0 && freed.hashes.length > 0,
     store: { path: dbPath, before: size.bytes, free: size.free, after: null },
   };
@@ -431,6 +447,9 @@ function formatGc(r: GcReport): string {
     lines.push(`${p.dim('▸')} runs ${criteria}: ${count} ${p.dim('· runs still recording are never touched')}`);
     for (const run of r.runs.slice(0, SHOWN)) lines.push(`    ${shortId(run.runId)}  ${run.mode}  ${run.status}  ${p.dim(ago(run.startedAt))}  ${p.dim(safe(run.command))}`);
     if (r.count > SHOWN) lines.push(p.dim(`    … and ${r.count - SHOWN} more`));
+    // Left as rm leaves them: a run in progress replays from each.
+    for (const run of r.held.slice(0, SHOWN)) lines.push(`  ${p.yellow('!')} left ${shortId(run.runId)}: ${run.why}; gc deletes it once that has ended`);
+    if (r.heldCount > SHOWN) lines.push(p.dim(`    … and ${r.heldCount - SHOWN} more left`));
   } else {
     lines.push(`${p.dim('▸')} no runs to delete ${p.dim('(--older-than <days> or --keep <n> picks them)')}`);
   }

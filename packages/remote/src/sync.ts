@@ -1,8 +1,8 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { callRefs, classifyRun, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { asImportedRun, callRefs, classifyRun, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
 import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
-import { madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
+import { asTheStoreHolds, keptHere, madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
 import { isPrecondition, StoreError, type ObjectStore } from './object-store.js';
 import { eachLimit } from './pool.js';
 import { storeKey } from './url.js';
@@ -22,7 +22,8 @@ import { storeKey } from './url.js';
  *
  * A pull request's folder (pr/<number>/, see pr.ts) is a store of its own to push and pull, with
  * `pullRequest` set: its runs come down marked as that pull request's, it changes nothing about runs
- * already here, and a run marked so never goes up into the store's own runs.
+ * already here, and a run marked so never goes up into the store's own runs. Once the store's own
+ * runs list one of them (the team pushed its own copy), a pull replaces it with that copy.
  */
 
 export interface SyncContext {
@@ -268,6 +269,56 @@ async function repairParts(ctx: SyncContext, run: RunRecord, known: Set<string>,
   return sent || tally.uploaded > before;
 }
 
+/**
+ * Whether the store's copy of a run was sent before the run had finished being written, as the
+ * index lists it: interrupted, with fewer calls than this machine's copy holds now that it has
+ * ended. An older push took an import of old captures for a run its process had left, ended it as
+ * interrupted and sent what was written so far; the import then went on and finished here.
+ */
+function cutShort(store: Store, run: RunRecord, row: TeamRunRow | null): boolean {
+  const entry = row?.entry as Partial<IndexEntry> | null | undefined;
+  if (run.status === 'running' || entry?.status !== 'crashed' || typeof entry.calls !== 'number') return false;
+  return store.countCalls(run.runId) > entry.calls;
+}
+
+/**
+ * Sends a run cut short in the store whole again (cutShort): its calls, then its record with this
+ * machine's status, end and call count, over the store's copy only while that copy still lists
+ * fewer calls as interrupted. Returns the store's new copy, or null when there was nothing to mend.
+ * `there` is the store's copy as the push just read it: one that isn't cut short costs nothing more.
+ */
+async function mendCutShort(ctx: SyncContext, run: RunRecord, there: StoredRunDoc, known: Set<string>, tally: PushResult['blobs']): Promise<StoredRunDoc | null> {
+  const held = ctx.store.countCalls(run.runId);
+  const short = (doc: StoredRunDoc) => run.status !== 'running' && doc.run.status === 'crashed' && doc.calls < held;
+  if (!short(there)) return null;
+  const calls = ctx.store.getCalls(run.runId);
+  const blobs = runBlobs(ctx.store, calls);
+  if (localProblem(ctx, calls, blobs)) return null; // this machine's copy can't mend it
+  const { lines, gz } = callsFile(calls);
+  if (lines.length > PACK_LIMITS.callsBytes || gz.length > CALLS_MAX_GZ) return null;
+  let sent = false;
+  for (let attempt = 0; ; attempt++) {
+    // Read again for its version: the record goes over the store's copy only while that is still cut short.
+    const got = await ctx.remote.get(keys.run(run.runId), { maxBytes: PACK_LIMITS.manifestBytes });
+    if (!got) return null;
+    const current = parseRunDoc(got.body, run.runId);
+    if (!short(current) || current.calls >= calls.length) return null;
+    const next: StoredRunDoc = { ...current, run: { ...current.run, status: run.status, endedAt: run.endedAt, divergence: run.divergence }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
+    if (storeProblem(next.run, calls)) return null;
+    if (!sent) {
+      await uploadBlobs(ctx, blobs, known, tally, true);
+      await ctx.remote.put(keys.calls(run.runId), gz, { contentType: 'application/gzip' });
+      sent = true;
+    }
+    try {
+      await ctx.remote.put(keys.run(run.runId), json(next), { contentType: 'application/json', ...(got.version ? { ifMatch: got.version } : {}) });
+      return next;
+    } catch (err) {
+      if (!isPrecondition(err) || attempt >= 3) throw err;
+    }
+  }
+}
+
 type Written = { doc: StoredRunDoc; synced: SharedMeta; fresh: boolean; wrote: boolean } | { refused: string };
 
 /** Puts a run in the bucket: whole when it isn't there, or its synced metadata merged into the store's copy. */
@@ -330,30 +381,48 @@ async function writeRun(ctx: SyncContext, run: RunRecord, row: TeamRunRow | null
 async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tally: PushResult['blobs'], verify: boolean, repair: boolean): Promise<PushOutcome> {
   const rid = remoteId(ctx);
   const row = ctx.store.teamRun(rid, run.runId);
-  const localHash = metaHash(run.meta);
-  if (!verify && row && (row.state === 'pushed' || row.state === 'pulled') && row.baseHash === localHash && row.remoteHash === localHash) {
+  // What of this copy would go up: a result this machine made of a run made elsewhere never does.
+  const localHash = metaHash(asTheStoreHolds(run.meta, row?.base ?? null, madeHere(run.meta)));
+  const cut = cutShort(ctx.store, run, row);
+  if (!verify && !cut && row && (row.state === 'pushed' || row.state === 'pulled') && row.baseHash === localHash && row.remoteHash === localHash) {
     return { kind: 'unchanged', entry: (row.entry as unknown as IndexEntry | null) ?? indexEntry(run, ctx.store.countCalls(run.runId), localHash, attemptOfRun(ctx.store, run)), index: false, repaired: false };
   }
   const written = await writeRun(ctx, run, row, known, tally);
   if ('refused' in written) return { kind: 'refused', reason: written.refused };
-  const { doc, synced, fresh, wrote } = written;
-  const repaired = repair && !fresh ? await repairParts(ctx, run, known, tally) : false;
+  const { synced, fresh, wrote } = written;
+  let { doc } = written;
+  let repaired = repair && !fresh ? await repairParts(ctx, run, known, tally) : false;
+  // Sent before it had finished being written: sent whole now, and listed again with its calls.
+  const mended = !fresh && (cut || repair) ? await mendCutShort(ctx, run, doc, known, tally) : null;
+  if (mended) {
+    doc = mended;
+    repaired = true;
+  }
   const hash = metaHash(synced);
-  applySynced(ctx.store, run, synced);
   // Not listed by any index this machine knows of, or listed as it was before: the index gets an entry.
   const unindexed = !row || row.remoteHash === null;
-  const index = fresh || unindexed || row.remoteHash !== hash;
+  const index = fresh || unindexed || row.remoteHash !== hash || mended !== null;
   const entry = indexEntry(doc.run, doc.calls, hash, attemptOfRun(ctx.store, run));
-  // What both sides now agree on is the base of the next merge. remoteHash stays what the index
-  // lists, so until push() has written the segment this run counts as not yet in the store.
-  ctx.store.setTeamRun(rid, {
-    runId: run.runId,
-    state: row?.state === 'pulled' ? 'pulled' : 'pushed',
-    at: now(ctx),
-    base: synced,
-    baseHash: hash,
-    remoteHash: fresh ? null : (row?.remoteHash ?? null),
-    entry: entry as unknown as Record<string, unknown>,
+  ctx.store.transaction(() => {
+    // Read again after the round trip, under the write lock: a label or note added meanwhile is
+    // merged with what the store now holds instead of written over, and, differing from the base,
+    // goes up with the next push.
+    const current = ctx.store.getRun(run.runId);
+    if (current) {
+      const origin = madeHere(current.meta);
+      applySynced(ctx.store, current, keptHere(current.meta, reconcile(current.meta, synced, syncedMeta(run.meta), origin), row?.base ?? null, origin));
+    }
+    // What both sides now agree on is the base of the next merge. remoteHash stays what the index
+    // lists, so until push() has written the segment this run counts as not yet in the store.
+    ctx.store.setTeamRun(rid, {
+      runId: run.runId,
+      state: row?.state === 'pulled' ? 'pulled' : 'pushed',
+      at: now(ctx),
+      base: synced,
+      baseHash: hash,
+      remoteHash: fresh ? null : (row?.remoteHash ?? null),
+      entry: entry as unknown as Record<string, unknown>,
+    });
   });
   const kind = fresh || (index && unindexed) ? 'pushed' : wrote || index ? 'updated' : 'unchanged';
   return { kind, entry, index, repaired };
@@ -409,9 +478,14 @@ export async function push(ctx: SyncContext, options: PushOptions): Promise<Push
       named.add(r.runId);
     }
   }
-  // Runs queued while they recorded go too, with their lineage.
+  // Runs queued while they recorded go too, with their lineage. One deleted since goes nowhere: its
+  // row goes, so nothing counts it as still recording.
   for (const row of store.teamRuns(rid)) {
     if (row.state !== 'queued') continue;
+    if (!store.getRun(row.runId)) {
+      store.deleteTeamRun(rid, row.runId);
+      continue;
+    }
     for (const r of withAncestors(store, row.runId)) targets.set(r.runId, r);
   }
   const result: PushResult = { pushed: [], updated: [], unchanged: [], queued: [], repaired: [], refused: [], blobs: { uploaded: 0, present: 0, bytes: 0 }, segment: null, fixes: { sent: [], failed: [], repairs: [] } };
@@ -615,13 +689,20 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
   }
   const shared = sharedMeta(doc.run.meta);
   ctx.store.transaction(() => {
-    if (ctx.store.getRun(runId)) return;
+    const held = ctx.store.getRun(runId);
+    // A copy a pull request's folder brought makes way for the store's own, whole: a run the store
+    // holds comes from its own folder, and nothing a pull request's job wrote stays in it.
+    const replace = held !== null && !ctx.pullRequest && Boolean(held.meta?.imported?.pr);
+    if (held && !replace) return;
     // Replaying a pulled run runs a command someone else recorded: it is marked as imported, so replay
     // asks first. The mark names the store's URL, which is what tells a pulled run from a pack
     // (`pulledRun`): it reads as its author's recording, with what it spent. One from a pull request's
     // folder is marked as that pull request's, so no push takes it into the store's own runs.
     const imported = { at: now(ctx), from: ctx.remote.location.url, ...(ctx.pullRequest ? { pr: ctx.pullRequest } : {}) };
-    ctx.store.importRun({ ...doc.run, meta: { ...(shared as RunRecord['meta'] & object), imported } });
+    // No process here records it: one marked running comes in as interrupted (asImportedRun).
+    const copy = { ...asImportedRun(doc.run, calls), meta: { ...(shared as RunRecord['meta'] & object), imported } };
+    if (replace) ctx.store.replaceRun(copy);
+    else ctx.store.importRun(copy);
     for (const call of calls) {
       const { end, attempts, ...start } = call;
       ctx.store.appendCallStart(start);
@@ -639,21 +720,31 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
 
 /** Merges the store's newer labels, notes and results for a run that is here into this machine's copy. */
 async function mergeRun(ctx: SyncContext, row: TeamRunRow): Promise<'merged' | 'needs-push' | 'same' | 'missing'> {
-  const run = ctx.store.getRun(row.runId);
+  if (!ctx.store.getRun(row.runId)) return 'missing';
   const got = await ctx.remote.get(keys.run(row.runId), { maxBytes: PACK_LIMITS.manifestBytes });
-  if (!run || !got) return 'missing';
+  if (!got) return 'missing';
   const doc = parseRunDoc(got.body, row.runId);
-  const merged = reconcile(run.meta, doc.run.meta, row.base, madeHere(run.meta));
-  const mergedHash = metaHash(merged);
   const remote = syncedMeta(doc.run.meta);
   const remoteHash = metaHash(remote);
-  const before = metaHash(run.meta);
-  applySynced(ctx.store, run, merged);
-  // The store's copy is the new base. remoteHash stays what the index lists: when the index is behind
-  // the copy (a push cut short before its segment), this machine's next push lists it again.
-  ctx.store.setTeamRun(remoteId(ctx), { ...row, state: row.state === 'listed' ? 'pulled' : row.state, at: now(ctx), base: remote, baseHash: remoteHash });
-  if (mergedHash !== remoteHash) return 'needs-push';
-  return mergedHash === before ? 'same' : 'merged';
+  // This machine's copy is read after the round trip, under the write lock: a label or note added
+  // while the store's copy was on its way is in it, so it is merged, not written over, and, as it
+  // differs from the store's, the next push sends it.
+  return ctx.store.transaction(() => {
+    const run = ctx.store.getRun(row.runId);
+    if (!run) return 'missing';
+    const rid = remoteId(ctx);
+    const current = ctx.store.teamRun(rid, row.runId) ?? row;
+    const origin = madeHere(run.meta);
+    const merged = reconcile(run.meta, doc.run.meta, current.base, origin);
+    const kept = keptHere(run.meta, merged, current.base, origin);
+    const before = metaHash(run.meta);
+    applySynced(ctx.store, run, kept);
+    // The store's copy is the new base. remoteHash stays what the index lists: when the index is behind
+    // the copy (a push cut short before its segment), this machine's next push lists it again.
+    ctx.store.setTeamRun(rid, { ...current, state: current.state === 'listed' ? 'pulled' : current.state, at: now(ctx), base: remote, baseHash: remoteHash });
+    if (metaHash(merged) !== remoteHash) return 'needs-push';
+    return metaHash(kept) === before ? 'same' : 'merged';
+  });
 }
 
 /**
@@ -670,6 +761,10 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
   const result: PullResult = { pulled: [], merged: [], needPush: [], skippedDeleted: [], missing: [], unknown: [], failed: [], skippedSegments: skipped, blobs: { downloaded: 0, bytes: 0 }, segments, inStore: 0, byAuthor: {}, fixes: { pulled: [], merged: [], failed: [], repairs: [] } };
 
   const excluded = options.exclude ?? new Set<string>();
+  // A run here that a pull request's folder brought is the store's to replace, once the store's own
+  // runs list it (pullRun): a run in both comes from the store's own folder.
+  const fromPr = (id: string) => !ctx.pullRequest && Boolean(store.getRun(id)?.meta?.imported?.pr);
+  const here = (id: string) => store.getRun(id) !== null && !fromPr(id);
   const wanted = new Set<string>();
   if (options.runIds?.length) {
     // A run id or a unique prefix of one, as the store's index lists them.
@@ -677,23 +772,38 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
       const name = raw.trim().toUpperCase();
       const matches = isRunId(name) && rows.has(name) ? [name] : name.length >= 4 ? [...rows.keys()].filter((k) => k.startsWith(name)) : [];
       if (matches.length !== 1) result.unknown.push(raw);
-      else if (!store.getRun(matches[0]!) && !excluded.has(matches[0]!)) wanted.add(matches[0]!);
+      else if (!here(matches[0]!) && !excluded.has(matches[0]!)) wanted.add(matches[0]!);
     }
   } else {
     for (const row of rows.values()) {
-      if (store.getRun(row.runId) || excluded.has(row.runId)) continue;
-      if (row.state === 'listed') wanted.add(row.runId);
+      if (here(row.runId) || excluded.has(row.runId)) continue;
+      if (row.state === 'listed' || fromPr(row.runId)) wanted.add(row.runId);
       else if (row.state === 'pushed' || row.state === 'pulled') result.skippedDeleted.push(row.runId);
     }
   }
   // A fork comes with its ancestors, so its lineage holds here too; an ancestor never taken from
-  // here comes from where it belongs first.
+  // here comes from where it belongs first. One deleted here stays deleted unless it was named: the
+  // fork comes without it, its link unset, as unpack brings a fork whose parent isn't there.
+  const named = new Set(wanted);
+  const deletedHere = (id: string) => {
+    const state = rows.get(id)?.state;
+    return (state === 'pushed' || state === 'pulled') && store.getRun(id) === null;
+  };
   const parentOf = (id: string) => (rows.get(id)?.entry?.parentRunId as string | null | undefined) ?? null;
+  const childrenOf = new Map<string, string[]>();
+  for (const id of rows.keys()) {
+    const parent = parentOf(id);
+    if (!parent) continue;
+    const siblings = childrenOf.get(parent);
+    if (siblings) siblings.push(id);
+    else childrenOf.set(parent, [id]);
+  }
   const elsewhere = new Set<string>();
   for (const id of [...wanted]) {
     let parent = parentOf(id);
     for (let depth = 0; parent && depth < 64; depth++) {
-      if (store.getRun(parent) || !rows.has(parent)) break;
+      if (here(parent) || !rows.has(parent)) break;
+      if (deletedHere(parent) && !named.has(parent)) break;
       if (excluded.has(parent)) {
         elsewhere.add(parent);
         break;
@@ -729,6 +839,9 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
       continue;
     }
     result.pulled.push(id);
+    // A run here that came without it (deleted here when the run came, then named) links to it again,
+    // as the store's index links them.
+    for (const child of childrenOf.get(id) ?? []) store.linkParent(child, id);
     const who = doc.run.meta?.author ?? 'unknown';
     result.byAuthor[who] = (result.byAuthor[who] ?? 0) + 1;
     ctx.log?.(`pulled ${id}${doc.run.meta?.author ? ` (${doc.run.meta.author})` : ''}`);

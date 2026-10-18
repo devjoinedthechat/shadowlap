@@ -141,14 +141,22 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   machine that has none; a run that came from a pack or the store keeps the author it came with.
 - **A run still recording** is queued and goes to the store when the command that recorded it
   ends it: `run`, `replay` (with `--repeat` too), `serve`, `blame` and `verify` push what was
-  queued as they finish. Anything else that ends a run leaves it for the next push. A run whose
-  recorder is gone (killed, or out of memory) never ends by itself: a push ends it as interrupted,
-  as `gc` does, and sends it, and it counts as only on this machine until then.
+  queued as they finish. Anything else that ends a run leaves it for the next push, and it counts
+  as only on this machine until then; a queued run you delete goes nowhere. A run whose recorder
+  is gone (killed, or out of memory) never ends by itself: a push ends it as interrupted, as `gc`
+  does, and sends it, and it counts as only on this machine until then. A run the store holds as
+  interrupted with fewer calls than your copy, which ended since (an import an older Shadowlap
+  pushed while it was still writing), goes up whole again with the next push, and a pull then
+  brings all of it; a machine that pulled the short copy gets the whole one by deleting its copy
+  and pulling the run by name.
 - **Labels and notes** merge both ways: something added on either machine is kept, something
-  removed on either is removed. A copy that never synced with the store (a golden unpacked in CI)
+  removed on either is removed, and one you add while a push or pull of that run is on its way
+  goes up with the next push. A copy that never synced with the store (a golden unpacked in CI)
   joins its labels and notes with the store's.
 - **Results** (blame, verify and check results) belong to the machine that made the run: its push
-  writes them, and every other machine takes the store's.
+  writes them, and every other machine takes the store's. A result you make of a teammate's run (a
+  blame of a run you pulled) stays on your copy while the store's has none of its kind, so its page
+  shows it and `repair` reuses it; it never goes up.
 - **Everything else about a run** (who made it, what it covers, its redaction rules) goes up with
   its first push and comes down with its first pull, and nothing changes it after that. Anyone your
   admin lets write to the bucket could edit a run there; such an edit can't change how a run on your
@@ -157,8 +165,9 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   repairs and verdicts) once one of its failing or good runs is in the store, and a pull brings the
   team's, so a teammate's Fixes page shows its three steps. A fix only grows, so two machines'
   copies merge: every blame, repair and verdict either made, open turned verified by either, and a
-  title someone gave it (the store's when both did). A push that meets a teammate's newer copy
-  merges it the same way.
+  title someone gave it, the latest rename when it was renamed on both (`fix title` again after a
+  sync replaces the title both had). A push that meets a teammate's newer copy merges it the same
+  way.
 - **Applied is each machine's own.** A fix is applied in a working tree: one applied on one
   machine is verified on the others, with its patch ready to apply there, and stays in their Needs
   a look until it is. `shadowlap fix apply` there puts the patch in, or finds it in already once
@@ -177,7 +186,10 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
 - **A fix too large to read** (over 16 MB, the size a pull reads of a run's record) stays on the
   machine that has it, and the push says so; a pull that meets one in the store names it and brings
   the others.
-- **A run you delete here** stays deleted: a pull doesn't bring it back unless you name it.
+- **A run you delete here** stays deleted: a pull doesn't bring it back unless you name it. A
+  teammate's replay or fork of it still comes, without it: the fork's link to it is left unset, as
+  `unpack` leaves a fork whose parent isn't there. Name the run in a pull and it comes back, linked
+  to its forks here again.
 - **A pulled run is someone else's recording.** It reads as what it is (a recording, a fork, a
   test), by who made it, never as a pack: with the requests it sent and what it spent where it was
   recorded, as `≈$0.0030 spent · by maya` on its page (Provenance's Upstream row names her too)
@@ -186,7 +198,8 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   still says *from a pack* and isn't counted. A pulled run is checked as strictly as a
   [pack](./cli.md#pack-unpack): every record validated, every blob checked against its hash, and
   nothing in it that could rewrite a terminal. A command line may hold tabs and line breaks
-  (`python -c '…'`), shown escaped. Its replay asks before running the command it was recorded
+  (`python -c '…'`), shown escaped. One the store marks as still running comes in as interrupted,
+  since nothing here records it. Its replay asks before running the command it was recorded
   with, as an unpacked run's does, saying it came from the team store and who recorded it.
 - **A run a pull would refuse** never goes up: `push` checks each run with the same rules and
   leaves one that fails here, saying why. A run in the store that can't be read (changed there by
@@ -264,7 +277,8 @@ writes to the team's runs:
   leaves them out and `push <run>` refuses one, so a pull request's run never reaches the team's
   through a teammate. A run the store itself holds always comes from the store's own folder, even
   as the parent of a pull request's run, and nothing a pull request's folder says about a run
-  already here (its labels, notes or results) is taken.
+  already here (its labels, notes or results) is taken. A run a pull request's folder brought before
+  the store held it is replaced by the store's own copy on the next pull, once the team pushes it.
 - **The cloud enforces it.** The CLI only puts a pull request's runs in their place; the
   pull-request policy from `shadowlap store policy` is what keeps a job from writing anywhere else.
   `shadowlap store ci` prints the step that gives a pull request's job those credentials and

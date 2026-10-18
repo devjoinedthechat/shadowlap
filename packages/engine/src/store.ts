@@ -532,6 +532,8 @@ export interface FixData {
   openedBy?: string | null;
   /** Someone gave it a title of their own (`shadowlap fix title`). */
   titleEdited?: boolean;
+  /** When the title was last given (ms): of two copies renamed apart, the later rename wins. */
+  titleEditedAt?: number;
   /** How it was applied: by `shadowlap fix apply`, or by `repair --apply`, which copies no goldens unless asked and runs no test. */
   applied?: { patch: 'applied' | 'already' | 'none'; repairId: string | null; goldens: string[]; tests: 'passed' | 'failed' | 'skipped'; by?: string | null; via?: 'fix apply' | 'repair --apply' };
 }
@@ -812,10 +814,13 @@ export class Store {
   }
 
   /**
-   * Runs `fn` in one transaction. `immediate` takes the write lock first, for a read that decides a
-   * write: another process doing the same waits for this one, then reads what it wrote.
+   * Runs `fn` in one transaction, which takes the write lock first (`immediate`): another process
+   * writing waits for this one, then reads what it wrote, and this one waits for it the same way.
+   * A deferred transaction that reads before it writes gets "database is locked" at once when
+   * another process wrote in between: SQLite won't wait out the busy timeout to turn a read into a
+   * write. So `deferred` is only for a transaction that never writes.
    */
-  transaction<T>(fn: () => T, mode: 'deferred' | 'immediate' = 'deferred'): T {
+  transaction<T>(fn: () => T, mode: 'deferred' | 'immediate' = 'immediate'): T {
     this.db.exec(mode === 'immediate' ? 'BEGIN IMMEDIATE' : 'BEGIN');
     try {
       const result = fn();
@@ -1325,6 +1330,44 @@ export class Store {
       );
   }
 
+  /**
+   * Puts another copy of a run in place of the one held (a pull's copy of a run that a pull
+   * request's folder brought first): the held record and its calls go, the copy's record comes in
+   * for the caller to append its calls, and the runs made from it stay linked to it.
+   */
+  replaceRun(run: RunRecord): void {
+    const children = this.childRuns(run.runId).map((r) => r.runId);
+    this.deleteRun(run.runId);
+    this.importRun(run);
+    const link = this.db.prepare(`UPDATE runs SET parent_run_id = ? WHERE run_id = ?`);
+    for (const child of children) link.run(run.runId, child);
+  }
+
+  /**
+   * Links a run that came here without its parent (unset, as an import leaves it when the parent
+   * isn't here) to that parent, once the parent is here. A link already set stays, and one that
+   * would make the run its own ancestor is never made. Whether it was linked.
+   */
+  linkParent(runId: string, parentRunId: string): boolean {
+    if (this.getRun(runId)?.parentRunId !== null) return false;
+    for (let at: string | null = parentRunId, depth = 0; at; depth++) {
+      if (at === runId || depth > 10_000) return false;
+      const up = this.getRun(at);
+      if (!up) return false;
+      at = up.parentRunId;
+    }
+    return Number(this.db.prepare(`UPDATE runs SET parent_run_id = ? WHERE run_id = ? AND parent_run_id IS NULL`).run(parentRunId, runId).changes) > 0;
+  }
+
+  /**
+   * Gives a run another start time. An import writes its run as of the moment it starts, so the
+   * store hears from it now (recordingRuns) however old the capture's times are, and gives it the
+   * capture's start once it has ended.
+   */
+  setRunStart(runId: string, startedAt: number): void {
+    this.db.prepare(`UPDATE runs SET started_at = ? WHERE run_id = ?`).run(startedAt, runId);
+  }
+
   endRun(runId: string, status: Exclude<RunStatus, 'running'>, endedAt: number = Date.now()): void {
     this.stmts.endRun.run(status, endedAt, runId);
     this.db.prepare(`DELETE FROM run_owners WHERE run_id = ?`).run(runId);
@@ -1368,6 +1411,9 @@ export class Store {
     this.stmts.deleteRun.run(runId);
     this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
     this.db.prepare(`DELETE FROM search_state WHERE run_id = ?`).run(runId);
+    // A run queued for a push while it recorded goes nowhere now. (A row of a run synced stays: it
+    // is what keeps a run deleted here from coming back with the next pull.)
+    this.db.prepare(`DELETE FROM team_runs WHERE run_id = ? AND state = 'queued'`).run(runId);
   }
 
   /** How much of a run the search index covers: its call count and status when it was indexed. */
@@ -1578,22 +1624,7 @@ export class Store {
    * latest call, whichever is later.
    */
   recordingRuns(now = Date.now()): { live: Array<{ run: RunRecord; lastAt: number }>; abandoned: Array<{ run: RunRecord; lastAt: number }> } {
-    const rows = this.db
-      .prepare(
-        `SELECT r.*, o.pid AS owner_pid, o.host AS owner_host, (SELECT MAX(c.at) FROM call_events c WHERE c.run_id = r.run_id) AS last_call
-         FROM runs r LEFT JOIN run_owners o ON o.run_id = r.run_id
-         WHERE r.status = 'running' ORDER BY r.started_at, r.run_id`,
-      )
-      .all();
-    const live: Array<{ run: RunRecord; lastAt: number }> = [];
-    const abandoned: Array<{ run: RunRecord; lastAt: number }> = [];
-    for (const row of rows) {
-      const run = rowToRun(row);
-      const lastAt = Math.max(run.startedAt, Number(row.last_call ?? 0));
-      const owner: RunOwner | null = row.owner_pid === null || row.owner_pid === undefined ? null : { pid: Number(row.owner_pid), host: String(row.owner_host) };
-      (recorderGone(owner, lastAt, now) ? abandoned : live).push({ run, lastAt });
-    }
-    return { live, abandoned };
+    return splitRecordingRuns(this.db.prepare(RECORDING_RUNS_SQL).all(), now);
   }
 
   /**
@@ -1814,7 +1845,8 @@ export class Store {
   teamSummary(remote: string): { inStore: number; queued: number; authors: Array<{ author: string | null; runs: number }>; ciProviders: string[] } {
     const listed = `remote = ? AND state != 'queued' AND remote_hash IS NOT NULL`;
     const inStore = Number(this.db.prepare(`SELECT COUNT(*) AS n FROM team_runs WHERE ${listed}`).get(remote)?.n ?? 0);
-    const queued = Number(this.db.prepare(`SELECT COUNT(*) AS n FROM team_runs WHERE remote = ? AND state = 'queued'`).get(remote)?.n ?? 0);
+    // Queued and still recording: one that ended since goes with the next push, one deleted goes nowhere.
+    const queued = Number(this.db.prepare(`SELECT COUNT(*) AS n FROM team_runs t JOIN runs r ON r.run_id = t.run_id WHERE t.remote = ? AND t.state = 'queued' AND r.status = 'running'`).get(remote)?.n ?? 0);
     const authors = this.db
       .prepare(`SELECT json_extract(entry, '$.author') AS author, COUNT(*) AS n FROM team_runs WHERE ${listed} GROUP BY author ORDER BY author`)
       .all(remote)
@@ -2059,6 +2091,24 @@ function rowToTeamRun(row: Record<string, unknown>): TeamRunRow {
     remoteHash: (row.remote_hash as string | null) ?? null,
     entry: json(row.entry),
   };
+}
+
+/** The runs still `running`, with the process the store names for each and their latest call: read by recordingRuns, and by a project's store opened read-only. */
+export const RECORDING_RUNS_SQL = `SELECT r.*, o.pid AS owner_pid, o.host AS owner_host, (SELECT MAX(c.at) FROM call_events c WHERE c.run_id = r.run_id) AS last_call
+  FROM runs r LEFT JOIN run_owners o ON o.run_id = r.run_id
+  WHERE r.status = 'running' ORDER BY r.started_at, r.run_id`;
+
+/** Rows of {@link RECORDING_RUNS_SQL} split into the runs a process records and those it left (recorderGone). */
+export function splitRecordingRuns(rows: readonly Record<string, unknown>[], now: number): { live: Array<{ run: RunRecord; lastAt: number }>; abandoned: Array<{ run: RunRecord; lastAt: number }> } {
+  const live: Array<{ run: RunRecord; lastAt: number }> = [];
+  const abandoned: Array<{ run: RunRecord; lastAt: number }> = [];
+  for (const row of rows) {
+    const run = rowToRun(row);
+    const lastAt = Math.max(run.startedAt, Number(row.last_call ?? 0));
+    const owner: RunOwner | null = row.owner_pid === null || row.owner_pid === undefined ? null : { pid: Number(row.owner_pid), host: String(row.owner_host) };
+    (recorderGone(owner, lastAt, now) ? abandoned : live).push({ run, lastAt });
+  }
+  return { live, abandoned };
 }
 
 /** A `runs` row as a run. Exported for readers that open a store read-only (projects/store-reader.ts). */

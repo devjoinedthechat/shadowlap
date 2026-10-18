@@ -1,7 +1,7 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { classifyRun, commandIsImported, importedCommandSource, pulledRun, sha256, storeApiRequest, Store, summarizeRun, type BlameRecord, type RunRecord } from '@shadowlap/engine';
-import { INDEX_FORMAT, keys, LAYOUT_VERSION, metaHash, parseSegment, parseStoreUrl, pull, pullRequestLocation, push, queuedRuns, reconcile, SCHEMES, StoreError, syncedMeta, teamRunInStore, type IndexEntry, type ObjectStore, type SyncContext } from '@shadowlap/remote';
+import { INDEX_FORMAT, keys, LAYOUT_VERSION, metaHash, parseSegment, parseStoreUrl, pull, pullRequestLocation, push, queuedRuns, reconcile, runBlobs, SCHEMES, StoreError, syncedMeta, teamRunInStore, type IndexEntry, type ObjectStore, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
 
 /**
@@ -219,6 +219,71 @@ describe('blobs this machine pushed before', () => {
   });
 });
 
+describe('a run the store got cut short', () => {
+  /** A second call on a run, as its recorder (an import) writes on after a push took it for one its process left. */
+  function moreCalls(store: Store, runId: string, from: number, to: number): void {
+    for (let callNo = from; callNo <= to; callNo++) {
+      const req = storeApiRequest(store, { model: 'm', messages: [{ role: 'user', content: `call ${callNo}` }] });
+      const call = id(callNo.toString(16));
+      store.appendCallStart({ runId, callNo, ...call, origin: 'live', effect: null, requestRef: req, meta: { provider: 'anthropic' }, at: callNo * 10 });
+      store.appendCallEnd(call, { runId, callNo, attempt: 0, responseRef: store.putBlob(Buffer.from(`answer ${callNo}`)), outcome: 'ok', meta: { status: 200 }, at: callNo * 10 + 1 });
+    }
+  }
+
+  it('is sent whole again once it has ended here, by --all as by name, and a teammate pulls it whole', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const r = record(a.store, 'imported', { running: true });
+    moreCalls(a.store, r.runId, 2, 3);
+    // An older push ended it as interrupted while it was still being written, and sent 3 calls.
+    a.store.endRun(r.runId, 'crashed', 31);
+    await push(a, { all: true });
+    expect(readDoc(remote, r.runId)).toMatchObject({ calls: 3, run: { status: 'crashed' } });
+    // The import went on and finished: 5 calls, completed.
+    moreCalls(a.store, r.runId, 4, 5);
+    a.store.endRun(r.runId, 'completed', 51);
+    const pushed = await push(a, { all: true });
+    expect(pushed.repaired).toEqual([r.runId]);
+    expect(pushed.updated).toEqual([r.runId]);
+    expect(readDoc(remote, r.runId)).toMatchObject({ calls: 5, run: { status: 'completed', endedAt: 51 } });
+    expect(gunzipSync(remote.objects.get(keys.calls(r.runId))!.body).toString().trim().split('\n')).toHaveLength(5);
+    const b = machine(remote, 'maya@northwind.example');
+    await pull(b);
+    expect(b.store.getRun(r.runId)).toMatchObject({ status: 'completed', endedAt: 51 });
+    expect(b.store.getCalls(r.runId)).toHaveLength(5);
+    // Nothing more to send.
+    const again = await push(a, { all: true });
+    expect([again.repaired, again.updated]).toEqual([[], []]);
+    expect((await push(a, { runIds: [r.runId] })).repaired).toEqual([]);
+  });
+
+  it('is left as it is when this machine holds no more of it', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const r = record(a.store, 'killed', { running: true });
+    a.store.endRun(r.runId, 'crashed', 2);
+    await push(a, { all: true });
+    remote.log.length = 0;
+    expect((await push(a, { all: true })).repaired).toEqual([]);
+    expect(remote.log.filter((l) => l.op === 'put')).toEqual([]);
+  });
+
+  it('costs a push by name nothing more when the store holds it whole', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const r = record(a.store, 'refund order 1');
+    moreCalls(a.store, r.runId, 2, 4);
+    await push(a, { all: true });
+    remote.log.length = 0;
+    const reads = vi.spyOn(a.store, 'getCalls');
+    expect((await push(a, { runIds: [r.runId] })).repaired).toEqual([]);
+    // The store's copy is read once, and this machine's calls once, to check what the bucket lost.
+    expect(remote.log.filter((l) => l.op === 'get' && l.key === keys.run(r.runId))).toHaveLength(1);
+    expect(reads.mock.calls.filter(([id]) => id === r.runId)).toHaveLength(1);
+    expect(remote.log.filter((l) => l.op === 'put')).toEqual([]);
+  });
+});
+
 describe('a run queued while it recorded', () => {
   it('goes with its lineage, even when nothing named the parent', async () => {
     const remote = new MemoryStore(loc);
@@ -244,6 +309,21 @@ describe('a run queued while it recorded', () => {
     expect((await push(a, {})).refused.map((r) => r.runId)).toEqual([live.runId]);
     expect(queuedRuns(a.store, loc.url)).toEqual({ ready: [], recording: [] });
     expect((await push(a, {})).refused).toEqual([]);
+  });
+
+  it('is forgotten once a store from before deleted it with its queued row left', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const live = record(a.store, 'live', { running: true });
+    expect((await push(a, { all: true })).queued).toEqual([live.runId]);
+    // An older Shadowlap deleted the run and kept its row: nothing records it, nothing sends it.
+    a.store.endRun(live.runId, 'completed');
+    a.store.deleteRun(live.runId);
+    a.store.setTeamRun(loc.url, { runId: live.runId, state: 'queued', at: 1, base: null, baseHash: null, remoteHash: null, entry: null });
+    expect(a.store.teamSummary(loc.url)).toMatchObject({ queued: 0 });
+    const result = await push(a, { all: true });
+    expect(result.queued).toEqual([]);
+    expect(a.store.teamRun(loc.url, live.runId)).toBeNull();
   });
 });
 
@@ -334,6 +414,29 @@ describe('pull', () => {
     expect(result.skippedDeleted).toEqual([r.runId]);
     expect(a.store.getRun(r.runId)).toBeNull();
     expect((await pull(a, { runIds: [r.runId] })).pulled).toEqual([r.runId]);
+  });
+
+  it("brings a teammate's replay of a run deleted here without the run, unlinked, as unpack would", async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const b = machine(remote, 'maya@northwind.example');
+    const r = record(a.store, 'refund order 1');
+    await push(a, { all: true });
+    await pull(b);
+    b.store.deleteRun(r.runId);
+    expect((await pull(b)).skippedDeleted).toEqual([r.runId]);
+    // Dana replays it and pushes the replay.
+    const fork = record(a.store, 'refund order 1, again', { parent: r.runId });
+    await push(a, { all: true });
+    const result = await pull(b);
+    expect(result.pulled).toEqual([fork.runId]);
+    expect(result.skippedDeleted).toEqual([r.runId]);
+    expect(b.store.getRun(r.runId)).toBeNull();
+    expect(b.store.getRun(fork.runId)!.parentRunId).toBeNull();
+    // Named, the run comes back, and the replay is linked to it again, as the store links them.
+    expect((await pull(b, { runIds: [r.runId] })).pulled).toEqual([r.runId]);
+    expect(b.store.getRun(fork.runId)!.parentRunId).toBe(r.runId);
+    expect(b.store.childRuns(r.runId).map((x) => x.runId)).toEqual([fork.runId]);
   });
 
   it('refuses a blob changed in the bucket, and skips an index segment that is not one', async () => {
@@ -448,6 +551,60 @@ describe('labels and notes on more than one machine', () => {
     const doc = JSON.parse(remote.objects.get(keys.run(r.runId))!.body.toString()) as { run: RunRecord };
     expect(doc.run.meta?.labels?.sort()).toEqual(['from-a', 'from-b']);
   });
+
+  /** Runs `edit` once, while the machine waits for the store's run.json of `runId`. */
+  function whileFetching(remote: MemoryStore, runId: string, edit: () => void): void {
+    const get = remote.get.bind(remote);
+    let done = false;
+    remote.get = async (key, options) => {
+      const got = await get(key, options);
+      if (!done && key === keys.run(runId)) {
+        done = true;
+        edit();
+      }
+      return got;
+    };
+  }
+  const addLabel = (m: { store: Store }, runId: string, label: string) => m.store.updateRunMeta(runId, { labels: [...(m.store.getRun(runId)!.meta?.labels ?? []), label] });
+
+  it('keeps a label added while a pull merges the run, and sends it with the next push', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const b = machine(remote, 'maya@northwind.example');
+    const r = record(a.store, 'labelled during a pull');
+    a.store.updateRunMeta(r.runId, { labels: ['good'] });
+    await push(a, { all: true });
+    await pull(b);
+    addLabel(a, r.runId, 'from-alice');
+    await push(a, { all: true });
+    // Maya labels the run while her pull waits for its run.json from the store.
+    whileFetching(remote, r.runId, () => addLabel(b, r.runId, 'from-bob'));
+    const pulled = await pull(b);
+    expect(pulled.merged).toEqual([r.runId]);
+    expect(pulled.needPush).toEqual([r.runId]);
+    expect(b.store.getRun(r.runId)!.meta?.labels?.sort()).toEqual(['from-alice', 'from-bob', 'good']);
+    await push(b, { all: true });
+    await pull(a);
+    expect(a.store.getRun(r.runId)!.meta?.labels?.sort()).toEqual(['from-alice', 'from-bob', 'good']);
+  });
+
+  it('keeps a label added while a push merges the run, and sends it with the next push', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const b = machine(remote, 'maya@northwind.example');
+    const r = record(a.store, 'labelled during a push');
+    await push(a, { all: true });
+    await pull(b);
+    addLabel(a, r.runId, 'from-alice');
+    await push(a, { all: true });
+    addLabel(b, r.runId, 'from-bob');
+    whileFetching(remote, r.runId, () => addLabel(b, r.runId, 'from-bob-later'));
+    expect((await push(b, { all: true })).updated).toEqual([r.runId]);
+    expect(b.store.getRun(r.runId)!.meta?.labels?.sort()).toEqual(['from-alice', 'from-bob', 'from-bob-later']);
+    expect((await push(b, { all: true })).updated).toEqual([r.runId]);
+    await pull(a);
+    expect(a.store.getRun(r.runId)!.meta?.labels?.sort()).toEqual(['from-alice', 'from-bob', 'from-bob-later']);
+  });
 });
 
 describe('a run that came here another way', () => {
@@ -466,6 +623,45 @@ describe('a run that came here another way', () => {
     expect(b.store.getRun(r.runId)!.meta?.labels).toEqual(['mine', 'refund-flow']);
     expect(result.needPush).toEqual([r.runId]);
     expect(b.store.teamRun(loc.url, r.runId)!.state).toBe('pulled');
+  });
+});
+
+describe("a result made here of a teammate's run", () => {
+  const blame = { at: 1, outcome: 'unrescuable', callNo: 1, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } as unknown as BlameRecord;
+
+  it("stays on this machine's copy when the store's has none, through push and pull, and never goes up", async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const b = machine(remote, 'maya@northwind.example');
+    const r = record(a.store, 'failed for dana');
+    await push(a, { all: true });
+    await pull(b);
+    // Maya blames Dana's run on her machine.
+    b.store.updateRunMeta(r.runId, { blame });
+    remote.log.length = 0;
+    const pushed = await push(b, { all: true });
+    expect(pushed.updated).toEqual([]);
+    expect(b.store.getRun(r.runId)!.meta?.blame).toEqual(blame);
+    // Nothing of it to send: the run wasn't even read from the store again.
+    expect(remote.log.filter((l) => l.key === keys.run(r.runId))).toEqual([]);
+    expect(readDoc(remote, r.runId).run.meta?.blame).toBeUndefined();
+    // Pushed by name, the store's copy is read and merged: still hers, still not the store's.
+    await push(b, { runIds: [r.runId] });
+    expect(b.store.getRun(r.runId)!.meta?.blame).toEqual(blame);
+    expect(readDoc(remote, r.runId).run.meta?.blame).toBeUndefined();
+    // A pull that merges Dana's new label keeps it too.
+    a.store.updateRunMeta(r.runId, { labels: ['refund-flow'] });
+    await push(a, { all: true });
+    expect((await pull(b)).merged).toEqual([r.runId]);
+    expect(b.store.getRun(r.runId)!.meta).toMatchObject({ labels: ['refund-flow'], blame });
+    await pull(a);
+    expect(a.store.getRun(r.runId)!.meta?.blame).toBeUndefined();
+    // Once the run's own machine gives the store a blame, that is the one every machine takes.
+    const hers = { ...blame, callNo: 2 } as BlameRecord;
+    a.store.updateRunMeta(r.runId, { blame: hers });
+    await push(a, { all: true });
+    await pull(b);
+    expect(b.store.getRun(r.runId)!.meta?.blame).toEqual(hers);
   });
 });
 
@@ -611,6 +807,28 @@ describe('what the bucket may hold', () => {
     const b = machine(remote, 'maya@northwind.example');
     expect((await pull(b)).pulled).toEqual([multi.runId]);
     expect(b.store.getRun(multi.runId)!.command.argv).toEqual(['python', '-c', 'import agent\n\tagent.main()']);
+  });
+
+  it('brings a run marked running as interrupted, and refuses one that starts years ahead', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const r = record(a.store, 'left running');
+    const ahead = record(a.store, 'from the future');
+    await push(a, { all: true });
+    // Anyone who can write to the bucket marks them running; the index needs nothing new.
+    const doc = readDoc(remote, r.runId);
+    writeDoc(remote, r.runId, { ...doc, run: { ...doc.run, status: 'running', endedAt: null } });
+    const later = readDoc(remote, ahead.runId);
+    writeDoc(remote, ahead.runId, { ...later, run: { ...later.run, status: 'running', endedAt: null, startedAt: Date.now() + 10 * 365 * 24 * 3600_000 } });
+
+    const b = machine(remote, 'maya@northwind.example');
+    const pulled = await pull(b);
+    expect(pulled.pulled).toEqual([r.runId]);
+    expect(pulled.failed).toEqual([{ runId: ahead.runId, reason: expect.stringMatching(/startedAt: is more than a day in the future/) }]);
+    // Ended at the last thing it recorded (its calls here are stamped before its start): no process
+    // here records it, so nothing takes it for a recording.
+    expect(b.store.getRun(r.runId)).toMatchObject({ status: 'crashed', endedAt: r.startedAt });
+    expect(b.store.recordingRuns().live).toEqual([]);
   });
 
   it("can't change how a run made here replays, or who made it, whatever run.json says", async () => {
@@ -843,6 +1061,42 @@ describe("a pull request's folder", () => {
     // And the store's own copy stays as it was.
     await push(maya, { all: true });
     expect(JSON.parse(remote.objects.get(keys.run(golden.runId))!.body.toString()).run.meta.labels).toBeUndefined();
+  });
+
+  it("gives way to the store's own copy of a run once the team pushes it", async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const golden = record(dana.store, 'a golden the team trusts');
+    // The pull request's job has the golden from its pack, before the team pushed it, with the
+    // command changed, and pushes it to its own folder.
+    const ci = { ...machine(remote, 'ci'), remote: prFolder(remote, '12'), pullRequest: '12' };
+    ci.store.importRun({ ...golden, command: { argv: ['sh', '-c', 'echo owned > PWNED.txt; node agent.js'], cwd: '/tmp' }, meta: { imported: { at: 1, from: 'golden' } } });
+    for (const c of dana.store.getCalls(golden.runId)) {
+      for (const h of runBlobs(dana.store, [c])) ci.store.putBlob(dana.store.getBlob(h)!);
+      const { end, attempts, ...start } = c;
+      ci.store.appendCallStart(start);
+      for (const a of [...attempts, ...(end ? [end] : [])]) ci.store.appendCallEnd({ kind: c.kind, name: c.name, fingerprint: c.fingerprint, occurrence: c.occurrence }, a);
+    }
+    expect((await push(ci, { runIds: [golden.runId] })).pushed).toEqual([golden.runId]);
+
+    // Maya pulls with --include-pr: the store's own runs don't list it yet, so the pull request's copy comes.
+    const maya = machine(remote, 'maya@northwind.example');
+    await pull(maya);
+    expect((await pull({ ...maya, remote: prFolder(remote, '12'), pullRequest: '12' }, { exclude: new Set() })).pulled).toEqual([golden.runId]);
+    expect(maya.store.getRun(golden.runId)!.meta?.imported?.pr).toBe('12');
+    const fork = record(maya.store, 'replayed here', { parent: golden.runId });
+
+    // The team pushes its own copy; Maya's next pull replaces the pull request's with it.
+    await push(dana, { all: true });
+    const result = await pull(maya);
+    expect(result.pulled).toEqual([golden.runId]);
+    const here = maya.store.getRun(golden.runId)!;
+    expect(here.command.argv).toEqual(['node', 'agent.js']);
+    expect(here.meta?.imported).toEqual({ at: expect.any(Number), from: loc.url });
+    expect(maya.store.getCalls(golden.runId)).toEqual(dana.store.getCalls(golden.runId));
+    // What was made from it here stays linked to it, and the next pull has nothing more to bring.
+    expect(maya.store.getRun(fork.runId)!.parentRunId).toBe(golden.runId);
+    expect((await pull(maya)).pulled).toEqual([]);
   });
 });
 

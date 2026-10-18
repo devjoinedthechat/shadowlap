@@ -1,5 +1,5 @@
 import { safeLine, type Store } from '@shadowlap/engine';
-import { append, ImportWriter, type CapturedCall, type ImportOptions, type ImportResult, type Skip } from './import-capture.js';
+import { append, ImportWriter, writeImport, type CapturedCall, type ImportOptions, type ImportResult, type Skip } from './import-capture.js';
 
 /**
  * Building a recording out of a trace: OpenTelemetry spans, a Langfuse trace, LangSmith runs.
@@ -735,6 +735,11 @@ export function importTrace(store: Store, trace: Trace, opts: ImportOptions): Tr
 
   const startedAt = calls.find((c) => c.startedAt !== null)?.startedAt ?? Date.now();
   const writer = new ImportWriter(store, { ...opts, startedAt, covers: ['api', ...covered.map((name) => `tool:${name}` as const)] });
+  // A failure part way deletes the run it started.
+  return writeImport(writer, () => writeTrace(writer, trace, calls, tools, coveredSet));
+}
+
+function writeTrace(writer: ImportWriter, trace: Trace, calls: readonly TraceCall[], tools: readonly TraceToolCall[], coveredSet: ReadonlySet<string>): TraceImport {
   append(writer.skipped, trace.skipped);
   const counts = { modelCalls: 0, modelCallsImported: 0, withSettings: 0, withToolDefinitions: 0, toolCalls: tools.length, toolCallsKept: tools.filter(toolKept).length };
   const dialects: Record<string, number> = {};

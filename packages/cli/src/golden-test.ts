@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { formatDivergence, hasRecordedCommand, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { formatDivergence, hasRecordedCommand, heldFrom, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
@@ -163,14 +163,28 @@ export interface GoldenOutcome {
  * Imports a golden's pack into the store (once) and returns the recording it replays: the last run
  * in its run.json, whether it was imported now or was already there. (With a store that persists,
  * a pack's ancestors can be missing while the run itself is present.)
+ *
+ * A golden replays the recording and the command its own pack holds. The store may hold another
+ * recording under the same run id: a copy pulled from a pull request's folder, a pack someone sent
+ * that reused the id, the golden this one was copied from. When only its command differs, the
+ * pack's command runs, as wherever only the pack exists; when its calls differ, the golden fails,
+ * naming where the store's copy came from. A command from that copy never runs. A copy that only
+ * carries more or fewer redaction rules than the pack is the pack's recording (see unpackRun).
  */
 export function importGolden(store: Store, dir: string): RunRecord {
-  const { imported, skipped } = unpackRun(store, dir);
+  const { imported, skipped, mismatched } = unpackRun(store, dir);
   const head = readPackHead(dir);
   const parentId = 'error' in head ? (imported.at(-1) ?? skipped.at(-1)) : head.runId;
   const parent = parentId ? store.getRun(parentId) : null;
   if (!parent) throw new Error('the pack contains no runs');
-  return parent;
+  const other = mismatched.find((m) => m.runId === parent.runId);
+  if (other?.calls) {
+    const id = parent.runId.slice(0, 10);
+    throw new Error(
+      `the store already holds another recording under this golden's run id ${id} (${heldFrom(parent)}), and its calls differ from the pack's. A golden replays only its own pack: delete the store's copy (shadowlap rm ${id}) to test this one, or, for a golden copied from another, pack a run of its own`,
+    );
+  }
+  return other?.command ? { ...parent, command: other.command } : parent;
 }
 
 export async function testGolden(dir: string, golden: string, spec: TestSpec | null, ctx: RecordingTestContext): Promise<GoldenOutcome> {
@@ -180,9 +194,10 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
   let normalizers: Normalizer[] = [...ctx.config.normalize];
   try {
     parent = importGolden(ctx.store, dir);
-    // The store may hold the run as it was recorded, before the pack redacted it. Replaying the pack
-    // applies its redaction rules as normalizers, and so does replaying that copy, so a golden passes
-    // or fails here as it does in CI, where only the pack exists.
+    // The store may hold the run as it was recorded, before the pack redacted it: importGolden made
+    // sure it is the pack's recording, its redaction aside, and replays the pack's command. Replaying
+    // the pack applies its redaction rules as normalizers, and so does replaying that copy, so a
+    // golden passes or fails here as it does in CI, where only the pack exists.
     // That copy may also carry an earlier pack's rules, when the run was packed again with more.
     const head = readPackHead(dir);
     const packed = 'error' in head || JSON.stringify(parent.meta?.redactions ?? []) === JSON.stringify(head.redactions) ? [] : head.redactions;
