@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import { register as registerData } from './commands/data.js';
 import { register as registerFix } from './commands/fix.js';
 import { register as registerImport } from './commands/import.js';
@@ -21,6 +21,8 @@ export async function main(argv: string[]): Promise<void> {
     .option('--db <path>', 'store path (default: ./.shadowlap/shadowlap.db)')
     .option('-v, --verbose', 'log sidecar activity to stderr')
     .enablePositionalOptions()
+    // Each command's help lists the global options too, which it also takes after its own name.
+    .configureHelp({ showGlobalOptions: true })
     .showHelpAfterError()
     .addHelpText('after', '\nNew to Shadowlap? Run shadowlap init in your project, then shadowlap run -- <your agent command>.');
 
@@ -36,6 +38,34 @@ export async function main(argv: string[]): Promise<void> {
   // After data: `export pairs` joins the export command it registers.
   registerTraining(program);
   registerTeam(program);
+  acceptGlobalOptionsAfterCommands(program);
 
   await program.parseAsync(argv);
+}
+
+/**
+ * The global options work after the command too (`shadowlap ls --db other.db`, `shadowlap replay
+ * <run> -v`), as the reference lists them for every command: each command takes them, hidden from
+ * its own help, and what it was given becomes the program's, the nearest to the command winning.
+ */
+function acceptGlobalOptionsAfterCommands(program: Command): void {
+  const walk = (command: Command) => {
+    for (const sub of command.commands) {
+      if (!sub.options.some((o) => o.long === '--db')) sub.addOption(new Option('--db <path>', 'store path').hideHelp());
+      if (!sub.options.some((o) => o.long === '--verbose' || o.short === '-v')) sub.addOption(new Option('-v, --verbose', 'log sidecar activity to stderr').hideHelp());
+      walk(sub);
+    }
+  };
+  walk(program);
+  program.hook('preAction', (_program, action) => {
+    let db: string | undefined;
+    let verbose = false;
+    for (let c: Command | null = action; c && c !== program; c = c.parent) {
+      const given = c.opts<{ db?: string; verbose?: boolean }>();
+      db ??= given.db;
+      verbose ||= given.verbose === true;
+    }
+    if (db !== undefined) program.setOptionValue('db', db);
+    if (verbose) program.setOptionValue('verbose', true);
+  });
 }
