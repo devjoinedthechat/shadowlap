@@ -218,7 +218,7 @@ Pin the action to a release tag once there is one. Until `shadowlap` is on npm, 
 
 | Input | Default | Effect |
 |---|---|---|
-| `recordings` | `goldens/*` | Recording directories, separated by spaces or new lines; `*` is allowed in the last part of a path |
+| `recordings` | `goldens/*` | Recording directories, separated by spaces or new lines; `*` is allowed in the last part of a path. As with `shadowlap test`, a path that names no pack fails as a test, and a pattern that matches none fails the step |
 | `working-directory` | `.` | Where the recorded commands run |
 | `version` | empty | A `shadowlap` version from npm; empty builds it from the action's source |
 | `writes` | `block` | What write tools do after a divergence: `block`, `stub` or `allow` |

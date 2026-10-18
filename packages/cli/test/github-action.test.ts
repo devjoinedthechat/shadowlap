@@ -65,7 +65,7 @@ describe('the GitHub Action', () => {
   it('says what is wrong with its inputs', () => {
     const none = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: ROOT });
     expect(none.code).toBe(1);
-    expect(none.out).toContain('no recordings found for goldens/*');
+    expect(none.out).toContain('no recordings match goldens/*');
     const bad = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, WRITES: 'maybe' });
     expect(bad.code).toBe(1);
     expect(bad.out).toContain('input writes must be block, stub or allow');
@@ -84,7 +84,21 @@ describe('the GitHub Action', () => {
     cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(project, 'goldens', '.reference-agent.new-1'), { recursive: true });
     const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project });
     expect(r.code).toBe(1);
-    expect(r.out).toContain('no recordings found for goldens/*');
+    expect(r.out).toContain('no recordings match goldens/*');
+  });
+
+  it('fails a path that names no pack, and a pattern that matches none, as shadowlap test does', () => {
+    // A typo in a list of goldens: the one that exists passes, the other fails the step rather than drop out of the test.
+    const typo = action({ RECORDINGS: 'testing/golden/reference-agent testing/golden/reference-agnet', WORKING_DIRECTORY: ROOT, GUARD: 'off' });
+    expect(typo.code).toBe(1);
+    expect(typo.outputs).toMatchObject({ passed: '1', failed: '1' });
+    expect(typo.out).toContain('shadowlap test testing/golden/reference-agent testing/golden/reference-agnet');
+    expect(typo.out).toContain('testing/golden/reference-agnet is not a Shadowlap pack (no run.json)');
+    // A pattern beside one that matches, which matches nothing: the step fails before anything runs.
+    const empty = action({ RECORDINGS: 'testing/golden/* testing/golden/refund-*', WORKING_DIRECTORY: ROOT, GUARD: 'off' });
+    expect(empty.code).toBe(1);
+    expect(empty.out).toContain('no recordings match testing/golden/refund-*');
+    expect(empty.out).not.toContain('shadowlap test ');
   });
 
   it('opens no fix for a divergence, even with fix-on-failure on', () => {
