@@ -179,4 +179,48 @@ describe('the search index', () => {
     expect(store.addSearchDocs(runId, { expected: before, next: { calls: 1, status: 'completed', progress: null }, docs: [{ callNo: 1, field: 'result', text: 'stripe one' }] })).toBe(false);
     expect(store.searchDocs('"stripe"', 10)).toHaveLength(1);
   });
+
+  it('deletes a run’s documents by the rows that map them to it, and maps an index from before them as the store opens', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-search-rows-'));
+    const path = join(dir, 'store.db');
+    const was = store;
+    store = Store.open(path);
+    try {
+      const runs = [newRun(), newRun(), newRun()];
+      for (const runId of runs) {
+        for (let n = 1; n <= 3; n++) toolCall(runId, n, `ibex ${n}`, 'done');
+        store.endRun(runId, 'completed');
+      }
+      updateSearchIndex(store);
+      // A call's arguments and its result: two documents a call.
+      const mapped = (runId: string) => Number(store.query(`SELECT COUNT(*) AS n FROM search_rows WHERE run_id = ?`, runId)[0]!.n);
+      expect(runs.map(mapped)).toEqual([6, 6, 6]);
+      store.deleteRun(runs[0]!);
+      expect(new Set(store.searchDocs('"ibex"', 100).map((h) => h.runId))).toEqual(new Set(runs.slice(1)));
+      expect(mapped(runs[0]!)).toBe(0);
+
+      // An index an earlier Shadowlap wrote, without the map: mapped once, as the store opens.
+      store.close();
+      const earlier = new DatabaseSync(path);
+      earlier.exec('DROP TABLE search_rows');
+      earlier.close();
+      store = Store.open(path);
+      expect(runs.slice(1).map(mapped)).toEqual([6, 6]);
+      store.deleteRun(runs[1]!);
+      expect(store.searchDocs('"ibex"', 100).map((h) => h.runId)).toEqual([runs[2], runs[2], runs[2]]);
+      // Indexed again from its start, a run keeps one copy of each document, also of one an earlier
+      // Shadowlap wrote there since, without its row.
+      const later = new DatabaseSync(path);
+      later.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES ('lookup_order note ibex 4', ?, 4, 'arguments')`).run(runs[2]!);
+      later.close();
+      expect(store.searchDocs('"ibex"', 100)).toHaveLength(4);
+      store.replaceSearchDocs(runs[2]!, 3, 'completed', [{ callNo: 1, field: 'arguments', text: 'lookup_order note ibex 1' }]);
+      expect(store.searchDocs('"ibex"', 100)).toHaveLength(1);
+      expect(mapped(runs[2]!)).toBe(1);
+    } finally {
+      store.close();
+      store = was;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

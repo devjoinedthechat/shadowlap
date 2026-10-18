@@ -812,6 +812,13 @@ export class Store {
       // still recording from its newest calls on. Additive: a row without it covers its run whole.
       const searchColumns = db.prepare(`PRAGMA table_info(search_state)`).all().map((r) => String(r.name));
       if (!searchColumns.includes('progress')) db.exec(`ALTER TABLE search_state ADD COLUMN progress TEXT`);
+      // Which documents of the index are each run's: search_docs finds a run's only by reading every
+      // document, which made deleting a run cost 35 ms on an index of 200,000 documents, and gc of
+      // 500 runs 17 s. Additive: an index from before it is mapped once, here.
+      const mapped = db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'search_rows'`).get() !== undefined;
+      db.exec(`CREATE TABLE IF NOT EXISTS search_rows (run_id TEXT NOT NULL, doc INTEGER NOT NULL)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS search_rows_run ON search_rows (run_id)`);
+      if (!mapped) db.exec(`INSERT INTO search_rows (run_id, doc) SELECT run_id, rowid FROM search_docs`);
       db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
       db.exec('COMMIT');
     } catch (err) {
@@ -1380,8 +1387,26 @@ export class Store {
 
   deleteRun(runId: string): void {
     this.stmts.deleteRun.run(runId);
-    this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
+    this.deleteSearchDocs(runId);
     this.db.prepare(`DELETE FROM search_state WHERE run_id = ?`).run(runId);
+  }
+
+  /**
+   * A run's documents out of the search index, found by the rows that map them (search_rows), not by
+   * reading every document. `all` reads every document after all, for a run indexed again from its
+   * start (rare): an earlier Shadowlap may have written some of its documents without their rows.
+   */
+  private deleteSearchDocs(runId: string, all = false): void {
+    if (all) this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
+    else this.db.prepare(`DELETE FROM search_docs WHERE rowid IN (SELECT doc FROM search_rows WHERE run_id = ?)`).run(runId);
+    this.db.prepare(`DELETE FROM search_rows WHERE run_id = ?`).run(runId);
+  }
+
+  /** A run's documents into the search index, each mapped to the run. */
+  private insertSearchDocs(runId: string, docs: ReadonlyArray<{ callNo: number; field: string; text: string }>): void {
+    const insert = this.db.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES (?, ?, ?, ?)`);
+    const map = this.db.prepare(`INSERT INTO search_rows (run_id, doc) VALUES (?, ?)`);
+    for (const d of docs) map.run(runId, insert.run(d.text, runId, d.callNo, d.field).lastInsertRowid);
   }
 
   /**
@@ -1401,9 +1426,8 @@ export class Store {
   /** Replaces a run's search documents. */
   replaceSearchDocs(runId: string, calls: number, status: string, docs: Array<{ callNo: number; field: string; text: string }>): void {
     this.transaction(() => {
-      this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
-      const insert = this.db.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES (?, ?, ?, ?)`);
-      for (const d of docs) insert.run(d.text, runId, d.callNo, d.field);
+      this.deleteSearchDocs(runId, true);
+      this.insertSearchDocs(runId, docs);
       this.db.prepare(`INSERT OR REPLACE INTO search_state (run_id, calls, status, progress) VALUES (?, ?, ?, NULL)`).run(runId, calls, status);
     });
   }
@@ -1422,9 +1446,8 @@ export class Store {
         const now = this.searchState(runId);
         const same = now === null || o.expected === null ? now === o.expected : now.calls === o.expected.calls && now.status === o.expected.status && now.progress === o.expected.progress;
         if (!same) return false;
-        if (o.fresh && now !== null) this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
-        const insert = this.db.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES (?, ?, ?, ?)`);
-        for (const d of o.docs) insert.run(d.text, runId, d.callNo, d.field);
+        if (o.fresh && now !== null) this.deleteSearchDocs(runId, true);
+        this.insertSearchDocs(runId, o.docs);
         this.db.prepare(`INSERT OR REPLACE INTO search_state (run_id, calls, status, progress) VALUES (?, ?, ?, ?)`).run(runId, o.next.calls, o.next.status, o.next.progress);
         return true;
       }, 'immediate');
