@@ -1,5 +1,5 @@
 import { CLOCK_PLACEHOLDERS } from './clock.js';
-import { firstDifference, hintsFor } from './diff.js';
+import { firstDifference, hintsFor, isHeaderEntry } from './diff.js';
 import { compilePattern, normalizerApplies } from './normalize.js';
 import { commandIsImported, hasRecordedCommand } from './pack.js';
 import type { Store } from './store.js';
@@ -93,7 +93,8 @@ export function proposeNormalizers(d: DivergenceReport, existing: Normalizer[] =
   const scope = (n: Normalizer): Normalizer => ({ kind: d.kind, ...(d.kind === 'tool' ? { name: d.name } : {}), ...n });
   for (const entry of d.diff ?? []) {
     if (covered(entry, d.kind, d.name, [...existing, ...proposals.map((p) => p.normalizer)])) continue;
-    if (entry.op !== 'changed') {
+    // A header the fingerprint includes: no normalizer reaches one.
+    if (entry.op !== 'changed' || isHeaderEntry(entry)) {
       unexplained.push(entry);
       continue;
     }

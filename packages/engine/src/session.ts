@@ -1,6 +1,6 @@
 import { CLOCK_PLACEHOLDERS, maskClock } from './clock.js';
 import { withoutPrompt } from './prompt.js';
-import { hintsFor, structuralDiff } from './diff.js';
+import { headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
 import { formatToolFailure, type ToolFailure } from './interventions.js';
 import type { CallKind, CallRecord, Coverage, DivergenceReport, Effect, NotReached, ReadPolicy, RunMode, WritePolicy } from './types.js';
 
@@ -71,6 +71,12 @@ export interface ResolveInput {
   effect?: Effect | null;
   /** The (raw, un-normalized) request, used only to explain a divergence. */
   request?: unknown;
+  /**
+   * A model call's request headers that its fingerprint includes (`anthropic-beta`, …), as its
+   * record keeps them in `meta.fingerprintHeaders`: a change to one is a divergence like any other,
+   * so the report shows it too.
+   */
+  headers?: Record<string, string>;
   /** Reuse an occurrence instead of allocating one: this attempt retries an earlier call. */
   occurrence?: number;
   /**
@@ -387,7 +393,7 @@ export class Session {
         const p = this.options.promptFrom !== undefined && input.kind === 'api' ? withoutPrompt(v) : v;
         return refs === undefined ? p : maskClock(p, refs);
       };
-      const diff = structuralDiff(mask(recorded), mask(input.request));
+      const diff = [...(input.kind === 'api' && input.headers ? headerDiff(record.meta.fingerprintHeaders as Record<string, string> | undefined, input.headers) : []), ...structuralDiff(mask(recorded), mask(input.request))];
       if (!best || diff.length < best.diff.length) best = { record, diff };
     }
     if (!best) {
@@ -396,7 +402,11 @@ export class Session {
     }
     // A change a flag made is the point of the fork, not a value to mask: no normalizer hints for it.
     if (changedBy) return { ...base, type: 'request_changed', reason: changedBy, counterpart: { runId: this.parentRunId ?? best.record.runId, callNo: best.record.callNo }, diff: best.diff };
-    const hints = best.diff.flatMap((e) => hintsFor(e, input.kind, input.name));
+    const hints = best.diff.flatMap((e) => (isHeaderEntry(e) ? [] : hintsFor(e, input.kind, input.name)));
+    const headers = best.diff.filter(isHeaderEntry).map((e) => e.path.slice('headers.'.length));
+    if (headers.length) {
+      hints.push({ message: `the ${headers.join(' and ')} header${headers.length === 1 ? ' is' : 's are'} part of what makes a model call the same call, and no normalizer masks ${headers.length === 1 ? 'it' : 'them'}: send the recorded value, or record again with the new one` });
+    }
     if (this.clock && best.diff.some((e) => [e.before, e.after].some((v) => typeof v === 'string' && CLOCK_PLACEHOLDERS.some((p) => v.includes(p))))) {
       hints.push({ message: 'dates and timestamps within a day of either run\'s start match as <date>, <datetime> or <epoch>, so "today" in the recording matches "today" now; one side here is further from both. If it is a fixed date, set "clock": "exact" in shadowlap.config.json' });
     }

@@ -1,4 +1,4 @@
-import { hintsFor } from './diff.js';
+import { hintsFor, isHeaderEntry } from './diff.js';
 import { BUILTIN_STRIPPED_KEYS } from './fingerprint.js';
 import { applyNormalizers, compilePattern, parsePath } from './normalize.js';
 import type { DiffEntry, DivergenceReport, Hint, Normalizer } from './types.js';
@@ -219,7 +219,8 @@ export function unmaskedHints(d: DivergenceReport, rules: readonly Normalizer[])
  * but did not make the replay diverge.
  */
 export function volatileValues(d: DivergenceReport, normalizers: readonly Normalizer[] = []): VolatileValues {
-  const entries = (d.type === 'request_changed' ? (d.diff ?? []) : []).filter((e) => !maskedChange(e, normalizers, d));
+  // A header's change (headerDiff) is no value a normalizer could mask.
+  const entries = (d.type === 'request_changed' ? (d.diff ?? []) : []).filter((e) => !isHeaderEntry(e) && !maskedChange(e, normalizers, d));
   const values: VolatileValue[] = [];
   for (const entry of entries) {
     for (const one of addedLeaves(entry)) {

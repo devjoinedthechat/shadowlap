@@ -43,7 +43,7 @@ export { requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
 export type { CallDifference, RunComparison } from './compare.js';
 export type { RequestManifest } from './manifest.js';
-export { deepEqual, firstDifference, hintsFor, structuralDiff } from './diff.js';
+export { deepEqual, firstDifference, headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
 export { DEFAULT_REPLAY_OPTIONS, Session } from './session.js';
 export type { Decision, ReplayOptions, ResolveInput, SessionOptions } from './session.js';
 export { formatDivergence, formatSummary, formatTokens, plain, storedModelResolver, summarizeRun } from './report.js';

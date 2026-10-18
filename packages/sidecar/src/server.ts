@@ -708,7 +708,7 @@ export class Sidecar {
       callNo = ctx.nextCallNo++;
       // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
       const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, headers: fingerprintHeaders, ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
       const origin = storedOrigin('api', decision);
       tracked = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin, decision, ends: 0, retryable: false, done: false };
       ctx.calls.set(callNo, tracked);

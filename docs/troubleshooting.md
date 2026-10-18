@@ -31,6 +31,7 @@ A recorded call of the same kind and name exists, and the request differs. The d
 | A changed `tool_result` content | A tool returned something different: it ran live (after an earlier divergence), or `--override` | Read the timeline above the divergence; the first live call is the real cause |
 | Only `cache_control` moved | Nothing: it's excluded | It won't diverge on that; look at the rest of the diff |
 | A model name, `max_tokens`, `temperature` | Code or config change | Expected; or use `--set` / `--model` to try it from a later call |
+| `headers.anthropic-beta` (or `anthropic-version`, `openai-beta`) | The client sends another beta flag or API version than it recorded with: an SDK upgrade, or a flag turned on in code | Expected: these headers change what the model does, so they are part of the call key and no normalizer masks them. Send the recorded value, or record again |
 | Different `tool_use` ids in history | A model response ran live earlier in this replay | Same as above: find the first live call |
 
 ### `new_call`
