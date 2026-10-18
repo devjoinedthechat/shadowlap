@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -136,6 +136,24 @@ describe('ProjectRegistry: adding', () => {
     expect(registry.find('~/triage-bot')?.id).toBe('triage-bot');
     expect(registry.find(join(home, 'tb'))?.id).toBe('triage-bot');
     expect(registry.find('~/elsewhere')).toBeNull();
+  });
+
+  it('knows a project moved with a link left at its old path, and keeps it once, at its new path', () => {
+    const { registry, agent, home } = setup();
+    const folder = agent('agent');
+    agent('other');
+    record(folder);
+    registry.add('~/agent');
+    registry.add('~/other');
+    // mv agent agent-v2 && ln -s agent-v2 agent
+    renameSync(folder, join(home, 'agent-v2'));
+    symlinkSync(join(home, 'agent-v2'), folder);
+    const moved = join(home, 'agent-v2');
+    expect(() => registry.add('~/agent-v2')).toThrow(expect.objectContaining({ code: 'exists', status: 409, message: '~/agent-v2 is already in the dashboard, as agent.' }));
+    expect(registry.list().map((p) => [p.id, p.path])).toEqual([['agent', moved], ['other', join(home, 'other')]]);
+    expect(registry.find('~/agent-v2')?.id).toBe('agent');
+    expect(registry.ensure(moved).id).toBe('agent');
+    expect(registry.list()).toHaveLength(2);
   });
 
   it('adds the folder a dashboard starts in without the dashboard’s limits, once', () => {
