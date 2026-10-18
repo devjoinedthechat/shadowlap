@@ -55,11 +55,17 @@ export interface BranchState {
   why?: string | null;
 }
 
-/** The golden on a fix's branch: re-recorded under the fix, left as it is because it may fork, or stale (and why). */
+/**
+ * The golden on a fix's branch: re-recorded under the fix, left as it is because it may fork, stale
+ * (and why), or unfixed: it fails the same check, and the fix was verified without it (why says how
+ * that came about), so it stays as it was.
+ */
 export interface GoldenState {
-  state: 'recorded' | 'fork' | 'stale';
+  state: 'recorded' | 'fork' | 'stale' | 'unfixed';
   golden: string;
   why: string | null;
+  /** An unfixed golden that may fork: on the branch it runs live from where it diverges. */
+  fork?: boolean;
 }
 
 /**
@@ -102,7 +108,7 @@ export function branchName(result: ReportResult): string;
 export function repairArgs(plan: FixPlan, options: { db: string | null; budget: number | string; repairer: string; expectFile: string }): string[];
 export function cannotFix(workdir: string, env: NodeJS.ProcessEnv): string | null;
 export function repairEnv(workdir: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
-export function refreshGoldens(options: { cli: string; workdir: string; members: FixPlan[]; results?: ReportResult[]; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; env: NodeJS.ProcessEnv; scratch: string }): BranchState;
+export function refreshGoldens(options: { cli: string; workdir: string; members: FixPlan[]; unfixed?: FixPlan[]; unfixedWhy?: string | null; results?: ReportResult[]; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; env: NodeJS.ProcessEnv; scratch: string }): BranchState;
 export function goldenNote(golden: GoldenState): string;
 export function branchNote(state: { goldens: GoldenState[]; others?: OtherGoldens; checked?: boolean; why?: string | null }): string;
 export function cannotPush(workdir: string): string | null;
