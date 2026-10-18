@@ -171,8 +171,9 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   Nothing here runs the code it put in (no build, test or replay of your goldens) until you have
   read the change and run `shadowlap test`. The patch is someone else's code, so a pull takes a
   fix only when each repair's patch is the one rewrite its accepted candidate makes, to that file
-  alone: one that writes another file, makes, renames or deletes one, or adds lines the candidate
-  doesn't, keeps the fix out of the pull, which names it and why.
+  alone: one that writes another file, makes, renames or deletes one, adds lines the candidate
+  doesn't, or is larger than a repair writes, keeps the fix out of the pull, which names it and
+  why.
 - **A fix too large to read** (over 16 MB, the size a pull reads of a run's record) stays on the
   machine that has it, and the push says so; a pull that meets one in the store names it and brings
   the others.

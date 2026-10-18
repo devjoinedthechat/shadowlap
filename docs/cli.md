@@ -210,7 +210,7 @@ A fix is one failure, from the blame that reproduced it to a change that held. A
 
 Run again on an applied fix, `fix apply` finishes what is left, and keeps when the fix was applied: it copies the goldens not in the project yet (`repair --apply` copies none without `--goldens`), and runs the test when it hasn't passed, on goldens copied before where they are. With nothing left, it does nothing; with `--no-test` it says when a test is still to pass. A test that fails leaves the fix applied, marked as not holding, until a run of `fix apply` passes it, or a `shadowlap test` session passes every one of its goldens (after `test --update` re-recorded what another fix changed, say), which says the fix holds again.
 
-It trusts nothing it reads from the store: the repair's directory must be `.shadowlap/repairs/<repair id>`, each golden inside its `goldens/`, and `fix.patch` the patch the repair verified, or it changes nothing and says why.
+It trusts nothing it reads from the store: the repair's directory must be `.shadowlap/repairs/<repair id>`, each golden inside its `goldens/`, the patch the accepted candidate's one rewrite to that candidate's file and no larger than a repair writes, that file a plain file git doesn't ignore (not a symbolic link or a folder), and `fix.patch` the patch the repair verified, or it changes nothing and says why.
 
 | Option | Effect |
 |---|---|
