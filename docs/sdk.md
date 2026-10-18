@@ -160,7 +160,7 @@ Every call made inside a scope carries it: model calls, wrapped tools and [HTTP 
 
 Scopes nest: a scope inside `orchestrator` is `orchestrator/researcher-0`. In TypeScript the scope follows the async context (`AsyncLocalStorage`); in Python it follows `contextvars`, so asyncio tasks created inside a scope keep it, and a thread started inside one needs `contextvars.copy_context()`. `currentScope()` / `current_scope()` read it. Outside Shadowlap, a scope only runs the code.
 
-A recording made without scopes ignores them on replay, so adding scopes to an agent doesn't make its old recordings fork. Removing them from a recording that had them does. Model calls carry scopes in Node and Python agents, where Shadowlap's preload adds them; other runtimes' model calls don't.
+A recording made without scopes ignores them on replay, so adding scopes to an agent doesn't make its old recordings fork. Removing them from a recording that had them does. Model calls carry scopes in Node and Python agents, where Shadowlap's preload adds them, whatever client sends them (`fetch`, `http.request` under node-fetch or axios, httpx, requests, urllib3), and a process started with `SHADOWLAP_SCOPE` carries it on its model calls as on its tools; other runtimes' model calls don't.
 
 ## HTTP services, without wrapping
 

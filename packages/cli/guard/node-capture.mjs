@@ -77,8 +77,15 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   }
 
   const runSegment = runId ? `/r/${encodeURIComponent(runId)}` : '';
-  // The SDK's scope() (see @shadowlap/sdk): the store is shared through a global symbol.
-  const currentScope = () => globalThis[Symbol.for('shadowlap.scope')]?.getStore?.();
+  // The SDK's scope() (see @shadowlap/sdk): the store is shared through a global symbol. Outside one,
+  // the scope the process starts in, from SHADOWLAP_SCOPE (a sub-agent run as its own process), with
+  // the limits the sidecar accepts.
+  const baseScope = () => {
+    const raw = process.env.SHADOWLAP_SCOPE?.trim();
+    return !raw || raw.length > 200 || /[\u0000-\u001f\u007f]/.test(raw) ? undefined : raw;
+  };
+  const currentScope = () => globalThis[Symbol.for('shadowlap.scope')]?.getStore?.() ?? baseScope();
+  const toSidecar = (url) => `${url.hostname}:${url.port || (url.protocol === 'https:' ? '443' : '80')}` === sidecarKey;
 
   function sidecarPath(provider, url) {
     return `${sidecar.pathname.replace(/\/$/, '')}${runSegment}/${provider}${url.pathname}${url.search}`;
@@ -148,7 +155,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       const scoped = currentScope();
       if (!provider) {
         // A client already pointed at the sidecar by its base URL: only the scope needs adding.
-        if (!scoped || `${url.hostname}:${url.port || (url.protocol === 'https:' ? '443' : '80')}` !== sidecarKey) return originalFetch(input, init);
+        if (!scoped || !toSidecar(url)) return originalFetch(input, init);
         const headers = new Headers(init?.headers ?? (typeof input === 'object' && !(input instanceof URL) ? input.headers : undefined));
         headers.set('x-shadowlap-scope', scoped);
         if (typeof input === 'object' && !(input instanceof URL)) return originalFetch(new Request(input, { ...init, headers }));
@@ -193,6 +200,21 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     return { url, options, callback };
   }
 
+  /** http.request's arguments with x-shadowlap-scope added to the options' headers (an object, or a flat list of names and values). */
+  function withScope(args, scoped) {
+    const out = [...args];
+    const i = typeof out[0] === 'string' || out[0] instanceof URL ? 1 : 0;
+    const options = out[i] && typeof out[i] === 'object' ? out[i] : null;
+    if (!options) {
+      out.splice(i, 0, { headers: { 'x-shadowlap-scope': scoped } });
+      return out;
+    }
+    const given = options.headers;
+    const headers = Array.isArray(given) ? [...given, 'x-shadowlap-scope', scoped] : { ...(given ?? {}), 'x-shadowlap-scope': scoped };
+    out[i] = { ...options, headers };
+    return out;
+  }
+
   function wrap(original, defaultProtocol) {
     return function capturedRequest(...args) {
       let parsed;
@@ -203,11 +225,15 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
         return original.apply(this, args);
       }
       const provider = providerFor(parsed.url);
-      if (!provider) return original.apply(this, args);
+      const scoped = currentScope();
+      if (!provider) {
+        // A client already pointed at the sidecar by its base URL (node-fetch, axios): only the scope needs adding.
+        return scoped && toSidecar(parsed.url) ? original.apply(this, withScope(args, scoped)) : original.apply(this, args);
+      }
       const { url, options, callback } = parsed;
       const headers = { ...(options.headers ?? {}) };
       headers['x-shadowlap-upstream'] = url.origin;
-      if (currentScope()) headers['x-shadowlap-scope'] = currentScope();
+      if (scoped) headers['x-shadowlap-scope'] = scoped;
       if (provider === 'http') headers['x-shadowlap-failures'] = 'raise';
       const { agent: _agent, protocol: _protocol, host: _host, hostname: _hostname, port: _port, path: _path, servername: _servername, ...rest } = options;
       const req = http.request(
