@@ -2,7 +2,8 @@
 // replay (it blames it, asks the repairer for prompt fixes and keeps one only when verify accepts
 // it), within a budget per golden, and open a pull request with the patch and the report. Never for
 // a divergence: most divergences are intended changes, and a golden update is a person's call. It
-// never merges anything.
+// never merges anything. Goldens that fail the same check are one failure, as the store keeps them
+// (one fix), so they get one repair over all their failing replays and one pull request.
 //
 // A fix changes what the agent sends, so a golden that must replay exactly would diverge on the
 // fix's own branch and fail the pull request's checks. Before the branch is pushed, each fixed
@@ -51,6 +52,37 @@ export function planFixes(report) {
       if (!failing.length) return { result: r, skip: 'no failing replay was kept' };
       return { result: r, skip: null, fixes: failing, keeps: (r.runs ?? []).filter((x) => x.ok).map((x) => x.runId) };
     });
+}
+
+/** Canonical JSON: keys sorted, so the same check written in another order is the same check. */
+function canonical(v) {
+  if (Array.isArray(v)) return `[${v.map((x) => (x === undefined ? 'null' : canonical(x))).join(',')}]`;
+  if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+  return JSON.stringify(v ?? null);
+}
+
+/**
+ * The failed goldens that get a fix attempt, grouped into the fixes their failures join. A test's
+ * replays carry no labels, so a failing replay joins the fix with its check (compared canonically,
+ * as the store compares it), and goldens that fail the same check are one failure: they are repaired
+ * together, with every failing replay a target and every passing one kept, so one patch has to fix
+ * them all, and they get one pull request. Each group is a plan of its own (the first golden names
+ * its branch), with `members` the goldens in it, in the report's order.
+ */
+export function groupFixes(plans) {
+  const groups = new Map();
+  for (const p of plans) {
+    if (p.skip) continue;
+    const key = canonical(p.result.expect);
+    const g = groups.get(key);
+    if (!g) groups.set(key, { result: p.result, skip: null, fixes: [...p.fixes], keeps: [...p.keeps], members: [p] });
+    else {
+      g.members.push(p);
+      g.fixes.push(...p.fixes);
+      g.keeps.push(...p.keeps);
+    }
+  }
+  return [...groups.values()];
 }
 
 /** A branch name for a golden's fix that no other run of the workflow uses: `shadowlap/fix-refund-flow-7k2q1x`. */
@@ -456,10 +488,14 @@ export function pushLine(name, pushed) {
   return `::warning title=Shadowlap::${commandText(`${name}: the fix is not in the team store, so teammates won't see it on their Fixes page: ${String(pushed.why ?? '').replace(/[\s.]+$/, '')}. Its pull request is open all the same.`)}`;
 }
 
-/** Runs repair for each failed check, one golden at a time, and says how each went. */
+/**
+ * Runs repair for each failed check, one fix at a time (goldens that fail the same check together,
+ * within their budgets added up), and says how each went.
+ */
 export function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', push = false, env, log = () => {} }) {
   const plans = planFixes(report);
   const blocked = plans.some((x) => !x.skip) ? cannotFix(workdir, env) : null;
+  const groups = groupFixes(plans);
   const scratch = mkdtempSync(join(env.RUNNER_TEMP ?? tmpdir(), 'shadowlap-fix-'));
   const fixEnv = repairEnv(workdir, env);
   const out = [];
@@ -472,10 +508,16 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
         out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'skipped', why: plan.skip ?? blocked, pr: null, title: null, spent: 0, verify: null, goldenState: null });
         continue;
       }
+      // A golden repaired with the first one of its group is reported with it.
+      const group = groups.find((g) => g.members[0] === plan);
+      if (!group) continue;
+      const names = group.members.map((m) => m.result.name).join(', ');
+      const goldens = group.members.map((m) => m.result.golden ?? m.result.name);
+      const allowed = Number(budget) * group.members.length;
       const expectFile = join(scratch, `${out.length}-expect.json`);
       writeFileSync(expectFile, JSON.stringify(r.expect));
-      log(`shadowlap repair for ${r.golden ?? r.name}: blame, repair and verify, within $${Number(budget).toFixed(2)}`);
-      const res = run(process.execPath, [cli, ...repairArgs(plan, { db, budget, repairer, expectFile })], workdir, fixEnv);
+      log(`shadowlap repair for ${listed(goldens)}${goldens.length > 1 ? ', which fail the same check' : ''}: blame, repair and verify, within $${allowed.toFixed(2)}`);
+      const res = run(process.execPath, [cli, ...repairArgs(group, { db, budget: allowed, repairer, expectFile })], workdir, fixEnv);
       if (res.stderr) process.stderr.write(res.stderr);
       let repair = null;
       try {
@@ -493,9 +535,10 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
         return of.length ? `${role === 'holdout' ? 'held-out' : role} ${of.filter(passed).length} of ${of.length}` : null;
       };
       const verify = accepted ? ['target', 'holdout', 'good'].map(count).filter(Boolean).join(' · ') : null;
+      const base = { golden: goldens.join(', '), name: names, budget: allowed };
       if (repair?.outcome === 'fixed' && repair.output?.branch) {
         const branch = repair.output.branch;
-        const branchState = refreshGoldens({ cli, workdir, members: [plan], results: report.results, repair, guard, env: fixEnv, scratch });
+        const branchState = refreshGoldens({ cli, workdir, members: group.members, results: report.results, repair, guard, env: fixEnv, scratch });
         for (const g of branchState.goldens) log(g.state === 'recorded' ? `${g.golden} re-recorded on ${branch}` : g.state === 'stale' ? `${g.golden} not re-recorded on ${branch}: ${g.why}` : `${g.golden} may fork: left as it is`);
         const diverging = branchState.others.diverging;
         if (diverging.length) log(`${diverging.join(' ')} ${diverging.length === 1 ? 'diverges' : 'diverge'} on ${branch} under the fix: re-record with shadowlap test ${diverging.join(' ')} --update on the branch`);
@@ -516,21 +559,21 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
           } catch (err) {
             pushed = { state: 'failed', why: err instanceof Error ? err.message : String(err), pr: null };
           }
-          log(pushLine(r.name, pushed));
+          log(pushLine(names, pushed));
         }
         const onBranch = { goldenState: branchState.goldens.length === 1 ? branchState.goldens[0] : null, goldenStates: branchState.goldens, others: branchState.others };
-        if (opened.pr) out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, ...onBranch, pushed });
-        else out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'not-opened', why: opened.why, pr: null, branch, title: null, spent, verify, ...onBranch });
+        if (opened.pr) out.push({ ...base, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, ...onBranch, pushed });
+        else out.push({ ...base, outcome: 'not-opened', why: opened.why, pr: null, branch, title: null, spent, verify, ...onBranch });
       } else {
         // Once the budget is spent, that is why there is no fix, whatever was learned by then.
-        const spentAll = spent >= Number(budget);
+        const spentAll = spent >= allowed;
         const why =
           repair?.outcome === 'fixed'
             ? 'a fix was accepted, but no branch was made for it'
             : spentAll
-              ? `the budget of $${Number(budget).toFixed(2)} is spent`
+              ? `the budget of $${allowed.toFixed(2)} is spent`
               : (repair?.why ?? repair?.error?.message ?? (`${res.stderr ?? ''}`.trim().split('\n').at(-1) || `repair exited ${res.status}`));
-        out.push({ golden: r.golden ?? r.name, name: r.name, outcome: repair?.outcome === 'fixed' ? 'not-opened' : 'no-fix', why, pr: null, title: null, spent, verify, goldenState: null });
+        out.push({ ...base, outcome: repair?.outcome === 'fixed' ? 'not-opened' : 'no-fix', why, pr: null, title: null, spent, verify, goldenState: null });
       }
     }
   } finally {
@@ -584,7 +627,7 @@ export function fixSummary(fixes, budget) {
           ? cell(f.why)
           : `no fix: ${cell(f.why)}${goldenCell(f)}`;
     const icon = f.outcome === 'opened' ? '✅' : f.outcome === 'skipped' ? '➖' : '❌';
-    lines.push(`| ${icon} | \`${cell(f.name)}\` | ${what} | ${f.outcome === 'skipped' ? '' : `$${f.spent.toFixed(2)} of $${Number(budget).toFixed(2)}`} |`);
+    lines.push(`| ${icon} | \`${cell(f.name)}\` | ${what} | ${f.outcome === 'skipped' ? '' : `$${f.spent.toFixed(2)} of $${Number(f.budget ?? budget).toFixed(2)}`} |`);
   }
   // A push that couldn't happen: each fix with why, under the table where the reasons have room.
   const unsent = fixes.filter((f) => f.pushed?.state === 'failed');

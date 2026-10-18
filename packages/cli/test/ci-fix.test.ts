@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type ScriptContext, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { branchName, branchNote, cannotPush, fixSummary, forkPullRequest, goldenNote, planFixes, pushFix, pushLine, refreshGoldens, repairArgs, type ReportResult } from '../../../action/fix.mjs';
+import { branchName, branchNote, cannotPush, fixSummary, forkPullRequest, goldenNote, groupFixes, planFixes, pushFix, pushLine, refreshGoldens, repairArgs, type ReportResult } from '../../../action/fix.mjs';
 import { startFakeS3 } from '../../remote/test/fakes/s3.js';
 
 /**
@@ -234,6 +234,38 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(onBranch.code).toBe(1);
     expect(onBranch.out).toMatch(/✓ refund-over-limit: /);
     expect(onBranch.out).toMatch(/✗ escalates: diverged at call 1/);
+  });
+
+  it('repairs goldens that fail the same check together, in one pull request that re-records each of them', async () => {
+    await setUp({ expect: EXPECT });
+    // A second golden that refunds against the same policy, under the same check: the same failure, so the same fix.
+    // goldens/* lists it first.
+    await addGolden('refund-again', 'A-2077', 'refund', { expect: EXPECT });
+    const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' });
+    expect(r.outputs).toMatchObject({ passed: '0', failed: '2', 'checks-failed': '2', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
+    expect(r.out).toContain('shadowlap repair for goldens/refund-again and goldens/refund-over-limit, which fail the same check: blame, repair and verify, within $10.00');
+    expect(r.out).toContain('::notice title=Shadowlap::refund-again, refund-over-limit: opened https://github.com/example/agent/pull/7');
+    // One branch, pushed once; the one fix in CI's store holds both failures and names the pull request.
+    const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
+    expect(branch.split('\n')).toHaveLength(1);
+    expect(sh(remote, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)'])).toBe(branch);
+    expect(r.fixes).toHaveLength(1);
+    expect(r.fixes[0]!.source).toMatch(/PR #7$/);
+    // Both goldens are re-recorded in the fix's one commit, and the pull request's own checks pass on both.
+    expect(sh(project, 'git', ['rev-list', '--count', `main..${branch}`])).toBe('1');
+    const changed = sh(project, 'git', ['diff', '--name-only', 'main', branch]).split('\n');
+    expect(changed).toEqual(expect.arrayContaining(['agent.mjs', 'goldens/refund-over-limit/run.json', 'goldens/refund-again/run.json']));
+    expect(sh(project, 'git', ['log', '-1', '--format=%B', branch])).toContain('goldens/refund-again and goldens/refund-over-limit are re-recorded under the fix, from the runs verify accepted');
+    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9]!, 'utf8');
+    expect(body).toContain('### The goldens');
+    expect(body).toContain('`goldens/refund-over-limit` is re-recorded under the fix');
+    expect(body).toContain('`goldens/refund-again` is re-recorded under the fix');
+    expect(body).toContain("Every golden this job tested replays clean on this branch, so this pull request's own checks pass.");
+    expect(r.summary).toMatch(/\| ✅ \| `refund-again, refund-over-limit` \| .* · goldens re-recorded \| \$\d+\.\d\d of \$10\.00 \|/);
+    sh(project, 'git', ['checkout', '-q', branch]);
+    const onBranch = await run([CLI, '--db', ':memory:', 'test', 'goldens/*']);
+    expect(onBranch.code, onBranch.out).toBe(0);
+    expect(onBranch.out).toContain('2 passed');
   });
 
   it('with push, sends the test runs and the fix with every run it made to the team store, for teammates to pull', async () => {
@@ -480,11 +512,32 @@ describe('planning fixes from a test report', () => {
     expect(md.indexOf('⚠️ 2 fixes')).toBeLessThan(md.indexOf('Nothing is merged'));
   });
 
+  it('repairs goldens that fail the same check as one fix, with every failing replay a target', () => {
+    const plans = planFixes({
+      results: [
+        result({ name: 'a', golden: 'goldens/a', runs: [{ runId: 'A1', ok: false }, { runId: 'A2', ok: true }], expect: { tools: { send_email: 0 }, cost: '<= 1.00' } }),
+        result({ name: 'b', golden: 'goldens/b', runs: [{ runId: 'B1', ok: false }], expect: { tools: { refund: 0 } } }),
+        result({ name: 'drift', golden: 'goldens/drift', failure: 'diverged' }),
+        // The same check as a's, written in another order.
+        result({ name: 'c', golden: 'goldens/c', runs: [{ runId: 'C1', ok: false }, { runId: 'C2', ok: true }], expect: { cost: '<= 1.00', tools: { send_email: 0 } } }),
+      ],
+    });
+    const groups = groupFixes(plans);
+    expect(groups.map((g) => g.members.map((m) => m.result.name))).toEqual([['a', 'c'], ['b']]);
+    expect(groups[0]).toMatchObject({ result: { name: 'a' }, skip: null, fixes: ['A1', 'C1'], keeps: ['A2', 'C2'] });
+    expect(repairArgs(groups[0]!, { db: null, budget: 4, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'A1', 'C1', '--keeps', 'A2', 'C2', '--expect', '@/tmp/expect.json', '--budget', '4', '--branch', branchName(plans[0]!.result), '--yes', '--json']);
+    // The plans themselves are left as they were.
+    expect(plans[0]).toMatchObject({ fixes: ['A1'], keeps: ['A2'] });
+  });
+
   it('re-records only a golden that must replay exactly, and only from a recording repair kept', () => {
     const base = { cli: CLI, workdir: tmpdir(), env: process.env, scratch: tmpdir() };
     const member = (result: ReportResult) => ({ result, skip: null, fixes: ['01K5CQ4V3H8M2XWQH6V3T9RB1D'], keeps: [] });
     expect(refreshGoldens({ ...base, members: [member({ name: 'x', dir: 'goldens/x', mode: 'fork', ok: false })], repair: { output: { goldens: ['g'], patch: 'p', branch: 'b' } } }).goldens).toEqual([{ state: 'fork', golden: 'goldens/x', why: null }]);
     expect(refreshGoldens({ ...base, members: [member({ name: 'x', dir: 'goldens\\x\\', mode: 'replay', ok: false })], repair: { output: { goldens: [], patch: 'p', branch: 'b' } } }).goldens).toEqual([{ state: 'stale', golden: 'goldens/x', why: 'repair kept no recording of the fixed run' }]);
+    // Of goldens repaired together, each takes the recording of one of its own failing replays, which repair names by its run.
+    const two = refreshGoldens({ ...base, members: [member({ name: 'x', dir: 'goldens/x', mode: 'fork', ok: false }), { ...member({ name: 'y', dir: 'goldens/y', mode: 'replay', ok: false }), fixes: ['01K5CQ9ZZZ0000000000000000'] }], repair: { output: { goldens: ['.shadowlap/repairs/r/goldens/01K5CQ4V3H'], patch: 'p', branch: 'b' } } });
+    expect(two.goldens).toEqual([{ state: 'fork', golden: 'goldens/x', why: null }, { state: 'stale', golden: 'goldens/y', why: 'repair kept no recording of the fixed run' }]);
   });
 
   it('says the pull request\'s checks pass only when every golden replayed on the branch is clean', () => {

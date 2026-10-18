@@ -24,6 +24,14 @@ export interface FixPlan {
   keeps?: string[];
 }
 
+/** Goldens that fail the same check, repaired together: their failing replays all targets, their passing ones all kept. */
+export interface FixGroup extends FixPlan {
+  fixes: string[];
+  keeps: string[];
+  /** The goldens in it, in the report's order; the first names the branch. */
+  members: FixPlan[];
+}
+
 /** The other goldens the session tested, replayed on a fix's branch. */
 export interface OtherGoldens {
   /** Passed before the fix, and diverge or fail under it. */
@@ -82,11 +90,14 @@ export interface FixOutcome {
   goldenStates?: GoldenState[];
   /** The other goldens, replayed on the fix's branch. */
   others?: OtherGoldens;
+  /** What its repair could spend. */
+  budget?: number;
   /** With push: how the fix's push to the team store went (null when it wasn't asked to). */
   pushed?: FixPush | null;
 }
 
 export function planFixes(report: { results: ReportResult[] }): FixPlan[];
+export function groupFixes(plans: FixPlan[]): FixGroup[];
 export function branchName(result: ReportResult): string;
 export function repairArgs(plan: FixPlan, options: { db: string | null; budget: number | string; repairer: string; expectFile: string }): string[];
 export function cannotFix(workdir: string, env: NodeJS.ProcessEnv): string | null;
