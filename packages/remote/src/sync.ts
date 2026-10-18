@@ -2,7 +2,7 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { asImportedRun, callRefs, classifyRun, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
 import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
-import { madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
+import { asTheStoreHolds, keptHere, madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
 import { isPrecondition, StoreError, type ObjectStore } from './object-store.js';
 import { eachLimit } from './pool.js';
 import { storeKey } from './url.js';
@@ -331,7 +331,8 @@ async function writeRun(ctx: SyncContext, run: RunRecord, row: TeamRunRow | null
 async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tally: PushResult['blobs'], verify: boolean, repair: boolean): Promise<PushOutcome> {
   const rid = remoteId(ctx);
   const row = ctx.store.teamRun(rid, run.runId);
-  const localHash = metaHash(run.meta);
+  // What of this copy would go up: a result this machine made of a run made elsewhere never does.
+  const localHash = metaHash(asTheStoreHolds(run.meta, row?.base ?? null, madeHere(run.meta)));
   if (!verify && row && (row.state === 'pushed' || row.state === 'pulled') && row.baseHash === localHash && row.remoteHash === localHash) {
     return { kind: 'unchanged', entry: (row.entry as unknown as IndexEntry | null) ?? indexEntry(run, ctx.store.countCalls(run.runId), localHash, attemptOfRun(ctx.store, run)), index: false, repaired: false };
   }
@@ -351,7 +352,7 @@ async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tal
     const current = ctx.store.getRun(run.runId);
     if (current) {
       const origin = madeHere(current.meta);
-      applySynced(ctx.store, current, reconcile(current.meta, synced, syncedMeta(run.meta), origin));
+      applySynced(ctx.store, current, keptHere(current.meta, reconcile(current.meta, synced, syncedMeta(run.meta), origin), row?.base ?? null, origin));
     }
     // What both sides now agree on is the base of the next merge. remoteHash stays what the index
     // lists, so until push() has written the segment this run counts as not yet in the store.
@@ -675,14 +676,16 @@ async function mergeRun(ctx: SyncContext, row: TeamRunRow): Promise<'merged' | '
     if (!run) return 'missing';
     const rid = remoteId(ctx);
     const current = ctx.store.teamRun(rid, row.runId) ?? row;
-    const merged = reconcile(run.meta, doc.run.meta, current.base, madeHere(run.meta));
+    const origin = madeHere(run.meta);
+    const merged = reconcile(run.meta, doc.run.meta, current.base, origin);
+    const kept = keptHere(run.meta, merged, current.base, origin);
     const before = metaHash(run.meta);
-    applySynced(ctx.store, run, merged);
+    applySynced(ctx.store, run, kept);
     // The store's copy is the new base. remoteHash stays what the index lists: when the index is behind
     // the copy (a push cut short before its segment), this machine's next push lists it again.
     ctx.store.setTeamRun(rid, { ...current, state: current.state === 'listed' ? 'pulled' : current.state, at: now(ctx), base: remote, baseHash: remoteHash });
     if (metaHash(merged) !== remoteHash) return 'needs-push';
-    return metaHash(merged) === before ? 'same' : 'merged';
+    return metaHash(kept) === before ? 'same' : 'merged';
   });
 }
 

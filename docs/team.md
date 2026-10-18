@@ -150,7 +150,9 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   goes up with the next push. A copy that never synced with the store (a golden unpacked in CI)
   joins its labels and notes with the store's.
 - **Results** (blame, verify and check results) belong to the machine that made the run: its push
-  writes them, and every other machine takes the store's.
+  writes them, and every other machine takes the store's. A result you make of a teammate's run (a
+  blame of a run you pulled) stays on your copy while the store's has none of its kind, so its page
+  shows it and `repair` reuses it; it never goes up.
 - **Everything else about a run** (who made it, what it covers, its redaction rules) goes up with
   its first push and comes down with its first pull, and nothing changes it after that. Anyone your
   admin lets write to the bucket could edit a run there; such an edit can't change how a run on your

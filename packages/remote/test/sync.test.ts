@@ -559,6 +559,45 @@ describe('a run that came here another way', () => {
   });
 });
 
+describe("a result made here of a teammate's run", () => {
+  const blame = { at: 1, outcome: 'unrescuable', callNo: 1, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } as unknown as BlameRecord;
+
+  it("stays on this machine's copy when the store's has none, through push and pull, and never goes up", async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const b = machine(remote, 'maya@northwind.example');
+    const r = record(a.store, 'failed for dana');
+    await push(a, { all: true });
+    await pull(b);
+    // Maya blames Dana's run on her machine.
+    b.store.updateRunMeta(r.runId, { blame });
+    remote.log.length = 0;
+    const pushed = await push(b, { all: true });
+    expect(pushed.updated).toEqual([]);
+    expect(b.store.getRun(r.runId)!.meta?.blame).toEqual(blame);
+    // Nothing of it to send: the run wasn't even read from the store again.
+    expect(remote.log.filter((l) => l.key === keys.run(r.runId))).toEqual([]);
+    expect(readDoc(remote, r.runId).run.meta?.blame).toBeUndefined();
+    // Pushed by name, the store's copy is read and merged: still hers, still not the store's.
+    await push(b, { runIds: [r.runId] });
+    expect(b.store.getRun(r.runId)!.meta?.blame).toEqual(blame);
+    expect(readDoc(remote, r.runId).run.meta?.blame).toBeUndefined();
+    // A pull that merges Dana's new label keeps it too.
+    a.store.updateRunMeta(r.runId, { labels: ['refund-flow'] });
+    await push(a, { all: true });
+    expect((await pull(b)).merged).toEqual([r.runId]);
+    expect(b.store.getRun(r.runId)!.meta).toMatchObject({ labels: ['refund-flow'], blame });
+    await pull(a);
+    expect(a.store.getRun(r.runId)!.meta?.blame).toBeUndefined();
+    // Once the run's own machine gives the store a blame, that is the one every machine takes.
+    const hers = { ...blame, callNo: 2 } as BlameRecord;
+    a.store.updateRunMeta(r.runId, { blame: hers });
+    await push(a, { all: true });
+    await pull(b);
+    expect(b.store.getRun(r.runId)!.meta?.blame).toEqual(hers);
+  });
+});
+
 describe('reconcile', () => {
   const blame = (callNo: number) => ({ at: 1, outcome: 'blamed', callNo, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 }) as BlameRecord;
 
