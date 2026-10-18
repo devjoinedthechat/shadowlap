@@ -36,7 +36,7 @@
     "release:rehearse": "node scripts/release-rehearsal.mjs",
     "bench:dashboard": "node scripts/dashboard-scale.mjs",
     "video": "node scripts/dashboard-video.mjs",
-    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit"
+    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.test-dom.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
