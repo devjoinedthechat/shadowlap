@@ -392,8 +392,8 @@ _QUOTED = re.compile(r"(['\"]).*?\1")
 
 def _type_names(annotation: Any, depth: int = 0) -> Iterator[str]:
     """The names of the types an annotation is made of: the class, a generic's origin and its type
-    arguments, and the classes of Annotated's metadata. Annotated's strings are descriptions, and a
-    string annotation's quoted literals are left out with them."""
+    arguments, and the classes of Annotated's metadata. Annotated's strings are descriptions, a
+    Literal's arguments are values, and a string annotation's quoted literals are left out with them."""
     import typing
 
     if depth > 10:
@@ -413,12 +413,21 @@ def _type_names(annotation: Any, depth: int = 0) -> Iterator[str]:
                 continue
             yield meta.__name__ if isinstance(meta, type) else type(meta).__name__
         return
+    if _is_literal(origin):
+        return  # Literal["InjectedFile", "Upload"]: values the argument takes, not types
     if isinstance(annotation, type):
         yield annotation.__name__
     elif origin is not None:
         yield from _type_names(origin, depth + 1)
     for arg in args:
         yield from _type_names(arg, depth + 1)
+
+
+def _is_literal(origin: Any) -> bool:
+    """typing.Literal, or typing_extensions' own where it is another object."""
+    import typing
+
+    return origin is not None and (origin is typing.Literal or getattr(origin, "_name", None) == "Literal" or repr(origin).endswith(".Literal"))
 
 
 def context_params(fn: Callable[..., Any]) -> tuple:

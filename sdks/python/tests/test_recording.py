@@ -78,6 +78,19 @@ class RecordingRules(unittest.TestCase):
 
         self.assertEqual(context_params(quoted), ("state",))
 
+        # A Literal's arguments are the values the argument takes, whatever they spell.
+        from typing import Literal
+
+        def pick(source: Literal["InjectedFile", "Upload"], mode: Optional[Literal["ToolContext", "plain"]] = "plain", ctx: Optional[RunContext] = None):
+            pass
+
+        self.assertEqual(context_params(pick), ("ctx",))
+
+        def pick_quoted(source: "Literal['InjectedFile', 'Upload']", mode: 'Literal["ToolContext"]' = "ToolContext"):
+            pass
+
+        self.assertEqual(context_params(pick_quoted), ())
+
     def test_context_is_left_out_of_the_recording(self):
         sidecar = Sidecar({"origin": "live", "callNo": 1})
         shadowlap._post = sidecar
