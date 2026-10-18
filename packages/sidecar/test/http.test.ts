@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { redactRun, Store } from '@shadowlap/engine';
+import { redactRun, Store, type Normalizer } from '@shadowlap/engine';
 import { credentialParam, matchHttpRule, validHttpHost, withoutCredentials } from '../src/http.js';
 import { Sidecar } from '../src/index.js';
 
@@ -166,5 +166,64 @@ describe('a captured call whose path holds what a rule masks', () => {
       copy.close();
       upstream.close();
     }
+  });
+
+  interface ContactCall {
+    query?: string;
+    note?: string;
+  }
+  /**
+   * One call to a contact service looked up by address, recorded, copied under the rules the host
+   * gives (`rules`, as a pack copies it), and replayed from the copy alone with the second call:
+   * the replay's divergence, or null.
+   */
+  async function replayCopy(rules: (host: string) => Normalizer[], recorded: ContactCall, replayed: ContactCall) {
+    const upstream = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ plan: 'pro' }));
+      });
+    });
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
+    const host = `127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+    const call = async (base: string, runId: string, c: ContactCall) => {
+      const res = await fetch(`${base}/r/${runId}/http/crm/v1/contacts/alice.martin@example.com${c.query ?? ''}`, {
+        method: c.note === undefined ? 'GET' : 'POST',
+        headers: { 'x-shadowlap-upstream': `http://${host}`, 'content-type': 'application/json' },
+        ...(c.note === undefined ? {} : { body: JSON.stringify({ note: c.note }) }),
+      });
+      await res.text();
+      expect(res.status).toBe(200);
+    };
+    const store = Store.open(':memory:');
+    const copy = Store.open(':memory:');
+    const recording = await Sidecar.start({ store, http: [{ host, effect: 'read' }] });
+    let replaying: Sidecar | null = null;
+    try {
+      const run = recording.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      await call(recording.url, run.runId, recorded);
+      recording.endRun(run.runId, 'completed');
+      redactRun(store, run.runId, rules(host), copy);
+      expect(copy.getCalls(run.runId)[0]!.name).toMatch(/\/contacts\/<EMAIL>$/);
+      replaying = await Sidecar.start({ store: copy, http: [{ host, effect: 'read' }] });
+      const replay = replaying.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['x'], cwd: '.' } });
+      await call(replaying.url, replay.runId, replayed);
+      return replaying.endRun(replay.runId, 'completed').summary.divergence;
+    } finally {
+      await recording.close();
+      await replaying?.close();
+      store.close();
+      copy.close();
+      upstream.close();
+    }
+  }
+  const EMAIL: Normalizer = { pattern: 'email', replace: '<EMAIL>' };
+
+  it('applies a rule written for the call by its name in a replay of the copy, though the copy masked that name', async () => {
+    // A note that changes every run, masked for this one call, named as the run page shows it before a copy masks it.
+    const NOTE = (host: string): Normalizer => ({ kind: 'tool', name: `POST ${host}/crm/v1/contacts/alice.martin@example.com`, path: '$.args.body.note', replace: '<NOTE>' });
+    expect(await replayCopy((host) => [EMAIL, NOTE(host)], { note: 'called at 09:14' }, { note: 'called at 09:20' })).toBeNull();
+    expect(await replayCopy((host) => [NOTE(host), EMAIL], { note: 'called at 09:14' }, { note: 'called at 09:20' })).toBeNull();
   });
 });

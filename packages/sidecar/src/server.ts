@@ -12,6 +12,7 @@ import {
   fingerprintMisc,
   fingerprintTool,
   loadApiRequest,
+  matchedAs,
   plantInToolResult,
   refused,
   storeApiRequest,
@@ -42,7 +43,7 @@ import {
   type ToolFailure,
 } from '@shadowlap/engine';
 // The run page: what a run did that was never recorded, kept on the run (engine run-facts.ts).
-import { recordNotRecorded, redactedCallName, type OverrideSources } from '@shadowlap/engine';
+import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, withoutCredentials, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { providers as defaultProviders, type Provider } from './providers.js';
@@ -163,8 +164,8 @@ class RunContext {
     /** `--prompt-from`: model calls are matched without their system prompt and tool definitions. */
     readonly withoutPrompt = false,
     /**
-     * The rules that redacted the parent, which masked its captured HTTP calls' names
-     * (redactedCallName): a live call is matched by its name masked the same way.
+     * The rules that redacted the parent, which masked its captured HTTP calls' names: a live call
+     * is matched by its name masked the same way (matchedAs).
      */
     readonly redactions: Normalizer[] = [],
   ) {}
@@ -998,7 +999,8 @@ export class Sidecar {
     const url = `${origin.origin}${subpath}${search}`;
     const args = { method, url: `${origin.origin}${subpath}${withoutCredentials(search)}`, ...requestBody };
     // A redacted parent holds this call under its name masked (an address in the path): matched so.
-    const { fingerprint } = fingerprintTool(redactedCallName({ kind: 'tool', name, meta: { http: origin.host } }, ctx.redactions), args, ctx.normalizers, ctx.clockRef);
+    const matched = matchedAs({ kind: 'tool', name, meta: { http: origin.host } }, ctx.normalizers, ctx.redactions);
+    const { fingerprint } = fingerprintTool(matched.name, args, matched.normalizers, ctx.clockRef);
     const callNo = ctx.nextCallNo++;
     const effect = rule.effect;
     const scope = scopeOf(req);
@@ -1265,7 +1267,8 @@ export class Sidecar {
    * still match under it. So a parent's fingerprints (and, since fingerprints partition occurrences,
    * its occurrence numbers) are recomputed from the stored requests under the current normalizers.
    * A captured HTTP call is fingerprinted under its name masked by the rules that redacted the
-   * parent (`redactions`), as proxyHttp fingerprints a live one; a redacted copy already holds it so.
+   * parent (`redactions`, matchedAs), as proxyHttp fingerprints a live one; a redacted copy already
+   * holds it so.
    */
   private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: number | undefined, withoutPromptMask = false, redactions: Normalizer[] = []): CallRecord[] {
     const counts = new Map<string, number>();
@@ -1281,7 +1284,8 @@ export class Sidecar {
           }
         } else if (rec.kind === 'tool' && rec.requestRef) {
           const req = this.store.getJson<{ args?: unknown }>(rec.requestRef);
-          fingerprint = fingerprintTool(redactedCallName(rec, redactions), req?.args ?? null, normalizers, clockRef).fingerprint;
+          const matched = matchedAs(rec, normalizers, redactions);
+          fingerprint = fingerprintTool(matched.name, req?.args ?? null, matched.normalizers, clockRef).fingerprint;
         }
       } catch (err) {
         this.log(`could not re-fingerprint call #${rec.callNo}: ${err instanceof Error ? err.message : String(err)}`);

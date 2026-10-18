@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { applyNormalizers, parsePath, rewriteText, type RewriteObserver } from '../src/normalize.js';
-import { REDACTION_EXPORTS, clipChange, jsonPath, previewRedaction, redactArgv, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
+import { REDACTION_EXPORTS, clipChange, jsonPath, matchedAs, previewRedaction, redactArgv, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
 import type { Normalizer, RunMeta } from '../src/types.js';
 
@@ -257,11 +257,20 @@ describe('previewRedaction', () => {
       expect(dst.getRun(run.runId)!.divergence!.name).toBe('GET crm.internal:8080/v1/contacts/<EMAIL>');
       dst.close();
     }
-    // A rule for model calls doesn't reach a tool's name, as it doesn't reach its arguments.
-    const dst = Store.open(':memory:');
-    redactRun(store, run.runId, [{ ...EMAIL, kind: 'api' }], dst);
-    expect(dst.getCalls(run.runId)[0]!.name).toBe(http.name);
-    dst.close();
+    // A rule for model calls doesn't reach a tool's name, as it doesn't reach its arguments; nor
+    // does a rule for another call by name. One for this call by name masks its name and its URL.
+    for (const [rule, name] of [
+      [{ ...EMAIL, kind: 'api' }, http.name],
+      [{ ...EMAIL, kind: 'tool', name: 'GET crm.internal:8080/v1/contacts/bob@example.com' }, http.name],
+      [{ ...EMAIL, kind: 'tool', name: http.name }, 'GET crm.internal:8080/v1/contacts/<EMAIL>'],
+    ] as Array<[Normalizer, string]>) {
+      const dst = Store.open(':memory:');
+      redactRun(store, run.runId, [rule], dst);
+      const [copied] = dst.getCalls(run.runId);
+      expect(copied!.name).toBe(name);
+      expect(JSON.stringify(dst.getJson(copied!.requestRef!)).includes('alice.martin'), JSON.stringify(rule)).toBe(name === http.name);
+      dst.close();
+    }
     const [r] = previewRedaction(store, run.runId, [EMAIL]).rules;
     // The address in the call's name and in its URL: two strings the copy changes.
     expect(r!.count).toBe(2);
@@ -269,6 +278,16 @@ describe('previewRedaction', () => {
       { before: '…crm.internal:8080/v1/contacts/alice.martin@example.com', after: '…crm.internal:8080/v1/contacts/<EMAIL>' },
       { before: '…//crm.internal:8080/v1/contacts/alice.martin@example.com', after: '…//crm.internal:8080/v1/contacts/<EMAIL>' },
     ]);
+
+    // A replay of the copy matches the live call, and the recorded one, under the masked name, with
+    // a normalizer for the call by name naming it so; another call, or a copy with no rules, as recorded.
+    const masked = 'GET crm.internal:8080/v1/contacts/<EMAIL>';
+    const STAMP: Normalizer = { kind: 'tool', name: http.name, path: '$.args.at', replace: '<AT>' };
+    const live = { kind: 'tool' as const, name: http.name, meta: { http: 'crm.internal:8080' } };
+    expect(matchedAs(live, [STAMP, EMAIL], [EMAIL])).toEqual({ name: masked, normalizers: [{ ...STAMP, name: masked }, EMAIL] });
+    expect(matchedAs({ ...live, name: masked }, [STAMP, EMAIL], [EMAIL])).toEqual({ name: masked, normalizers: [{ ...STAMP, name: masked }, EMAIL] });
+    expect(matchedAs(live, [STAMP], [])).toEqual({ name: http.name, normalizers: [STAMP] });
+    expect(matchedAs({ kind: 'tool', name: 'notify_bob@example.com', meta: {} }, [STAMP], [EMAIL]).name).toBe('notify_bob@example.com');
     store.close();
   });
 

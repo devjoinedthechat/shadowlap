@@ -128,16 +128,15 @@ export function keptAsRecorded(call: Pick<CallScope, 'kind'>): boolean {
  * so the rules without a path that apply to tool calls mask its name as they mask the address in its
  * arguments. Any other call's name is the code's (a tool, a model API path) and stays as it is.
  *
- * A replay of the copy matches such a call by its masked name: the sidecar masks the live call's
- * name with the copy's rules (`meta.redactions`) before it fingerprints it, so a pack still replays.
- * A rule's `name` scope is left out here: it names the call before its name is masked, which a
- * replay of the copy no longer can. `observer` hears each rule's change, by its place in `rules`.
+ * A rule scoped to a call by its `name` masks that call's name, as it masks only that call's
+ * arguments. A replay of the copy matches such a call by its masked name (matchedAs). `observer`
+ * hears each rule's change, by its place in `rules`.
  */
 export function redactedCallName(call: Pick<CallRecord, 'kind' | 'name' | 'meta'>, rules: readonly Normalizer[], observer?: RewriteObserver): string {
   if (call.kind !== 'tool' || typeof call.meta.http !== 'string') return call.name;
   let name = call.name;
   rules.forEach((rule, i) => {
-    if (rule.path !== undefined || rule.pattern === undefined || (rule.kind !== undefined && rule.kind !== 'tool')) return;
+    if (rule.path !== undefined || rule.pattern === undefined || !normalizerApplies(rule, 'tool', call.name)) return;
     const regex = compilePattern(rule.pattern);
     regex.lastIndex = 0;
     const next = name.replace(regex, rule.replace);
@@ -145,6 +144,21 @@ export function redactedCallName(call: Pick<CallRecord, 'kind' | 'name' | 'meta'
     name = next;
   });
   return name;
+}
+
+/**
+ * How a replay of a redacted copy matches a call: the name the copy holds it under, and the
+ * normalizers that apply to it. A captured HTTP call's name is masked by the copy's rules
+ * (`meta.redactions`, redactedCallName), live and recorded alike, and so is the name each
+ * normalizer is scoped to, so a rule written for `POST crm.example.com/contacts/alice@example.com`
+ * applies to the call on both sides. Masking twice changes nothing, so a recorded name the copy
+ * already masked, or one an older copy kept, comes out the same. Any other call, and a replay of a
+ * run no rules redacted, is matched as it was recorded.
+ */
+export function matchedAs(call: Pick<CallRecord, 'kind' | 'name' | 'meta'>, normalizers: Normalizer[], redactions: readonly Normalizer[]): { name: string; normalizers: Normalizer[] } {
+  if (!redactions.length || call.kind !== 'tool' || typeof call.meta.http !== 'string') return { name: call.name, normalizers };
+  const masked = (name: string) => redactedCallName({ kind: 'tool', name, meta: call.meta }, redactions);
+  return { name: masked(call.name), normalizers: normalizers.map((n) => (n.name === undefined ? n : { ...n, name: masked(n.name) })) };
 }
 
 /** What a call got back as a copy writes it: `read` for a copy that is only read (redactBytes' `call`). */

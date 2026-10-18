@@ -3,7 +3,7 @@ export { canonicalize } from './canonical.js';
 export { ulid, sha256 } from './ids.js';
 export { applyNormalizers, compilePattern, namedPatterns, normalizerApplies, parsePath, rewriteStringsDeep, rewriteText, stripKeysDeep, type RewriteObserver, type UnmaskedAt } from './normalize.js';
 export { contextFree, isJsonText, pathReachesResults, reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
-export { REDACTION_EXPORTS, REMEDIES, clipChange, jsonPath, previewRedaction, redactArgv, redactBytes, redactedCallName, redactRun, redactRunDetails, redactRunWithDetails, type PreviewLimits, type RedactRunOptions, type RedactionExport, type RedactionPreview, type RedactionRulePreview, type RedactionUnmasked, type UnmaskedReason, type UnmaskedSample } from './redact.js';
+export { REDACTION_EXPORTS, REMEDIES, clipChange, jsonPath, matchedAs, previewRedaction, redactArgv, redactBytes, redactRun, redactRunDetails, redactRunWithDetails, type PreviewLimits, type RedactRunOptions, type RedactionExport, type RedactionPreview, type RedactionRulePreview, type RedactionUnmasked, type UnmaskedReason, type UnmaskedSample } from './redact.js';
 export { calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
 export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, type ClockMode } from './clock.js';
 export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash } from './fingerprint.js';
