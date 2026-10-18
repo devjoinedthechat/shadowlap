@@ -198,7 +198,12 @@ describe('dashboard server: data', () => {
     const call3 = (await (await api(`runs/${runId}/calls/3`)).json()) as { notes: Array<{ text: string }> };
     expect(call3.notes.map((n) => n.text)).toEqual(['The first plan is too broad.']);
 
-    const found = (await (await api(`search?q=${encodeURIComponent('config.json')}`)).json()) as { hits: Array<{ runId: string; field: string }> };
+    // The index is brought up to date beside the requests: asked again until it has, as the palette asks.
+    let found: { hits: Array<{ runId: string; field: string }>; indexing?: unknown } = { hits: [], indexing: true };
+    for (let i = 0; i < 300 && found.indexing; i++) {
+      if (i) await new Promise((r) => setTimeout(r, 20));
+      found = (await (await api(`search?q=${encodeURIComponent('config.json')}`)).json()) as typeof found;
+    }
     expect(found.hits.some((h) => h.runId === runId && h.field === 'arguments')).toBe(true);
     store.updateRunMeta(runId, { labels: [], notes: [] });
   });

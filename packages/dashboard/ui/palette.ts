@@ -71,6 +71,19 @@ export function matchPalette<T extends PaletteEntry>(items: readonly T[], query:
 /** Recorded data is searched from this many characters. */
 export const RECORDED_MIN_CHARS = 3;
 
+/** While the server's index is behind, the palette asks again this often, so matches arrive as it catches up. */
+export const INDEXING_RETRY_MS = 1000;
+
+/**
+ * What the palette says under recorded data while the server is still indexing it (a store whose
+ * index is being built, a recording's newest calls): matches from those runs may follow.
+ */
+export function indexingNote(indexing: { runs: number; of: number } | null | undefined): string | null {
+  if (!indexing || indexing.runs < 1) return null;
+  const runs = indexing.runs === 1 ? '1 run' : `${indexing.runs.toLocaleString('en-US')} of ${indexing.of.toLocaleString('en-US')} runs`;
+  return `Still reading what ${runs} recorded: more matches may follow.`;
+}
+
 /**
  * Hits from what runs recorded: at most `max`, and at most `perRun` from any one run. Hits from runs
  * of their own (recordings, forks, tests) come first. An attempt (`--repeat`, a blame probe, a verify

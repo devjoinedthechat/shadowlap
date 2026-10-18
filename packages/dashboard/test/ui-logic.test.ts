@@ -5,7 +5,7 @@ import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
 import { calibrationTarget, endToast, forkDivergedEarly, forkTarget, isPlainReplay, jobStatus, jobTitle, lastLine, lineTone, replayDivergence, type RunLink } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
-import { ACTION_ORDER, highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
+import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
@@ -102,6 +102,13 @@ describe('palette', () => {
     expect(matchPalette(items, 'email').map((x) => x.label)).toEqual(['Confirmation email sent twice']);
     expect(matchPalette(items, 'r').slice(0, 3).map((x) => x.label)).toEqual(['Replay 01K5CQ4P2R', 'Runs', 'Overview']);
     expect(matchPalette(items, 'nothing like this')).toEqual([]);
+  });
+
+  it('says while the server is still indexing recorded data that more matches may follow', () => {
+    expect(indexingNote({ runs: 2412, of: 3000 })).toBe('Still reading what 2,412 of 3,000 runs recorded: more matches may follow.');
+    expect(indexingNote({ runs: 1, of: 3000 })).toBe('Still reading what 1 run recorded: more matches may follow.');
+    expect(indexingNote({ runs: 0, of: 3000 })).toBeNull();
+    expect(indexingNote(undefined)).toBeNull();
   });
 
   it('keeps at most six hits from recorded data, two per run', () => {

@@ -454,6 +454,36 @@ describe('imports', () => {
 describe('searching what runs recorded', () => {
   /** A model call whose prompt says `text`, a conversation of its own. */
   const say = (code: string, text: string, scope = 's1'): CallSpec => ({ code, scope, request: { model: 'claude-sonnet-4-5', max_tokens: 1024, messages: [{ role: 'user', content: text }] } });
+  type Answer = { hits: RecordedHit[]; indexing?: { runs: number; of: number } };
+  /** A search asked again while the index catches up, as the palette asks: the answer once it has. */
+  const settled = async (d: Dashboard, path: string): Promise<Answer> => {
+    for (let i = 0; i < 300; i++) {
+      const a = await get<Answer>(d, path);
+      if (!a.indexing) return a;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error(`${path}: the index never caught up`);
+  };
+
+  it('answers at once while the index catches up beside it, saying how many runs it has yet to read', async () => {
+    const s = Store.open(':memory:');
+    const d = await startDashboard({ store: s, dbPath: ':memory:', project: { path: project } });
+    try {
+      // The index caught up with the empty store as the dashboard started; then runs arrive, and it has read none of them.
+      await new Promise((r) => setTimeout(r, 50));
+      const runs = Array.from({ length: 40 }, (_, i) => addRun(s, { startedAt: NOW - DAY + i * 1000, calls: [say('l', `refund order A-${1000 + i}`), say('l', 'escalate it', 's2')] }));
+      const first = await get<Answer>(d, 'search?q=refund&limit=40');
+      expect(first).toEqual({ hits: [], indexing: { runs: 40, of: 40 } });
+      // Asked again, as the palette does, it has caught up: every run, and nothing more to say.
+      const later = await settled(d, 'search?q=refund&limit=40');
+      expect(new Set(later.hits.map((h) => h.runId))).toEqual(new Set(runs));
+      expect(later.indexing).toBeUndefined();
+      expect(s.searchState(runs[0]!)).toMatchObject({ calls: 2 });
+    } finally {
+      await d.close();
+      s.close();
+    }
+  });
 
   it('answers a run’s own hits before any attempt’s, and an attempt’s only for a run with none, naming that run', async () => {
     const s = Store.open(':memory:');
@@ -466,14 +496,14 @@ describe('searching what runs recorded', () => {
       const quiet = addRun(s, { startedAt: NOW - 2 * DAY, calls: [say('l', 'Where is order A-1042?')] });
       const tries = [1, 2, 3].map((i) => addRun(s, { parent: quiet, startedAt: NOW - 2 * HOUR + i, divergence: 1, meta: { repeat: { group: 'g', attempt: i, of: 3 } }, calls: [say('l', 'refund issued'), say('l', 'refund sent', 's2')] }));
 
-      const { hits } = await get<{ hits: RecordedHit[] }>(d, 'search?q=refund&limit=40');
+      const { hits } = await settled(d, 'search?q=refund&limit=40');
       expect(hits[0]).toMatchObject({ runId: rec, attemptOf: null, callNo: 1, field: 'prompt' });
       expect(hits.filter((h) => h.runId === rec || h.attemptOf === rec)).toHaveLength(1);
       expect(hits.slice(1).map((h) => h.attemptOf)).toEqual([quiet, quiet]);
       expect(hits.slice(1).every((h) => tries.includes(h.runId))).toBe(true);
       // The palette asks for a few: a run of its own still comes first.
-      expect((await get<{ hits: RecordedHit[] }>(d, 'search?q=refund&limit=1')).hits.map((h) => h.runId)).toEqual([rec]);
-      expect((await get<{ hits: RecordedHit[] }>(d, 'search?q=')).hits).toEqual([]);
+      expect((await settled(d, 'search?q=refund&limit=1')).hits.map((h) => h.runId)).toEqual([rec]);
+      expect((await settled(d, 'search?q=')).hits).toEqual([]);
     } finally {
       await d.close();
       s.close();

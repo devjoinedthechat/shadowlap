@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { searchExpression, Store, updateSearchIndex } from '@shadowlap/engine';
-import { PER_RUN, searchRecorded } from '../src/search-hits.js';
+import { indexSearchSlice, PER_RUN, searchBehind, searchRecorded } from '../src/search-hits.js';
 import { addRun, DAY, HOUR, type CallSpec } from './read-model-store.js';
 
 // Thursday, Oct 1 2026, 10:15 UTC.
@@ -10,6 +10,12 @@ const NOW = Date.UTC(2026, 9, 1, 10, 15);
 const say = (code: string, text: string, scope: string): CallSpec => ({ code, scope, request: { model: 'claude-sonnet-4-5', max_tokens: 1024, messages: [{ role: 'user', content: text }] } });
 
 const LONG = 'Order A-1042: refund it, though it is above the limit the policy sets for a refund without a manager, so the agent should escalate and tell the customer why.';
+
+/** A search once the index has caught up, as the dashboard has it a moment after the runs arrive. */
+function search(query: string, limit: number) {
+  updateSearchIndex(store);
+  return searchRecorded(store, query, limit);
+}
 
 let store: Store;
 beforeEach(() => {
@@ -31,7 +37,7 @@ describe('searching what runs recorded', () => {
     expect(raw.findIndex((h) => h.runId === rec)).toBeGreaterThan(200);
     expect(attempts.includes(raw[0]!.runId)).toBe(true);
 
-    const hits = searchRecorded(store, 'refund', 40);
+    const hits = search('refund', 40);
     expect(hits.map((h) => h.runId).sort()).toEqual([rec, fork].sort());
     expect(hits.every((h) => h.attemptOf === null)).toBe(true);
     expect(hits[0]).toMatchObject({ callNo: 1, kind: 'api', name: 'POST /v1/messages', field: 'prompt' });
@@ -42,7 +48,7 @@ describe('searching what runs recorded', () => {
   it('gives a run at most two hits, so one long run can’t fill the list', () => {
     const long = addRun(store, { startedAt: NOW - 2 * HOUR, calls: Array.from({ length: 30 }, (_, i) => say('l', 'escalate', `s${i}`)) });
     const others = [1, 2, 3].map((i) => addRun(store, { startedAt: NOW - DAY + i * HOUR, calls: [say('l', LONG, 's1')] }));
-    const hits = searchRecorded(store, 'escalate', 6);
+    const hits = search('escalate', 6);
     expect(hits.filter((h) => h.runId === long)).toHaveLength(PER_RUN);
     expect(new Set(hits.map((h) => h.runId))).toEqual(new Set([long, ...others]));
     expect(hits).toHaveLength(5);
@@ -60,7 +66,7 @@ describe('searching what runs recorded', () => {
     const orphan = addRun(store, { parent: gone, startedAt: NOW - 2 * HOUR, divergence: 1, meta: { repeat: { group: 'g-3', attempt: 1, of: 1 } }, calls: [say('l', 'rate limited for an hour', 's1')] });
     store.deleteRun(gone);
 
-    const hits = searchRecorded(store, 'rate limited', 40);
+    const hits = search('rate limited', 40);
     const own = hits.filter((h) => h.attemptOf === null);
     expect(new Set(own.map((h) => h.runId))).toEqual(new Set([loud, orphan]));
     // Runs of their own first; the loud run's copies are left out, as the run has a hit of its own.
@@ -73,8 +79,41 @@ describe('searching what runs recorded', () => {
 
   it('finds nothing for an empty query or limit', () => {
     addRun(store, { startedAt: NOW - DAY, calls: [say('l', LONG, 's1')] });
-    expect(searchRecorded(store, '  ', 40)).toEqual([]);
-    expect(searchRecorded(store, 'refund', 0)).toEqual([]);
-    expect(searchRecorded(store, 'nowhere', 40)).toEqual([]);
+    expect(search('  ', 40)).toEqual([]);
+    expect(search('refund', 0)).toEqual([]);
+    expect(search('nowhere', 40)).toEqual([]);
+  });
+});
+
+describe('the index behind the search', () => {
+  it('is never built inside a search: a search answers from what it holds, and slices catch it up', () => {
+    const runs = Array.from({ length: 6 }, (_, i) => addRun(store, { startedAt: NOW - DAY + i * HOUR, calls: [say('l', `refund order A-10${i}`, 's1'), say('l', 'escalate', 's2')] }));
+    // Nothing indexed yet: no hits, and the search says how many runs it has yet to read.
+    expect(searchRecorded(store, 'refund', 40)).toEqual([]);
+    expect(searchBehind(store)).toBe(6);
+    // A slice with no time to spare still indexes a call, newest run first, and the next goes on from there.
+    expect(indexSearchSlice(store, 0)).toBe(6);
+    expect(searchRecorded(store, 'refund', 40).map((h) => h.runId)).toEqual([runs[5]]);
+    let slices = 1;
+    while (indexSearchSlice(store, 0) > 0) slices++;
+    expect(slices).toBeGreaterThan(6);
+    expect(new Set(searchRecorded(store, 'refund', 40).map((h) => h.runId))).toEqual(new Set(runs));
+    expect(searchBehind(store)).toBe(0);
+  });
+
+  it('reads a recording’s newest calls only, as they arrive', () => {
+    const runId = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/work' }, startedAt: NOW }).runId;
+    const call = (n: number, text: string) => {
+      const identity = { kind: 'tool' as const, name: 'lookup_order', fingerprint: `f${n}`, occurrence: 0 };
+      store.appendCallStart({ runId, callNo: n, ...identity, origin: 'live', effect: 'read', requestRef: store.putJson({ args: { text } }), meta: {}, at: NOW + n });
+      store.appendCallEnd(identity, { runId, callNo: n, attempt: 0, responseRef: store.putJson({ result: 'ok' }), outcome: 'ok', meta: {}, at: NOW + n });
+    };
+    for (let n = 1; n <= 300; n++) call(n, `note ${n}`);
+    while (indexSearchSlice(store) > 0);
+    call(301, 'refund A-1042');
+    expect(searchBehind(store)).toBe(1);
+    expect(indexSearchSlice(store)).toBe(0);
+    expect(searchRecorded(store, 'refund', 40)).toMatchObject([{ runId, callNo: 301, field: 'arguments' }]);
+    expect(store.searchState(runId)).toMatchObject({ calls: 301, status: 'running' });
   });
 });

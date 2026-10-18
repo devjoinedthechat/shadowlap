@@ -10,7 +10,7 @@ import { readTokenLink } from './route.js';
 import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
-import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RecordedHit, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
+import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import { copyRunId } from './runs.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -126,8 +126,11 @@ export interface Client {
   /** `shadowlap show <run> --json` as the CLI prints it, or null when the server does not serve it. */
   showJson(id: string): Promise<unknown>;
   compare(a: string, b: string): Promise<RunComparison>;
-  /** What runs recorded: hits from runs of their own first, each naming the run an attempt belongs to. */
-  search(q: string): Promise<RecordedHit[]>;
+  /**
+   * What runs recorded: hits from runs of their own first, each naming the run an attempt belongs to,
+   * and while the server's index is behind, how many runs it has yet to cover (`indexing`).
+   */
+  search(q: string): Promise<SearchAnswer>;
   labels(id: string, add: string[], remove?: string[]): Promise<{ labels: string[] }>;
   note(id: string, callNo: number | null, text: string): Promise<{ notes: RunNote[] }>;
   /** Runs one of the run's actions (`/api/runs/:id/actions`): the server builds the command line. */
@@ -344,7 +347,7 @@ export function createClient(token: string): Client {
     },
     showJson: (runId) => request<unknown>(`runs/${id(runId)}/show`),
     compare: (a, b) => request<RunComparison>(`compare?a=${id(a)}&b=${id(b)}`),
-    search: (q) => request<{ hits: RecordedHit[] }>(`search?q=${id(q)}&limit=40`).then((r) => r.hits),
+    search: (q) => request<SearchAnswer>(`search?q=${id(q)}&limit=40`).then((r) => ({ hits: r.hits ?? [], ...(r.indexing ? { indexing: r.indexing } : {}) })),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
     note: (runId, callNo, text) => request<{ notes: RunNote[] }>(`runs/${id(runId)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),
     action: (runId, key, callNo, value) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}) }) }),
@@ -453,7 +456,7 @@ export function createExportedClient(data: StaticPayload): Client {
     offers: () => Promise.resolve(null),
     showJson: (runId) => get<unknown>(`runs/${full(runId)}/show`),
     compare: (a, b) => get<RunComparison>(`compare?a=${full(a)}&b=${full(b)}`),
-    search: () => Promise.resolve([]),
+    search: () => Promise.resolve({ hits: [] }),
     labels: readOnly,
     note: readOnly,
     action: readOnly,
