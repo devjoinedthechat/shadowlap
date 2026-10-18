@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyEdit, patchFiles, REPAIR_FILE_LIMIT, repairPatchProblem, unifiedDiff, type RepairCandidate } from '../src/repair.js';
 
@@ -136,6 +140,72 @@ describe('repairPatchProblem', () => {
       expect(repairPatchProblem(report(c, AGENT, unifiedDiff(file, AGENT, AGENT.replace(BEFORE, AFTER)))), file).toMatch(/is not a plain path inside the repository$/);
     }
     expect(repairPatchProblem({ ...report(), accepted: 9 })).toBe('no accepted candidate comes with it');
+  });
+});
+
+/** Each file's text after `git apply` of its patch, all in one call: what the patches really do to the files. */
+function gitApplied(cases: Array<{ before: string; patch: string }>): string[] {
+  const dir = mkdtempSync(join(tmpdir(), 'shadowlap-patch-'));
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    cases.forEach((c, i) => writeFileSync(join(dir, `f${i}.md`), c.before));
+    writeFileSync(join(dir, 'all.patch'), cases.map((c, i) => c.patch.replaceAll('policy.md', `f${i}.md`)).join(''));
+    execFileSync('git', ['apply', '--whitespace=nowarn', 'all.patch'], { cwd: dir, stdio: 'pipe' });
+    return cases.map((_, i) => readFileSync(join(dir, `f${i}.md`), 'utf8'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The same numbers every run. */
+function seeded(seed: number) {
+  return (n: number) => {
+    seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+    return (seed >>> 8) % n;
+  };
+}
+
+describe('unifiedDiff', () => {
+  it('writes a patch git apply turns into the rewrite, whatever the file ends with', () => {
+    // The last lines of a policy with no final newline taken away: the line left last has no newline,
+    // where git would have read the shared line in front of the change as having one.
+    const policy = { before: 'B\nB\nB', after: 'B' };
+    const cases = [policy, { before: 'Rule one.\nRule two.', after: 'Rule one.\nRule two.\nRule three.' }, { before: 'a\nb\nc\n', after: 'a\nb' }, { before: 'x\ny\n', after: 'z\ny' }, { before: 'x\ny', after: 'z\ny\n' }];
+    const rnd = seeded(7);
+    const alphabet = ['', 'A', 'B', 'Rule one.', 'Escalate refunds.', ' ', 'B\r'];
+    const text = (n: number) => Array.from({ length: n }, () => alphabet[rnd(alphabet.length)]).join('\n');
+    while (cases.length < 600) {
+      const before = text(1 + rnd(8)) + (rnd(3) ? '' : '\n');
+      const at = rnd(before.length + 1);
+      const to = at + rnd(before.length - at + 1);
+      const after = before.slice(0, at) + (rnd(3) ? text(rnd(3)) : '') + (rnd(2) ? '\n' : '') + before.slice(to);
+      if (before.trim() && after.trim() && after !== before) cases.push({ before, after });
+    }
+    const got = gitApplied(cases.map((c) => ({ before: c.before, patch: unifiedDiff('policy.md', c.before, c.after) })));
+    expect(got[0]).toBe('B');
+    cases.forEach((c, i) => expect(got[i], JSON.stringify(c)).toBe(c.after));
+  });
+
+  it("writes a patch the check takes for a repair's rewrite at the end of a file without a newline", () => {
+    const rnd = seeded(11);
+    const alphabet = ['A', 'B', 'Rule one.', 'Rule two.', 'Escalate refunds.'];
+    const cases: Array<{ content: string; c: RepairCandidate; patched: string }> = [];
+    while (cases.length < 400) {
+      const lines = Array.from({ length: 1 + rnd(10) }, () => alphabet[rnd(alphabet.length)]);
+      const content = lines.join('\n') + (rnd(2) ? '' : '\n');
+      // A span of whole lines from some line to the end of the file, rewritten to fewer, more or other lines.
+      const first = rnd(lines.length);
+      const offset = lines.slice(0, first).join('\n').length + (first ? 1 : 0);
+      const before = lines.slice(first).join('\n');
+      const after = Array.from({ length: 1 + rnd(3) }, () => alphabet[rnd(alphabet.length)]).join('\n');
+      if (after === before) continue;
+      const c = candidate({ file: 'policy.md', offset, before, after });
+      cases.push({ content, c, patched: applyEdit(content, { offset, text: before }, after) });
+    }
+    const reports = cases.map(({ content, c }) => report(c, content));
+    reports.forEach((r, i) => expect(repairPatchProblem(r), JSON.stringify(cases[i]!.c)).toBeNull());
+    const got = gitApplied(cases.map((x, i) => ({ before: x.content, patch: reports[i]!.patch })));
+    cases.forEach((x, i) => expect(got[i], JSON.stringify(x.c)).toBe(x.patched));
   });
 });
 

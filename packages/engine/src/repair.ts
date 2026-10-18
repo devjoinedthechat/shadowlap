@@ -187,7 +187,16 @@ export function unifiedDiff(path: string, before: string, after: string, context
   if (p === a.lines.length && p === b.lines.length) {
     p = Math.max(0, a.lines.length - 1);
     s = 0;
+  } else if (p > 0 && ((p === a.lines.length && !a.eol) || (p === b.lines.length && !b.eol))) {
+    // A line of context reads the same in both files, its line break included. The shared line in
+    // front of the change is the last of one file, with no newline there, and has one in the other,
+    // where more lines follow it: it goes into the change, or git would give it a newline.
+    p--;
+    s = 0;
   }
+  // The shared lines after the change end both files, and only one ends with a newline: the last of
+  // them reads differently in each, so they all go into the change.
+  if (s > 0 && a.eol !== b.eol) s = 0;
   const start = Math.max(0, p - context);
   const aEnd = Math.min(a.lines.length, a.lines.length - s + context);
   const bEnd = Math.min(b.lines.length, b.lines.length - s + context);
