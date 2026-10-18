@@ -472,10 +472,8 @@ export class Sidecar {
     const calls = this.store.getCalls(runId);
     // An intervention that never took effect leaves a run that looks like an answer to a question nobody asked.
     warnings.push(...ctx.session.unapplied(), ...(ctx.interventions?.unapplied() ?? []), ...(ctx.interventions?.warnings ?? []));
-    for (const [callNo, status] of ctx.session.options.failAt ?? []) {
-      const call = calls.find((c) => c.callNo === callNo);
-      if (!call?.end?.meta.injected) warnings.push(`--fail-at ${callNo}=${status} changed nothing: ${call ? `call #${callNo} of this replay was ${call.kind === 'api' ? 'a model call answered otherwise' : `${call.kind} ${call.name}, not a model call: the calls before it came in another order than recorded`}` : `the replay made only ${calls.length} call${calls.length === 1 ? '' : 's'}`}`);
-    }
+    // A model call --fail-at named, by its place among the recording's model calls, that the replay never made.
+    warnings.push(...ctx.session.unappliedFailures());
     if (run.mode === 'record' && !calls.some((c) => c.kind === 'api')) {
       warnings.push(
         calls.length === 0
@@ -732,8 +730,8 @@ export class Sidecar {
     // Checked after the retry branch and keyed by call number, so every attempt of an injected
     // failure fails. The interesting question is what the agent does when a call cannot succeed;
     // "the retry works" is what an ordinary replay already shows.
-    const injected = ctx.session.options.failAt?.get(callNo);
-    if (injected !== undefined) return this.serveInjectedFailure(ctx, res, provider, callNo, tracked, injected);
+    const injected = ctx.session.injectedFailure(callNo);
+    if (injected !== undefined) return this.serveInjectedFailure(ctx, res, provider, callNo, tracked, injected.status, injected.target);
 
     // Overrides apply to tool results only; for a model call an override decision is served as recorded.
     if (tracked.decision.origin === 'replayed' || tracked.decision.origin === 'overridden') return this.serveReplayed(ctx, res, callNo, tracked);
@@ -805,8 +803,8 @@ export class Sidecar {
    * machine. The body names Shadowlap as the source and the call is stored with `injected`, so
    * neither the agent's error nor the recording can be mistaken for something the provider did.
    */
-  private serveInjectedFailure(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, status: number): void {
-    const message = `injected failure: HTTP ${status} (shadowlap --fail-at ${callNo}=${status})`;
+  private serveInjectedFailure(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, status: number, target: number): void {
+    const message = `injected failure: HTTP ${status} (shadowlap --fail-at ${target}=${status})`;
     // In the provider's own error shape, as a real failure arrives: AWS clients read a top-level
     // message and the error's type from a header, and branch on that type (ThrottlingException).
     const aws = provider.id === 'bedrock';

@@ -160,7 +160,7 @@ Bedrock requests are signed by the AWS SDK for their exact path and body (Signat
 
 ## Which model call is which
 
-A flag that names a model call by its number names its place among the recording's model calls: if call 15 is the recording's sixth model call, the flag applies to the sixth model call the replay makes, whatever tool calls came in between. Both sides count the same way: every model call, whatever it sends (an embeddings call counts), and a retry as the call it retries, never as the next one.
+A flag that names a model call by its number names its place among the recording's model calls: if call 15 is the recording's sixth model call, the flag applies to the sixth model call the replay makes, whatever tool calls came in between. Both sides count the same way: every model call, whatever it sends (an embeddings call counts), and a retry as the call it retries, never as the next one. This holds for every flag that names a model call: `--inject`, `--set`, `--model`, `--prompt-from`, and `--fail-at` and `--diverge-at` on a model call (on a tool call, `--diverge-at` names the call by its number).
 
 In a recording made with scopes (sub-agents, `scope()` in the SDKs), calls are counted per scope, the way a replay matches them: if call 15 is the fourth model call of the `researcher` scope, the flag applies to that scope's fourth request, whatever order sub-agents running at once send theirs in. `--set` and `--model` then apply from that call on in its scope, and in every other scope once it has been reached.
 
