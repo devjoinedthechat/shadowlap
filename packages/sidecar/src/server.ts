@@ -47,7 +47,7 @@ import {
 import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedResponseBytes, storedResult, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
-import { providers as defaultProviders, type Provider } from './providers.js';
+import { providers as defaultProviders, sdkBasesFromEnvironment, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
 import { SseTimer } from './sse.js';
 
@@ -61,6 +61,15 @@ export interface SidecarOptions {
   normalizers?: Normalizer[];
   /** Per-provider upstream overrides, e.g. `{ anthropic: 'http://127.0.0.1:9999' }` for a mock. */
   upstreams?: Record<string, string>;
+  /**
+   * A provider's SDK base URL from before Shadowlap that is no root with the provider's SDK path
+   * under it (`OPENAI_BASE_URL=https://models.github.ai/inference`). While it is also that provider's
+   * upstream, a request is forwarded under it without the SDK path the agent's base URL adds:
+   * `/v1/chat/completions` goes to `<base>/chat/completions`. Calls keep their names (`POST
+   * /v1/chat/completions`), so a recording replays the same wherever its server was. Defaults to the
+   * environment's (`sdkBasesFromEnvironment`).
+   */
+  sdkBases?: Record<string, string>;
   /** Cost estimates in summaries: USD per million tokens by model prefix, on top of the built-in table. */
   prices?: Record<string, Price>;
   /** `auto` (default): dates and timestamps near each run's start match whatever day the run happens on. `exact`: they must be equal. */
@@ -233,6 +242,7 @@ export class Sidecar {
   private readonly providers: Map<string, Provider>;
   private readonly normalizers: Normalizer[];
   private readonly upstreams: Record<string, string>;
+  private readonly sdkBases: Record<string, string>;
   private readonly prices: Record<string, Price> | undefined;
   private readonly clock: ClockMode;
   /** HTTP hosts recorded as tools. */
@@ -265,6 +275,7 @@ export class Sidecar {
     this.providers = new Map((opts.providers ?? defaultProviders).map((p) => [p.id, p]));
     this.normalizers = opts.normalizers ?? [];
     this.upstreams = opts.upstreams ?? {};
+    this.sdkBases = opts.sdkBases ?? sdkBasesFromEnvironment(process.env);
     this.prices = opts.prices;
     this.clock = opts.clock ?? 'auto';
     this.httpRules = opts.http ?? [];
@@ -869,6 +880,11 @@ export class Sidecar {
       tracked.done = true;
       return;
     }
+    // An upstream that is the SDK's own base URL, with no `/v1` under it: the SDK's path goes straight under it.
+    const sdkBase = this.sdkBases[provider.id];
+    const sdkPath = provider.sdkPath;
+    const sdkRelative = sdkBase !== undefined && sdkPath !== undefined && upstream === sdkBase.replace(/\/+$/, '') && (subpath === sdkPath || subpath.startsWith(`${sdkPath}/`));
+    const upstreamPath = sdkRelative ? subpath.slice(sdkPath!.length) : subpath;
     const forwardHeaders: Record<string, string> = {};
     for (const [k, v] of Object.entries(headers)) {
       if (HOP_BY_HOP.has(k) || k.startsWith(':') || k === 'host' || k === 'content-length' || k.startsWith('x-shadowlap-')) continue;
@@ -883,8 +899,8 @@ export class Sidecar {
     const authority = headers[':authority'];
     try {
       upstreamRes = authority
-        ? await this.fetchOverHttp2(upstream.replace(/(https?:\/\/[^/]+).*/, '$1'), `${upstream.replace(/https?:\/\/[^/]+/, '')}${subpath}${search}`, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody, authority)
-        : await requestUpstream(upstream + subpath + search, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody);
+        ? await this.fetchOverHttp2(upstream.replace(/(https?:\/\/[^/]+).*/, '$1'), `${upstream.replace(/https?:\/\/[^/]+/, '')}${upstreamPath}${search}`, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody, authority)
+        : await requestUpstream(upstream + upstreamPath + search, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const error: SerializedError = { name: 'UpstreamConnectionError', message };

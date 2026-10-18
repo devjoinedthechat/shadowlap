@@ -54,7 +54,7 @@ Ollama, vLLM, OpenRouter, Groq and others speak the OpenAI wire format. Point th
 SHADOWLAP_UPSTREAM_OPENAI=http://localhost:11434 shadowlap run -- node agent.js
 ```
 
-The agent keeps using the `openai` SDK as before; `OPENAI_BASE_URL` routes it through the sidecar, which forwards to the upstream you named. If the project already sets `OPENAI_BASE_URL` to the server, Shadowlap uses that and nothing else is needed.
+The agent keeps using the `openai` SDK as before; `OPENAI_BASE_URL` routes it through the sidecar, which forwards to the upstream you named. `SHADOWLAP_UPSTREAM_OPENAI` is the server's address without `/v1`, which the sidecar adds. If the project already sets `OPENAI_BASE_URL` to the server, Shadowlap uses that and nothing else is needed, whether its API root ends in `/v1` (`http://localhost:11434/v1`) or not (GitHub Models' `https://models.github.ai/inference`, Gemini's `https://generativelanguage.googleapis.com/v1beta/openai`): each request goes where the SDK would send it without Shadowlap, and is recorded as `POST /v1/chat/completions` either way, so the recording replays without the variable.
 
 [examples/local-model](https://github.com/devjoinedthechat/shadowlap/tree/main/examples/local-model) does this with the OpenAI Agents SDK and Ollama. GitHub Actions runs it every week against a real Ollama server: record, replay with the server unreachable, fork, and replay as a golden.
 
