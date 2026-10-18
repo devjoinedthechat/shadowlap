@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, repairMarkdown, toolDefinitions, unifiedDiff, type Conversation, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Store, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, repairMarkdown, rewriteText, Store, toolDefinitions, unifiedDiff, type Conversation, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
@@ -196,6 +196,27 @@ function lastExchange(store: Store, runId: string): string {
   return `${conversationText(conv)}\n${describeBlocks(responseBlocks(store, last))}`;
 }
 
+/**
+ * Runs as the repairer may see them: each copied, once, into a store in memory with the redaction
+ * rules applied as `export html` applies them (a copy that is read, never replayed), so the path
+ * rules reach what calls got back too. The project's store is never changed.
+ */
+function maskedView(store: Store, rules: Normalizer[]): { of: (...runIds: string[]) => Store; close: () => void } {
+  const copy = Store.open(':memory:');
+  const copied = new Set<string>();
+  return {
+    of: (...runIds) => {
+      for (const id of runIds) {
+        if (copied.has(id)) continue;
+        redactRun(store, id, rules, copy, { read: true });
+        copied.add(id);
+      }
+      return copy;
+    },
+    close: () => copy.close(),
+  };
+}
+
 function runBuild(cmd: string, cwd: string): { ok: boolean; tail: string } {
   const r = spawnSync(cmd, { cwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const tail = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-5).join('\n');
@@ -204,7 +225,10 @@ function runBuild(cmd: string, cwd: string): { ok: boolean; tail: string } {
 
 interface Blamed {
   target: RepairTarget;
+  /** What the repairer is shown of the run: masked by the project's redaction rules. */
   repairCase: RepairCase | null;
+  /** What the run said where it was lost, as recorded: case details are looked for in it. */
+  caseText?: string;
   /** The request at the blamed call, whose prompt a fix rewrites. */
   request: unknown;
   /** The model the recording asked at the blamed call. */
@@ -248,7 +272,16 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
   for (const f of restored) log(p.yellow(`  ! restored ${relative(cwd, f)}, which an interrupted repair had left edited`));
 
   const config = loadConfig(cwd);
+  // The repairer is a model of the user's choosing, often another machine's: what it is shown of a
+  // run goes through the redaction rules first, as every copy of a run that leaves the machine does.
+  let rules: Normalizer[];
+  try {
+    rules = config.redact;
+  } catch (err) {
+    throw new RepairError(err instanceof Error ? err.message : String(err));
+  }
   const store = openStore(input.opts);
+  const shown = rules.length ? maskedView(store, rules) : null;
   let interrupted = false;
   const onSignal = () => {
     interrupted = true;
@@ -328,7 +361,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     }
     const anchors = findAnchors(surfaces, files);
     report.anchors = anchors.length;
-    const failingTexts = learned.map((b) => `${conversationText(b.repairCase!.conversation)}\n${describeBlocks(b.repairCase!.recorded)}`);
+    const failingTexts = learned.map((b) => b.caseText ?? '');
     const allowedTexts = [...surfaces.map((x) => x.text), ...input.good.map((g) => lastExchange(store, g.parent.runId))];
     const forbidden = forbiddenDetails(failingTexts, allowedTexts);
 
@@ -419,6 +452,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
   } finally {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
+    shown?.close();
     store.close();
   }
 
@@ -472,18 +506,27 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
         return { target: { ...base, outcome: err.reason === 'passes' ? 'passes' : 'error', note: err.message.split('\n')[0]! }, repairCase: null, request: null, model: null, notTheAnswer: null };
       }
     }
-    const parentCall = parentCalls.find((c) => c.callNo === callNo);
-    const rescuedCall = store.getCalls(rescuedRunId!).find((c) => c.callNo === callNo);
+    // The request as recorded, for the prompt a fix rewrites, which lives in the project's files; what
+    // the repairer is shown of the run (the conversation, both answers, how it fails), with the rules applied.
     const request = requestAt(store, runId, callNo!);
-    const conversation = isObject(request) ? normalizeConversation(request) : null;
-    const recorded = responseBlocks(store, parentCall);
-    const rescued = responseBlocks(store, rescuedCall);
-    const target: RepairTarget = { ...base, outcome: 'blamed', callNo, step: steps.indexOf(callNo!) + 1, rescuedRunId, recorded: describeBlocks(recorded), rescued: describeBlocks(rescued) };
+    const exchange = (from: Store) => {
+      const asked = requestAt(from, runId, callNo!);
+      return {
+        conversation: isObject(asked) ? normalizeConversation(asked) : null,
+        recorded: responseBlocks(from, from.getCalls(runId).find((c) => c.callNo === callNo)),
+        rescued: responseBlocks(from, from.getCalls(rescuedRunId!).find((c) => c.callNo === callNo)),
+      };
+    };
+    const asRecorded = exchange(store);
+    const seen = shown ? exchange(shown.of(runId, rescuedRunId!)) : asRecorded;
+    const target: RepairTarget = { ...base, outcome: 'blamed', callNo, step: steps.indexOf(callNo!) + 1, rescuedRunId, recorded: describeBlocks(seen.recorded), rescued: describeBlocks(seen.rescued) };
     return {
       target,
-      repairCase: { step: target.step!, steps: steps.length, callNo: callNo!, conversation, recorded, rescued, failures, rescuedBy: typeof fields.model === 'string' ? fields.model : null },
+      repairCase: { step: target.step!, steps: steps.length, callNo: callNo!, ...seen, failures: failures.map((f) => rewriteText(f, rules)), rescuedBy: typeof fields.model === 'string' ? fields.model : null },
+      // Case details are screened against the run as recorded: the check never leaves the machine.
+      caseText: `${conversationText(asRecorded.conversation)}\n${describeBlocks(asRecorded.recorded)}`,
       request,
-      model: conversation?.model ?? (isObject(request) && typeof request.model === 'string' ? request.model : null),
+      model: asRecorded.conversation?.model ?? (isObject(request) && typeof request.model === 'string' ? request.model : null),
       notTheAnswer: null,
     };
   }

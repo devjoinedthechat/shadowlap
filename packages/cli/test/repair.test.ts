@@ -286,6 +286,26 @@ process.stdin.on('end', () => {
     }
   });
 
+  it('shows the repairer the run with the redaction rules applied, as every copy of a run that leaves the machine', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+    // The customer's address is in the opening message, which the repairer is shown as part of the conversation.
+    const failed = await record('jane.doe@example.com');
+    mode = 'alternate';
+    const before = mock.requests.length;
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as Report;
+    expect(report.outcome).toBe('fixed');
+    const asked = mock.requests.slice(before).filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents'));
+    expect(asked).toHaveLength(1);
+    const sent = JSON.stringify(asked[0]!.body);
+    expect(sent).toContain('refund on order <EMAIL>');
+    expect(sent).not.toContain('jane.doe@example.com');
+    // A case detail is still screened out: the check runs on the run as recorded, on this machine.
+    expect(report.candidates[0]).toMatchObject({ state: 'invalid', reason: expect.stringContaining('mentions A-1042') });
+    expect(readFileSync(join(project, report.output.report), 'utf8')).not.toContain('jane.doe@example.com');
+  });
+
   it('switches to a stronger model when only it rescues the runs, without asking a repairer', async () => {
     const { failed } = await runs();
     mode = 'stubborn';
