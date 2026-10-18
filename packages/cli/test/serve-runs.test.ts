@@ -97,8 +97,8 @@ describe.skipIf(process.platform === 'win32')('a run recorded through shadowlap 
   });
 });
 
-describe('a run serve recorded before it recorded no command', () => {
-  it('counts as having none', () => {
+describe('a run serve recorded, before this one too', () => {
+  it('counts as having no command, as its placeholder says', () => {
     const store = Store.open(':memory:');
     const old = store.createRun({ mode: 'record', command: { argv: ['<external>'], cwd: '/' } });
     expect(hasRecordedCommand(old)).toBe(false);

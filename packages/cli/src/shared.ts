@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { dirname, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { InvalidArgumentError } from 'commander';
-import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { defaultDbPath } from './config.js';
 import { Telemetry, type EventInput } from './telemetry.js';
@@ -157,11 +157,11 @@ export async function confirmImportedCommand(run: RunRecord, argv: string[], own
 }
 
 /**
- * How a run came to have no command to run again (`hasRecordedCommand` false): a capture records
- * what was sent and declares what it covers, and `shadowlap serve` never saw what started the agent.
+ * How a run came to have no command to run again (`hasRecordedCommand` false): `shadowlap serve`
+ * never saw what started the agent, and a capture records what was sent, not what sent it.
  */
-export function withoutCommand(run: Pick<RunRecord, 'meta'>): string {
-  return run.meta?.covers?.length ? 'was imported from a capture' : 'was recorded through shadowlap serve';
+export function withoutCommand(run: Pick<RunRecord, 'command'>): string {
+  return run.command.argv[0] === EXTERNAL_COMMAND ? 'was recorded through shadowlap serve' : 'was imported from a capture';
 }
 
 export function requireRun(store: Store, idOrPrefix: string): RunRecord {

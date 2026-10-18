@@ -313,10 +313,11 @@ export function importedCommandSource(run: Pick<RunRecord, 'meta'>): 'the team s
 export const NO_COMMAND = '<no-recorded-command>';
 
 /**
- * What `shadowlap serve` once stored as the command of the run it records, though it never knew
- * the command either (the person starts the process): no command, as `NO_COMMAND` is.
+ * What a run recorded through `shadowlap serve` carries instead of a command: the person starts the
+ * process, so serve never knows what started it. No command, as `NO_COMMAND` is, and kept apart
+ * from it so a message can say where the run came from.
  */
-const SERVE_PLACEHOLDER = '<external>';
+export const EXTERNAL_COMMAND = '<external>';
 
 /**
  * Whether the run knows how to start its agent. Replaying one that does not needs the agent's own
@@ -324,5 +325,5 @@ const SERVE_PLACEHOLDER = '<external>';
  */
 export function hasRecordedCommand(run: { command: { argv: readonly string[] } }): boolean {
   const argv = run.command.argv;
-  return argv.length > 0 && !(argv.length === 1 && (argv[0] === NO_COMMAND || argv[0] === SERVE_PLACEHOLDER));
+  return argv.length > 0 && !(argv.length === 1 && (argv[0] === NO_COMMAND || argv[0] === EXTERNAL_COMMAND));
 }

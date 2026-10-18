@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { formatTokens, NO_COMMAND, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -483,7 +483,7 @@ export function register(program: Command): void {
       const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
       // The person starts the agent, so serve never knows its command: the run has none, as a
       // capture has none, and a replay of it asks for one after --.
-      const run = sidecar.startRun({ mode: 'record', command: { argv: [NO_COMMAND], cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) });
+      const run = sidecar.startRun({ mode: 'record', command: { argv: [EXTERNAL_COMMAND], cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) });
       stampAuthor(store, run.runId);
       emitJobEvent({ type: 'run', runId: run.runId, role: 'new' });
       const env = sidecar.envFor(run.runId);
