@@ -18,7 +18,6 @@ import {
   projectPath,
   readGolden,
   takeoverRefusal,
-  unpackRun,
   type CallRecord,
   type Golden,
   type OneSided,
@@ -35,6 +34,7 @@ import { providers } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, EXIT_LABEL, formatBudget } from './attempts.js';
 import { evaluateChecks, parseTests, type CheckResult, type TestSpec } from './checks.js';
 import { configPath, upstreamOverrides } from './config.js';
+import { importGolden } from './golden-test.js';
 import { type GuardMode } from './run-agent.js';
 import { type GlobalOpts } from './shared.js';
 import { ANSWERED_BY, startTakeover, takeoverMode, targetVia, type ModelTarget, type Takeover } from './takeover.js';
@@ -326,9 +326,10 @@ export async function scoreTask(
   let budgetSpent = false;
   try {
     const { store } = runner;
-    if (!store.getRun(task.runId!)) unpackRun(store, task.dir);
-    const parent = store.getRun(task.runId!);
-    if (!parent) throw new Error(`${task.golden}'s run could not be imported`);
+    // The golden's own recording and command, as `shadowlap test` replays it: the store may hold
+    // another run under its id (a pull request's copy, a pack someone sent, the golden this one was
+    // copied from), and that run's command must never be the one that runs.
+    const parent = importGolden(store, task.dir);
     const target_ = { parent, argv: parent.command.argv, commandFromImport: commandIsImported(parent) };
     // Every attempt is marked as one, scored or not, so nothing reads it as another kind of attempt (a --repeat).
     const mark = (runId: string, n: number, outcome: { score: number } | { stopped: string }, extra: Partial<RunRecord['meta']> = {}) =>
