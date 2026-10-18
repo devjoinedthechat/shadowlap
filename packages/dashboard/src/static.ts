@@ -123,9 +123,20 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   return { data: { shadowlap: opts.version ?? null, exportedAt: opts.now, runIds, redacted: opts.redacted, responses }, calls };
 }
 
-/** JSON and JavaScript inside a script element: only `</` can end it early. */
+/** The bundled script and stylesheet inside their elements: only `</` can end either early. */
 function inScript(text: string): string {
   return text.split('</').join('<\\/');
+}
+
+/**
+ * The recorded data inside its script element, as an HTML parser reads it. `</` would end the
+ * element early, and `<!--` followed by `<script` with no `-->` after it (a page's head a model or a
+ * tool wrote, cut short) would make the parser read on past the element's own `</script>`: the app
+ * after it would never run, and the page would stay blank. Each of them starts with `\u003c`, a JSON
+ * escape for `<` that JSON.parse reads back as it was; elsewhere `<` stays as it is.
+ */
+function jsonInScript(value: unknown): string {
+  return JSON.stringify(value).replace(/<(?=\/|!--|script)/gi, '\\u003c');
 }
 
 function dataUri(file: string, type: string): string {
@@ -173,7 +184,7 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
 <body>
 <div id="root"></div>
 <noscript>This exported Shadowlap run needs JavaScript to draw itself.</noscript>
-<script type="application/json" id="shadowlap-data">${inScript(JSON.stringify(data))}</script>
+<script type="application/json" id="shadowlap-data">${jsonInScript(data)}</script>
 <script type="module">${inScript(js)}</script>
 </body>
 </html>
