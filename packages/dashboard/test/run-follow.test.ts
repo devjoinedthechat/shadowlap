@@ -1,8 +1,12 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import type { RunDetail } from '../src/api.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { liveRuns } from '../src/meta.js';
+import { runVersionTag } from '../src/run-version.js';
 import { familyRefresh, feedMoves, runRefresh, withLiveCalls } from '../ui/connection.js';
 import { mergeRun, settledThrough } from '../ui/live.js';
 import { addRun, HOUR } from './read-model-store.js';
@@ -126,15 +130,20 @@ describe('a run’s page on the server', () => {
   });
 
   it('answers a run it has already 304, while another run records, without working it out again', async () => {
-    const done = addRun(store, { startedAt: Date.now() - HOUR, calls: 'lolo' });
+    // Two tickets of a support agent: its rows read each tool call's arguments, its conversations each request.
+    const b = RunBuilder.start(store, { startedAt: Date.now() - HOUR });
+    ticket(b, 1);
+    ticket(b, 2);
+    const done = b.end();
     const other = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/work' } }).runId;
     addCall(store, other, 1);
     const first = await get(`runs/${done}`);
     expect(first.status).toBe(200);
     const etag = first.headers.get('etag')!;
-    expect(((await first.json()) as RunDetail).calls).toHaveLength(4);
+    expect(((await first.json()) as RunDetail).calls).toHaveLength(12);
 
-    const reads = vi.spyOn(store, 'getCalls');
+    // What working the answer out reads: the run's calls, each call's request and answer.
+    const reads = [vi.spyOn(store, 'getCalls'), vi.spyOn(store, 'getJson'), vi.spyOn(store, 'getBlob')];
     for (let n = 2; n <= 5; n++) {
       addCall(store, other, n);
       const again = await get(`runs/${done}`, etag);
@@ -147,9 +156,9 @@ describe('a run’s page on the server', () => {
     expect((await get(`runs/${done}`, etag)).status).toBe(304);
     store.updateRunMeta(third, { labels: ['elsewhere'] });
     expect((await get(`runs/${done}`, etag)).status).toBe(304);
-    // The run's calls were never read to answer.
-    expect(reads.mock.calls.filter(([id]) => id === done)).toEqual([]);
-    reads.mockRestore();
+    // Nothing of any call was read to answer.
+    expect(reads.map((r) => r.mock.calls.length)).toEqual([0, 0, 0]);
+    for (const r of reads) r.mockRestore();
 
     // A label on it is a change of its own.
     store.updateRunMeta(done, { labels: ['refund'] });
@@ -276,5 +285,75 @@ describe('a run’s page on the server', () => {
     expect(liveRuns(store)).toEqual([{ runId: rec, calls: 1, events: 1 }]);
     answer(store, rec, 1);
     expect(liveRuns(store)).toEqual([{ runId: rec, calls: 1, events: 2 }]);
+  });
+});
+
+describe('where a run’s page answer stands', () => {
+  it('answers a 304 from a dashboard that has never read the run, without reading it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-run-version-'));
+    const dbPath = join(dir, 'shadowlap.db');
+    try {
+      const first = Store.open(dbPath);
+      const b = RunBuilder.start(first, { startedAt: Date.now() - HOUR });
+      ticket(b, 1);
+      const done = b.end();
+      const one = await startDashboard({ store: first, dbPath });
+      const etag = (await fetch(`${one.url}/api/runs/${done}`, { headers: { 'x-shadowlap-token': one.token } })).headers.get('etag')!;
+      await one.close();
+      first.close();
+
+      // The page asks the next dashboard on the store, which has kept nothing of the run.
+      const next = Store.open(dbPath);
+      const two = await startDashboard({ store: next, dbPath });
+      try {
+        const reads = [vi.spyOn(next, 'getCalls'), vi.spyOn(next, 'getJson'), vi.spyOn(next, 'getBlob')];
+        const again = await fetch(`${two.url}/api/runs/${done}`, { headers: { 'x-shadowlap-token': two.token, 'if-none-match': etag } });
+        expect(again.status).toBe(304);
+        expect(reads.map((r) => r.mock.calls.length)).toEqual([0, 0, 0]);
+      } finally {
+        await two.close();
+        next.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stays the same while other runs start, record, end and are labelled, and moves with the run’s own label, fork, calls and state', () => {
+    const store = Store.open(':memory:');
+    try {
+      const done = addRun(store, { startedAt: Date.now() - HOUR, calls: 'lolo' });
+      const tag = (runId = done, extra = '') => runVersionTag(store, store.getRun(runId)!, extra);
+      const before = tag();
+      const other = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/work' } }).runId;
+      addCall(store, other, 1);
+      addCall(store, other, 2, false);
+      answer(store, other, 2);
+      store.endRun(other, 'completed');
+      store.updateRunMeta(other, { labels: ['elsewhere'] });
+      expect(tag()).toBe(before);
+      // What the route says the answer is for (the prices, the part asked for).
+      expect(tag(done, 'a')).not.toBe(tag(done, 'b'));
+
+      store.updateRunMeta(done, { labels: ['refund'] });
+      const labelled = tag();
+      expect(labelled).not.toBe(before);
+      addRun(store, { parent: done, startedAt: Date.now(), calls: 'rrl', divergence: 3 });
+      expect(tag()).not.toBe(labelled);
+
+      // A recording's own calls, started and answered, and its end.
+      const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/work' } }).runId;
+      addCall(store, rec, 1);
+      const seen = [tag(rec)];
+      addCall(store, rec, 2, false);
+      seen.push(tag(rec));
+      answer(store, rec, 2);
+      seen.push(tag(rec));
+      store.endRun(rec, 'completed');
+      seen.push(tag(rec));
+      expect(new Set(seen).size).toBe(4);
+    } finally {
+      store.close();
+    }
   });
 });
