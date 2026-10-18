@@ -457,7 +457,6 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const run = start(sidecar);
   stampAuthor(store, run.runId);
   recordsInput(store, run.runId);
-  emitJobEvent({ type: 'run', runId: run.runId, role: 'new' });
   process.stderr.write(p.dim(`[shadowlap] ${run.mode === 'record' ? 'recording' : 'replaying'} run ${run.runId}\n`));
   // MCP clients often start servers with a minimal environment; `shadowlap mcp` finds the sidecar through this file.
   const activeFile = resolve(process.cwd(), '.shadowlap', 'active.json');
@@ -472,6 +471,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   }
 
   const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
+  // A dashboard job links to the run once its agent has started: one whose command isn't found is not kept.
+  child.once('spawn', () => emitJobEvent({ type: 'run', runId: run.runId, role: 'new' }));
   const output = extra.capture ? teeOutput(child) : () => '';
   let interrupted = false;
   // Heard before the run's status is settled: the listener that settles it comes after this one.
