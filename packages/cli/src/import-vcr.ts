@@ -19,8 +19,8 @@ export interface VcrInteraction {
 }
 
 /** VCR headers are name → list of values; a lone string is accepted too. */
-const vcrHeaders = (h: Record<string, unknown> | undefined): Record<string, string> =>
-  headerMap(Object.entries(h ?? {}).map(([k, v]) => [k, Array.isArray(v) ? v.map(String).join(', ') : String(v ?? '')] as [string, string]));
+const vcrHeaders = (h: unknown): Record<string, string> =>
+  headerMap(Object.entries(typeof h === 'object' && h !== null && !Array.isArray(h) ? h : {}).map(([k, v]) => [k, Array.isArray(v) ? v.map(String).join(', ') : String(v ?? '')] as [string, string]));
 
 /** A body is a string, `{ string }`, or `{ base64_string }`. */
 function bodyText(body: unknown): { text: string | undefined; base64: boolean } {
@@ -50,10 +50,15 @@ export function readVcr(cassette: unknown): Captured {
   const calls: CapturedCall[] = [];
   const skipped: Skip[] = [];
   for (const raw of interactions) {
-    const i = raw as VcrInteraction;
+    // A cassette is a file from anywhere: an interaction that isn't an object has no uri either.
+    const i = (typeof raw === 'object' && raw !== null ? raw : {}) as VcrInteraction;
     const uri = i.request?.uri ?? i.request?.url;
     if (typeof uri !== 'string') {
       skipped.push({ url: '(no uri)', reason: 'not a VCR interaction: needs request.uri' });
+      continue;
+    }
+    if (i.request?.method !== undefined && typeof i.request.method !== 'string') {
+      skipped.push({ url: uri, reason: "not a VCR interaction: request.method isn't text" });
       continue;
     }
     const requestHeaders = vcrHeaders(i.request?.headers);

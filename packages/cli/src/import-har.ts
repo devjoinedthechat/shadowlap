@@ -12,18 +12,62 @@ import { headerMap, importCaptured, parseBody, type Captured, type CapturedCall,
 export interface HarEntry {
   startedDateTime?: string;
   time?: number;
-  request?: { method?: string; url?: string; headers?: Array<{ name?: string; value?: string }>; postData?: { text?: string; mimeType?: string } };
-  response?: { status?: number; headers?: Array<{ name?: string; value?: string }>; content?: { text?: string; encoding?: string; mimeType?: string } };
+  request?: { method?: string; url?: string; headers?: Array<{ name?: string; value?: string | null }>; postData?: { text?: string; mimeType?: string } };
+  response?: { status?: number; headers?: Array<{ name?: string; value?: string | null }>; content?: { text?: string; encoding?: string; mimeType?: string } };
 }
 
-const pairsOf = (list: Array<{ name?: string; value?: string }> | undefined): Array<[string, string]> =>
-  (list ?? []).filter((h): h is { name: string; value?: string } => typeof h.name === 'string').map((h) => [h.name, h.value ?? ''] as [string, string]);
+const pairsOf = (list: Array<{ name?: string; value?: string | null }> | undefined): Array<[string, string]> =>
+  (list ?? []).filter((h): h is { name: string; value?: string | null } => typeof h.name === 'string').map((h) => [h.name, h.value ?? ''] as [string, string]);
 
-const epoch = (iso: string | undefined): number | undefined => {
-  if (!iso) return undefined;
+const epoch = (iso: unknown): number | undefined => {
+  if (typeof iso !== 'string' || !iso) return undefined;
   const t = Date.parse(iso);
   return Number.isNaN(t) ? undefined : t;
 };
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const textOrNone = (v: unknown) => v === undefined || typeof v === 'string';
+
+function headersProblem(list: unknown, where: string): string | null {
+  if (list === undefined) return null;
+  if (!Array.isArray(list)) return `${where} isn't a list`;
+  for (const [i, h] of list.entries()) {
+    if (!isObject(h) || !textOrNone(h.name) || !(textOrNone(h.value) || h.value === null)) return `${where}[${i}] isn't a name and a value in text`;
+  }
+  return null;
+}
+
+/**
+ * What is wrong with an entry's shape, or null: a HAR is a file from anywhere, and an entry whose
+ * fields aren't what the format says is skipped with the reason, as one with a bad URL is.
+ */
+function entryProblem(e: unknown): string | null {
+  if (!isObject(e)) return "it isn't an object";
+  const { request, response } = e;
+  if (request !== undefined && !isObject(request)) return "request isn't an object";
+  if (response !== undefined && !isObject(response)) return "response isn't an object";
+  if (request) {
+    if (!textOrNone(request.url)) return "request.url isn't text";
+    if (!textOrNone(request.method)) return "request.method isn't text";
+    const headers = headersProblem(request.headers, 'request.headers');
+    if (headers) return headers;
+    const post = request.postData;
+    if (post !== undefined && !isObject(post)) return "request.postData isn't an object";
+    if (post && !textOrNone(post.text)) return "request.postData.text isn't text";
+    if (post && !textOrNone(post.mimeType)) return "request.postData.mimeType isn't text";
+  }
+  if (response) {
+    if (response.status !== undefined && !Number.isInteger(response.status)) return "response.status isn't a number";
+    const headers = headersProblem(response.headers, 'response.headers');
+    if (headers) return headers;
+    const content = response.content;
+    if (content !== undefined && !isObject(content)) return "response.content isn't an object";
+    if (content && !textOrNone(content.text)) return "response.content.text isn't text";
+    if (content && !textOrNone(content.encoding)) return "response.content.encoding isn't text";
+    if (content && !textOrNone(content.mimeType)) return "response.content.mimeType isn't text";
+  }
+  return null;
+}
 
 /** Parses a HAR into captured calls. Throws only when the input is not a HAR at all. */
 export function readHar(har: unknown): Captured {
@@ -32,7 +76,14 @@ export function readHar(har: unknown): Captured {
 
   const calls: CapturedCall[] = [];
   const skipped: Skip[] = [];
-  for (const e of log.entries) {
+  for (const [i, raw] of (log.entries as unknown[]).entries()) {
+    const problem = entryProblem(raw);
+    if (problem) {
+      const url = (raw as HarEntry | null)?.request?.url;
+      skipped.push({ url: typeof url === 'string' && url ? url : `(entry ${i + 1})`, reason: `not a HAR entry: ${problem}` });
+      continue;
+    }
+    const e = raw as HarEntry;
     const content = e.response?.content;
     calls.push({
       url: e.request?.url ?? '',

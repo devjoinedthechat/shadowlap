@@ -418,8 +418,10 @@ can replay your own code against.
 | `litellm` | A LiteLLM proxy, through `shadowlap.litellm_callback` — production traffic, one run per correlation id. Takes several files, since a proxy writes one per worker: the calls of one agent run spread over several workers' files are put back together, in the order they started. See [Capturing production traffic](./gateways.md) |
 
 Anthropic, OpenAI, Gemini, Azure, Vertex and Bedrock hosts are recognised; every other entry is
-skipped, and `--json` lists the reasons. Credentials in the capture are never stored, and header
-names and values are escaped and bounded, because a capture is a file from anywhere.
+skipped, and `--json` lists the reasons. So is an entry whose fields aren't what the format says
+(a method that isn't text, a null entry), naming the field. Credentials in the capture are never
+stored, and header names and values are escaped and bounded, because a capture is a file from
+anywhere. An import that stops part way leaves no run behind.
 
 The request bodies are the real ones, which is what matters: replay matches on a fingerprint of the
 outgoing request, so a reconstructed body would fork at call 1. Every format produces the same

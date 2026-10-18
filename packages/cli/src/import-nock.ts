@@ -71,6 +71,12 @@ export function readNock(recording: unknown): Captured {
     // `scope` is an origin, sometimes with an explicit port: https://api.anthropic.com:443
     const origin = def.scope.replace(/:443$/, '').replace(/:80$/, '');
     const url = `${origin}${def.path}`;
+    // A recording is a file from anywhere: a definition of the wrong shape is skipped with the reason.
+    const problem = def.method !== undefined && typeof def.method !== 'string' ? "method isn't text" : def.status !== undefined && !Number.isInteger(def.status) ? "status isn't a number" : null;
+    if (problem) {
+      skipped.push({ url, reason: `not a nock definition: ${problem}` });
+      continue;
+    }
     const responseHeaders = headersOf(def);
     calls.push({
       url,
