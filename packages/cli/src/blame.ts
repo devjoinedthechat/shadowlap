@@ -1,4 +1,4 @@
-import { canonicalize, formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
+import { canonicalize, endedEarlyCount, formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -116,7 +116,9 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
           // Every attempt must fork exactly at the probed model call. One that forked elsewhere ran a
           // prefix the recording doesn't hold, and its outcome says nothing about call #callNo.
           if (!d || d.type !== 'forced' || d.callNo !== callNo || d.kind !== 'api') {
-            prefixBroken = d
+            prefixBroken = d?.type === 'ended_early'
+              ? `An attempt at model call #${callNo} never reached it: the agent stopped first, after ${endedEarlyCount(d)}. The calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
+              : d
               ? `An attempt at model call #${callNo} forked at call ${d.callNo} instead:\n\n${formatDivergence(d)}\n\nThe calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
               : `An attempt at model call #${callNo} never reached it: the agent took another path through calls the recording holds. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`;
           }

@@ -29,7 +29,7 @@ export interface Shape {
 
 export const SHAPES = {
   summaryJson: { section: 'run', fields: ['exitCode', 'summary'] },
-  summary: { section: 'run', fields: ['runId', 'mode', 'status', 'total', 'byOrigin', 'byKind', 'upstreamRequests', 'injected', 'refused', 'imported', 'tokensNotRespent', 'cost', 'durationMs', 'notReached', 'warnings', 'divergence', 'endedEarly'] },
+  summary: { section: 'run', fields: ['runId', 'mode', 'status', 'total', 'byOrigin', 'byKind', 'upstreamRequests', 'injected', 'refused', 'imported', 'tokensNotRespent', 'cost', 'durationMs', 'notReached', 'warnings', 'divergence'] },
   cost: { section: 'run', fields: ['spent', 'saved', 'captured', 'unknownModels'] },
   replayChecks: { section: 'replay', fields: ['exitCode', 'summary', 'checks'] },
   repeat: { section: 'replay', fields: ['attempts', 'report'] },

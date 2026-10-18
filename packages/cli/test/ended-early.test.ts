@@ -74,7 +74,7 @@ beforeAll(async () => {
   project = mkdtempSync(join(tmpdir(), 'sl-ended-early-'));
   sh('git', ['init', '-q', '-b', 'main']);
   sh('git', ['config', 'user.email', 'test@example.com']);
-  writeFileSync(join(project, '.gitignore'), '.shadowlap/\nreport.json\n');
+  writeFileSync(join(project, '.gitignore'), '.shadowlap/\nreport.json\nsummary.json\n');
   commit('Start the step agent', { 'agent.mjs': AGENT, 'steps.txt': '3\n', 'README.md': 'Step agent\n' });
   const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs']);
   expect(recorded.code, recorded.out).toBe(0);
@@ -114,18 +114,39 @@ describe('a replay that ends before its recording did', () => {
     expect(r.stdout).toContain('2 recorded calls not reached: #2 POST /v1/messages, #3 POST /v1/messages');
     expect(r.stdout).toContain('0 passed, 1 failed');
     const report = JSON.parse(readFileSync(join(project, 'report.json'), 'utf8'));
-    expect(report.results[0]).toMatchObject({ ok: false, failure: 'diverged', message: 'ended early at call 2 (api POST /v1/messages): 1 of 3 recorded calls replayed', divergence: null });
+    expect(report.results[0]).toMatchObject({ ok: false, failure: 'diverged', message: 'ended early at call 2 (api POST /v1/messages): 1 of 3 recorded calls replayed', divergence: { type: 'ended_early', callNo: 2, kind: 'api', name: 'POST /v1/messages', recorded: 3 } });
   });
 
   it('replay prints it as ended early, and --strict exits 1', async () => {
-    const plain = await shadowlap(['replay', recordedRun]);
+    const plain = await shadowlap(['replay', recordedRun, '--summary-json', 'summary.json']);
     expect(plain.code, plain.out).toBe(0);
     expect(plain.out).toContain('✗ Ended early at call 2: 1 of 3 recorded calls replayed');
     expect(plain.out).not.toContain('Replay clean');
+    const { summary } = JSON.parse(readFileSync(join(project, 'summary.json'), 'utf8'));
+    expect(summary.divergence).toMatchObject({ type: 'ended_early', callNo: 2, kind: 'api', replayedBefore: 1, recorded: 3, counterpart: { runId: recordedRun, callNo: 2 } });
     const strict = await shadowlap(['replay', recordedRun, '--strict']);
     expect(strict.code, strict.out).toBe(1);
     const clean = await withSteps(3, () => shadowlap(['replay', recordedRun, '--strict']));
     expect(clean.code, clean.out).toBe(0);
     expect(clean.out).toContain('✓ Replay clean: 3/3 calls replayed');
+  });
+
+  it('keeps it on the run: ls, ls --json and show never call it a clean replay', async () => {
+    const replayed = await shadowlap(['replay', recordedRun]);
+    const runId = /replaying run (\w{26})/.exec(replayed.out)![1]!;
+    const ls = await shadowlap(['ls']);
+    const line = ls.stdout.split('\n').find((l) => l.startsWith(runId.slice(0, 10)))!;
+    expect(line).toContain('ended early @2');
+    expect(line).not.toContain('clean replay');
+    const json = await shadowlap(['ls', '--json']);
+    expect(JSON.parse(json.stdout).find((r: { runId: string }) => r.runId === runId)).toMatchObject({ mode: 'replay', status: 'completed', forkedAt: { callNo: 2, type: 'ended_early', kind: 'api', name: 'POST /v1/messages' }, calls: 1 });
+    const show = await shadowlap(['show', runId]);
+    expect(show.stdout).toContain('✗ Ended early at call 2 (api POST /v1/messages): 1 of 3 recorded calls replayed');
+  });
+
+  it('replay --repeat says which attempts ended early, and --strict exits 1 on them', async () => {
+    const r = await shadowlap(['replay', recordedRun, '--repeat', '2', '--strict']);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain('none forked · 2 of 2 ended early, at call 2');
   });
 });

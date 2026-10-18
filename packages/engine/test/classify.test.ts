@@ -74,6 +74,9 @@ describe('classifyRun: the kind of a run', () => {
 
   it('labels each kind as the run list does', () => {
     expect(kindLabel('fork', { callNo: 17 })).toBe('fork @17');
+    // A replay that stopped before its recording did left it there, but is no fork to carry on from.
+    expect(kindLabel('fork', { callNo: 11, type: 'ended_early' })).toBe('ended early @11');
+    expect(kindLabel(runKind(run({ mode: 'replay', parentRunId: 'P', status: 'completed', divergence: { callNo: 11, type: 'ended_early' } }), { calls: 10 }), { callNo: 11, type: 'ended_early' })).toBe('ended early @11');
     expect(kindLabel('clean', null)).toBe('clean replay');
     expect(kindLabel('pack', null)).toBe('recording');
     expect(['recording', 'capture', 'replay', 'test'].map((k) => kindLabel(k as never, null))).toEqual(['recording', 'capture', 'replay', 'test']);

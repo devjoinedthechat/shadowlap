@@ -46,7 +46,7 @@ export type { RequestManifest } from './manifest.js';
 export { deepEqual, firstDifference, hintsFor, structuralDiff } from './diff.js';
 export { DEFAULT_REPLAY_OPTIONS, Session } from './session.js';
 export type { Decision, ReplayOptions, ResolveInput, SessionOptions } from './session.js';
-export { formatDivergence, formatSummary, formatTokens, plain, storedModelResolver, summarizeRun } from './report.js';
+export { divergenceLine, endedEarlyCount, formatDivergence, formatSummary, formatTokens, plain, storedModelResolver, summarizeRun } from './report.js';
 export type { ModelResolver, SummaryOptions } from './report.js';
 export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
 export type { Price } from './prices.js';

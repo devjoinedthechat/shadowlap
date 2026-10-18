@@ -164,6 +164,36 @@ describe('Session in replay mode', () => {
     expect(s.divergence?.type).toBe('beyond_recording');
   });
 
+  it('ends a replay that stopped before its recording did at the first recorded call it never made', () => {
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest, replay: { overrides: new Map([[6, { ok: true }]]) } });
+    s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} });
+    s.resolve({ callNo: 2, kind: 'tool', name: 'search_web', fingerprint: 'S1', effect: 'read' });
+    // Every request matched: nothing diverged while it ran.
+    expect(s.divergence).toBeNull();
+    const d = s.end();
+    expect(d).toEqual({ type: 'ended_early', callNo: 3, kind: 'tool', name: 'read_file', replayedBefore: 2, recorded: 7, reason: 'the agent stopped after 2 of the 7 recorded calls, before making #3', counterpart: { runId: 'PARENT', callNo: 3 } });
+    expect(s.divergence).toBe(d);
+    expect(s.end()).toBeNull();
+    // An intervention it never got to says so, not that the replay forked before it.
+    expect(s.unapplied()).toEqual(['--override 6 changed nothing: #6 send_email was not served, because the run never made that call']);
+  });
+
+  it('ends with no divergence when only clock and random reads are left, after a fork, and on a recording', () => {
+    no = 0;
+    const calls = [rec('api', 'POST /v1/messages', 'A1'), rec('clock', 'Date.now', 'C1'), rec('random', 'Math.random', 'R1')];
+    const clean = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest });
+    clean.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} });
+    expect(clean.end()).toBeNull();
+    expect(clean.divergence).toBeNull();
+
+    const forked = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest, replay: { divergeAt: 1 } });
+    forked.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} });
+    expect(forked.end()).toBeNull();
+    expect(forked.divergence?.type).toBe('forced');
+
+    expect(new Session({ mode: 'record' }).end()).toBeNull();
+  });
+
   it('reuses an occurrence for a retry attempt', () => {
     const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest });
     const first = s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} });

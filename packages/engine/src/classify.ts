@@ -8,7 +8,8 @@ import type { Origin, Outcome, RunMode, RunStatus } from './types.js';
 
 /**
  * - `recording`: recorded by `shadowlap run`.
- * - `fork`: a replay that left the recording at some call (`divergence`), on purpose or not.
+ * - `fork`: a replay that left the recording at some call (`divergence`), on purpose or not; one
+ *   that stopped before its recording did (`ended_early`) among them, labelled `ended early @n`.
  * - `clean`: a finished replay that matched the recording all the way: it exited 0, or it served
  *   every call of a recording that failed and failed the same way (it reproduced the failure).
  * - `replay`: any other replay: still running, interrupted, empty, or one that failed short of
@@ -55,7 +56,7 @@ export interface ClassifiableRun {
   parentRunId: string | null;
   mode: RunMode;
   status: RunStatus;
-  divergence: { callNo: number } | null;
+  divergence: { callNo: number; type?: string } | null;
   meta?: ClassifiableMeta | undefined;
 }
 
@@ -125,11 +126,15 @@ export function runKind(run: Pick<ClassifiableRun, 'mode' | 'status' | 'divergen
   return 'replay';
 }
 
-/** A kind as the run list's line under the id says it: recording, capture, fork @n, clean replay, replay or test. */
-export function kindLabel(kind: RunKind, divergence: { callNo: number } | null): string {
+/**
+ * A kind as the run list's line under the id says it: recording, capture, fork @n, clean replay,
+ * replay or test. A replay that stopped before its recording did left it as a fork does, but made
+ * nothing after: `ended early @n`, at the first recorded call it never made.
+ */
+export function kindLabel(kind: RunKind, divergence: { callNo: number; type?: string } | null): string {
   switch (kind) {
     case 'fork':
-      return divergence ? `fork @${divergence.callNo}` : 'fork';
+      return divergence ? `${divergence.type === 'ended_early' ? 'ended early' : 'fork'} @${divergence.callNo}` : 'fork';
     case 'clean':
       return 'clean replay';
     case 'pack':

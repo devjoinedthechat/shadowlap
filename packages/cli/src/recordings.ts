@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { finalAnswer, formatDivergence, formatSummary, packRun, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
+import { divergenceLine, finalAnswer, formatDivergence, formatSummary, packRun, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
 import { HttpError, type ApiRoute, type Sidecar } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 
@@ -182,12 +182,15 @@ export class RecordingHost {
       this.store.deleteRun(a.runId);
       return { ...base, ok: true, mode: 'replay', message: null, report: null };
     }
+    // A replay that stopped before its recording did fails as one that diverged: what the agent never
+    // sent (the last model turn, a write) is as much a change. Its summary line says it all.
+    const early = d.type === 'ended_early';
     return {
       ...base,
       ok: false,
       mode: 'replay',
-      message: `diverged from its recording at call ${d.callNo} (${d.kind} ${d.name})`,
-      report: `${formatDivergence(d)}\n${formatSummary(summary)}\n\nIf the change is intended, record the test again with SHADOWLAP_RECORD=all. To inspect the replay: shadowlap dashboard ${a.runId}`,
+      message: early ? divergenceLine(d) : `diverged from its recording at call ${d.callNo} (${d.kind} ${d.name})`,
+      report: `${early ? '' : `${formatDivergence(d)}\n`}${formatSummary(summary)}\n\nIf the change is intended, record the test again with SHADOWLAP_RECORD=all. To inspect the replay: shadowlap dashboard ${a.runId}`,
     };
   }
 

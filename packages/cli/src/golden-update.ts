@@ -114,6 +114,8 @@ export function requestChanges(store: Store, before: RunRecord, after: RunRecord
       out.push(`${at} is a call the recording doesn't have`);
     } else if (divergence.type === 'beyond_recording') {
       out.push(`more calls than recorded, from ${at}`);
+    } else if (divergence.type === 'ended_early') {
+      out.push(`fewer calls than recorded: it stopped before ${at}`);
     }
   }
   return out;

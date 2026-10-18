@@ -115,6 +115,11 @@ export function runCounts(r: RunLike): OriginCounts | null {
 
 export type GlyphKind = 'live' | 'rec' | 'fail' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train';
 
+/** Where a fork left its recording: `fork @17`, or `ended early @11` for a replay that stopped before its recording did. */
+function forkAt(d: { callNo: number; type?: string }, fork = 'fork'): string {
+  return `${d.type === 'ended_early' ? 'ended early' : fork} @${d.callNo}`;
+}
+
 /** The icon a run shows, with the words that go with it. */
 export function runGlyph(r: RunLike): { kind: GlyphKind; label: string } {
   if (isLive(r)) return { kind: 'live', label: 'Recording now' };
@@ -122,7 +127,7 @@ export function runGlyph(r: RunLike): { kind: GlyphKind; label: string } {
   const failed = isFailed(r);
   const cut = isInterrupted(r) ? ', interrupted' : '';
   if (t === 'clean') return { kind: 'clean', label: 'Clean replay' };
-  if (t === 'fork') return { kind: 'fork', label: `Fork at #${r.divergence!.callNo}${cut}` };
+  if (t === 'fork') return { kind: 'fork', label: `${r.divergence!.type === 'ended_early' ? 'Ended early' : 'Fork'} at #${r.divergence!.callNo}${cut}` };
   if (t === 'capture') return { kind: 'cap', label: 'Imported capture' };
   if (t === 'test') return failed ? { kind: 'fail', label: 'Test failed' } : { kind: 'test', label: `Test replay${cut}` };
   if (t === 'replay') return failed ? { kind: 'fail', label: 'Replay failed' } : { kind: 'clean', label: `Replay${cut}` };
@@ -136,7 +141,7 @@ export function runTag(r: RunLike): { cls: string; text: string } {
   if (isInterrupted(r) && (t === 'recording' || t === 'replay' || t === 'test')) return { cls: '', text: 'interrupted' };
   if (t === 'recording') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'recording' };
   if (t === 'clean') return { cls: 'clean', text: 'clean' };
-  if (t === 'fork') return { cls: 'fork', text: `fork @${r.divergence!.callNo}` };
+  if (t === 'fork') return { cls: 'fork', text: forkAt(r.divergence!) };
   if (t === 'capture') return { cls: 'cap', text: 'capture' };
   if (t === 'test') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: 'test', text: 'test' };
   return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'replay' };
@@ -145,7 +150,7 @@ export function runTag(r: RunLike): { cls: string; text: string } {
 /** What kind of run it is, in a word or two: recording, replay, fork @17, capture, test. */
 export function kindWord(r: RunLike): string {
   const t = runType(r);
-  if (t === 'fork') return `fork @${r.divergence!.callNo}`;
+  if (t === 'fork') return forkAt(r.divergence!);
   if (t === 'clean') return 'replay';
   return t;
 }
@@ -177,7 +182,7 @@ export function sideLine(r: RunLike): { text: string; err?: string } {
   if (isInterrupted(r)) return { text: `${kindWord(r)} · interrupted · ${calls}` };
   if (t === 'fork') {
     const went = counts ? ` · ${num(counts.live + counts.fail)} live${counts.block ? ` · ${num(counts.block)} blocked` : ''}${counts.stub ? ` · ${num(counts.stub)} stubbed` : ''}` : ` · ${calls}`;
-    return { text: `fork @${r.divergence!.callNo}${went}` };
+    return { text: `${forkAt(r.divergence!)}${went}` };
   }
   if (t === 'capture') return { text: `capture · ${calls}` };
   if (t === 'test') return isFailed(r) ? { err: 'test failed', text: r.divergence && r.outcome?.kind !== 'check-failed' ? ` · diverged at #${r.divergence.callNo}` : ` · ${calls}` } : { text: counts && counts.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(counts.live)} live` : 'test · offline · 0 upstream' };
@@ -327,7 +332,7 @@ export function familyLine(r: RunLike): string {
   if (isInterrupted(r)) return `${kindWord(r)} · interrupted · ${plural(r.calls, 'call')}`;
   if (t === 'fork' && r.divergence) {
     const went = n ? `${num(n.rep)} replayed · ${num(n.live + n.fail)} live${n.block ? ` · ${num(n.block)} blocked` : ''}${n.stub ? ` · ${num(n.stub)} stubbed` : ''}` : plural(r.calls, 'call');
-    return `fork @${r.divergence.callNo} · ${went} · ${approx(r.spent)}`;
+    return `${forkAt(r.divergence)} · ${went} · ${approx(r.spent)}`;
   }
   if (t === 'clean') return n && n.rep === r.calls ? `clean replay · ${num(r.calls)}/${num(r.calls)} · 0 upstream` : `clean replay · ${plural(r.calls, 'call')}`;
   if (t === 'test') return `test · replayed offline · ${plural(r.calls, 'call')}`;

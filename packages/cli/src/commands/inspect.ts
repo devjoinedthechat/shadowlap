@@ -249,7 +249,8 @@ export function register(program: Command): void {
         const state = r.status === 'running' ? p.yellow(r.status) : r.status === 'completed' ? p.green(r.status) : p.red(r.status);
         const calls = store.countCalls(r.runId);
         const k = runKind(r, kindFacts(store, r, calls));
-        const kind = k === 'fork' ? p.yellow(kindLabel(k, r.divergence)) : k === 'clean' ? p.cyan(kindLabel(k, r.divergence)) : kindLabel(k, r.divergence);
+        // A replay that stopped before its recording did is no clean one: `ended early @11`, in red.
+        const kind = k === 'fork' ? (r.divergence?.type === 'ended_early' ? p.red : p.yellow)(kindLabel(k, r.divergence)) : k === 'clean' ? p.cyan(kindLabel(k, r.divergence)) : kindLabel(k, r.divergence);
         return [indent + shortId(r.runId), kind, state, `${calls} calls`, safe(r.codeVersion ?? ''), p.dim(ago(r.startedAt)), r.meta?.labels?.length ? p.cyan(safe(r.meta.labels.join(', '))) : ''];
       };
       let rows: string[][];

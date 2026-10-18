@@ -3,7 +3,7 @@ import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, statSync, write
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, divergenceLine, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
@@ -239,20 +239,22 @@ export async function testAttempt(
   // Every value the report lists that changes every run gets its normalizer, not only the dates and
   // UUIDs the engine hints at: a request id too, and an id that may be a real change says so. A
   // value a rule in force masks already gets none: the report lists it, but it didn't diverge.
-  if (summary.divergence) {
+  // A replay that stopped short changed no request: its summary line says all there is.
+  const changed = summary.divergence && summary.divergence.type !== 'ended_early' ? summary.divergence : null;
+  if (changed) {
     const rules = [...o.normalizers, ...(parent.meta?.redactions ?? [])];
-    summary.divergence.hints = [...unmaskedHints(summary.divergence, rules), ...valueHints(summary.divergence, rules)];
+    changed.hints = [...unmaskedHints(changed, rules), ...valueHints(changed, rules)];
   }
-  const divergence = summary.divergence ? formatDivergence(summary.divergence) + '\n' : '';
+  const divergence = changed ? formatDivergence(changed) + '\n' : '';
   let failure: JunitCase['failure'];
   let kind: TestAttempt['kind'] = null;
   if (interrupted) {
     // Never a pass, whatever the agent did with the signal: an update must not keep it.
     kind = 'exit';
     failure = { message: `the replay was interrupted (${interrupted})`, details: divergence + formatSummary(summary) };
-  } else if (summary.divergence && !o.spec?.fork) {
+  } else if (changed && !o.spec?.fork) {
     kind = 'diverged';
-    failure = { message: `diverged at call ${summary.divergence.callNo} (${summary.divergence.kind} ${summary.divergence.name})`, details: divergence + formatSummary(summary) };
+    failure = { message: divergenceLine(changed), details: divergence + formatSummary(summary) };
   } else if (code !== 0 || timedOut) {
     // Stopped at the time limit fails, even when the agent caught the signal and exited 0.
     kind = 'exit';
@@ -261,12 +263,12 @@ export async function testAttempt(
   } else if (summary.total === 0) {
     kind = 'no-calls';
     failure = { message: 'no calls were made', details: formatSummary(summary) };
-  } else if (summary.endedEarly && !o.spec?.fork) {
+  } else if (summary.divergence && !o.spec?.fork) {
     // Every request matched, but the agent stopped before the recording did: what it never sent
-    // (a write, the last model turn) is as much a change as a request sent differently.
-    const e = summary.endedEarly;
+    // (a write, the last model turn) is as much a change as a request sent differently. An exit
+    // code or no call at all, above, says more about why.
     kind = 'diverged';
-    failure = { message: `ended early at call ${e.callNo} (${e.kind} ${e.name}): ${e.replayed} of ${e.recorded} recorded calls replayed`, details: formatSummary(summary) };
+    failure = { message: divergenceLine(summary.divergence), details: formatSummary(summary) };
   } else if (failedChecks.length) {
     kind = 'check';
     const first = failedChecks[0]!;
@@ -601,7 +603,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });
       if (!streaming) process.stderr.write(`${header}\n${output}${output.endsWith('\n') || !output ? '' : '\n'}`);
       const s = ended.summary;
-      const fork = s.divergence ? `fork @${s.divergence.callNo}` : 'clean';
+      const fork = s.divergence ? kindLabel('fork', s.divergence) : 'clean';
       const fenced = s.byOrigin.blocked + s.byOrigin.stubbed;
       process.stderr.write(p.dim(`   attempt ${i + 1}: ${fork} · ${s.byOrigin.live} live${fenced ? ` · ${fenced} writes fenced` : ''} · exit ${code} · ${formatDuration(s.durationMs ?? 0)}\n`));
     }

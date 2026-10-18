@@ -234,7 +234,8 @@ export function parseChoice<T extends string>(choices: readonly T[]) {
 
 export function printOutcome(summary: ReturnType<Sidecar['endRun']>['summary']): void {
   process.stderr.write('\n' + formatSummary(summary, p) + '\n');
-  if (summary.divergence) process.stderr.write(formatDivergence(summary.divergence, p) + '\n');
+  // One that stopped before its recording did changed no request: the summary line says it all.
+  if (summary.divergence && summary.divergence.type !== 'ended_early') process.stderr.write(formatDivergence(summary.divergence, p) + '\n');
   process.stderr.write(p.dim(`  shadowlap show ${shortId(summary.runId)}\n`));
 }
 

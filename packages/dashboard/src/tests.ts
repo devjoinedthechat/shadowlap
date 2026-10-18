@@ -430,6 +430,8 @@ export function resultLine(r: TestResult, checks: readonly string[], normalizers
     if (r.failure === 'diverged') {
       const d = divergenceOf(r);
       if (!d) return r.reason ?? 'diverged';
+      // Stopped before its recording did: no request changed, and its reason says how far it got.
+      if (d.type === 'ended_early') return r.reason ?? `ended early at call ${d.callNo} (${d.kind} ${d.name})`;
       const v = volatileOf(r, d).values[0];
       if (v) return `diverged at call ${d.callNo} · ${v.path} ${v.certain ? `looks like ${v.looks}` : 'changed, an id that may be a real change'}`;
       const path = causeOf(r, d, normalizers);
@@ -448,7 +450,7 @@ export function resultLine(r: TestResult, checks: readonly string[], normalizers
   if (data.attempts) {
     parts.push(`${data.attempts.passed} of ${data.attempts.total} attempts passed ${n === 1 ? 'the check' : n === 2 ? 'both checks' : n ? `all ${n} checks` : ''}`.trim());
   } else if (data.divergence) {
-    parts.push(`forked at call ${data.divergence.callNo}`);
+    parts.push(`${data.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${data.divergence.callNo}`);
     if (n) parts.push(`${plural(n, 'check')} passed`);
   } else {
     if (data.calls) parts.push(`${data.calls.replayed}/${data.calls.total} replayed`);

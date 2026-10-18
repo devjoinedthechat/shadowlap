@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { EXTERNAL_COMMAND, formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, endedEarlyCount, formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -114,7 +114,12 @@ function passedLine(o: GoldenOutcome): string {
   // Out of what the recording holds, not what this replay made: one that stopped short never reads as whole.
   const replayed = s.byOrigin.replayed + s.byOrigin.overridden;
   return [
-    s.divergence ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed` : `${replayed}/${replayed + s.notReached.length} replayed`,
+    // A golden that may fork passes on its checks, one that stopped short included.
+    s.divergence?.type === 'ended_early'
+      ? `ended early at call ${s.divergence.callNo}, ${endedEarlyCount(s.divergence)} replayed`
+      : s.divergence
+        ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed`
+        : `${replayed}/${replayed + s.notReached.length} replayed`,
     `${formatTokens(s.tokensNotRespent.inputTokens)} input tokens not re-spent`,
     ...(r.shown.checks?.length ? [`${r.shown.checks.length} check${r.shown.checks.length === 1 ? '' : 's'} passed`] : []),
     ...(r.attempts.length > 1 ? [`${r.passed}/${r.attempts.length} attempts passed`] : []),

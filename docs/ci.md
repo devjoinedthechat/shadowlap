@@ -47,7 +47,7 @@ Besides dates, UUIDs and ULIDs, the report names the normalizer for an id the ag
 
 ### A replay that ends early
 
-An agent can stop before its recording did and still exit 0: an exception it catches, a stop condition that changed, a step it now skips. Every request it sent matched, so nothing diverged, but what it never sent (the last model turn, the write) is as much a change. The golden fails, at the first recorded model or tool call it never made:
+An agent can stop before its recording did and still exit 0: an exception it catches, a stop condition that changed, a step it now skips. Every request it sent matched, but what it never sent (the last model turn, the write) is as much a change. The replay leaves its recording at the first recorded model or tool call it never made, a divergence of its own type, `ended_early`, and the golden fails:
 
 ```
 ✗ research: ended early at call 11 (api POST /v1/messages): 10 of 30 recorded calls replayed
@@ -55,7 +55,7 @@ An agent can stop before its recording did and still exit 0: an exception it cat
       20 recorded calls not reached: #11 POST /v1/messages, #12 read_file, #13 read_file, …
 ```
 
-Its failure kind is `diverged`, so the GitHub Action and `bisect` treat it as one. Clock and random reads left unread don't count. A golden marked `fork` passes on its checks, as it does after a fork. If the agent now stops earlier on purpose, re-record the golden with `shadowlap test <golden> --update`.
+Its failure kind is `diverged`, and the JSON report's `divergence` has `type` `ended_early` and `recorded`, the calls the recording holds, so the GitHub Action and `bisect` treat it as one. The run keeps it too: `shadowlap ls` and the dashboard list it as `ended early @11`, not as a clean replay. Clock and random reads left unread don't count. A golden marked `fork` passes on its checks, as it does after a fork. If the agent now stops earlier on purpose, re-record the golden with `shadowlap test <golden> --update`.
 
 The JUnit report renders in GitHub, GitLab and most CI dashboards; each pack is a test case, and a failure carries the divergence report and the agent's output.
 

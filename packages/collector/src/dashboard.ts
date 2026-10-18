@@ -22,12 +22,14 @@ const DIVERGENCE_LABELS: Record<string, string> = {
   new_call: 'new call',
   forced: 'forced live',
   beyond_recording: 'past the recording',
+  ended_early: 'ended early',
 };
 const DIVERGENCE_HINTS: Record<string, string> = {
   request_changed: 'A request differed from the recorded one: a prompt, a tool argument, a parameter.',
   new_call: 'The agent made a call the recording never made.',
   forced: 'Forced live with --live-tool or --diverge-at.',
   beyond_recording: 'The agent kept going after the recording ended, e.g. a recording of a crashed run.',
+  ended_early: 'The agent stopped before making every recorded model or tool call, though every request it sent matched.',
 };
 const OS_LABELS: Record<string, string> = { darwin: 'macOS', linux: 'Linux', win32: 'Windows', freebsd: 'FreeBSD', openbsd: 'OpenBSD', sunos: 'SunOS', aix: 'AIX', android: 'Android' };
 const CI_LABELS: Record<string, string> = { github: 'GitHub Actions', gitlab: 'GitLab CI', circleci: 'CircleCI', buildkite: 'Buildkite', jenkins: 'Jenkins', azure: 'Azure Pipelines', other: 'other' };

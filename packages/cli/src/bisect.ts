@@ -237,7 +237,7 @@ function describeResult(o: Awaited<ReturnType<typeof testRecording>>, rules: rea
   const s = o.shown.ended.summary;
   if (!o.failure) {
     const checks = o.shown.checks?.length ?? 0;
-    return s.divergence ? `forked at call ${s.divergence.callNo}, ${checks} check${checks === 1 ? '' : 's'} passed` : checks ? `replayed clean · ${checks} check${checks === 1 ? '' : 's'} passed` : 'replayed clean';
+    return s.divergence ? `${s.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${s.divergence.callNo}, ${checks} check${checks === 1 ? '' : 's'} passed` : checks ? `replayed clean · ${checks} check${checks === 1 ? '' : 's'} passed` : 'replayed clean';
   }
   const d = s.divergence;
   const path = d ? (divergenceCause(d, rules) ?? d.diff?.[0]?.path) : undefined;

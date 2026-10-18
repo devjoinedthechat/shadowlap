@@ -303,7 +303,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     calls: s ? callsOf(s) : null,
     upstreamRequests: r ? upstreamOf(r.attempts) : null,
     tokensNotRespent: s ? notRespentOf(s) : null,
-    divergence: s?.divergence ? { type: s.divergence.type, callNo: s.divergence.callNo, kind: s.divergence.kind, name: s.divergence.name } : null,
+    divergence: s?.divergence ? { type: s.divergence.type, callNo: s.divergence.callNo, kind: s.divergence.kind, name: s.divergence.name, ...(s.divergence.recorded !== undefined ? { recorded: s.divergence.recorded } : {}) } : null,
     checks: r?.shown.checks ?? null,
     attempts: r && r.attempts.length > 1 ? { total: r.attempts.length, passed: r.passed, required: r.required } : null,
     expect: extra.expect,
