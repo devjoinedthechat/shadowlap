@@ -254,7 +254,8 @@ export function noDiagnosisWhy(blamed: ReadonlyArray<Pick<Blamed, 'target' | 'no
     const said = new Set(found).size === 1 ? found[0]! : unrescued.map((b, i) => `${shortId(b.target.runId)}: ${found[i]}`).join('; ');
     return `${said}: no answer of the model's lost ${unrescued.length === 1 ? 'the run' : 'these runs'}; look at the tools, the harness or the command`;
   }
-  const searched = blamed.some((b) => b.target.outcome === 'unrescuable' || b.target.outcome === 'stopped');
+  // A search that stopped part way (runRepair reports the repair as stopped) learned nothing either way.
+  const searched = blamed.some((b) => b.target.outcome === 'unrescuable');
   const note = blamed.find((b) => b.target.note)?.target.note;
   if (!searched && note) return `no failing run could be blamed: ${note}`;
   return stronger
@@ -339,11 +340,15 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
         log(`  resampling did not rescue ${shortId(t.parent.runId)}; trying ${s.stronger}`);
         const again = await blameOne(t, { ...(s.rescueFields ?? {}), model: s.stronger });
         if (again.target.outcome === 'blamed') blamed[blamed.length - 1] = { ...again, target: { ...again.target, rescuedBy: s.stronger } };
+        // A search with the stronger model that stopped part way found nothing either way.
+        else if (again.target.outcome === 'stopped') blamed[blamed.length - 1] = again;
       }
     }
     report.targets = blamed.map((b) => b.target);
     if (interrupted) return stopped('interrupted');
     const learned = blamed.filter((b) => b.repairCase);
+    // A blame the budget or a signal stopped part way found neither a rescue nor that there is none.
+    if (!learned.length && blamed.some((b) => b.target.outcome === 'stopped')) return stopped(outOfBudget() ? `the budget of $${s.budget!.toFixed(2)} is spent` : 'interrupted');
     if (!learned.length) {
       report.outcome = 'no-diagnosis';
       report.why = noDiagnosisWhy(blamed, s.stronger);

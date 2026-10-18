@@ -340,6 +340,19 @@ process.stdin.on('end', () => {
     expect(mock.requests.length).toBe(before);
   });
 
+  it('stops when the budget runs out while it blames, rather than say what a search it never finished found', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ prices: { 'small-model': { input: 5, output: 25 } } }));
+    const failed = await record();
+    mode = 'alternate';
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--budget', '0.01', '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = JSON.parse(r.stdout) as Report & { cost: { blame: number } };
+    expect(report.targets).toEqual([expect.objectContaining({ runId: failed, outcome: 'stopped' })]);
+    expect(report.cost.blame).toBeGreaterThan(0.01);
+    expect(report).toMatchObject({ outcome: 'stopped', why: 'the budget of $0.01 is spent', candidates: [] });
+    expect(readFileSync(join(project, report.output.report), 'utf8')).toContain('## Not fixed: the budget of $0.01 is spent');
+  });
+
   it('checks its flags before running anything', async () => {
     const { failed } = await runs();
     expect((await shadowlap(['repair', '--expect', ORACLE])).out).toContain('give the failing runs to repair');
@@ -401,5 +414,7 @@ describe('noDiagnosisWhy', () => {
     const unknown = noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }, { target: target(B, 'unrescuable'), notTheAnswer: null }], null);
     expect(unknown).toContain('--stronger <model>');
     expect(noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: null }], 'big-model')).toBe('neither resampling nor big-model rescued any failing run, so there is no passing path to learn from: the cause is likely in the code or the tools');
+    // A search that stopped part way is no search: the run that couldn't be blamed says why.
+    expect(noDiagnosisWhy([{ target: target(A, 'stopped'), notTheAnswer: null }, { target: target(B, 'passes', passes), notTheAnswer: null }], null)).toBe(`no failing run could be blamed: ${passes}`);
   });
 });
