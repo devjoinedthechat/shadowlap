@@ -9,7 +9,7 @@ export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, type Clo
 export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
 export { SCHEMA_VERSION, Store } from './store.js';
-export type { CreateRunInput, NewStoredEvent, StoredEvent } from './store.js';
+export type { CreateRunInput, NewStoredEvent, SearchState, StoredEvent } from './store.js';
 export type { SqlValue } from './store.js';
 export type { FixData, FixLink, FixLinkKind, FixStatus, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
 export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
@@ -62,7 +62,7 @@ export { withoutPrompt } from './prompt.js';
 export { SHAPE_NAMES, applyInjection, formatToolFailure, literalValue, modelInRequest, noLateSystemMessage, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
 export type { InjectAs, InjectionPlace, Refusal, RequestShape, ToolFailure } from './interventions.js';
 export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat } from './dataset.js';
-export { MATCH_END, MATCH_START, searchCalls, searchExpression, updateSearchIndex, type SearchHit } from './search.js';
+export { indexSearch, MATCH_END, MATCH_START, searchCalls, searchExpression, searchIndexBehind, updateSearchIndex, type SearchHit, type SearchIndexRun } from './search.js';
 export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-notes.js';
 export { formatRepeats, summarizeRepeats } from './repeat.js';
 export { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeVerdict, searchBlame, unrescuedWhy } from './blame.js';

@@ -499,6 +499,16 @@ export interface StoredEvent {
 
 export type NewStoredEvent = Partial<Pick<StoredEvent, 'eventId' | 'at' | 'actor' | 'runId' | 'ref' | 'data'>> & Pick<StoredEvent, 'kind'>;
 
+/** How much of a run the search index covers (search.ts): a row of `search_state`. */
+export interface SearchState {
+  /** Calls indexed. */
+  calls: number;
+  /** The run's status when they were. */
+  status: string;
+  /** Where indexing stopped, as search.ts writes it; null for a row that covers its run whole. */
+  progress: string | null;
+}
+
 // ---- Fixes (v4): the rows of the fixes, fix_links, blames, verdicts and repairs tables. fixes.ts
 // decides what goes in them; these are only their shapes.
 
@@ -798,6 +808,10 @@ export class Store {
       // v3: full-text search over recorded content, built on demand (search.ts). Additive too.
       db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS search_docs USING fts5(text, run_id UNINDEXED, call_no UNINDEXED, field UNINDEXED, tokenize = 'unicode61')`);
       db.exec(`CREATE TABLE IF NOT EXISTS search_state (run_id TEXT PRIMARY KEY, calls INTEGER NOT NULL, status TEXT NOT NULL)`);
+      // Where indexing a run stopped (search.ts), so a long run is indexed a batch at a time and a run
+      // still recording from its newest calls on. Additive: a row without it covers its run whole.
+      const searchColumns = db.prepare(`PRAGMA table_info(search_state)`).all().map((r) => String(r.name));
+      if (!searchColumns.includes('progress')) db.exec(`ALTER TABLE search_state ADD COLUMN progress TEXT`);
       db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
       db.exec('COMMIT');
     } catch (err) {
@@ -1370,10 +1384,18 @@ export class Store {
     this.db.prepare(`DELETE FROM search_state WHERE run_id = ?`).run(runId);
   }
 
-  /** How much of a run the search index covers: its call count and status when it was indexed. */
-  searchState(runId: string): { calls: number; status: string } | null {
-    const row = this.db.prepare(`SELECT calls, status FROM search_state WHERE run_id = ?`).get(runId);
-    return row ? { calls: Number(row.calls), status: String(row.status) } : null;
+  /**
+   * How much of a run the search index covers: the calls indexed, the run's status then, and where
+   * indexing stopped (search.ts), or null for a row that covers the run whole.
+   */
+  searchState(runId: string): SearchState | null {
+    const row = this.db.prepare(`SELECT calls, status, progress FROM search_state WHERE run_id = ?`).get(runId);
+    return row ? searchStateOf(row) : null;
+  }
+
+  /** Every run's search state, by run: one read to tell which runs the index is behind on. */
+  searchStates(): Map<string, SearchState> {
+    return new Map(this.db.prepare(`SELECT run_id, calls, status, progress FROM search_state`).all().map((r) => [String(r.run_id), searchStateOf(r)]));
   }
 
   /** Replaces a run's search documents. */
@@ -1382,8 +1404,26 @@ export class Store {
       this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
       const insert = this.db.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES (?, ?, ?, ?)`);
       for (const d of docs) insert.run(d.text, runId, d.callNo, d.field);
-      this.db.prepare(`INSERT OR REPLACE INTO search_state (run_id, calls, status) VALUES (?, ?, ?)`).run(runId, calls, status);
+      this.db.prepare(`INSERT OR REPLACE INTO search_state (run_id, calls, status, progress) VALUES (?, ?, ?, NULL)`).run(runId, calls, status);
     });
+  }
+
+  /**
+   * Adds a batch of a run's search documents and moves its state on to `next`, in one write, if its
+   * state is still `expected`: another process indexing the same run meanwhile wins, and this batch
+   * is dropped (false). `fresh` drops the run's documents first, for a run indexed again from its start.
+   */
+  addSearchDocs(runId: string, o: { expected: SearchState | null; next: SearchState; docs: Array<{ callNo: number; field: string; text: string }>; fresh?: boolean }): boolean {
+    return this.transaction(() => {
+      const now = this.searchState(runId);
+      const same = now === null || o.expected === null ? now === o.expected : now.calls === o.expected.calls && now.status === o.expected.status && now.progress === o.expected.progress;
+      if (!same) return false;
+      if (o.fresh && now !== null) this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
+      const insert = this.db.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES (?, ?, ?, ?)`);
+      for (const d of o.docs) insert.run(d.text, runId, d.callNo, d.field);
+      this.db.prepare(`INSERT OR REPLACE INTO search_state (run_id, calls, status, progress) VALUES (?, ?, ?, ?)`).run(runId, o.next.calls, o.next.status, o.next.progress);
+      return true;
+    }, 'immediate');
   }
 
   /** Full-text matches, best first. `match` is an FTS5 expression; snippets mark matches with characters 1 and 2. */
@@ -1922,9 +1962,23 @@ export class Store {
     );
   }
 
-  /** All calls of a run in arrival order, each with its final end row and earlier attempts. */
-  getCalls(runId: string): CallRecord[] {
-    const rows = this.stmts.eventsForRun.all(runId);
+  /**
+   * All calls of a run in arrival order, each with its final end row and earlier attempts. `range`
+   * reads only some of them: the first `limit` (all, without one) numbered after `after`, or those
+   * named in `only`.
+   */
+  getCalls(runId: string, range?: { after?: number; limit?: number; only?: readonly number[] }): CallRecord[] {
+    const rows = !range
+      ? this.stmts.eventsForRun.all(runId)
+      : range.only
+        ? this.db.prepare(`SELECT * FROM call_events WHERE run_id = ? AND call_no IN (SELECT value FROM json_each(?)) ORDER BY call_no ASC, phase DESC, attempt ASC`).all(runId, JSON.stringify(range.only))
+        : this.db
+            .prepare(
+              `SELECT * FROM call_events WHERE run_id = ? AND call_no > ? AND call_no <= COALESCE(
+                 (SELECT MAX(call_no) FROM (SELECT call_no FROM call_events WHERE run_id = ? AND phase = 'start' AND call_no > ? ORDER BY call_no LIMIT ?)), -1)
+               ORDER BY call_no ASC, phase DESC, attempt ASC`,
+            )
+            .all(runId, range.after ?? 0, runId, range.after ?? 0, range.limit ?? -1);
     const byCall = new Map<number, CallRecord>();
     for (const r of rows) {
       const callNo = Number(r.call_no);
@@ -1962,6 +2016,10 @@ export class Store {
     }
     return [...byCall.values()].sort((a, b) => a.callNo - b.callNo);
   }
+}
+
+function searchStateOf(row: Record<string, unknown>): SearchState {
+  return { calls: Number(row.calls), status: String(row.status), progress: typeof row.progress === 'string' ? row.progress : null };
 }
 
 function parseMeta(raw: unknown): CallMeta {
