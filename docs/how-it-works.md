@@ -55,7 +55,7 @@ resolve(kind, request):
 
 **Retries.** The official SDKs retry 408/409/429/5xx themselves and mark each attempt with `x-stainless-retry-count`. Attempts are stored under one call; replay serves the final outcome, so replays never repeat backoff waits. Non-retryable errors (a 400) are stored as the outcome and replayed as-is, so the SDK raises the same typed exception it raised during recording.
 
-**Forcing divergence.** Changing a tool's implementation doesn't change its call key, so a fixed tool would keep replaying its old result. `--live-tool <name>` forces its first call live; `--diverge-at <n>` forces call *n*. The SDKs record a hash of each tool's source, and the report warns when it changed since the recording.
+**Forcing divergence.** Changing a tool's implementation doesn't change its call key, so a fixed tool would keep replaying its old result. `--live-tool <name>` forces its first call live, and every call of it after a fork; `--diverge-at <n>` forces call *n*. The SDKs record a hash of each tool's source, and the report warns when it changed since the recording.
 
 ## Effects
 
