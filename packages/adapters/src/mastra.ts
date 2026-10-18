@@ -34,7 +34,7 @@ interface MastraV0ToolDefinition {
 export function withEffectV0<T extends MastraV0ToolDefinition>(definition: T, spec: EffectSpec): T {
   const original = definition.execute;
   if (!original) return definition;
-  const options = toOptions(spec, definition.id);
+  const options = toOptions(spec, definition.id, original);
   const execute: NonNullable<T['execute']> = ((params, ...rest) => tool(definition.id, options, (context: unknown) => original({ ...params, context }, ...rest))(params.context)) as NonNullable<T['execute']>;
   return { ...definition, execute };
 }

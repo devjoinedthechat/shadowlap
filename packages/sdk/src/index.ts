@@ -16,6 +16,12 @@ export interface ToolOptions<A, R> {
   effect: Effect;
   /** For `write` tools under `--writes stub`: the value returned instead of executing. */
   onFork?: (args: A) => R | Promise<R>;
+  /**
+   * The code a replay compares with the recording's to warn that the tool changed (`… changed since
+   * the recording`): a function, or its source text. Default: `impl`. Give it when `impl` only calls
+   * the real implementation, as the framework adapters' wrappers do.
+   */
+  source?: ((...args: never[]) => unknown) | string;
 }
 
 export interface SerializedError {
@@ -209,7 +215,7 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
   if (options.effect !== 'pure' && options.effect !== 'read' && options.effect !== 'write') {
     throw new TypeError(`tool ${name}: effect must be "pure", "read" or "write"`);
   }
-  const implHash = createHash('sha256').update(String(impl)).digest('hex');
+  const implHash = createHash('sha256').update(String(options.source ?? impl)).digest('hex');
 
   return async (args: A): Promise<R> => {
     const cfg = config();
