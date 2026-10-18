@@ -119,6 +119,33 @@ describe('unpack: a pack is untrusted input', () => {
     rejects(dir, /line 1: not valid JSON/);
   });
 
+  it('rejects a blame record without the fields every reader of it relies on', () => {
+    const blame = { at: 1, outcome: 'blamed', callNo: 2, confidence: 'high', rescuedRunId: null, fields: {}, oracle: ['the agent exits 0'], probes: [{ callNo: 2, passes: 3, attempts: 3, rescued: true }], spent: 0.04 };
+    const withBlame = (b: unknown) => {
+      const dir = copyGolden();
+      const m = manifest(dir);
+      m.runs[0]!.meta = { ...((m.runs[0]!.meta as object | undefined) ?? {}), blame: b };
+      writeManifest(dir, m);
+      return dir;
+    };
+    const { oracle: _oracle, ...noOracle } = blame;
+    const cases: Array<[unknown, RegExp]> = [
+      [noOracle, /meta\.blame\.oracle: must be an array/],
+      [{ ...blame, oracle: [7] }, /meta\.blame\.oracle\[0\]: must be a string/],
+      [{ ...blame, fields: 'temperature' }, /meta\.blame\.fields: must be an object/],
+      [{ ...blame, outcome: 'maybe' }, /meta\.blame\.outcome: must be one of/],
+      [{ ...blame, probes: [{ callNo: 2 }] }, /meta\.blame\.probes\[0\]\.passes: must be an integer/],
+      [{ ...blame, rescuedRunId: '../x' }, /meta\.blame\.rescuedRunId: must be a run id or null/],
+      ['blamed', /meta\.blame: must be an object/],
+    ];
+    for (const [b, message] of cases) rejects(withBlame(b), message);
+    // The record blame writes imports.
+    const store = Store.open(':memory:');
+    const run = store.getRun(unpackRun(store, withBlame({ ...blame, scope: 'triage' })).imported[0]!)!;
+    expect(run.meta?.blame).toEqual({ ...blame, scope: 'triage' });
+    store.close();
+  });
+
   it('rejects a pack whose calls need blobs it does not contain', () => {
     const dir = copyGolden();
     const calls = callLines(dir);

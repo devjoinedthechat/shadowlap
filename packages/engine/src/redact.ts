@@ -7,7 +7,9 @@ import { inEvent, maskJsonChunks, maskSseStream, maskStreamed } from './redact-s
 import { redactRunFacts } from './run-facts.js';
 import type { Store } from './store.js';
 import { quoteArgv } from './text.js';
-import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceReport, Normalizer, RunMeta, RunRecord, SerializedError } from './types.js';
+import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceReport, Normalizer, RunMeta, RunNote, RunRecord, SerializedError } from './types.js';
+
+type RunCheck = NonNullable<RunMeta['checks']>[number];
 
 /**
  * Redaction: a copy of a run whose stored requests and responses have the rules applied. Rules
@@ -397,14 +399,16 @@ export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord
   const out: RunRecord = { ...run, command: { ...run.command, argv: run.command.argv.map(text), cwd: text(run.command.cwd) } };
   const meta = run.meta;
   if (meta) {
+    // A record imported from someone else's pack may hold anything the pack's checks let through:
+    // each part is masked where it has the shape it should, its strings wherever they are otherwise.
     const m: RunMeta = { ...meta };
-    if (meta.labels) m.labels = meta.labels.map(text);
-    if (meta.notes) m.notes = meta.notes.map((n) => ({ ...n, text: text(n.text) }));
-    if (meta.checks) m.checks = meta.checks.map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail) }));
-    if (meta.imported) m.imported = { ...meta.imported, from: text(meta.imported.from) };
-    if (meta.test) m.test = { ...meta.test, golden: text(meta.test.golden) };
+    if (meta.labels !== undefined) m.labels = deep(meta.labels) as string[];
+    if (Array.isArray(meta.notes)) m.notes = meta.notes.map((n) => (isRecord(n) ? { ...n, text: deep(n.text) as string } : (deep(n) as RunNote)));
+    if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isRecord(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null } : (deep(c) as RunCheck)));
+    if (isRecord(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from) };
+    if (isRecord(meta.test) && typeof meta.test.golden === 'string') m.test = { ...meta.test, golden: text(meta.test.golden) };
     if (typeof meta.author === 'string') m.author = text(meta.author);
-    if (meta.blame) m.blame = { ...meta.blame, fields: deep(meta.blame.fields) as Record<string, unknown>, oracle: meta.blame.oracle.map(text) };
+    if (isRecord(meta.blame)) m.blame = { ...meta.blame, fields: deep(meta.blame.fields) as Record<string, unknown>, oracle: deep(meta.blame.oracle) as string[] };
     out.meta = m;
   }
   const d = run.divergence;

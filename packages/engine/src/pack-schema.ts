@@ -34,6 +34,8 @@ const MODES = new Set(['record', 'replay']);
 const STATUSES = new Set(['running', 'completed', 'failed', 'crashed']);
 const OUTCOMES = new Set(['ok', 'error']);
 const DIVERGENCES = new Set(['request_changed', 'new_call', 'forced', 'beyond_recording']);
+const BLAME_OUTCOMES = new Set(['blamed', 'unrescuable', 'stopped']);
+const CONFIDENCES = new Set(['high', 'medium', 'low']);
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -131,7 +133,35 @@ export function validateRun(v: unknown, where: string): RunRecord {
       if (typeof rule.replace !== 'string' || rule.replace.length > 2048) fail(`${where}.meta.redactions[${i}].replace`, 'must be a string');
     }
   }
+  if (m.blame !== undefined) validateBlame(m.blame, `${where}.meta.blame`);
   return v as unknown as RunRecord;
+}
+
+/**
+ * What the run's last blame found (BlameRecord), as `shadowlap blame` writes it: the run page,
+ * Fixes, `show`, and the copies made from the run read every field of it.
+ */
+function validateBlame(b: unknown, where: string): void {
+  if (!isObject(b)) fail(where, 'must be an object');
+  int(b.at, `${where}.at`);
+  oneOf(b.outcome, BLAME_OUTCOMES, `${where}.outcome`);
+  if (b.callNo !== null) int(b.callNo, `${where}.callNo`, 1);
+  oneOf(b.confidence, CONFIDENCES, `${where}.confidence`);
+  if (b.rescuedRunId !== null && (typeof b.rescuedRunId !== 'string' || !ULID.test(b.rescuedRunId))) fail(`${where}.rescuedRunId`, 'must be a run id or null');
+  if (!isObject(b.fields)) fail(`${where}.fields`, 'must be an object');
+  if (b.scope !== undefined && (typeof b.scope !== 'string' || b.scope.length > 512)) fail(`${where}.scope`, 'must be a string of at most 512 characters');
+  // What the attempts were judged by, in words (`output includes "…"`): text a person wrote, as a note is.
+  if (!Array.isArray(b.oracle) || b.oracle.length > 1000) fail(`${where}.oracle`, 'must be an array of at most 1000 checks');
+  for (const [i, o] of b.oracle.entries()) if (typeof o !== 'string' || o.length > 10_000) fail(`${where}.oracle[${i}]`, 'must be a string of at most 10000 characters');
+  if (!Array.isArray(b.probes) || b.probes.length > 10_000) fail(`${where}.probes`, 'must be an array of at most 10000 probes');
+  for (const [i, p] of b.probes.entries()) {
+    if (!isObject(p)) fail(`${where}.probes[${i}]`, 'must be an object');
+    int(p.callNo, `${where}.probes[${i}].callNo`, 1);
+    int(p.passes, `${where}.probes[${i}].passes`);
+    int(p.attempts, `${where}.probes[${i}].attempts`);
+    if (typeof p.rescued !== 'boolean') fail(`${where}.probes[${i}].rescued`, 'must be true or false');
+  }
+  if (typeof b.spent !== 'number' || !Number.isFinite(b.spent) || b.spent < 0) fail(`${where}.spent`, 'must be a number ≥ 0');
 }
 
 function validateEnd(v: unknown, where: string, runId: string, callNo: number): CallEndRow {

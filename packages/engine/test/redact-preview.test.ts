@@ -3,7 +3,7 @@ import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { applyNormalizers, parsePath, rewriteText, type RewriteObserver } from '../src/normalize.js';
 import { REDACTION_EXPORTS, clipChange, jsonPath, previewRedaction, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
-import type { Normalizer } from '../src/types.js';
+import type { Normalizer, RunMeta } from '../src/types.js';
 
 const cmd = { argv: ['node', 'agent.js'], cwd: '/tmp' };
 const API = { kind: 'api' as const, name: 'POST /v1/messages' };
@@ -236,6 +236,22 @@ describe('previewRedaction', () => {
     expect(pack.getRun(run.runId)!.command.argv).toEqual(original.command.argv);
     html.close();
     pack.close();
+    store.close();
+  });
+
+  it("masks a run's own record whatever shape a pack gave its parts, instead of failing the copy", () => {
+    const store = Store.open(':memory:');
+    const run = seed(store);
+    const odd = { blame: { at: 1, outcome: 'blamed', fields: { note: 'ask zoe@example.com' } }, checks: ['zoe@example.com'], notes: [null], test: { golden: 7 } } as unknown as RunMeta;
+    const copy = redactRunDetails({ ...store.getRun(run.runId)!, meta: odd }, [EMAIL]);
+    expect(JSON.stringify(copy.meta)).not.toContain('example.com');
+    expect(copy.meta?.blame).toEqual({ at: 1, outcome: 'blamed', fields: { note: 'ask <EMAIL>' } });
+    // export html's copy, of a run stored so.
+    store.updateRunMeta(run.runId, odd);
+    const html = Store.open(':memory:');
+    redactRunWithDetails(store, run.runId, [EMAIL], html);
+    expect(JSON.stringify(html.getRun(run.runId)!.meta)).not.toContain('example.com');
+    html.close();
     store.close();
   });
 
