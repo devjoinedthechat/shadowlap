@@ -172,7 +172,9 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
 - **A fix too large to read** (over 16 MB, the size a pull reads of a run's record) stays on the
   machine that has it, and the push says so; a pull that meets one in the store names it and brings
   the others.
-- **A run you delete here** stays deleted: a pull doesn't bring it back unless you name it.
+- **A run you delete here** stays deleted: a pull doesn't bring it back unless you name it. A
+  teammate's replay or fork of it still comes, without it: the fork's link to it is left unset, as
+  `unpack` leaves a fork whose parent isn't there.
 - **A pulled run is someone else's recording.** It reads as what it is (a recording, a fork, a
   test), by who made it, never as a pack: with the requests it sent and what it spent where it was
   recorded, as `≈$0.0030 spent · by maya` on its page (Provenance's Upstream row names her too)

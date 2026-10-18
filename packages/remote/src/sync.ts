@@ -704,13 +704,20 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
     }
   }
   // A fork comes with its ancestors, so its lineage holds here too; an ancestor never taken from
-  // here comes from where it belongs first.
+  // here comes from where it belongs first. One deleted here stays deleted unless it was named: the
+  // fork comes without it, its link unset, as unpack brings a fork whose parent isn't there.
+  const named = new Set(wanted);
+  const deletedHere = (id: string) => {
+    const state = rows.get(id)?.state;
+    return (state === 'pushed' || state === 'pulled') && store.getRun(id) === null;
+  };
   const parentOf = (id: string) => (rows.get(id)?.entry?.parentRunId as string | null | undefined) ?? null;
   const elsewhere = new Set<string>();
   for (const id of [...wanted]) {
     let parent = parentOf(id);
     for (let depth = 0; parent && depth < 64; depth++) {
       if (here(parent) || !rows.has(parent)) break;
+      if (deletedHere(parent) && !named.has(parent)) break;
       if (excluded.has(parent)) {
         elsewhere.add(parent);
         break;

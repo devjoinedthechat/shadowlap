@@ -351,6 +351,27 @@ describe('pull', () => {
     expect((await pull(a, { runIds: [r.runId] })).pulled).toEqual([r.runId]);
   });
 
+  it("brings a teammate's replay of a run deleted here without the run, unlinked, as unpack would", async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const b = machine(remote, 'maya@northwind.example');
+    const r = record(a.store, 'refund order 1');
+    await push(a, { all: true });
+    await pull(b);
+    b.store.deleteRun(r.runId);
+    expect((await pull(b)).skippedDeleted).toEqual([r.runId]);
+    // Dana replays it and pushes the replay.
+    const fork = record(a.store, 'refund order 1, again', { parent: r.runId });
+    await push(a, { all: true });
+    const result = await pull(b);
+    expect(result.pulled).toEqual([fork.runId]);
+    expect(result.skippedDeleted).toEqual([r.runId]);
+    expect(b.store.getRun(r.runId)).toBeNull();
+    expect(b.store.getRun(fork.runId)!.parentRunId).toBeNull();
+    // Named, the run comes back.
+    expect((await pull(b, { runIds: [r.runId] })).pulled).toEqual([r.runId]);
+  });
+
   it('refuses a blob changed in the bucket, and skips an index segment that is not one', async () => {
     const remote = new MemoryStore(loc);
     const a = machine(remote, 'dana@northwind.example');
