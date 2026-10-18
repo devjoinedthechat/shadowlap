@@ -5,7 +5,7 @@ import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
 import { calibrationTarget, endToast, forkDivergedEarly, forkTarget, isPlainReplay, jobStatus, jobTitle, lastLine, lineTone, replayDivergence, type RunLink } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
-import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
+import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, runIdPrefix, runsById, runsToAskFor, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
@@ -70,6 +70,35 @@ describe('routes', () => {
     expect(nextView('forks')).toBe('calls');
     expect(nextView('provenance')).toBe('calls');
     expect(nextView(null)).toBe('turns');
+  });
+});
+
+describe('a run typed by its id in the palette', () => {
+  // The palette's runs are the run list's, the newest 500: the oldest of 3,000 runs, typed by its id, was offered nothing.
+  const listed = [{ runId: '01M584YR9AQW3XG8T5V2JHKD4N' }, { runId: '01M584YR7Z0000000000000000' }];
+
+  it('takes 4 to 26 characters of a run id, in any case', () => {
+    expect(runIdPrefix('01m584ykt6')).toBe('01M584YKT6');
+    expect(runIdPrefix(' 01M5 ')).toBe('01M5');
+    expect(runIdPrefix('01M')).toBeNull();
+    expect(runIdPrefix('refund')).toBeNull();
+    expect(runIdPrefix('01M584 YKT6')).toBeNull();
+    // I, L, O and U are not in a run id.
+    expect(runIdPrefix('01ML')).toBeNull();
+  });
+
+  it('asks the server only for an id no listed run starts with', () => {
+    expect(runsToAskFor('01M584YKT6', listed)).toBe('01M584YKT6');
+    expect(runsToAskFor('01m584yr9a', listed)).toBeNull();
+    expect(runsToAskFor('01M584YR', listed)).toBeNull();
+    expect(runsToAskFor('Overview', listed)).toBeNull();
+    expect(runsToAskFor('01M584YKT6', null)).toBe('01M584YKT6');
+  });
+
+  it('offers the runs found whose id starts with it, not those whose command does', () => {
+    const found = [{ runId: '01M584YKT6AAAAAAAAAAAAAAAA' }, { runId: '01M599ZZZZ0000000000000000' }];
+    expect(runsById('01M584YKT6', found)).toEqual([found[0]]);
+    expect(runsById('01M5', found, 1)).toEqual([found[0]]);
   });
 });
 
