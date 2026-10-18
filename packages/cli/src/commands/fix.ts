@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
-import { Command, InvalidArgumentError } from 'commander';
+import { Command, InvalidArgumentError, Option } from 'commander';
 import { applyLeft, commandIsImported, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, prNumber, resolveFix, setFixTitle, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fixDetail, fixHref, fixList, ghReader, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget } from '../attempts.js';
@@ -363,7 +363,8 @@ export function register(program: Command): void {
     .option('--set <key=value>', 'blame\'s probes set this request field from the probed call on, e.g. temperature=1 for an agent recorded at 0 (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--attempts <n>', 'the gate: attempts per run, where the replay forks', parseIntArg, 5)
     .option('--passes <n>', 'the gate: attempts that must pass (default: 80%, rounded up)', parseIntArg)
-    .option('--max-growth <percent>', 'reject a fix that grows the input tokens per run by more than this', parsePercent, 0.25)
+    // Read in percent, kept as a share: the help shows the default as it is typed.
+    .addOption(new Option('--max-growth <percent>', 'reject a fix that grows the input tokens per run by more than this').argParser(parsePercent).default(0.25, '25'))
     .option('--build <command>', 'rebuild the agent after its source changes, e.g. "npm run build"')
     .option('--apply', 'leave the accepted fix in the working tree')
     .option('--branch <name>', 'commit the accepted fix to a new branch, without checking it out')

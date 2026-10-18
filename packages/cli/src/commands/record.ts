@@ -244,7 +244,7 @@ export function register(program: Command): void {
     .option('--write', 'add the proposed normalizers to shadowlap.config.json')
     .option('--max-rounds <n>', 'replays to try before giving up', parseIntArg, 8)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
-    .option('--guard <mode>', 'network guard: warn (default), block or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('--guard <mode>', 'network guard: warn, block or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('--json', 'machine-readable output, printed when calibration ends')
     .action(async (runArg: string | undefined, flags: { write?: boolean; maxRounds: number; yes?: boolean; guard: GuardMode; json?: boolean }) => {
       const say = (text: string) => {

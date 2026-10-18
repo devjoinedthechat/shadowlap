@@ -150,7 +150,7 @@ export function register(program: Command): void {
     .option('--online', 'allow live calls after a divergence (default: offline, a live call fails the test)')
     .option('--writes <policy>', 'write tools after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
-    .option('--guard <mode>', 'network guard: block (default in CI), warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
+    .option('--guard <mode>', 'network guard: block, warn or off (re-recording under --update, warn unless given)', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
     .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean }) {
       const opts = program.opts<GlobalOpts>();
@@ -373,7 +373,7 @@ export function register(program: Command): void {
     .argument('<recording>', 'a golden (a directory written by shadowlap pack) or a run id')
     .argument('[command...]', 'the agent\'s command to run at each commit instead of the recorded one (after "--")')
     .requiredOption('--good <rev>', 'a commit where it still passed')
-    .option('--bad <rev>', 'a commit where it fails (default: HEAD)', 'HEAD')
+    .option('--bad <rev>', 'a commit where it fails', 'HEAD')
     .option('--expect <json|@file>', 'checks the replay must pass besides exiting 0 (default: the golden\'s under "tests" in shadowlap.config.json)')
     .option('--fork', 'let each replay diverge and run live from the fork (it costs tokens), so only the exit status and the checks decide: for a run that failed a check')
     .option('--build <command>', 'run in each worktree before the replay, e.g. "npm ci && npm run build"')
