@@ -127,6 +127,9 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     out.push(`  next: ${repairLine(d.actions.repair.argv, o.repairer)}`);
     // Its repairer can't be asked from here: it would blame the runs and find no one to propose a fix.
     if (d.repairer.problem) out.push(`  ${p.yellow('!')} ${one(d.repairer.problem, 600)}`);
+  } else if (apply?.refused && !(d.actions.applied && !apply.pending)) {
+    // More than the one rewrite its repair verified: fix apply won't put it in, and nothing here offers to.
+    out.push(`  ${p.yellow('!')} its patch is not the change its repair verified: ${one(apply.refused, 600)}. shadowlap fix apply won't apply it`);
   } else if (apply && !d.actions.applied) {
     if (apply.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${apply.gitApply ? p.dim(`   (or by hand: ${apply.gitApply})`) : ''}`);
     else out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim('(verified on your working tree: marks it applied)')}`);

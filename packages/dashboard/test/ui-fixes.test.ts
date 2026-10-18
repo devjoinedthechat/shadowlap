@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, plainCell, probeBadge, repairAside, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
+import { applyText, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -55,13 +55,38 @@ describe('a fix', () => {
 
   it('offers Repair from here on an open fix, Apply on a verified one, and Patch applied once it is in', () => {
     const repair = { argv: ['repair'], command: 'shadowlap repair' };
-    const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false };
+    const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', refused: null };
     expect(fixAction({ status: 'open', actions: actions({ repair }) })).toEqual({ kind: 'repair' });
     expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Repair from here', why: expect.stringMatching(/nothing to repair from here/) });
     expect(fixAction({ status: 'verified', actions: actions({ apply: patch }) })).toEqual({ kind: 'apply', label: 'Apply the patch' });
     expect(fixAction({ status: 'verified', actions: actions({ apply: { ...patch, kind: 'mark', gitApply: null } }) })).toEqual({ kind: 'apply', label: 'Mark applied' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: patch, applied: true }) })).toEqual({ kind: 'applied' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: { ...patch, pending: 'run shadowlap test on its goldens' }, applied: true }) })).toEqual({ kind: 'apply', label: 'Finish applying' });
+    // A patch fix apply refuses: the button stays off, and says why on hover.
+    const refused = { ...patch, gitApply: null, refused: 'it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone' };
+    expect(fixAction({ status: 'verified', actions: actions({ apply: refused }) })).toEqual({ kind: 'none', label: 'Apply the patch', why: 'This patch is not the change its repair verified: it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone. Nothing applies it from here.' });
+    expect(fixAction({ status: 'applied', actions: actions({ apply: { ...refused, pending: 'run shadowlap test on its goldens' }, applied: true }) })).toMatchObject({ kind: 'none' });
+    expect(fixAction({ status: 'applied', actions: actions({ apply: refused, applied: true }) })).toEqual({ kind: 'applied' });
+  });
+
+  it('asks before applying with every file the patch changes and the patch itself, and runs nothing from a teammate’s', () => {
+    expect(applyText({ files: ['agent.mjs'], pulled: false })).toBe(
+      'This changes your working tree: the patch below goes into agent.mjs with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Your other goldens are replayed offline, to name any the change makes diverge. Review the change before you commit it.',
+    );
+    expect(applyText({ files: ['agent.mjs', 'src/tools.mjs', 'prompt.txt'], pulled: true })).toBe(
+      "This changes your working tree: the patch below goes into agent.mjs, src/tools.mjs and prompt.txt with git apply. It came from the team store, so nothing here runs it: the recordings the fixed code made stay on the machine that ran the repair, and your goldens aren't replayed against it. Read it first; once it is in and is what you meant, check your goldens with shadowlap test.",
+    );
+    expect(patchLines('diff --git a/agent.mjs b/agent.mjs\n--- a/agent.mjs\n+++ b/agent.mjs\n@@ -1,2 +1,2 @@\n-old\n+new\n context\n--- removed dashes\n')).toEqual([
+      { text: 'diff --git a/agent.mjs b/agent.mjs', tone: null },
+      { text: '--- a/agent.mjs', tone: null },
+      { text: '+++ b/agent.mjs', tone: null },
+      { text: '@@ -1,2 +1,2 @@', tone: null },
+      { text: '-old', tone: 'del' },
+      { text: '+new', tone: 'add' },
+      { text: ' context', tone: null },
+      // A removed line that starts with dashes is still a removed line.
+      { text: '--- removed dashes', tone: 'del' },
+    ]);
   });
 
   it("keeps Repair from here but not as the lead when blame found no answer of the model's lost the run", () => {

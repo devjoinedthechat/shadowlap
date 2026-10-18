@@ -15,7 +15,7 @@ import { errorText } from '../toast.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
-import { fixAction, fixName, fixStamp, laterStamp, outdatedOf, repairAsk, repairAside, shortFixId, statusBadge, stepFor, updateOutdatedAsk } from './model.js';
+import { applyText, fixAction, fixName, fixStamp, laterStamp, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, statusBadge, stepFor, updateOutdatedAsk } from './model.js';
 import { Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
@@ -280,7 +280,6 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
 
 function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: string; onClose: () => void; onRun: () => void }) {
   const apply = fix.actions.apply!;
-  const file = fix.repair?.change?.file ?? null;
   const run = () => {
     onClose();
     onRun();
@@ -299,12 +298,19 @@ function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: st
     );
   if (fix.actions.applied)
     return <ConfirmDialog title="Finish applying the fix?" text={`The patch is in your working tree. What is left: ${apply.pending ?? 'nothing'}.`} ok={label} command={command} onOk={run} onClose={onClose} />;
-  // A teammate's repair, from the team store: its recordings are on the machine that ran it.
-  const text = apply.pulled
-    ? `This changes your working tree: the patch goes into ${file ?? 'your files'} with git apply. The recordings the fixed code made stay on the machine that ran the repair, so nothing is copied here. Your goldens are replayed offline, to name any the change makes diverge. Review the change before you commit it.`
-    : `This changes your working tree: the patch goes into ${file ?? 'your files'} with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Your other goldens are replayed offline, to name any the change makes diverge. Review the change before you commit it.`;
+  // What goes in is what is shown: the patch itself, with every file it changes named.
   return (
-    <Dialog title="Apply the patch?" text={text} ok={label} onOk={run} onClose={onClose}>
+    <Dialog title="Apply the patch?" text={applyText(apply)} ok={label} onOk={run} onClose={onClose}>
+      {apply.diff ? (
+        <pre className="fxcode fxpatch">
+          {patchLines(apply.diff).map((l, i) => (
+            <span key={i} className={l.tone ?? undefined}>
+              {l.text}
+              {'\n'}
+            </span>
+          ))}
+        </pre>
+      ) : null}
       <CmdLine>{command}</CmdLine>
     </Dialog>
   );

@@ -198,6 +198,126 @@ export function unifiedDiff(path: string, before: string, after: string, context
   return out.join('\n') + '\n';
 }
 
+/**
+ * Every file a patch names, as `git apply` reads its headers: both sides of `diff --git`, the `---`
+ * and `+++` lines, renames and copies; `/dev/null` (a file made or deleted) is left out. A hunk's
+ * lines are skipped by its counts, so a removed line that starts with `--` is not taken for a header.
+ */
+export function patchFiles(patch: string): string[] {
+  const files = new Set<string>();
+  const add = (name: string, prefix: boolean) => {
+    const n = name.replace(/\t.*$/, '').trim();
+    if (n && n !== '/dev/null') files.add(prefix ? n.replace(/^[ab]\//, '') : n);
+  };
+  const lines = patch.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]!;
+    const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(l);
+    if (hunk) {
+      let old = hunk[1] === undefined ? 1 : Number(hunk[1]);
+      let now = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      while ((old > 0 || now > 0) && i + 1 < lines.length) {
+        const h = lines[++i]!;
+        if (h.startsWith('\\')) continue;
+        if (!h.startsWith('+')) old--;
+        if (!h.startsWith('-')) now--;
+      }
+      continue;
+    }
+    const git = /^diff --git (.+)$/.exec(l);
+    if (git) {
+      // `a/<name> b/<name>`: the same name on both sides, spaces and all, unless it was renamed.
+      const both = git[1]!;
+      const n = (both.length - 5) / 2;
+      if (Number.isInteger(n) && both.startsWith('a/') && both.slice(2 + n, 5 + n) === ' b/' && both.slice(2, 2 + n) === both.slice(5 + n)) add(both.slice(2, 2 + n), false);
+      else for (const side of both.split(/ (?=b\/)/)) add(side, true);
+      continue;
+    }
+    const named = /^(?:---|\+\+\+) (.+)$/.exec(l);
+    if (named) add(named[1]!, true);
+    const moved = /^(?:rename|copy) (?:from|to) (.+)$/.exec(l);
+    if (moved) add(moved[1]!, false);
+  }
+  return [...files];
+}
+
+/** A path `git apply` reads as written: relative, inside the repository, outside `.git`, with nothing it would unquote or trim. */
+function plainRepoPath(file: string): boolean {
+  return (
+    file.length > 0 &&
+    file === file.trim() &&
+    !/[\u0000-\u001f\u007f-\u009f"\\]/.test(file) &&
+    !file.startsWith('/') &&
+    !/^[a-z]:/i.test(file) &&
+    file.split('/').every((s) => s !== '' && s !== '.' && s !== '..' && s.toLowerCase() !== '.git')
+  );
+}
+
+const fileList = (files: string[]) => (files.length > 1 ? `${files.slice(0, -1).join(', ')} and ${files.at(-1)}` : (files[0] ?? 'nothing'));
+
+/**
+ * Why a repair's patch is not the change its accepted candidate makes, or null when it is (or when
+ * there is no patch). `shadowlap fix apply` hands the patch to `git apply`, and a store can come from
+ * elsewhere (a teammate's bucket, a copied file), so it is held to what `unifiedDiff` writes for that
+ * one rewrite and nothing more: the candidate's file alone, changed in place (no file made, deleted,
+ * renamed or copied, no mode or binary change), in one hunk whose removed side turns into its added
+ * side by the candidate's rewrite of its text, once, and by nothing else.
+ */
+export function repairPatchProblem(report: Pick<RepairReport, 'patch' | 'candidates' | 'accepted'>): string | null {
+  const patch = report.patch;
+  if (patch === null) return null;
+  const c = report.candidates.find((x) => x.id === report.accepted);
+  if (!c) return 'no accepted candidate comes with it';
+  const file = c.file;
+  if (!plainRepoPath(file)) return `its accepted candidate names "${safeLine(file)}", which is not a plain path inside the repository`;
+  const files = patchFiles(patch);
+  if (files.some((f) => f !== file)) return `it changes ${fileList(files.map(safeLine))}, where its accepted candidate changes ${file} alone`;
+  if (!c.before) return 'its accepted candidate rewrites no text';
+  const lines = patch.split('\n');
+  if (lines.pop() !== '') return 'it does not end with a line break';
+  const head = [`diff --git a/${file} b/${file}`, `--- a/${file}`, `+++ b/${file}`];
+  if (head.some((h, i) => lines[i] !== h)) return `its header is not the one a repair writes for ${file}: a repair never makes, deletes, renames or copies a file, nor changes its mode`;
+  const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@$/.exec(lines[3] ?? '');
+  if (!hunk) return 'it holds no hunk a repair writes';
+  let old = hunk[1] === undefined ? 1 : Number(hunk[1]);
+  let now = hunk[2] === undefined ? 1 : Number(hunk[2]);
+  const sides: Record<'-' | '+', Array<{ text: string; eol: boolean }>> = { '-': [], '+': [] };
+  let last: ' ' | '-' | '+' | null = null;
+  let i = 4;
+  for (; i < lines.length; i++) {
+    const l = lines[i]!;
+    if (l === '\\ No newline at end of file' && last) {
+      for (const side of last === ' ' ? (['-', '+'] as const) : [last]) sides[side].at(-1)!.eol = false;
+      last = null;
+      continue;
+    }
+    if (old <= 0 && now <= 0) break;
+    const kind = l[0];
+    if (kind !== ' ' && kind !== '-' && kind !== '+') return 'a line in its hunk is neither context, removed nor added';
+    if (kind !== '+') sides['-'].push({ text: l.slice(1), eol: true }), old--;
+    if (kind !== '-') sides['+'].push({ text: l.slice(1), eol: true }), now--;
+    last = kind;
+  }
+  if (old !== 0 || now !== 0) return 'its hunk holds a different number of lines than its header says';
+  if (i < lines.length) return 'it holds more than the one hunk a repair writes';
+  const text = (side: '-' | '+') => sides[side].map((x) => x.text + (x.eol ? '\n' : '')).join('');
+  const was = text('-');
+  const is = text('+');
+  // The hunk holds three lines of context around the lines that differ, so a long text whose last
+  // line alone was rewritten is not all in it: what has to be in it is the part of the rewrite that
+  // differs, with what the text and its rewrite share at either end left out.
+  let p = 0;
+  while (p < c.before.length && p < c.after.length && c.before[p] === c.after[p]) p++;
+  let s = 0;
+  while (s < c.before.length - p && s < c.after.length - p && c.before[c.before.length - 1 - s] === c.after[c.after.length - 1 - s]) s++;
+  const from = c.before.slice(p, c.before.length - s);
+  const to = c.after.slice(p, c.after.length - s);
+  for (let at = was.indexOf(from); at >= 0; at = at < was.length ? was.indexOf(from, at + 1) : -1) {
+    if (was.slice(0, at) + to + was.slice(at + from.length) === is) return null;
+  }
+  return `the lines it changes in ${file} are not its accepted candidate's rewrite`;
+}
+
 // ---- The report ------------------------------------------------------------------------------
 
 export type CandidateState = 'invalid' | 'untried' | 'build-failed' | 'rejected' | 'incomplete' | 'accepted';

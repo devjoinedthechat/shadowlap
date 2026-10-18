@@ -190,6 +190,41 @@ describe('a fix in the team store', () => {
     expect((await pull(maya)).fixes.failed).toHaveLength(5);
   });
 
+  it("keeps out a fix whose repair's patch is more than the change its candidate makes", async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const { run, fixId } = blamed(dana.store);
+    inStore(dana.store, run);
+    recordRepair(dana.store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [run] }), expect: EXPECT, command: `shadowlap repair --fixes ${run}` });
+    await push(dana, { runIds: [] });
+    const good = parseFixDoc(remote.objects.get(fixKey(fixId))!.body, fixId);
+    expect(good.repairs).toHaveLength(1);
+    const own = good.repairs[0]!.report.patch!;
+    const evil = ['diff --git a/EVIL.txt b/EVIL.txt', 'new file mode 100644', '--- /dev/null', '+++ b/EVIL.txt', '@@ -0,0 +1 @@', '+from the bucket', ''].join('\n');
+    const patches: Record<string, string> = {
+      'fx-01M3RZ0000000000000000001A': own + evil,
+      'fx-01M3RZ0000000000000000001B': own.split('agent.mjs').join('triage.mjs'),
+      'fx-01M3RZ0000000000000000001C': own.replace('@@ -1,1 +1,1 @@', '@@ -1,1 +1,2 @@').replace(/^(\+You .*)$/m, "$1\n+require('child_process').execSync('id');"),
+    };
+    for (const [id, patch] of Object.entries(patches)) {
+      const doc = JSON.parse(JSON.stringify({ ...good, fix: { ...good.fix, fixId: id } })) as FixDoc;
+      doc.repairs[0]!.report.patch = patch;
+      remote.objects.set(fixKey(id), { body: Buffer.from(JSON.stringify(doc)), version: `x-${id}`, contentType: 'application/json' });
+    }
+    const maya = machine(remote, 'maya@northwind.example');
+    const got = await pull(maya);
+    expect(got.fixes.pulled).toEqual([fixId]);
+    expect(Object.fromEntries(got.fixes.failed.map((f) => [f.fixId, f.reason]))).toEqual({
+      'fx-01M3RZ0000000000000000001A': expect.stringContaining('repairs[0].report.patch: must be the change its accepted candidate makes, but it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone'),
+      'fx-01M3RZ0000000000000000001B': expect.stringContaining('but it changes triage.mjs, where its accepted candidate changes agent.mjs alone'),
+      'fx-01M3RZ0000000000000000001C': expect.stringContaining("but the lines it changes in agent.mjs are not its accepted candidate's rewrite"),
+    });
+    for (const id of Object.keys(patches)) expect(maya.store.getFix(id)).toBeNull();
+    // Only the repair as it was made came: its patch is the one a pull writes beside the project.
+    expect(got.fixes.repairs).toEqual(['repair-munzln2i']);
+    expect(maya.store.getRepair('repair-munzln2i')!.report.patch).toBe(own);
+  });
+
   it('keeps one too large to read out of a pull, and never writes one that large', async () => {
     const remote = new MemoryStore(loc);
     const dana = machine(remote, 'dana@northwind.example');

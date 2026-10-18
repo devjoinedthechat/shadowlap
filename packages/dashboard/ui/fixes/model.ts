@@ -85,8 +85,37 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
   if (f.status === 'open') return f.actions.repair ? { kind: 'repair' } : { kind: 'none', label: 'Repair from here', why: 'None of its failing runs is left in the store, so there is nothing to repair from here.' };
   const apply = f.actions.apply;
   if (!apply) return { kind: 'none', label: 'Apply the patch', why: 'No change has been verified for it.' };
-  if (f.actions.applied) return apply.pending ? { kind: 'apply', label: 'Finish applying' } : { kind: 'applied' };
+  if (f.actions.applied && !apply.pending) return { kind: 'applied' };
+  // More than the one rewrite its repair verified: fix apply won't put it in, so neither does the button.
+  if (apply.refused) return { kind: 'none', label: 'Apply the patch', why: `This patch is not the change its repair verified: ${apply.refused}. Nothing applies it from here.` };
+  if (f.actions.applied) return { kind: 'apply', label: 'Finish applying' };
   return { kind: 'apply', label: apply.kind === 'mark' ? 'Mark applied' : 'Apply the patch' };
+}
+
+/**
+ * What Apply the patch says before it changes the working tree: every file the patch changes, how
+ * it goes in, and what runs after. A teammate's patch, from the team store, runs nothing here: no
+ * replay of the goldens, until it has been read.
+ */
+export function applyText(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'files' | 'pulled'>): string {
+  const files = apply.files;
+  const named = !files.length ? 'your files' : files.length === 1 ? files[0]! : `${files.slice(0, -1).join(', ')} and ${files.at(-1)}`;
+  return apply.pulled
+    ? `This changes your working tree: the patch below goes into ${named} with git apply. It came from the team store, so nothing here runs it: the recordings the fixed code made stay on the machine that ran the repair, and your goldens aren't replayed against it. Read it first; once it is in and is what you meant, check your goldens with shadowlap test.`
+    : `This changes your working tree: the patch below goes into ${named} with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Your other goldens are replayed offline, to name any the change makes diverge. Review the change before you commit it.`;
+}
+
+/** A patch's lines as the dialog shows them, each line a hunk adds or removes marked; the headers are neither. */
+export function patchLines(diff: string): Array<{ text: string; tone: 'add' | 'del' | null }> {
+  let inHunk = false;
+  return diff
+    .replace(/\n$/, '')
+    .split('\n')
+    .map((text) => {
+      if (text.startsWith('@@')) inHunk = true;
+      else if (text.startsWith('diff ')) inHunk = false;
+      return { text, tone: inHunk && text.startsWith('+') ? 'add' : inHunk && text.startsWith('-') ? 'del' : null };
+    });
 }
 
 /**
