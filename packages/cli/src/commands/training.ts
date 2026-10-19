@@ -7,6 +7,7 @@ import {
   findPairs,
   formatTokens,
   formatUsd,
+  judgeLine,
   listingInput,
   listModelChoices,
   mainRefusal,
@@ -30,7 +31,7 @@ import { type GuardMode } from '../run-agent.js';
 import { serveTasks } from '../serve-tasks.js';
 import { openStore, parseChoice, parseIntArg, readStore, type GlobalOpts } from '../shared.js';
 import { resolveTarget, targetVia, type ModelTarget } from '../takeover.js';
-import { cannotScore, keepScores, loadTasks, scoreTask, type KeptScores, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
+import { addJudge, cannotScore, keepScores, loadTasks, scoreTask, type KeptScores, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
 import { palette as p, quoteArgv, shortId } from '../ui.js';
 
 /**
@@ -123,6 +124,11 @@ function checkLine(a: ScoredAttempt): string {
 /** What became of the model's score on each task: `new`, `replaced`, the earlier one `kept` (this one stopped short), or `none` (nothing was scored). */
 const STORED: Record<KeptScores['outcome'], string> = { new: 'new', replaced: 'replaced', kept: 'kept-earlier', none: 'none' };
 
+/**
+ * What `tasks score --json` prints. `spent` is what the attempts' own calls cost; what their judge
+ * checks' calls did and cost is `judge`, apart, at each level (null without a judge call), as test
+ * and verify report it. The budget counts both.
+ */
 function scoreJson(target: ModelTarget, via: string, session: string, scores: TaskScore[], skipped: Array<{ task: string; reason: string }>, kept: Map<TaskScore, KeptScores> = new Map()) {
   const all = scores.flatMap((s) => s.attempts);
   return {
@@ -130,10 +136,11 @@ function scoreJson(target: ModelTarget, via: string, session: string, scores: Ta
     baseUrl: target.scoreBase,
     via,
     session,
-    tasks: scores.map((s) => ({ task: s.task, takeover: s.takeover, why: s.why, replayed: s.prefix, attempts: s.attempts.map((a) => ({ attempt: a.attempt, run: a.runId, score: a.score, checks: a.checks, spent: a.spent, exitCode: a.exitCode })), mean: s.mean, spent: s.spent, stopped: s.stopped, dropped: s.dropped, stored: STORED[kept.get(s)?.outcome ?? 'none'] })),
+    tasks: scores.map((s) => ({ task: s.task, takeover: s.takeover, why: s.why, replayed: s.prefix, attempts: s.attempts.map((a) => ({ attempt: a.attempt, run: a.runId, score: a.score, checks: a.checks, spent: a.spent, judge: a.judge, exitCode: a.exitCode })), mean: s.mean, spent: s.spent, judge: s.judge, stopped: s.stopped, dropped: s.dropped, stored: STORED[kept.get(s)?.outcome ?? 'none'] })),
     mean: all.length ? all.reduce((x, a) => x + a.score, 0) / all.length : null,
     attempts: all.length,
     spent: scores.reduce((x, s) => x + s.spent, 0),
+    judge: scores.reduce<TaskScore['judge']>((j, s) => addJudge(j, s.judge), null),
     unknownModels: [...new Set(scores.flatMap((s) => s.unknownModels))],
     skipped,
   };
@@ -302,7 +309,8 @@ export function register(program: Command): void {
           skipped.push({ task: t.golden, reason: (err as Error).message });
           continue;
         }
-        spent += score.spent;
+        // The budget counts what the judge checks cost too, though it is reported apart.
+        spent += score.spent + (score.judge?.spent ?? 0);
         scores.push(score);
         if (score.dropped.length) log(p.dim(`  the conversation went to ${safeLine(target.model)} without: ${score.dropped.join(', ')}`));
         if (score.stopped) log(`  ${p.yellow('!')} ${score.stopped.split('\n').map(safeLine).join('\n    ')}`);
@@ -325,11 +333,17 @@ export function register(program: Command): void {
       const unpriced = report.unknownModels.length ? p.dim(` (no price for ${report.unknownModels.map(safeLine).join(', ')}: add it under "prices" in shadowlap.config.json)`) : '';
       // A model on this machine answers for nothing; the provider's own calls after a takeover (an embedding) still cost what they cost.
       const cost = target.local ? `$0, on this machine${report.spent > 0 ? ` · ≈${formatUsd(report.spent)} on the provider's own calls` : ''}${unpriced}` : `≈${formatUsd(report.spent)} spent${unpriced}`;
+      // What the judge checks' calls did and cost, apart from the model's: they go to the judge, never to the model scored.
+      const judged = report.judge ? p.dim(`  ${judgeLine(report.judge)}, apart from the cost above`) : null;
       if (report.mean !== null) {
         const line = `${p.green('✓')} ${safeLine(target.model)} · mean ${report.mean.toFixed(2)} · ${plural(report.attempts, 'attempt')} on ${plural(done.length, 'task')} · ${cost} · every call before a takeover replayed`;
         if (flags.json) log(line);
         else process.stdout.write(`${line}\n`);
       } else log(`${p.red('✗')} no attempt was scored`);
+      if (judged) {
+        if (flags.json || report.mean === null) log(judged);
+        else process.stdout.write(`${judged}\n`);
+      }
       // The scores show something new only when an attempt was scored: a job that scored none ends on its reason.
       if (done.length) emitJobEvent({ type: 'link', label: 'Open the scores', href: '#/training/tasks' });
       emitJobEvent({ type: 'result', data: report });

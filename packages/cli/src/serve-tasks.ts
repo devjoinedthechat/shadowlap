@@ -187,6 +187,8 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
         checks: a.checks,
         run: a.runId,
         spent: a.spent,
+        // Its judge checks' calls, apart from what the attempt cost, as tasks score reports them.
+        ...(a.judge ? { judge: a.judge } : {}),
         exitCode: a.exitCode,
         ms: Date.now() - started,
         ...(score.dropped.length ? { dropped: score.dropped } : {}),
