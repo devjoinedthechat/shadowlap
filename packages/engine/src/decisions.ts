@@ -502,7 +502,7 @@ export interface DecisionsVerify {
   /** The verdicts kept (one per check the runs are judged by). */
   verifyIds: string[];
   /**
-   * Each run verified: its role, how it came out (fixed, kept, broken, still failing, unsettled),
+   * Each run verified: its role, how it came out (fixed, not-fixed, kept, broken, inconclusive, unsettled),
    * passes and attempts, and under a gate the Wilson bound of its pass rate (`rate >= 0.76 (95%)`;
    * null for a clean replay or a fixed count, absent from sessions kept before it was).
    */

@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type DecisionsReport } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
+import { mergeVerify } from '../src/decisions-verify.js';
 import { departures } from './json-shapes.js';
 
 /**
@@ -438,4 +439,19 @@ describe('shadowlap decisions', () => {
     expect(none.out).toMatch(/give the change: --model <model>, --set <key=value>, or --from-code/);
     expect(existsSync(join(cwd, 'goldens'))).toBe(true);
   }, 60_000);
+});
+
+describe('a session verified again', () => {
+  const run = (runId: string, outcome: string) => ({ runId, role: outcome === 'kept' || outcome === 'broken' ? 'good' : 'target', outcome, passes: 0, attempts: 1, bound: null });
+  const verify = (verdict: NonNullable<DecisionsReport['verify']>['verdict'], runs: ReturnType<typeof run>[]): NonNullable<DecisionsReport['verify']> => ({ verdict, verifyIds: [], runs, rule: null, commands: [], spent: 0, upstreamRequests: 0, reasons: [] });
+
+  it('stays incomplete while a run an earlier verify left inconclusive is not settled, never accepted', () => {
+    // A's gate ran out of attempts between its bounds; verifying B alone now settles B, not A.
+    const earlier = verify('incomplete', [run('A', 'inconclusive'), run('B', 'unsettled')]);
+    expect(mergeVerify(earlier, verify('accepted', [run('B', 'fixed')]))).toMatchObject({ verdict: 'incomplete', runs: [{ runId: 'A', outcome: 'inconclusive' }, { runId: 'B', outcome: 'fixed' }] });
+    // Once A is verified again and kept, every run is settled.
+    expect(mergeVerify(earlier, verify('accepted', [run('A', 'kept'), run('B', 'fixed')])).verdict).toBe('accepted');
+    // A run that failed still rejects, whatever else is open.
+    expect(mergeVerify(earlier, verify('rejected', [run('B', 'not-fixed')])).verdict).toBe('rejected');
+  });
 });

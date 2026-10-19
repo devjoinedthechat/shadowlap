@@ -860,7 +860,7 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
     out.spent += report.spent;
     out.upstreamRequests += report.upstreamRequests;
     out.reasons.push(...report.reasons);
-    // In verify --json's words: fixed, not-fixed, kept, broken, unsettled.
+    // In verify --json's words: fixed, not-fixed, kept, broken, inconclusive, unsettled.
     for (const r of report.runs) out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, bound: r.gate && !r.deterministic ? wilsonBound(r.gate) : null });
     if (report.verdict === 'rejected') out.verdict = 'rejected';
     else if (report.verdict === 'incomplete' && out.verdict !== 'rejected') out.verdict = 'incomplete';
