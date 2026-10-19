@@ -3,7 +3,9 @@ import {
   canonicalize,
   commitTitle,
   describeBlocks,
+  describeGate,
   describeRescue,
+  eachRun,
   findPairs,
   fixCost,
   FixIdError,
@@ -17,10 +19,13 @@ import {
   noRepairerOf,
   outcomeOf,
   patchFiles,
+  probeFinding,
+  probeWord,
   recordingsOfRun,
   repairMarkdown,
   repairPatchProblem,
   repairToApply,
+  rescueRule,
   resolveFix,
   testsEntryFor,
   unrescuedWhy,
@@ -142,10 +147,12 @@ export interface BlameStep {
   pairs: number | null;
   /** How a probe asked again: "resample the probed call", or the fields it changed. */
   rescue: string;
-  /** A rescue needs `needed` of `attemptsPerProbe` attempts to pass. */
+  /** A rescue needs `needed` of `attemptsPerProbe` attempts to pass, or, decided by a gate, the fewest passes that can rescue and the most attempts. */
   needed: number;
   attemptsPerProbe: number;
-  probes: Array<{ callNo: number; step: number; passes: number; attempts: number; verdict: 'rescued' | 'lost' | 'rescued · blamed'; blamed: boolean; href: string }>;
+  /** How a probe decides, in a sentence: `a rescue: the re-asked call passes at least 60% of the time, …`, or `a rescue needs 2 of 5 attempts to pass`. */
+  rule: string;
+  probes: Array<{ callNo: number; step: number; passes: number; attempts: number; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; blamed: boolean; href: string }>;
   /** The attempts, bundled per probe. */
   bundles: Array<{ callNo: number; title: string; blamed: boolean; passes: number; attempts: Array<{ runId: string; passed: boolean; note: string; spent: number; href: string }> }>;
   /** Every call of the run, for the row that shows where it was lost; `inScope` is false for a call outside the blame's scope. */
@@ -196,6 +203,8 @@ export interface RepairStep {
   roles: Array<{ role: 'target' | 'held-out' | 'good'; held: number; of: number }>;
   needed: number | null;
   attemptsPerRun: number | null;
+  /** How each run was decided: `each at 4 of 5 attempts`, or `each passing at 90% or more, at 5% risk`; null without a verification. */
+  rule: string | null;
   /** Where each failing run was lost, from its blame. */
   lost: Array<{ runId: string; at: string; href: string }>;
   diagnosis: string | null;
@@ -223,6 +232,8 @@ export interface VerifyRow {
   /** The first attempt replayed clean, so it settled the run. */
   deterministic: boolean;
   outcome: ReturnType<typeof outcomeOf>;
+  /** Decided by a gate: what it said, and the pass rate's Wilson interval at the confidence it decided at. Null for a fixed count. */
+  rate: { decision: string; lo: number; hi: number; confidence: number; sentence: string } | null;
   /** Where it went: where it forked, or why it failed. */
   note: string;
   /** Input tokens and cost per run, as recorded and under the change (the mean of its attempts). */
@@ -525,7 +536,10 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
   let title: string;
   if (b.outcome === 'blamed' && r.blamed) {
     title = `Lost at model call #${r.blamed.callNo}`;
-    boundary = `Resampling #${r.blamed.callNo} rescued ${rate(r.blamed)} attempts; ${r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${rate(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
+    boundary =
+      r.gate && r.blamed.decision
+        ? `The re-asked call #${r.blamed.callNo} ${probeFinding(r.blamed, r.gate)}; ${r.lost ? `#${r.lost.callNo}, the next model call, ${probeFinding(r.lost, r.gate)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`
+        : `Resampling #${r.blamed.callNo} rescued ${rate(r.blamed)} attempts; ${r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${rate(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
   } else if (b.outcome === 'unrescuable') {
     title = 'Not rescued from any model call';
     boundary = unrescuedWhy(r).evidence ?? 'No probe rescued the run.';
@@ -539,10 +553,12 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
         ? `rescue worked again at ${r.nonMonotone.map((x) => `#${x.rescued} after failing at #${x.lost}`).join(', ')}, so the boundary is not clean`
         : 'the search did not finish'
       : r.confidence === 'medium' && r.lost
-        ? `#${r.lost.callNo} still passed ${rate(r.lost)}, below the bar: the run was not reliably lost there`
+        ? r.lost.decision === 'inconclusive'
+          ? `#${r.lost.callNo} was inconclusive: the run was not reliably lost there`
+          : `#${r.lost.callNo} still passed ${rate(r.lost)}, below the bar: the run was not reliably lost there`
         : 'rescue stops cleanly at the boundary';
   const probeOf = new Map(r.probes.map((x) => [x.callNo, x]));
-  const verdictOf = (x: { callNo: number; rescued: boolean }) => (x.callNo === blamedCall ? 'rescued · blamed' : x.rescued ? 'rescued' : 'lost');
+  const verdictOf = (x: Parameters<typeof probeWord>[0] & { callNo: number }) => (x.callNo === blamedCall ? 'rescued · blamed' : probeWord(x));
   const callRow = run
     ? store.getCalls(b.runId).map((c) => {
         const p = probeOf.get(c.callNo);
@@ -572,6 +588,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     rescue: describeRescue(r.rescue?.fields ?? {}),
     needed: r.needed,
     attemptsPerProbe: r.attemptsPerProbe,
+    rule: rescueRule(r),
     probes: r.probes.map((x) => ({ callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length, verdict: verdictOf(x), blamed: x.callNo === blamedCall, href: runHref(b.runId, x.callNo) })),
     bundles: r.probes.map((x) => ({
       callNo: x.callNo,
@@ -662,6 +679,7 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
     roles,
     needed: v?.needed ?? null,
     attemptsPerRun: v?.attemptsPerRun ?? null,
+    rule: v ? eachRun(v) : null,
     lost: rep.targets.map((t) => ({
       runId: t.runId,
       at: t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? 'not rescued from any model call' : (t.note ?? t.outcome),
@@ -733,6 +751,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
       passes: x.passes,
       deterministic: x.deterministic,
       outcome: outcomeOf(x),
+      rate: x.gate ? { decision: x.gate.decision, lo: x.gate.interval.lo, hi: x.gate.interval.hi, confidence: x.gate.interval.confidence, sentence: x.gate.sentence } : null,
       note: failure ? shortFailure(failure) : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
       tokens: now === null ? null : { recorded: x.recorded.footprint.inputTokens, now },
       cost: n ? { recorded: x.recorded.footprint.cost, now: mean((a) => a.footprint.cost) } : null,
@@ -749,7 +768,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
     code,
     label: `${code} · ${v.verdict}`,
     headline: headline(v),
-    oracle: `a run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the check: ${r.oracle.join('; ')}`,
+    oracle: r.gate ? `a run's attempts must meet the check: ${r.oracle.join('; ')}; its gate decides after each one: ${describeGate(r.gate)}` : `a run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the check: ${r.oracle.join('; ')}`,
     needed: r.needed,
     attemptsPerRun: r.attemptsPerRun,
     rows,

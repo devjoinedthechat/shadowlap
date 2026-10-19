@@ -117,7 +117,7 @@ describe('shadowlap test with a gate', () => {
     const r = await shadowlapTest({ 'goldens/reference-agent': { fork: true, gate: {}, expect: CHECKS } }, FORKS_AND_EMAILS);
     expect(r.code).toBe(1);
     expect(r.out).toContain('✗ reference-agent: failed: at most 70% with 95% confidence after 3 attempts. Attempt 1: check failed: send_email called 0 times, but called 1 time');
-    expect(r.out).toContain('0 of 3 passed · pass rate ≥ 0.00 (95%, Wilson)');
+    expect(r.out).toContain('0 of 3 passed · pass rate ≤ 0.56 (95%, Wilson)');
     expect(r.report.results[0]).toMatchObject({ ok: false, verdict: 'failed', failure: 'check', gate: { decision: 'fail', attempts: 3, max: 40 } });
     expect(r.markdown).toContain('### Shadowlap: 1 of 1 recording failed');
   }, 120_000);

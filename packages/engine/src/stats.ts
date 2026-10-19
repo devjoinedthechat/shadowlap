@@ -581,7 +581,8 @@ export function decisionWord(d: GateDecision): 'passed' | 'failed' | 'inconclusi
 /** The baseline in words: `0.94 over the last 10 sessions`, or that there is none yet. */
 function baselineWords(e: BaselineEvidence): string {
   if (!e.history) return 'a golden that always passes, since it has no history yet';
-  return `${rate(e.baseline)} over the last ${plural(e.history.sessions || 1, 'session')} (${e.history.passes} of ${e.history.attempts} attempts)`;
+  const over = e.history.sessions > 1 ? `the last ${e.history.sessions} sessions` : 'its last session';
+  return `${rate(e.baseline)} over ${over} (${e.history.passes} of ${e.history.attempts} attempts)`;
 }
 
 /**
@@ -606,11 +607,17 @@ export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'attempt
   return `undecided ${after}: it decides after ${plural(g.min, 'attempt')}`;
 }
 
-/** The evidence in one line: `18 of 20 passed · pass rate ≥ 0.70 (95%, Wilson) · pass^5 0.55`. */
-export function formatTally(r: Pick<GateResult, 'passes' | 'attempts' | 'interval' | 'passK'>): string {
+/**
+ * The evidence in one line: `18 of 20 passed · pass rate ≥ 0.70 (95%, Wilson) · pass^5 0.55`. The
+ * interval's end that explains the verdict: the low end for a pass, the high end for a failure, both
+ * otherwise. A clean replay's one attempt has no rate to estimate: it is the same every time.
+ */
+export function formatTally(r: Pick<GateResult, 'passes' | 'attempts' | 'interval' | 'passK'> & { decision?: GateDecision; clean?: boolean }): string {
   const parts = [`${r.passes} of ${r.attempts} passed`];
-  if (r.attempts > 0) parts.push(`pass rate ≥ ${rate(r.interval.lo)} (${percent(r.interval.confidence)}, Wilson)`);
-  const k = r.passK.find((x) => x.k === PASS_K_SHOWN);
+  const at = `(${percent(r.interval.confidence)}, Wilson)`;
+  if (r.clean) parts.push('a clean replay, the same every time');
+  else if (r.attempts > 0) parts.push(r.decision === 'fail' ? `pass rate ≤ ${rate(r.interval.hi)} ${at}` : r.decision === undefined || r.decision === 'pass' ? `pass rate ≥ ${rate(r.interval.lo)} ${at}` : `pass rate ${rate(r.interval.lo)} to ${rate(r.interval.hi)} ${at}`);
+  const k = r.clean ? undefined : r.passK.find((x) => x.k === PASS_K_SHOWN);
   if (k) parts.push(`pass^${k.k} ${rate(k.value)}`);
   return parts.join(' · ');
 }

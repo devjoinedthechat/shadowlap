@@ -147,6 +147,27 @@ updateSearchIndex(store): number                       // indexes what is new; s
 searchCalls(store, query, opts?): SearchHit[]
 ```
 
+## Gates
+
+Verdicts on attempts that vary, as `test`'s gate, `verify` and `blame` decide them ([gating](./gating.md)). Pure functions:
+
+```ts
+// { kind: 'sprt', good, bad, risk, max } | { kind: 'baseline', drop, risk, window, min }
+parseGate(json, where, defaults?): Gate
+// 'pass' | 'fail' | 'continue' | 'inconclusive'
+decide(passes, attempts, gate, history?)
+// the decision, the interval, pass^k, the evidence path and the sentence
+gateResult(gate, outcomes, { history?, clean? }): GateResult
+// the exact odds of each verdict, and the attempts run on average
+gateOdds(gate, p, history?): GateOdds
+wilson(passes, n, confidence) / passHatK(c, n, k) / binomialTail(n, k, p)
+sprtBounds(gate) / sprtStep(score, passed, gate) / attemptsToPass(gate)
+// P(now < baseline − drop), each a Beta posterior
+dropProbability(now, baseline, drop)
+// a golden's baseline, pooled from its test history
+gateHistory(store, golden, { window, goldenRunId?, checks?, mode? })
+```
+
 ## The replay state machine
 
 `Session` is what the sidecar drives; you need it only if you are re-implementing replay itself.

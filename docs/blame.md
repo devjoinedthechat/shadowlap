@@ -8,18 +8,18 @@ shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'
 
 ```
 ⑂ The run was lost at model call #5 (3 of 4)
-  Resampling #5 rescued 2 of 4 attempts; resampling #7, the next model call, rescued 0 of 4.
+  The re-asked call #5 passes at least 60% of the time (3 of 4 attempts); #7, the next model call, passes at most 10% of the time (0 of 4 attempts).
   Confidence: high (rescue stops cleanly at the boundary)
 
   At #5  the recording   issue_refund({"order_id":"A-1042","amount":240})
          a rescued fork  "Above the limit.", escalate({"reason":"refund of $240 is above $100"})
 
-  Probes (a rescue needs 2 of 5 attempts to pass; resample the probed call)
-    #1  1 of 4  2 of 3 passed   rescued
-    #5  3 of 4  2 of 4 passed   rescued  ◂ blamed
+  Probes (a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 10 attempts; resample the probed call)
+    #1  1 of 4  2 of 2 passed   rescued
+    #5  3 of 4  3 of 4 passed   rescued  ◂ blamed
     #7  4 of 4  0 of 4 passed   lost
 
-  11 attempts · 24 upstream requests · ≈$0.101 spent · every call before a probe replayed from the recording
+  10 attempts · 22 upstream requests · ≈$0.093 spent · every call before a probe replayed from the recording
   oracle: the agent exits 0; issue_refund called 0 times
   rescued fork: shadowlap diff 01M3R1YKHF 01M3R1YMHF    shadowlap ui 01M3R1YMHF --call 5
 ```
@@ -32,7 +32,7 @@ It found the call by forking the run, not by reading it: every call before a pro
 
 **The baseline.** Blame first replays the run as recorded. That costs nothing, and it must reproduce the failure: the replay has to be clean, and it has to fail the oracle. A run that passes has nothing to blame; one whose replay forks by itself would make every probe ambiguous, so blame refuses it and points to [`shadowlap calibrate`](./normalizers-and-redaction.md#calibrate).
 
-**A probe** asks one question of one model call *k*: if the model had answered *k* differently, could the run still have passed? It replays the calls before *k* from the recording, forces *k* live, and lets the rest of the run go live. It does this several times (`--attempts`, 5 by default), because one lucky sample proves nothing, and the probe **rescues** the run when enough attempts pass the oracle (`--passes`, 2 by default). A probe stops as soon as the attempts left can no longer change its verdict, which gives the same answer as running all of them for fewer attempts.
+**A probe** asks one question of one model call *k*: if the model had answered *k* differently, could the run still have passed? It replays the calls before *k* from the recording, forces *k* live, and lets the rest of the run go live. It does this several times, because one lucky sample proves nothing, and decides after each attempt with a [gate](./gating.md): the probe **rescues** the run when the re-asked call passes at least 60% of the time, and the run is **lost** there when it passes at most 10%, each verdict wrong at most 5% of the time. Two straight passes rescue and four straight failures lose, the cost of the 2 of 5 that blame used before; a mix takes more attempts, up to 10, and a probe still between the two after that is **inconclusive**, which the search counts as not rescued. `--gate '{"good":0.5}'` changes any of the figures (`good`, `bad`, `risk`, `max`); `--attempts` and `--passes` give a fixed count instead, which stops as soon as the attempts left can no longer change its verdict.
 
 **The search.** Rescue gets harder the later it starts: resampling from the first model call re-runs almost the whole agent, and resampling the last can only change the ending. So probes rescue the run up to some model call and stop rescuing after it. That boundary is the answer. The last call that still rescues is the one whose recorded answer lost the run, and from the next call on the failure was already unavoidable. Blame probes the first model call, then binary-searches the rest for the boundary, so a run with 30 model calls needs about six probes, not thirty.
 
@@ -72,9 +72,9 @@ A write the recording made, the same tool with the same arguments, gets what it 
 |---|---|
 | **The run was lost at model call #n (k of m)** | The last model call whose resampling rescued the run. *k of m* is its position among the run's model calls |
 | **Resampling #n rescued … ; resampling #n′ … rescued …** | The evidence on both sides of the boundary |
-| **Confidence** | *high*: the call after the boundary passed no attempt. *medium*: it passed some, but too few to count as a rescue, so the run was not reliably lost there. *low*: rescue worked again past the boundary, or the search stopped early |
+| **Confidence** | *high*: the call after the boundary was lost (under a fixed count: it passed no attempt). *medium*: it was inconclusive (under a fixed count: it passed some, but too few to count as a rescue), so the run was not reliably lost there. *low*: rescue worked again past the boundary, or the search stopped early |
 | **At #n** | What the model answered at the blamed call in the recording, and in a fork that went on to pass. This is the contrast to act on: the bad path and a good one, from the same point |
-| **Probes** | Every call probed, how many attempts passed, and the verdict |
+| **Probes** | Every call probed, how many attempts passed, and the verdict: rescued, lost or inconclusive |
 
 Once you have a fix, [`shadowlap verify`](./verify.md) checks it on the blamed run, on failures it was not written against, and on runs that worked. [`shadowlap repair`](./repair.md) does both steps for a fix to the prompt: it asks a model for rewrites and keeps the one the gate accepts.
 
@@ -104,7 +104,7 @@ Each blame also logs a `blame.done` event in the store's activity. Run by a dash
 
 ## Cost
 
-Each probe replays everything before its call for free. The calls after it run live, so later probes are cheaper. A search makes at most `1 + ⌈log₂ m⌉ + scan` probes for *m* model calls, each of at most `--attempts` attempts, and usually far fewer attempts than that, because a probe stops once its verdict is settled. The header prints the bound before anything runs.
+Each probe replays everything before its call for free. The calls after it run live, so later probes are cheaper. A search makes at most `1 + ⌈log₂ m⌉ + scan` probes for *m* model calls, each of at most the gate's `max` attempts (10, or `--attempts` with a fixed count), and usually far fewer attempts than that, because a probe stops once its verdict is settled. The header prints the bound before anything runs.
 
 | Option | Effect |
 |---|---|
@@ -127,10 +127,11 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 | `contrast` | `{ callNo, recorded, rescued, rescuedRunId }`: the model's answer at the blamed call in the recording and in the rescued fork, as blocks (`text`, `thinking`, `tool_call` with `name` and `input`) |
 | `sameAnswer` | `{ callNo, runId, why }` when probes rescued the run but every attempt that passed answered the call the search ended on as the recording did, so `outcome` is `unrescuable`: that call, an attempt that passed, and why it passed. Otherwise `null` |
 | `failedWrite` | `{ name, message, callNo }` when no probe rescued the run and every attempt from the first model call (`callNo`) met the error a write got when the run was recorded: the tool and the error. Otherwise `null` |
-| `probes` | Per probe: `callNo`, `step`, `passes`, `attempts`, `rescued`, and `runs`, each with `runId`, `passed`, `exitCode`, `failures`, `spent` and `upstreamRequests` |
+| `probes` | Per probe: `callNo`, `step`, `passes`, `attempts`, `rescued`, the gate's `decision` (`pass`, `fail` or `inconclusive`; `null` under a fixed count), its `rate` (the `decision`, the Wilson `interval` of the pass rate, and the `sentence`; `null` under a fixed count), and `runs`, each with `runId`, `passed`, `exitCode`, `failures`, `spent` and `upstreamRequests` |
 | `oracle`, `recordedFailures` | What a passing run must do, and how the recording fails it |
 | `rescue` | `{ fields }`: the request fields a probe changed; empty when it resampled |
-| `modelCalls`, `attemptsPerProbe`, `passesNeeded`, `nonMonotone`, `cost`, `stopReason` | The search's parameters and what it spent |
+| `gate` | The gate each probe was decided by, `{ kind, good, bad, risk, max }`, or `null` when a fixed count (`--attempts`, `--passes`) decided |
+| `modelCalls`, `attemptsPerProbe`, `passesNeeded`, `nonMonotone`, `cost`, `stopReason` | The search's parameters and what it spent: with a gate, `attemptsPerProbe` is its `max` and `passesNeeded` the fewest passes that can rescue (2) |
 | `warnings` | What the replays warned about, such as a connection that bypassed Shadowlap |
 | `fix` | `{ fixId, title, status, opened }`: the [fix](#fixes) the blame opened (`opened: true`) or joined, or `null` when the store could not keep it |
 
@@ -149,5 +150,5 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 
 - Blame points at a model call, because a model answer is the one thing a probe can ask for again. A failure caused by a tool returning bad data shows up as *not rescued*, or as blame on a call that read the bad data; an [override](./interventions.md#override-a-tool-result) tests that directly.
 - A write that failed, such as a post to a channel that doesn't exist, shows up as *not rescued* with the write and its error when every attempt makes it again, since a write a probe repeats gets its recorded error. One a probe makes with other arguments is stubbed, so a rescue that went through it comes with a warning.
-- The verdict is statistical. With 5 attempts and 2 needed, a call the model gets right a fifth of the time can look lost. Raise `--attempts` for an agent that rarely succeeds.
+- The verdict is statistical, and says how sure it is: a rescue means the re-asked call passes at least 60% of the time, and lost at most 10%, each with at most 5% risk of the wrong verdict. A call the model gets right a fifth of the time is between the two: it can end either way, or inconclusive. For an agent that rarely succeeds, lower the bar, as in `--gate '{"good":0.3,"bad":0.05}'`, which takes more attempts. [Gating](./gating.md) has the maths.
 - The binary search finds *a* boundary. The scan checks the calls just past it, but a dip further along goes unprobed, so read a low-confidence result together with its probes.

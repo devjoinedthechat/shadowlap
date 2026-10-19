@@ -386,10 +386,15 @@ describe('what the reports say', () => {
 
   it('shows the evidence: the tally, the interval and pass^k', () => {
     const r = gateResult(SPEC, [...Array(18).fill(true), false, false]);
-    expect(formatTally(r)).toBe('18 of 20 passed · pass rate ≥ 0.70 (95%, Wilson) · pass^5 0.55');
+    // The end of the interval that explains the verdict: the low end for a pass, the high end for a failure, both otherwise.
+    expect(formatTally({ ...r, decision: 'pass' })).toBe('18 of 20 passed · pass rate ≥ 0.70 (95%, Wilson) · pass^5 0.55');
+    expect(r.decision).toBe('inconclusive');
+    expect(formatTally(r)).toBe('18 of 20 passed · pass rate 0.70 to 0.97 (95%, Wilson) · pass^5 0.55');
+    expect(formatTally(gateResult(SPEC, [false, false, false]))).toBe('0 of 3 passed · pass rate ≤ 0.56 (95%, Wilson)');
+    expect(formatTally(gateResult(SPEC, [true], { clean: true }))).toBe('1 of 1 passed · a clean replay, the same every time');
     expect(r.passK.map((x) => x.k)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(r.interval).toEqual({ lo: expect.closeTo(0.699, 3), hi: expect.closeTo(0.972, 3), confidence: 0.95 });
-    expect(formatTally(gateResult(SPEC, [true, true, false]))).toBe('2 of 3 passed · pass rate ≥ 0.21 (95%, Wilson)');
+    expect(formatTally(gateResult(SPEC, [true, true, false]))).toBe('2 of 3 passed · pass rate 0.21 to 0.94 (95%, Wilson)');
   });
 
   it('keeps the running score after each attempt, against both bounds', () => {

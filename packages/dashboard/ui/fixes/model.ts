@@ -279,8 +279,8 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
 }
 
 /** How a probe's verdict reads as a badge: rescued in lime, lost in red, the blamed one in amber. */
-export function probeBadge(verdict: BlameStep['probes'][number]['verdict']): 'ok' | 'no' | 'y' {
-  return verdict === 'rescued · blamed' ? 'y' : verdict === 'lost' ? 'no' : 'ok';
+export function probeBadge(verdict: BlameStep['probes'][number]['verdict']): 'ok' | 'no' | 'y' | 'n' {
+  return verdict === 'rescued · blamed' ? 'y' : verdict === 'lost' ? 'no' : verdict === 'inconclusive' ? 'n' : 'ok';
 }
 
 /** "Model call 3 of 4" (in scope agent), or the run alone when blame placed the failure on no call. */
@@ -365,8 +365,8 @@ function commonPrefix(a: string, b: string): number {
 // ---------------------------------------------------------------------------------------------- verify
 
 /** A run's outcome as a badge: fixed and kept in lime, broken and not fixed in red, unsettled plain. */
-export function outcomeTone(o: VerifyRow['outcome']): 'ok' | 'no' | 'n' {
-  return o === 'fixed' || o === 'kept' ? 'ok' : o === 'unsettled' ? 'n' : 'no';
+export function outcomeTone(o: VerifyRow['outcome']): 'ok' | 'no' | 'n' | 'y' {
+  return o === 'fixed' || o === 'kept' ? 'ok' : o === 'unsettled' ? 'n' : o === 'inconclusive' ? 'y' : 'no';
 }
 
 export function verdictTone(v: VerifyStep['verdict']): 'ok' | 'no' | 'n' {

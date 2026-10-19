@@ -1,5 +1,6 @@
 import { probeVerdict } from './blame.js';
 import { formatUsd } from './prices.js';
+import { decide, describeGate, percent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
@@ -14,10 +15,13 @@ import type { CallRecord } from './types.js';
  *   fix that only fits the runs it was written against shows up here;
  * - **good** runs passed, and must still pass.
  *
- * A run passes when enough of its attempts meet the oracle. The change is accepted only when every
- * failing run is fixed and every good run kept. A replay that forks nowhere served every call from
- * the recording, so it would come out the same every time: one attempt settles it, which is what
- * makes checking a harness fix, or the good runs a prompt change doesn't touch, free.
+ * A run passes when its attempts meet the oracle often enough, as a gate decides after each one
+ * (stats.ts): by default it passes at 90% or more and fails at 70% or less, each verdict wrong at
+ * most 5% of the time, and is inconclusive when the gate's attempts run out between the two. A fixed
+ * count (`needed` of `attempts`) still decides when one is given. The change is accepted only when
+ * every failing run is fixed and every good run kept. A replay that forks nowhere served every call
+ * from the recording, so it would come out the same every time: one attempt settles it, which is
+ * what makes checking a harness fix, or the good runs a prompt change doesn't touch, free.
  */
 
 export type VerifyRole = 'target' | 'holdout' | 'good';
@@ -66,7 +70,12 @@ export interface VerifiedRun {
   passes: number;
   /** The first attempt replayed clean, so every attempt would have come out the same. */
   deterministic: boolean;
+  /** `open` while unsettled, and for a gate that ended inconclusive (`decision` says which). */
   verdict: RunVerdict;
+  /** A gate decided the run: what it said last, inconclusive included. Absent when a fixed count did, and in reports made before gates. */
+  decision?: GateDecision;
+  /** A gate decided the run: its result, with the pass rate's interval and the risk it was decided at (stats.ts). */
+  gate?: GateResult | null;
   /** How the recording itself fares against the oracle; `passed` is null when the recording can't settle it. */
   recorded: { passed: boolean | null; failures: string[]; footprint: Footprint };
 }
@@ -76,6 +85,16 @@ export function runVerdict(passes: number, done: number, attempts: number, neede
   if (deterministic && done > 0) return passes > 0 ? 'pass' : 'fail';
   const v = probeVerdict(passes, done, attempts, needed);
   return v === 'rescued' ? 'pass' : v === 'lost' ? 'fail' : 'open';
+}
+
+/**
+ * A run's verdict under a gate after `done` attempts, `passes` of which passed: a deterministic run
+ * is settled by its first, else the gate decides. `open` while it continues, and for an
+ * inconclusive gate, which `decision` tells apart.
+ */
+export function gateVerdict(passes: number, done: number, gate: SprtGate, deterministic: boolean): { verdict: RunVerdict; decision: GateDecision } {
+  const decision: GateDecision = deterministic && done > 0 ? (passes > 0 ? 'pass' : 'fail') : decide(passes, done, gate);
+  return { verdict: decision === 'pass' ? 'pass' : decision === 'fail' ? 'fail' : 'open', decision };
 }
 
 export type VerifyOutcome = 'accepted' | 'rejected' | 'incomplete';
@@ -91,16 +110,19 @@ export interface VerifyDecision {
 const ROLE: Record<VerifyRole, string> = { target: 'target', holdout: 'held-out', good: 'good' };
 const short = (id: string) => id.slice(0, 10);
 
-/** What happened to a run, in the words of its role: fixed or not, kept or broken. */
-export function outcomeOf(r: Pick<VerifiedRun, 'role' | 'verdict'>): 'fixed' | 'not fixed' | 'kept' | 'broken' | 'unsettled' {
-  if (r.verdict === 'open') return 'unsettled';
+/** What happened to a run, in the words of its role: fixed or not, kept or broken; or that its gate couldn't tell. */
+export function outcomeOf(r: Pick<VerifiedRun, 'role' | 'verdict'> & { decision?: GateDecision | undefined }): 'fixed' | 'not fixed' | 'kept' | 'broken' | 'unsettled' | 'inconclusive' {
+  if (r.verdict === 'open') return r.decision === 'inconclusive' ? 'inconclusive' : 'unsettled';
   if (r.role === 'good') return r.verdict === 'pass' ? 'kept' : 'broken';
   return r.verdict === 'pass' ? 'fixed' : 'not fixed';
 }
 
 function tally(r: VerifiedRun): string {
   if (r.deterministic) return 'clean replay';
-  return `${r.passes} of ${r.attempts.length} passed`;
+  // A gate's rate, from the Wilson interval at the confidence it decided at: the end that says why.
+  const g = r.gate;
+  const rate = !g || !r.attempts.length ? '' : g.decision === 'pass' ? `, ≥ ${g.interval.lo.toFixed(2)}` : g.decision === 'fail' ? `, ≤ ${g.interval.hi.toFixed(2)}` : `, ${g.interval.lo.toFixed(2)}–${g.interval.hi.toFixed(2)}`;
+  return `${r.passes} of ${r.attempts.length} passed${rate}`;
 }
 
 export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | null): VerifyDecision {
@@ -110,7 +132,9 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
     const why = r.attempts.find((a) => !a.passed)?.failures[0];
     reasons.push(`${ROLE[r.role]} run ${short(r.runId)} ${outcomeOf(r)}: ${tally(r)}${why ? ` (${why})` : ''}`);
   }
-  const open = runs.filter((r) => r.verdict === 'open');
+  // A gate that ran out of attempts between its bounds settled nothing either, and says so apart.
+  for (const r of runs) if (r.decision === 'inconclusive') reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: ${r.gate?.sentence.replace(/^inconclusive: /, '') ?? tally(r)}`);
+  const open = runs.filter((r) => r.verdict === 'open' && r.decision !== 'inconclusive');
   if (open.length) reasons.push(`${open.length} run${open.length === 1 ? '' : 's'} not settled${stopReason ? `: ${stopReason}` : ''}`);
 
   const warnings: string[] = [];
@@ -123,13 +147,18 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
   if (has('target') && !has('holdout')) warnings.push('no held-out runs: the change was only tried on the runs it was written for (--holdout)');
 
   const failed = runs.some((r) => r.verdict === 'fail');
-  return { verdict: failed ? 'rejected' : open.length ? 'incomplete' : 'accepted', reasons, warnings };
+  const unsettled = runs.some((r) => r.verdict === 'open');
+  return { verdict: failed ? 'rejected' : unsettled ? 'incomplete' : 'accepted', reasons, warnings };
 }
 
 export interface VerifyReport extends VerifyDecision {
   runs: VerifiedRun[];
+  /** The most attempts a run takes: the gate's `max`, or the fixed count. */
   attemptsPerRun: number;
+  /** The passes a run needs: the fixed count's, or with a gate the fewest that can pass it (12 at 0.9, 0.7, 0.05). */
   needed: number;
+  /** The gate each run was decided by; null when a fixed count (`needed` of `attemptsPerRun`) decided. Absent in reports made before gates. */
+  gate?: SprtGate | null;
   oracle: string[];
   /** Request fields the change sets from each run's first model call; empty when the change is all in the code. */
   fields: Record<string, unknown>;
@@ -171,6 +200,29 @@ const pct = (before: number, after: number) => {
   return `${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d) < 10 ? Math.abs(d).toFixed(1) : Math.round(Math.abs(d))}%`;
 };
 
+/**
+ * How a run is judged, in a sentence: the oracle, and the rule that decides on its attempts. With a
+ * gate, `A run passes at 90% or more, fails at 70% or less, at most 5% risk of the wrong verdict, up
+ * to 40 attempts, deciding after each one; …`.
+ */
+export function verifyRule(r: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | 'gate' | 'fields' | 'oracle'>): string {
+  const fields = Object.entries(r.fields);
+  const change = fields.length ? `, with ${fields.map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ')} from each run's first model call` : '';
+  const oracle = r.oracle.map(safeLine).join('; ');
+  if (r.gate) return `A run's attempts must meet the oracle${change}: ${oracle}. Its gate decides after each attempt: ${describeGate(r.gate)}; a clean replay settles it in one.`;
+  return `A run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the oracle${change}: ${oracle}.`;
+}
+
+/** A gate's figures in a few words, for a step's line: `at 90% or more, at 5% risk`. */
+export function gateShort(g: Pick<SprtGate, 'good' | 'risk'>): string {
+  return `at ${percent(g.good)} or more, at ${percent(g.risk)} risk`;
+}
+
+/** How each run was decided, after a tally of runs: `each at 4 of 5 attempts`, or `each passing at 90% or more, at 5% risk`. */
+export function eachRun(v: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | 'gate'>): string {
+  return v.gate ? `each passing ${gateShort(v.gate)}` : `each at ${v.needed} of ${v.attemptsPerRun} attempts`;
+}
+
 export function formatVerify(r: VerifyReport, p: Palette = plain): string {
   const lines: string[] = [];
   const count = (role: VerifyRole) => {
@@ -190,20 +242,18 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
   lines.push(`${head}: the change ${sentence}`);
   for (const reason of r.reasons) lines.push(`  ${p.red('·')} ${safeLine(reason)}`);
 
-  const fields = Object.entries(r.fields);
-  const change = fields.length ? `, with ${fields.map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ')} from each run's first model call` : '';
-  lines.push('', p.dim(`  A run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the oracle${change}: ${r.oracle.map(safeLine).join('; ')}.`));
+  lines.push('', p.dim(`  ${verifyRule(r)}`));
 
   if (r.runs.length) {
     lines.push('');
     const outcomeWidth = Math.max(...r.runs.map((x) => outcomeOf(x).length));
     for (const x of r.runs) {
       const o = outcomeOf(x);
-      const colored = o === 'fixed' || o === 'kept' ? p.green(o.padEnd(outcomeWidth)) : o === 'unsettled' ? p.yellow(o.padEnd(outcomeWidth)) : p.red(o.padEnd(outcomeWidth));
+      const colored = o === 'fixed' || o === 'kept' ? p.green(o.padEnd(outcomeWidth)) : o === 'unsettled' || o === 'inconclusive' ? p.yellow(o.padEnd(outcomeWidth)) : p.red(o.padEnd(outcomeWidth));
       const failure = x.verdict === 'fail' ? x.attempts.find((a) => !a.passed)?.failures[0] : undefined;
       const forks = [...new Set(x.attempts.map((a) => a.forkedAt).filter((f): f is number => f !== null))];
       const note = failure ? safeLine(failure) : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '';
-      lines.push(`    ${ROLE[x.role].padEnd(8)}  ${short(x.runId)}  ${colored}  ${tally(x).padEnd(14)}${note ? `  ${p.dim(note)}` : ''}`.trimEnd());
+      lines.push(`    ${ROLE[x.role].padEnd(8)}  ${short(x.runId)}  ${colored}  ${tally(x).padEnd(r.gate ? 22 : 14)}${note ? `  ${p.dim(note)}` : ''}`.trimEnd());
     }
   }
 

@@ -69,7 +69,8 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
           <header>
             <h2>Probes</h2>
             <span className="sub">
-              a rescue needs {b.needed} of {b.attemptsPerProbe} attempts to pass{b.rescue !== 'resample the probed call' ? ` · ${b.rescue}` : ''}
+              {b.rule}
+              {b.rescue !== 'resample the probed call' ? ` · ${b.rescue}` : ''}
             </span>
           </header>
           <div className="tscroll">

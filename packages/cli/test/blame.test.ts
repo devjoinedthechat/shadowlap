@@ -97,7 +97,9 @@ describe('shadowlap blame', () => {
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain('replays as recorded and fails: issue_refund called 0 times, but called 1 time');
     expect(r.stdout).toContain(`The run was lost at model call #${decision} (3 of 4)`);
-    expect(r.stdout).toMatch(new RegExp(`Resampling #${decision} rescued \\d of \\d attempts; resampling #${last}, the next model call, rescued 0 of 4\\.`));
+    // Each probe is decided by blame's gate: a rescue at 60% or more, lost at 10% or less, 5% risk each.
+    expect(r.stdout).toMatch(new RegExp(`The re-asked call #${decision} passes at least 60% of the time \\(\\d of \\d attempts\\); #${last}, the next model call, passes at most 10% of the time \\(0 of 4 attempts\\)\\.`));
+    expect(r.stdout).toContain('Probes (a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 10 attempts; resample the probed call)');
     expect(r.stdout).toContain('Confidence: high');
     expect(r.stdout).toContain('issue_refund({"order_id":"A-1042","amount":240})');
     expect(r.stdout).toContain('"Above the limit.", escalate({"reason":"refund of $240 is above $100"})');
@@ -138,9 +140,11 @@ describe('shadowlap blame', () => {
     const plain = await shadowlap(['blame', runId, '--expect', ORACLE, '--json']);
     expect(plain.code, plain.out).toBe(0);
     const report = JSON.parse(plain.stdout) as Record<string, unknown> & { probes: Array<{ runs: unknown[] }> };
-    expect(report).toMatchObject({ outcome: 'unrescuable', blamed: null, confidence: 'high', modelCalls: 4, passesNeeded: 2, attemptsPerProbe: 5, rescue: { fields: {} } });
+    expect(report).toMatchObject({ outcome: 'unrescuable', blamed: null, confidence: 'high', modelCalls: 4, passesNeeded: 2, attemptsPerProbe: 10, gate: { kind: 'sprt', good: 0.6, bad: 0.1, risk: 0.05, max: 10 }, rescue: { fields: {} } });
     expect(report.probes).toHaveLength(1);
+    // Four straight failures: lost, passing at most 10% of the time with 95% confidence, as 2 of 5 would have called it.
     expect(report.probes[0]!.runs).toHaveLength(4);
+    expect(report.probes[0]).toMatchObject({ rescued: false, decision: 'fail', rate: { decision: 'fail', sentence: 'failed: at most 10% with 95% confidence after 4 attempts' } });
 
     const strong = await shadowlap(['blame', runId, '--expect', ORACLE, '--model', 'big-model', '--json']);
     expect(strong.code, strong.out).toBe(0);

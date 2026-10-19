@@ -93,7 +93,7 @@ describe('the Overview', () => {
     expect(s.grid.runs).toBe(3);
     expect(s.counts).toEqual({ runs: 4, attempts: 0 });
     // A golden on disk that has not run yet: none passing, none caught.
-    expect(s.outcomes.testsPassing).toEqual({ goldens: 1, passing: 0, lastWeek: null, regressions: 0, lastRunAt: null });
+    expect(s.outcomes.testsPassing).toEqual({ goldens: 1, passing: 0, inconclusive: 0, lastWeek: null, regressions: 0, lastRunAt: null });
     expect(s.needsLook.items.map((i) => [i.kind, i.runId])).toEqual([['unblamed', ids.failed]]);
     const bad = await api(dash, 'summary?tz=Mars%2FOlympus');
     expect(bad.status).toBe(400);

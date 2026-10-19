@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CallRecord } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, SPRT_DEFAULTS, type CallRecord, type SprtGate } from '@shadowlap/engine';
 import { evaluateChecks, parseExpect, type CheckResult } from '../src/checks.js';
 import { blameCommand, checkText, failureTitle, repairCommand, verifyCommand } from '../src/fixes.js';
 
@@ -50,22 +50,32 @@ describe('a check in plain words', () => {
 
 describe('commands that run a step again', () => {
   const expect_ = { tools: { issue_refund: 0 } };
+  const blameGate: SprtGate = { kind: 'sprt', ...BLAME_DEFAULTS };
+  const verifyGate: SprtGate = { kind: 'sprt', ...SPRT_DEFAULTS };
   it('quote the check and keep only the flags that differ from the defaults', () => {
-    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: expect_, fields: {}, attempts: 5, needed: 2 })).toBe(`shadowlap blame 01M3RZ4XKN --expect '{"tools":{"issue_refund":0}}'`);
-    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, scope: 'agent', fields: { model: 'big-model', temperature: 1 }, attempts: 3, needed: 1 })).toBe('shadowlap blame 01M3RZ4XKN --scope agent --model big-model --set temperature=1 --attempts 3 --passes 1');
-    expect(verifyCommand({ fixes: ['01M3RXQ4VB'], holdout: ['01M3RXQ51B'], keeps: ['label:good'] }, { expect: expect_, attempts: 5, fields: {}, liveTools: ['read_policy'] })).toBe(`shadowlap verify --fixes 01M3RXQ4VB --holdout 01M3RXQ51B --keeps label:good --expect '{"tools":{"issue_refund":0}}' --live-tool read_policy`);
-    expect(repairCommand({ fixes: ['label:refund-bug'], keeps: ['label:good'] }, { expect: expect_, repairer: 'claude-code', attempts: 5 })).toBe(`shadowlap repair --fixes label:refund-bug --keeps label:good --expect '{"tools":{"issue_refund":0}}' --repairer claude-code`);
+    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: expect_, fields: {}, attempts: 10, needed: 2, gate: blameGate })).toBe(`shadowlap blame 01M3RZ4XKN --expect '{"tools":{"issue_refund":0}}'`);
+    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, scope: 'agent', fields: { model: 'big-model', temperature: 1 }, attempts: 3, needed: 1, gate: null })).toBe('shadowlap blame 01M3RZ4XKN --scope agent --model big-model --set temperature=1 --attempts 3 --passes 1');
+    expect(verifyCommand({ fixes: ['01M3RXQ4VB'], holdout: ['01M3RXQ51B'], keeps: ['label:good'] }, { expect: expect_, attempts: 40, gate: verifyGate, fields: {}, liveTools: ['read_policy'] })).toBe(`shadowlap verify --fixes 01M3RXQ4VB --holdout 01M3RXQ51B --keeps label:good --expect '{"tools":{"issue_refund":0}}' --live-tool read_policy`);
+    expect(repairCommand({ fixes: ['label:refund-bug'], keeps: ['label:good'] }, { expect: expect_, repairer: 'claude-code', attempts: 40, gate: verifyGate })).toBe(`shadowlap repair --fixes label:refund-bug --keeps label:good --expect '{"tools":{"issue_refund":0}}' --repairer claude-code`);
+  });
+
+  it('keep the figures of a gate that differ from its defaults, and write a fixed count out in full', () => {
+    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 10, needed: 2, gate: { ...blameGate, good: 0.5, max: 20 } })).toBe(`shadowlap blame 01M3RZ4XKN --gate '{"good":0.5,"max":20}'`);
+    // The gate is what runs without flags, so a fixed count is given whole, the old default too.
+    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 5, needed: 2, gate: null })).toBe('shadowlap blame 01M3RZ4XKN --attempts 5 --passes 2');
+    expect(verifyCommand({ fixes: ['label:refund-bug'] }, { attempts: 40, gate: { ...verifyGate, risk: 0.01 }, fields: {}, liveTools: [] })).toBe(`shadowlap verify --fixes label:refund-bug --gate '{"risk":0.01}'`);
+    expect(verifyCommand({ fixes: ['label:refund-bug'] }, { attempts: 5, gate: null, fields: {}, liveTools: [] })).toBe('shadowlap verify --fixes label:refund-bug --attempts 5');
   });
 
   it('keep every flag that changes what a step finds, and the command given after --', () => {
     const flags = { writes: 'block' as const, reads: 'replay' as const, budget: 0.5, timeoutMs: 30_000, argv: ['python', 'agent.py', '--order', 'A 1042'] };
-    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 5, needed: 2, scan: 4, ...flags })).toBe(`shadowlap blame 01M3RZ4XKN --scan 4 --writes block --reads replay --budget 0.5 --timeout 30 -- python agent.py --order 'A 1042'`);
+    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 10, needed: 2, gate: blameGate, scan: 4, ...flags })).toBe(`shadowlap blame 01M3RZ4XKN --scan 4 --writes block --reads replay --budget 0.5 --timeout 30 -- python agent.py --order 'A 1042'`);
     // Defaults are left out.
-    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 5, needed: 2, scan: 2, writes: 'stub', reads: 'live', budget: null, timeoutMs: null, argv: null })).toBe('shadowlap blame 01M3RZ4XKN');
-    expect(verifyCommand({ fixes: ['label:refund-bug'] }, { attempts: 3, passes: 2, fields: { temperature: 1 }, liveTools: [], failFast: true, ...flags })).toBe(`shadowlap verify --fixes label:refund-bug --set temperature=1 --attempts 3 --passes 2 --fail-fast --writes block --reads replay --budget 0.5 --timeout 30 -- python agent.py --order 'A 1042'`);
+    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 10, needed: 2, gate: blameGate, scan: 2, writes: 'stub', reads: 'live', budget: null, timeoutMs: null, argv: null })).toBe('shadowlap blame 01M3RZ4XKN');
+    expect(verifyCommand({ fixes: ['label:refund-bug'] }, { attempts: 3, passes: 2, gate: null, fields: { temperature: 1 }, liveTools: [], failFast: true, ...flags })).toBe(`shadowlap verify --fixes label:refund-bug --set temperature=1 --attempts 3 --passes 2 --fail-fast --writes block --reads replay --budget 0.5 --timeout 30 -- python agent.py --order 'A 1042'`);
     expect(
-      repairCommand({ fixes: ['label:refund-bug'], holdout: ['01M3RXQ51B'] }, { expect: expect_, repairer: 'anthropic', candidates: 5, stronger: 'claude-opus-5-5', scope: 'agent', set: { temperature: 1 }, attempts: 5, maxGrowth: 0.125, build: 'npm run build', ...flags }),
+      repairCommand({ fixes: ['label:refund-bug'], holdout: ['01M3RXQ51B'] }, { expect: expect_, repairer: 'anthropic', candidates: 5, stronger: 'claude-opus-5-5', scope: 'agent', set: { temperature: 1 }, attempts: 40, gate: verifyGate, maxGrowth: 0.125, build: 'npm run build', ...flags }),
     ).toBe(`shadowlap repair --fixes label:refund-bug --holdout 01M3RXQ51B --expect '{"tools":{"issue_refund":0}}' --repairer anthropic --candidates 5 --stronger claude-opus-5-5 --scope agent --set temperature=1 --max-growth 12.5 --build 'npm run build' --writes block --reads replay --budget 0.5 --timeout 30 -- python agent.py --order 'A 1042'`);
-    expect(repairCommand({ fixes: ['label:refund-bug'] }, { attempts: 5, candidates: 3, maxGrowth: 0.25, build: null })).toBe('shadowlap repair --fixes label:refund-bug');
+    expect(repairCommand({ fixes: ['label:refund-bug'] }, { attempts: 40, gate: verifyGate, candidates: 3, maxGrowth: 0.25, build: null })).toBe('shadowlap repair --fixes label:refund-bug');
   });
 });

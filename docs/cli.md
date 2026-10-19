@@ -118,8 +118,8 @@ Finds the model call where a failed run was lost: the last one whose answer, ask
 | Option | Effect |
 |---|---|
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0: the `expect` object of an [outcome check](./ci.md#outcome-checks), such as `'{"tools":{"send_email":0}}'` |
-| `--attempts <n>` | Attempts per probed call. Default 5 |
-| `--passes <n>` | Passing attempts that make a probe a rescue. Default 2 (1 with one attempt) |
+| `--gate <json\|@file>` | How a probe decides, after each attempt ([gating](./gating.md)): a rescue when the re-asked call passes at least `good` of the time, lost at `bad` or less, each verdict wrong at most `risk` of the time, up to `max` attempts. Default `{"good":0.6,"bad":0.1,"risk":0.05,"max":10}`, which costs what 2 of 5 did: two straight passes rescue, four straight failures lose. Give any of the four |
+| `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate: attempts per probed call (5 with `--passes` alone), and how many passing make a rescue (default 2, or 1 with one attempt) |
 | `--model <model>` | Rescue with this model from the probed call on, instead of asking the recorded one again |
 | `--set <key=value>` | Set a request field from the probed call on, such as `temperature=1` (repeatable) |
 | `--scope <name>` | Probe only model calls made in this [scope](./sdk.md#scopes): the agent's, and not a simulated user's |
@@ -150,8 +150,8 @@ Checks a change before it ships. Replays failing runs, which the change must now
 | `--holdout <run...>` | Failing runs of the same kind the change was not written against |
 | `--keeps <run...>` | Runs that passed and must still pass, such as `label:good` |
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0, as for `blame` |
-| `--attempts <n>` | Attempts per run where the replay forks. Default 5 |
-| `--passes <n>` | Attempts that must pass. Default 80% rounded up (4 of 5) |
+| `--gate <json\|@file>` | How a run decides, after each attempt where its replay forks ([gating](./gating.md)): pass at `good` or more, fail at `bad` or less, each verdict wrong at most `risk` of the time, up to `max` attempts. Default `{"good":0.9,"bad":0.7,"risk":0.05,"max":40}`: a run that always passes is accepted after 12 attempts, one that always fails rejected after 3. Give any of the four |
+| `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate: attempts per run where the replay forks (5 with `--passes` alone), and how many must pass (default 80% rounded up, 4 of 5) |
 | `--model <model>`, `--set <key=value>` | The change is a request field, set from each run's first model call |
 | `--live-tool <name>` | The change is in this tool: run it live, its first call and every call of it after a fork (repeatable) |
 | `--writes stub\|block`, `--reads live\|replay` | As for `blame` |
@@ -161,7 +161,7 @@ Checks a change before it ships. Replays failing runs, which the change must now
 | `--json` | The report as JSON on stdout ([fields](./verify.md#json)) |
 | `--guard`, `-y` | As for `replay` |
 
-Exit status 0 when the change is accepted, 1 when it is rejected or the verification did not finish. The verdict is kept with the [fix](#fix) of its failing runs, whatever it is; an accepted one turns the fix verified when it [counts](./verify.md#verdicts-are-kept) there: it checked the fix's check on a run that failed it.
+Exit status 0 when the change is accepted, 1 when it is rejected or the verification did not finish (a run's gate inconclusive included). The verdict is kept with the [fix](#fix) of its failing runs, whatever it is; an accepted one turns the fix verified when it [counts](./verify.md#verdicts-are-kept) there: it checked the fix's check on a run that failed it.
 
 ## repair
 
@@ -179,7 +179,8 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 | `--candidates <n>` | Rewrites to ask for. Default 3 |
 | `--stronger <model>` | When the recorded model can't be rescued, rescue with this one and try switching to it, before asking the repairer |
 | `--scope <name>`, `--set <key=value>` | As for `blame`: which calls to probe, and what probes change, such as `temperature=1` |
-| `--attempts <n>`, `--passes <n>` | The gate. Default 4 of 5 |
+| `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for `verify`. Default `{"good":0.9,"bad":0.7,"risk":0.05,"max":40}` |
+| `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, as for `verify` |
 | `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this. Default 25 |
 | `--build <command>` | Rebuild the agent after its source changes and after each restore |
 | `--apply` | Leave the accepted fix in the working tree |

@@ -73,7 +73,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
       out.push(`  ${' '.repeat(label.length)}  ${p.dim('a rescued fork')}  ${one(b.answers.rescued, 110)}${b.rescuedRunId ? p.dim(`  (${b.rescuedRunId.slice(0, 10)})`) : ''}`);
     }
     if (b.probes.length) {
-      out.push(`  ${p.dim(`probes: a rescue needs ${b.needed} of ${b.attemptsPerProbe} attempts to pass; ${b.rescue}`)}`);
+      out.push(`  ${p.dim(`probes: ${b.rule}; ${b.rescue}`)}`);
       const rows = b.probes.map((x) => [`#${x.callNo}`, `${x.step} of ${b.steps}`, `${x.passes} of ${x.attempts} passed`, x.verdict]);
       out.push(table(rows, '    '));
     }
@@ -89,7 +89,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     if (r.change) {
       out.push(`  ${p.dim(`${one(r.change.file, 80)} · ${one(r.change.anchor, 60)}`)}`);
       out.push(`  ${p.red(`- ${one(r.change.before, 200)}`)}`, `  ${p.green(`+ ${one(r.change.after, 200)}`)}`);
-      if (r.roles.length) out.push(`  ${r.roles.map((x) => `${x.role} ${x.held} of ${x.of}`).join(' · ')}${r.needed !== null ? `, each on ${r.needed} of ${r.attemptsPerRun} attempts` : ''}`);
+      if (r.roles.length) out.push(`  ${r.roles.map((x) => `${x.role} ${x.held} of ${x.of}`).join(' · ')}${r.rule !== null ? `, ${r.rule}` : ''}`);
       if (r.verify && !r.verify.counts) out.push(`  ${p.yellow('!')} verified under another check than this fix's, so it doesn't count for it`);
     } else if (r.why && r.why !== r.noRepairer?.text) out.push(`  ${one(r.why, 200)}`);
     if (r.diagnosis) out.push(`  ${p.dim('diagnosis:')} ${one(r.diagnosis, 200)}`);

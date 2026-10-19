@@ -179,7 +179,9 @@ export function githubAnnotations(report: TestReport): string {
       const failedChecks = (r.checks ?? []).filter((c) => !c.ok).map((c) => `✗ ${safeText(c.label)}: ${safeText(c.detail ?? '')}`);
       const details = moreThanMessage(r);
       const body = [r.message ?? 'failed', ...(failedChecks.length ? ['', ...failedChecks] : []), ...(details ? ['', ...safeText(details).split('\n').slice(0, 30)] : [])].join('\n');
-      const evidence = r.gate ? ['', formatTally(r.gate)] : [];
+      // The gate's evidence, unless the details already carry it.
+      const tally = r.gate ? formatTally(r.gate) : null;
+      const evidence = tally && !details?.includes(tally) ? ['', tally] : [];
       const text = [body, ...evidence].join('\n');
       return `::${r.ok ? 'warning' : 'error'} file=${escapeProperty(file)},title=${escapeProperty(`Shadowlap: ${safeText(r.name)}`)}::${escapeData(text)}`;
     })

@@ -142,7 +142,7 @@ describe('test reports', () => {
     const md = markdownReport(testReport([passed, unsure, failed]));
     expect(md).toContain('### Shadowlap: 1 of 3 recordings failed, 1 inconclusive');
     expect(md).toContain('| ✅ | `refund-passed` | passed: at least 90% with 95% confidence after 12 attempts · 12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00 · forked at call 3 | 2/5 | 1k |');
-    expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs · 16 of 20 passed · pass rate ≥ 0.58 (95%, Wilson) · pass^5 0.28 | 2/5 | 1k |');
+    expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs · 16 of 20 passed · pass rate 0.58 to 0.92 (95%, Wilson) · pass^5 0.28 | 2/5 | 1k |');
     expect(md).toContain('It fails the run unless `--inconclusive warn` is given.');
     // Under --inconclusive warn it is let through, and says so; the heading still counts it.
     const warned = markdownReport(testReport([passed, { ...unsure, ok: true }]));
@@ -150,7 +150,7 @@ describe('test reports', () => {
     expect(warned).toContain('This run lets inconclusive recordings through (`--inconclusive warn`).');
     expect(testReport([passed, { ...unsure, ok: true }])).toMatchObject({ passed: 2, failed: 0, inconclusive: 1 });
     expect(githubAnnotations(testReport([passed, { ...unsure, ok: true }]))).toBe(
-      '::warning file=goldens/refund-inconclusive/run.json,title=Shadowlap%3A refund-inconclusive::inconclusive: neither at least 90%25 nor at most 70%25 with 95%25 confidence after 20 attempts, the most the gate runs%0A%0A16 of 20 passed · pass rate ≥ 0.58 (95%25, Wilson) · pass^5 0.28',
+      '::warning file=goldens/refund-inconclusive/run.json,title=Shadowlap%3A refund-inconclusive::inconclusive: neither at least 90%25 nor at most 70%25 with 95%25 confidence after 20 attempts, the most the gate runs%0A%0A16 of 20 passed · pass rate 0.58 to 0.92 (95%25, Wilson) · pass^5 0.28',
     );
   });
 

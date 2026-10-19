@@ -1,4 +1,4 @@
-import { canonicalize, endedEarlyCount, formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
+import { attemptsToPass, canonicalize, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, normalizeResponse, probeFinding, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -14,9 +14,11 @@ import { palette as p, shortId } from './ui.js';
  */
 
 export interface BlameSettings extends AttemptSettings {
-  /** Attempts per probe, and how many must pass for the probe to rescue the run. */
+  /** A fixed count: attempts per probe, and how many must pass for the probe to rescue the run. Used when `gate` is null. */
   attempts: number;
   needed: number;
+  /** The gate that decides each probe after every attempt: rescued at `good`, lost at `bad` (stats.ts); null for the fixed count. */
+  gate: SprtGate | null;
   /** Attempts of one probe running at once. */
   concurrency: number;
   /** Model calls past the boundary to probe as well. */
@@ -103,6 +105,9 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     }
     log(`  ${p.green('✓')} replays as recorded and fails: ${baseline.failures.join('; ')}`);
 
+    // A probe is decided after each attempt: by the gate, rescued at `good` and lost at `bad`, or by the fixed count.
+    const limit = s.gate ? s.gate.max : s.attempts;
+    const settle = (passes: number, done: number): GateDecision => (s.gate ? decide(passes, done, s.gate) : decideCount(passes, done, s.attempts, s.needed));
     const probe = async (callNo: number, step: number): Promise<BlameProbe | null> => {
       if (!runner.canStart()) return null;
       log(`  ${p.bold(`model call #${callNo}`)} ${p.dim(`(${step} of ${steps.length})`)}`);
@@ -112,9 +117,9 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       let prefixBroken: string | null = null;
       const interventions: Interventions | undefined = Object.keys(s.fields).length ? { set: { fromCall: callNo, fields: s.fields } } : undefined;
       const worker = async () => {
-        while (!prefixBroken && launched < s.attempts && probeVerdict(passes, attempts.length, s.attempts, s.needed) === 'open' && runner.canStart()) {
+        while (!prefixBroken && launched < limit && settle(passes, attempts.length) === 'continue' && runner.canStart()) {
           const n = ++launched;
-          const marks = { repeat: { group: `${group}-${callNo}`, attempt: n, of: s.attempts }, probe: { of: parent.runId, callNo, passed: false } };
+          const marks = { repeat: { group: `${group}-${callNo}`, attempt: n, of: limit }, probe: { of: parent.runId, callNo, passed: false } };
           const a = await runner.attempt(target, { divergeAt: callNo, recordedWrites: true, ...(interventions ? { interventions } : {}), meta: marks });
           // Stopped by Ctrl-C part way: what it did is no evidence either way.
           if (runner.interrupted) break;
@@ -134,13 +139,16 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
           log(`    ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}`);
         }
       };
-      await Promise.all(Array.from({ length: Math.min(s.concurrency, s.attempts) }, worker));
+      await Promise.all(Array.from({ length: Math.min(s.concurrency, limit) }, worker));
       if (prefixBroken) throw new BlameError(prefixBroken, 'prefix');
       // Interrupted or out of budget with the verdict still open: this probe proves nothing.
-      if (probeVerdict(passes, attempts.length, s.attempts, s.needed) === 'open') return null;
-      const rescued = passes >= s.needed;
-      log(`    ${rescued ? p.green(`rescued: ${passes} of ${attempts.length} passed`) : p.red(`lost: ${passes} of ${attempts.length} passed`)}`);
-      return { callNo, step, attempts, passes, rescued };
+      const decision = settle(passes, attempts.length);
+      if (decision === 'continue') return null;
+      const rescued = decision === 'pass';
+      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(s.gate ? { decision, gate: gateResult(s.gate, attempts.map((a) => a.passed), { decision }) } : {}) };
+      const words = s.gate ? `: the re-asked call ${probeFinding(found, s.gate)}` : `: ${passes} of ${attempts.length} passed`;
+      log(`    ${rescued ? p.green(`rescued${words}`) : decision === 'inconclusive' ? p.yellow(`inconclusive${words.replace(/^: the re-asked call is inconclusive/, '')}`) : p.red(`lost${words}`)}`);
+      return found;
     };
 
     const searched = await searchBlame({ steps, probe, scan: s.scan });
@@ -191,8 +199,9 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       ...result,
       runId: parent.runId,
       steps: steps.length,
-      attemptsPerProbe: s.attempts,
-      needed: s.needed,
+      attemptsPerProbe: limit,
+      needed: s.gate ? attemptsToPass(s.gate) : s.needed,
+      gate: s.gate,
       rescue: { fields: s.fields },
       oracle,
       recordedFailures: baseline.failures,
