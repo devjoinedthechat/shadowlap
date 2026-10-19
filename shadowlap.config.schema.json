@@ -186,6 +186,41 @@
               "cost": {
                 "description": "USD from the price table. A model with no price fails the check rather than passing quietly.",
                 "$ref": "#/$defs/amount"
+              },
+              "calls": {
+                "description": "Rules every call of a tool must meet: the tools that come before it, and predicates on its arguments, which may read a value from the most recent call of another tool before it (\"@lookup_order.result.total\"). A tool never called meets every rule: pair it with \"tools\" when the call must happen.",
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/callRule"
+                }
+              },
+              "when": {
+                "description": "Checks that apply once a call matched a condition: each is not applicable, never passed, while the condition never held.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "if",
+                    "then"
+                  ],
+                  "properties": {
+                    "if": {
+                      "$ref": "#/$defs/callCondition"
+                    },
+                    "then": {
+                      "description": "An expect object, read like this one.",
+                      "$ref": "#/properties/tests/additionalProperties/properties/expect"
+                    }
+                  }
+                }
+              },
+              "judge": {
+                "description": "Questions a model answers yes or no about the run. Its verdict is recorded like any other call; a check with no verdict is inconclusive, never passed.",
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/judge"
+                }
               }
             }
           },
@@ -324,6 +359,271 @@
           "pattern": "^\\s*\\$?\\s*((>=|<=|>|<|=)?\\s*\\$?\\s*[0-9]*\\.?[0-9]+|[0-9]*\\.?[0-9]+\\s*-\\s*[0-9]*\\.?[0-9]+)\\s*$"
         }
       ]
+    },
+    "callRule": {
+      "description": "A rule every call of `tool` must meet. It needs \"after\", \"args\" or both.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "after"
+          ]
+        },
+        {
+          "required": [
+            "args"
+          ]
+        }
+      ],
+      "properties": {
+        "tool": {
+          "description": "The tool whose every call is checked.",
+          "type": "string",
+          "minLength": 1
+        },
+        "after": {
+          "description": "A tool, or a list of tools, that each have a call before every call of `tool`.",
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        },
+        "args": {
+          "description": "The call’s arguments, by name, each a value to match.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/match"
+          }
+        }
+      }
+    },
+    "callCondition": {
+      "description": "Holds once any call of `tool` matches `args` and `result`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/match"
+          }
+        },
+        "result": {
+          "description": "What the call returned, matched as a value.",
+          "$ref": "#/$defs/match"
+        }
+      }
+    },
+    "match": {
+      "description": "A value to match: a literal (equal; an object matches the keys it gives, a list item by item), a reference such as \"@lookup_order.result.total\" or \"@lookup_order.args.order_id\" (the value from the most recent call of that tool before the call checked), or a predicate such as { \"<=\": 100 }. An object whose keys are all operators is a predicate; any other object is matched key by key.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/predicate"
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "=",
+                "!=",
+                "<",
+                "<=",
+                ">",
+                ">=",
+                "in",
+                "includes",
+                "startsWith",
+                "endsWith",
+                "not"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/match"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/match"
+          }
+        },
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      ]
+    },
+    "predicate": {
+      "description": "Comparisons that must all hold. A number written as text compares as the number; text compares as it is, case included.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "=": {
+          "description": "Equal, as a literal matches."
+        },
+        "!=": {
+          "description": "Not equal."
+        },
+        "<": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\s*-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\s*$"
+            },
+            {
+              "$ref": "#/$defs/reference"
+            }
+          ]
+        },
+        "<=": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\s*-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\s*$"
+            },
+            {
+              "$ref": "#/$defs/reference"
+            }
+          ]
+        },
+        ">": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\s*-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\s*$"
+            },
+            {
+              "$ref": "#/$defs/reference"
+            }
+          ]
+        },
+        ">=": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\s*-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\s*$"
+            },
+            {
+              "$ref": "#/$defs/reference"
+            }
+          ]
+        },
+        "in": {
+          "description": "One of a list, or of the list a reference reads; with * in its path, of the values it reaches (\"@lookup_customer.result.*\").",
+          "oneOf": [
+            {
+              "type": "array"
+            },
+            {
+              "$ref": "#/$defs/reference"
+            }
+          ]
+        },
+        "includes": {
+          "description": "Text that contains this text, or a list that has this item."
+        },
+        "startsWith": {
+          "type": "string"
+        },
+        "endsWith": {
+          "type": "string"
+        },
+        "not": {
+          "description": "A predicate or a value that must not match. A value that is missing never matches, negated or not.",
+          "type": [
+            "object",
+            "array"
+          ],
+          "$ref": "#/$defs/match"
+        }
+      }
+    },
+    "reference": {
+      "description": "\"@<tool>.result.<path>\" or \"@<tool>.args.<path>\": the value from the most recent call of that tool before the call checked. The path is the JSONPath subset of normalizers (.total, .items[0].sku, .*).",
+      "type": "string",
+      "pattern": "^@.+?\\.(result|args)([.\\[].*)?$"
+    },
+    "judge": {
+      "description": "A question a model answers yes or no about the run.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "question",
+        "model"
+      ],
+      "properties": {
+        "name": {
+          "description": "Its verdict is kept under this name, so each judge has its own.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "of": {
+          "description": "What the judge reads: the last model response (the default), what the agent printed, or the conversation and the tool calls, redacted by the project’s rules.",
+          "enum": [
+            "answer",
+            "output",
+            "run"
+          ]
+        },
+        "model": {
+          "description": "The judge’s model, such as claude-haiku-4-5, or with its provider, openai:gpt-5.5.",
+          "type": "string",
+          "pattern": "^\\S{1,200}$"
+        },
+        "pass": {
+          "description": "The answer that passes. Default: yes.",
+          "enum": [
+            "yes",
+            "no"
+          ]
+        }
+      }
     }
   }
 }

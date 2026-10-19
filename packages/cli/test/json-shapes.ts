@@ -55,6 +55,11 @@ export const SHAPES = {
   gc: { section: 'rm', fields: ['dryRun', 'olderThanDays', 'keep', 'cutoff', 'total', 'count', 'runs', 'expect', 'blobs', 'bytes', 'recording', 'recordingCount', 'abandoned', 'abandonedCount', 'held', 'heldCount', 'deferred', 'store'] },
   gcStore: { section: 'rm', fields: ['path', 'before', 'after', 'free'] },
   doctor: { section: 'doctor', fields: ['name', 'verdict', 'detail'] },
+  // check: recordings judged by checks, nothing replayed; and each check as it came out, wherever a command prints one.
+  check: { section: 'check', fields: ['expect', 'recordings', 'counts', 'unchecked', 'notes'] },
+  checkRecording: { section: 'check', fields: ['runId', 'pack', 'labels', 'source', 'outcome', 'why', 'checks'] },
+  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive'] },
+  checkResult: { section: 'check', fields: ['status', 'ok', 'label', 'detail'] },
   init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'hardcodedBaseUrls', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
 
   // Fixes: blame, verify and repair print their reports; fix prints the dashboard's read model of Fixes.

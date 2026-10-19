@@ -67,7 +67,7 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--model <call>:<model>` | Switch the model from model call *n* on: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure |
 | `--guard warn\|block\|off` | [Network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. Default `warn` (`run` accepts `warn\|off`; `test` defaults to `block`) |
 
-Exit status: the agent's, except 1 with `--strict` when the replay diverged or ended early, and 1 when a [check](#checks-on-a-replay) failed. With `--repeat`, 0 only when every attempt asked for ran, exited 0 and passed its checks (with `--strict`, 1 when any attempt diverged or ended early); a `--repeat` cut short exits 1. A run still recording is refused, exit status 1, until it has ended: it has no end to replay to yet, as the dashboard's Replay and Fork wait for it; one whose recording process was killed (see [`gc`](#rm-gc)) replays as it is. `--summary-json` writes what `run` writes, with `checks` (each check and whether it passed) when the replay has checks; with `--repeat`, `{ "attempts", "report" }`: each attempt's `exitCode`, `summary` and `checks`, and the report the terminal prints (`parentRunId`, `attempts`, `forkedAt`, `paths`, `tools`, `distinctFinalResponses`, `succeeded`, `spent`, `saved`, `tokensNotRespent`).
+Exit status: the agent's, except 1 with `--strict` when the replay diverged or ended early, and 1 when a [check](#checks-on-a-replay) failed. With `--repeat`, 0 only when every attempt asked for ran, exited 0 and passed its checks (with `--strict`, 1 when any attempt diverged or ended early); a `--repeat` cut short exits 1. A run still recording is refused, exit status 1, until it has ended: it has no end to replay to yet, as the dashboard's Replay and Fork wait for it; one whose recording process was killed (see [`gc`](#rm-gc)) replays as it is. `--summary-json` writes what `run` writes, with `checks` (each check as it [came out](./checks.md#how-a-check-comes-out): `status`, `ok`, `label`, `detail`) when the replay has checks; with `--repeat`, `{ "attempts", "report" }`: each attempt's `exitCode`, `summary` and `checks`, and the report the terminal prints (`parentRunId`, `attempts`, `forkedAt`, `paths`, `tools`, `distinctFinalResponses`, `succeeded`, `spent`, `saved`, `tokensNotRespent`).
 
 See [Interventions](./interventions.md) for what each one does to the conversation prefix, and what each provider takes. A change the recorded request can't take (a system message on Gemini, a field Converse has no place for, a write tool to plant in) is refused before anything runs, with the reason; an intervention the replay never reached is named in its summary.
 
@@ -75,7 +75,7 @@ The replay keeps the options that change what it does (`--fail-at`, `--override`
 
 ### Checks on a replay
 
-A replay is judged by checks when it has them: `--expect`, or, without it, the `tests` entry of `shadowlap.config.json` for the recording the run came from (the pack it was unpacked from, or the golden `shadowlap test` replayed). The checks are those of an [outcome check](./ci.md#outcome-checks); the replay exits 1 when one fails, and they are kept on the run, with the `--expect` they came from, so making the fork again from the fork menu judges it the same way. With `--repeat`, every attempt is judged, and the report says in how many attempts each check failed:
+A replay is judged by checks when it has them: `--expect`, or, without it, the `tests` entry of `shadowlap.config.json` for the recording the run came from (the pack it was unpacked from, or the golden `shadowlap test` replayed). The checks are those of an [outcome check](./ci.md#outcome-checks), [`calls` and `when` rules](./checks.md) included; the replay exits 1 when one fails or is inconclusive, and they are kept on the run, with the `--expect` they came from, so making the fork again from the fork menu judges it the same way. With `--repeat`, every attempt is judged, and the report says in how many attempts each check failed, could not be decided (inconclusive) or did not apply:
 
 ```
   Checks (--expect)
@@ -356,7 +356,7 @@ Each session is kept in the project's store as [test history](./ci.md#test-histo
 | `--guard block\|warn\|off` | The [network guard](./how-it-works.md#the-network-guard). Default `block` |
 | `--push` | Push every test run, with the golden it replayed, and the session's report to the [team store](./team.md#push-from-ci); a pull request's CI job pushes to [its own folder](./team.md#pull-requests). A missing store or missing credentials is a warning; the tests still decide the exit status |
 
-The `--json` report is `{ version, session, revision, passed, failed, interrupted, results }`, one result per pack: its `name`, `dir` and `golden` (as test history names it), `mode` (`replay`, or `fork` for a recording that forks on purpose), `ok`, the `failure` kind with its one-line `message` and the `details` the terminal shows, the agent's last lines of `output` when it failed, `seconds`, the replay shown (`runId`) and every attempt's (`runs`, each `runId` and `ok`), the recording replayed (`goldenRunId`), `calls` by origin (`total`, `replayed`, `live`, `blocked`, `stubbed`), `upstreamRequests`, `tokensNotRespent`, the `divergence` (`type`, `callNo`, `kind`, `name`, and for one that [ended early](./ci.md#a-replay-that-ends-early) `recorded`, the calls its recording holds), its `checks` (`ok`, `label`, `detail`) with the `expect` they came from, `attempts` for a recording that repeats (`total`, `passed`, `required`), and, with `--update`, what it `updated` (`from`, `to`, `calls`, `changes`).
+The `--json` report is `{ version, session, revision, passed, failed, interrupted, results }`, one result per pack: its `name`, `dir` and `golden` (as test history names it), `mode` (`replay`, or `fork` for a recording that forks on purpose), `ok`, the `failure` kind with its one-line `message` and the `details` the terminal shows, the agent's last lines of `output` when it failed, `seconds`, the replay shown (`runId`) and every attempt's (`runs`, each `runId` and `ok`), the recording replayed (`goldenRunId`), `calls` by origin (`total`, `replayed`, `live`, `blocked`, `stubbed`), `upstreamRequests`, `tokensNotRespent`, the `divergence` (`type`, `callNo`, `kind`, `name`, and for one that [ended early](./ci.md#a-replay-that-ends-early) `recorded`, the calls its recording holds), its `checks` (each `status`, `passed`, `failed`, `inconclusive` or `not-applicable`, with `ok`, `label`, `detail`, and a judge's `reason` and `source`; see [how a check comes out](./checks.md#how-a-check-comes-out)) with the `expect` they came from, `attempts` for a recording that repeats (`total`, `passed`, `required`), and, with `--update`, what it `updated` (`from`, `to`, `calls`, `changes`).
 
 ## bisect
 
@@ -381,6 +381,21 @@ Each replay runs the recorded command, or the one after `--`, in the commit's wo
 | `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took |
 
 `--json` prints `{ outcome, target, good, bad, commits, steps, first, untested, why, replays, tokens, upstreamRequests, spent, seconds }`: the `outcome` (`found`, `passes-at-bad`, `fails-at-good`, `untestable` or `stopped`, with `why` when there is no answer), the `target` (`kind` `golden` or `run`, its `name` and `runId`), the `good` and `bad` commits and the `commits` between them, each replay in `steps` (`rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds`), the `first` bad commit with `why` it fails there, the `untested` commits just before it, and what it took: `replays`, `tokens`, `upstreamRequests`, USD `spent` and `seconds`. A commit is `{ rev, short, subject, author, date }`.
+
+## check
+
+```sh
+shadowlap check [recording...] [--expect <json|@file>] [--json]
+```
+
+Judges recordings by [checks](./checks.md) from what they recorded: nothing is replayed and nothing is sent, so a check can be tried on every run there is before it goes into the config. A recording is a run id or unique prefix, `label:<name>` for every run with that label, or a pack directory (`goldens/*`, with `*` in the last part matched by the command itself), read into a store of its own so the project's store is left as it is; with none, every recording in the store that has ended. Each is judged by `--expect`, or without it by its entry under `tests` in `shadowlap.config.json`; a recording with neither is counted apart. It comes out passed, failed (a check failed, or the run exited with an error or was interrupted), or inconclusive: a check on the agent's output, which a recording doesn't keep, a judge check with no verdict, or a partial recording that holds no tool calls. Each line names the recording by its id, labels and command, or its pack; its checks follow one that did not pass. Under the totals, the report says when the checks fail a recording labelled `good` or pass one labelled `bug`. Exit status 0 when every recording judged passed, 1 when one failed or was inconclusive, or none was judged.
+
+| Option | Effect |
+|---|---|
+| `--expect <json\|@file>` | The checks to judge every recording by: an `expect` object. Default: each recording's own under `tests` |
+| `--json` | Print the report as JSON |
+
+`--json` prints `{ expect, recordings, counts, unchecked, notes }`: the `expect` given (or null), each recording judged in `recordings` (its `runId`, the `pack` it came from or null, its `labels`, the `source` of its checks, `--expect` or the recording directory of its `tests` entry, its `outcome`, `passed`, `failed` or `inconclusive`, `why` it failed or could not be settled, and its `checks` as [each check comes out](./checks.md#how-a-check-comes-out): `status`, `ok`, `label`, `detail`, and a judge's `reason` and `source`), the `counts` of recordings by outcome (`passed`, `failed`, `inconclusive`), the recordings `unchecked` for want of checks, and the `notes` on recordings labelled good that fail or bug that pass. A dashboard job that runs it gets the same report as its result.
 
 ## pack, unpack
 
@@ -566,7 +581,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
 | `prices` | USD per million tokens by model prefix, for cost estimates |
-| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)), and a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)) |
+| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks); `calls`, `when` and `judge` in [Checks](./checks.md)), and a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)) |
 | `repair` | `repairer` (`provider:model`) and `baseUrl` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
 | `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
 | `ciPush` | `false` keeps `test --push` from pushing to the team store in CI, and the GitHub Action from pushing the fixes it opens (`shadowlap store push-from-ci on\|off`) |
@@ -642,7 +657,7 @@ A local web UI over the store: runs and forks, a timeline of calls by origin, th
 shadowlap doctor [--json]
 ```
 
-Checks what support would check: Node and the built-in SQLite, the guard preloads, Python on the PATH (as `python3`, `python` or both, since an agent's command names one), the store (runs, size, schema, runs a killed process left marked running), a stale `.shadowlap/active.json`, the configuration (every rule, price and MCP effect parsed), and agent-process environment that leaked into your shell (`SHADOWLAP_URL`, `NODE_OPTIONS`, `PYTHONPATH`). Each problem comes with the fix. Exit status 1 when something is blocking. `--json` prints the checks as a list, each `{ "name", "verdict", "detail" }` with `verdict` `ok`, `warn` or `fail`, and a `fix` where there is one.
+Checks what support would check: Node and the built-in SQLite, the guard preloads, Python on the PATH (as `python3`, `python` or both, since an agent's command names one), the store (runs, size, schema, runs a killed process left marked running), a stale `.shadowlap/active.json`, the configuration (every rule, price and MCP effect parsed, and under `tests` each [rule that names a tool](./checks.md#checking-the-checks) none of its recordings called, with the name it most likely meant), and agent-process environment that leaked into your shell (`SHADOWLAP_URL`, `NODE_OPTIONS`, `PYTHONPATH`). Each problem comes with the fix. Exit status 1 when something is blocking. `--json` prints the checks as a list, each `{ "name", "verdict", "detail" }` with `verdict` `ok`, `warn` or `fail`, and a `fix` where there is one.
 
 ## rm, gc
 
