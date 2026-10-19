@@ -17,9 +17,10 @@
       "owner": "OpenAI",
       "url": "https://developers.openai.com/api/docs/deprecations",
       "pages": [
-        "https://developers.openai.com/api/docs/deprecations"
+        "https://developers.openai.com/api/docs/deprecations",
+        "https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create"
       ],
-      "keeps": "Every chat, text and computer use model the page retires, with its shutdown date and the replacement it recommends; snapshots, with the aliases the page names beside them."
+      "keeps": "Every chat, text and computer use model the page retires, with its shutdown date and the replacement it recommends; snapshots, with the aliases the page names beside them, and where a row names a model by its name with its snapshots (GPT-4o), that model's alias (gpt-4o) as well, with the row's words in named. The Chat Completions reference says o-series models don't take max_tokens."
     },
     "gemini": {
       "name": "the Gemini API",
@@ -77,6 +78,10 @@
     {"platform":"openai","model":"gpt-4o-mini-2024-07-18","deprecated":"2026-10-14","retires":"2027-01-14","replacement":"gpt-6-luna","source":"https://developers.openai.com/api/docs/deprecations"},
     {"platform":"openai","model":"gpt-4.1-2025-04-14","deprecated":"2026-10-14","retires":"2027-01-14","replacement":"gpt-6-luna","source":"https://developers.openai.com/api/docs/deprecations"},
     {"platform":"openai","model":"gpt-4.1-mini-2025-04-14","deprecated":"2026-10-14","retires":"2027-01-14","replacement":"gpt-6-luna","source":"https://developers.openai.com/api/docs/deprecations"},
+    {"platform":"openai","model":"gpt-4o","named":"GPT-4o (gpt-4o-2024-08-06, gpt-4o-2024-11-20)","deprecated":"2026-10-14","retires":"2027-01-14","replacement":"gpt-6-luna","source":"https://developers.openai.com/api/docs/deprecations"},
+    {"platform":"openai","model":"gpt-4o-mini","named":"GPT-4o mini (gpt-4o-mini-2024-07-18)","deprecated":"2026-10-14","retires":"2027-01-14","replacement":"gpt-6-luna","source":"https://developers.openai.com/api/docs/deprecations"},
+    {"platform":"openai","model":"gpt-4.1","named":"GPT-4.1 (gpt-4.1-2025-04-14)","deprecated":"2026-10-14","retires":"2027-01-14","replacement":"gpt-6-luna","source":"https://developers.openai.com/api/docs/deprecations"},
+    {"platform":"openai","model":"gpt-4.1-mini","named":"GPT-4.1 mini (gpt-4.1-mini-2025-04-14)","deprecated":"2026-10-14","retires":"2027-01-14","replacement":"gpt-6-luna","source":"https://developers.openai.com/api/docs/deprecations"},
     {"platform":"openai","model":"gpt-5.3-codex","deprecated":"2026-10-01","retires":"2027-04-01","replacement":"gpt-6-sol","source":"https://developers.openai.com/api/docs/deprecations"},
     {"platform":"openai","model":"gpt-5.4-nano","deprecated":"2026-10-01","retires":"2027-04-01","replacement":"gpt-6-luna","source":"https://developers.openai.com/api/docs/deprecations"},
     {"platform":"openai","model":"gpt-5.1","deprecated":"2026-10-01","retires":"2027-04-01","replacement":"gpt-6-sol","source":"https://developers.openai.com/api/docs/deprecations"},
@@ -281,10 +286,30 @@
       "behavior": "Returns a 400 error when set to a non-default value",
       "says": "a non-default temperature, top_p or top_k returns a 400 error",
       "instead": "Omit and use prompting to guide model behavior",
+      "leaveOut": true,
       "allowed": {
         "temperature": 1
       },
       "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations"
+    },
+    {
+      "platform": "openai",
+      "fields": [
+        "max_tokens"
+      ],
+      "models": [
+        "o1",
+        "o3",
+        "o4"
+      ],
+      "appliesTo": "o-series models",
+      "behavior": "This value is now deprecated in favor of max_completion_tokens, and is not compatible with o-series models",
+      "says": "max_tokens is deprecated in favor of max_completion_tokens and is not compatible with o-series models",
+      "instead": "Send the same limit as max_completion_tokens",
+      "renamed": {
+        "max_tokens": "max_completion_tokens"
+      },
+      "source": "https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create"
     },
     {
       "platform": "anthropic",

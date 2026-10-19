@@ -16,11 +16,16 @@ import { canonicalize } from './canonical.js';
  *   serves another provider's models sets its own dates, so a Claude model called through Bedrock is
  *   judged by Bedrock's table, not Anthropic's, and one called through Vertex AI by Google's page
  *   for partner models;
- * - Azure OpenAI is left out: a call there names the deployment, which can serve any model.
+ * - Azure OpenAI is left out: a call there names the deployment, which can serve any model;
+ * - an alias matches only where a page says so: OpenAI's where a row names the model by its name
+ *   with its snapshots (`GPT-4o (gpt-4o-2024-08-06, gpt-4o-2024-11-20)`, kept as `gpt-4o` with the
+ *   row's words in `named`), not where it retires older snapshots only; Anthropic's (`-latest`, `-0`
+ *   and the undated name) when they name the one dated snapshot the table has.
  *
  * Models that hold no conversation (embeddings, images, speech, video) and the Live APIs, which
  * Shadowlap doesn't record, are left out. The same file keeps the request fields newer models stop
- * accepting (`fields`), which `migrate` changes.
+ * accepting (`fields`), which `migrate` changes: set to a value they still take, left out, or sent
+ * under another name.
  */
 
 /** Where a model is served, as the table tells its dates apart: a provider's own API, or a platform that serves it. */
@@ -28,8 +33,13 @@ export type RetirementPlatform = 'anthropic' | 'openai' | 'gemini' | 'vertex' | 
 
 export interface ModelRetirement {
   platform: RetirementPlatform;
-  /** The model id exactly as the page lists it. */
+  /** The model id exactly as the page lists it, or, with `named`, the alias of the model a row names by its name. */
   model: string;
+  /**
+   * The row's words, when it names a model by its name with its snapshots (`GPT-4o (gpt-4o-2024-08-06,
+   * gpt-4o-2024-11-20)`) rather than by an id: the model goes, so its alias (`gpt-4o`) goes with it.
+   */
+  named?: string;
   /** When it was deprecated: the announcement (Bedrock: the day it became Legacy). */
   deprecated?: string;
   /** The day requests to it stop working (YYYY-MM-DD), or null when the page says it is yet to be announced. */
@@ -74,6 +84,13 @@ export interface FieldRetirement {
   instead: string;
   /** The value the field may still take (its default), when the page allows one: the request gets it in place of its own. */
   allowed?: Record<string, unknown>;
+  /**
+   * The page says to leave the fields out of the agent's requests (Anthropic's "Omit and use
+   * prompting"). A value `allowed` still gives is only what a request is sent with meanwhile.
+   */
+  leaveOut?: true;
+  /** The field goes under another name with the same value (OpenAI's `max_tokens` is `max_completion_tokens`). */
+  renamed?: Record<string, string>;
   /**
    * The rule covers a field only when its value is an object carrying these entries (`thinking` whose
    * `type` is `enabled`); without it, any value but the allowed one.
@@ -177,8 +194,8 @@ function rowsFor(platform: RetirementPlatform, model: string): ModelRetirement[]
     return named === model ? [] : rows.filter((r) => r.platform === 'vertex' && r.model === named);
   }
   if (platform !== 'anthropic') return [];
-  // An Anthropic alias (`claude-sonnet-4-5`, `claude-3-7-sonnet-latest`) names the one dated snapshot it points to.
-  const base = model.replace(/-latest$/, '');
+  // An Anthropic alias (`claude-sonnet-4-5`, `claude-3-7-sonnet-latest`, `claude-sonnet-4-0`) names the one dated snapshot it points to.
+  const base = model.replace(/-latest$/, '').replace(/-0$/, '');
   const dated = rows.filter((r) => r.platform === 'anthropic' && new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d{8}$`).test(r.model));
   return dated.length === 1 ? dated : [];
 }
@@ -300,6 +317,7 @@ export function retirementTableProblems(t: RetirementTable = retirementTable()):
     if (r.deprecated && r.retires && r.deprecated > r.retires) problems.push(`${at}: deprecated after it retires`);
     if (r.earliest !== undefined && r.earliest !== true) problems.push(`${at}: earliest is true or left out`);
     if (r.replacement !== undefined && !text(r.replacement)) problems.push(`${at}: an empty replacement`);
+    if (r.named !== undefined && !text(r.named)) problems.push(`${at}: named is the row's words, or left out`);
     if (r.platform === 'bedrock' && !r.regions?.length) problems.push(`${at}: a Bedrock date needs its Regions`);
   }
   for (const f of t.fields) {
@@ -307,6 +325,8 @@ export function retirementTableProblems(t: RetirementTable = retirementTable()):
     if (!PLATFORMS.includes(f.platform) || !f.fields.length || !f.models.length) problems.push(`${at}: it needs a platform, fields and models`);
     if (![f.appliesTo, f.behavior, f.says, f.instead].every(text)) problems.push(`${at}: it needs the page's words`);
     if (!pages.has(f.source)) problems.push(`${at}: its source is not one of the platforms' pages`);
+    if (f.leaveOut !== undefined && f.leaveOut !== true) problems.push(`${at}: leaveOut is true or left out`);
+    for (const [from, to] of Object.entries(f.renamed ?? {})) if (!f.fields.includes(from) || !text(to) || from === to) problems.push(`${at}: it renames ${from}, which it must name among its fields, to another name`);
   }
   return problems;
 }

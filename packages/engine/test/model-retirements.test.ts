@@ -15,7 +15,7 @@ describe('the retirement table', () => {
     expect(retirementTableProblems()).toEqual([]);
     expect(models.length).toBeGreaterThan(100);
     for (const s of Object.values(platforms)) {
-      for (const page of s.pages) expect(page).toMatch(/^https:\/\/(platform\.claude\.com|developers\.openai\.com|ai\.google\.dev|docs\.cloud\.google\.com|docs\.aws\.amazon\.com)\//);
+      for (const page of s.pages) expect(page).toMatch(/^https:\/\/(platform\.claude\.com|developers\.openai\.com|ai\.google\.dev|cloud\.google\.com|docs\.aws\.amazon\.com)\//);
       expect(s.pages).toContain(s.url);
     }
     for (const f of fields) expect(Object.values(platforms).flatMap((s) => s.pages)).toContain(f.source);
@@ -68,10 +68,32 @@ describe('retirementOf', () => {
   it("matches an Anthropic alias to the one snapshot it names, and nothing it can't tell", () => {
     expect(retirementOf('anthropic', 'claude-sonnet-4-5', { now: at('2026-10-19') })).toMatchObject({ matched: 'claude-sonnet-4-5-20250929', retires: '2026-11-30' });
     expect(retirementOf('anthropic', 'claude-3-7-sonnet-latest', { now: at('2026-10-19') })).toMatchObject({ matched: 'claude-3-7-sonnet-20250219' });
+    // The -0 aliases of the Claude 4 models name their dated snapshot too.
+    expect(retirementOf('anthropic', 'claude-sonnet-4-0', { now: at('2026-10-19') })).toMatchObject({ matched: 'claude-sonnet-4-20250514', retires: '2026-06-15', state: 'retired' });
+    expect(retirementOf('anthropic', 'claude-opus-4-0', { now: at('2026-10-19') })).toMatchObject({ matched: 'claude-opus-4-20250514', retires: '2026-06-15' });
     expect(retirementOf('anthropic', 'claude-opus-5', { now: at('2026-10-19') })).toBeNull();
-    // OpenAI names its aliases itself: gpt-4o is not on the page, its snapshots are.
-    expect(retirementOf('openai', 'gpt-4o', { now: at('2026-10-19') })).toBeNull();
+    expect(retirementOf('anthropic', 'claude-opus-5-0', { now: at('2026-10-19') })).toBeNull();
+  });
+
+  it('matches the OpenAI aliases its page names by the model, and not those whose older snapshots alone retire', () => {
+    // "GPT-4o (gpt-4o-2024-08-06, gpt-4o-2024-11-20)": GPT-4o itself goes, so its alias does.
+    const gpt4o = retirementOf('openai', 'gpt-4o', { now: at('2026-10-19') });
+    expect(gpt4o).toMatchObject({ matched: 'gpt-4o', retires: '2027-01-14', days: 87, replacement: 'gpt-6-luna', source: platforms.openai.url });
+    expect(gpt4o!.text).toBe('gpt-4o retires on the OpenAI API on January 14, 2027, in 87 days; OpenAI recommends gpt-6-luna');
+    for (const alias of ['gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini']) expect(retirementOf('openai', alias, { now: at('2026-10-19') }), alias).toMatchObject({ retires: '2027-01-14' });
+    expect(models.filter((r) => r.named).map((r) => [r.model, r.named])).toEqual([
+      ['gpt-4o', 'GPT-4o (gpt-4o-2024-08-06, gpt-4o-2024-11-20)'],
+      ['gpt-4o-mini', 'GPT-4o mini (gpt-4o-mini-2024-07-18)'],
+      ['gpt-4.1', 'GPT-4.1 (gpt-4.1-2025-04-14)'],
+      ['gpt-4.1-mini', 'GPT-4.1 mini (gpt-4.1-mini-2025-04-14)'],
+    ]);
+    // A snapshot keeps its own row and date: gpt-4o-2024-05-13 goes sooner than GPT-4o.
+    expect(retirementOf('openai', 'gpt-4o-2024-05-13', { now: at('2026-10-19') })).toMatchObject({ retires: '2026-10-23' });
     expect(retirementOf('openai', 'gpt-4o-2024-08-06', { now: at('2026-10-19') })).toMatchObject({ retires: '2027-01-14', replacement: 'gpt-6-luna' });
+    // "Older GPT-5 and o3 model snapshots": the snapshots go, the aliases stay.
+    expect(retirementOf('openai', 'gpt-5-2025-08-07', { now: at('2026-10-19') })).toMatchObject({ retires: '2026-12-11' });
+    expect(retirementOf('openai', 'gpt-5', { now: at('2026-10-19') })).toBeNull();
+    expect(retirementOf('openai', 'o3', { now: at('2026-10-19') })).toBeNull();
     expect(retirementOf('openai', 'o4-mini', { now: at('2026-10-19') })).toMatchObject({ retires: '2026-10-23', days: 4 });
   });
 
@@ -138,6 +160,21 @@ describe('retiredFields', () => {
     expect(retiredFields('anthropic', 'claude-opus-5-5', { temperature: 1 })).toEqual([]);
     expect(retiredFields('anthropic', 'claude-sonnet-4-6', { temperature: 0.2 })).toEqual([]);
     expect(retiredFields('anthropic', 'claude-opus-4-7', { top_k: 5 })[0]!.rule.behavior).toBe('Returns a 400 error when set to a non-default value');
+    // The page says to leave them out: the default temperature is only what a request may carry meanwhile.
+    expect(retiredFields('anthropic', 'claude-sonnet-5-5', { temperature: 0.2 })[0]!.rule).toMatchObject({ leaveOut: true, allowed: { temperature: 1 } });
+  });
+
+  it("names max_tokens on OpenAI's o-series, sent as max_completion_tokens, by the Chat Completions reference", () => {
+    const [f] = retiredFields('openai', 'o3-2025-04-16', { model: 'o3', max_tokens: 1024, messages: [] });
+    expect(f).toMatchObject({ field: 'max_tokens', value: 1024, rule: { renamed: { max_tokens: 'max_completion_tokens' }, appliesTo: 'o-series models', source: 'https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create' } });
+    expect(retiredFields('openai', 'o4-mini', { max_tokens: 1 }).map((x) => x.field)).toEqual(['max_tokens']);
+    expect(retiredFields('openai', 'o1', { max_tokens: 1 }).map((x) => x.field)).toEqual(['max_tokens']);
+    // A request that already sends max_completion_tokens, another model, and another platform are left alone.
+    expect(retiredFields('openai', 'o3', { max_completion_tokens: 1024 })).toEqual([]);
+    expect(retiredFields('openai', 'gpt-4o', { max_tokens: 1024 })).toEqual([]);
+    // The page's words cover the o-series; a newer model that refuses max_tokens says so in its refusal.
+    expect(retiredFields('openai', 'gpt-5.6-sol', { max_tokens: 1024 })).toEqual([]);
+    expect(retiredFields('azure', 'o3', { max_tokens: 1024 })).toEqual([]);
   });
 
   it('names a manual thinking budget on Claude 4.7 and later, with what the page says to send instead', () => {
