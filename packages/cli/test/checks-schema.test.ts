@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { EXPECT_KEYS, OPERATORS, parseExpect, parseTests } from '../src/checks.js';
+import { aliasOf, EXPECT_KEYS, JUDGE_MODEL, OPERATORS, parseExpect, parseTests } from '../src/checks.js';
 
 /**
  * The `expect` part of shadowlap.config.schema.json against the parser: the keys it describes are
@@ -63,6 +63,7 @@ function valid(s: Schema | boolean, value: unknown): boolean {
       } else if (s.additionalProperties !== undefined && !valid(s.additionalProperties as Schema | boolean, value[k])) return false;
     }
   }
+  if (Array.isArray(s.allOf) && !s.allOf.every((x) => valid(x as Schema, value))) return false;
   if (Array.isArray(s.anyOf) && !s.anyOf.some((x) => valid(x as Schema, value))) return false;
   if (Array.isArray(s.oneOf) && s.oneOf.filter((x) => valid(x as Schema, value)).length !== 1) return false;
   if (s.not !== undefined && valid(s.not as Schema, value)) return false;
@@ -113,6 +114,12 @@ describe('the expect part of the config schema', () => {
     { when: [{ if: { tool: 'count_open', args: { region: 'EU' }, result: { '>': 3 } }, then: { when: [{ if: { tool: 'x' }, then: { calls: [{ tool: 'y', after: 'x' }] } }] } }] },
     { judge: [{ name: 'explains-escalation', question: 'Does the reply say why?', of: 'answer', model: 'claude-haiku-4-5', pass: 'yes' }] },
     { judge: [{ name: 'tone', question: 'Is it rude?', model: 'openai:gpt-5.5', pass: 'no' }] },
+    // Text that starts with "@" written with "@@", a real key named like an operator matched with "=",
+    // and an argument named like one, which the top of "args" takes as it is.
+    { calls: [{ tool: 'send_email', args: { to: '@@corp.args.io', filter: { '=': { gt: 1 } }, gt: 5, cc: { in: ['@@x.result.y', '@lookup.result.cc'] } } }] },
+    { calls: [{ tool: 'x', after: 'y', args: {} }] },
+    { calls: [{ tool: 'x', args: { n: { '<': '@lookup.result.max' }, to: { in: '@lookup_customer.result.*' } } }] },
+    { when: [{ if: { tool: 'x', args: {} }, then: { calls: [{ tool: 'y', after: 'x' }] } }] },
   ];
   it.each(accepted)('takes what the parser takes: %j', (value) => {
     expect(parses(value)).toBe(true);
@@ -134,10 +141,47 @@ describe('the expect part of the config schema', () => {
     { judge: [{ name: 'has spaces', question: 'q?', model: 'm' }] },
     { judge: [{ name: 'j', question: 'q?', model: 'm', of: 'everything' }] },
     { judge: [{ name: 'j', question: 'q?', model: 'm', temperature: 0 }] },
+    // Arguments with nothing to match check nothing; a reference with * outside "in"; a then with no check.
+    { calls: [{ tool: 'x', args: {} }] },
+    { calls: [{ tool: 'x', args: { n: { '<=': '@y.result.*' } } }] },
+    { calls: [{ tool: 'x', args: { to: '@y.result.*' } }] },
+    { calls: [{ tool: 'x', args: { to: { endsWith: '@y.result.items[*].email' } } }] },
+    { calls: [{ tool: 'x', args: { to: { in: ['@y.result.*'] } } }] },
+    { calls: [{ tool: 'x', args: { n: { '<': '@@y.result.n' } } }] },
+    { when: [{ if: { tool: 'x' }, then: {} }] },
+    { when: [{ if: { tool: 'x' }, then: { tools: {}, calls: [] } }] },
+    // A key named like an operator it is not, in a value to match.
+    { calls: [{ tool: 'x', args: { to: { not: { endswith: '@evil.com' } } } }] },
+    { calls: [{ tool: 'x', args: { body: { not: { contains: 'password' } } } }] },
+    { calls: [{ tool: 'x', args: { to: { $in: ['a'] } } }] },
+    { when: [{ if: { tool: 'x', result: { total: { gt: 100 } } }, then: { tools: { a: 1 } } }] },
+    { when: [{ if: { tool: 'x', result: { GT: 1 } }, then: { tools: { a: 1 } } }] },
+    // A judge with a blank question, or a model no judge can be asked through.
+    { judge: [{ name: 'j', question: '   ', model: 'claude-haiku-4-5' }] },
+    { judge: [{ name: 'j', question: 'q?', model: 'llama3' }] },
   ];
   it.each(refused)('refuses what the parser refuses for its shape: %j', (value) => {
     expect(parses(value)).toBe(false);
     expect(expectValid(value)).toBe(false);
+  });
+
+  it('refuses the same keys as named like an operator, in any case and with "$", as the parser', () => {
+    const literal = (key: string) => ({ calls: [{ tool: 'x', args: { a: { [key]: 1 } } }] });
+    const keys = ['gt', 'GT', 'Gte', 'lte', 'le', 'ge', 'eq', 'equals', 'ne', 'neq', 'lt', 'contains', 'nin', 'notin', 'not_in', 'NOT_IN', 'matches', 'regex', 'like', '$gt', '$in', '$not', '$=', '$<=', '$>', 'IN', 'Not', 'includes2', 'endswith', 'StartsWith', 'Includes', 'total', 'in_stock', 'notes', 'gtin', 'equal', 'order_id', '$ref', 'a$gt'];
+    for (const key of keys) {
+      const refused = aliasOf(key) !== undefined;
+      expect(parses(literal(key)), key).toBe(!refused);
+      expect(expectValid(literal(key)), key).toBe(!refused);
+    }
+  });
+
+  it('takes the same judge models as the parser', () => {
+    const pattern = new RegExp((at('#/$defs/judge').properties as Record<string, Schema>).model!.pattern as string, 'u');
+    expect(pattern.source).toBe(JUDGE_MODEL.source);
+    for (const model of ['claude-haiku-4-5', 'anthropic:x', 'gpt-5.5', 'chatgpt-4o-latest', 'o3', 'o4-mini', 'openai:local', 'gemini-3-flash', 'gemini:tuned', 'llama3', 'm', 'Claude-x', 'bedrock:claude', 'claude haiku', '']) {
+      const judge = { judge: [{ name: 'j', question: 'q?', model }] };
+      expect(expectValid(judge), model).toBe(parses(judge));
+    }
   });
 
   it('takes every example on the checks page, which the parser reads too', () => {

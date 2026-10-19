@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { ciProvider, commitTitle, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type Store, type VerifyReport } from '@shadowlap/engine';
 import { EXIT_LABEL } from './attempts.js';
-import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
+import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, LABEL_INPUT, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { quoteArgv, shortId } from './ui.js';
 
@@ -13,7 +13,6 @@ import { quoteArgv, shortId } from './ui.js';
 
 // ---- A check, and a failure of it, in plain words ----------------------------------------------
 
-const EMPTY_INPUT = { calls: [], output: '', answer: null, argsOf: () => undefined, costOf: () => 0 };
 const EMPTY_SPEC: TestSpec = { fork: true, repeat: 1, passes: 1, tools: [] };
 
 const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
@@ -163,7 +162,7 @@ export function failureTitle(spec: TestSpec | null, recording: { checks: readonl
   const failed = recording.checks.filter((c) => !c.ok);
   if (spec && failed.length) {
     for (const item of checkItems(spec)) {
-      const label = evaluateChecks(item.spec, EMPTY_INPUT)[0]?.label;
+      const label = evaluateChecks(item.spec, LABEL_INPUT)[0]?.label;
       const result = failed.find((c) => c.label === label);
       if (result) return item.title(result.detail ?? '');
     }

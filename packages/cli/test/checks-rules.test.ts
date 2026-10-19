@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JUDGE_SCOPE, checkOutcome, checkStatus, statusTally, type CallRecord } from '@shadowlap/engine';
-import { checkLine, evaluateChecks, hasChecks, judgeChecksOf, judgeProvider, parseExpect, parseJudge, parseTests, readsOutput, toolsNamed, withoutOutput, type CheckInput, type CheckResult, type JudgeVerdict } from '../src/checks.js';
+import { aliasOf, checkLine, evaluateChecks, hasChecks, judgeChecksOf, judgeProvider, notJudgedWhy, parseExpect, parseJudge, parseTests, pathsNamed, readsOutput, toolsNamed, unreadPaths, withoutOutput, type CheckInput, type CheckResult, type JudgeVerdict } from '../src/checks.js';
 import { oracleLabels } from '../src/attempts.js';
 import { checkText, failureTitle } from '../src/fixes.js';
 
@@ -10,6 +10,10 @@ import { checkText, failureTitle } from '../src/fixes.js';
  * applies once a call matched a condition, and is not applicable until then), and the grammar of
  * `judge`, whose verdicts come from elsewhere. Every result has a status.
  */
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 type Tool = CallRecord & { args?: unknown; result?: unknown };
 
@@ -90,7 +94,7 @@ describe('calls: a rule every call of a tool meets', () => {
     const negated = { calls: [{ tool: 'issue_refund', args: { amount: { not: { '>': '@lookup_order.result.total' } } } }] };
     expect(one(negated, [tool(3, 'issue_refund', { amount: 10 })]).status).toBe('failed');
     // A reader without results reads none, and so passes nothing that needs one.
-    const { resultOf: _results, ...withoutResults } = input([tool(2, 'lookup_order', {}, { total: 10 }), tool(3, 'issue_refund', { amount: 1 })]);
+    const withoutResults = input([tool(2, 'lookup_order', {}, { total: 10 }), tool(3, 'issue_refund', { amount: 1 })], { resultOf: () => undefined });
     expect(evaluateChecks(parseExpect(rule, 'e'), withoutResults)[0]!.detail).toBe('issue_refund #3: lookup_order #2 has no result');
   });
 
@@ -252,7 +256,8 @@ describe('judge: the grammar, and a verdict given or missing', () => {
     expect(bad({ name: 'has spaces' })).toThrow('--expect.judge[0].name must be a short name');
     expect(bad({ question: ' ' })).toThrow('--expect.judge[0].question must be the question the judge answers yes or no');
     expect(bad({ of: 'everything' })).toThrow('--expect.judge[0].of must be "answer" (the last model response), "output" (what the agent printed) or "run"');
-    expect(bad({ model: '' })).toThrow('--expect.judge[0].model must name the judge\'s model');
+    expect(bad({ model: '' })).toThrow('--expect.judge[0].model must name a model a judge can be asked through: a Claude, OpenAI or Gemini model');
+    expect(bad({ model: 'llama3' })).toThrow('--expect.judge[0].model must name a model a judge can be asked through');
     expect(bad({ pass: true })).toThrow('--expect.judge[0].pass must be "yes" or "no"');
     expect(bad({ temperature: 0 })).toThrow('--expect.judge[0] has an unknown key "temperature" (expected "name", "question", "of", "model", "pass")');
     expect(() => parseExpect({ judge: JUDGE }, '--expect')).toThrow('--expect.judge must be a list of questions');
@@ -261,7 +266,11 @@ describe('judge: the grammar, and a verdict given or missing', () => {
   });
 
   it('is inconclusive without a verdict, saying why, and never passes unjudged', () => {
+    for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) vi.stubEnv(k, '');
     expect(judge({ judge: [JUDGE] }, [])).toEqual([{ status: 'inconclusive', ok: false, label: 'judge "explains-escalation" answers yes', detail: 'not judged: no recorded verdict and no key for anthropic' }]);
+    // A key that is there is not named as missing.
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-test');
+    expect(judge({ judge: [JUDGE] }, [])[0]!.detail).toBe('not judged: no recorded verdict');
     expect(judge({ judge: [JUDGE] }, [], { judgeMissing: () => 'not judged: the recording holds no verdict' })[0]!.detail).toBe('not judged: the recording holds no verdict');
   });
 
@@ -390,7 +399,7 @@ describe('what a spec names and reads', () => {
     expect(readsOutput(recordable)).toBe(false);
     expect(recordable.when).toHaveLength(1);
     expect(recordable.when![0]!.then.tools).toEqual([{ name: 'b', count: { min: 1, max: 1 } }]);
-    expect(readsOutput(parseExpect({ judge: [{ name: 'j', question: 'q?', of: 'output', model: 'm' }] }, 'e'))).toBe(true);
+    expect(readsOutput(parseExpect({ judge: [{ name: 'j', question: 'q?', of: 'output', model: 'claude-haiku-4-5' }] }, 'e'))).toBe(true);
   });
 });
 
@@ -402,5 +411,138 @@ describe('a fix opened from one of these checks', () => {
     expect(failing(refundRun(240))).toBe('issue_refund: amount 240 > lookup_order.result.total 180');
     expect(failing([tool(2, 'lookup_order', {}, { total: 300 }), tool(3, 'issue_refund', { amount: 100 })])).toBe('escalate never called, when lookup_order has result.total > 200');
     expect(failing([])).toBe('Judge "polite" not judged');
+  });
+});
+
+describe('a typo never passes: values of another kind, keys named like operators', () => {
+  const at = (args: unknown, value: unknown, calls: Tool[] = []) => one({ calls: [{ tool: 't', args }] }, [...calls, tool(9, 't', value)]);
+
+  it('can\'t decide a value of another kind than the literal, and negating that never makes it pass', () => {
+    // A list where the call has text: the rule can't tell, so it fails and says so.
+    expect(at({ to: { not: ['x@evil.test'] } }, { to: 'x@evil.test' })).toMatchObject({ status: 'failed', detail: 't #9: to is "x@evil.test", not a list' });
+    expect(at({ customer: { not: { tier: 'gold' } } }, { customer: 'C-7' })).toMatchObject({ status: 'failed', detail: 't #9: customer is "C-7", not an object' });
+    expect(at({ customer: { tier: 'gold' } }, { customer: 'C-7' })).toMatchObject({ status: 'failed', detail: 't #9: customer is "C-7", not an object' });
+  });
+
+  it('decides as three-valued logic: a part that is broken settles "all of these", a missing value never passes', () => {
+    const range = { n: { not: { '>': 0, '<': '@lookup.result.max' } } };
+    // -1 is not above 0, so "above 0 and below max" is false whatever max is: its negation holds.
+    expect(at(range, { n: -1 }).status).toBe('passed');
+    // 5 is above 0, and whether it is below max can't be told without a lookup: never a pass.
+    expect(at(range, { n: 5 })).toMatchObject({ status: 'failed', detail: 't #9: no lookup call before it' });
+  });
+
+  it('refuses a key named like an operator it is not, saying which was meant', () => {
+    const refused = (args: unknown) => () => parseExpect({ calls: [{ tool: 't', args }] }, '--expect');
+    expect(refused({ to: { not: { endswith: '@evil.com' } } })).toThrow('--expect.calls[0].args["to"]["not"] has the key "endswith", which would be matched as a key the value has, not compared: did you mean { "endsWith": "@evil.com" }? (to match a key named "endswith", write { "=": {"endswith":"@evil.com"} })');
+    expect(refused({ body: { not: { contains: 'password' } } })).toThrow('did you mean { "includes": "password" }?');
+    expect(refused({ to: { $in: ['a@example.com'] } })).toThrow('did you mean { "in": ["a@example.com"] }?');
+    expect(refused({ to: { nin: ['a@example.com'] } })).toThrow('did you mean { "not": { "in": ["a@example.com"] } }?');
+    expect(refused({ n: { GTE: 3 } })).toThrow('did you mean { ">=": 3 }?');
+    expect(refused({ to: { regex: '^ops@' } })).toThrow('has the key "regex", which is no operator: there are no regular expressions, so compare with "=", "in", "includes", "startsWith" or "endsWith"');
+    // In a condition too, where it would never hold.
+    expect(() => parseExpect({ when: [{ if: { tool: 'lookup_order', result: { total: { gt: 100 } } }, then: { tools: { escalate: 1 } } }] }, '--expect')).toThrow('--expect.when[0].if.result["total"] has the key "gt", which would be matched as a key the value has, not compared: did you mean { ">": 100 }?');
+    expect(() => parseExpect({ when: [{ if: { tool: 'count_open', result: { gt: 3 } }, then: { tools: { escalate: 1 } } }] }, '--expect')).toThrow('--expect.when[0].if.result has the key "gt"');
+    expect([aliasOf('lte'), aliasOf('$not'), aliasOf('Includes'), aliasOf('total'), aliasOf('in'), aliasOf('like')]).toEqual(['<=', 'not', 'includes', undefined, undefined, null]);
+  });
+
+  it('matches a real key named like an operator with "=", and takes any argument name at the top of "args"', () => {
+    expect(at({ filter: { '=': { gt: 1 } } }, { filter: { gt: 1, other: 2 } }).status).toBe('passed');
+    expect(at({ gt: 5 }, { gt: 5 }).status).toBe('passed');
+    expect(at({ gt: 5 }, { gt: 6 }).detail).toBe('t #9: gt 6 != 5');
+  });
+
+  it('reads "@@" as text that starts with "@", never a reference', () => {
+    expect(at({ to: '@@corp.args.io' }, { to: '@corp.args.io' })).toMatchObject({ status: 'passed', label: 'every t call: to = "@corp.args.io"' });
+    expect(at({ to: '@@corp.args.io' }, { to: 'ops@corp.io' }).detail).toBe('t #9: to "ops@corp.io" != "@corp.args.io"');
+    expect(at({ to: { endsWith: '@@corp.result' } }, { to: 'x@corp.result' }).status).toBe('passed');
+    expect(at({ to: { in: ['@@corp.args.io'] } }, { to: '@corp.args.io' }).status).toBe('passed');
+    // Without the escape it reads the call before it, which isn't there.
+    expect(at({ to: '@corp.args.io' }, { to: '@corp.args.io' }).detail).toBe('t #9: no corp call before it');
+  });
+});
+
+describe('when: a condition that can\'t be read is inconclusive, never "never held"', () => {
+  const cond = (c: unknown) => ({ when: [{ if: c, then: { tools: { escalate: '>= 1' } } }] });
+
+  it('says it could not tell when a value the condition compares is missing from the result', () => {
+    const misspelt = cond({ tool: 'lookup_order', result: { totl: { '>': 100 } } });
+    expect(one(misspelt, [tool(2, 'lookup_order', {}, { order_id: 'A', amount: 240 })])).toEqual({
+      status: 'inconclusive',
+      ok: false,
+      label: 'when lookup_order has result.totl > 100: escalate called at least 1 time',
+      detail: 'could not tell whether the condition held: lookup_order #2: has no result.totl',
+    });
+    expect(checkOutcome(judge(misspelt, [tool(2, 'lookup_order', {}, { amount: 240 })]))).toBe('inconclusive');
+    // Of another kind than it compares.
+    expect(one(cond({ tool: 'lookup_order', result: { total: { '>': 100 } } }), [tool(2, 'lookup_order', {}, { total: 'lots' })]).detail).toBe('could not tell whether the condition held: lookup_order #2: result.total "lots" is not a number');
+    // A call that never finished has no result to read yet.
+    expect(one(cond({ tool: 'lookup_order', result: { total: { '>': 100 } } }), [tool(2, 'lookup_order', {}, undefined, { ended: false })])).toMatchObject({ status: 'inconclusive', detail: 'could not tell whether the condition held: lookup_order #2: has no result (it never finished)' });
+  });
+
+  it('says it could not tell when a reference in the condition has nothing to read', () => {
+    const big = cond({ tool: 'issue_refund', args: { amount: { '>': '@lookup_order.result.total' } } });
+    expect(one(big, [tool(3, 'issue_refund', { amount: 50 })])).toMatchObject({ status: 'inconclusive', detail: 'could not tell whether the condition held: issue_refund #3: no lookup_order call before it' });
+  });
+
+  it('is not applicable when every call definitely missed it, whatever else it couldn\'t read', () => {
+    // The region rules this call out, so its result doesn't matter.
+    const eu = cond({ tool: 'lookup_order', args: { region: 'EU' }, result: { totl: { '>': 1 } } });
+    expect(one(eu, [tool(2, 'lookup_order', { region: 'US' }, { total: 5 })])).toMatchObject({ status: 'not-applicable', detail: 'the condition never held: lookup_order #2: args.region "US" != "EU"; has no result.totl' });
+    // A call that failed returned nothing, so a condition on its result did not hold there.
+    expect(one(cond({ tool: 'lookup_order', result: { total: { '>': 1 } } }), [tool(2, 'lookup_order', {}, undefined, { outcome: 'error' })]).status).toBe('not-applicable');
+    // One call that met it applies the checks, however the others read.
+    const big = cond({ tool: 'lookup_order', result: { total: { '>': 100 } } });
+    expect(one(big, [tool(2, 'lookup_order', {}, { amount: 1 }), tool(3, 'lookup_order', {}, { total: 240 }), tool(4, 'escalate', {})]).status).toBe('passed');
+  });
+});
+
+describe('judge models: one a judge can be asked through', () => {
+  const j = (model: string) => parseJudge({ name: 'j', question: 'q?', model }, 'j');
+
+  it('takes a Claude, OpenAI or Gemini model, or any with its provider, and names the provider', () => {
+    for (const [model, provider] of [['claude-haiku-4-5', 'anthropic'], ['anthropic:my-proxy-model', 'anthropic'], ['gpt-5.5', 'openai'], ['chatgpt-4o-latest', 'openai'], ['o3', 'openai'], ['openai:local-model', 'openai'], ['gemini-3-flash', 'gemini'], ['gemini:my-tuned', 'gemini']] as const) {
+      expect(j(model).model).toBe(model);
+      expect(judgeProvider(model)).toBe(provider);
+    }
+    for (const model of ['llama3', 'm', 'bedrock:claude-haiku', 'Claude-haiku', 'claude haiku']) expect(() => j(model), model).toThrow('must name a model a judge can be asked through');
+    expect(judgeProvider('llama3')).toBeNull();
+  });
+
+  it('says no key only when the environment has none for the provider', () => {
+    expect(notJudgedWhy(j('claude-haiku-4-5'), {})).toBe('not judged: no recorded verdict and no key for anthropic');
+    expect(notJudgedWhy(j('claude-haiku-4-5'), { ANTHROPIC_AUTH_TOKEN: 't' })).toBe('not judged: no recorded verdict');
+    expect(notJudgedWhy(j('openai:local-model'), { ANTHROPIC_API_KEY: 'k' })).toBe('not judged: no recorded verdict and no key for openai');
+    expect(notJudgedWhy(j('gemini-3-flash'), { GOOGLE_API_KEY: 'k' })).toBe('not judged: no recorded verdict');
+    expect(notJudgedWhy(j('gpt-5.5'), { OPENAI_API_KEY: ' ' })).toBe('not judged: no recorded verdict and no key for openai');
+  });
+});
+
+describe('the values a spec reads, held against recorded calls', () => {
+  it('lists every argument, result and reference a rule reads, where it is', () => {
+    const spec = parseExpect(
+      {
+        calls: [{ tool: 'issue_refund', args: { amount: { '<=': '@lookup_order.result.total' }, customer: { email: { endsWith: '@example.com' } } } }],
+        when: [{ if: { tool: 'lookup_order', result: { totl: { '>': 100 } } }, then: { calls: [{ tool: 'send_email', args: { to: { not: { in: '@lookup_customer.result.*' } } } }] } }],
+      },
+      'e',
+    );
+    expect(pathsNamed(spec).map((p) => [p.tool, p.text, p.use, p.at])).toEqual([
+      ['issue_refund', 'args.amount', 'rule', 'e.calls[0].args["amount"]'],
+      ['lookup_order', 'result.total', 'reference', 'e.calls[0].args["amount"]["<="]'],
+      ['issue_refund', 'args.customer.email', 'rule', 'e.calls[0].args["customer"]["email"]'],
+      ['lookup_order', 'result.totl', 'condition', 'e.when[0].if.result["totl"]'],
+      ['send_email', 'args.to', 'rule', 'e.when[0].then.calls[0].args["to"]'],
+      ['lookup_customer', 'result.*', 'reference', 'e.when[0].then.calls[0].args["to"]["not"]["in"]'],
+    ]);
+  });
+
+  it('names those no recorded call of the tool has, with the keys the calls do have', () => {
+    const spec = parseExpect({ calls: [{ tool: 'issue_refund', args: { amount: { '<=': '@lookup_order.result.total' } } }], when: [{ if: { tool: 'lookup_order', result: { amount: { '>': 100 } } }, then: { tools: { escalate: 1 } } }] }, 'e');
+    const calls = [tool(1, 'lookup_order', {}, { order_id: 'A', amount: 240, status: 'delivered' }), tool(2, 'issue_refund', { order_id: 'A', amount: 240 })];
+    const recordings = [{ calls, input: input(calls) }];
+    expect(unreadPaths(pathsNamed(spec), recordings).map((u) => [u.tool, u.text, u.calls, u.keys])).toEqual([['lookup_order', 'result.total', 1, ['amount', 'order_id', 'status']]]);
+    // A tool no recording called is left to the check on tool names.
+    expect(unreadPaths(pathsNamed(parseExpect({ calls: [{ tool: 'refund', args: { amt: 1 } }] }, 'e')), recordings)).toEqual([]);
   });
 });

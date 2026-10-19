@@ -59,6 +59,43 @@ export const OPERATORS = ['=', '!=', '<', '<=', '>', '>=', 'in', 'includes', 'st
 export type Operator = (typeof OPERATORS)[number];
 
 /**
+ * Keys that read like an operator someone meant but are not one: another language's name for it
+ * (`gt`, `contains`, `$in`) or an operator in another case (`endswith`). In a value to match they
+ * would be a key the value must have, which a value almost never has: under `not` that passes
+ * everything, in a condition it never holds. So they are refused, with the operator they meant.
+ * Null stands for one with no operator to offer (there are no regular expressions).
+ */
+export const OPERATOR_ALIASES: Readonly<Record<string, Operator | null>> = {
+  eq: '=',
+  equals: '=',
+  ne: '!=',
+  neq: '!=',
+  lt: '<',
+  lte: '<=',
+  le: '<=',
+  gt: '>',
+  gte: '>=',
+  ge: '>=',
+  contains: 'includes',
+  nin: 'not',
+  notin: 'not',
+  not_in: 'not',
+  matches: null,
+  regex: null,
+  like: null,
+};
+
+/** The operator a key that is not one most likely meant, or undefined for an ordinary key. Null: an operator that doesn't exist. */
+export function aliasOf(key: string): Operator | null | undefined {
+  const bare = key.startsWith('$') ? key.slice(1) : key;
+  if (bare !== key && (OPERATORS as readonly string[]).includes(bare)) return bare as Operator;
+  const lower = bare.toLowerCase();
+  const op = OPERATORS.find((o) => o.toLowerCase() === lower);
+  if (op && op !== key) return op;
+  return Object.hasOwn(OPERATOR_ALIASES, lower) ? OPERATOR_ALIASES[lower] : undefined;
+}
+
+/**
  * `@lookup_order.result.total`, `@lookup_order.args.order_id`: a value from the most recent call of
  * a tool before the call being checked. `path` is what follows `result` or `args`, read as the
  * JSONPath subset normalizers use (`.total`, `.items[0].sku`, `.*`); `text` is how reports name it.
@@ -123,6 +160,16 @@ export interface JudgeCheck {
   model: string;
   pass: 'yes' | 'no';
 }
+
+/** The providers a judge's model can belong to. */
+export type JudgeProvider = 'anthropic' | 'openai' | 'gemini';
+
+/** The environment variables a provider's key is read from. */
+export const JUDGE_KEYS: Readonly<Record<JudgeProvider, readonly string[]>> = {
+  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+  openai: ['OPENAI_API_KEY'],
+  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+};
 
 /** What an `expect` object asks for: the checks alone. */
 export interface ExpectSpec {
@@ -408,6 +455,12 @@ export function parseWhen(raw: unknown, where: string, judges = new Map<string, 
 
 const JUDGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const JUDGE_OF = ['answer', 'output', 'run'] as const;
+/**
+ * A model a judge can be asked through: a Claude, OpenAI or Gemini model by its name (`claude-…`,
+ * `gpt-…`, `chatgpt-…`, `o1`, `o3`, `o4-…`, `gemini-…`), or any name after its provider
+ * (`openai:my-model` for an OpenAI-compatible server's own names). The schema holds the same.
+ */
+export const JUDGE_MODEL = /^(?:(?:anthropic|openai|gemini):\S{1,200}|(?:claude-|gpt-|chatgpt-|o\d|gemini-)\S{0,200})$/;
 
 /**
  * One judge check: `{ "name", "question", "of": "answer" | "output" | "run", "model", "pass": "yes" | "no" }`.
@@ -420,20 +473,33 @@ export function parseJudge(raw: unknown, where: string): JudgeCheck {
   if (typeof raw.question !== 'string' || !raw.question.trim() || raw.question.length > 2000) throw new Error(`${where}.question must be the question the judge answers yes or no, at most 2,000 characters`);
   const of = raw.of ?? 'answer';
   if (typeof of !== 'string' || !(JUDGE_OF as readonly string[]).includes(of)) throw new Error(`${where}.of must be "answer" (the last model response), "output" (what the agent printed) or "run" (the conversation and the tool calls)`);
-  if (typeof raw.model !== 'string' || !/^\S{1,200}$/.test(raw.model)) throw new Error(`${where}.model must name the judge's model, such as "claude-haiku-4-5" or "openai:gpt-5.5"`);
+  if (typeof raw.model !== 'string' || !JUDGE_MODEL.test(raw.model)) {
+    throw new Error(`${where}.model must name a model a judge can be asked through: a Claude, OpenAI or Gemini model (claude-…, gpt-…, o3…, gemini-…), or any model with its provider before it, such as "openai:gpt-5.5"`);
+  }
   const pass = raw.pass ?? 'yes';
   if (pass !== 'yes' && pass !== 'no') throw new Error(`${where}.pass must be "yes" or "no": the answer that passes`);
   return { name: raw.name, question: raw.question, of: of as JudgeCheck['of'], model: raw.model, pass };
 }
 
-/** The provider a judge's model belongs to, as `provider:model` names it, or as the model's name says. */
-export function judgeProvider(model: string): string {
-  const named = /^(anthropic|openai|gemini|bedrock|vertex):/.exec(model);
-  if (named) return named[1]!;
-  if (/^claude/i.test(model)) return 'anthropic';
-  if (/^(gpt|chatgpt|o\d)/i.test(model)) return 'openai';
-  if (/^gemini/i.test(model)) return 'gemini';
-  return model;
+/** The provider a judge's model belongs to, as `provider:model` names it, or as the model's name says; null when neither does. */
+export function judgeProvider(model: string): JudgeProvider | null {
+  const named = /^(anthropic|openai|gemini):/.exec(model);
+  if (named) return named[1] as JudgeProvider;
+  if (/^claude-/.test(model)) return 'anthropic';
+  if (/^(gpt-|chatgpt-|o\d)/.test(model)) return 'openai';
+  if (/^gemini-/.test(model)) return 'gemini';
+  return null;
+}
+
+/**
+ * Why a judge check has no verdict, for its inconclusive result: no verdict recorded for it and,
+ * when the environment holds no key for its provider, no key to ask it live with. A key that is
+ * there is not named as missing.
+ */
+export function notJudgedWhy(j: JudgeCheck, env: NodeJS.ProcessEnv = process.env): string {
+  const provider = judgeProvider(j.model);
+  if (provider && !JUDGE_KEYS[provider].some((k) => env[k]?.trim())) return `not judged: no recorded verdict and no key for ${provider}`;
+  return 'not judged: no recorded verdict';
 }
 
 // ---- Predicates ---------------------------------------------------------------------------------
@@ -442,45 +508,69 @@ const isOperator = (k: string): k is Operator => (OPERATORS as readonly string[]
 const REFERENCE = /^@(.+?)\.(result|args)(?=$|[.[])(.*)$/s;
 const hasWildcard = (r: Reference) => r.path.some((s) => s.type === 'wild');
 
-/** A string written as a reference, or null for any other value. `where` names it in errors. */
+/**
+ * A string written as a reference, or null for any other value. `where` names it in errors. A
+ * string that starts with `@@` is never one: it is text, with one `@` taken off (`"@@corp.args.io"`
+ * is the text `@corp.args.io`).
+ */
 function referenceIn(value: unknown, where: string): Reference | null {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== 'string' || value.startsWith('@@')) return null;
   const m = REFERENCE.exec(value);
   if (!m) return null;
   let path: Reference['path'];
   try {
     path = parsePath(`$${m[3]}`);
   } catch (err) {
-    throw new Error(`${where}: the reference ${value} has a path that can't be read (${(err as Error).message.replace(/: \$.*$/s, '')}); write it as @${m[1]}.${m[2]}.total or @${m[1]}.${m[2]}.items[0].sku`);
+    throw new Error(`${where}: the reference ${value} has a path that can't be read (${(err as Error).message.replace(/: \$.*$/s, '')}); write it as @${m[1]}.${m[2]}.total or @${m[1]}.${m[2]}.items[0].sku, or as text, @${value}`);
   }
   return { tool: m[1]!, part: m[2] as Reference['part'], path, text: value.slice(1), at: where };
 }
+
+/** A value written in a rule as it is compared: `@@…` is text that starts with one `@`. */
+const literal = (value: unknown): unknown => (typeof value === 'string' && value.startsWith('@@') ? value.slice(1) : value);
 
 /** An operator's value: a reference or a literal. A reference with `*` names several values, which only `in` can take. */
 function parseOperand(value: unknown, where: string, op: Operator): Operand {
   const ref = referenceIn(value, where);
   if (ref && hasWildcard(ref)) throw new Error(`${where}: ${value} names several values (it has *), which only "in" can compare with`);
   if (ref) return { ref };
+  const v = literal(value);
   if (op === '<' || op === '<=' || op === '>' || op === '>=') {
-    if (asNumber(value) === null) throw new Error(`${where} must be a number or a reference such as "@lookup_order.result.total"`);
-  } else if ((op === 'startsWith' || op === 'endsWith') && typeof value !== 'string') {
+    if (asNumber(v) === null) throw new Error(`${where} must be a number or a reference such as "@lookup_order.result.total"`);
+  } else if ((op === 'startsWith' || op === 'endsWith') && typeof v !== 'string') {
     throw new Error(`${where} must be text or a reference such as "@lookup_customer.result.email"`);
   }
-  return { value };
+  return { value: v };
+}
+
+/**
+ * A key of a value to match that reads like an operator someone meant (`gt`, `contains`, `$in`,
+ * `endswith`) is refused, naming the one they meant: matched as a key, it would never be there.
+ */
+function refuseAliases(keys: readonly string[], raw: Record<string, unknown>, where: string): void {
+  for (const key of keys) {
+    const meant = aliasOf(key);
+    if (meant === undefined) continue;
+    const real = `to match a key named "${key}", write { "=": ${JSON.stringify({ [key]: raw[key] })} }`;
+    if (meant === null) throw new Error(`${where} has the key "${key}", which is no operator: there are no regular expressions, so compare with "=", "in", "includes", "startsWith" or "endsWith" (${real})`);
+    const how = meant === 'not' ? `{ "not": { "in": ${JSON.stringify(raw[key])} } }` : `{ "${meant}": ${JSON.stringify(raw[key])} }`;
+    throw new Error(`${where} has the key "${key}", which would be matched as a key the value has, not compared: did you mean ${how}? (${real})`);
+  }
 }
 
 /**
  * A value's test in a `calls` or `when` rule. An object whose keys are all operators is a
  * predicate (`{ "<=": "@lookup_order.result.total" }`, `{ ">": 0, "<": 500 }`); any other object,
  * a list and a plain value are literals, matched as `tools` matches arguments, with predicates
- * allowed inside them; a string written as a reference stands for the value it reads.
+ * allowed inside them; a string written as a reference stands for the value it reads. A key named
+ * like an operator it is not (`gt`, `contains`) is refused: see `OPERATOR_ALIASES`.
  */
 export function parsePredicate(raw: unknown, where: string): Matcher {
   if (Array.isArray(raw)) return { op: 'array', items: raw.map((v, i) => parsePredicate(v, `${where}[${i}]`)) };
   if (!isObject(raw)) {
     const ref = referenceIn(raw, where);
     if (ref && hasWildcard(ref)) throw new Error(`${where}: ${String(raw)} names several values (it has *); compare with one, or use it with "in"`);
-    return { op: '=', operand: ref ? { ref } : { value: raw } };
+    return { op: '=', operand: ref ? { ref } : { value: literal(raw) } };
   }
   const keys = Object.keys(raw);
   const ops = keys.filter(isOperator);
@@ -488,7 +578,10 @@ export function parsePredicate(raw: unknown, where: string): Matcher {
     const others = keys.filter((k) => !isOperator(k));
     throw new Error(`${where} mixes predicates (${ops.map((k) => `"${k}"`).join(', ')}) with values to match (${others.map((k) => `"${k}"`).join(', ')}): an object is either a predicate such as { "<=": 100 } or the keys a value must have`);
   }
-  if (!ops.length) return { op: 'object', keys: keys.map((key) => ({ key, matcher: parsePredicate(raw[key], `${where}["${key}"]`) })) };
+  if (!ops.length) {
+    refuseAliases(keys, raw, where);
+    return { op: 'object', keys: keys.map((key) => ({ key, matcher: parsePredicate(raw[key], `${where}["${key}"]`) })) };
+  }
   const matchers = ops.map((op) => parseOperator(op, raw[op], `${where}["${op}"]`));
   return matchers.length === 1 ? matchers[0]! : { op: 'all', matchers };
 }
@@ -591,14 +684,17 @@ export interface CheckInput {
   argsOf: (call: CallRecord) => unknown;
   /**
    * A tool call's recorded result, or undefined for one that has none: it failed, was blocked, or
-   * never finished. Without it every result reads as missing, so a rule that reads one fails.
+   * never finished. An input that only labels checks, and judges no run, gives `() => undefined`.
    */
-  resultOf?: (call: CallRecord) => unknown;
+  resultOf: (call: CallRecord) => unknown;
   /** The text of the last model response, or null without one. */
   answer: string | null;
   /** A model call's estimated cost in USD, or null when its model has no price. */
   costOf: (call: CallRecord) => number | null;
 }
+
+/** An input that judges no run, for what a spec's checks are called: their labels depend on the checks alone. */
+export const LABEL_INPUT: CheckInput = { calls: [], output: '', answer: null, argsOf: () => undefined, resultOf: () => undefined, costOf: () => 0 };
 
 /** A judge's verdict on a run, from its recorded call or one asked live, by the judge's name. */
 export interface JudgeVerdict {
@@ -609,7 +705,7 @@ export interface JudgeVerdict {
 
 export interface EvaluateOptions {
   judgeVerdicts?: ReadonlyMap<string, JudgeVerdict>;
-  /** Why a judge has no verdict, for its inconclusive result. Default: no recorded verdict and no key for its provider. */
+  /** Why a judge has no verdict, for its inconclusive result. Default: `notJudgedWhy`, no recorded verdict and, when the environment has none, no key for its provider. */
   judgeMissing?: (judge: JudgeCheck) => string;
 }
 
@@ -694,7 +790,10 @@ interface Scope {
 /**
  * A matcher's verdict on a value: it holds, it is broken, or it can't be decided (a value or a
  * call it needs is missing, or a value of the wrong kind) — which never counts as holding, negated
- * or not. `why` states the relation as it stands, with the values involved.
+ * or not. `why` states the relation as it stands, with the values involved. Verdicts combine as
+ * three-valued logic does: several that must all hold are broken when one is, whatever the others
+ * are, and can't be decided when none is broken but one can't be; negation swaps held and broken
+ * and leaves the undecided undecided. So a pass never rests on a value that was not there.
  */
 interface Match {
   state: 'held' | 'broken' | 'undecided';
@@ -713,12 +812,16 @@ const held = (why: string): Match => ({ state: 'held', why });
 const broken = (why: string): Match => ({ state: 'broken', why });
 const undecided = (why: string): Match => ({ state: 'undecided', why });
 
-/** A tool call's result as the input reads it, and why it has none. */
-function resultOf(c: CallRecord, input: CheckInput): { value: unknown } | { none: string } {
-  const value = input.resultOf?.(c);
+/**
+ * A tool call's result as the input reads it, and why it has none. `ended`: the call ended without
+ * one, failed or blocked, so it is known to have returned nothing; otherwise the result is just not
+ * there to read (the call never finished, or its response can't be read).
+ */
+function resultOf(c: CallRecord, input: CheckInput): { value: unknown } | { none: string; ended: boolean } {
+  const value = input.resultOf(c);
   if (value !== undefined) return { value };
   const why = c.origin === 'blocked' ? 'it was blocked' : !c.end ? 'it never finished' : c.end.outcome === 'error' ? 'it failed' : null;
-  return { none: why ? `has no result (${why})` : 'has no result' };
+  return { none: why ? `has no result (${why})` : 'has no result', ended: c.origin === 'blocked' || c.end?.outcome === 'error' };
 }
 
 /** A JSON object or list held in a string, as tools often return one, read so a path can go into it. */
@@ -790,21 +893,26 @@ function asNumber(v: unknown): number | null {
   return null;
 }
 
-/** Several matches as one: undecided when any is, else broken when any is, else held. */
+/**
+ * Several matches that must all hold, as one: broken when any is, else undecided when any is, else
+ * held. The why names every part that did not hold.
+ */
 function combine(matches: Match[]): Match {
   const not = matches.filter((m) => m.state !== 'held');
-  const state = not.some((m) => m.state === 'undecided') ? 'undecided' : not.length ? 'broken' : 'held';
+  const state = not.some((m) => m.state === 'broken') ? 'broken' : not.length ? 'undecided' : 'held';
   return { state, why: (not.length ? not : matches).map((m) => m.why).filter(Boolean).join('; ') };
 }
 
 function match(m: Matcher, actual: unknown, path: string, ctx: MatchContext): Match {
   const subject = path || 'the value';
   switch (m.op) {
+    // A value of another kind than the literal written can't be matched key by key or item by item:
+    // that is no answer either way, so negating it doesn't make it pass.
     case 'object':
-      if (!isObject(actual)) return actual === undefined ? undecided(`has no ${path || 'arguments'}`) : broken(`${subject} is ${showValue(actual)}, not an object`);
+      if (!isObject(actual)) return actual === undefined ? undecided(`has no ${path || 'arguments'}`) : undecided(`${subject} is ${showValue(actual)}, not an object`);
       return m.keys.length ? combine(m.keys.map((k) => match(k.matcher, actual[k.key], pathAt(path, k.key), ctx))) : held(`${subject} is an object`);
     case 'array':
-      if (!Array.isArray(actual)) return actual === undefined ? undecided(`has no ${subject}`) : broken(`${subject} is ${showValue(actual)}, not a list`);
+      if (!Array.isArray(actual)) return actual === undefined ? undecided(`has no ${subject}`) : undecided(`${subject} is ${showValue(actual)}, not a list`);
       if (actual.length !== m.items.length) return broken(`${subject} has ${actual.length} item${actual.length === 1 ? '' : 's'}, not ${m.items.length}`);
       return m.items.length ? combine(m.items.map((item, i) => match(item, actual[i], pathAt(path, i), ctx))) : held(`${subject} is an empty list`);
     case 'all':
@@ -901,21 +1009,29 @@ function callRuleResult(rule: CallRule, scope: Scope): CheckResult {
   return verdict(problems.length === 0, label, problems.length ? problemsDetail(problems, rule.tool) : null);
 }
 
-/** Whether a call meets a `when` condition, and the values that say so either way. A value that is missing never meets it. */
+/**
+ * Whether a call meets a `when` condition, and the values that say so either way. A call that
+ * failed or was blocked returned no result, so a condition on its result does not hold there; a
+ * value that is missing from a result, or of another kind than the condition compares, or a
+ * reference with nothing to read, leaves it undecided.
+ */
 function conditionAt(cond: CallCondition, c: CallRecord, scope: Scope): Match {
   const ctx = { scope, at: c };
   const parts: Match[] = [];
   if (cond.args) parts.push(match(cond.args, scope.input.argsOf(c), 'args', ctx));
   if (cond.result) {
     const r = resultOf(c, scope.input);
-    parts.push('none' in r ? undecided(r.none) : match(cond.result, r.value, 'result', ctx));
+    parts.push('none' in r ? (r.ended ? broken(r.none) : undecided(r.none)) : match(cond.result, r.value, 'result', ctx));
   }
   return parts.length ? combine(parts) : held('');
 }
 
 /**
  * A `when` rule: its `then` checks, each reported under the condition. Applied when any call met
- * the condition; otherwise each is not applicable, with what the calls had instead.
+ * the condition. When none did, each is not applicable, with what the calls had instead; but when
+ * one of them could not be read for it (a value the condition compares is missing, or of another
+ * kind), whether the condition held can't be told, and each is inconclusive, saying what is
+ * missing: "the condition never held" would claim more than was checked.
  */
 function whenResults(rule: WhenRule, scope: Scope, options: EvaluateOptions): CheckResult[] {
   const cond = rule.if;
@@ -927,7 +1043,10 @@ function whenResults(rule: WhenRule, scope: Scope, options: EvaluateOptions): Ch
     const where = `the condition held at ${cond.tool} #${met.c.callNo}${met.m.why ? ` (${met.m.why})` : ''}`;
     return inner.map((r) => ({ ...r, label: `${prefix}: ${r.label}`, detail: r.detail === null ? null : `${r.detail}; ${where}` }));
   }
-  const seen = tried.length ? problemsDetail(tried.map((t) => `${cond.tool} #${t.c.callNo}: ${t.m.why}`), cond.tool) : `${cond.tool} was never called`;
+  const unread = tried.filter((t) => t.m.state === 'undecided');
+  const calls = (ts: typeof tried) => problemsDetail(ts.map((t) => `${cond.tool} #${t.c.callNo}: ${t.m.why}`), cond.tool);
+  if (unread.length) return inner.map((r) => ({ status: 'inconclusive' as const, ok: false, label: `${prefix}: ${r.label}`, detail: `could not tell whether the condition held: ${calls(unread)}` }));
+  const seen = tried.length ? calls(tried) : `${cond.tool} was never called`;
   return inner.map((r) => ({ status: 'not-applicable' as const, ok: true, label: `${prefix}: ${r.label}`, detail: `the condition never held: ${seen}` }));
 }
 
@@ -935,7 +1054,7 @@ function whenResults(rule: WhenRule, scope: Scope, options: EvaluateOptions): Ch
 function judgeResult(j: JudgeCheck, options: EvaluateOptions): CheckResult {
   const label = judgeLabel(j);
   const v = options.judgeVerdicts?.get(j.name);
-  if (!v) return { status: 'inconclusive', ok: false, label, detail: options.judgeMissing?.(j) ?? `not judged: no recorded verdict and no key for ${judgeProvider(j.model)}` };
+  if (!v) return { status: 'inconclusive', ok: false, label, detail: options.judgeMissing?.(j) ?? notJudgedWhy(j) };
   const ok = v.verdict === j.pass;
   return { status: ok ? 'passed' : 'failed', ok, label, detail: ok ? null : `the judge answered ${v.verdict}`, reason: v.reason, source: v.source };
 }
@@ -1075,6 +1194,122 @@ export function toolsNamed(spec: ExpectSpec, where: string): NamedTool[] {
     refs(w.if.args);
     refs(w.if.result);
     out.push(...toolsNamed(w.then, `${where}.when[${i}].then`));
+  }
+  return out;
+}
+
+/**
+ * A value a spec reads from a tool's calls: an argument a `calls` rule or a condition matches, a
+ * condition's result, or what a reference reads. `doctor` and `shadowlap check` hold them against
+ * the calls recordings made, as `unreadPaths` does.
+ */
+export interface NamedPath {
+  tool: string;
+  part: 'args' | 'result';
+  path: Reference['path'];
+  /** `result.total`, `args.customer.email`. */
+  text: string;
+  /** What the spec reads it for: a `calls` rule's argument, a condition, or a reference. */
+  use: 'rule' | 'condition' | 'reference';
+  at: string;
+}
+
+/** A path as the reports write it: `result.total`, `args.items[0].sku`, `result.*`. */
+function pathText(part: string, path: Reference['path']): string {
+  return path.reduce((s: string, seg) => (seg.type === 'key' ? pathAt(s, seg.key) : seg.type === 'index' ? `${s}[${seg.index}]` : `${s}.*`), part);
+}
+
+/** Every value a spec reads from calls, nested `when`s included, with where it is. */
+export function pathsNamed(spec: ExpectSpec): NamedPath[] {
+  const out: NamedPath[] = [];
+  const named = (tool: string, part: NamedPath['part'], path: Reference['path'], use: NamedPath['use'], at: string): void => {
+    out.push({ tool, part, path, text: pathText(part, path), use, at });
+  };
+  // The keys a matcher goes into, down to the values it compares, and every reference it reads.
+  const walk = (m: Matcher | null, tool: string, part: NamedPath['part'], path: Reference['path'], use: NamedPath['use'], at: string): void => {
+    if (!m) return;
+    switch (m.op) {
+      case 'object':
+        if (!m.keys.length) return named(tool, part, path, use, at);
+        return m.keys.forEach((k) => walk(k.matcher, tool, part, [...path, { type: 'key', key: k.key }], use, `${at}["${k.key}"]`));
+      case 'all':
+        return m.matchers.forEach((x) => walk(x, tool, part, path, use, at));
+      case 'not':
+        return walk(m.matcher, tool, part, path, use, at);
+      case 'array':
+        named(tool, part, path, use, at);
+        return m.items.forEach((x) => refs(x));
+      default:
+        named(tool, part, path, use, at);
+        return refs(m);
+    }
+  };
+  const refs = (m: Matcher): void => {
+    const read = (r: Reference) => named(r.tool, r.part, r.path, 'reference', r.at);
+    if (m.op === 'in') {
+      if ('list' in m) read(m.list);
+      else for (const o of m.items) if ('ref' in o) read(o.ref);
+    } else if (m.op === 'object') m.keys.forEach((k) => refs(k.matcher));
+    else if (m.op === 'array') m.items.forEach(refs);
+    else if (m.op === 'all') m.matchers.forEach(refs);
+    else if (m.op === 'not') refs(m.matcher);
+    else if ('ref' in m.operand) read(m.operand.ref);
+  };
+  for (const r of spec.calls ?? []) walk(r.args, r.tool, 'args', [], 'rule', `${r.at}.args`);
+  for (const w of spec.when ?? []) {
+    walk(w.if.args, w.if.tool, 'args', [], 'condition', `${w.if.at}.args`);
+    walk(w.if.result, w.if.tool, 'result', [], 'condition', `${w.if.at}.result`);
+    out.push(...pathsNamed(w.then));
+  }
+  return out;
+}
+
+/** The calls of a recording, and how to read each one's arguments and result. */
+export interface RecordedCalls {
+  calls: readonly CallRecord[];
+  input: Pick<CheckInput, 'argsOf' | 'resultOf'>;
+}
+
+/** A value no recorded call of its tool has: how many calls were read for it, and the keys they have where it is missing. */
+export interface UnreadPath extends NamedPath {
+  calls: number;
+  keys: string[];
+}
+
+/**
+ * The values a spec reads that no recorded call of their tool has: most likely a misspelt key, and
+ * a rule that reads one fails on every call, a condition on one can't be decided. A tool no
+ * recording called is left out: the tool's name is what is wrong there. `keys` are the keys the
+ * calls do have beside the missing one, to suggest the one meant.
+ */
+export function unreadPaths(paths: readonly NamedPath[], recordings: readonly RecordedCalls[]): UnreadPath[] {
+  const out: UnreadPath[] = [];
+  const seen = new Set<string>();
+  for (const p of paths) {
+    const id = `${p.tool} ${p.text} ${p.at}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    let calls = 0;
+    let found = false;
+    const keys = new Set<string>();
+    for (const r of recordings) {
+      for (const c of r.calls) {
+        if (c.kind !== 'tool' || c.name !== p.tool) continue;
+        const base = p.part === 'args' ? r.input.argsOf(c) : r.input.resultOf(c);
+        if (base === undefined) continue;
+        calls++;
+        if (valuesAt(base, p.path).length) {
+          found = true;
+          break;
+        }
+        for (const v of valuesAt(base, p.path.slice(0, -1))) {
+          const o = intoText(v);
+          if (isObject(o)) Object.keys(o).forEach((k) => keys.add(k));
+        }
+      }
+      if (found) break;
+    }
+    if (!found && calls) out.push({ ...p, calls, keys: [...keys].sort() });
   }
   return out;
 }

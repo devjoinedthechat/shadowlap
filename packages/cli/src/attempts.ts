@@ -3,7 +3,7 @@ import { checkStatus, estimateCost, formatDuration, formatUsd, type CallRecord, 
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
-import { evaluateChecks, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type TestSpec } from './checks.js';
+import { evaluateChecks, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { agentEnv, recordsInput, type GuardMode } from './run-agent.js';
@@ -282,7 +282,7 @@ const failed = (checks: readonly CheckResult[]) => checks.filter((c) => !c.ok).m
 
 /** The oracle, as the labels of what a passing run must do. */
 export function oracleLabels(spec: TestSpec | null): string[] {
-  return [EXIT_LABEL, ...(spec ? evaluateChecks(spec, { calls: [], output: '', answer: null, argsOf: () => undefined, costOf: () => 0 }).map((c) => c.label) : [])];
+  return [EXIT_LABEL, ...(spec ? evaluateChecks(spec, LABEL_INPUT).map((c) => c.label) : [])];
 }
 
 /**

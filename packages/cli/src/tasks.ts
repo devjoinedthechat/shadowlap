@@ -33,7 +33,7 @@ import {
 } from '@shadowlap/engine';
 import { providers } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, EXIT_LABEL, formatBudget } from './attempts.js';
-import { evaluateChecks, parseTests, type CheckResult, type TestSpec } from './checks.js';
+import { evaluateChecks, LABEL_INPUT, parseTests, type CheckResult, type TestSpec } from './checks.js';
 import { configPath, upstreamOverrides } from './config.js';
 import { importGolden } from './golden-test.js';
 import { type GuardMode } from './run-agent.js';
@@ -60,8 +60,6 @@ export interface TaskList {
   oneSided: OneSided | null;
 }
 
-const CHECK_INPUT = { calls: [], output: '', answer: null, argsOf: () => undefined, costOf: () => 0 };
-
 /** Budgets cap what a run spends, not what it does: a task is scored on everything else. */
 export function scoringSpec(spec: TestSpec): TestSpec {
   const { inputTokens: _i, outputTokens: _o, cost: _c, ...rest } = spec;
@@ -71,8 +69,8 @@ export function scoringSpec(spec: TestSpec): TestSpec {
 /** A tests entry's checks as labels, the budgets marked. */
 export function taskChecks(spec: TestSpec | null): TaskCheck[] {
   if (!spec) return [];
-  const outcome = evaluateChecks(scoringSpec(spec), CHECK_INPUT).map((c) => ({ label: c.label, cap: false }));
-  const caps = evaluateChecks({ fork: spec.fork, repeat: spec.repeat, passes: spec.passes, tools: [], ...(spec.inputTokens ? { inputTokens: spec.inputTokens } : {}), ...(spec.outputTokens ? { outputTokens: spec.outputTokens } : {}), ...(spec.cost ? { cost: spec.cost } : {}) }, CHECK_INPUT).map((c) => ({ label: c.label, cap: true }));
+  const outcome = evaluateChecks(scoringSpec(spec), LABEL_INPUT).map((c) => ({ label: c.label, cap: false }));
+  const caps = evaluateChecks({ fork: spec.fork, repeat: spec.repeat, passes: spec.passes, tools: [], ...(spec.inputTokens ? { inputTokens: spec.inputTokens } : {}), ...(spec.outputTokens ? { outputTokens: spec.outputTokens } : {}), ...(spec.cost ? { cost: spec.cost } : {}) }, LABEL_INPUT).map((c) => ({ label: c.label, cap: true }));
   return [...outcome, ...caps];
 }
 

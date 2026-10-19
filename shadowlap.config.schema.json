@@ -209,14 +209,21 @@
                       "$ref": "#/$defs/callCondition"
                     },
                     "then": {
-                      "description": "An expect object, read like this one.",
-                      "$ref": "#/properties/tests/additionalProperties/properties/expect"
+                      "description": "An expect object, read like this one, with at least one check.",
+                      "allOf": [
+                        {
+                          "$ref": "#/properties/tests/additionalProperties/properties/expect"
+                        },
+                        {
+                          "$ref": "#/$defs/someCheck"
+                        }
+                      ]
                     }
                   }
                 }
               },
               "judge": {
-                "description": "Questions a model answers yes or no about the run. Its verdict is recorded like any other call; a check with no verdict is inconclusive, never passed.",
+                "description": "Questions a model answers yes or no about the run. A verdict comes from the judge's call recorded in the run; a check with no verdict is inconclusive, never passed.",
                 "type": "array",
                 "items": {
                   "$ref": "#/$defs/judge"
@@ -361,7 +368,7 @@
       ]
     },
     "callRule": {
-      "description": "A rule every call of `tool` must meet. It needs \"after\", \"args\" or both.",
+      "description": "A rule every call of `tool` must meet. It needs \"after\", \"args\" that name an argument, or both.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -376,7 +383,12 @@
         {
           "required": [
             "args"
-          ]
+          ],
+          "properties": {
+            "args": {
+              "minProperties": 1
+            }
+          }
         }
       ],
       "properties": {
@@ -436,7 +448,7 @@
       }
     },
     "match": {
-      "description": "A value to match: a literal (equal; an object matches the keys it gives, a list item by item), a reference such as \"@lookup_order.result.total\" or \"@lookup_order.args.order_id\" (the value from the most recent call of that tool before the call checked), or a predicate such as { \"<=\": 100 }. An object whose keys are all operators is a predicate; any other object is matched key by key.",
+      "description": "A value to match: a literal (equal; an object matches the keys it gives, a list item by item), a reference such as \"@lookup_order.result.total\" or \"@lookup_order.args.order_id\" (the value from the most recent call of that tool before the call checked), or a predicate such as { \"<=\": 100 }. An object whose keys are all operators is a predicate; any other object is matched key by key, and may not have a key named like an operator it is not (gt, contains, $in, endswith): write { \"=\": { … } } to match one.",
       "anyOf": [
         {
           "$ref": "#/$defs/predicate"
@@ -445,18 +457,25 @@
           "type": "object",
           "propertyNames": {
             "not": {
-              "enum": [
-                "=",
-                "!=",
-                "<",
-                "<=",
-                ">",
-                ">=",
-                "in",
-                "includes",
-                "startsWith",
-                "endsWith",
-                "not"
+              "anyOf": [
+                {
+                  "enum": [
+                    "=",
+                    "!=",
+                    "<",
+                    "<=",
+                    ">",
+                    ">=",
+                    "in",
+                    "includes",
+                    "startsWith",
+                    "endsWith",
+                    "not"
+                  ]
+                },
+                {
+                  "pattern": "^(?:\\$?(?:[eE][qQ]|[eE][qQ][uU][aA][lL][sS]|[nN][eE]|[nN][eE][qQ]|[lL][tT]|[lL][tT][eE]|[lL][eE]|[gG][tT]|[gG][tT][eE]|[gG][eE]|[cC][oO][nN][tT][aA][iI][nN][sS]|[nN][iI][nN]|[nN][oO][tT][iI][nN]|[nN][oO][tT]_[iI][nN]|[mM][aA][tT][cC][hH][eE][sS]|[rR][eE][gG][eE][xX]|[lL][iI][kK][eE]|[iI][nN]|[iI][nN][cC][lL][uU][dD][eE][sS]|[sS][tT][aA][rR][tT][sS][wW][iI][tT][hH]|[eE][nN][dD][sS][wW][iI][tT][hH]|[nN][oO][tT])|\\$(?:=|!=|<=?|>=?))$"
+                }
               ]
             }
           },
@@ -471,8 +490,13 @@
           }
         },
         {
+          "type": "string",
+          "not": {
+            "$ref": "#/$defs/severalValues"
+          }
+        },
+        {
           "type": [
-            "string",
             "number",
             "boolean",
             "null"
@@ -487,10 +511,12 @@
       "additionalProperties": false,
       "properties": {
         "=": {
-          "description": "Equal, as a literal matches."
+          "description": "Equal, as a literal matches.",
+          "$ref": "#/$defs/operand"
         },
         "!=": {
-          "description": "Not equal."
+          "description": "Not equal.",
+          "$ref": "#/$defs/operand"
         },
         "<": {
           "oneOf": [
@@ -552,21 +578,31 @@
           "description": "One of a list, or of the list a reference reads; with * in its path, of the values it reaches (\"@lookup_customer.result.*\").",
           "oneOf": [
             {
-              "type": "array"
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/operand"
+              }
             },
             {
-              "$ref": "#/$defs/reference"
+              "$ref": "#/$defs/references"
             }
           ]
         },
         "includes": {
-          "description": "Text that contains this text, or a list that has this item."
+          "description": "Text that contains this text, or a list that has this item.",
+          "$ref": "#/$defs/operand"
         },
         "startsWith": {
-          "type": "string"
+          "type": "string",
+          "not": {
+            "$ref": "#/$defs/severalValues"
+          }
         },
         "endsWith": {
-          "type": "string"
+          "type": "string",
+          "not": {
+            "$ref": "#/$defs/severalValues"
+          }
         },
         "not": {
           "description": "A predicate or a value that must not match. A value that is missing never matches, negated or not.",
@@ -579,9 +615,12 @@
       }
     },
     "reference": {
-      "description": "\"@<tool>.result.<path>\" or \"@<tool>.args.<path>\": the value from the most recent call of that tool before the call checked. The path is the JSONPath subset of normalizers (.total, .items[0].sku, .*).",
+      "description": "\"@<tool>.result.<path>\" or \"@<tool>.args.<path>\": the value from the most recent call of that tool before the call checked. The path is the JSONPath subset of normalizers (.total, .items[0].sku). A string that starts with \"@@\" is text that starts with one \"@\".",
       "type": "string",
-      "pattern": "^@.+?\\.(result|args)([.\\[].*)?$"
+      "pattern": "^@[^@][\\s\\S]*?\\.(result|args)([.\\[][\\s\\S]*)?$",
+      "not": {
+        "pattern": "\\.\\*|\\[\\*\\]"
+      }
     },
     "judge": {
       "description": "A question a model answers yes or no about the run.",
@@ -601,10 +640,11 @@
         "question": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 2000
+          "maxLength": 2000,
+          "pattern": "\\S"
         },
         "of": {
-          "description": "What the judge reads: the last model response (the default), what the agent printed, or the conversation and the tool calls, redacted by the project’s rules.",
+          "description": "What the judge reads: the last model response (the default), what the agent printed, or the conversation and the tool calls.",
           "enum": [
             "answer",
             "output",
@@ -612,9 +652,9 @@
           ]
         },
         "model": {
-          "description": "The judge’s model, such as claude-haiku-4-5, or with its provider, openai:gpt-5.5.",
+          "description": "The judge’s model: a Claude, OpenAI or Gemini model (claude-haiku-4-5, gpt-5.5, o3, gemini-3-flash), or any model with its provider before it, such as openai:gpt-5.5.",
           "type": "string",
-          "pattern": "^\\S{1,200}$"
+          "pattern": "^(?:(?:anthropic|openai|gemini):\\S{1,200}|(?:claude-|gpt-|chatgpt-|o\\d|gemini-)\\S{0,200})$"
         },
         "pass": {
           "description": "The answer that passes. Default: yes.",
@@ -624,6 +664,118 @@
           ]
         }
       }
+    },
+    "references": {
+      "description": "A reference, or one whose path has * and reads every value it reaches (\"@lookup_customer.result.*\"), which only \"in\" takes.",
+      "type": "string",
+      "pattern": "^@[^@][\\s\\S]*?\\.(result|args)([.\\[][\\s\\S]*)?$"
+    },
+    "severalValues": {
+      "description": "A reference whose path has *: it names several values, which only \"in\" can compare with.",
+      "allOf": [
+        {
+          "pattern": "^@[^@][\\s\\S]*?\\.(result|args)([.\\[][\\s\\S]*)?$"
+        },
+        {
+          "pattern": "\\.\\*|\\[\\*\\]"
+        }
+      ]
+    },
+    "operand": {
+      "description": "A value to compare with: any value, or a reference to one.",
+      "anyOf": [
+        {
+          "not": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "string",
+          "not": {
+            "$ref": "#/$defs/severalValues"
+          }
+        }
+      ]
+    },
+    "someCheck": {
+      "description": "At least one check.",
+      "anyOf": [
+        {
+          "required": [
+            "tools"
+          ],
+          "properties": {
+            "tools": {
+              "minProperties": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "modelCalls"
+          ]
+        },
+        {
+          "required": [
+            "toolCalls"
+          ]
+        },
+        {
+          "required": [
+            "inputTokens"
+          ]
+        },
+        {
+          "required": [
+            "outputTokens"
+          ]
+        },
+        {
+          "required": [
+            "cost"
+          ]
+        },
+        {
+          "required": [
+            "output"
+          ]
+        },
+        {
+          "required": [
+            "answer"
+          ]
+        },
+        {
+          "required": [
+            "calls"
+          ],
+          "properties": {
+            "calls": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "when"
+          ],
+          "properties": {
+            "when": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "judge"
+          ],
+          "properties": {
+            "judge": {
+              "minItems": 1
+            }
+          }
+        }
+      ]
     }
   }
 }

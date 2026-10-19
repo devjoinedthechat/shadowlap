@@ -63,7 +63,7 @@ An object whose keys are all operators is a predicate, and every operator in it 
 
 Text is compared as it is, case included. There are no regular expressions: a check should never be the slow part of a test, and a pattern can take minutes on the wrong input.
 
-A value the predicate needs and the call doesn't have, or a value of the wrong kind (text where a number is compared), fails the rule and says so. It never passes, negated or not.
+A value the predicate needs and the call doesn't have, or a value of another kind than it compares (text where a number is compared, text where a list or an object is written), can't be decided: the rule fails and says so. Operators that must all hold are broken as soon as one is, whatever the others are, and one that can't be decided never passes, negated or not. So `{ "not": { ">": 0, "<": "@lookup.result.max" } }` passes `-1`, which is not above 0 whatever `max` is, and fails `5` when there is no lookup before it: a pass never rests on a value that wasn't there.
 
 ### Values from earlier calls
 
@@ -75,11 +75,13 @@ A string `"@<tool>.result.<path>"` or `"@<tool>.args.<path>"` is a reference: th
 | a call that has no result (it failed, was blocked or never finished) | `issue_refund #3: lookup_order #2 has no result (it failed)` |
 | a path the result doesn't have | `issue_refund #3: lookup_order #2 has no result.total` |
 
-A reference on its own is a value to equal: `{ "order_id": "@lookup_order.args.order_id" }` holds when the refund is for the order that was looked up. Only a string that names `.result` or `.args` after a tool is a reference: `"@example.com"` is text.
+A reference on its own is a value to equal: `{ "order_id": "@lookup_order.args.order_id" }` holds when the refund is for the order that was looked up. Only a string that names `.result` or `.args` after a tool is a reference: `"@example.com"` is text. Text that starts with `@` and would read as a reference is written with `@@`: `"@@corp.args.io"` is the text `@corp.args.io`.
 
 ### Literals
 
-A value that is not a predicate keeps the meaning it has under `tools`: equal, objects partially (the keys given must match, others may be there), lists item by item and of the same length. Predicates may sit at any key inside one: `{ "customer": { "email": { "endsWith": "@example.com" } } }`. A value whose keys are named like operators is compared with `=`: `{ "filter": { "=": { "in": "inbox" } } }`. An object that mixes operators with other keys is refused, since it can't be both.
+A value that is not a predicate keeps the meaning it has under `tools`: equal, objects partially (the keys given must match, others may be there), lists item by item and of the same length. Predicates may sit at any key inside one: `{ "customer": { "email": { "endsWith": "@example.com" } } }`. An object that mixes operators with other keys is refused, since it can't be both.
+
+A key named like an operator it is not, such as `gt`, `contains`, `$in` or `endswith`, is refused, with the operator it most likely meant: as a key the value must have, it would never be there, and under `not` the rule would pass everything. A value that really has such keys is compared with `=`: `{ "filter": { "=": { "in": "inbox" } } }`. The top level of `args` is always argument names, so an argument called `in` is matched as it is.
 
 ## Conditions
 
@@ -100,7 +102,7 @@ A value that is not a predicate keeps the meaning it has under `tools`: equal, o
 }
 ```
 
-- `if` holds when any call of `tool` matches its `args` and its `result`, by the same grammar as `calls`, references included. A value that is missing never matches.
+- `if` holds when any call of `tool` matches its `args` and its `result`, by the same grammar as `calls`, references included. A call that failed or was blocked returned nothing, so a condition on its result doesn't hold there.
 - `then` is an ordinary `expect` object, read as this one is: counts, budgets, text, `calls`, another `when`, judge checks.
 - Each check under `then` is reported on its own, after the condition. When a call met the condition, it is judged on the whole run, and a failure says where the condition held. When none did, each is **not applicable**, never passed, so a report never claims more than it checked:
 
@@ -114,6 +116,8 @@ A value that is not a predicate keeps the meaning it has under `tools`: equal, o
 ```
 
 A golden whose recording never met the condition is reported, with `--json`, as `"status": "not-applicable"` and a detail such as `the condition never held: lookup_order #2: result.total 40 <= 100`.
+
+Not applicable is said only of a condition that was read and did not hold. When no call met it and one could not be read for it (a value it compares is missing from the call, as a misspelt `result.totl` is, or of another kind, or a reference in it has no call to read), whether it held can't be told, and each check under `then` is **inconclusive**: `could not tell whether the condition held: lookup_order #2: has no result.totl`. A typo in a condition fails the test as inconclusive, and never switches the rule off quietly.
 
 ## Judge checks
 
@@ -139,11 +143,13 @@ Some outcomes are not in the calls: whether the reply explains why the refund wa
 |---|---|
 | `name` | Letters, digits, `.`, `_` and `-`, up to 64. The verdict is kept under it, so each judge in an `expect` has its own |
 | `question` | Answered `yes` or `no` |
-| `of` | What the judge reads: `answer`, the last model response (the default); `output`, what the agent printed; or `run`, the conversation and the tool calls, with the project's [redaction rules](./normalizers-and-redaction.md) applied |
-| `model` | The judge's model: `claude-haiku-4-5`, or with its provider, `openai:gpt-5.5` |
+| `of` | What the judge reads: `answer`, the last model response (the default); `output`, what the agent printed; or `run`, the conversation and the tool calls |
+| `model` | The judge's model: a Claude, OpenAI or Gemini model by its name (`claude-haiku-4-5`, `gpt-5.5`, `o3`, `gemini-3-flash`), or any model with its provider before it (`openai:my-model`, for an OpenAI-compatible server's own names) |
 | `pass` | The answer that passes: `yes` (the default) or `no` |
 
-A verdict is the judge's answer with a one-line reason, which the report shows beside the check. The judge's model calls are made in the scope `shadowlap:judge`, and no other check counts them: a `modelCalls` limit or a cost budget is about the agent. Until a run holds a verdict for it, a judge check is **inconclusive**: `not judged: no recorded verdict and no key for anthropic`. It never passes, and it fails a test as a failed check does.
+A verdict is the judge's `yes` or `no` with a one-line reason, which the report shows beside the check, and where it came from: the judge's call recorded in the run, or one asked live. Calls in the scope `shadowlap:judge` are a judge's, not the agent's, and no other check counts them: a `modelCalls` limit or a cost budget is about the agent.
+
+Until a run holds a verdict for it, a judge check is **inconclusive**, saying what is missing: `not judged: no recorded verdict and no key for anthropic`, or without `and no key…` when the environment has the provider's key (`ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_API_KEY`). It never passes, and it fails a test as a failed check does.
 
 ## How a check comes out
 
@@ -151,7 +157,7 @@ A verdict is the judge's answer with a one-line reason, which the report shows b
 |---|---|
 | **passed** | The run did what the check asks |
 | **failed** | It didn't; the detail names the values |
-| **inconclusive** | It could not be decided: a judge with no verdict. Never a pass |
+| **inconclusive** | It could not be decided: a judge with no verdict, or a `when` whose condition could not be read. Never a pass |
 | **not applicable** | A `when` check whose condition never held. Never a failure, and never counted as passed |
 
 A run's checks come out as one: failed when any check failed, else inconclusive when any could not be decided, else passed. Every report uses these words: the terminal marks them `✓`, `✗`, `?` and `–`, a job summary ✅, ❌, ⚠️ and ➖. With `--json`, each check is `{ "status", "ok", "label", "detail" }`, where `status` is `passed`, `failed`, `inconclusive` or `not-applicable`, `ok` is true for passed and not applicable (what results said before they had a status), `label` is what was expected and `detail` what happened, null for a check that passed. A judge's result adds its `reason` and the `source` of its verdict (`recording` or `live`). Checks are kept on the run that was judged, and in the test history.
