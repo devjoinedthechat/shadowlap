@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
-import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, type BigIntStats } from 'node:fs';
+import { existsSync, fstatSync, readFileSync, statSync, type BigIntStats } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
+import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
@@ -574,13 +575,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   recordsInput(store, run.runId);
   process.stderr.write(p.dim(`[shadowlap] ${run.mode === 'record' ? 'recording' : 'replaying'} run ${run.runId}\n`));
   // MCP clients often start servers with a minimal environment; `shadowlap mcp` finds the sidecar through this file.
-  const activeFile = resolve(process.cwd(), '.shadowlap', 'active.json');
   try {
-    mkdirSync(resolve(process.cwd(), '.shadowlap'), { recursive: true, mode: 0o700 });
-    // It carries the sidecar's session token: owner-only, and written fresh so a symbolic link
-    // left at that path is replaced, never followed.
-    rmSync(activeFile, { force: true });
-    writeFileSync(activeFile, JSON.stringify({ url: sidecar.url, runId: run.runId, pid: process.pid }) + '\n', { mode: 0o600, flag: 'wx' });
+    markActiveRun(process.cwd(), { url: sidecar.url, runId: run.runId, pid: process.pid });
   } catch {
     // read-only working directory: the environment still carries SHADOWLAP_URL
   }
@@ -617,9 +613,9 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const status: Exclude<RunStatus, 'running'> = interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
   // Only while it still names this run: another run that started here since has written its own.
   try {
-    if ((JSON.parse(readFileSync(activeFile, 'utf8')) as { runId?: unknown }).runId === run.runId) rmSync(activeFile, { force: true });
+    clearActiveRun(process.cwd(), run.runId);
   } catch {
-    // gone already, or not ours to remove
+    // never written here (a read-only folder), or another run kept it busy
   }
   if (extra.beforeEnd && !notStarted) await extra.beforeEnd(sidecar, store, run, { code, interrupted, stdout: tee?.stdout() ?? '' });
   const result = sidecar.endRun(run.runId, status);
