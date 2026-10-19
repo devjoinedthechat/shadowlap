@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { longDate, retiredFields, retirementOf, retirementsOf, retirementTable, retirementTableProblems, tableModel, type RetirementTable } from '../src/model-retirements.js';
+import { longDate, replacementModels, retiredFields, retirementOf, retirementsOf, retirementTable, retirementTableProblems, tableModel, type RetirementTable } from '../src/model-retirements.js';
 
 /** The retirement table ships with the code as data: every date from a provider's own page, nothing asked at runtime. */
 
@@ -53,6 +53,16 @@ describe('retirementOf', () => {
     expect(n!.text).toBe('claude-sonnet-4-5-20250929 retires on the Claude API on November 30, 2026, in 42 days; Anthropic recommends claude-sonnet-5-5');
     expect(retirementOf('anthropic', 'claude-3-7-sonnet-20250219', { now: at('2026-10-19') })!.text).toBe('claude-3-7-sonnet-20250219 was retired on the Claude API on February 19, 2026: requests to it fail; Anthropic recommends claude-sonnet-5-5');
     expect(retirementOf('anthropic', 'claude-mythos-preview', { now: at('2026-10-19') })).toMatchObject({ state: 'deprecated', retires: null, days: null });
+  });
+
+  it('names the models a replacement offers, for a page to preview the switch to', () => {
+    expect(retirementOf('anthropic', 'claude-sonnet-4-5-20250929', { now: at('2026-10-19') })!.replacements).toEqual(['claude-sonnet-5-5']);
+    expect(retirementOf('vertex', 'gemini-2.5-flash-lite', { now: at('2026-10-19') })!.replacements).toEqual(['gemini-3.8-flash', 'gemini-3.1-flash-lite']);
+    expect(replacementModels('gpt-5.6-sol (reasoning.mode: pro)')).toEqual(['gpt-5.6-sol']);
+    expect(replacementModels('gpt-5 or gpt-4.1')).toEqual(['gpt-5', 'gpt-4.1']);
+    expect(replacementModels('o3')).toEqual(['o3']);
+    // Every replacement the table holds names a model, but the one that names a kind of model.
+    expect(models.filter((r) => r.replacement && !replacementModels(r.replacement).length).map((r) => r.replacement)).toEqual(['The most capable cyber model available to you.']);
   });
 
   it("matches an Anthropic alias to the one snapshot it names, and nothing it can't tell", () => {

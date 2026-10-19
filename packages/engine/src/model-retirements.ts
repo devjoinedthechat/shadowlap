@@ -140,6 +140,8 @@ export interface RetirementNotice {
   earliest: boolean;
   regions: readonly string[] | null;
   replacement: string | null;
+  /** The model ids the replacement names (`gemini-3.8-flash or gemini-3.5-flash` names two), for a page to preview the switch to. */
+  replacements: string[];
   /** retired: its date has passed; retiring: it is set; deprecated: no date yet. */
   state: 'retired' | 'retiring' | 'deprecated';
   /** Days until it retires (negative once retired), or null without a date. */
@@ -157,6 +159,12 @@ export function longDate(day: string): string {
 }
 
 const dayMs = (day: string) => Date.parse(`${day}T00:00:00Z`);
+
+/** The model ids a replacement's words name: `gpt-5.6-sol (reasoning.mode: pro)` names gpt-5.6-sol, a sentence none. */
+export function replacementModels(replacement: string | null | undefined): string[] {
+  if (!replacement) return [];
+  return [...new Set([...replacement.matchAll(/(?<![\w.-])[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*(?![\w-])/gi)].map((m) => m[0]).filter((id) => /\d/.test(id) && id === id.toLowerCase()))];
+}
 
 function rowsFor(platform: RetirementPlatform, model: string): ModelRetirement[] {
   const rows = retirementTable().models;
@@ -217,7 +225,7 @@ export function retirementOf(provider: string | null | undefined, model: string 
         : row.earliest
           ? `${named} may shut down on ${where.name} from ${longDate(row.retires!)}, in ${days} day${days === 1 ? '' : 's'}: the earliest date ${where.owner} gives${instead}`
           : `${named} retires on ${where.name} on ${longDate(row.retires!)}${inRegions}, in ${days} day${days === 1 ? '' : 's'}${instead}`;
-  return { provider: provider!, model, platform, matched: row.model, deprecated: row.deprecated ?? null, retires: row.retires, earliest: row.earliest === true, regions, replacement: row.replacement ?? null, state, days, source: row.source, text };
+  return { provider: provider!, model, platform, matched: row.model, deprecated: row.deprecated ?? null, retires: row.retires, earliest: row.earliest === true, regions, replacement: row.replacement ?? null, replacements: replacementModels(row.replacement), state, days, source: row.source, text };
 }
 
 /** Every model among these that retires, each once, the soonest first. */
