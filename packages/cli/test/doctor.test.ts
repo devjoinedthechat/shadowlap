@@ -69,6 +69,16 @@ describe('shadowlap doctor', () => {
 });
 
 describe('the python check', () => {
+  it('counts the trust marks and injection gates the config holds, and names a mistake in one', () => {
+    dir = mkdtempSync(join(tmpdir(), 'fp-doctor-'));
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tools: { fetch_page: { trust: 'untrusted' }, read_inbox: { trust: 'untrusted' } }, tests: { 'goldens/*': { injection: { obeyed: 0 } }, 'goldens/x': { fork: true } } }));
+    const config = runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' }).find((c) => c.name === 'config')!;
+    expect(config).toMatchObject({ verdict: 'ok', detail: expect.stringMatching(/: 0 normalizers, 0 redaction rules, 2 trust marks, checks for 2 recordings, 1 injection gate$/) });
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tools: { fetch_page: { trust: 'maybe' } } }));
+    const broken = runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' }).find((c) => c.name === 'config')!;
+    expect(broken).toMatchObject({ verdict: 'fail', detail: expect.stringContaining('tools["fetch_page"].trust must be "trusted" or "untrusted"') });
+  });
+
   it('names the command that starts Python, and says so when only python3 does', () => {
     const only = (versions: Record<string, string>) => pythonCheck((command) => versions[command] ?? null);
     expect(only({ python3: 'Python 3.14.7' })).toEqual({ found: true, detail: 'Python 3.14.7 on PATH as python3 (Python SDK and guard usable); there is no python, so start agents with python3 agent.py' });

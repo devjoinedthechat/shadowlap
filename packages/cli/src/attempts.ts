@@ -42,6 +42,8 @@ export interface AttemptSettings {
   guard: GuardMode;
   /** Upstreams that replace the environment's for some providers, such as a model under test's (tasks score). */
   upstreams?: Record<string, string>;
+  /** Where the agent runs (`test --cwd`); the current folder by default. */
+  cwd?: string;
 }
 
 /** A recorded run to replay, and the command that replays it. */
@@ -125,8 +127,12 @@ export class AttemptRunner {
     process.on('SIGTERM', this.onSignal);
   }
 
-  static async start(opts: GlobalOpts, settings: AttemptSettings): Promise<AttemptRunner> {
-    const store = openStore(opts);
+  /**
+   * `given.store`: the attempts go into a store the caller has open and keeps (`shadowlap test`'s,
+   * which `--db :memory:` makes the only one); the runner leaves it open when it closes.
+   */
+  static async start(opts: GlobalOpts, settings: AttemptSettings, given: { store?: Store } = {}): Promise<AttemptRunner> {
+    const store = given.store ?? openStore(opts);
     const config = loadConfig(process.cwd());
     const upstreams = { ...upstreamOverrides(process.env), ...settings.upstreams };
     try {
@@ -137,13 +143,15 @@ export class AttemptRunner {
         ...(config.prices ? { prices: config.prices } : {}),
         ...(config.clock ? { clock: config.clock } : {}),
         ...(config.http ? { http: config.http } : {}),
+        ...(config.tools ? { trust: config.tools } : {}),
         ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
       });
       const runner = new AttemptRunner(store, sidecar, config, settings, upstreams);
       runner.db = opts.db;
+      runner.ownsStore = !given.store;
       return runner;
     } catch (err) {
-      store.close();
+      if (!given.store) store.close();
       throw err;
     }
   }
@@ -169,9 +177,9 @@ export class AttemptRunner {
    * `repeat`), so run lists bundle it as an attempt while it runs, not only once it is done.
    * `extra.recordedWrites` answers a write the recording made with what it got then (see `ReplayOptions`).
    */
-  async attempt(target: AttemptTarget, extra: { divergeAt?: number; interventions?: Interventions; meta?: Partial<RunMeta>; recordedWrites?: boolean } = {}, tally = true): Promise<Attempt> {
+  async attempt(target: AttemptTarget, extra: { divergeAt?: number; interventions?: Interventions; meta?: Partial<RunMeta>; recordedWrites?: boolean; plants?: ReadonlyMap<number, string>; overrides?: ReadonlyMap<number, unknown>; plantMarks?: ReplayOptions['plantMarks']; unrecordedReads?: ReplayOptions['unrecordedReads'] } = {}, tally = true): Promise<Attempt> {
     const s = this.settings;
-    const cwd = process.cwd();
+    const cwd = s.cwd ?? process.cwd();
     const { parent, argv } = target;
     const started = Date.now();
     const replay: Partial<ReplayOptions> = {
@@ -182,6 +190,12 @@ export class AttemptRunner {
       ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}),
       ...(extra.divergeAt !== undefined ? { divergeAt: extra.divergeAt } : {}),
       ...(extra.recordedWrites ? { recordedWrites: true } : {}),
+      // shadowlap injection: a payload planted in an untrusted read, or the read made neutral (--clean).
+      ...(extra.plants?.size ? { plants: extra.plants } : {}),
+      ...(extra.overrides?.size ? { overrides: extra.overrides } : {}),
+      ...(extra.plantMarks?.texts.length ? { plantMarks: extra.plantMarks } : {}),
+      // shadowlap injection: reads the recording doesn't hold fenced after the fork.
+      ...(extra.unrecordedReads ? { unrecordedReads: extra.unrecordedReads } : {}),
     };
     const run = this.sidecar.startRun({
       mode: 'replay',
@@ -278,12 +292,14 @@ export class AttemptRunner {
 
   /** The store's path as given (`--db`), for what runs after the attempts. */
   private db: string | undefined;
+  /** False for a store the caller passed in, which it closes itself. */
+  private ownsStore = true;
 
   async close(): Promise<void> {
     process.off('SIGINT', this.onSignal);
     process.off('SIGTERM', this.onSignal);
     await this.sidecar.close();
-    this.store.close();
+    if (this.ownsStore) this.store.close();
     // Team store: attempts someone pushed while they were recording go to the store now that they have ended.
     await pushIfQueued(teamEnv(this.db));
     await telemetry().flush();

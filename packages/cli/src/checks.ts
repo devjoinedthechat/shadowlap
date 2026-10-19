@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, judgeTarget, parseGate, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type JudgeOutcome, type JudgeProvider, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
+import { JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, judgeTarget, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
 
 /**
  * Outcome checks for `shadowlap test`. A golden normally passes only when the replay is clean, which
@@ -199,6 +199,8 @@ export interface TestSpec extends ExpectSpec {
    * `passes` (both 1 then): an SPRT gate or one against the golden's history (stats.ts).
    */
   gate?: Gate;
+  /** The injection gate (`"injection"` beside `expect`): `shadowlap test` runs the golden's injection test after its replay passes. */
+  injection?: InjectionEntry;
 }
 
 export interface TestEntry {
@@ -340,7 +342,7 @@ function parseSpec(raw: unknown, where: string): TestSpec {
   if (!isObject(raw)) throw new Error(`${where} must be an object`);
   // `task` (where a model takes over, why, what it rewards) is read by `shadowlap tasks` (tasks.ts);
   // a mistake in it fails here too, as any other mistake under `tests` does.
-  onlyKeys(raw, ['fork', 'repeat', 'passes', 'gate', 'expect', 'task'], where);
+  onlyKeys(raw, ['fork', 'repeat', 'passes', 'gate', 'expect', 'task', 'injection'], where);
   parseTaskFields(raw.task, `${where}.task`);
   if (raw.fork !== undefined && typeof raw.fork !== 'boolean') throw new Error(`${where}.fork must be true or false`);
   // Statistical gating: the gate decides how many attempts run, so it stands in for repeat and passes.
@@ -356,6 +358,8 @@ function parseSpec(raw: unknown, where: string): TestSpec {
   if (typeof passes !== 'number' || !Number.isInteger(passes) || passes < 1 || passes > repeat) throw new Error(`${where}.passes must be a whole number from 1 to repeat (${repeat})`);
   const spec: TestSpec = { fork: raw.fork === true, repeat, passes, tools: [], ...(gate ? { gate } : {}) };
   if (raw.expect !== undefined) parseExpectInto(spec, raw.expect, `${where}.expect`);
+  // Injection tests (injection.ts in the engine): the gate `shadowlap test` and `shadowlap injection` read.
+  if (raw.injection !== undefined) spec.injection = parseInjectionEntry(raw.injection, `${where}.injection`);
   return spec;
 }
 

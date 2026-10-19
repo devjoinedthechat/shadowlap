@@ -26,11 +26,11 @@ __all__ = ["with_effect"]
 T = TypeVar("T")
 
 
-def with_effect(crew_tool: T, effect: str, *, on_fork: Optional[Callable[..., Any]] = None, exclude: tuple = ()) -> T:
+def with_effect(crew_tool: T, effect: str, *, on_fork: Optional[Callable[..., Any]] = None, exclude: tuple = (), trust: Optional[str] = None) -> T:
     """Records and replays a CrewAI tool instance as `effect`, and returns the same instance."""
     t: Any = crew_tool
     name = getattr(t, "name", None) or type(t).__name__
-    wrap = tool(name, effect=effect, on_fork=on_fork, exclude=exclude)
+    wrap = tool(name, effect=effect, on_fork=on_fork, exclude=exclude, trust=trust)
     func = getattr(t, "func", None)
     if callable(func):
         object.__setattr__(t, "func", wrap(func))

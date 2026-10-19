@@ -499,7 +499,7 @@ export const letThrough = (o: Pick<GoldenOutcome, 'result' | 'failure'>, mode: I
 };
 
 /** The golden's entry in the JSON report (`--json`), which the GitHub Action reads. */
-export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated']; inconclusive?: InconclusiveMode }): PackResult {
+export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated']; inconclusive?: InconclusiveMode; injection?: PackResult['injection'] }): PackResult {
   const r = o.result;
   const s = r?.shown.ended.summary ?? null;
   return {
@@ -527,6 +527,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     expect: extra.expect,
     updated: extra.updated ?? null,
     judge: r ? judgeOf(r.attempts) : null,
+    injection: extra.injection ?? null,
   };
 }
 

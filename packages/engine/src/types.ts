@@ -69,7 +69,15 @@ export interface CallMeta {
    * A tool call made through `shadowlap mcp`: the server's transport and its host (`--url`) or
    * command, and, on the first call to it in a run and whenever they change, the tools it offers.
    */
-  mcp?: { transport: 'stdio' | 'http'; server: string; tools?: Array<{ name: string; effect: Effect }> };
+  mcp?: { transport: 'stdio' | 'http'; server: string; tools?: Array<{ name: string; effect: Effect; trust?: 'untrusted' }> };
+  /**
+   * Whether the tool brings outside text in (a web page, an email, a ticket), where `shadowlap
+   * injection` plants payloads, as declared when the call was made (`trustFrom`): the config's
+   * `tools` (either way), the SDK's `trust` option or an MCP server's `openWorldHint` (untrusted only).
+   * The config read when a run is analysed wins over it (injection.ts).
+   */
+  trust?: 'untrusted' | 'trusted';
+  trustFrom?: 'config' | 'sdk' | 'mcp';
   /**
    * A call Shadowlap's judge made (scope `shadowlap:judge`): the check it answered, by its name in
    * the config; `ask`, a digest of the check's question, what it reads and its model (judgeAskId);
@@ -146,6 +154,9 @@ export interface JudgeSummary {
   saved: number;
   unknownModels: string[];
 }
+
+/** Whether a tool's results can carry an attacker's text: `untrusted` reads are where `shadowlap injection` plants. */
+export type Trust = 'trusted' | 'untrusted';
 
 /** Token usage. `inputTokens` is the uncached input; cache reads and writes are separate, whatever the provider reports. */
 export interface Usage {
@@ -277,6 +288,31 @@ export interface RunMeta {
    * before the takeover) has no score, and says why.
    */
   task?: { golden: string; model: string; baseUrl?: string; takeover: number; attempt: number; of: number; score: number | null; stopped?: string; session: string };
+  /** One replay of `shadowlap injection`: which test made it, and what it showed (injection.ts). */
+  injection?: InjectionMark;
+}
+
+/**
+ * One replay `shadowlap injection` made, kept on its run: the result it belongs to (`inj-…`), its
+ * role, the untrusted read (the parent's call number) and payload it tested, its canary, and what
+ * it showed. `attempt` plants the payload; `baseline` replays from the read with nothing planted,
+ * which `influenced` compares with; `clean` replaces the read with a neutral result (`--clean`).
+ */
+export interface InjectionMark {
+  result: string;
+  role: 'attempt' | 'baseline' | 'clean';
+  read: number;
+  payload?: string;
+  attempt: number;
+  of: number;
+  canary?: { token: string; address: string; id: string; amount: string };
+  verdict?: 'obeyed' | 'influenced' | 'ignored' | 'inconclusive';
+  /** Why an inconclusive attempt shows nothing. */
+  why?: string | null;
+  /** The attempt's model call that first read the planted text: where it forked. */
+  readAt?: number | null;
+  /** What the verdict rests on: a write or a read carrying the canary, or a write no clean replay made. */
+  evidence?: Array<{ callNo: number; tool: string; path: string; value: string; kind: 'canary' | 'read' | 'write' }>;
 }
 
 /**

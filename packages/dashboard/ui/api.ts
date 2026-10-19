@@ -73,6 +73,8 @@ export const JOB_KINDS = {
   decisions: 'decisions',
   migrate: 'migrate',
   decisionsVerify: 'decisions-verify',
+  // Injection tests: plant payloads in a run's or a golden's untrusted reads, or ask whether a read caused its writes.
+  injection: 'injection',
 } as const;
 
 export class ApiError extends Error {

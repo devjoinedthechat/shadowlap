@@ -86,6 +86,26 @@
         }
       }
     },
+    "tools": {
+      "description": "Tools by name (or, for a host under `http`, the host): `trust` marks a read that brings outside text in (a web page, an email, a ticket) as untrusted, so `shadowlap injection` plants payloads in its results. Recorded on each call of the tool as it is made, so a run keeps it wherever it is opened; read when a run is tested, it wins over what the SDK's `trust` option, an MCP server's openWorldHint or an earlier config recorded.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "trust"
+        ],
+        "properties": {
+          "trust": {
+            "description": "untrusted: shadowlap injection plants in its reads. trusted: it doesn't, whatever the SDK or the MCP server said.",
+            "enum": [
+              "trusted",
+              "untrusted"
+            ]
+          }
+        }
+      }
+    },
     "repair": {
       "description": "`shadowlap repair`: the model that proposes fixes. It is yours, from any vendor, and is only asked; the verify gate decides what is kept.",
       "type": "object",
@@ -335,6 +355,62 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 200
+              }
+            }
+          },
+          "injection": {
+            "description": "The golden's injection gate: shadowlap test runs its injection test once its replay passes, planting payloads in its untrusted reads (live from the model call that reads them, writes stubbed, reads the recording doesn't hold fenced), and fails it when more attempts obey, or are influenced, than allowed, or when the test showed too little to say (inconclusive, which shadowlap test --inconclusive warn lets through).",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "obeyed": {
+                "description": "Attempts that may obey a planted instruction (a tool call carrying its canary: a write, or a read that carries it out). Default 0.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "influenced": {
+                "description": "Attempts that may be influenced (a write no clean replay made). Default: no limit.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "repeat": {
+                "description": "Attempts per untrusted read and payload. Default 1.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "templates": {
+                "description": "The built-in templates to plant: all (the default), none, or a list of their ids (shadowlap injection --list-templates).",
+                "oneOf": [
+                  {
+                    "enum": [
+                      "all",
+                      "none"
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "$ref": "#/$defs/injectionTemplate"
+                    }
+                  }
+                ]
+              },
+              "payloads": {
+                "description": "A file of your own payloads, relative to this file: text (one a line, or blocks between --- lines), JSON or JSON Lines. {{canary}} in them is filled in.",
+                "type": "string",
+                "minLength": 1
+              },
+              "baselines": {
+                "description": "Clean replays of each read, from the model call that reads it, that influenced compares with. Default 3.",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20
+              },
+              "liveReads": {
+                "description": "Run the reads the recording doesn't hold after the fork, instead of fencing them (the agent gets an error for a fenced read). A read that carries planted text is fenced all the same. Default false.",
+                "type": "boolean"
               }
             }
           }
@@ -854,6 +930,23 @@
             }
           }
         }
+      ]
+    },
+    "injectionTemplate": {
+      "description": "A built-in injection template, version 1.",
+      "enum": [
+        "system-notice",
+        "system-tags",
+        "developer-note",
+        "html-comment",
+        "hidden-text",
+        "image-alt",
+        "tool-json",
+        "function-result",
+        "user-urgent",
+        "user-recipient",
+        "exfil-conversation",
+        "exfil-secrets"
       ]
     }
   }

@@ -184,11 +184,11 @@ def _with_codec(fn: Callable[..., Any], wrap: Callable[[Callable[..., Any]], Cal
     return decoded
 
 
-def with_effect(lc_tool: T, effect: str, *, on_fork: Optional[Callable[..., Any]] = None, exclude: tuple = ()) -> T:
+def with_effect(lc_tool: T, effect: str, *, on_fork: Optional[Callable[..., Any]] = None, exclude: tuple = (), trust: Optional[str] = None) -> T:
     """Records and replays a LangChain tool instance as `effect`, and returns the same instance."""
     t: Any = lc_tool
     name = getattr(t, "name", None) or type(t).__name__
-    wrap = tool(name, effect=effect, on_fork=on_fork, exclude=exclude)
+    wrap = tool(name, effect=effect, on_fork=on_fork, exclude=exclude, trust=trust)
     pairs = getattr(t, "response_format", None) == "content_and_artifact"
 
     def wrapped(fn: Callable[..., Any]) -> Callable[..., Any]:

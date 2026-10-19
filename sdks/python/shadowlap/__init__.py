@@ -48,6 +48,7 @@ __version__ = "0.1.0"
 
 F = TypeVar("F", bound=Callable[..., Any])
 _EFFECTS = ("pure", "read", "write")
+_TRUST = ("trusted", "untrusted")
 
 
 class ShadowlapWriteBlocked(RuntimeError):
@@ -599,8 +600,13 @@ def tool(
     effect: str,
     on_fork: Optional[Callable[..., Any]] = None,
     exclude: tuple = (),
+    trust: Optional[str] = None,
 ) -> Callable[[F], F]:
     """Wraps a tool implementation. `effect` is required: "pure", "read" or "write".
+
+    `trust="untrusted"` marks a read that brings outside text in (a web page, an email, a document):
+    it is recorded on each call, and `shadowlap injection` plants payloads in what it returns. It
+    never changes how a call is matched, so marking a tool keeps its recordings.
 
     Arguments and results are recorded as JSON; a Pydantic model or dataclass result is recorded,
     and replayed, as its JSON form. Under `--writes stub`, `on_fork(**args)` is returned instead of
@@ -616,7 +622,11 @@ def tool(
     """
     if effect not in _EFFECTS:
         raise TypeError(f'effect must be "pure", "read" or "write", not {effect!r}')
+    if trust is not None and trust not in _TRUST:
+        raise TypeError(f'trust must be "trusted" or "untrusted", not {trust!r}')
     explicit = tuple(exclude)
+    # Sent only for a tool that brings outside text in.
+    marked = {"trust": "untrusted"} if trust == "untrusted" else {}
 
     def decorate(fn: F) -> F:
         tool_name = name or fn.__name__
@@ -624,7 +634,7 @@ def tool(
         exclude = explicit + tuple(p for p in context_params(fn) if p not in explicit)
 
         def resolve(cfg: tuple, args: dict) -> dict:
-            return _post(cfg, "/v1/calls/resolve", {"kind": "tool", "name": tool_name, "effect": effect, "args": args, "implHash": impl_hash})
+            return _post(cfg, "/v1/calls/resolve", {"kind": "tool", "name": tool_name, "effect": effect, "args": args, "implHash": impl_hash, **marked})
 
         def complete(cfg: tuple, call_no: int, body: dict) -> None:
             _post(cfg, f"/v1/calls/{call_no}/complete", body)

@@ -13,6 +13,7 @@ import {
   fingerprintTool,
   loadApiRequest,
   matchedAs,
+  configuredTrust,
   plantInToolResult,
   refused,
   storeApiRequest,
@@ -45,6 +46,7 @@ import {
   type SerializedError,
   type Store,
   type ToolFailure,
+  type ToolTrust,
 } from '@shadowlap/engine';
 // The run page: what a run did that was never recorded, kept on the run (engine run-facts.ts).
 import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
@@ -91,6 +93,12 @@ export interface SidecarOptions {
   clock?: ClockMode;
   /** HTTP hosts recorded as tools (see http.ts). The sidecar forwards captured HTTP calls only to these. */
   http?: HttpRule[];
+  /**
+   * The config's `tools`: each tool's trust, by its name or a captured HTTP call's host. Stamped on
+   * every call of such a tool as it is made (`meta.trust`, `meta.trustFrom: 'config'`), so the run
+   * keeps it wherever it is opened later; it never enters a fingerprint.
+   */
+  trust?: ToolTrust;
   log?: (line: string) => void;
   /**
    * More routes under `/v1/`, behind the same session token: a host that manages runs for other
@@ -272,6 +280,8 @@ export class Sidecar {
   private readonly clock: ClockMode;
   /** HTTP hosts recorded as tools. */
   readonly httpRules: readonly HttpRule[];
+  /** The config's trust marks, by tool name or host. */
+  private readonly trust: ToolTrust | undefined;
   private readonly log: (line: string) => void;
   private readonly runs = new Map<string, RunContext>();
   private activeRunId: string | null = null;
@@ -310,6 +320,7 @@ export class Sidecar {
     this.prices = opts.prices;
     this.clock = opts.clock ?? 'auto';
     this.httpRules = opts.http ?? [];
+    this.trust = opts.trust;
     this.log = opts.log ?? (() => {});
     this.api = opts.api;
     this.awsCredentials = opts.awsCredentials ?? credentialsFromEnvironment();
@@ -819,6 +830,10 @@ export class Sidecar {
       }
     }
 
+    // A request that carries planted text (shadowlap injection's canary) forks the replay there, even
+    // when a normalizer masks the text into a match: the point of the plant is a model reading it.
+    if (refusal === undefined && !forced && !changedBy && ctx.session.state === 'replaying' && ctx.session.options.plantMarks && ctx.session.carriesPlant(rawBody.toString('utf8'))) changedBy = ctx.session.options.plantMarks.by;
+
     const name = apiCallName(method, path);
     // What identifies the call, where the provider leaves part of its path out (Vertex AI's project and region).
     const matchPath = provider.matchPath?.(path);
@@ -1169,7 +1184,7 @@ export class Sidecar {
     const tracked: TrackedCall = { identity, effect, origin: stored, decision, ends: 0, retryable: false, done: false };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
-    this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: stored, effect, requestRef: this.store.putJson({ args }), meta: { http: origin.host, ...(scope ? { scope } : {}) }, at: Date.now() });
+    this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: stored, effect, requestRef: this.store.putJson({ args }), meta: { http: origin.host, ...(scope ? { scope } : {}), ...this.trustMeta(name, origin.host, null) }, at: Date.now() });
 
     const end = (responseRef: string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']) => {
       this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef, outcome, meta, at: Date.now() });
@@ -1241,6 +1256,7 @@ export class Sidecar {
       return send(result, 'overridden');
     }
     if (decision.origin === 'blocked') {
+      if (effect === 'read') return fail(409, { name: 'ShadowlapReadBlocked', message: fencedRead(name) }, 'shadowlap_read_blocked');
       return fail(409, { name: 'ShadowlapWriteBlocked', message: `write ${name} blocked after divergence (use --writes stub|allow to change this)` }, 'shadowlap_write_blocked');
     }
     if (decision.origin === 'stubbed') {
@@ -1300,6 +1316,9 @@ export class Sidecar {
     if (input) meta.input = true;
     const mcp = kind === 'tool' ? mcpCallMeta(body.mcp) : undefined;
     if (mcp) meta.mcp = mcp;
+    // A tool that brings outside text in, as the config's `tools`, the SDK's `trust` or an MCP
+    // server's openWorldHint says. Kept on the call, never in its fingerprint: marking a tool changes no replay.
+    if (kind === 'tool') Object.assign(meta, this.trustMeta(body.name, null, body.trust === 'untrusted' ? (mcp ? 'mcp' : 'sdk') : null));
     this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: stored, effect, requestRef: this.store.putJson(request), meta, at: Date.now() });
 
     if (decision.origin === 'injected') {
@@ -1378,7 +1397,7 @@ export class Sidecar {
     }
 
     if (decision.origin === 'blocked') {
-      const error: SerializedError = { name: 'ShadowlapWriteBlocked', message: `write tool ${body.name} blocked after divergence (use --writes stub|allow to change this)` };
+      const error: SerializedError = effect === 'read' ? { name: 'ShadowlapReadBlocked', message: fencedRead(`read tool ${body.name}`) } : { name: 'ShadowlapWriteBlocked', message: `write tool ${body.name} blocked after divergence (use --writes stub|allow to change this)` };
       this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: this.store.putJson({ error }), outcome: 'error', meta: { error }, at: Date.now() });
       tracked.done = true;
       return { origin: 'blocked', callNo, outcome: 'error', error };
@@ -1399,6 +1418,16 @@ export class Sidecar {
     if (outcome === 'error' && body.error) meta.error = body.error;
     this.store.appendCallEnd(tracked.identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: this.store.putJson(payload), outcome, meta, at: Date.now() });
     tracked.done = true;
+  }
+
+  /**
+   * A tool call's trust, as its start row keeps it: the config's word for its name or host, either
+   * way, else `untrusted` from `declared` (the SDK's `trust`, an MCP server's openWorldHint), else nothing.
+   */
+  private trustMeta(name: string, host: string | null, declared: 'sdk' | 'mcp' | null): Pick<CallMeta, 'trust' | 'trustFrom'> {
+    const configured = configuredTrust(this.trust, name, host);
+    if (configured) return { trust: configured, trustFrom: 'config' };
+    return declared ? { trust: 'untrusted', trustFrom: declared } : {};
   }
 
   /** A divergence with these hints in place of its own, none kept as no list. */
@@ -1506,6 +1535,8 @@ export interface ResolveBody {
   input?: boolean;
   /** The call came through `shadowlap mcp`: from which server, and the tools it offers (see docs/protocol.md). */
   mcp?: unknown;
+  /** `untrusted`: the tool brings outside text in, where `shadowlap injection` plants (see docs/protocol.md). */
+  trust?: 'trusted' | 'untrusted';
 }
 
 /** `mcp` from a resolve body, checked and bounded, as call meta; undefined when it isn't one. */
@@ -1517,8 +1548,8 @@ function mcpCallMeta(raw: unknown): CallMeta['mcp'] | undefined {
   const listed = Array.isArray(tools)
     ? tools
         .slice(0, 1000)
-        .filter((t): t is { name: string; effect: Effect } => typeof t === 'object' && t !== null && typeof t.name === 'string' && (t.effect === 'pure' || t.effect === 'read' || t.effect === 'write'))
-        .map((t) => ({ name: text(t.name), effect: t.effect }))
+        .filter((t): t is { name: string; effect: Effect; trust?: unknown } => typeof t === 'object' && t !== null && typeof t.name === 'string' && (t.effect === 'pure' || t.effect === 'read' || t.effect === 'write'))
+        .map((t) => ({ name: text(t.name), effect: t.effect, ...(t.trust === 'untrusted' ? { trust: 'untrusted' as const } : {}) }))
     : undefined;
   return { transport, server: text(server), ...(listed ? { tools: listed } : {}) };
 }
@@ -1570,6 +1601,12 @@ function awsErrorType(status: number): string {
   };
   return named[status] ?? (status >= 500 ? 'InternalServerException' : 'ValidationException');
 }
+
+/**
+ * What the agent gets for a read the replay fenced (`unrecordedReads: 'fence'`, or one carrying
+ * planted text): an error, as for a blocked write, so the model hears the read failed and carries on.
+ */
+const fencedRead = (what: string) => `${what} was not run: this replay answers only the reads its recording holds`;
 
 /** How a decision is stored: a planted result as overridden, a failure Shadowlap answered as live (with `injected` on its end). */
 function storedOrigin(kind: CallKind, decision: Decision): Origin {

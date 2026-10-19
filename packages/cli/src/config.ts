@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { CONFIG_FILE, configFilePath, editConfigFile, parseRules, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price } from '@shadowlap/engine';
+import { CONFIG_FILE, configFilePath, editConfigFile, parseRules, parseToolTrust, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
 import { validHttpHost, type HttpRule } from '@shadowlap/sidecar';
 import { parseTests, type TestEntry } from './checks.js';
 
@@ -29,6 +29,8 @@ export interface ShadowlapConfig {
   http?: HttpRule[];
   /** `shadowlap repair`: the model that proposes fixes (`provider:model`) and its base URL. */
   repair?: { repairer?: string; baseUrl?: string };
+  /** Tools by name (or a captured HTTP call's host): `trust` marks the reads `shadowlap injection` plants in, over what the SDK or an MCP server declared. */
+  tools?: ToolTrust;
   // ---- Team store ----
   /** The team store, a bucket URL (`shadowlap store set`). Parsed in full by the commands that use it. */
   store?: string;
@@ -90,6 +92,8 @@ export function loadConfig(cwd: string): ShadowlapConfig {
   }
   const prices = parsePrices(parsed.prices, file);
   if (prices) config.prices = prices;
+  // Injection tests: which reads bring outside text in. A mistake here is named, as for http.
+  if (parsed.tools !== undefined) config.tools = parseToolTrust(parsed.tools, file);
   const mcp = parsed.mcp as { effects?: unknown } | undefined;
   if (mcp && typeof mcp === 'object' && mcp.effects && typeof mcp.effects === 'object') {
     const effects: Record<string, Effect> = {};

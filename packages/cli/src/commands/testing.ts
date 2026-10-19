@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { EXTERNAL_COMMAND, endedEarlyCount, formatTally, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, packRun, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, endedEarlyCount, formatTally, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -21,6 +21,7 @@ import { captureConfig, noProxyEnv, type GuardMode } from '../run-agent.js';
 import { ancestorsOf, confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, readStore, requireEnded, requireRun, telemetry, unredacted, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { prepareTestPush, pushIfQueued, teamEnv } from '../team.js';
 import { takeoverReader } from '../tasks.js';
+import { gateLetsThrough, gateLine, injectionGate } from '../injection.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
@@ -38,7 +39,7 @@ async function serveRecordings(store: Store, config: ReturnType<typeof loadConfi
   const root = process.cwd();
   const upstreams = upstreamOverrides(process.env);
   const host = new RecordingHost(store, root, { codeVersion: codeVersion(root), redact: config.redact });
-  const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams, api: host.api, ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}) });
+  const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams, api: host.api, ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), ...(config.tools ? { trust: config.tools } : {}) });
   host.attach(sidecar);
   const captureDir = fileURLToPath(new URL('../../guard/', import.meta.url));
   process.stdout.write(
@@ -207,7 +208,8 @@ function printGolden(o: GoldenOutcome, suffix = ''): void {
   const indent = (text: string, prefix = '    ') => text.split('\n').map((l) => prefix + l).join('\n') + '\n';
   if (o.result.shown.checks?.length) process.stdout.write(indent(formatChecks(o.result.shown.checks)));
   process.stdout.write(indent(o.failure.details));
-  const tail = outputTail(o.result.shown.output);
+  // An injection gate fails on its attempts, not on the replay: what the replay printed says nothing.
+  const tail = o.kind === 'injection' ? null : outputTail(o.result.shown.output);
   if (tail) process.stdout.write(p.dim(indent(tail, '    │ ')));
 }
 
@@ -317,7 +319,45 @@ export function register(program: Command): void {
             cut = golden;
             break;
           }
+          // Its injection gate, once its replay passed: plant payloads in its untrusted reads, live from
+          // the model call that reads them, writes stubbed, and fail it when too many attempts obey, or
+          // when the gate showed too little to say (inconclusive, which --inconclusive warn lets through).
+          // Null when a signal cut the gate short: then the golden has no result, as for its replay.
+          const gated = async (o: GoldenOutcome): Promise<{ outcome: GoldenOutcome; injection: InjectionGateData | null } | null> => {
+            if (!spec?.injection || !o.parent) return { outcome: o, injection: null };
+            const allowed = { obeyed: spec.injection.obeyed, influenced: spec.injection.influenced };
+            if (o.failure) return { outcome: o, injection: { resultId: null, attempts: 0, ...noVerdicts(), allowed, verdict: null, reason: null, skipped: 'the golden failed, so its injection gate did not run' } };
+            if (signal) return null;
+            process.stderr.write(p.dim(`[shadowlap] injection gate for ${golden}: planting payloads in its untrusted reads\n`));
+            let data: InjectionGateData;
+            let proof: string | null = null;
+            try {
+              const gate = await injectionGate({ opts, store, parent: o.parent, golden, entry: spec.injection, configDir: projectDir, cwd, sessionId: session.sessionId, actor, guard: flags.guard }, (line) => process.stderr.write(`${line}\n`));
+              upstreamRequests += gate.report.cost.upstreamRequests;
+              if (signal) return null;
+              data = gate.data;
+              const obeyed = gate.report.attempts.find((a) => a.verdict === 'obeyed');
+              proof = obeyed ? proofLine(obeyed) : null;
+            } catch (err) {
+              // A gate that can't run (a payload file gone) fails the golden: nothing let it through.
+              data = { resultId: null, attempts: 0, ...noVerdicts(), allowed, verdict: 'failed', reason: `the injection gate could not run: ${(err as Error).message}`, skipped: null };
+            }
+            if (gateLetsThrough(data, flags.inconclusive)) return { outcome: o, injection: data };
+            const word = data.verdict === 'inconclusive' ? 'injection inconclusive' : 'injection';
+            return { outcome: { ...o, failure: { message: `${word}: ${data.reason}`, details: `${proof ? `${proof}\n` : ''}${data.verdict === 'inconclusive' ? '--inconclusive warn lets an inconclusive gate through. Every attempt, and why: ' : 'Every attempt, with its proof: '}shadowlap injection ${golden} --html report.html` }, kind: 'injection' }, injection: data };
+          };
+          const printGate = (d: InjectionGateData | null) => {
+            if (d && d.verdict !== null) process.stdout.write(gateLine(d, flags.inconclusive) + '\n');
+          };
+          const first = await gated(outcome);
+          if (!first) {
+            cut = golden;
+            break;
+          }
+          outcome = first.outcome;
+          let injection = first.injection;
           printGolden(outcome);
+          printGate(injection);
           const forked = !outcome.failure && spec?.fork ? (outcome.result?.shown.ended.summary.divergence ?? null) : null;
           const takeover = forked ? takeoverAt(packDir) : null;
           const early = forked && takeover !== null && forked.callNo < takeover ? { at: forked.callNo, takeover } : null;
@@ -349,7 +389,7 @@ export function register(program: Command): void {
             }
           } else if (flags.update && (outcome.failure || early) && !signal) {
             if ((outcome.kind !== 'diverged' && !early) || !outcome.parent || !outcome.result) {
-              process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : outcome.kind === 'inconclusive' ? (outcome.result?.gate ? 'an inconclusive gate is settled by more attempts (--max-attempts), not a new recording' : 'a check that could not be decided is settled by what it lacks (a judge that can be asked, its key; a value a condition can read), not a new recording') : 'this one failed for another reason'}\n`));
+              process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : outcome.kind === 'inconclusive' ? (outcome.result?.gate ? 'an inconclusive gate is settled by more attempts (--max-attempts), not a new recording' : 'a check that could not be decided is settled by what it lacks (a judge that can be asked, its key; a value a condition can read), not a new recording') : outcome.kind === 'injection' ? (injection?.verdict === 'inconclusive' ? 'an inconclusive injection gate says why it showed nothing, and a new recording changes none of that' : 'an agent that obeys planted text is fixed in its prompt or code, not in its golden') : 'this one failed for another reason'}\n`));
             } else {
               const before = outcome.parent;
               const divergence = outcome.result.shown.ended.summary.divergence;
@@ -390,8 +430,16 @@ export function register(program: Command): void {
                 const again = replayed(await testGolden(packDir, golden, spec, ctx));
                 if (again.interrupted) process.stdout.write(p.dim(`    the replay of the updated golden was interrupted; it runs with the next test\n`));
                 else {
-                  outcome = again;
+                  // The updated golden's own injection gate, now that it replays.
+                  const regated = await gated(again);
+                  if (!regated) {
+                    cut = golden;
+                    break;
+                  }
+                  outcome = regated.outcome;
+                  injection = regated.injection;
                   printGolden(outcome, ' (updated)');
+                  printGate(injection);
                 }
               }
             }
@@ -407,10 +455,10 @@ export function register(program: Command): void {
             runId: outcome.result?.shown.ended.summary.runId ?? null,
             goldenRunId: outcome.parent?.runId ?? null,
             revision,
-            data: { ...resultData(store, outcome), ...(updated ? { updated } : {}) },
+            data: { ...resultData(store, outcome), ...(updated ? { updated } : {}), ...(injection ? { injection } : {}) },
           });
           cases.push(junitCase(outcome, flags.inconclusive));
-          results.push(packResult(outcome, { expect, updated, inconclusive: flags.inconclusive }));
+          results.push(packResult(outcome, { expect, updated, inconclusive: flags.inconclusive, injection }));
           tested.set(golden, { ok: !outcome.failure, fork: !!spec?.fork });
           if (!flags.update && early) forkedEarly.push({ packDir, golden, ...early });
           const divergence = outcome.result?.shown.ended.summary.divergence;
@@ -606,7 +654,7 @@ export function register(program: Command): void {
         await serveRecordings(store, config, opts.db);
         return;
       }
-      const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
+      const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), ...(config.tools ? { trust: config.tools } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
       // The person starts the agent, so serve never knows its command: the run has none, as a
       // capture has none, and a replay of it asks for one after --.
       const run = sidecar.startRun({ mode: 'record', command: { argv: [EXTERNAL_COMMAND], cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) });

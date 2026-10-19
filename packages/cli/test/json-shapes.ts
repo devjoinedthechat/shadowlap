@@ -105,7 +105,7 @@ export const SHAPES = {
   migrateError: { section: 'migrate', fields: ['kind', 'outcome', 'error'] },
   // Tests: test's report (the GitHub Action reads it), and bisect's.
   test: { section: 'test', grows: true, fields: ['version', 'session', 'revision', 'passed', 'failed', 'inconclusive', 'interrupted', 'results'] },
-  testResult: { section: 'test', grows: true, fields: ['name', 'dir', 'golden', 'mode', 'ok', 'verdict', 'failure', 'message', 'details', 'output', 'seconds', 'runId', 'runs', 'goldenRunId', 'calls', 'upstreamRequests', 'tokensNotRespent', 'divergence', 'checks', 'attempts', 'gate', 'expect', 'updated', 'judge'] },
+  testResult: { section: 'test', grows: true, fields: ['name', 'dir', 'golden', 'mode', 'ok', 'verdict', 'failure', 'message', 'details', 'output', 'seconds', 'runId', 'runs', 'goldenRunId', 'calls', 'upstreamRequests', 'tokensNotRespent', 'divergence', 'checks', 'attempts', 'gate', 'expect', 'updated', 'judge', 'injection'] },
   // A golden's gate in test's report: its figures, then what it made of the attempts (test-gate.test.ts holds them).
   testGate: { section: 'test', grows: true, fields: ['kind', 'good', 'bad', 'risk', 'max', 'decision', 'passes', 'attempts', 'outcomes', 'interval', 'passK', 'evidence', 'clean', 'sentence'] },
   testGateHistory: { section: 'test', grows: true, fields: ['kind', 'drop', 'risk', 'window', 'min', 'max', 'decision', 'passes', 'attempts', 'outcomes', 'interval', 'passK', 'evidence', 'clean', 'sentence'] },
@@ -115,10 +115,26 @@ export const SHAPES = {
   testGateHistoryEvidence: { section: 'test', grows: true, fields: ['kind', 'history', 'baseline', 'probability', 'probabilities', 'threshold', 'passAt'] },
   // A judge check's entry in `checks`: its verdict, where it came from and what it cost (checks[].judge).
   checkJudge: { section: 'test', fields: ['name', 'model', 'of', 'verdict', 'source', 'cost', 'redactions', 'normalized', 'cut', 'callNo'] },
+  testInjection: { section: 'test', list: 'its injection gate', fields: ['resultId', 'attempts', 'obeyed', 'influenced', 'ignored', 'inconclusive', 'allowed', 'verdict', 'reason', 'skipped'] },
   bisect: { section: 'bisect', grows: true, fields: ['outcome', 'target', 'good', 'bad', 'commits', 'steps', 'first', 'untested', 'why', 'replays', 'tokens', 'upstreamRequests', 'spent', 'seconds'] },
   bisectTarget: { section: 'bisect', grows: true, fields: ['kind', 'name', 'runId'] },
   bisectCommit: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'author', 'date'] },
   bisectStep: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'ok', 'skipped', 'result', 'seconds'] },
+  // Injection tests: the report of injection --json, per run tested by planting or by --clean.
+  injection: { section: 'injection', list: 'otherwise, with `--json` it prints', fields: ['templates', 'results', 'totals', 'verdict', 'passed', 'html'] },
+  injectionTotals: { section: 'injection', list: '`totals` adds up', fields: ['runs', 'attempts', 'obeyed', 'influenced', 'ignored', 'inconclusive'] },
+  injectionPlant: { section: 'injection', list: 'A run tested by planting', fields: ['resultId', 'mode', 'runId', 'golden', 'templates', 'repeat', 'reads', 'unrecordedReads', 'skipped', 'payloads', 'cells', 'attempts', 'baselines', 'totals', 'verdict', 'gate', 'stopReason', 'cost', 'startedAt', 'endedAt'] },
+  injectionRead: { section: 'injection', list: 'Each untrusted read', fields: ['callNo', 'name', 'from', 'readAt', 'args', 'planted', 'why'] },
+  injectionPayload: { section: 'injection', list: 'Each payload', fields: ['id', 'source', 'shape', 'title', 'text', 'canary'] },
+  injectionCell: { section: 'injection', list: 'Each cell', fields: ['read', 'payload', 'verdict', 'attempts', 'obeyed', 'influenced', 'ignored', 'inconclusive', 'runs'] },
+  injectionAttempt: { section: 'injection', list: 'Each attempt', fields: ['runId', 'read', 'payload', 'attempt', 'canary', 'verdict', 'why', 'failed', 'plantedAt', 'forkedAt', 'readAt', 'exitCode', 'evidence', 'spent'] },
+  injectionTemplateSet: { section: 'injection', list: 'With `--list-templates --json` it prints', fields: ['version', 'updated', 'templates'] },
+  injectionEvidence: { section: 'injection', list: 'Each piece of evidence', fields: ['kind', 'callNo', 'tool', 'path', 'value', 'why'] },
+  injectionBaseline: { section: 'injection', list: 'Each read\'s baseline', fields: ['read', 'runs', 'writes', 'failed'] },
+  injectionGate: { section: 'injection', list: 'The gate', fields: ['obeyed', 'influenced', 'verdict', 'reason'] },
+  injectionClean: { section: 'injection', list: 'A run tested with `--clean`', fields: ['resultId', 'mode', 'runId', 'golden', 'read', 'canary', 'neutral', 'unrecordedReads', 'writes', 'attempts', 'gate', 'verdict', 'stopReason', 'cost', 'startedAt', 'endedAt'] },
+  injectionCleanWrite: { section: 'injection', list: 'Each recorded write', fields: ['callNo', 'name', 'args', 'identifiers', 'attempts', 'gone', 'verdict'] },
+  injectionCleanAttempt: { section: 'injection', list: 'Each clean attempt', fields: ['runId', 'attempt', 'forkedAt', 'exitCode', 'made', 'gone', 'why'] },
   // Training: the tasks, a score, and the models to score.
   tasks: { page: 'training.md', section: 'Tasks', grows: true, fields: ['tasks', 'oneSided'] },
   task: { page: 'training.md', section: 'Tasks', grows: true, fields: ['golden', 'name', 'status', 'note', 'runId', 'takeover', 'scope', 'scopes', 'rewards', 'checks', 'after', 'prefix', 'model', 'provider', 'callName', 'tokensAfter'] },

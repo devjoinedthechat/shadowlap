@@ -391,6 +391,36 @@ INSERT OR IGNORE INTO change_counts (name, n) VALUES ('decisions', 0);
 CREATE TRIGGER IF NOT EXISTS change_counts_decisions_insert AFTER INSERT ON decision_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'decisions'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_decisions_update AFTER UPDATE ON decision_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'decisions'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_decisions_delete AFTER DELETE ON decision_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'decisions'; END;
+
+-- Injection tests. Each shadowlap injection of a run (a golden's recording, under the gate of
+-- shadowlap test or on its own) keeps one row: mode plant tested each untrusted read with each
+-- payload, mode clean replaced one read with a neutral result (--clean). The counts are of
+-- attempts; data is the report as --json prints it, with each attempt's run (marked
+-- meta.injection). No foreign key on run ids: a result outlives the runs gc deletes. Every write
+-- moves the 'injection' counter, so the dashboard shows a result as soon as it is kept.
+CREATE TABLE IF NOT EXISTS injection_results (
+  result_id   TEXT    PRIMARY KEY,
+  run_id      TEXT    NOT NULL,
+  golden      TEXT,
+  session_id  TEXT,
+  mode        TEXT    NOT NULL CHECK (mode IN ('plant', 'clean')),
+  at          INTEGER NOT NULL,
+  ended_at    INTEGER,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  obeyed      INTEGER NOT NULL DEFAULT 0,
+  influenced  INTEGER NOT NULL DEFAULT 0,
+  ignored     INTEGER NOT NULL DEFAULT 0,
+  inconclusive INTEGER NOT NULL DEFAULT 0,
+  verdict     TEXT,
+  actor       TEXT,
+  data        TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS injection_results_run ON injection_results (run_id, at);
+CREATE INDEX IF NOT EXISTS injection_results_golden ON injection_results (golden, at);
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('injection', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_injection_insert AFTER INSERT ON injection_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'injection'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_injection_update AFTER UPDATE ON injection_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'injection'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_injection_delete AFTER DELETE ON injection_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'injection'; END;
 `;
 
 // ---- Decisions: the shapes of the decision tables ----
@@ -460,11 +490,12 @@ export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt'
 
 /**
  * Why a golden failed: its replay sent a request the recording doesn't have, a check failed, the
- * agent exited non-zero, it made no calls, or it couldn't run at all; or why it didn't pass:
+ * agent exited non-zero, it made no calls, it couldn't run at all, or (`injection`) its injection
+ * gate saw more attempts obey a planted instruction than it allows; or why it didn't pass:
  * `inconclusive`, its gate ran out of attempts between its bounds, or a check couldn't be decided (a
  * judge check with no verdict, and no way to ask the judge).
  */
-export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'inconclusive';
+export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'inconclusive' | 'injection';
 
 /** What a result keeps besides its verdict, for the Tests screen. Every field is optional to readers. */
 export interface TestResultData {
@@ -522,6 +553,33 @@ export interface TestResultData {
   output?: string;
   /** `test --update` re-recorded the golden: the run it replaced, the new one, its calls, and what the agent sends differently. */
   updated?: { from: string | null; to: string; calls: number; changes?: string[] };
+  /**
+   * The golden's injection gate (`"injection"` under its tests entry): the result kept for it, the
+   * attempts by verdict, what the gate allows, and whether it passed; `skipped` says why it planted
+   * nothing, when it didn't.
+   */
+  injection?: InjectionGateData;
+}
+
+/**
+ * An injection gate's outcome, as the test history and the JSON report keep it: `verdict` passed,
+ * failed (more attempts obeyed, or were influenced, than allowed) or inconclusive (the test showed
+ * too little to say: nothing to plant in, an attempt that failed, none a model read, a run cut
+ * short), with `reason`; null with `skipped` when the gate did not run (the golden failed first).
+ */
+export interface InjectionGateData {
+  resultId: string | null;
+  attempts: number;
+  obeyed: number;
+  influenced: number;
+  ignored: number;
+  inconclusive: number;
+  allowed: { obeyed: number; influenced: number | null };
+  verdict: 'passed' | 'failed' | 'inconclusive' | null;
+  /** One line: why it failed or is inconclusive. */
+  reason: string | null;
+  /** Why it did not run (the golden failed), else null. */
+  skipped: string | null;
 }
 
 /** How one golden did in one session. */
@@ -724,6 +782,34 @@ export interface PairsExport {
 }
 
 export type NewPairsExport = Pick<PairsExport, 'pairs' | 'file' | 'format' | 'minConfidence'> & Partial<Pick<PairsExport, 'exportId' | 'at' | 'leftOut' | 'actor' | 'data'>>;
+
+// ---- injection tests: the shape of injection_results ----
+
+/** One `shadowlap injection` of a run, as kept for the dashboard: its counts by verdict, and the report it printed. */
+export interface StoredInjectionResult {
+  /** `inj-<ulid>`. */
+  resultId: string;
+  /** The run tested: a recording, a golden's, or a replay (an attempt that obeyed, under --clean). */
+  runId: string;
+  /** The golden it was, as the project names it (`goldens/refund-flow`), else null. */
+  golden: string | null;
+  /** The `shadowlap test` session whose injection gate ran it, else null. */
+  sessionId: string | null;
+  mode: 'plant' | 'clean';
+  at: number;
+  endedAt: number | null;
+  /** Attempts that planted a payload (plant) or replaced the read (clean). */
+  attempts: number;
+  obeyed: number;
+  influenced: number;
+  ignored: number;
+  inconclusive: number;
+  /** plant: obeyed, influenced, ignored or inconclusive; clean: caused, not caused or inconclusive. */
+  verdict: string | null;
+  actor: string | null;
+  /** The report as `shadowlap injection --json` prints it for this run. */
+  data: Record<string, unknown>;
+}
 
 /** One scored attempt (v4 training): a model under test, a task (by its golden), and what the checks said. */
 export interface TaskScoreRow {
@@ -1474,6 +1560,46 @@ export class Store {
 
   deleteDecisionSession(sessionId: string): void {
     this.db.prepare(`DELETE FROM decision_sessions WHERE session_id = ?`).run(sessionId);
+  }
+
+  // ---- injection tests: shadowlap injection's results ----
+
+  /** Keeps a result, replacing the one under the same id (a test still running writes its row again as attempts end). */
+  putInjectionResult(r: StoredInjectionResult): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO injection_results (result_id, run_id, golden, session_id, mode, at, ended_at, attempts, obeyed, influenced, ignored, inconclusive, verdict, actor, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(r.resultId, r.runId, r.golden, r.sessionId, r.mode, r.at, r.endedAt, r.attempts, r.obeyed, r.influenced, r.ignored, r.inconclusive, r.verdict, r.actor, JSON.stringify(r.data));
+  }
+
+  getInjectionResult(resultId: string): StoredInjectionResult | null {
+    const row = this.db.prepare(`SELECT * FROM injection_results WHERE result_id = ?`).get(resultId);
+    return row ? rowToInjectionResult(row) : null;
+  }
+
+  /** Results, newest first: of one run tested, one golden, one test session, or all (`limit`, default 100). */
+  listInjectionResults(options: { runId?: string; golden?: string; sessionId?: string; limit?: number } = {}): StoredInjectionResult[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    for (const [column, value] of [
+      ['run_id', options.runId],
+      ['golden', options.golden],
+      ['session_id', options.sessionId],
+    ] as const) {
+      if (value === undefined) continue;
+      where.push(`${column} = ?`);
+      params.push(value);
+    }
+    params.push(Math.max(1, Math.min(10_000, options.limit ?? 100)));
+    return this.db
+      .prepare(`SELECT * FROM injection_results ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, result_id DESC LIMIT ?`)
+      .all(...params)
+      .map(rowToInjectionResult);
+  }
+
+  deleteInjectionResult(resultId: string): void {
+    this.db.prepare(`DELETE FROM injection_results WHERE result_id = ?`).run(resultId);
   }
 
   // ---- runs ----
@@ -2437,6 +2563,27 @@ function rowToTestResult(row: Record<string, unknown>): TestResult {
     runId: str(row.run_id),
     goldenRunId: str(row.golden_run_id),
     data: parseJsonColumn<TestResultData | null>(row.data, null),
+  };
+}
+
+function rowToInjectionResult(row: Record<string, unknown>): StoredInjectionResult {
+  const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
+  return {
+    resultId: String(row.result_id),
+    runId: String(row.run_id),
+    golden: str(row.golden),
+    sessionId: str(row.session_id),
+    mode: row.mode === 'clean' ? 'clean' : 'plant',
+    at: Number(row.at),
+    endedAt: row.ended_at === null || row.ended_at === undefined ? null : Number(row.ended_at),
+    attempts: Number(row.attempts),
+    obeyed: Number(row.obeyed),
+    influenced: Number(row.influenced),
+    ignored: Number(row.ignored),
+    inconclusive: Number(row.inconclusive),
+    verdict: str(row.verdict),
+    actor: str(row.actor),
+    data: parseJsonColumn<Record<string, unknown>>(row.data, {}),
   };
 }
 

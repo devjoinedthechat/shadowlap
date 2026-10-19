@@ -21,6 +21,8 @@ import * as training from './training.js';
 import * as uploads from './uploads.js';
 // overview-runs: the Overview, the Runs page, imports and the team store.
 import * as imports from './imports.js';
+// Injection tests: their results, a run's and a golden's, the security report, and the injection job.
+import * as injection from './injection.js';
 import * as overview from './overview.js';
 import * as runsList from './runs-list.js';
 import * as teamStore from './store.js';
@@ -60,6 +62,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   checks,
   // The decision diff: decisions and migrate sessions, a run's decisions, retirements, and their jobs.
   decisions,
+  // Injection tests (shadowlap injection): results, trust, templates, the security report.
+  injection,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

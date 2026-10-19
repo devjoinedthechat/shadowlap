@@ -6,6 +6,13 @@ const tools = [
   { name: 'read_note', description: 'reads', inputSchema: { type: 'object', properties: { id: { type: 'number' } } }, annotations: { readOnlyHint: true } },
   { name: 'send_note', description: 'sends', inputSchema: { type: 'object', properties: { to: { type: 'string' } } } },
 ];
+// FAKE_MCP_OPEN_WORLD=1: tools that reach outside entities (openWorldHint), a read and a write.
+if (process.env.FAKE_MCP_OPEN_WORLD === '1') {
+  tools.push(
+    { name: 'web_search', description: 'searches the web', inputSchema: { type: 'object', properties: { q: { type: 'string' } } }, annotations: { readOnlyHint: true, openWorldHint: true } },
+    { name: 'post_status', description: 'posts', inputSchema: { type: 'object', properties: { text: { type: 'string' } } }, annotations: { openWorldHint: true } },
+  );
+}
 const reply = (id, body) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, ...body }) + '\n');
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {

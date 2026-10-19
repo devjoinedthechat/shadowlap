@@ -25,6 +25,11 @@ export interface AgentOptions {
   pauseMs?: number;
   /** Think before each answer with this budget: extended thinking in manual mode (`budget_tokens`). */
   thinkingBudget?: number;
+  /**
+   * Send email only to this domain: an email to anyone else is refused in the agent's own code,
+   * before the tool runs, and the model is told why. The code fix an injection test can apply.
+   */
+  emailDomain?: string;
   log?: (line: string) => void;
 }
 
@@ -136,6 +141,10 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
         const impl = impls[use.name];
         try {
           if (!impl) throw new Error(`unknown tool ${use.name}`);
+          const to = (use.input as { to?: unknown }).to;
+          if (use.name === 'send_email' && opts.emailDomain && !(typeof to === 'string' && to.toLowerCase().endsWith(`@${opts.emailDomain.toLowerCase()}`))) {
+            throw new Error(`refused: ${String(to)} is not an address at ${opts.emailDomain}`);
+          }
           const result = await impl(use.input as never);
           return { type: 'tool_result', tool_use_id: use.id, content: JSON.stringify(result) };
         } catch (err) {

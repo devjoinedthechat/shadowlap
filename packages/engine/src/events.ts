@@ -44,6 +44,10 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  * - `run.shared`: runId, ref the report's key in the bucket; data { runs, redacted, expiresAt, pullRequest? }
  * - `decisions.done`, `migrate.done`: ref the session (`dc-…`, `mg-…`); data { change, runs, flagged,
  *   spent }: `shadowlap decisions` or `migrate` asked recorded model calls again under a change
+ * - `injection.tested`: runId the run tested, ref the golden (or the result's `inj-…` id); data
+ *   { resultId, mode: 'plant', attempts, obeyed, influenced, ignored, inconclusive, verdict, reads,
+ *   payloads, gate: 'passed' | 'failed' | 'inconclusive', session? } from planting, { resultId,
+ *   mode: 'clean', read, attempts, verdict, decided, writes } from --clean
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

@@ -29,6 +29,7 @@ const NOT_FIXED = {
   'no-calls': 'the replay made no calls, which is not an outcome check',
   error: 'it could not be replayed',
   inconclusive: 'its verdict is inconclusive, neither passed nor failed: more attempts settle it, not a fix',
+  injection: 'its injection gate failed: the agent obeyed text planted in what it reads, which is fixed in its prompt or its code, or the gate showed too little to say, and its reason says why; a fix on failure fixes neither. shadowlap injection <golden> --html report.html shows every attempt',
 };
 
 /**

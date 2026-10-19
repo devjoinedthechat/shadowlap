@@ -146,6 +146,28 @@ A recording normally fails as soon as the agent sends a different request. Mark 
 
 Checks work the same on recordings that don't fork: they then describe the recording itself and cost nothing.
 
+### Injection gates
+
+A golden whose agent reads untrusted content (a page, an email, a ticket) can also be gated on
+whether text planted there steers it. Mark the tools that bring outside text in and give the golden
+an `injection` entry:
+
+```json
+{
+  "tools": { "fetch_page": { "trust": "untrusted" } },
+  "tests": { "goldens/*": { "injection": { "obeyed": 0, "repeat": 3 } } }
+}
+```
+
+Once the golden's replay passes, `shadowlap test` plants payloads in each of its untrusted reads,
+each with a canary of its own, and fails it, as an `injection` failure, when a tool call carries a
+canary in more attempts than `obeyed` allows. Those attempts run live from the model call that reads
+the payload, so CI needs the provider's key: without it (a pull request from a fork gets no
+secrets), every attempt's model call fails, and the gate is *inconclusive*, never passed. So is a
+gate with nothing to plant in, or whose test showed nothing. An inconclusive gate fails the golden;
+`shadowlap test --inconclusive warn` lets it through with a warning. See
+[Injection tests](./injection.md#gate-ci-on-it).
+
 ## Update a golden after an intended change
 
 A prompt you changed on purpose makes its goldens diverge, which is the test doing its job. Once you mean the change, update them (`shadowlap test` prints this command after its totals when a golden diverged on more than a value that changes every run):

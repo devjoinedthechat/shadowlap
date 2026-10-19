@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -190,8 +190,8 @@ export interface GoldenRow {
   gate: GateView | null;
   checks: string[];
   history: HistoryCell[];
-  /** `verdict` tells inconclusive apart (`result` reads it as `fail`); `gate`, what its gate decided, for a golden with one. */
-  last: { result: 'pass' | 'fail' | null; verdict: GoldenVerdict | null; failure: TestFailure | null; line: string; at: number | null; updated: boolean; gate: GateResultView | null };
+  /** `verdict` tells inconclusive apart (`result` reads it as `fail`); `gate`, what its gate decided, for a golden with one; `injection`, its injection gate's result. */
+  last: { result: 'pass' | 'fail' | null; verdict: GoldenVerdict | null; failure: TestFailure | null; line: string; at: number | null; updated: boolean; gate: GateResultView | null; injection?: InjectionGateData | null };
   /** The run a row opens: its latest replay when the store still has it, else the recording. */
   runId: string | null;
   error: string | null;
@@ -497,6 +497,8 @@ export function shortReason(r: TestResult): string {
   if (r.failure === 'check') return reason.replace(/, but .*$/, '');
   if (r.failure === 'exit') return /exited with code \d+/.exec(reason)?.[0] ?? reason.replace(/^the agent /, '');
   if (r.failure === 'no-calls') return 'made no calls';
+  // Its injection gate: what obeyed, without the limit and the proof the reason goes on with.
+  if (r.failure === 'injection') return reason.replace(/ \(at most[^)]*\).*$/, '');
   return `couldn't run: ${reason}`;
 }
 
@@ -982,7 +984,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
         };
       }),
       last: latest
-        ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path) }
+        ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path), injection: latest.data?.injection ?? null }
         : { result: null, verdict: null, failure: null, line: error ? `can't be read: ${error}` : 'not run yet', at: null, updated: false, gate: null },
       runId: runIfKept(store, latest?.runId ?? null) ?? sourceRun,
       error,

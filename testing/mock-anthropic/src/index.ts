@@ -253,3 +253,5 @@ export async function startMockAnthropic(opts: MockOptions): Promise<MockServer>
 
 // A scripted judge, for Shadowlap's judge checks (judge.ts).
 export { judgeAnswer, judgeQuestion, judgeRequests, withJudge, type JudgeDecision, type JudgeQuestion } from './judge.js';
+// Injection tests: a model that obeys (or quotes, or is steered by) what a tool result tells it.
+export { DEFENCE, obeyPlanted, type ObeyOptions } from './obey.js';

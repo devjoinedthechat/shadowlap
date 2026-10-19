@@ -1,4 +1,4 @@
-import { aboutUsd, checkStatus, formatTally, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { aboutUsd, checkStatus, formatTally, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
 import { judgeSource } from './checks.js';
 
 /**
@@ -20,11 +20,12 @@ export interface PackResult {
   ok: boolean;
   /**
    * How it came out, whatever CI does with it: `passed`, `failed` or `inconclusive` (its gate ran out
-   * of attempts between its bounds, or all it fell short on is checks that could not be decided).
-   * Every report this version writes has it; one made before reads as `ok` says.
+   * of attempts between its bounds, all it fell short on is checks that could not be decided, or its
+   * injection gate showed too little to say). Every report this version writes has it; one made
+   * before reads as `ok` says.
    */
   verdict: 'passed' | 'failed' | 'inconclusive';
-  /** Why it failed: `diverged`, `check` (an outcome check), `exit`, `no-calls`, `error`, or `inconclusive`. Null when it passed. */
+  /** Why it failed: `diverged`, `check` (an outcome check), `exit`, `no-calls`, `error`, `inconclusive`, or `injection` (its injection gate). Null when it passed. */
   failure: TestFailure | null;
   /** One line: why the pack failed. */
   message: string | null;
@@ -55,6 +56,8 @@ export interface PackResult {
   updated: { from: string | null; to: string; calls: number; changes?: string[] } | null;
   /** Its judge checks' calls over every attempt, apart from the agent's: how many came from the recording, how many went live, and what they cost. Null without one (always printed). */
   judge?: JudgeSummary | null;
+  /** Its injection gate ("injection" under its tests entry): attempts by verdict, what it allows, whether it passed. Null without one; the report always prints it. */
+  injection?: InjectionGateData | null;
 }
 
 export interface TestReport {

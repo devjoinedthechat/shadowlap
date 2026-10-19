@@ -5,7 +5,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
  * The working tree a job uses: the folder it runs in, a project's, with the agent's own files. A job
  * whose command changes those files (`repair` tries each candidate there and puts the files back,
  * `fix apply` applies a patch for good) runs alone in its tree, and one that runs the agent from them
- * (run, replay, blame, verify, test, calibrate, tasks score) never alongside one that changes them:
+ * (run, replay, blame, verify, test, calibrate, injection, tasks score) never alongside one that changes them:
  * an agent started meanwhile would run a candidate's prompt, and blame or test would hold it against
  * the code. Bisect replays in worktrees of its own, so it is neither. It is worked out from the
  * commands a builder returns, so every feature's kinds take part, whoever registers them.
@@ -38,6 +38,7 @@ const TREE_READS: Readonly<Record<string, { noun: string; verb: string }>> = {
   verify: { noun: 'a verify', verb: 'verify' },
   test: { noun: 'a test', verb: 'test' },
   calibrate: { noun: 'a calibration', verb: 'calibrate' },
+  injection: { noun: 'an injection test', verb: 'test for injection' },
 };
 
 /** How the CLI command `args` (what follows `shadowlap`) uses the working tree, or null when it runs no agent. */
