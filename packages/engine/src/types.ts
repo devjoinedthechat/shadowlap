@@ -125,7 +125,11 @@ export interface JudgeSummary {
   replayed: number;
   /** Asked live. */
   live: number;
-  /** Answered by no one: the recording didn't hold them, and there was no way to ask the judge live. */
+  /**
+   * Answered by no one: the recording didn't hold them, and there was no way to ask the judge live.
+   * A run keeps no such call now (nothing is kept of a request no one answered), so it is 0 but for
+   * runs recorded before.
+   */
   notAsked: number;
   upstreamRequests: number;
   /** USD the live ones cost, and what the ones from the recording would have. */
