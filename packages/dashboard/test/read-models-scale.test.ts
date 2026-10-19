@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store, type RunMeta } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
 import { cachesRead, runsRead, warmRunStats } from '../src/run-stats.js';
@@ -15,22 +15,25 @@ import { listRunsPage, recentRuns, runsByDay } from '../src/runs-list.js';
  * Every run's calls are read once in the store's life: the first look works out each run's totals
  * and keeps them in the store. After that, each read model on a store opened afresh (a new
  * dashboard process) reads one row per run and none of their calls. The test checks that work
- * directly, and bounds each read by the CPU time it takes, which a busy machine does not inflate
- * the way it does wall-clock time. Both are printed.
+ * directly. It measures time as CPU time, which a busy machine does not inflate the way it does
+ * wall-clock time, and holds it only against this machine's own measures in the same test, never
+ * against a fixed number of milliseconds, which a slow machine goes past with nothing wrong. Both
+ * are printed.
  */
 
 const RUNS = 5000;
-/**
- * Room for a slower machine on the CPU bounds below: CI's Windows runners take up to twice what the
- * others do (their CPU time is also counted in 15.6 ms ticks), while the work stays the same.
- */
-const SLACK = process.platform === 'win32' ? 2 : 1;
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
 const DAY = 86_400_000;
+/** The warm-up's budget per slice: the one a dashboard gives it. */
+const BUDGET = 50;
+/** Seconds of work on a fast machine, a minute on a slow one: each test may take as long as writing the store. */
+const TIMEOUT = 180_000;
 
 let dir: string;
 let path: string;
 let calls = 0;
+/** Each run's number of calls. */
+const lengths = new Map<string, number>();
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'shadowlap-read-models-'));
@@ -41,6 +44,7 @@ beforeAll(() => {
   const headers = { 'content-type': 'text/event-stream', 'request-id': 'req_011CTd8z5n2fXq', 'anthropic-ratelimit-requests-remaining': '3999' };
   const recordings: Array<{ id: string; n: number; startedAt: number }> = [];
   const write = (runId: string, n: number, startedAt: number, originOf: (c: number) => 'live' | 'replayed' | 'blocked') => {
+    lengths.set(runId, n);
     for (let c = 1; c <= n; c++) {
       const api = c % 2 === 1;
       const origin = originOf(c);
@@ -82,7 +86,7 @@ beforeAll(() => {
     }
   });
   store.close();
-}, 180_000);
+}, TIMEOUT);
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -118,16 +122,71 @@ function timed<T>(read: (store: Store) => T, times = 3): Timed<T> {
 
 const ms = (t: { cpu: number; wall: number }) => `${Math.round(t.cpu)} ms CPU, ${Math.round(t.wall)} ms`;
 
+/**
+ * A measure of this machine, for the reads to be held against: the CPU time of one plain read of
+ * every call's rows, through SQLite alone, none of Shadowlap's code in it.
+ */
+function plainRead(): number {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    const c0 = process.cpuUsage();
+    let rows = 0;
+    for (const _ of db.prepare('SELECT * FROM call_events').iterate()) rows++;
+    const c = process.cpuUsage(c0);
+    expect(rows).toBe(2 * calls);
+    return (c.user + c.system) / 1000;
+  } finally {
+    db.close();
+  }
+}
+
+/** One batch of the warm-up, as it kept it: its runs' totals, and the prompt cache of those of the last eight days. */
+interface Batch {
+  runs: string[];
+  caches: string[];
+  /** On the warm-up's own clock, how long its slice had run when this batch ended; null when no run was left to go on with. */
+  at: number | null;
+}
+
+interface Slice {
+  batches: Batch[];
+  /** True for the last: no run left. */
+  done: boolean;
+  cpu: number;
+}
+
+/**
+ * A slice's batches from what it did, in order: a reading of its clock as it starts, then for each
+ * batch the totals it kept, the prompt caches it kept, and a reading of its clock while runs are left.
+ */
+function batchesOf(events: Array<number | string[]>): Batch[] {
+  const [started, ...rest] = events;
+  if (typeof started !== 'number') throw new Error('the slice did not read its clock first');
+  const out: Batch[] = [];
+  let batch: Batch = { runs: [], caches: [], at: null };
+  for (const e of rest) {
+    if (typeof e === 'number') {
+      batch.at = e - started;
+      out.push(batch);
+      batch = { runs: [], caches: [], at: null };
+    } else if (!batch.runs.length) batch.runs = e;
+    else batch.caches = e;
+  }
+  if (batch.runs.length) out.push(batch);
+  return out;
+}
+
 describe('read models at scale', () => {
   it('read every run’s calls once, then answer for 5,000 runs and 300,000 calls from a row per run', () => {
     expect(calls).toBeGreaterThan(RUNS * 55);
+    const plain = plainRead();
     const first = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }), 1);
     expect(first.read).toBe(RUNS);
     // The prompt cache only for this week's runs: the week before never needs it.
     expect(first.caches).toBeGreaterThan(1000);
     expect(first.caches).toBeLessThan(RUNS * 0.75);
-    // Once in the store's life: about 2 s of CPU time alone; the bound leaves room for a slower machine.
-    expect(first.cpu, `the first look took ${ms(first)}`).toBeLessThan(6_000 * SLACK);
+    // Once in the store's life: about twice what a plain read of every call takes, on any machine.
+    expect(first.cpu, `the first look took ${ms(first)}, ${(first.cpu / plain).toFixed(1)} times a plain read of every call`).toBeLessThan(5 * plain);
 
     const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }));
     const page = timed((s) => listRunsPage(s, {}));
@@ -152,15 +211,15 @@ describe('read models at scale', () => {
     expect(sidebar.out).toHaveLength(500);
 
     const reads = { summary, page, bySpent, byCalls, failures, calendar, sidebar };
-    process.stdout.write(`read models on ${RUNS} runs, ${calls} calls: first look ${ms(first)} (${first.caches} runs' prompt cache); then ${Object.entries(reads).map(([name, t]) => `${name} ${ms(t)}`).join(', ')}\n`);
+    process.stdout.write(`read models on ${RUNS} runs, ${calls} calls: a plain read of every call ${Math.round(plain)} ms CPU; first look ${ms(first)} (${first.caches} runs' prompt cache); then ${Object.entries(reads).map(([name, t]) => `${name} ${ms(t)}`).join(', ')}\n`);
     for (const [name, t] of Object.entries(reads)) {
       // No read model reads a finished run's calls again.
       expect(t.read, `${name} read the calls of ${t.read} runs`).toBe(0);
       expect(t.caches, `${name} worked out the prompt cache of ${t.caches} runs`).toBe(0);
-      // Alone, each takes 60 to 130 ms of CPU time; the bound leaves room for a slower machine.
-      expect(t.cpu, `${name} took ${ms(t)}`).toBeLessThan(1000 * SLACK);
+      // A row per run: about a fifth of what a plain read of every call takes, on any machine.
+      expect(t.cpu, `${name} took ${ms(t)}, ${(t.cpu / plain).toFixed(2)} times a plain read of every call`).toBeLessThan(plain);
     }
-  });
+  }, TIMEOUT);
 
   it('works the totals out ahead in short slices, so the first look reads no calls either', () => {
     // As a store no dashboard has opened: no run's totals kept yet.
@@ -168,31 +227,70 @@ describe('read models at scale', () => {
     raw.exec('DELETE FROM run_stats');
     raw.close();
     const store = Store.open(path);
+    // What each slice does, in order: the warm-up's own clock (performance.now), read as the slice
+    // starts and after each batch while runs are left, and what each batch keeps.
+    let events: Array<number | string[]> = [];
+    const clock = performance.now.bind(performance);
+    const save = store.saveRunStats.bind(store);
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      const t = clock();
+      events.push(t);
+      return t;
+    });
+    vi.spyOn(store, 'saveRunStats').mockImplementation((rows) => {
+      events.push(rows.map((r) => r.runId));
+      return save(rows);
+    });
+    const slices: Slice[] = [];
     try {
-      let slices = 0;
-      const took: number[] = [];
-      for (let done = false; !done; slices++) {
+      for (let done = false; !done; ) {
+        events = [];
         const c0 = process.cpuUsage();
-        done = warmRunStats(store, { budgetMs: 50, now: NOW });
+        done = warmRunStats(store, { budgetMs: BUDGET, now: NOW });
         const c = process.cpuUsage(c0);
-        took.push((c.user + c.system) / 1000);
+        slices.push({ batches: batchesOf(events), done, cpu: (c.user + c.system) / 1000 });
       }
       expect(runsRead(store)).toBe(RUNS);
       // The last eight days' prompt cache too: the Overview's week, wherever the viewer is.
       expect(cachesRead(store)).toBeGreaterThan(1000);
-      const longest = Math.max(...took);
-      const sorted = [...took].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)]!;
-      process.stdout.write(`warmed ${RUNS} runs (${cachesRead(store)} with their prompt cache) in ${slices} slices, median ${Math.round(median)} ms CPU, the longest ${Math.round(longest)} ms\n`);
-      // A slice stops at the first batch that ends past its 50 ms, and batches are cut by the calls
-      // they read: alone, slices take 50 to 70 ms. The bounds leave room for a slower machine.
-      expect(slices).toBeGreaterThanOrEqual(10);
-      expect(median, `half the slices took more than ${Math.round(median)} ms of CPU time`).toBeLessThan(120 * SLACK);
-      expect(longest, `a slice took ${Math.round(longest)} ms of CPU time`).toBeLessThan(250 * SLACK);
     } finally {
+      vi.restoreAllMocks();
       store.close();
     }
+    const batches = slices.flatMap((s) => s.batches);
+    const middle = slices.slice(1, -1).map((s) => s.cpu);
+    const median = [...middle].sort((a, b) => a - b)[Math.floor(middle.length / 2)]!;
+    const longest = Math.max(...middle);
+    process.stdout.write(`warmed ${RUNS} runs (${batches.reduce((n, b) => n + b.caches.length, 0)} with their prompt cache) in ${slices.length} slices of ${batches.length} batches: the first ${Math.round(slices[0]!.cpu)} ms CPU, with the run index; then median ${Math.round(median)} ms CPU, the longest ${Math.round(longest)} ms\n`);
+
+    // Every run's totals kept once, by one batch.
+    expect(new Set(batches.flatMap((b) => b.runs)).size).toBe(RUNS);
+    expect(batches.reduce((n, b) => n + b.runs.length, 0)).toBe(RUNS);
+    // A batch is cut by the calls it reads: it takes no run more once it has 50, or once it has read
+    // 2,000 calls, a run's counted four times when its prompt cache is worked out too (that reads
+    // every request it sent).
+    for (const [i, b] of batches.entries()) {
+      expect(b.runs.length, `batch ${i} kept ${b.runs.length} runs`).toBeLessThanOrEqual(50);
+      const before = b.runs.slice(0, -1).reduce((n, id) => n + lengths.get(id)! * (b.caches.includes(id) ? 4 : 1), 0);
+      expect(before, `batch ${i} went on after reading ${before} calls' worth`).toBeLessThan(2000);
+    }
+    // A slice, on its own clock, runs a batch at least, then the next only while its budget is not
+    // spent: it stops at the first batch that ends past it, or when no run is left. On any machine.
+    for (const [i, s] of slices.entries()) {
+      const at = s.batches.map((b) => b.at);
+      expect(at.length, `slice ${i} kept nothing`).toBeGreaterThan(0);
+      const past = at.slice(0, -1).findIndex((t) => t === null || t >= BUDGET);
+      expect(past, `slice ${i} went on after its batch ${past} ended ${at[past]?.toFixed(1)} ms in, past its budget`).toBe(-1);
+      if (s.done) expect(at.at(-1), 'the last slice read its clock with no run left').toBeNull();
+      else expect(at.at(-1), `slice ${i} stopped before its budget was spent`).toBeGreaterThanOrEqual(BUDGET);
+    }
+    // Time only against this machine's own: each slice between the first (which also reads the run
+    // index, one row per run, as every read model does first) and the last (which ends with the runs)
+    // takes its budget and at most one batch more, so none takes more than four times the median.
+    expect(middle.length, 'the warm-up took one slice or two: none between to hold against the others').toBeGreaterThan(0);
+    expect(longest, `a slice took ${Math.round(longest)} ms of CPU time, where half took ${Math.round(median)} ms or less`).toBeLessThan(4 * median);
+
     const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }), 1);
     expect([summary.read, summary.caches]).toEqual([0, 0]);
-  });
+  }, TIMEOUT);
 });
