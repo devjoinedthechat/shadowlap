@@ -182,6 +182,10 @@ describe('tasks', () => {
     const solo = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE], { scopes: () => 'agent' }).run;
     packRun(store, solo.runId, join(root, 'goldens', 'solo'));
     expect(describeTask({ path: 'goldens/solo', golden: readGolden(join(root, 'goldens', 'solo'), 'goldens/solo'), fields: {}, checks: OUTCOME, testFailed: null })).toMatchObject({ status: 'ready', scope: 'agent', scopes: ['agent'], takeover: { callNo: 1 } });
+    // A judge check's call, which a golden packed with its check holds, is none of the agent's: no scope of a task, never a takeover.
+    const judged = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE, { text: '{"verdict":"yes","reason":"it escalates"}' }], { scopes: (i) => (i === 4 ? 'shadowlap:judge' : 'agent') }).run;
+    packRun(store, judged.runId, join(root, 'goldens', 'judged'));
+    expect(describeTask({ path: 'goldens/judged', golden: readGolden(join(root, 'goldens', 'judged'), 'goldens/judged'), fields: {}, checks: OUTCOME, testFailed: null })).toMatchObject({ status: 'ready', scope: 'agent', scopes: ['agent'], takeover: { callNo: 1 } });
     // A blame of an older run, limited to a scope the golden no longer uses, doesn't hide its calls.
     const unscoped = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE]).run;
     packRun(store, unscoped.runId, join(root, 'goldens', 'unscoped'));

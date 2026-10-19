@@ -1,10 +1,13 @@
-import { cpSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { describeChanges, formatUsd, maskedChange, normalizeAddCommand, packRun, ruleInForce, runChanges, volatileValues, writePackAttributes, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
+import { agentCallsOf, describeChanges, formatUsd, judgeLine, maskedChange, normalizeAddCommand, packRun, ruleInForce, runChanges, volatileValues, writePackAttributes, type CallRecord, type DivergenceReport, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { scratchDir } from './goldens.js';
-import { testAttempt, type GuardMode } from './run-agent.js';
+import { judgeEndedRun, materialOf } from './judge.js';
+import type { JudgeCheck } from './judge-check.js';
+import { checkLine, judgeResults } from './judge-results.js';
+import { testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { telemetry, usageOf } from './shared.js';
 
 /**
@@ -52,7 +55,9 @@ export interface CallCounts {
   tools: Record<string, number>;
 }
 
-export function callCounts(calls: readonly CallRecord[]): CallCounts {
+/** The agent's calls of a recording, counted: a judge check's are none of them. */
+export function callCounts(all: readonly CallRecord[]): CallCounts {
+  const calls = agentCallsOf(all);
   const tools: Record<string, number> = {};
   for (const c of calls) if (c.kind === 'tool') tools[c.name] = (tools[c.name] ?? 0) + 1;
   return { total: calls.length, model: calls.filter((c) => c.kind === 'api').length, tools };
@@ -100,8 +105,8 @@ const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : 
 export function requestChanges(store: Store, before: RunRecord, after: RunRecord, divergence: DivergenceReport | null, normalizers: readonly Normalizer[] = []): string[] {
   const out: string[] = [];
   try {
-    // An update is always made at newer code; what the agent sends is the news.
-    out.push(...describeChanges({ ...runChanges(store, before, store.getCalls(before.runId), after, store.getCalls(after.runId)), code: { a: null, b: null } }));
+    // An update is always made at newer code; what the agent sends is the news, and a judge's model and prompt are none of it.
+    out.push(...describeChanges({ ...runChanges(store, before, agentCallsOf(store.getCalls(before.runId)), after, agentCallsOf(store.getCalls(after.runId))), code: { a: null, b: null } }));
   } catch {
     // the call counts still say something
   }
@@ -189,6 +194,8 @@ export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestS
     prices: ctx.config.prices,
     clock: ctx.config.clock,
     ...(ctx.config.http ? { http: ctx.config.http } : {}),
+    // Its judge checks run once, live (or from the old golden, for an unchanged answer), and their calls go into the new pack.
+    redact: ctx.config.redact,
     spec: { ...(spec ?? { repeat: 1, passes: 1, tools: [] }), fork: true },
     divergeAt: 1,
     ...(ctx.onRun ? { onRun: ctx.onRun } : {}),
@@ -206,15 +213,58 @@ export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestS
       : null;
   const result: UpdateResult = { replaced: false, reason, run: store.getRun(runId), summary: attempt.ended.summary, checks: spec ? attempt.checks : null, code: attempt.code, output: attempt.output, before, after, interrupted: attempt.interrupted !== null };
   if (reason) return result;
+  const failed = repackGolden(store, runId, dir, ctx.projectDir, ctx.config.redact);
+  return failed ? { ...result, reason: `the new recording could not replace ${dir}: ${failed}` } : { ...result, replaced: true };
+}
 
-  // The new pack is written under .shadowlap/ (git never sees it, and neither does a pattern such as
-  // goldens/*), then its entries take the old ones' place, so a failure leaves the old golden.
+/** What `test --update` did for a golden's judge checks: the verdicts it now keeps, each check's line, and what asking cost. */
+export interface KeptVerdicts {
+  kept: string[];
+  lines: string[];
+  judge: JudgeSummary | null;
+  /** Why the golden keeps none, or null. */
+  reason: string | null;
+}
+
+/**
+ * `test --update` for a golden that replayed clean but holds no verdict for some of its judge
+ * checks (they were added after it was packed, or read its output, which a recording doesn't
+ * keep): each is asked live, about what the clean replay read, which it shares with its golden,
+ * the output included, and its call is added to the golden's recording. Its pack is written again,
+ * the same recording with the judge's calls, so every later replay is judged from them, for free.
+ */
+export async function keepJudgeVerdicts(dir: string, golden: RunRecord, replay: TestAttempt, judges: readonly JudgeCheck[], ctx: Pick<UpdateContext, 'store' | 'config' | 'projectDir'>): Promise<KeptVerdicts> {
+  const r = await judgeEndedRun(ctx.store, golden, judges, { material: materialOf(ctx.store, replay.ended.summary.runId, replay.stdout, ctx.config.clock), config: ctx.config, upstreams: upstreamOverrides(process.env) });
+  const lines = judgeResults(judges, { judgeVerdicts: r.verdicts, notJudged: r.notJudged }).map(checkLine);
+  const kept = judges.filter((j) => r.verdicts.has(j.name)).map((j) => j.name);
+  if (!kept.length) return { kept, lines, judge: r.judge, reason: 'no judge check got a verdict to keep' };
+  const failed = repackGolden(ctx.store, golden.runId, dir, ctx.projectDir, ctx.config.redact, packedLineage(dir));
+  if (failed) return { kept: [], lines, judge: r.judge, reason: `${dir} could not be written: ${failed}` };
+  return { kept, lines, judge: r.judge, reason: null };
+}
+
+/** Whether a pack holds its run's ancestors (`pack --lineage`), so writing it again keeps them. */
+function packedLineage(dir: string): boolean {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs?: unknown };
+    return Array.isArray(manifest.runs) && manifest.runs.length > 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Writes a run as a golden's pack in place of the one in `dir`. The new pack is written under
+ * .shadowlap/ (git never sees it, and neither does a pattern such as goldens/*), then its entries
+ * take the old ones' place, so a failure leaves the old golden. Returns why it could not, or null.
+ */
+export function repackGolden(store: Store, runId: string, dir: string, projectDir: string, redact: Normalizer[], lineage = false): string | null {
   let stage: string | null = null;
   try {
-    stage = scratchDir(ctx.projectDir, 'update');
+    stage = scratchDir(projectDir, 'update');
     const fresh = join(stage, 'new');
     const aside = join(stage, 'old');
-    packRun(store, runId, fresh, { redact: ctx.config.redact });
+    packRun(store, runId, fresh, { redact, ...(lineage ? { lineage: true } : {}) });
     mkdirSync(aside);
     swapPack(resolve(dir), fresh, aside);
   } catch (err) {
@@ -226,7 +276,7 @@ export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestS
     } catch {
       // nothing more to tidy
     }
-    return { ...result, reason: `the new recording could not replace ${dir}: ${(err as Error).message}${kept}` };
+    return `${(err as Error).message}${kept}`;
   }
   rmSync(stage, { recursive: true, force: true });
   // A golden packed before packs carried their .gitattributes gets one, so a checkout that converts
@@ -236,12 +286,12 @@ export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestS
   } catch {
     // its folder can't be written to: the pack itself is in place
   }
-  return { ...result, replaced: true };
+  return null;
 }
 
-/** What a re-recording cost, as a receipt: `$0.04 live · 6 upstream requests`. */
+/** What a re-recording cost, as a receipt: `$0.04 live · 6 upstream requests`, and its judge checks' apart. */
 export function updateReceipt(summary: RunSummary | null): string {
   if (!summary) return '';
   const spent = summary.cost.spent > 0 ? `${formatUsd(summary.cost.spent)} live` : 'no priced model calls';
-  return `${spent} · ${summary.upstreamRequests} upstream request${summary.upstreamRequests === 1 ? '' : 's'}`;
+  return `${spent} · ${summary.upstreamRequests} upstream request${summary.upstreamRequests === 1 ? '' : 's'}${summary.judge ? ` · ${judgeLine(summary.judge)}` : ''}`;
 }

@@ -453,7 +453,12 @@ export interface RepairReport {
   /** The accepted candidate's id. */
   accepted: number | null;
   patch: string | null;
-  cost: { blame: number; repairer: number | null; verify: number };
+  /**
+   * USD each stage cost: blame's and verify's replays (the agent's calls), the repairer, and `judge`,
+   * what judge checks' calls cost across blame and verify, apart from the agent's. `judge` is absent
+   * when no judge was asked live, and from reports kept before it was added.
+   */
+  cost: { blame: number; repairer: number | null; verify: number; judge?: number };
   /**
    * What write tools did after a fork, in every replay blame and verify made: stubbed (the agent
    * carried on as if the write succeeded) or blocked. Reports written before it was kept lack it.
@@ -569,7 +574,8 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
   if (r.warnings.length) lines.push('', ...r.warnings.map((w) => `  ${p.yellow('!')} ${safeLine(w)}`));
 
   const repairer = r.repairer ? ` · repairer ${r.repairer.cost === null ? `(no price for ${safeLine(r.repairer.served ?? r.repairer.model)})` : `≈${formatUsd(r.repairer.cost)}`}` : '';
-  lines.push('', p.dim(`  cost: blame ≈${formatUsd(r.cost.blame)}${repairer} · verify ≈${formatUsd(r.cost.verify)}`));
+  const judged = r.cost.judge ? ` · judge checks ≈${formatUsd(r.cost.judge)}` : '';
+  lines.push('', p.dim(`  cost: blame ≈${formatUsd(r.cost.blame)}${repairer} · verify ≈${formatUsd(r.cost.verify)}${judged}`));
   if (r.output.patch) lines.push(p.dim(`  patch: ${safeLine(r.output.patch)}${r.output.applied ? ' (applied to the working tree)' : `   apply it: git apply ${safeLine(r.output.patch)}`}`));
   if (r.output.report) lines.push(p.dim(`  report: ${safeLine(r.output.report)}`));
   if (r.output.goldens.length) lines.push(p.dim(`  recordings of the fixed runs, for shadowlap test: ${r.output.goldens.map(safeLine).join(' ')}`));
@@ -628,6 +634,7 @@ export function repairMarkdown(r: RepairReport): string {
   const repairer = r.repairer ? `, the repairer (${r.repairer.served ?? r.repairer.model}) ${r.repairer.cost === null ? 'at no known price' : `≈${formatUsd(r.repairer.cost)}`}` : '';
   // The write policy the replays ran under, when the report kept it: an older report says nothing it can't know.
   const writes = r.writes === 'block' ? ' Writes were blocked in every replay.' : r.writes === 'stub' ? ' Writes were stubbed in every replay.' : '';
-  out.push(`Cost: blame ≈${formatUsd(r.cost.blame)}${repairer}, verification ≈${formatUsd(r.cost.verify)}.${writes}`);
+  const judged = r.cost.judge ? `, judge checks ≈${formatUsd(r.cost.judge)}` : '';
+  out.push(`Cost: blame ≈${formatUsd(r.cost.blame)}${repairer}, verification ≈${formatUsd(r.cost.verify)}${judged}.${writes}`);
   return out.join('\n') + '\n';
 }

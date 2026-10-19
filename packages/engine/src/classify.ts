@@ -47,7 +47,7 @@ export interface ClassifiableMeta {
   probe?: { of?: unknown } | undefined;
   verify?: unknown;
   test?: unknown;
-  checks?: ReadonlyArray<{ ok?: unknown; label?: unknown }> | undefined;
+  checks?: ReadonlyArray<{ ok?: unknown; label?: unknown; status?: unknown }> | undefined;
   blame?: { outcome?: unknown; callNo?: unknown; rescuedRunId?: unknown } | undefined;
 }
 
@@ -291,7 +291,10 @@ function firstCheck(run: ClassifiableRun, status: 'failed' | 'inconclusive'): st
   return found && typeof found.label === 'string' ? found.label : null;
 }
 
-/** Whether an outcome is a failure: what the Failed chip and the calendar's red count. */
+/**
+ * Whether an outcome is a failure: what the Failed chip and the calendar's red count. An
+ * inconclusive one is not: it needs a verdict, not a fix.
+ */
 export function isFailedOutcome(o: RunOutcome): boolean {
   return o.kind === 'diverged' || o.kind === 'lost' || o.kind === 'check-failed';
 }

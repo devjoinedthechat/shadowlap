@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { decide, formatDivergence, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { agentCallsOf, decide, formatDivergence, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { oracleLabels } from './attempts.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
@@ -17,7 +17,8 @@ import { type PackResult } from './test-report.js';
 
 export interface RecordingTestContext {
   store: Store;
-  config: Pick<ShadowlapConfig, 'normalize' | 'prices' | 'clock' | 'http'>;
+  /** `redact`: the rules applied to what a judge check reads. */
+  config: Pick<ShadowlapConfig, 'normalize' | 'prices' | 'clock' | 'http'> & { redact?: ShadowlapConfig['redact'] };
   /** Where the recorded command runs. */
   cwd: string;
   writes: WritePolicy;
@@ -76,7 +77,11 @@ export interface RecordingOutcome {
   /** Why it failed or is inconclusive, or undefined when it passed. */
   failure: JunitCase['failure'];
   kind: TestFailure | null;
-  /** How it came out. Inconclusive: its gate ran out of attempts between its bounds, or a check couldn't be judged. */
+  /**
+   * How it came out. Inconclusive: its gate ran out of attempts between its bounds, or what kept it
+   * from passing is a check that could not be decided (a judge with no verdict and no way to ask the
+   * judge, a condition it can't read), which fails the run all the same unless inconclusive verdicts warn.
+   */
   verdict: 'passed' | 'failed' | 'inconclusive';
   /** A golden with a gate: what the gate decided, and why. */
   gate: GateResult | null;
@@ -148,6 +153,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
       prices: ctx.config.prices,
       clock: ctx.config.clock,
       http: ctx.config.http,
+      ...(ctx.config.redact ? { redact: ctx.config.redact } : {}),
       spec,
       ...(ctx.argv ? { argv: ctx.argv } : {}),
       ...(meta ? { meta } : {}),
@@ -196,7 +202,10 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
     const f = unjudgedAttempt.failure!;
     // The attempt's own line already says a check was inconclusive, and which.
     const message = /^check inconclusive: /.test(f.message) ? f.message : `inconclusive: ${f.message.replace(/^check failed: /, 'a check could not be judged: ')}`;
-    failure = { message, details: attempts.length === 1 ? f.details : `${each()}\n\n${f.details}` };
+    // The attempts of a repeat an undecided check kept from running.
+    const left = gate ? 0 : repeat - attempts.length;
+    const notRun = left > 0 ? `; ${left} more attempt${left === 1 ? '' : 's'} not run: ${left === 1 ? 'it' : 'they'} would be undecided too` : '';
+    failure = { message: `${message}${notRun}`, details: attempts.length === 1 ? f.details : `${each()}\n\n${f.details}` };
   } else if (result && verdict !== 'passed') {
     const f = shown.failure;
     const tally = formatTally(result);
@@ -368,10 +377,11 @@ export const NO_HISTORY =
 /**
  * Tokens of a run's model calls: input, cache reads and writes included, and with `output` the
  * output too; with `live`, only calls that reached a provider. Every call's input is what the run
- * costs to run live; the live calls' input and output are what a replay spent.
+ * costs to run live; the live calls' input and output are what a replay spent. The agent's calls
+ * only: a judge check's are counted apart.
  */
 export function tokensOf(calls: readonly CallRecord[], o: { live?: boolean; output?: boolean } = {}): number {
-  return calls
+  return agentCallsOf(calls)
     .filter((c) => c.kind === 'api' && (!o.live || c.origin === 'live'))
     .reduce((n, c) => {
       const u = c.end?.meta.usage;
@@ -383,9 +393,26 @@ type Summary = TestAttempt['ended']['summary'];
 /** Calls by origin, as the reports and the history show them: overridden calls count as replayed. */
 const callsOf = (s: Summary) => ({ total: s.total, replayed: s.byOrigin.replayed + s.byOrigin.overridden, live: s.byOrigin.live, blocked: s.byOrigin.blocked, stubbed: s.byOrigin.stubbed });
 const notRespentOf = (s: Summary) => s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
-const upstreamOf = (attempts: readonly TestAttempt[]) => attempts.reduce((n, a) => n + a.ended.summary.upstreamRequests, 0);
+/** Every request a golden's replays sent upstream, a judge check's included: none, for one replayed offline. */
+export const upstreamOf = (attempts: readonly TestAttempt[]) => attempts.reduce((n, a) => n + a.ended.summary.upstreamRequests + (a.ended.summary.judge?.upstreamRequests ?? 0), 0);
 /** USD the attempts spent on live calls. */
 const spentOf = (attempts: readonly TestAttempt[]) => attempts.reduce((n, a) => n + a.ended.summary.cost.spent, 0);
+
+/** What a golden's judge checks did and cost over every attempt, apart from the agent; null without a judge call. */
+export function judgeOf(attempts: readonly TestAttempt[]): JudgeSummary | null {
+  const parts = attempts.flatMap((a) => (a.ended.summary.judge ? [a.ended.summary.judge] : []));
+  if (!parts.length) return null;
+  return parts.reduce((t, j) => ({
+    calls: t.calls + j.calls,
+    replayed: t.replayed + j.replayed,
+    live: t.live + j.live,
+    notAsked: t.notAsked + j.notAsked,
+    upstreamRequests: t.upstreamRequests + j.upstreamRequests,
+    spent: t.spent + j.spent,
+    saved: t.saved + j.saved,
+    unknownModels: [...new Set([...t.unknownModels, ...j.unknownModels])],
+  }));
+}
 
 /** A changed value as the history keeps it: long strings and large objects cut to 2,000 characters. */
 function clipValue(v: unknown): unknown {
@@ -433,6 +460,8 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
   if (r.gate) data.gate = r.gate;
   if (r.carried) data.continued = r.carried;
   data.spent = spentOf(r.attempts);
+  const judge = judgeOf(r.attempts);
+  if (judge) data.judge = judge;
   if (s.divergence) {
     const d = s.divergence;
     data.divergence = {
@@ -497,6 +526,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     gate: r?.gate ?? null,
     expect: extra.expect,
     updated: extra.updated ?? null,
+    judge: r ? judgeOf(r.attempts) : null,
   };
 }
 

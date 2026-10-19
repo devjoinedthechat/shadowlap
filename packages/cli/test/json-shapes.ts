@@ -31,6 +31,8 @@ export const SHAPES = {
   summaryJson: { section: 'run', fields: ['exitCode', 'summary'] },
   summary: { section: 'run', fields: ['runId', 'mode', 'status', 'total', 'byOrigin', 'byKind', 'upstreamRequests', 'injected', 'refused', 'imported', 'tokensNotRespent', 'cost', 'durationMs', 'notReached', 'warnings', 'divergence'] },
   cost: { section: 'run', fields: ['spent', 'saved', 'captured', 'unknownModels'] },
+  // A run with judge checks: what the judge's calls did and cost, apart from the agent's (summary.judge).
+  summaryJudge: { section: 'run', fields: ['calls', 'replayed', 'live', 'notAsked', 'upstreamRequests', 'spent', 'saved', 'unknownModels'] },
   replayChecks: { section: 'replay', fields: ['exitCode', 'summary', 'checks'] },
   repeat: { section: 'replay', fields: ['attempts', 'report'] },
   repeatReport: { section: 'replay', fields: ['parentRunId', 'attempts', 'forkedAt', 'paths', 'tools', 'distinctFinalResponses', 'succeeded', 'spent', 'saved', 'tokensNotRespent'] },
@@ -63,12 +65,12 @@ export const SHAPES = {
   init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'hardcodedBaseUrls', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
 
   // Fixes: blame, verify and repair print their reports; fix prints the dashboard's read model of Fixes.
-  blame: { page: 'blame.md', section: 'JSON', grows: true, fields: ['runId', 'outcome', 'blamed', 'lost', 'confidence', 'contrast', 'sameAnswer', 'failedWrite', 'probes', 'oracle', 'recordedFailures', 'rescue', 'modelCalls', 'attemptsPerProbe', 'passesNeeded', 'gate', 'nonMonotone', 'cost', 'stopReason', 'warnings', 'fix'] },
+  blame: { page: 'blame.md', section: 'JSON', grows: true, fields: ['runId', 'outcome', 'blamed', 'lost', 'confidence', 'contrast', 'sameAnswer', 'failedWrite', 'probes', 'oracle', 'recordedFailures', 'rescue', 'modelCalls', 'attemptsPerProbe', 'passesNeeded', 'gate', 'nonMonotone', 'cost', 'judge', 'stopReason', 'warnings', 'fix'] },
   blameCall: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'step', 'passes', 'attempts'] },
   blameContrast: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'recorded', 'rescued', 'rescuedRunId'] },
   blameProbe: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'step', 'passes', 'attempts', 'rescued', 'decision', 'rate', 'runs'] },
   blameFix: { page: 'blame.md', section: 'JSON', grows: true, fields: ['fixId', 'title', 'status', 'opened'] },
-  verify: { page: 'verify.md', section: 'JSON', grows: true, fields: ['verdict', 'reasons', 'warnings', 'summary', 'runs', 'oracle', 'attemptsPerRun', 'passesNeeded', 'gate', 'change', 'codeVersion', 'cost', 'stopReason', 'verifyId', 'fixes'] },
+  verify: { page: 'verify.md', section: 'JSON', grows: true, fields: ['verdict', 'reasons', 'warnings', 'summary', 'runs', 'oracle', 'attemptsPerRun', 'passesNeeded', 'gate', 'change', 'codeVersion', 'cost', 'judge', 'stopReason', 'verifyId', 'fixes'] },
   verifyRun: { page: 'verify.md', section: 'JSON', grows: true, fields: ['runId', 'role', 'outcome', 'passes', 'attempts', 'decision', 'rate', 'deterministic', 'recorded', 'runs'] },
   verifySummary: { page: 'verify.md', section: 'JSON', grows: true, fields: ['targets', 'holdout', 'good'] },
   repair: { page: 'repair.md', section: 'JSON', grows: true, fields: ['outcome', 'why', 'targets', 'holdout', 'good', 'heldOutAutomatically', 'oracle', 'repairer', 'noRepairer', 'diagnosis', 'anchors', 'candidates', 'accepted', 'patch', 'cost', 'output', 'warnings', 'repairId', 'verifyId', 'fixes'] },
@@ -84,7 +86,7 @@ export const SHAPES = {
   fixError: { section: 'fix', grows: true, fields: ['fixId', 'status', 'error'] },
   // Tests: test's report (the GitHub Action reads it), and bisect's.
   test: { section: 'test', grows: true, fields: ['version', 'session', 'revision', 'passed', 'failed', 'inconclusive', 'interrupted', 'results'] },
-  testResult: { section: 'test', grows: true, fields: ['name', 'dir', 'golden', 'mode', 'ok', 'verdict', 'failure', 'message', 'details', 'output', 'seconds', 'runId', 'runs', 'goldenRunId', 'calls', 'upstreamRequests', 'tokensNotRespent', 'divergence', 'checks', 'attempts', 'gate', 'expect', 'updated'] },
+  testResult: { section: 'test', grows: true, fields: ['name', 'dir', 'golden', 'mode', 'ok', 'verdict', 'failure', 'message', 'details', 'output', 'seconds', 'runId', 'runs', 'goldenRunId', 'calls', 'upstreamRequests', 'tokensNotRespent', 'divergence', 'checks', 'attempts', 'gate', 'expect', 'updated', 'judge'] },
   // A golden's gate in test's report: its figures, then what it made of the attempts (test-gate.test.ts holds them).
   testGate: { section: 'test', grows: true, fields: ['kind', 'good', 'bad', 'risk', 'max', 'decision', 'passes', 'attempts', 'outcomes', 'interval', 'passK', 'evidence', 'clean', 'sentence'] },
   testGateHistory: { section: 'test', grows: true, fields: ['kind', 'drop', 'risk', 'window', 'min', 'max', 'decision', 'passes', 'attempts', 'outcomes', 'interval', 'passK', 'evidence', 'clean', 'sentence'] },
@@ -92,6 +94,8 @@ export const SHAPES = {
   testGatePassK: { section: 'test', grows: true, fields: ['k', 'value'] },
   testGateSprtEvidence: { section: 'test', grows: true, fields: ['kind', 'pass', 'fail', 'upper', 'lower', 'scores'] },
   testGateHistoryEvidence: { section: 'test', grows: true, fields: ['kind', 'history', 'baseline', 'probability', 'probabilities', 'threshold', 'passAt'] },
+  // A judge check's entry in `checks`: its verdict, where it came from and what it cost (checks[].judge).
+  checkJudge: { section: 'test', fields: ['name', 'model', 'of', 'verdict', 'source', 'cost', 'redactions', 'normalized', 'cut', 'callNo'] },
   bisect: { section: 'bisect', grows: true, fields: ['outcome', 'target', 'good', 'bad', 'commits', 'steps', 'first', 'untested', 'why', 'replays', 'tokens', 'upstreamRequests', 'spent', 'seconds'] },
   bisectTarget: { section: 'bisect', grows: true, fields: ['kind', 'name', 'runId'] },
   bisectCommit: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'author', 'date'] },

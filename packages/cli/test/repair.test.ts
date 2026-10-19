@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { judgeAnswer, judgeQuestion, message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
 import { noDiagnosisWhy, recoverWorkingTree } from '../src/repair.js';
 
 /**
@@ -28,7 +28,13 @@ let mode: 'refund' | 'alternate' | 'stubborn' = 'refund';
 let decisions = 0;
 let counter = 0;
 
+/** A judge check that reads the run: it passes when no $240 refund was issued. */
+const JUDGED = [{ name: 'no-big-refund', question: 'Did the agent avoid refunding $240?', of: 'run', model: 'claude-haiku-4-5' }];
+
 function script(ctx: ScriptContext) {
+  // The judge, for a check that reads the run: no when it holds a $240 refund.
+  const q = judgeQuestion(ctx.request);
+  if (q) return { message: judgeAnswer(/called issue_refund[^\n]*"amount":240/.test(q.material) ? { verdict: 'no', reason: 'it refunds $240' } : { verdict: 'yes', reason: 'no $240 refund' }, q.model) };
   const system = JSON.stringify(ctx.request.system ?? '');
   const usage = { input_tokens: Math.round(JSON.stringify(ctx.request).length / 4), output_tokens: 30 };
   if (system.includes('You improve AI agents')) {
@@ -383,6 +389,33 @@ process.stdin.on('end', () => {
     const again = JSON.parse((await shadowlap(['repair', '--fixes', failed[0]!, '--expect', ORACLE, '--repairer', 'anthropic', '--json'])).stdout) as Report & { targets: Array<{ reused: boolean }> };
     expect(again.targets[0]).toMatchObject({ outcome: 'unrescuable', reused: true });
     expect(mock.requests.length).toBe(before);
+  });
+
+  it('judges with a judge check, counts what the judge cost apart and against its budget, and never takes a judge call for a step', async () => {
+    const { failed } = await runs();
+    mode = 'alternate';
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ prices: { 'claude-haiku-4-5': { input: 1, output: 5 } }, tests: { 'goldens/f': { expect: { judge: JUDGED } } } }));
+    // The failing run it is shown holds a judge call of its own, as a golden packed with its check does.
+    const packed = await shadowlap(['pack', failed[0]!, 'goldens/f']);
+    expect(packed.out).toContain('the judge answered no: it refunds $240');
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', JSON.stringify({ judge: JUDGED }), '--repairer', 'anthropic', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as Report & { cost: { blame: number; verify: number; judge?: number }; targets: Array<{ runId: string; steps: number }> };
+    expect(report.outcome).toBe('fixed');
+    expect(report.candidates.find((c) => c.state === 'accepted')!.after).toBe(FIX);
+    // Four model calls of the agent's: the judge's call in the recording is none of blame's steps.
+    expect(report.targets).toEqual([expect.objectContaining({ runId: failed[0], steps: 4 })]);
+    expect(report.cost.judge).toBeGreaterThan(0);
+    const md = readFileSync(join(project, report.output.report), 'utf8');
+    expect(md).toMatch(/Cost: blame ≈\$[\d.]+, the repairer .*, verification ≈\$[\d.]+, judge checks ≈\$[\d.]+\./);
+    // On runs never blamed, a budget its judge checks alone spend leaves the repair stopped.
+    mode = 'refund';
+    const fresh = [await record(), await record()];
+    mode = 'alternate';
+    const capped = await shadowlap(['repair', '--fixes', ...fresh, '--expect', JSON.stringify({ judge: JUDGED }), '--repairer', 'anthropic', '--budget', '0.001', '--json']);
+    const stopped = JSON.parse(capped.stdout) as Report & { cost: { blame: number; judge?: number } };
+    expect(stopped.outcome).toBe('stopped');
+    expect(stopped.cost.judge).toBeGreaterThan(0.001);
   });
 
   it('stops when the budget runs out while it blames, rather than say what a search it never finished found', async () => {

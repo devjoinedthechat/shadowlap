@@ -147,6 +147,8 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
     probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: gateJson(x.gate), runs: x.attempts })),
     nonMonotone: r.nonMonotone,
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
+    // Judge checks' calls, apart from the agent's: what they sent upstream and spent. Null when no judge was asked live.
+    judge: r.judge ?? null,
     stopReason: r.stopReason,
     warnings: r.warnings,
   };
@@ -192,6 +194,8 @@ export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Ar
     summary: { targets: count('target'), holdout: count('holdout'), good: count('good') },
     runs: r.runs.map((x) => ({ runId: x.runId, role: x.role, outcome: outcomeOf(x).replace(' ', '-'), passes: x.passes, attempts: x.attempts.length, decision: x.decision ?? null, rate: gateJson(x.gate), deterministic: x.deterministic, recorded: x.recorded, runs: x.attempts })),
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
+    // Judge checks' calls, apart from the agent's: what they sent upstream and spent. Null when no judge was asked live.
+    judge: r.judge ?? null,
     stopReason: r.stopReason,
   };
 }
@@ -309,7 +313,7 @@ export function register(program: Command): void {
         process.exitCode = report.outcome === 'stopped' ? 1 : 0;
       } catch (err) {
         if (!(err instanceof BlameError)) throw err;
-        if (flags.json) process.stdout.write(JSON.stringify({ runId: parent.runId, outcome: 'error', error: { reason: err.reason, message: err.message } }, null, 2) + '\n');
+        if (flags.json) process.stdout.write(JSON.stringify({ runId: parent.runId, outcome: 'error', error: { reason: err.reason, message: err.message }, judge: err.judge }, null, 2) + '\n');
         else process.stderr.write(`\n${p.red('✗')} ${err.message}\n`);
         process.exitCode = 1;
       }

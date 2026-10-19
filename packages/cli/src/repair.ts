@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, BLAME_DEFAULTS, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, REPAIR_FILE_LIMIT, repairMarkdown, rewriteText, safeLine, Store, toolDefinitions, unifiedDiff, type Conversation, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { applyEdit, BLAME_DEFAULTS, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, REPAIR_FILE_LIMIT, repairMarkdown, rewriteText, safeLine, Store, toolDefinitions, unifiedDiff, type Conversation, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
@@ -188,9 +188,9 @@ function requestAt(store: Store, runId: string, callNo: number): unknown {
   return call?.requestRef ? loadApiRequest(store, call.requestRef) : null;
 }
 
-/** A run's last model request and answer: what a good run shows the model, for telling a case detail from a rule. */
+/** A run's last model request and answer: what a good run shows the model, for telling a case detail from a rule. A judge check's is none of the agent's. */
 function lastExchange(store: Store, runId: string): string {
-  const calls = store.getCalls(runId).filter((c) => c.kind === 'api' && c.requestRef);
+  const calls = store.getCalls(runId).filter((c) => c.kind === 'api' && c.requestRef && !isJudgeCall(c));
   const last = calls.at(-1);
   if (!last?.requestRef) return '';
   const conv = normalizeConversation(loadApiRequest(store, last.requestRef) as Record<string, unknown>);
@@ -301,8 +301,12 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     warnings.push(`${shortId(t.parent.runId)} passes the check as recorded, so it is not held out as a failing run`);
     return false;
   });
-  const cost = { blame: 0, repairer: null as number | null, verify: 0 };
-  const spent = () => cost.blame + (cost.repairer ?? 0) + cost.verify;
+  // What judge checks' calls cost across blame and verify, apart from the agent's: the budget counts it too.
+  const cost: { blame: number; repairer: number | null; verify: number; judge?: number } = { blame: 0, repairer: null, verify: 0 };
+  const judgeSpent = (r: { judge?: { spent: number } | null }) => {
+    if (r.judge?.spent) cost.judge = (cost.judge ?? 0) + r.judge.spent;
+  };
+  const spent = () => cost.blame + (cost.repairer ?? 0) + cost.verify + (cost.judge ?? 0);
   const budgetLeft = () => (s.budget === null ? null : s.budget - spent());
   const outOfBudget = () => {
     const left = budgetLeft();
@@ -493,7 +497,8 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
   async function blameOne(t: AttemptTarget, fields: Record<string, unknown>): Promise<Blamed> {
     const runId = t.parent.runId;
     const parentCalls = store.getCalls(runId);
-    const steps = parentCalls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, s.scope)).map((c) => c.callNo);
+    // The agent's model calls: a judge check's are none of blame's steps.
+    const steps = parentCalls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, s.scope) && !isJudgeCall(c)).map((c) => c.callNo);
     const base: RepairTarget = { runId, outcome: 'error', callNo: null, step: null, steps: steps.length, rescuedRunId: null, rescuedBy: null, reused: false, recorded: null, rescued: null, note: null };
     let callNo: number | null = null;
     let rescuedRunId: string | null = null;
@@ -530,12 +535,15 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
           log: (line) => log(`  ${line}`),
         });
         cost.blame += r.spent;
+        judgeSpent(r);
         failures = r.recordedFailures;
         if (r.outcome !== 'blamed' || !r.blamed || !r.contrast) return { target: { ...base, outcome: r.outcome === 'stopped' ? 'stopped' : 'unrescuable' }, repairCase: null, request: null, model: null, notTheAnswer: r.outcome === 'stopped' ? null : notTheAnswer(r) };
         callNo = r.blamed.callNo;
         rescuedRunId = r.contrast.rescuedRunId;
       } catch (err) {
         if (!(err instanceof BlameError)) throw err;
+        // What its judges cost before blame stopped counts all the same.
+        if (err.judge) judgeSpent(err);
         // A run that passes its check when replayed is no failure: it isn't linked to the fix as one.
         return { target: { ...base, outcome: err.reason === 'passes' ? 'passes' : 'error', note: err.message.split('\n')[0]! }, repairCase: null, request: null, model: null, notTheAnswer: null };
       }
@@ -599,6 +607,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
         log: (line) => log(`  ${line}`),
       });
       cost.verify += v.spent;
+      judgeSpent(v);
       c.verify = v;
       if (v.verdict === 'rejected') {
         c.state = 'rejected';

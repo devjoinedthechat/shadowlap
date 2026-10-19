@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { JUDGE_SCOPE, checkStatus, estimateCost, finalAnswer, formatUsd, parseGate, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
+import { JUDGE_SCOPE, checkStatus, estimateCost, finalAnswer, formatUsd, parseGate, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type JudgeOutcome, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
 
 /**
  * Outcome checks for `shadowlap test`. A golden normally passes only when the replay is clean, which
@@ -220,6 +220,8 @@ export interface CheckResult {
   reason?: string;
   /** Where a judge's verdict came from: the call recorded in the run, or one asked live. */
   source?: 'recording' | 'live';
+  /** A judge check: its verdict, where it came from, what it read and what it cost. */
+  judge?: JudgeOutcome;
 }
 
 const CONFIG = 'shadowlap.config.json';

@@ -110,10 +110,11 @@ export type LabelledRun = Pick<ClassifiableRun, 'mode' | 'status' | 'divergence'
  * of a recording that failed the same way reproduced that failure (a clean replay). The run it
  * replayed is read only then.
  */
-export function kindFacts(store: Store, run: LabelledRun & Pick<ClassifiableRun, 'parentRunId'>, calls: number): KindFacts {
+export function kindFacts(store: Store, run: LabelledRun & Pick<ClassifiableRun, 'runId' | 'parentRunId'>, calls: number): KindFacts {
   if (run.mode !== 'replay' || run.divergence || run.status !== 'failed' || !run.parentRunId) return { calls };
   const parent = store.getRun(run.parentRunId);
-  return { calls, parent: parent ? { calls: store.countCalls(parent.runId), status: parent.status } : null };
+  // The agent's calls on both sides: a judge check's calls are none of what the replay reproduced.
+  return { calls: store.countAgentCalls(run.runId), parent: parent ? { calls: store.countAgentCalls(parent.runId), status: parent.status } : null };
 }
 
 /**

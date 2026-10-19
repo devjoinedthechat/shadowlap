@@ -218,6 +218,21 @@ describe('runOutcome: what the status column says', () => {
     expect(checksOf(r([{ ok: true, label: 'a', detail: null }, { ok: false, label: 'b', detail: 'x' }]))).toEqual({ passed: 1, total: 2 });
   });
 
+  it('says inconclusive, no failure, when a check could not be decided and none failed', () => {
+    const judged = { ok: true, status: 'passed', label: 'explains: the judge answers yes to "Does it say why?"', detail: 'the judge answered yes: it does' };
+    const notJudged = { ok: false, status: 'inconclusive', label: 'polite: the judge answers yes to "Is it polite?"', detail: 'not judged: no recorded verdict and the test runs offline' };
+    const failed = { ok: false, status: 'failed', label: 'send_email called 1 time', detail: 'it was called 2 times' };
+    const unsure = runOutcome(run({ mode: 'replay', parentRunId: 'P', meta: { checks: [judged, notJudged] } }));
+    expect(unsure).toEqual({ kind: 'inconclusive', check: notJudged.label });
+    expect(outcomeLabel(unsure)).toBe('check inconclusive');
+    expect(isFailedOutcome(unsure)).toBe(false);
+    // A check that failed, or the agent's exit, says more than one that could not be decided.
+    expect(runOutcome(run({ mode: 'replay', parentRunId: 'P', meta: { checks: [notJudged, failed] } }))).toEqual({ kind: 'check-failed', check: failed.label });
+    expect(runOutcome(run({ mode: 'replay', parentRunId: 'P', status: 'failed', meta: { checks: [notJudged] } }))).toEqual({ kind: 'check-failed', check: null });
+    // A blamed run names the check that failed, never the one no probe could decide.
+    expect(runOutcome(run({ meta: { blame: blame('unrescuable', null), checks: [notJudged, failed] } }))).toEqual({ kind: 'check-failed', check: failed.label });
+  });
+
   it('says a test diverged when it left its golden without checks to judge it', () => {
     const t = { mode: 'replay' as const, parentRunId: 'G', meta: { test: { golden: 'goldens/refund-in-limit', session: 's' } } };
     expect(runOutcome(run({ ...t, status: 'failed', divergence: { callNo: 1 } }))).toEqual({ kind: 'diverged', callNo: 1 });

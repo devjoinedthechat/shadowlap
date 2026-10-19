@@ -1,4 +1,5 @@
 import { probeVerdict } from './blame.js';
+import { agentCallsOf } from './judge-scope.js';
 import { formatUsd } from './prices.js';
 import { decide, describeGate, percent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
@@ -27,7 +28,10 @@ import type { CallRecord } from './types.js';
 export type VerifyRole = 'target' | 'holdout' | 'good';
 export type RunVerdict = 'pass' | 'fail' | 'open';
 
-/** What a run would cost to run live: its model requests whatever their origin, as budget checks count them. */
+/**
+ * What a run would cost to run live: its model requests whatever their origin, as budget checks
+ * count them. The agent's: a judge check's calls are none of what a change to the agent costs.
+ */
 export interface Footprint {
   /** Uncached input, cache reads and cache writes. */
   inputTokens: number;
@@ -40,7 +44,7 @@ export function footprintOf(calls: readonly CallRecord[], costOf: (c: CallRecord
   let inputTokens = 0;
   let outputTokens = 0;
   let cost: number | null = 0;
-  for (const c of calls) {
+  for (const c of agentCallsOf(calls)) {
     const u = c.kind === 'api' ? c.end?.meta.usage : undefined;
     if (!u) continue;
     inputTokens += u.inputTokens + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0);
@@ -167,6 +171,8 @@ export interface VerifyReport extends VerifyDecision {
   attempts: number;
   spent: number;
   upstreamRequests: number;
+  /** What its judge checks' calls cost, apart from `spent` and `upstreamRequests`: only when a judge was asked. */
+  judge?: { spent: number; upstreamRequests: number };
   unknownModels: string[];
   stopReason: string | null;
   /** What the replays warned about: a tool that changed since its recording (and so needs --live-tool), a connection that bypassed Shadowlap. */
@@ -270,6 +276,7 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
     lines.push(p.dim(`  per run, as it would run live: ${input}${cost}`));
   }
   const unpriced = r.unknownModels.length ? ` (no price for ${r.unknownModels.map(safeLine).join(', ')})` : '';
-  lines.push(p.dim(`  verifying: ${r.attempts} attempt${r.attempts === 1 ? '' : 's'} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${r.codeVersion ? ` · code ${safeLine(r.codeVersion)}` : ''}`));
+  const judged = r.judge ? ` · judge checks: ${r.judge.upstreamRequests} upstream request${r.judge.upstreamRequests === 1 ? '' : 's'}, ≈${formatUsd(r.judge.spent)}` : '';
+  lines.push(p.dim(`  verifying: ${r.attempts} attempt${r.attempts === 1 ? '' : 's'} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged}${r.codeVersion ? ` · code ${safeLine(r.codeVersion)}` : ''}`));
   return lines.join('\n');
 }

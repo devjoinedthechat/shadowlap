@@ -3,6 +3,7 @@ import { loadApiRequest, modelInRequest, placeInjection, plantInToolResult, reco
 import { type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, specFor, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { loadTests, type ShadowlapConfig } from './config.js';
+import { judgedOptions, type Judged } from './judge.js';
 
 /**
  * The replay flags that change one call, checked against the recording before anything starts: a
@@ -160,10 +161,11 @@ export const UNJUDGED_PLANT =
 
 /**
  * Judges one replay by `spec`, stores the results on the run, and returns them. `expect` is the JSON
- * the checks came from when they were given with `--expect`, kept on the run with them.
+ * the checks came from when they were given with `--expect`, kept on the run with them. `judged`:
+ * the verdicts of its judge checks, asked before the run ended (judgeAttempt).
  */
-export function judgeRun(store: Store, runId: string, spec: TestSpec, output: string, prices: ShadowlapConfig['prices'], expect?: Record<string, unknown>): CheckResult[] {
-  const checks = evaluateChecks(spec, storedCheckInput(store, store.getCalls(runId), output, prices));
+export function judgeRun(store: Store, runId: string, spec: TestSpec, output: string, prices: ShadowlapConfig['prices'], expect?: Record<string, unknown>, judged?: Judged): CheckResult[] {
+  const checks = evaluateChecks(spec, storedCheckInput(store, store.getCalls(runId), output, prices), judgedOptions(judged ?? null));
   store.updateRunMeta(runId, { checks, ...(expect ? { expect } : {}) });
   return checks;
 }

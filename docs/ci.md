@@ -102,7 +102,7 @@ A clean replay proves the agent still sends the same requests. Sometimes you wan
 | `cost` | The same in dollars, from the [price table](./cli.md#the-configuration-file). An amount is a number, `"<= 0.50"` or a range such as `"0.1-0.4"`. A model with no price **fails** the check and names the model, rather than passing because an unknown price counted as zero |
 | `output` | What the agent printed (stdout and stderr) `includes` each string and `excludes` each string. Case doesn't matter |
 | `answer` | The same, for the text of the last model response |
-| `calls`, `when`, `judge` | Every call of a tool meets a rule (what it comes after, its arguments, values from earlier calls); checks that apply once a call matched a condition; a model's answer to a question about the run. See [Checks](./checks.md) |
+| `calls`, `when`, `judge` | Every call of a tool meets a rule (what it comes after, its arguments, values from earlier calls); checks that apply once a call matched a condition; a model's answer to a question about the run, yes or no, recorded like any model call, so a golden is judged once when it is packed and every clean replay after is judged from the recording, free and the same every time. See [Checks](./checks.md) and [Judge checks](./judges.md) |
 
 A key is a recording directory relative to the config file, and `*` may stand for part of its last path segment (`goldens/refund-*`). An exact path wins over a pattern. A mistake in `tests`, such as an unknown key, fails `shadowlap test` before anything runs, and `shadowlap doctor` reports it.
 
@@ -167,7 +167,7 @@ Each golden that diverged is re-recorded live from its first call, with every wr
 ✓ refund-flow: 31/31 replayed, 12k input tokens not re-spent (updated)
 ```
 
-Only goldens that diverged are updated. One that fails a check, or exits with an error, is left alone: the agent needs the fix, not its golden. A golden that [forks on purpose](#recordings-that-fork-on-purpose) passes wherever it forks, so it is updated only when its test forked before the call its [task](./training.md#tasks) takes over at: no model can be scored on it there, since an attempt replays the recording only up to the fork. `shadowlap test` names such a golden after its totals:
+Only goldens that diverged are updated. One that fails a check, or exits with an error, is left alone: the agent needs the fix, not its golden. One that replayed clean but holds no verdict for a [judge check](./judges.md) keeps its recording: the judge is asked live, and its call is added to the golden. A golden that [forks on purpose](#recordings-that-fork-on-purpose) passes wherever it forks, so it is updated only when its test forked before the call its [task](./training.md#tasks) takes over at: no model can be scored on it there, since an attempt replays the recording only up to the fork. `shadowlap test` names such a golden after its totals:
 
 ```
 goldens/refund-over-limit forks at #3, before its task's takeover at #17, so no model can be scored on it. Update it: shadowlap test goldens/refund-over-limit --update

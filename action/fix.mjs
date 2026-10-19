@@ -51,15 +51,30 @@ function inconclusiveChecks(checks) {
   return (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok && c.status === 'inconclusive');
 }
 
+/**
+ * Why a golden with checks that could not be decided gets no fix: a judge check that was not judged
+ * gets its verdict recorded, and any other is given what decides it.
+ */
+function undecidedSkip(r, undecided) {
+  if (undecided.every((c) => c.judge)) {
+    const names = undecided.map((c) => String(c.judge.name ?? c.label));
+    const one = names.length === 1;
+    return `its judge check${one ? '' : 's'} ${names.join(', ')} ${one ? 'was' : 'were'} not judged, which no prompt fix changes: record ${one ? 'its verdict' : 'their verdicts'} with shadowlap test ${r.dir ?? r.golden} --update`;
+  }
+  const one = undecided.length === 1;
+  return `${one ? 'a check is' : `${undecided.length} checks are`} inconclusive (${undecided.map((c) => String(c.label)).join('; ')}), which no prompt fix decides, and no replay passes while ${one ? 'it is' : 'they are'}: give ${one ? 'it' : 'them'} what decides ${one ? 'it' : 'them'} (a verdict for a judge, a value a condition can read)`;
+}
+
 /** The failed goldens of a test report, each with the fix it gets or why it gets none. */
 export function planFixes(report) {
   return report.results
     .filter((r) => !r.ok)
     .map((r) => {
+      // A check that could not be decided, whatever else failed: no replay passes while it stays so.
+      const undecided = inconclusiveChecks(r.checks);
+      if (undecided.length && (r.failure === 'check' || r.failure === 'inconclusive')) return { result: r, skip: undecidedSkip(r, undecided) };
       if (r.failure !== 'check') return { result: r, skip: NOT_FIXED[r.failure] ?? 'not an outcome check' };
       if (!r.expect) return { result: r, skip: 'its checks are not under "tests" in shadowlap.config.json' };
-      const undecided = inconclusiveChecks(r.checks);
-      if (undecided.length) return { result: r, skip: `${undecided.length === 1 ? 'a check is' : `${undecided.length} checks are`} inconclusive (${undecided.map((c) => String(c.label)).join('; ')}), which no prompt fix decides, and no replay passes while ${undecided.length === 1 ? 'it is' : 'they are'}: give ${undecided.length === 1 ? 'it' : 'them'} what decides ${undecided.length === 1 ? 'it' : 'them'} (a verdict for a judge, a value a condition can read)` };
       const unpriced = unpricedOnly(r.checks);
       if (unpriced) return { result: r, skip: `it fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, which no prompt fix changes: add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json` };
       const failing = (r.runs ?? []).filter((x) => !x.ok).map((x) => x.runId);

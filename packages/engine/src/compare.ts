@@ -7,6 +7,7 @@ import { hintsFor, structuralDiff } from './diff.js';
 import { pathOf } from './repeat.js';
 import { finalAnswer, normalizeResponse } from './responses.js';
 import { sha256 } from './ids.js';
+import { agentCallsOf } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
 import type { Palette } from './report.js';
 import { requestPathLabel } from './request-paths.js';
@@ -134,8 +135,9 @@ function shapeOf(store: Store, calls: CallRecord[]): RunShape {
 }
 
 export function runChanges(store: Store, a: RunRecord, aCalls: CallRecord[], b: RunRecord, bCalls: CallRecord[]): RunChanges {
-  const x = shapeOf(store, aCalls);
-  const y = shapeOf(store, bCalls);
+  // What the agent sends: a judge check's model and prompt are none of it.
+  const x = shapeOf(store, agentCallsOf(aCalls));
+  const y = shapeOf(store, agentCallsOf(bCalls));
   const same = (p: Set<string>, q: Set<string>) => p.size === q.size && [...p].every((v) => q.has(v));
   return {
     systemPrompt: !same(x.systems, y.systems),
@@ -236,7 +238,10 @@ function courseOf(store: Store, calls: CallRecord[], from: number): RunCourse {
   return { calls: rest.length, modelCalls: rest.filter((c) => c.kind === 'api').length, path: pathOf(rest, null), answer: finalAnswer(store, rest) || null };
 }
 
-export function compareRuns(store: Store, a: RunRecord, aCalls: CallRecord[], b: RunRecord, bCalls: CallRecord[]): RunComparison {
+export function compareRuns(store: Store, a: RunRecord, allA: CallRecord[], b: RunRecord, allB: CallRecord[]): RunComparison {
+  // The agents' calls: a run whose judge was asked differs in no call of the agent's.
+  const aCalls = agentCallsOf(allA);
+  const bCalls = agentCallsOf(allB);
   const n = Math.min(aCalls.length, bCalls.length);
   let identicalPrefix = 0;
   let prefixIntact = true;

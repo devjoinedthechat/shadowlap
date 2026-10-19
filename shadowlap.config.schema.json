@@ -302,7 +302,7 @@
                 }
               },
               "judge": {
-                "description": "Questions a model answers yes or no about the run. A verdict comes from the judge's call recorded in the run; a check with no verdict is inconclusive, never passed.",
+                "description": "Questions a model answers yes or no about the run. The judge's call is recorded like any model call: a golden is judged once when it is packed, every clean replay after is judged from the recording, free, and a fork asks the judge live. A check with no recorded verdict and no way to ask live is inconclusive, never passed.",
                 "type": "array",
                 "items": {
                   "$ref": "#/$defs/judge"

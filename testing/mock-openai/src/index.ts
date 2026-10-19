@@ -204,3 +204,6 @@ export async function startMockOpenAI(opts: { script: Script; responses?: Respon
       }),
   };
 }
+
+// A scripted judge, for Shadowlap's judge checks (judge.ts).
+export { judgeQuestion, judgeTurn, withJudge, type JudgeDecision, type JudgeQuestion } from './judge.js';

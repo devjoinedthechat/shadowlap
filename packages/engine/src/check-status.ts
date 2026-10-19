@@ -6,7 +6,9 @@
  * only `ok`, so they read the status through `checkStatus`.
  */
 
-export type CheckStatus = 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
+import type { CheckStatus } from './types.js';
+
+export type { CheckStatus };
 
 export const CHECK_STATUSES: readonly CheckStatus[] = ['passed', 'failed', 'inconclusive', 'not-applicable'];
 
@@ -14,10 +16,10 @@ export const CHECK_STATUSES: readonly CheckStatus[] = ['passed', 'failed', 'inco
 export const STATUS_WORDS: Readonly<Record<CheckStatus, string>> = { passed: 'passed', failed: 'failed', inconclusive: 'inconclusive', 'not-applicable': 'not applicable' };
 
 /**
- * The scope judge checks' model calls are made in. They are the oracle's calls, not the agent's: no
- * check counts them, and a replay's matching leaves them out.
+ * The scope judge checks' model calls are made in (judge-scope.ts). They are the oracle's calls, not
+ * the agent's: no check counts them, and a replay's matching leaves them out.
  */
-export const JUDGE_SCOPE = 'shadowlap:judge';
+export { JUDGE_SCOPE } from './judge-scope.js';
 
 /** A check result as a run or a test result keeps it. Untrusted: a run can come from a pack. */
 export interface StoredCheckLike {

@@ -141,3 +141,6 @@ export async function startMockGemini(opts: { script: Script }): Promise<MockSer
       }),
   };
 }
+
+// A scripted judge, for Shadowlap's judge checks (judge.ts).
+export { judgeQuestion, judgeTurn, withJudge, type JudgeDecision, type JudgeQuestion } from './judge.js';

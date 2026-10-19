@@ -2,6 +2,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { basename, dirname, join, resolve } from 'node:path';
 import { pulledRun } from './classify.js';
 import { sha256 } from './ids.js';
+import { agentCallsOf, isJudgeCall } from './judge-scope.js';
 import { loadApiRequest, manifestRefs } from './manifest.js';
 import { PACK_LIMITS, PackError, callRefs, validateCall, validateRun } from './pack-schema.js';
 import { redactRun } from './redact.js';
@@ -290,11 +291,13 @@ function appendCalls(store: Store, calls: readonly CallRecord[]): void {
  * redaction rules than the other, after the ones both carry: the pack, when it is the golden packed
  * from the run recorded here; the store's copy, when it came from a newer pack of the run (packed
  * again after a rule was added) and the pack is an older one, as an older checkout holds it. Then
- * the one with fewer is redacted with the rest, as `pack` did, and compared with the other.
+ * the one with fewer is redacted with the rest, as `pack` did, and compared with the other. The
+ * agent's calls decide: a judge check's calls are what a run was asked about later, which a pack
+ * packed again (or a golden updated) gains under the same id (see mergeJudgeCalls).
  */
 function sameCalls(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): boolean {
-  const ours = store.getCalls(held.runId);
-  const theirs = [...packedCalls].sort((a, b) => a.callNo - b.callNo);
+  const ours = agentCallsOf(store.getCalls(held.runId));
+  const theirs = agentCallsOf([...packedCalls].sort((a, b) => a.callNo - b.callNo));
   if (ours.length !== theirs.length) return false;
   const identity = (c: CallRecord) => JSON.stringify([c.callNo, c.kind, c.name, c.fingerprint, c.occurrence]);
   if (ours.some((c, i) => identity(c) !== identity(theirs[i]!))) return false;
@@ -309,7 +312,7 @@ function sameCalls(store: Store, held: RunRecord, packed: RunRecord, packedCalls
     if (rules.length > mine.length && json(rules.slice(0, mine.length)) === json(mine)) {
       // Packed with more rules than this copy carries: this copy redacted with the rest.
       redactRun(store, held.runId, rules.slice(mine.length), into);
-      return same(into.getCalls(held.runId), theirs);
+      return same(agentCallsOf(into.getCalls(held.runId)), theirs);
     }
     if (mine.length > rules.length && json(mine.slice(0, rules.length)) === json(rules)) {
       // This copy carries more rules than the pack: the pack's run, as unpack would bring it in, redacted with the rest.
@@ -330,12 +333,45 @@ function sameCalls(store: Store, held: RunRecord, packed: RunRecord, packedCalls
       } finally {
         from.close();
       }
-      return same(ours, into.getCalls(held.runId));
+      return same(ours, agentCallsOf(into.getCalls(held.runId)));
     }
     return false;
   } finally {
     into.close();
   }
+}
+
+/**
+ * A pack's judge calls that the store's copy of the same recording doesn't hold, added to it with
+ * the blobs they need: a golden packed again, or updated, with a judge check's verdict keeps its run
+ * id, and every replay of the store's copy is then judged from the verdict as a replay of the pack
+ * is. A call whose number the copy already uses gets the next free one: judge calls are matched by
+ * their request, never by number. One whose blobs the pack lacks is left out. Returns how many.
+ */
+function mergeJudgeCalls(store: Store, runId: string, theirs: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): number {
+  if (!theirs.length) return 0;
+  const ours = store.getCalls(runId);
+  const sig = (c: CallRecord) => JSON.stringify([c.fingerprint, c.requestRef, c.end?.responseRef ?? null]);
+  const held = new Set(ours.filter(isJudgeCall).map(sig));
+  const taken = new Set(ours.map((c) => c.callNo));
+  let next = ours.reduce((n, c) => Math.max(n, c.callNo), 0) + 1;
+  let added = 0;
+  for (const c of [...theirs].sort((a, b) => a.callNo - b.callNo)) {
+    if (held.has(sig(c))) continue;
+    const bring = (h: string) => {
+      const bytes = blobs.get(h);
+      if (bytes && !store.hasBlob(h)) store.putBlob(bytes);
+      return store.hasBlob(h);
+    };
+    if (!callRefs(c).every(bring)) continue;
+    if (c.kind === 'api' && c.requestRef && !manifestRefs(store, c.requestRef).every(bring)) continue;
+    const callNo = taken.has(c.callNo) ? next++ : c.callNo;
+    taken.add(callNo);
+    held.add(sig(c));
+    appendCalls(store, [{ ...c, runId, callNo, end: c.end ? { ...c.end, runId, callNo } : null, attempts: c.attempts.map((a) => ({ ...a, runId, callNo })) }]);
+    added++;
+  }
+  return added;
 }
 
 /** How the store's run under a pack run's id differs from it, or null when it is that recording. */
@@ -482,6 +518,13 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
     const m = held && mismatch(store, held, run, calls.filter((c) => c.runId === run.runId), packed);
     if (m) mismatched.push(m);
   }
+  // The same recording, with judge verdicts the store's copy lacks: it takes them in.
+  store.transaction(() => {
+    for (const run of runs) {
+      if (!skipped.includes(run.runId) || mismatched.some((m) => m.runId === run.runId && m.calls)) continue;
+      mergeJudgeCalls(store, run.runId, calls.filter((c) => c.runId === run.runId && isJudgeCall(c)), packed);
+    }
+  });
   return { imported, skipped, commands, mismatched };
 }
 

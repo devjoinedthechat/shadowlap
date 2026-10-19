@@ -19,7 +19,7 @@ export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair,
 // The tests entry a run is judged by when it was given no --expect (the CLI's replays, the dashboard's Run blame).
 export { recordingsOfRun, testsEntryFor } from './run-checks.js';
 // How a check came out (passed, failed, inconclusive, not applicable), read the same way from any run or test result.
-export { CHECK_STATUSES, JUDGE_SCOPE, STATUS_WORDS, checkOutcome, checkStatus, countStatuses, statusTally, type CheckStatus, type StoredCheckLike } from './check-status.js';
+export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses, statusTally, type StoredCheckLike } from './check-status.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
@@ -52,6 +52,10 @@ export { DEFAULT_REPLAY_OPTIONS, Session } from './session.js';
 export type { Decision, ReplayOptions, ResolveInput, SessionOptions } from './session.js';
 export { divergenceLine, endedEarlyCount, formatDivergence, formatSummary, formatTokens, plain, storedModelResolver, summarizeRun } from './report.js';
 export type { ModelResolver, SummaryOptions } from './report.js';
+// Judge checks: the reserved scope replay strictness leaves out, what a judge reads, the request it is sent, its verdict and its cost.
+export { JUDGE_INSTRUCTIONS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, MATERIAL_LIMIT, RESERVED_SCOPE_PREFIX, VERDICT_SCHEMA, agentCallsOf, claudeTakes, escapeMaterial, isJudgeCall, judgeAskId, judgeCallsOf, judgeMaterial, judgePrompt, judgeRequest, judgeRules, judgeTarget, matchedClockOf, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, reachesJudgeRequest, readVerdict } from './judge.js';
+export type { ClaudeTakes, JudgeAsk, JudgeMaterial, JudgeProvider, JudgeReads, JudgeRequest, JudgeVerdict, MatchMasks, MaterialResult } from './judge.js';
+export { aboutUsd, judgeLine, judgeParts, summarizeJudge } from './report.js';
 export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
 export type { Price } from './prices.js';
 export { EXTERNAL_COMMAND, NO_COMMAND, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, TEST_COMMAND, asImportedRun, asTheyStand, commandIsImported, hasRecordedCommand, heldFrom, importedCommandSource, packRun, unpackRun, withoutCommand, writePackAttributes } from './pack.js';

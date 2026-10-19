@@ -4,6 +4,7 @@ import {
   canonicalModel,
   Lru,
   hasRecordedCommand,
+  isJudgeCall,
   LiveConversations,
   previewRedaction,
   recordedDurations,
@@ -25,6 +26,7 @@ import {
   type RunCache,
   type RunConversations,
   type InterventionFlag,
+  type JudgeOutcome,
   type RunNote,
   type RunRecord,
   type ShowJson,
@@ -284,6 +286,8 @@ export interface RunCheck {
   /** A judge's reason for its verdict, and where the verdict came from. */
   reason?: string;
   source?: 'recording' | 'live';
+  /** A judge check: its verdict, whether it came from the recording (free) or the judge live, and what it cost. */
+  judge?: JudgeOutcome;
 }
 
 export interface RunPageFacts {
@@ -327,7 +331,8 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[]): RunBlame | null 
   const callNo = int(b.callNo);
   const scope = str(b.scope);
   // The model calls blame probed: those with an answer, in its scope (the agent's, not a simulated user's).
-  const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope)).map((c) => c.callNo);
+  // The agent's model calls: a judge check's are none of blame's steps.
+  const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope) && !isJudgeCall(c)).map((c) => c.callNo);
   const k = callNo === null ? 0 : steps.indexOf(callNo) + 1;
   return {
     outcome: oneOf(b.outcome, ['blamed', 'unrescuable', 'stopped'] as const, 'stopped'),
@@ -340,22 +345,44 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[]): RunBlame | null 
   };
 }
 
-type StoredRunCheck = Pick<RunCheck, 'ok' | 'label' | 'detail' | 'status' | 'reason' | 'source'>;
+type StoredRunCheck = Pick<RunCheck, 'ok' | 'label' | 'detail' | 'status' | 'reason' | 'source' | 'judge'>;
 
-/** A run's checks as stored, keeping only well-formed entries, each with its status, and a judge's reason and source, when it has them. */
+/** A judge check's outcome as stored, checked field by field: a run can come from someone else's pack. */
+function storedJudge(v: unknown): JudgeOutcome | null {
+  if (!isObject(v) || typeof v.name !== 'string' || typeof v.model !== 'string') return null;
+  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+  return {
+    name: v.name,
+    model: v.model,
+    of: oneOf(v.of, ['answer', 'output', 'run'] as const, 'answer'),
+    verdict: v.verdict === 'yes' || v.verdict === 'no' ? v.verdict : null,
+    source: v.source === 'recording' || v.source === 'live' ? v.source : null,
+    cost: num(v.cost),
+    redactions: num(v.redactions) ?? 0,
+    ...(typeof v.normalized === 'boolean' ? { normalized: v.normalized } : {}),
+    cut: num(v.cut) ?? 0,
+    ...(int(v.callNo) !== null ? { callNo: int(v.callNo)! } : {}),
+  };
+}
+
+/** A run's checks as stored, keeping only well-formed entries, each with its status, and a judge's reason, source and outcome, when it has them. */
 function storedChecks(run: RunRecord): StoredRunCheck[] {
   const v: unknown = run.meta?.checks;
   if (!Array.isArray(v)) return [];
   return v
     .filter((c): c is Record<string, unknown> & { ok: boolean; label: string } => isObject(c) && typeof c.ok === 'boolean' && typeof c.label === 'string')
-    .map((c) => ({
-      ok: c.ok,
-      label: c.label,
-      detail: str(c.detail),
-      ...(typeof c.status === 'string' && (CHECK_STATUSES as readonly string[]).includes(c.status) ? { status: c.status as CheckStatus } : {}),
-      ...(typeof c.reason === 'string' ? { reason: c.reason } : {}),
-      ...(c.source === 'recording' || c.source === 'live' ? { source: c.source } : {}),
-    }));
+    .map((c) => {
+      const judge = storedJudge(c.judge);
+      return {
+        ok: c.ok,
+        label: c.label,
+        detail: str(c.detail),
+        ...(typeof c.status === 'string' && (CHECK_STATUSES as readonly string[]).includes(c.status) ? { status: c.status as CheckStatus } : {}),
+        ...(typeof c.reason === 'string' ? { reason: c.reason } : {}),
+        ...(c.source === 'recording' || c.source === 'live' ? { source: c.source } : {}),
+        ...(judge ? { judge } : {}),
+      };
+    });
 }
 
 function storedNotRecorded(run: RunRecord): NotRecorded {

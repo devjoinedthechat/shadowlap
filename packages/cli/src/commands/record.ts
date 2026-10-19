@@ -2,12 +2,13 @@ import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
 import { addRules, calibrationTarget, checkOutcome, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, statusTally, summarizeRepeats, type CheckStatus, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { CHECK_MARKS, checkWords, type CheckResult, type TestSpec } from '../checks.js';
-import { codeVersion, configPath, loadConfig } from '../config.js';
+import { codeVersion, configPath, loadConfig, upstreamOverrides } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
+import { judgesOf, type Judged } from '../judge.js';
 import { emitJobEvent } from '../job-events.js';
 import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
-import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
+import { judgeAttempt, parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type BeforeEnd, type GuardMode } from '../run-agent.js';
 import { readExpect } from './fix.js';
 import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, readStore, recordEvents, requireEnded, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
@@ -163,14 +164,22 @@ export function register(program: Command): void {
       if (failures.models.size) replay.failAt = failures.models;
       if (failures.tools.size) replay.toolFailures = failures.tools;
       if (plants.size) replay.plants = plants;
-      // A check on what the agent printed needs its output; nothing else does.
-      const capture = !!checks?.spec.output;
+      // A check on what the agent printed needs its output, and so does a judge check that reads it; nothing else does.
+      const capture = !!checks?.spec.output || judgesOf(checks?.spec).some((j) => j.of === 'output');
       const config = checks ? loadConfig(process.cwd()) : null;
       const given = flags.expect ? expectJson(flags.expect) : undefined;
+      // Judge checks are asked once each replay's agent has exited, before its run ends: a clean
+      // replay's from the recording, a fork's live, and either way the call is the replay's.
+      const verdicts = new Map<string, Judged>();
+      const beforeEnd: BeforeEnd | undefined = judgesOf(checks?.spec).length
+        ? async (sidecar, store, run, agent) => {
+            verdicts.set(run.runId, await judgeAttempt(store, sidecar, run.runId, checks!.spec, { code: agent.code, interrupted: agent.interrupted, stdout: agent.stdout, upstreams: upstreamOverrides(process.env), redact: config!.redact, normalize: config!.normalize, clock: config!.clock, prices: config!.prices }));
+          }
+        : undefined;
       const judge = (runId: string, output: string): CheckResult[] => {
         const reader = openStore(opts);
         try {
-          return judgeRun(reader, runId, checks!.spec, output, config?.prices, given);
+          return judgeRun(reader, runId, checks!.spec, output, config?.prices, given, verdicts.get(runId));
         } finally {
           reader.close();
         }
@@ -187,7 +196,7 @@ export function register(program: Command): void {
           flags.concurrency,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
-          { capture },
+          { capture, ...(beforeEnd ? { beforeEnd } : {}) },
         );
         const judged = checks ? attempts.map((a) => judge(a.run.runId, a.output)) : [];
         const reader = openStore(opts);
@@ -225,7 +234,7 @@ export function register(program: Command): void {
           argv,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
-          { capture },
+          { capture, ...(beforeEnd ? { beforeEnd } : {}) },
         );
         if (!started) {
           // The command never started: it has said so, and no run is kept to show or judge.

@@ -138,7 +138,9 @@ Enter one in code with `scope()`, or, when the branches are separate **processes
 `SHADOWLAP_SCOPE` when spawning each child: a worker pool or a subprocess per sub-agent has no
 in-process place to call `scope()`, and without one those branches can be served each other's
 answers. Scopes entered in code nest underneath it (`worker-2/search`). A scope can be named in any
-language: `scope('東京の天気', ...)` works as `scope('weather', ...)` does.
+language: `scope('東京の天気', ...)` works as `scope('weather', ...)` does. Names that start with
+`shadowlap:` are Shadowlap's own (a [judge check](./judges.md)'s calls are made in `shadowlap:judge`):
+a call made in one is refused.
 
 When branches of an agent run at once, such as sub-agents fanned out by an orchestrator, name them:
 

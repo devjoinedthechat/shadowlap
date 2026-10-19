@@ -1,12 +1,13 @@
 import type { ChildProcess } from 'node:child_process';
-import { checkStatus, estimateCost, formatDuration, formatUsd, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
+import { checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
-import { agentEnv, recordsInput, type GuardMode } from './run-agent.js';
+import { judgedOptions, judgesOf, recordedVerdicts, type Judged } from './judge.js';
+import { agentEnv, judgeAttempt, outputDrained, recordsInput, type GuardMode } from './run-agent.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { pushIfQueued, teamEnv } from './team.js';
 import { palette as p } from './ui.js';
@@ -83,10 +84,12 @@ export const BYPASSED =
 const GROUP = process.platform !== 'win32';
 
 export class AttemptRunner {
-  /** Attempts run and tallied, and what they sent upstream and cost. */
+  /** Attempts run and tallied, and what they sent upstream and cost: the agent's, and apart, its judge checks'. */
   attempts = 0;
   spent = 0;
   upstreamRequests = 0;
+  judgeSpent = 0;
+  judgeRequests = 0;
   readonly unknownModels = new Set<string>();
   /** What the replays warned about, once each: a tool that changed since its recording, a connection that bypassed Shadowlap. */
   readonly warnings = new Set<string>();
@@ -148,11 +151,11 @@ export class AttemptRunner {
   /** A model call's estimated cost under the configured prices, or null without one. */
   costOf = (c: CallRecord): number | null => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, this.config.prices);
 
-  /** Whether another attempt may start: nothing interrupted, and budget left. Says why not in `stopReason`. */
+  /** Whether another attempt may start: nothing interrupted, and budget left (the judge's spend counts). Says why not in `stopReason`. */
   canStart(): boolean {
     if (this.stopReason) return false;
     const { budget } = this.settings;
-    if (budget !== null && this.spent >= budget) {
+    if (budget !== null && this.spent + this.judgeSpent >= budget) {
       this.stopReason = `the budget of ${formatBudget(budget)} is spent`;
       return false;
     }
@@ -196,7 +199,12 @@ export class AttemptRunner {
     const child = spawnAgent(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'], detached: GROUP }, { url: this.sidecar.url, runId: run.runId });
     this.running.add(child);
     let output = '';
-    child.stdout!.on('data', (d: Buffer) => (output += d.toString()));
+    // What a judge check reads as the output: stdout alone, which interleaving with stderr can't change.
+    let stdout = '';
+    child.stdout!.on('data', (d: Buffer) => {
+      output += d.toString();
+      stdout += d.toString();
+    });
     child.stderr!.on('data', (d: Buffer) => (output += d.toString()));
     let timedOut = false;
     const timer =
@@ -220,13 +228,17 @@ export class AttemptRunner {
     // Whatever the agent left running in its group goes with it.
     if (GROUP) killTree(child, 'SIGKILL', { group: true });
     const status: Exclude<RunStatus, 'running'> = timedOut || this.interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
+    // Judge checks once the agent has exited, while the run is open: an attempt is a fork, so its
+    // judge runs live, through the judge's own upstream (never a model under test), and is recorded.
+    if (s.spec && judgesOf(s.spec).length) await outputDrained(child);
+    const judged = s.spec && judgesOf(s.spec).length ? await judgeAttempt(this.store, this.sidecar, run.runId, s.spec, { code, timedOut, interrupted: this.interrupted, stdout, upstreams: upstreamOverrides(process.env), redact: this.config.redact, normalize: this.config.normalize, clock: this.config.clock, prices: this.config.prices }) : null;
     const ended = this.sidecar.endRun(run.runId, status);
     telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });
 
     const calls = this.store.getCalls(run.runId);
-    const bypassed = !calls.some((c) => c.kind === 'api') && this.recordedModelCalls(parent.runId) > 0;
+    const bypassed = !calls.some((c) => c.kind === 'api' && !isJudgeCall(c)) && this.recordedModelCalls(parent.runId) > 0;
     if (bypassed) this.warnings.add(BYPASSED);
-    const checks = this.check(calls, output);
+    const checks = this.check(calls, output, s.spec, judged);
     const failures = [...(bypassed ? [BYPASSED] : []), ...(timedOut ? [`timed out after ${formatDuration(s.timeoutMs!)}`] : code !== 0 ? [`the agent exited with code ${code}`] : []), ...failed(checks)];
     if (tally && !this.interrupted) {
       this.attempts++;
@@ -234,6 +246,12 @@ export class AttemptRunner {
       this.upstreamRequests += ended.summary.upstreamRequests;
       for (const m of ended.summary.cost.unknownModels) this.unknownModels.add(m);
     }
+    // The judge's calls apart, in every attempt: a replay as recorded is free for the agent, but a
+    // judge its recording held no verdict for was asked live. What they cost counts against the
+    // budget, and is reported beside the agent's.
+    this.judgeSpent += ended.summary.judge?.spent ?? 0;
+    this.judgeRequests += ended.summary.judge?.upstreamRequests ?? 0;
+    for (const m of ended.summary.judge?.unknownModels ?? []) this.unknownModels.add(m);
     for (const w of ended.summary.warnings) this.warnings.add(w);
     return { run, code, summary: ended.summary, calls, checks, failures, passed: failures.length === 0, bypassed, ms: Date.now() - started };
   }
@@ -242,7 +260,7 @@ export class AttemptRunner {
   private recordedModelCalls(runId: string): number {
     let n = this.modelCalls.get(runId);
     if (n === undefined) {
-      n = this.store.getCalls(runId).filter((c) => c.kind === 'api').length;
+      n = this.store.getCalls(runId).filter((c) => c.kind === 'api' && !isJudgeCall(c)).length;
       this.modelCalls.set(runId, n);
     }
     return n;
@@ -271,9 +289,9 @@ export class AttemptRunner {
     await telemetry().flush();
   }
 
-  private check(calls: CallRecord[], output: string, spec = this.settings.spec): CheckResult[] {
+  private check(calls: CallRecord[], output: string, spec = this.settings.spec, judged: Judged | null = null): CheckResult[] {
     if (!spec) return [];
-    return evaluateChecks(spec, { ...storedCheckInput(this.store, calls, output, this.config.prices), costOf: this.costOf });
+    return evaluateChecks(spec, { ...storedCheckInput(this.store, calls, output, this.config.prices), costOf: this.costOf }, judgedOptions(judged));
   }
 }
 
@@ -316,10 +334,11 @@ export function oracleLabels(spec: TestSpec | null): string[] {
 /**
  * How a recorded run fares against the oracle, from what the recording holds: its exit status and
  * every check but those on its output, which is not recorded; `calls` and `when` rules read the
- * recorded arguments and results, so they cost nothing. Null when that can't settle it, and
- * `unsettled` says why: a check on the output, a check that is inconclusive (a judge with no
- * verdict), a run still recording, or a partial recording that holds no tool calls. `checks` are
- * the results, the ones on the output left out.
+ * recorded arguments and results, so they cost nothing. A judge check takes the verdict the run holds
+ * for it (its own judge call), and is no evidence either way without one. Null when that can't
+ * settle it, and `unsettled` says why: a check on the output, a check that is inconclusive (a judge
+ * with no recorded verdict), a run still recording, or a partial recording that holds no tool calls.
+ * `checks` are the results, the ones on the output left out.
  */
 export function judgeRecording(
   store: Store,
@@ -332,7 +351,10 @@ export function judgeRecording(
   const failures: string[] = [];
   if (run.status === 'failed') failures.push('the agent exited with a non-zero code');
   else if (run.status === 'crashed') failures.push('the run was interrupted');
-  const checks = spec ? evaluateChecks(withoutOutput(spec), storedCheckInput(store, calls, '', prices), options) : [];
+  // A judge check takes the verdict the run already holds for it: the call its judge made, answered.
+  const judges = spec ? judgeChecksOf(spec) : [];
+  const held = judges.length && !options.judgeVerdicts ? judgedOptions(recordedVerdicts(store, calls, judges)) : {};
+  const checks = spec ? evaluateChecks(withoutOutput(spec), storedCheckInput(store, calls, '', prices), { ...held, ...options }) : [];
   failures.push(...failed(checks.filter((c) => checkStatus(c) === 'failed')));
   const unsettled = [
     ...(run.status === 'running' ? ['it is still recording'] : []),

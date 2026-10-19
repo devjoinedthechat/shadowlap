@@ -32,6 +32,7 @@ Shadowlap records every model API call and tool call an agent makes, then re-run
 - [CI mode](./ci.md): a run kept as a golden, replayed offline on every pull request.
 - [Checks](./checks.md): what a passing run must do, from call counts and budgets to the order of its calls, their arguments against earlier calls' results, and rules that apply only on a condition; tried on your recordings for free with `shadowlap check`.
 - [Gating](./gating.md): verdicts on attempts that vary, with stated error rates: a forked golden's gate, against two pass rates or its own history, and how verify and blame decide.
+- [Judge checks](./judges.md): a model answers a question about a run, recorded like any call, so a clean replay is judged from the recording, free and the same every time.
 - [Training](./training.md): the preference pairs your blames and verifies already left in the store, exported for fine-tuning, and goldens as tasks a model is scored on, in the CLI or on the dashboard's Training page.
 - [Compared with other tools](./compare.md): cassettes, tracing platforms, framework time travel, durable execution.
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.

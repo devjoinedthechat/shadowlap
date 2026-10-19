@@ -123,7 +123,7 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 | Field | |
 |---|---|
 | `runId` | The run blamed |
-| `outcome` | `blamed`, `unrescuable` or `stopped`; `error` when blame refused, with `error.reason` (`passes`, `unpriced`, `diverged`, `bypassed`, `prefix`, `no-model-calls`, `interrupted`) and `error.message` |
+| `outcome` | `blamed`, `unrescuable` or `stopped`; `error` when blame refused, with `error.reason` (`passes`, `unpriced`, `unjudged`, `diverged`, `bypassed`, `prefix`, `no-model-calls`, `interrupted`), `error.message`, and `judge` for what [judge checks](./judges.md) spent before it refused |
 | `blamed`, `lost` | `{ callNo, step, passes, attempts }` for the blamed call and the one after it, or `null` |
 | `confidence` | `high`, `medium` or `low` |
 | `contrast` | `{ callNo, recorded, rescued, rescuedRunId }`: the model's answer at the blamed call in the recording and in the rescued fork, as blocks (`text`, `thinking`, `tool_call` with `name` and `input`) |
@@ -133,7 +133,8 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 | `oracle`, `recordedFailures` | What a passing run must do, and how the recording fails it |
 | `rescue` | `{ fields }`: the request fields a probe changed; empty when it resampled |
 | `gate` | The gate each probe was decided by, `{ kind, good, bad, risk, max }`, or `null` when a fixed count (`--attempts`, `--passes`) decided |
-| `modelCalls`, `attemptsPerProbe`, `passesNeeded`, `nonMonotone`, `cost`, `stopReason` | The search's parameters and what it spent: with a gate, `attemptsPerProbe` is its `max` and `passesNeeded` the fewest passes that can rescue (2) |
+| `modelCalls`, `attemptsPerProbe`, `passesNeeded`, `nonMonotone`, `cost`, `stopReason` | The search's parameters and what it spent: `modelCalls` counts the agent's model calls, never a judge check's; with a gate, `attemptsPerProbe` is its `max` and `passesNeeded` the fewest passes that can rescue (2) |
+| `judge` | `{ spent, upstreamRequests }`: what [judge checks](./judges.md)' calls cost, apart from `cost`, which is the agent's alone; `null` when no judge was asked live. `--budget` counts both |
 | `warnings` | What the replays warned about, such as a connection that bypassed Shadowlap |
 | `fix` | `{ fixId, title, status, opened }`: the [fix](#fixes) the blame opened (`opened: true`) or joined, or `null` when the store could not keep it |
 

@@ -68,7 +68,81 @@ export interface CallMeta {
    * command, and, on the first call to it in a run and whenever they change, the tools it offers.
    */
   mcp?: { transport: 'stdio' | 'http'; server: string; tools?: Array<{ name: string; effect: Effect }> };
+  /**
+   * A call Shadowlap's judge made (scope `shadowlap:judge`): the check it answered, by its name in
+   * the config; `ask`, a digest of the check's question, what it reads and its model (judgeAskId);
+   * and `v`, the version of the request it sent (JUDGE_REQUEST_VERSION), absent before it was kept.
+   */
+  judge?: { check: string; ask: string; v?: number };
   [key: string]: unknown;
+}
+
+/** A check's verdict. These are the only verdict words, in the CLI, the reports, the JSON and every page. */
+export type CheckStatus = 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
+
+/** How a judge check came out, kept beside its result. */
+export interface JudgeOutcome {
+  /** The check's name in the config. */
+  name: string;
+  model: string;
+  /** What the judge read: the final answer, the agent's output, or the run. */
+  of: 'answer' | 'output' | 'run';
+  /** The judge's answer, or null when it was not judged. */
+  verdict: 'yes' | 'no' | null;
+  /** Where the verdict came from: the recording (free, the same every time) or the judge, asked live. Null when not judged. */
+  source: 'recording' | 'live' | null;
+  /** USD the judge's call cost: 0 from the recording, null for a model with no price. */
+  cost: number | null;
+  /** How many of the project's redaction rules applied to what the judge read. */
+  redactions: number;
+  /**
+   * Whether what the judge read had what replay matching masks masked too (the project's normalizers,
+   * dates near the run's start): the agent's requests when it read the run, what it printed when it
+   * read the output. Absent from results kept before it was.
+   */
+  normalized?: boolean;
+  /** Characters of what it read that were left out, to keep it within the judge's limit; 0 when it read it whole. */
+  cut: number;
+  /** The judge's call in the run, when it made one. */
+  callNo?: number;
+}
+
+/**
+ * One check's result, as a run or a test result keeps it: `status` passed, failed, inconclusive or
+ * not applicable (absent on results kept before checks had one, which `ok` then says), `ok` (true
+ * for passed and not applicable), what was expected (`label`), what happened (`detail`), and for a
+ * judge check its `reason`, where its verdict came from (`source`) and how it came out (`judge`).
+ */
+export interface StoredCheck {
+  status?: CheckStatus;
+  ok: boolean;
+  label: string;
+  detail: string | null;
+  /** A judge check's reason for its verdict, in its own words. */
+  reason?: string;
+  /** Where a judge check's verdict came from: the recording, or the judge asked live. */
+  source?: 'recording' | 'live';
+  judge?: JudgeOutcome;
+}
+
+/** What a run's judge calls did and cost, apart from the agent's calls (`RunSummary.judge`). */
+export interface JudgeSummary {
+  calls: number;
+  /** Answered from the recording, at no cost. */
+  replayed: number;
+  /** Asked live. */
+  live: number;
+  /**
+   * Answered by no one: the recording didn't hold them, and there was no way to ask the judge live.
+   * A run keeps no such call now (nothing is kept of a request no one answered), so it is 0 but for
+   * runs recorded before.
+   */
+  notAsked: number;
+  upstreamRequests: number;
+  /** USD the live ones cost, and what the ones from the recording would have. */
+  spent: number;
+  saved: number;
+  unknownModels: string[];
 }
 
 /** Token usage. `inputTokens` is the uncached input; cache reads and writes are separate, whatever the provider reports. */
@@ -133,21 +207,6 @@ export interface Normalizer {
   replace: string;
 }
 
-/**
- * One check's result, as a run or a test result keeps it: `status` passed, failed, inconclusive or
- * not applicable (absent on results kept before checks had one, which `ok` then says), `ok` (true
- * for passed and not applicable), what was expected (`label`), what happened (`detail`), and for a
- * judge check its `reason` and where its verdict came from (`source`).
- */
-export interface StoredCheck {
-  status?: 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
-  ok: boolean;
-  label: string;
-  detail: string | null;
-  reason?: string;
-  source?: 'recording' | 'live';
-}
-
 export interface RunMeta {
   /** Rules applied to this run's stored content on export; replays apply them as normalizers. */
   redactions?: Normalizer[];
@@ -177,7 +236,7 @@ export interface RunMeta {
   commandFromImport?: boolean;
   /** One attempt of `shadowlap replay --repeat`: attempts of one invocation share the group. */
   repeat?: { group: string; attempt: number; of: number };
-  /** Outcome checks from `shadowlap test` or `shadowlap blame`, as they came out for this run. Older runs' carry no `status`: read it with `checkStatus`. */
+  /** Outcome checks from `shadowlap test` or `shadowlap blame`, as they came out for this run: a judge check's with its verdict and reason. Older runs' carry no `status`: read it with `checkStatus`. */
   checks?: StoredCheck[];
   /** One attempt of a `shadowlap blame` probe: the run blamed, the model call forced live, and whether the attempt passed. */
   probe?: { of: string; callNo: number; passed: boolean };
@@ -342,4 +401,9 @@ export interface RunSummary {
   notReached: NotReached[];
   warnings: string[];
   divergence: DivergenceReport | null;
+  /**
+   * A run with judge calls: what they did and cost. Every other field is the agent's alone, so a
+   * judge never changes what a run says the agent cost, sent upstream or replayed.
+   */
+  judge?: JudgeSummary;
 }

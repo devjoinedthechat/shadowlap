@@ -1,4 +1,4 @@
-import { checkStatus, formatTally, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { aboutUsd, checkStatus, formatTally, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
 
 /**
  * `shadowlap test` results for machines and for pull requests: a JSON report other tools read (the
@@ -42,7 +42,7 @@ export interface PackResult {
   tokensNotRespent: number | null;
   /** `recorded`: for one that ended early, how many calls the recording holds. */
   divergence: { type: DivergenceType; callNo: number; kind: string; name: string; recorded?: number } | null;
-  /** Outcome checks from shadowlap.config.json for the attempt shown: the first failure, or the last pass. Each has its `status` (passed, failed, inconclusive, not-applicable). Null without checks. */
+  /** Outcome checks from shadowlap.config.json for the attempt shown: the first failure, or the last pass. Each has its `status` (passed, failed, inconclusive, not-applicable), and a judge check's its judge's `reason` and `judge`. Null without checks. */
   checks: StoredCheck[] | null;
   /** For a recording that repeats, or one with a gate: how many attempts ran, passed and had to pass (null with a gate). */
   attempts: { total: number; passed: number; required: number | null } | null;
@@ -52,6 +52,8 @@ export interface PackResult {
   expect: Record<string, unknown> | null;
   /** `--update` re-recorded it: the run it replaced, the new one, its calls, and what the agent sends differently. */
   updated: { from: string | null; to: string; calls: number; changes?: string[] } | null;
+  /** Its judge checks' calls over every attempt, apart from the agent's: how many came from the recording, how many went live, and what they cost. Null without one (always printed). */
+  judge?: JudgeSummary | null;
 }
 
 export interface TestReport {
@@ -93,6 +95,18 @@ function fence(text: string, lang = 'text'): string {
   return `${f}${lang}\n${safeText(text).replace(/\s+$/, '')}\n${f}`;
 }
 
+/** What the judges cost across the session, apart from the agents: `3 judge calls: 2 from the recordings, free; 1 live, ≈$0.0004`. */
+function judgeTotals(results: readonly PackResult[]): string | null {
+  const parts = results.flatMap((r) => (r.judge ? [r.judge] : []));
+  if (!parts.length) return null;
+  const calls = parts.reduce((n, j) => n + j.calls, 0);
+  const replayed = parts.reduce((n, j) => n + j.replayed, 0);
+  const live = parts.reduce((n, j) => n + j.live, 0);
+  const spent = parts.reduce((n, j) => n + j.spent, 0);
+  const said = [replayed ? `${replayed} from the recordings, free` : null, live ? `${live} live${spent ? `, ${aboutUsd(spent)}` : ''}` : null].filter(Boolean);
+  return `${calls} judge call${calls === 1 ? '' : 's'}${said.length ? `: ${said.join('; ')}` : ''}, apart from the agents' calls above.`;
+}
+
 /** The result cell for a passing recording; one with a gate leads with its sentence and its evidence. */
 function passedLabel(r: PackResult): string {
   const parts = [r.updated ? 'updated' : r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${r.divergence.callNo}` : 'clean'];
@@ -126,6 +140,14 @@ export function markdownReport(report: TestReport): string {
     const tokens = r.tokensNotRespent !== null ? formatTokens(r.tokensNotRespent) : '';
     lines.push(`| ${mark(r)} | \`${cell(r.name)}\` | ${verdictOf(r) === 'passed' ? cell(passedLabel(r)) : cell(notPassedLabel(r))} | ${replayed} | ${tokens} |`);
   }
+  // A judge's verdict and reason are worth reading on a recording that passed too.
+  const judged = report.results.filter((r) => verdictOf(r) === 'passed' && r.checks?.some((c) => c.judge));
+  if (judged.length) {
+    lines.push('', 'Judge checks:', '');
+    for (const r of judged) lines.push(...r.checks!.filter((c) => c.judge).map((c) => markdownCheck(c).replace(/^- /, `- \`${cell(r.name)}\` `)));
+  }
+  const totals = judgeTotals(report.results);
+  if (totals) lines.push('', totals);
   for (const r of report.results.filter((x) => verdictOf(x) !== 'passed')) {
     lines.push('', `<details open><summary><b>${cell(r.name)}</b>: ${cell(r.message ?? 'failed')}</summary>`, '');
     if (r.checks?.length) lines.push(...r.checks.map(markdownCheck), '');
@@ -152,13 +174,13 @@ export function markdownReport(report: TestReport): string {
     const unjudged = unsure.some((r) => r.checks?.some((c) => checkStatus(c) === 'inconclusive'));
     const gated = unsure.some((r) => r.gate) || !unjudged;
     const causes = [
-      ...(unjudged ? ['a check could not be decided, such as a judge check with no recorded verdict and no key to ask for one, or a condition whose value the run does not have: it never passes'] : []),
+      ...(unjudged ? ['a check could not be decided, such as a judge check with no recorded verdict and no way to ask the judge, or a condition whose value the run does not have: it never passes, but the agent failed no check'] : []),
       ...(gated ? ["neither verdict holds at the gate's stated risk after the most attempts it runs"] : []),
     ];
     const warned = unsure.some((r) => r.ok);
     lines.push(
       '',
-      `Inconclusive means ${causes.join('; or ')}. ${warned ? 'This run lets inconclusive recordings through (`--inconclusive warn`).' : 'It fails the run unless `--inconclusive warn` is given.'}${gated ? ' More attempts settle a gate: raise its `max`, or run `shadowlap test <recording> --max-attempts <n> --continue` once, which carries its attempts over.' : ''}`,
+      `Inconclusive means ${causes.join('; or ')}. ${warned ? 'This run lets inconclusive recordings through (`--inconclusive warn`).' : 'It fails the run unless `--inconclusive warn` is given.'}${unjudged ? ' Record a judge\'s verdict with `shadowlap test <recording> --update` where the judge can be asked.' : ''}${gated ? ' More attempts settle a gate: raise its `max`, or run `shadowlap test <recording> --max-attempts <n> --continue` once, which carries its attempts over.' : ''}`,
     );
   }
   if (report.interrupted) lines.push('', 'The session was interrupted: only the recordings above finished, and the rest did not run.');

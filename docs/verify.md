@@ -114,8 +114,9 @@ The verdict is logged as a `verify.accepted` or `verify.rejected` event in the s
 | `gate` | The gate each run was decided by, `{ kind, good, bad, risk, max }`, or `null` when a fixed count (`--attempts`, `--passes`) decided |
 | `oracle`, `attemptsPerRun`, `passesNeeded`, `change`, `codeVersion` | What was checked, against what: with a gate, `attemptsPerRun` is its `max` and `passesNeeded` the fewest passes that can pass it (12) |
 | `cost`, `stopReason` | What verifying cost, and why it stopped early |
+| `judge` | `{ spent, upstreamRequests }`: what [judge checks](./judges.md)' calls cost, apart from `cost`, which is the agent's alone; `null` when no judge was asked live. `--budget` counts both |
 | `verifyId`, `fixes` | The verdict as it was kept (`vf-…`), and each fix it was kept with: `fixId`, `title`, `status` after it, `counts`, and `why` it doesn't count (`another-check`, `already-passing`, `no-runs`) |
 
-A footprint is `{ inputTokens, outputTokens, cost }`, with `cost` null when a model has no price.
+A footprint is `{ inputTokens, outputTokens, cost }`, with `cost` null when a model has no price: the agent's model calls, never a judge check's.
 
 [`shadowlap repair`](./repair.md) runs this gate on every fix it considers, and keeps only one it accepts.

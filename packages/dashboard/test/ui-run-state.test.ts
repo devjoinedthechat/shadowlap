@@ -152,6 +152,8 @@ describe('the run page’s reading of the server’s state', () => {
     expect(normalizeState({ status: 'crashed', failed: 'no', outcome: { kind: 'none' } })).toBeNull();
     expect(normalizeState({ status: 'crashed', failed: false, outcome: { kind: 'lost' } })).toBeNull();
     expect(normalizeState({ status: 'completed', failed: true, outcome: { kind: 'check-failed', check: 3 } })).toMatchObject({ outcome: { kind: 'check-failed', check: null }, interrupted: false });
+    // A run whose only undecided check is a judge's with no verdict: no failure.
+    expect(normalizeState({ status: 'completed', failed: false, outcome: { kind: 'inconclusive', check: 'polite' } })).toMatchObject({ outcome: { kind: 'inconclusive', check: 'polite' }, failed: false });
     expect(detail(null).state).toBeNull();
   });
 });

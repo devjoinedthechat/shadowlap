@@ -17,6 +17,7 @@ import type {
   CallStartRow,
   DivergenceReport,
   Effect,
+  JudgeSummary,
   Normalizer,
   Origin,
   Outcome,
@@ -393,7 +394,8 @@ export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt'
 /**
  * Why a golden failed: its replay sent a request the recording doesn't have, a check failed, the
  * agent exited non-zero, it made no calls, or it couldn't run at all; or why it didn't pass:
- * `inconclusive`, its gate ran out of attempts between its bounds, or a check couldn't be judged.
+ * `inconclusive`, its gate ran out of attempts between its bounds, or a check couldn't be decided (a
+ * judge check with no verdict, and no way to ask the judge).
  */
 export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'inconclusive';
 
@@ -406,14 +408,17 @@ export interface TestResultData {
   tokensNotRespent?: number;
   /** Input tokens of the run's model requests, cache reads included: what it costs to run live. */
   inputTokens?: number;
+  /** Each check of the attempt shown, a judge check's with its verdict, reason and where the verdict came from. */
   checks?: StoredCheck[];
+  /** What its judge checks' calls did and cost over every attempt, apart from the agent's (`calls`, `upstreamRequests`). */
+  judge?: JudgeSummary;
   /**
    * Attempts run, passed and needed, and each attempt's run: kept for every result since gates
    * pool them, one attempt included (a result kept before has it only for a recording that
    * repeats). `inconclusive`: attempts a check couldn't judge, which count neither way.
    */
   attempts?: { total: number; passed: number; required: number | null; runs: string[]; inconclusive?: number };
-  /** How the golden came out: passed, failed, or inconclusive (its gate ran out between its bounds, or a check couldn't be judged). Absent before results said. */
+  /** How the golden came out: passed, failed, or inconclusive (its gate ran out between its bounds, or a check couldn't be decided). Absent before results said. */
   verdict?: 'passed' | 'failed' | 'inconclusive';
   /** A golden with a gate: its decision, interval, pass^k, evidence path and sentence (stats.ts), as the reports show it. */
   gate?: GateResult;
@@ -748,6 +753,7 @@ export class Store {
     eventsForRun: SqliteStatement;
     maxCallNo: SqliteStatement;
     countCalls: SqliteStatement;
+    countAgentCalls: SqliteStatement;
     deleteRun: SqliteStatement;
   };
 
@@ -774,6 +780,8 @@ export class Store {
       eventsForRun: db.prepare(`SELECT * FROM call_events WHERE run_id = ? ORDER BY call_no ASC, phase DESC, attempt ASC`),
       maxCallNo: db.prepare(`SELECT COALESCE(MAX(call_no), 0) AS n FROM call_events WHERE run_id = ?`),
       countCalls: db.prepare(`SELECT COUNT(*) AS n FROM call_events WHERE run_id = ? AND phase = 'start'`),
+      // The agent's calls: every call but a judge check's (scope `shadowlap:judge`, judge-scope.ts).
+      countAgentCalls: db.prepare(`SELECT COUNT(*) AS n FROM call_events WHERE run_id = ? AND phase = 'start' AND COALESCE(meta ->> '$.scope', '') <> 'shadowlap:judge'`),
       deleteRun: db.prepare(`DELETE FROM runs WHERE run_id = ?`),
     };
   }
@@ -2017,6 +2025,11 @@ export class Store {
 
   countCalls(runId: string): number {
     return Number(this.stmts.countCalls.get(runId)?.n ?? 0);
+  }
+
+  /** The agent's calls in a run: every call but a judge check's, which are none of the agent's. */
+  countAgentCalls(runId: string): number {
+    return Number(this.stmts.countAgentCalls.get(runId)?.n ?? 0);
   }
 
   appendCallStart(row: CallStartRow): void {

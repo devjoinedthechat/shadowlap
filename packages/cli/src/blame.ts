@@ -1,4 +1,4 @@
-import { attemptsToPass, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, normalizeResponse, probeFinding, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
+import { agentCallsOf, attemptsToPass, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, normalizeResponse, probeFinding, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -49,6 +49,13 @@ export interface BlameInput {
 
 /** Blame could not start or could not trust what it saw; the message says why and what to do. */
 export class BlameError extends Error {
+  /**
+   * What judge checks' calls sent upstream and spent before it stopped, or null when none was asked
+   * live: a replay as recorded is free for the agent, but not for a judge its recording held no
+   * verdict for.
+   */
+  judge: { spent: number; upstreamRequests: number } | null = null;
+
   constructor(
     message: string,
     readonly reason: 'no-model-calls' | 'diverged' | 'bypassed' | 'passes' | 'unpriced' | 'inconclusive' | 'prefix' | 'interrupted',
@@ -103,7 +110,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
   const runner = await AttemptRunner.start(input.opts, s);
   const { store } = runner;
   try {
-    const parentCalls = store.getCalls(parent.runId);
+    // The agent's model calls: a judge check's are none of its answers, so never a step to blame.
+    const parentCalls = agentCallsOf(store.getCalls(parent.runId));
     const steps = parentCalls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, s.scope)).map((c) => c.callNo);
     if (!steps.length) {
       if (s.scope) {
@@ -261,6 +269,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       attempts: runner.attempts,
       spent: runner.spent,
       upstreamRequests: runner.upstreamRequests,
+      // Judge checks' calls, apart from the agent's.
+      ...(runner.judgeRequests || runner.judgeSpent ? { judge: { spent: runner.judgeSpent, upstreamRequests: runner.judgeRequests } } : {}),
       unknownModels: [...runner.unknownModels],
       stopReason: result.outcome === 'stopped' ? runner.stopReason : null,
       warnings: [...runner.warnings, ...warnings],
@@ -284,6 +294,10 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     const override = input.argv.length === parent.command.argv.length && input.argv.every((a, i) => a === parent.command.argv[i]) ? null : input.argv;
     const kept = recordBlameFix(store, { runId: parent.runId, report, settings: { ...s, argv: override }, recording: { checks: baseline.checks, failures: baseline.failures }, command: input.command });
     return { ...report, fix: kept ? { fixId: kept.fix.fixId, title: kept.fix.title, status: kept.fix.status, opened: kept.created, blameId: kept.blame.blameId } : null };
+  } catch (err) {
+    // What its judges cost is said even when blame stops short of a report.
+    if (err instanceof BlameError && (runner.judgeRequests || runner.judgeSpent)) err.judge = { spent: runner.judgeSpent, upstreamRequests: runner.judgeRequests };
+    throw err;
   } finally {
     await runner.close();
   }

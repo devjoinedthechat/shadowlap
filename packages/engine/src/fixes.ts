@@ -519,7 +519,8 @@ export interface FixCost {
 /**
  * What everything behind fixes took. A blame a repair ran is a blame of its own, and the verify of
  * the candidate a repair accepted is a verdict of its own, so a repair adds only the repairer and
- * the candidates it dropped. Records shared by several fixes count once.
+ * the candidates it dropped. Records shared by several fixes count once. What judge checks' calls
+ * sent and spent (a report's `judge`) is part of it: they were asked for the fix too.
  */
 export function fixCost(records: Array<Pick<FixRecords, 'blames' | 'repairs' | 'verdicts'>>): FixCost {
   const seen = new Set<string>();
@@ -532,15 +533,15 @@ export function fixCost(records: Array<Pick<FixRecords, 'blames' | 'repairs' | '
     total.spent += spent || 0;
   };
   for (const r of records) {
-    for (const b of r.blames) add(b.blameId, b.report.attempts, b.report.upstreamRequests, b.report.spent);
-    for (const v of r.verdicts) add(v.verifyId, v.report.attempts, v.report.upstreamRequests, v.report.spent);
+    for (const b of r.blames) add(b.blameId, b.report.attempts, b.report.upstreamRequests + (b.report.judge?.upstreamRequests ?? 0), b.report.spent + (b.report.judge?.spent ?? 0));
+    for (const v of r.verdicts) add(v.verifyId, v.report.attempts, v.report.upstreamRequests + (v.report.judge?.upstreamRequests ?? 0), v.report.spent + (v.report.judge?.spent ?? 0));
     for (const p of r.repairs) {
       const dropped = p.report.candidates.filter((c) => c.verify && !(p.accepted && c.id === p.report.accepted));
       add(
         p.repairId,
         dropped.reduce((s, c) => s + (c.verify?.attempts ?? 0), 0),
-        dropped.reduce((s, c) => s + (c.verify?.upstreamRequests ?? 0), 0),
-        dropped.reduce((s, c) => s + (c.verify?.spent ?? 0), 0) + (p.report.cost.repairer ?? 0),
+        dropped.reduce((s, c) => s + (c.verify?.upstreamRequests ?? 0) + (c.verify?.judge?.upstreamRequests ?? 0), 0),
+        dropped.reduce((s, c) => s + (c.verify?.spent ?? 0) + (c.verify?.judge?.spent ?? 0), 0) + (p.report.cost.repairer ?? 0),
       );
     }
   }

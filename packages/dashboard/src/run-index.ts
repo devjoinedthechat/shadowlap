@@ -19,6 +19,8 @@ export interface IndexedRun {
   startedAt: number;
   endedAt: number | null;
   calls: number;
+  /** The agent's calls: every call but a judge check's, which classification leaves out. */
+  agentCalls: number;
   meta: IndexedMeta;
   /** A run that exited with an error answered one of its calls with an injected failure (`--fail-at`). */
   injected: boolean;
@@ -88,6 +90,7 @@ SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS st
        r.meta -> '$.test' AS test, r.meta -> '$.checks' AS checks, r.meta -> '$.blame' AS blame,
        r.meta ->> '$.author' AS author, r.meta ->> '$.ci' AS ci,
        (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start') AS calls,
+       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start' AND COALESCE(c.meta ->> '$.scope', '') <> 'shadowlap:judge') AS agent_calls,
        CASE WHEN r.status = 'failed' THEN EXISTS (
          SELECT 1 FROM call_events x WHERE x.run_id = r.run_id AND x.phase = 'end' AND x.outcome = 'error' AND x.meta ->> '$.injected' = 1
        ) ELSE 0 END AS injected,
@@ -232,6 +235,7 @@ function readRunIndex(store: Store): RunIndex {
       startedAt: Number(row.started),
       endedAt: num(row.ended),
       calls: Number(row.calls),
+      agentCalls: Number(row.agent_calls),
       meta: readMeta(row),
       injected: Number(row.injected) === 1,
       offline: Number(row.offline) === 1,
@@ -246,10 +250,11 @@ function readRunIndex(store: Store): RunIndex {
   const runs: IndexedRun[] = base.map((r) => {
     const c = classifiable(r);
     const p = r.parentRunId ? baseById.get(r.parentRunId) : undefined;
-    const parent = p ? { calls: p.calls, status: p.status } : null;
+    // Classified by the agent's calls: a judge check's are none of what a replay reproduced or made.
+    const parent = p ? { calls: p.agentCalls, status: p.status } : null;
     const rescues = r.meta.probe ? (rescued.get(r.runId) ?? null) : null;
-    const cls = classifyRun(c, { calls: r.calls, parent, rescued: rescues !== null });
-    const outcome = fixedOutcome(runOutcome(c, { kind: cls.kind, calls: r.calls, parent, injected: r.injected, offline: r.offline }), r.fixCheck);
+    const cls = classifyRun(c, { calls: r.agentCalls, parent, rescued: rescues !== null });
+    const outcome = fixedOutcome(runOutcome(c, { kind: cls.kind, calls: r.agentCalls, parent, injected: r.injected, offline: r.offline }), r.fixCheck);
     return {
       ...r,
       kind: cls.kind,

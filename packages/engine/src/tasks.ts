@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
+import { isJudgeCall } from './judge-scope.js';
 import { hasRecordedCommand, PACK_FORMAT, PACK_VERSION } from './pack.js';
 import { PACK_LIMITS, PackError, validateCall, validateRun } from './pack-schema.js';
 import { safeLine } from './text.js';
@@ -317,8 +318,9 @@ export function answersNothing(callName: string): boolean {
   return !isModelRequest(callName);
 }
 
+/** The agent's model calls: a judge check's call is none a model could take over. */
 function modelCalls(calls: readonly CallRecord[]): CallRecord[] {
-  return calls.filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && isModelRequest(c.name));
+  return calls.filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && isModelRequest(c.name) && !isJudgeCall(c));
 }
 
 const scopeOf = (c: CallRecord): string | null => (typeof c.meta.scope === 'string' ? c.meta.scope : null);
@@ -355,7 +357,8 @@ function usageFrom(calls: readonly CallRecord[], from: number): Usage | null {
   const u: Required<Usage> = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
   let any = false;
   for (const c of calls) {
-    const x = c.kind === 'api' && c.callNo >= from ? c.end?.meta.usage : undefined;
+    // The agent's calls after the takeover: a judge check's are none of what a model's turn takes.
+    const x = c.kind === 'api' && c.callNo >= from && !isJudgeCall(c) ? c.end?.meta.usage : undefined;
     if (!x) continue;
     any = true;
     u.inputTokens += x.inputTokens ?? 0;
