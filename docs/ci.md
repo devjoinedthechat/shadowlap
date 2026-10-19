@@ -282,7 +282,7 @@ Pin the action to a release tag once there is one. Until `shadowlap` is on npm, 
 | `fix-budget` | `2.00` | Dollars that may be spent per failing golden on finding and proving a fix |
 | `repairer` | empty | The model that proposes fixes, as for `shadowlap repair --repairer`; empty uses `repair.repairer` in the config |
 
-Outputs: `passed`, `failed` (every recording that fails the step: each failure, and each inconclusive one unless `inconclusive` is `warn`), `inconclusive` (the recordings whose verdict is inconclusive, a gate that ran out of attempts between its bounds or a check that could not be decided, whatever the input made of them), `diverged`, `checks-failed` (definite check failures only), `session` (the test session's id), `fixes` and `fix-prs` (the fix pull requests opened, and their URLs), and the paths `report-json`, `report-markdown` and `junit`.
+Outputs: `passed`, `failed` (every recording that fails the step: each failure, and each inconclusive one unless `inconclusive` is `warn`), `inconclusive` (the recordings whose verdict is inconclusive, a gate that ran out of attempts between its bounds, a check that could not be decided or an injection gate that showed too little to say, whatever the input made of them), `diverged`, `checks-failed` (definite check failures only), `session` (the test session's id), `fixes` and `fix-prs` (the fix pull requests opened, and their URLs), and the paths `report-json`, `report-markdown` and `junit`.
 
 The action reads `tests` from `shadowlap.config.json` in the working directory. A recording marked `fork` calls the providers after the fork, so pass their keys to the step as environment variables (`env: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}`).
 
@@ -426,7 +426,7 @@ To hear about failures in Slack, let the action count them without failing, post
   run: exit 1
 ```
 
-They need an incoming webhook from your Slack workspace, its URL as a repository secret (`SLACK_WEBHOOK_URL` here), and the test step's `id`. The `github.ref` condition keeps pull requests quiet, since their checks already show a failure; drop it to post for every branch. The dashboard's Settings → CI writes your repository's default branch there, and as the base of a fix pull request: the branch origin's HEAD names, else `main` or `master`, whichever the repository has. A golden counts as failed when its replay diverges, it tries a live call, the agent exits with an error, or a check fails (token and cost budgets included), and when its gate is inconclusive, unless the step says `inconclusive: warn`.
+They need an incoming webhook from your Slack workspace, its URL as a repository secret (`SLACK_WEBHOOK_URL` here), and the test step's `id`. The `github.ref` condition keeps pull requests quiet, since their checks already show a failure; drop it to post for every branch. The dashboard's Settings → CI writes your repository's default branch there, and as the base of a fix pull request: the branch origin's HEAD names, else `main` or `master`, whichever the repository has. A golden counts as failed when its replay diverges, it tries a live call, the agent exits with an error, a check fails (token and cost budgets included) or its injection gate fails, and when its verdict is inconclusive, unless the step says `inconclusive: warn`.
 
 ## Keeping goldens honest
 

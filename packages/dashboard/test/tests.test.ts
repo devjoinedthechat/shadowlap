@@ -966,6 +966,12 @@ describe('goldens with a gate', () => {
     expect(more.expected).toBeCloseTo(17.17, 2);
     expect(more.settles).toBeCloseTo(0.378, 3);
     expect(more.cost).toBeCloseTo(0.34, 2);
+    // A golden whose judge checks are asked live on each attempt: their cost is an attempt's too.
+    const judged = Store.open(':memory:');
+    const judge = { calls: 20, replayed: 0, live: 20, notAsked: 0, upstreamRequests: 20, spent: 0.2, saved: 0, unknownModels: [] };
+    session(judged, 'e4f5a6b', T0, [{ golden: 'goldens/flaky', ok: false, failure: 'inconclusive' as never, reason: 'inconclusive', runId: 'R7', data: { ...result(sprt, [...Array(16).fill(true), false, false, false, false], { spent: 0.4 }), judge } }]);
+    expect(testsView(judged, gated).rows.find((r) => r.name === 'flaky')!.last.gate!.perAttempt).toBeCloseTo(0.03, 6);
+    judged.close();
     // History cells: shaded by their pass rate, ringed where a gate against history found a drop.
     expect(drops!.history.map((c) => [c.verdict, c.rate, c.dropped])).toEqual([
       ['passed', { passes: 3, attempts: 3 }, false],

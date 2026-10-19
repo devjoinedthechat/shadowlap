@@ -646,8 +646,11 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
 export function gateResultView(r: TestResult, golden: string): GateResultView | null {
   const g = r.data?.gate;
   if (!g) return null;
-  // What this session's own attempts cost: carried-over ones were paid for before.
-  const spent = r.data?.spent;
+  // What this session's own attempts cost, the agent's calls and its judges' alike (each forked
+  // attempt asks its judges live): carried-over ones were paid for before.
+  const agent = r.data?.spent;
+  const judges = r.data?.judge?.spent;
+  const spent = typeof agent === 'number' ? agent + (typeof judges === 'number' ? judges : 0) : undefined;
   const own = r.data?.attempts?.total ?? g.attempts;
   const perAttempt = typeof spent === 'number' && spent > 0 && own > 0 ? spent / own : null;
   return { ...g, tally: formatTally(g), perAttempt, more: moreAttempts(g, golden, perAttempt) };
