@@ -308,7 +308,8 @@ it determines what the client must send faithfully:
 - **clock and randomness** — `kind` and `label`
 
 Arrival order is never part of identity. A call is matched by `(kind, fingerprint, occurrence)`,
-where occurrence is *n* for the *n*-th identical call in that scope. This is why `args` must be
+where occurrence is *n* for the *n*-th identical call in that scope. [The recording
+format](./recording-format.md#identity) specifies how a fingerprint is computed. This is why `args` must be
 serialized consistently: a client that reorders object keys between runs still matches (the sidecar
 canonicalizes), but one that sometimes omits a null field and sometimes includes it does not.
 

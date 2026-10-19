@@ -12,7 +12,7 @@ shadowlap pack 01K5CQ4N7G goldens/triage-inbox
 git add goldens/triage-inbox
 ```
 
-A pack is a directory: `run.json`, `calls.jsonl`, one file per blob, and a `.gitattributes` holding `* -text`. It's git-friendly (stable file names, one file per message), and [redaction rules](./normalizers-and-redaction.md#redaction) are applied on export. Commit only what you'd be comfortable with a colleague reading.
+A pack is a directory: `run.json`, `calls.jsonl`, one file per blob, and a `.gitattributes` holding `* -text` ([the recording format](./recording-format.md) specifies it). It's git-friendly (stable file names, one file per message), and [redaction rules](./normalizers-and-redaction.md#redaction) are applied on export. Commit only what you'd be comfortable with a colleague reading.
 
 Commit the `.gitattributes` with the pack. Every blob is checked against its hash, and the file keeps git from converting line endings, as Git for Windows does by default (`core.autocrlf`) and a `* text=auto` in your own `.gitattributes` would: a golden committed on macOS or Linux then passes in a Windows checkout too. A golden packed before packs carried the file is read as it was committed when git converted only its line endings; `test --update` adds the file to it.
 

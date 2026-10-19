@@ -7,7 +7,8 @@ spawn a process and make an HTTP request.
 
 It is a different API from [the SDK wire protocol](./protocol.md), and both are needed for a full
 integration: this one decides *which recording a test uses and what happens to it*, while the wire
-protocol carries the individual tool, clock and randomness calls.
+protocol carries the individual tool, clock and randomness calls. The recordings it keeps are packs,
+as [the recording format](./recording-format.md) specifies them.
 
 What a [recorded test](./testing.md) does is record its agent's calls the first time it runs and
 replay them offline afterwards: fast, free and deterministic, failing with a diff when a code change
