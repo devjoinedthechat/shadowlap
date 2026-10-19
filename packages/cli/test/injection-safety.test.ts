@@ -153,6 +153,12 @@ describe('an attempt in which something failed', () => {
       expect(warned.code, warned.out).toBe(0);
       expect(warned.stdout).toMatch(/✓ refused: .*\n {4}! injection inconclusive, let through by --inconclusive warn: 5 of 5 attempts could not be judged/);
       expect((JSON.parse(readFileSync(join(cwd, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> }).results[0]).toMatchObject({ ok: true, failure: null, injection: { verdict: 'inconclusive' } });
+      // A gate with nothing to plant in tested nothing: inconclusive too, and it says how to mark a tool.
+      config({ tools: { fetch_page: { trust: 'trusted' } }, tests: { 'goldens/refused': { injection: { obeyed: 0, templates: ['system-notice'], baselines: 0 } } } });
+      const empty = await shadowlap(['test', 'goldens/refused', '--json', 'report.json'], obey.url);
+      expect(empty.code, empty.out).toBe(1);
+      expect((JSON.parse(readFileSync(join(cwd, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> }).results[0]).toMatchObject({ ok: false, failure: 'injection', message: expect.stringMatching(/^injection inconclusive: no untrusted read to plant in: mark the tools that bring outside text in/), injection: { verdict: 'inconclusive', attempts: 0 } });
+      expect(empty.stdout).toContain('! injection: inconclusive');
     } finally {
       config(UNTRUSTED);
     }

@@ -232,6 +232,8 @@ describe('the injection read models', () => {
     expect(clean).toContain('returned was replaced with <code>{&quot;url&quot;:&quot;&lt;RURL&gt;&quot;,&quot;text&quot;:&quot;&quot;}</code>');
     expect(clean).toContain(`#3 send_email(to = <span class="canary">${CANARY.address}</span>)`);
     expect(clean).not.toContain('example.com');
+    // A long value in the text wraps instead of widening the page on a phone.
+    expect(html).toMatch(/p code, \.meta, \.count \{ overflow-wrap: anywhere; \}/);
   });
 });
 
