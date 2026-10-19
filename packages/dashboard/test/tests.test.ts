@@ -914,7 +914,7 @@ describe('jobs for the Tests actions', () => {
 
 describe('goldens with a gate', () => {
   const sprt = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 20 };
-  const history = { kind: 'baseline' as const, drop: 0.15, risk: 0.05, window: 10, min: 3 };
+  const history = { kind: 'baseline' as const, drop: 0.15, risk: 0.05, window: 10, min: 3, max: 40 };
   const gated: GoldenSource[] = [
     { path: 'goldens/escalates', runId: null, packedAt: T0, mode: 'fork', repeat: 1, passes: 1, gate: sprt, checks: ['issue_refund called 0 times'] },
     { path: 'goldens/flaky', runId: null, packedAt: T0, mode: 'fork', repeat: 1, passes: 1, gate: sprt, checks: ['issue_refund called 0 times'] },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeBlocks, formatBlame, maxProbes, notTheAnswer, probeFinding, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, type BlameProbe, type BlameReport } from '../src/blame.js';
+import { describeBlocks, formatBlame, maxProbes, notTheAnswer, probeFinding, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport } from '../src/blame.js';
 import { BLAME_DEFAULTS, decide, gateResult, type SprtGate } from '../src/stats.js';
 
 /** A probe that passes `rate(i)` of `n` attempts at model call `steps[i]`. */
@@ -248,30 +248,59 @@ describe('probes decided by a gate', () => {
     const decision = decide(passes, outcomes.length, GATE);
     return { callNo, step, passes, rescued: decision === 'pass', decision, gate: gateResult(GATE, outcomes, { decision }), attempts: outcomes.map((passed, i) => ({ runId: `01K5CR${callNo}${i}`.padEnd(26, '0'), passed, exitCode: 0, failures: [], spent: 0, upstreamRequests: 1 })) };
   };
-  const report = (over: Partial<BlameReport>): BlameReport => ({ outcome: 'blamed', blamed: null, lost: null, probes: [], nonMonotone: [], confidence: 'high', runId: '01K5CQ4N7G8M2XWQH6V3T9RB1D', steps: 4, attemptsPerProbe: 10, needed: 2, gate: GATE, rescue: { fields: {} }, oracle: ['exit code 0'], recordedFailures: [], contrast: null, attempts: 10, spent: 0, upstreamRequests: 20, unknownModels: [], stopReason: null, warnings: [], ...over });
+  const report = (over: Partial<BlameReport>): BlameReport => ({ outcome: 'blamed', blamed: null, lost: null, probes: [], nonMonotone: [], confidence: 'high', runId: '01K5CQ4N7G8M2XWQH6V3T9RB1D', steps: 4, attemptsPerProbe: 20, needed: 2, gate: GATE, rescue: { fields: {} }, oracle: ['exit code 0'], recordedFailures: [], contrast: null, attempts: 10, spent: 0, upstreamRequests: 20, unknownModels: [], stopReason: null, warnings: [], ...over });
+  /** Seven passes in twenty, never far enough either way: inconclusive at the default 20 attempts. */
+  const UNSURE = [...Array(6).fill([true, false, false]).flat(), true, false] as boolean[];
 
   it('says what each probe found, at its gate\'s figures', () => {
     expect(probeFinding(gated(5, 3, [true, false, true, true]), GATE)).toBe('passes at least 60% of the time (3 of 4 attempts)');
     expect(probeFinding(gated(7, 4, [false, false, false, false]), GATE)).toBe('passes at most 10% of the time (0 of 4 attempts)');
-    const unsure = gated(7, 4, [true, false, false, true, false, false, false, true, false, false]);
+    const unsure = gated(7, 4, UNSURE);
     expect(unsure.decision).toBe('inconclusive');
     expect(probeWord(unsure)).toBe('inconclusive');
-    expect(probeFinding(unsure, GATE)).toBe('is inconclusive: between 10% and 60% after 10 attempts (3 of 10)');
+    expect(probeFinding(unsure, GATE)).toBe('is inconclusive: between 10% and 60% after 20 attempts (7 of 20)');
     // A probe a fixed count decided says its tally, as before.
     expect(probeFinding({ rescued: true, passes: 2, attempts: [1, 2, 3] as never }, null)).toBe('rescued 2 of 3');
-    expect(rescueRule({ gate: GATE, needed: 2, attemptsPerProbe: 10 })).toBe('a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 10 attempts');
+    expect(rescueRule({ gate: GATE, needed: 2, attemptsPerProbe: 20 })).toBe('a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 20 attempts');
     expect(rescueRule({ gate: null, needed: 2, attemptsPerProbe: 5 })).toBe('a rescue needs 2 of 5 attempts to pass');
   });
 
+  it('says what it decided on when attempts running at once ended after it decided', () => {
+    // Two straight passes rescued; a third attempt, started before the second ended, failed after.
+    const p = gated(5, 3, [true, true]);
+    const late = { ...p, passes: 2, attempts: [...p.attempts, { ...p.attempts[0]!, runId: '01K5CR5900000000000000000Z', passed: false }] };
+    expect(probeFinding(late, GATE)).toBe('passes at least 60% of the time (2 of 2 attempts, and 1 more that ended after it decided)');
+  });
+
   it('takes an inconclusive probe as not rescued, and lowers the confidence when it is the one after the boundary', async () => {
-    const outcomes: Record<number, boolean[]> = { 1: [true, true], 2: [true, true], 3: [true, false, false, true, false, false, false, true, false, false], 4: [false, false, false, false] };
+    const outcomes: Record<number, boolean[]> = { 1: [true, true], 2: [true, true], 3: UNSURE, 4: [false, false, false, false] };
     const r = await searchBlame({ steps: [1, 2, 3, 4], probe: async (callNo, step) => gated(callNo, step, outcomes[step]!), scan: 0 });
     expect(r).toMatchObject({ outcome: 'blamed', blamed: { callNo: 2 }, lost: { callNo: 3, decision: 'inconclusive' }, confidence: 'medium' });
     const text = formatBlame(report({ ...r, probes: r.probes }));
-    expect(text).toContain('The re-asked call #2 passes at least 60% of the time (2 of 2 attempts); #3, the next model call, is inconclusive: between 10% and 60% after 10 attempts (3 of 10).');
+    expect(text).toContain('The re-asked call #2 passes at least 60% of the time (2 of 2 attempts); #3, the next model call, is inconclusive: between 10% and 60% after 20 attempts (7 of 20).');
     expect(text).toContain('Confidence: medium (#3 was inconclusive: the run was not reliably lost there)');
-    expect(text).toContain('Probes (a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 10 attempts; resample the probed call)');
-    expect(text).toMatch(/#3 +3 of 4 +3 of 10 passed +inconclusive/);
+    expect(text).toContain('Probes (a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 20 attempts; resample the probed call)');
+    expect(text).toMatch(/#3 +3 of 4 +7 of 20 passed +inconclusive/);
+  });
+
+  it('reads a first probe that couldn\'t tell apart from one that found no rescue, at low confidence', async () => {
+    const r = await searchBlame({ steps: [1, 2, 3], probe: async (callNo, step) => gated(callNo, step, step === 1 ? UNSURE : [false, false, false, false]), scan: 0 });
+    expect(r).toMatchObject({ outcome: 'unrescuable', lost: { callNo: 1, decision: 'inconclusive' }, confidence: 'low' });
+    const full = report({ ...r, probes: r.probes });
+    expect(unsettledFirst(full)).toBe(true);
+    const why = unrescuedWhy(full);
+    expect(why.evidence).toBe('Resampled from the first model call, #1, the run is inconclusive: between 10% and 60% after 20 attempts (7 of 20).');
+    expect(why.look).toContain('Not settled: resampled from #1, the run passes some of the time, too often to call it lost and too rarely to call it rescued');
+    expect(why.look).toContain(`--gate '{"good":0.4,"max":40}'`);
+    expect(why.look).not.toContain('not one unlucky answer');
+    const text = formatBlame(full);
+    expect(text).toContain('? Not settled from the first model call');
+    expect(text).not.toContain('Not rescued from any model call');
+    expect(text).toContain('Confidence: low (#1 was inconclusive)');
+    // One that found the first call lost is still the finding it was.
+    const lost = gated(1, 1, [false, false, false, false]);
+    expect(unsettledFirst(report({ outcome: 'unrescuable', probes: [lost] }))).toBe(false);
+    expect(formatBlame(report({ outcome: 'unrescuable', probes: [lost], lost }))).toContain('Not rescued from any model call');
   });
 
   it('keeps a clean boundary at high confidence: lost under the gate is lost, whatever the odd pass', async () => {

@@ -17,8 +17,8 @@ export interface HistoryFilter {
   checks?: readonly string[] | null;
   /** `fork` for a golden that may fork; results of the golden in the other mode are left out. */
   mode?: 'replay' | 'fork';
-  /** The session deciding now, whose own result is no baseline. */
-  excludeSession?: string | null;
+  /** The session deciding now, whose own result is no baseline; with `test --continue`, the sessions it carries attempts over from too. */
+  excludeSession?: string | readonly string[] | null;
   /** Only results kept before this time. */
   before?: number;
 }
@@ -66,9 +66,10 @@ const READ_LIMIT = 5000;
 /** The baseline a gate against history compares with: the golden's last `window` sessions that qualify, pooled. */
 export function gateHistory(store: Store, golden: string, f: HistoryFilter): PooledHistory {
   const pooled: HistorySession[] = [];
+  const excluded = new Set(typeof f.excludeSession === 'string' ? [f.excludeSession] : (f.excludeSession ?? []));
   for (const r of store.listTestResults({ golden, limit: READ_LIMIT })) {
     if (pooled.length >= f.window) break;
-    if (r.sessionId === f.excludeSession) continue;
+    if (excluded.has(r.sessionId)) continue;
     if (f.before !== undefined && r.at >= f.before) continue;
     if (f.goldenRunId && r.goldenRunId && r.goldenRunId !== f.goldenRunId) continue;
     if (f.mode && r.data?.mode && r.data.mode !== f.mode) continue;

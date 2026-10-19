@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { attemptsOf, gateHistory, judgedUnder } from '../src/gate-history.js';
-import { Store, type TestResultData } from '../src/store.js';
+import { Store, type TestFailure, type TestResultData } from '../src/store.js';
 
 /**
  * A golden's baseline for a gate against history: its last sessions' attempts, pooled, only those
@@ -10,7 +10,7 @@ const T0 = Date.UTC(2026, 9, 1);
 const CHECKS = [{ ok: true, label: 'issue_refund called 0 times', detail: null }];
 const fork = (passed: number, total: number, extra: Partial<TestResultData> = {}): TestResultData => ({ mode: 'fork', checks: CHECKS, attempts: { total, passed, required: null, runs: [] }, ...extra });
 
-function store(results: Array<{ ok: boolean; at: number; data?: TestResultData | null; failure?: 'check' | 'error'; goldenRunId?: string; golden?: string }>): { store: Store; sessions: string[] } {
+function store(results: Array<{ ok: boolean; at: number; data?: TestResultData | null; failure?: TestFailure; goldenRunId?: string; golden?: string }>): { store: Store; sessions: string[] } {
   const s = Store.open(':memory:');
   const sessions = results.map((r) => {
     const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: r.at, owner: null });
@@ -59,6 +59,17 @@ describe('gateHistory', () => {
     ]);
     expect(gateHistory(s, 'goldens/refund', { window: 10, goldenRunId: 'REC', checks: ['issue_refund called 0 times'], mode: 'fork' })).toMatchObject({ passes: 2, attempts: 3, sessions: 1 });
     expect(gateHistory(s, 'goldens/refund', { window: 10, before: T0 + 5 })).toMatchObject({ sessions: 3 });
+    s.close();
+  });
+
+  it('leaves out every session a continued result carries attempts over from, besides the one deciding now', () => {
+    const { store: s, sessions } = store([
+      { ok: true, at: T0, data: fork(5, 5) },
+      { ok: false, at: T0 + 1, failure: 'inconclusive', data: fork(30, 40) },
+      { ok: true, at: T0 + 2, data: fork(4, 5) },
+    ]);
+    expect(gateHistory(s, 'goldens/refund', { window: 10, excludeSession: [sessions[2]!, sessions[1]!] })).toMatchObject({ passes: 5, attempts: 5, sessions: 1 });
+    expect(gateHistory(s, 'goldens/refund', { window: 10, excludeSession: sessions[2]! })).toMatchObject({ passes: 35, attempts: 45, sessions: 2 });
     s.close();
   });
 

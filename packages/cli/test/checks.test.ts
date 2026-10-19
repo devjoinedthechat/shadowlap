@@ -48,10 +48,10 @@ describe('outcome checks', () => {
       fork: true,
       repeat: 1,
       passes: 1,
-      gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 40 },
+      gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 },
       tools: [{ name: 'send_email', count: { min: 0, max: 0 } }],
     });
-    expect(parseTests({ 'goldens/a': { fork: true, gate: { baseline: 'history', drop: 0.2 } } })[0]!.spec.gate).toEqual({ kind: 'baseline', drop: 0.2, risk: 0.05, window: 10, min: 5 });
+    expect(parseTests({ 'goldens/a': { fork: true, gate: { baseline: 'history', drop: 0.2 } } })[0]!.spec.gate).toEqual({ kind: 'baseline', drop: 0.2, risk: 0.05, window: 10, min: 5, max: 40 });
     expect(() => parseTests({ 'goldens/a': { fork: true, repeat: 5, gate: {} } })).toThrow(`${where}: a gate decides how many attempts run and what passes; give the gate, or repeat and passes, not both`);
     expect(() => parseTests({ 'goldens/a': { fork: true, passes: 1, gate: {} } })).toThrow('give the gate, or repeat and passes, not both');
     expect(() => parseTests({ 'goldens/a': { gate: {} } })).toThrow(`${where}.gate needs "fork": true`);

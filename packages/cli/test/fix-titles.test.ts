@@ -60,7 +60,7 @@ describe('commands that run a step again', () => {
   });
 
   it('keep the figures of a gate that differ from its defaults, and write a fixed count out in full', () => {
-    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 10, needed: 2, gate: { ...blameGate, good: 0.5, max: 20 } })).toBe(`shadowlap blame 01M3RZ4XKN --gate '{"good":0.5,"max":20}'`);
+    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 10, needed: 2, gate: { ...blameGate, good: 0.5, max: 10 } })).toBe(`shadowlap blame 01M3RZ4XKN --gate '{"good":0.5,"max":10}'`);
     // The gate is what runs without flags, so a fixed count is given whole, the old default too.
     expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 5, needed: 2, gate: null })).toBe('shadowlap blame 01M3RZ4XKN --attempts 5 --passes 2');
     expect(verifyCommand({ fixes: ['label:refund-bug'] }, { attempts: 40, gate: { ...verifyGate, risk: 0.01 }, fields: {}, liveTools: [] })).toBe(`shadowlap verify --fixes label:refund-bug --gate '{"risk":0.01}'`);

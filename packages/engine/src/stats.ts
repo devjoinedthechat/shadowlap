@@ -14,12 +14,14 @@
  *     the time (Wald's bound is risk / (1 − risk)). When `max` attempts run out between the bounds,
  *     it is inconclusive: an honest answer, not a coin toss.
  *   - `baseline`, against the golden's own history: the pass rates now and in the last `window`
- *     sessions, each a Beta posterior under a uniform prior (a beta-binomial comparison), fail when
- *     P(now < baseline − drop) > 1 − risk. It decides once, after `min` attempts. Without history
- *     the baseline is a golden that always passes.
+ *     sessions, each a Beta posterior under a uniform prior (a beta-binomial comparison). From `min`
+ *     attempts on, after each one, it fails when P(now < baseline − drop) > 1 − risk, passes once
+ *     that chance is 1/2 or less (no drop shows), and otherwise runs another attempt, up to `max`.
+ *     Without history the baseline is the golden's recording: the one attempt it was packed from,
+ *     which passed.
  * - `wilson`: the Wilson score interval, for display only. Checking an interval after every attempt
  *   and stopping when it clears a bar inflates the error rate ("peeking"); the per-attempt decision
- *   is the SPRT's, which is built for it.
+ *   is the gate's, whose odds `gateOdds` computes with every look counted.
  * - `passHatK`: the chance an agent passes all of k tries, from c passes in n, as C(c,k)/C(n,k) (the
  *   τ-bench estimator), which matters more than one success for an agent that runs unattended.
  *
@@ -51,6 +53,8 @@ export interface BaselineGate {
   window: number;
   /** Attempts it runs before it decides. */
   min: number;
+  /** The most attempts it runs: with a drop still likelier than not but short of 1 − risk then, it is inconclusive. */
+  max: number;
 }
 
 export type Gate = SprtGate | BaselineGate;
@@ -70,22 +74,38 @@ export interface GateHistory extends Tally {
   sessions: number;
 }
 
-/** The figures `{}` stands for: pass at 90% or more, fail at 70% or less, at most 5% risk each, up to 40 attempts. */
-export const SPRT_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ good: 0.9, bad: 0.7, risk: 0.05, max: 40 });
+/**
+ * The figures `{}` stands for: pass at 90% or more, fail at 70% or less, at most 5% risk each, up to
+ * 80 attempts. An agent that always passes is accepted after 12 and one that passes 95% of the time
+ * after 16.6 on average whatever the limit; 80 leaves almost none of the latter inconclusive, where
+ * 40 left 0.75% of them so (with 100 forked goldens in CI, a red run 60% of the time) and 20 a fifth.
+ */
+export const SPRT_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ good: 0.9, bad: 0.7, risk: 0.05, max: 80 });
 
 /**
  * Blame's: a probe rescues the run when the re-asked call passes at least 60% of the time, and the
- * run is lost there when it passes at most 10%. That costs what 2 of 5 cost: two straight passes
- * rescue, four straight failures lose.
+ * run is lost there when it passes at most 10%. Two straight passes rescue and four straight
+ * failures lose, what 2 of 5 cost; up to 20 attempts settle the calls in between, which 10 left
+ * inconclusive about a quarter of the time.
  */
-export const BLAME_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ good: 0.6, bad: 0.1, risk: 0.05, max: 10 });
+export const BLAME_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ good: 0.6, bad: 0.1, risk: 0.05, max: 20 });
 
 /**
- * The figures `{ "baseline": "history" }` stands for. Five attempts fail an unchanged agent that
- * passes 95% of the time about 0.1% of the time against a history of its own; without history, they
- * make the gate the 4 of 5 it replaces (a 15-point drop from always passing fails at 3 of 5).
+ * The figures `{ "baseline": "history" }` stands for: fail on a 15-point drop at 95% confidence,
+ * deciding from 5 attempts on, up to 40. Against a history of 47 of 50, an unchanged agent that
+ * passes 95% of the time passes after 5.7 attempts on average and fails 0.1% of the time; one now
+ * at 60% fails 74% of the time.
  */
-export const BASELINE_DEFAULTS: Readonly<Omit<BaselineGate, 'kind'>> = Object.freeze({ drop: 0.15, risk: 0.05, window: 10, min: 5 });
+export const BASELINE_DEFAULTS: Readonly<Omit<BaselineGate, 'kind'>> = Object.freeze({ drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40 });
+
+/** A history gate passes once P(now < baseline − drop) is at most this: a drop is no likelier than not. */
+export const BASELINE_PASS_AT = 0.5;
+
+/**
+ * A golden's baseline before it has any history: its recording, the one attempt it was packed from,
+ * which passed. It says little, so the gate passes all but a golden that fails most attempts.
+ */
+export const RECORDING_BASELINE: Readonly<Tally> = Object.freeze({ passes: 1, attempts: 1 });
 
 /** The most attempts a gate may run, as `repeat` allows at most 100 under `tests`, ten times over. */
 export const GATE_MAX_ATTEMPTS = 1000;
@@ -103,43 +123,56 @@ function onlyKeys(obj: Record<string, unknown>, allowed: readonly string[], wher
   }
 }
 
-function share(v: unknown, where: string, what: string, o: { below?: number } = {}): number {
-  const below = o.below ?? 1;
-  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v >= below) throw new Error(`${where} must be ${what}: a number between 0 and ${below}, such as ${below === 1 ? '0.9' : '0.05'}`);
+function share(v: unknown, where: string, what: string): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v >= 1) throw new Error(`${where} must be a number between 0 and 1, such as 0.9: ${what}`);
+  return v;
+}
+
+/** A risk: above 0 and below 0.5, where a gate's two verdicts would overlap. */
+function riskOf(v: unknown, where: string): number {
+  if (typeof v === 'number' && Number.isFinite(v) && v >= 0.5) throw new Error(`${where} must be below 0.5: the most a verdict may be wrong, such as 0.05`);
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) throw new Error(`${where} must be a number between 0 and 0.5, such as 0.05: the most a verdict may be wrong`);
   return v;
 }
 
 function whole(v: unknown, where: string, what: string, max: number): number {
-  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > max) throw new Error(`${where} must be ${what}: a whole number from 1 to ${max}`);
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > max) throw new Error(`${where} must be a whole number from 1 to ${max}: ${what}`);
   return v;
 }
 
 /**
  * A gate as written under `tests` in shadowlap.config.json, or given to `--gate`: `{ good, bad,
- * risk, max }` for the SPRT, `{ baseline: "history", drop, risk, window, min }` against the history.
- * Every figure is optional; `defaults` are the SPRT's when none are given (blame has its own).
- * `where` names the source in error messages, as the config's other errors do.
+ * risk, max }` for the SPRT, `{ baseline: "history", drop, risk, window, min, max }` against the
+ * history. Every figure is optional; `defaults` are the SPRT's when none are given (blame has its
+ * own). `where` names the source in error messages, as the config's other errors do. A gate that
+ * could never pass is refused: an SPRT whose `max` is below the attempts an agent that always passes
+ * needs, a history gate whose `max` is below its `min`.
  */
 export function parseGate(json: unknown, where: string, defaults: Partial<Omit<SprtGate, 'kind'>> = {}): Gate {
-  if (!isObject(json)) throw new Error(`${where} must be an object, such as { "good": 0.9, "bad": 0.7, "risk": 0.05, "max": 40 } or { "baseline": "history" }`);
+  if (!isObject(json)) throw new Error(`${where} must be an object, such as { "good": 0.9, "bad": 0.7, "risk": 0.05, "max": 80 } or { "baseline": "history" }`);
   if ('baseline' in json) {
-    onlyKeys(json, ['baseline', 'drop', 'risk', 'window', 'min'], where);
+    onlyKeys(json, ['baseline', 'drop', 'risk', 'window', 'min', 'max'], where);
     if (json.baseline !== 'history') throw new Error(`${where}.baseline must be "history": the golden's own past sessions are the baseline`);
-    return {
+    const gate: BaselineGate = {
       kind: 'baseline',
       drop: json.drop === undefined ? BASELINE_DEFAULTS.drop : share(json.drop, `${where}.drop`, 'the drop in pass rate that fails it'),
-      risk: json.risk === undefined ? BASELINE_DEFAULTS.risk : share(json.risk, `${where}.risk`, 'the most a verdict may be wrong', { below: 0.5 }),
+      risk: json.risk === undefined ? BASELINE_DEFAULTS.risk : riskOf(json.risk, `${where}.risk`),
       window: json.window === undefined ? BASELINE_DEFAULTS.window : whole(json.window, `${where}.window`, 'how many past sessions make the baseline', GATE_MAX_ATTEMPTS),
       min: json.min === undefined ? BASELINE_DEFAULTS.min : whole(json.min, `${where}.min`, 'the attempts it runs before it decides', GATE_MAX_ATTEMPTS),
+      max: 0,
     };
+    // A max left out stays above a min given: the default's room past it, at least.
+    gate.max = json.max === undefined ? Math.max(BASELINE_DEFAULTS.max, gate.min) : whole(json.max, `${where}.max`, 'the most attempts it runs', GATE_MAX_ATTEMPTS);
+    if (gate.max < gate.min) throw new Error(`${where}: max (${gate.max}) is fewer than min (${gate.min}), the attempts it runs before it decides: raise max, or lower min`);
+    return gate;
   }
   onlyKeys(json, ['good', 'bad', 'risk', 'max'], where);
   const d = { ...SPRT_DEFAULTS, ...defaults };
   const gate: SprtGate = {
     kind: 'sprt',
-    good: json.good === undefined ? d.good : share(json.good, `${where}.good`, 'the pass rate it passes'),
-    bad: json.bad === undefined ? d.bad : share(json.bad, `${where}.bad`, 'the pass rate it fails'),
-    risk: json.risk === undefined ? d.risk : share(json.risk, `${where}.risk`, 'the most a verdict may be wrong', { below: 0.5 }),
+    good: json.good === undefined ? d.good : share(json.good, `${where}.good`, 'the pass rate it passes at'),
+    bad: json.bad === undefined ? d.bad : share(json.bad, `${where}.bad`, 'the pass rate it fails at'),
+    risk: json.risk === undefined ? d.risk : riskOf(json.risk, `${where}.risk`),
     max: json.max === undefined ? d.max : whole(json.max, `${where}.max`, 'the most attempts it runs', GATE_MAX_ATTEMPTS),
   };
   if (gate.bad >= gate.good) throw new Error(`${where}: bad (${gate.bad}) must be below good (${gate.good}): the gate tells a pass rate of good from one of bad`);
@@ -202,18 +235,27 @@ function checkTally(passes: number, attempts: number): void {
 
 // ---- Deciding ---------------------------------------------------------------------------------
 
+/** The baseline a history gate compares with: the history pooled, or without any, the golden's recording. */
+export function baselineOf(history: Tally | null | undefined): Tally {
+  return history && history.attempts > 0 ? history : RECORDING_BASELINE;
+}
+
 /**
  * What a gate says after `attempts` attempts, `passes` of which passed. An SPRT gate passes or fails
  * as soon as its score crosses a bound, so a caller that asks after every attempt and stops at the
  * first answer that isn't `continue` runs exactly the test the gate states. A baseline gate
- * continues until `min` attempts, then passes or fails against `history` (none: a golden that always
- * passes).
+ * continues until `min` attempts, then after each one fails when a drop from `history` (none: the
+ * golden's recording) is likelier than 1 − risk, passes once it is no likelier than not, and is
+ * inconclusive when `max` attempts leave it in between.
  */
 export function decide(passes: number, attempts: number, gate: Gate, history?: GateHistory | Tally | null): GateDecision {
   checkTally(passes, attempts);
   if (gate.kind === 'baseline') {
     if (attempts < gate.min) return 'continue';
-    return dropProbability({ passes, attempts }, history && history.attempts > 0 ? history : null, gate.drop) > 1 - gate.risk ? 'fail' : 'pass';
+    const q = dropProbability({ passes, attempts }, baselineOf(history), gate.drop);
+    if (q > 1 - gate.risk) return 'fail';
+    if (q <= BASELINE_PASS_AT) return 'pass';
+    return attempts >= gate.max ? 'inconclusive' : 'continue';
   }
   if (attempts === 0) return 'continue';
   const b = sprtBounds(gate);
@@ -410,66 +452,85 @@ export interface GateOdds {
   pass: number;
   fail: number;
   inconclusive: number;
-  /** Attempts it runs on average. */
+  /** Attempts it runs on average, counting from the first (a start given included). */
   attempts: number;
+}
+
+/** The most attempts a gate runs. */
+export const gateLimit = (gate: Gate): number => gate.max;
+
+/** A gate's decisions, worked out once per tally: they don't depend on the agent's pass rate. */
+function decider(gate: Gate, history: Tally | null): (passes: number, attempts: number) => GateDecision {
+  const memo = new Map<number, GateDecision>();
+  return (passes, attempts) => {
+    const key = attempts * (GATE_MAX_ATTEMPTS + 1) + passes;
+    let d = memo.get(key);
+    if (d === undefined) {
+      d = decide(passes, attempts, gate, history);
+      memo.set(key, d);
+    }
+    return d;
+  };
+}
+
+/** A walk over every count of passes a rule can see, from `from` on, stopped where it decides. */
+function walk(rule: (passes: number, attempts: number) => GateDecision, limit: number, p: number, from: Tally = { passes: 0, attempts: 0 }): GateOdds {
+  if (!(p >= 0 && p <= 1)) throw new RangeError('p must be between 0 and 1');
+  checkTally(from.passes, from.attempts);
+  let walking = new Map<number, number>([[from.passes, 1]]);
+  const out: GateOdds = { pass: 0, fail: 0, inconclusive: 0, attempts: 0 };
+  for (let n = from.attempts + 1; n <= limit; n++) {
+    const next = new Map<number, number>();
+    for (const [s, mass] of walking) {
+      for (const [passes, q] of [
+        [s + 1, p],
+        [s, 1 - p],
+      ] as const) {
+        if (q === 0) continue;
+        const m = mass * q;
+        const d = rule(passes, n);
+        if (d === 'continue') next.set(passes, (next.get(passes) ?? 0) + m);
+        else {
+          out[d] += m;
+          out.attempts += m * n;
+        }
+      }
+    }
+    walking = next;
+  }
+  return out;
 }
 
 /**
  * The exact odds of each verdict, and the attempts run on average, for an agent that passes `p` of
- * the time: a walk over every count of passes the gate can see, stopped where it decides. For a
- * baseline gate, `history` is the baseline (none: a golden that always passes).
+ * the time: a walk over every count of passes the gate can see, stopped where it decides, so every
+ * look the gate takes is counted. For a baseline gate, `history` is the baseline (none: the golden's
+ * recording). `from`: a tally already seen, as when more attempts continue an inconclusive verdict
+ * under a raised limit; `attempts` then counts those too.
  */
-export function gateOdds(gate: Gate, p: number, history?: Tally | null): GateOdds {
-  if (!(p >= 0 && p <= 1)) throw new RangeError('p must be between 0 and 1');
-  const steps = gate.kind === 'sprt' ? gate.max : gate.min;
-  let walking = new Map<number, number>([[0, 1]]);
-  const out: GateOdds = { pass: 0, fail: 0, inconclusive: 0, attempts: 0 };
-  for (let n = 1; n <= steps; n++) {
-    const next = new Map<number, number>();
-    for (const [s, mass] of walking) {
-      for (const [passes, q] of [
-        [s + 1, p],
-        [s, 1 - p],
-      ] as const) {
-        if (q === 0) continue;
-        const m = mass * q;
-        const d = decide(passes, n, gate, history ?? null);
-        if (d === 'continue') next.set(passes, (next.get(passes) ?? 0) + m);
-        else {
-          out[d] += m;
-          out.attempts += m * n;
-        }
-      }
-    }
-    walking = next;
-  }
-  return out;
+export function gateOdds(gate: Gate, p: number, history?: Tally | null, from?: Tally): GateOdds {
+  return walk(decider(gate, history ?? null), gateLimit(gate), p, from);
+}
+
+/** `gateOdds` at several pass rates at once, each decision worked out once for them all. */
+export function gateOddsAt(gate: Gate, rates: readonly number[], history?: Tally | null): Array<GateOdds & { rate: number }> {
+  const rule = decider(gate, history ?? null);
+  return rates.map((rate) => ({ rate, ...walk(rule, gateLimit(gate), rate) }));
 }
 
 /** The same for a fixed count, `needed` of `of`, stopped as soon as it is settled. */
 export function countOdds(of: number, needed: number, p: number): GateOdds {
-  let walking = new Map<number, number>([[0, 1]]);
-  const out: GateOdds = { pass: 0, fail: 0, inconclusive: 0, attempts: 0 };
-  for (let n = 1; n <= of; n++) {
-    const next = new Map<number, number>();
-    for (const [s, mass] of walking) {
-      for (const [passes, q] of [
-        [s + 1, p],
-        [s, 1 - p],
-      ] as const) {
-        if (q === 0) continue;
-        const m = mass * q;
-        const d = decideCount(passes, n, of, needed);
-        if (d === 'continue') next.set(passes, (next.get(passes) ?? 0) + m);
-        else {
-          out[d] += m;
-          out.attempts += m * n;
-        }
-      }
-    }
-    walking = next;
-  }
-  return out;
+  return walk((passes, attempts) => decideCount(passes, attempts, of, needed), of, p);
+}
+
+/**
+ * How often a CI run goes red for nothing: the chance at least one of `goldens` goldens, each
+ * failing `fail` and ending inconclusive `inconclusive` of the time, fails the run. Under
+ * `--inconclusive fail`, the default, an inconclusive golden fails it too; under `warn`, it doesn't.
+ */
+export function runsRed(odds: Pick<GateOdds, 'fail' | 'inconclusive'>, goldens: number, mode: 'fail' | 'warn' = 'fail'): number {
+  const red = odds.fail + (mode === 'fail' ? odds.inconclusive : 0);
+  return 1 - (1 - Math.min(1, red)) ** goldens;
 }
 
 // ---- What the reports say ---------------------------------------------------------------------
@@ -483,10 +544,17 @@ export function percent(x: number): string {
 const rate = (x: number) => x.toFixed(2);
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
-/** A gate in one sentence: `pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 40 attempts`. */
+/** Points of a drop: 0.15 is `15 points`. */
+const points = (drop: number) => `${+(drop * 100).toFixed(1)} points`;
+
+/**
+ * A gate in one sentence: `pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong
+ * verdict, up to 80 attempts`, or for history `fail on a drop of 15 points or more from the pass rate
+ * of its last 10 sessions at 95% confidence, pass once no drop shows, from 5 attempts up to 40`.
+ */
 export function describeGate(gate: Gate): string {
   if (gate.kind === 'sprt') return `pass at ${percent(gate.good)} or more, fail at ${percent(gate.bad)} or less, at most ${percent(gate.risk)} risk of the wrong verdict, up to ${plural(gate.max, 'attempt')}`;
-  return `fail on a drop of ${+(gate.drop * 100).toFixed(1)} points or more from the pass rate of the last ${plural(gate.window, 'session')}, at ${percent(1 - gate.risk)} confidence, after ${plural(gate.min, 'attempt')}`;
+  return `fail on a drop of ${points(gate.drop)} or more from the pass rate of its last ${plural(gate.window, 'session')} at ${percent(1 - gate.risk)} confidence, pass once no drop shows, from ${plural(gate.min, 'attempt')} up to ${gate.max}`;
 }
 
 /** The running score after each attempt, against both bounds: why the gate stopped where it did. */
@@ -496,17 +564,21 @@ export interface SprtEvidence extends SprtBounds {
   scores: number[];
 }
 
-/** What a baseline gate compared: the baseline, and the chance of a drop it found. */
+/** What a baseline gate compared: the baseline, and the chance of a drop after each attempt. */
 export interface BaselineEvidence {
   kind: 'baseline';
-  /** The history pooled, or null when there is none and the baseline is a golden that always passes. */
+  /** The history pooled, or null when there is none and the baseline is the golden's recording (one attempt, which passed). */
   history: GateHistory | null;
-  /** The baseline's pass rate as pooled (passes over attempts), or 1 without history. The decision weighs its whole posterior. */
+  /** The baseline's pass rate as pooled (passes over attempts); without history, the recording's, 1. The decision weighs its whole posterior. */
   baseline: number;
-  /** P(now < baseline − drop) once it decided, or null before `min` attempts. */
+  /** P(now < baseline − drop) after the last attempt, or null before `min` attempts. */
   probability: number | null;
+  /** The same after each attempt, null before `min`: the evidence line, between `passAt` and `threshold`. */
+  probabilities: Array<number | null>;
   /** It fails above this: 1 − risk. */
   threshold: number;
+  /** It passes at or below this: 1/2, a drop no likelier than not. */
+  passAt: number;
 }
 
 /** What a gate made of its attempts. */
@@ -514,6 +586,8 @@ export interface GateOutcome {
   decision: GateDecision;
   passes: number;
   attempts: number;
+  /** Each attempt in order: true for one that passed. */
+  outcomes: boolean[];
   /** The Wilson interval of the pass rate at 1 − risk, for display. */
   interval: { lo: number; hi: number; confidence: number };
   /** pass^k for k = 1, 2, … up to the attempts run (at most 8). */
@@ -521,6 +595,8 @@ export interface GateOutcome {
   evidence: SprtEvidence | BaselineEvidence;
   /** The first attempt replayed clean, so every attempt would come out the same: it settled the verdict alone. */
   clean: boolean;
+  /** Attempts carried over from an earlier session this one continued: the first `carried` of `outcomes`. Absent when none were. */
+  carried?: number;
   /** The one sentence: `passed: at least 90% with 95% confidence after 12 attempts`. */
   sentence: string;
 }
@@ -533,7 +609,7 @@ export type GateResult = Gate & GateOutcome;
 
 /** The gate a result was decided by, without what it made of the attempts. */
 export function gateOf(r: Gate): Gate {
-  return r.kind === 'sprt' ? { kind: 'sprt', good: r.good, bad: r.bad, risk: r.risk, max: r.max } : { kind: 'baseline', drop: r.drop, risk: r.risk, window: r.window, min: r.min };
+  return r.kind === 'sprt' ? { kind: 'sprt', good: r.good, bad: r.bad, risk: r.risk, max: r.max } : { kind: 'baseline', drop: r.drop, risk: r.risk, window: r.window, min: r.min, max: r.max };
 }
 
 /** The largest k a report lists pass^k for. */
@@ -544,9 +620,11 @@ export const PASS_K_SHOWN = 5;
 /**
  * A gate's verdict on attempts that came out as `outcomes` (true for a pass), in order. `clean`: the
  * first attempt replayed clean, so it settled the verdict by itself. `decision` defaults to what the
- * gate says after the last attempt; a caller stopped early (a signal, a budget) passes `continue`.
+ * gate says after the last attempt; a caller stopped early (a signal, a budget) passes `continue`,
+ * and one whose decision came before attempts still running had ended passes the decision it froze.
+ * `carried`: how many of the outcomes came from an earlier session this one continued.
  */
-export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { history?: GateHistory | null; clean?: boolean; decision?: GateDecision } = {}): GateResult {
+export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { history?: GateHistory | null; clean?: boolean; decision?: GateDecision; carried?: number } = {}): GateResult {
   const attempts = outcomes.length;
   const passes = outcomes.filter(Boolean).length;
   const history = o.history && o.history.attempts > 0 ? o.history : null;
@@ -562,15 +640,36 @@ export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { histor
     let score = 0;
     evidence = { kind: 'sprt', ...b, scores: outcomes.map((x) => (score += x ? b.pass : b.fail)) };
   } else {
+    const base = baselineOf(history);
+    let seen = 0;
+    const probabilities = outcomes.map((x, i) => {
+      if (x) seen++;
+      return i + 1 >= gate.min || (clean && i === 0) ? dropProbability({ passes: seen, attempts: i + 1 }, base, gate.drop) : null;
+    });
     evidence = {
       kind: 'baseline',
       history: history ? { passes: history.passes, attempts: history.attempts, sessions: 'sessions' in history ? history.sessions : 0 } : null,
-      baseline: history ? history.passes / history.attempts : 1,
-      probability: attempts >= gate.min || clean ? dropProbability({ passes, attempts }, history, gate.drop) : null,
+      baseline: base.passes / base.attempts,
+      probability: probabilities.at(-1) ?? null,
+      probabilities,
       threshold: 1 - gate.risk,
+      passAt: BASELINE_PASS_AT,
     };
   }
-  return { ...gateOf(gate), decision, passes, attempts, interval: { ...w, confidence }, passK, evidence, clean, sentence: gateSentence(gate, { decision, attempts, clean, evidence }) };
+  const carried = o.carried && o.carried > 0 ? Math.min(o.carried, attempts) : 0;
+  return {
+    ...gateOf(gate),
+    decision,
+    passes,
+    attempts,
+    outcomes: [...outcomes],
+    interval: { ...w, confidence },
+    passK,
+    evidence,
+    clean,
+    ...(carried ? { carried } : {}),
+    sentence: gateSentence(gate, { decision, attempts, clean, evidence, ...(carried ? { carried } : {}) }),
+  };
 }
 
 /** The verdict word a decision reads as: passed, failed, inconclusive; one still going reads as undecided. */
@@ -578,20 +677,21 @@ export function decisionWord(d: GateDecision): 'passed' | 'failed' | 'inconclusi
   return d === 'pass' ? 'passed' : d === 'fail' ? 'failed' : d === 'inconclusive' ? 'inconclusive' : 'undecided';
 }
 
-/** The baseline in words: `0.94 over the last 10 sessions`, or that there is none yet. */
+/** The baseline in words: `0.94 over the last 10 sessions (47 of 50 attempts)`, or the recording when there is no history yet. */
 function baselineWords(e: BaselineEvidence): string {
-  if (!e.history) return 'a golden that always passes, since it has no history yet';
+  if (!e.history) return 'its recording, the one attempt it was packed from, since it has no history yet';
   const over = e.history.sessions > 1 ? `the last ${e.history.sessions} sessions` : 'its last session';
   return `${rate(e.baseline)} over ${over} (${e.history.passes} of ${e.history.attempts} attempts)`;
 }
 
 /**
  * The one sentence every report says: `passed: at least 90% with 95% confidence after 12 attempts`,
- * `failed: at most 70% with 95% confidence after 3 attempts`, `inconclusive: …`.
+ * `failed: at most 70% with 95% confidence after 3 attempts`, `inconclusive: …`; for a gate against
+ * history, `passed: no sign of a drop of 15 points or more from its baseline, …`.
  */
-export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'attempts' | 'clean' | 'evidence'>): string {
+export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'attempts' | 'clean' | 'evidence'> & { carried?: number | undefined }): string {
   const word = decisionWord(r.decision);
-  const after = `after ${plural(r.attempts, 'attempt')}`;
+  const after = `after ${plural(r.attempts, 'attempt')}${r.carried ? ` (${r.carried} carried over)` : ''}`;
   if (r.clean) return `${word}: a clean replay comes out the same every time, so its one attempt settles it`;
   const confidence = percent(1 - g.risk);
   if (g.kind === 'sprt') {
@@ -601,10 +701,12 @@ export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'attempt
     return `undecided ${after}: between ${percent(g.bad)} and ${percent(g.good)} so far`;
   }
   const e = r.evidence as BaselineEvidence;
-  const points = `${+(g.drop * 100).toFixed(1)} points`;
-  if (r.decision === 'pass') return `passed: no drop of ${points} or more from its baseline, ${baselineWords(e)}, with ${confidence} confidence ${after}`;
-  if (r.decision === 'fail') return `failed: its pass rate dropped ${points} or more from its baseline, ${baselineWords(e)}, with ${confidence} confidence ${after}`;
-  return `undecided ${after}: it decides after ${plural(g.min, 'attempt')}`;
+  const drop = points(g.drop);
+  if (r.decision === 'pass') return `passed: no sign of a drop of ${drop} or more from its baseline, ${baselineWords(e)}, ${after}`;
+  if (r.decision === 'fail') return `failed: its pass rate dropped ${drop} or more from its baseline, ${baselineWords(e)}, with ${confidence} confidence ${after}`;
+  if (r.decision === 'inconclusive') return `inconclusive: a drop of ${drop} or more from its baseline, ${baselineWords(e)}, is likelier than not but short of ${confidence} confidence ${after}, the most the gate runs`;
+  if (r.attempts < g.min) return `undecided ${after}: it decides from ${plural(g.min, 'attempt')} on`;
+  return `undecided ${after}: a drop of ${drop} or more is likelier than not, short of ${confidence} confidence so far`;
 }
 
 /**

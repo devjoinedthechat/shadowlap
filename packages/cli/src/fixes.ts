@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { BLAME_DEFAULTS, ciProvider, commitTitle, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type Store, type VerifyReport } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, ciProvider, commitTitle, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type Store, type VerifyReport } from '@shadowlap/engine';
 import { EXIT_LABEL } from './attempts.js';
 import { evaluateChecks, formatAmount, type CheckResult, type CountRange, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -301,7 +301,7 @@ export function recordBlameFix(
       actor: who,
       runId: input.runId,
       ref: recorded.fix.fixId,
-      data: { outcome: input.report.outcome, callNo: input.report.blamed?.callNo ?? null, confidence: input.report.confidence, title: recorded.fix.title, opened: recorded.created },
+      data: { outcome: input.report.outcome, callNo: input.report.blamed?.callNo ?? null, confidence: input.report.confidence, title: recorded.fix.title, opened: recorded.created, ...(unsettledFirst(input.report) ? { unsettled: true } : {}) },
     });
     return recorded;
   } catch (err) {

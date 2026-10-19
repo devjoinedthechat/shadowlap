@@ -369,7 +369,10 @@ export interface TestSession {
   command: string[];
   /** The code version it tested (`codeVersion`): a short sha, with `+dirty` for uncommitted changes. */
   revision: string | null;
-  /** Set when it ends: the goldens that finished, by how they came out. */
+  /**
+   * Set when it ends: the goldens that finished, by how they came out. An inconclusive one is
+   * neither (its result's `data.verdict` says so); sessions before verdicts counted it by CI's call.
+   */
   passed: number;
   failed: number;
   /** Requests that reached a provider: 0 for goldens that replay offline. */
@@ -415,6 +418,12 @@ export interface TestResultData {
   gate?: GateResult;
   /** USD its attempts spent on live calls, so a dashboard can say what more attempts would cost. */
   spent?: number;
+  /**
+   * `test --continue` carried an inconclusive gate's attempts over: the sessions they came from,
+   * oldest first, and how many. `gate` counts them; `attempts` is this session's own, so a baseline
+   * pools each attempt once.
+   */
+  continued?: { sessions: string[]; attempts: number };
   /**
    * Where the replay diverged; `text` is the report as the CLI prints it. `diff` keeps the first
    * changes, cut short; `entries` is how many there were, and `volatile` what volatileValues() made

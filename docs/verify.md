@@ -11,7 +11,7 @@ shadowlap verify --fixes 01M3RXQ4VB --holdout 01M3RXQ51B --keeps label:good \
 ✗ Rejected: the change fixes 1 of 1 target run, 1 of 1 held-out run and keeps 0 of 1 good run
   · good run 01M3RXQ56V broken: 0 of 3 passed, ≤ 0.56 (the agent exited with code 1)
 
-  A run's attempts must meet the oracle: the agent exits 0; issue_refund with {"amount":240} called 0 times. Its gate decides after each attempt: pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 40 attempts; a clean replay settles it in one.
+  A run's attempts must meet the oracle: the agent exits 0; issue_refund with {"amount":240} called 0 times. Its gate decides after each attempt: pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 80 attempts; a clean replay settles it in one.
 
     target    01M3RXQ4VB  fixed   12 of 12 passed, ≥ 0.76  forked at #1
     held-out  01M3RXQ51B  fixed   12 of 12 passed, ≥ 0.76  forked at #1
@@ -41,7 +41,7 @@ It also warns when a recording contradicts its role. A target that already passe
 
 **The oracle** is the same as [blame's](./blame.md#how-it-works): the agent exits 0, and meets `--expect`, the `expect` object of an [outcome check](./ci.md#outcome-checks). One oracle applies to every run, so a policy such as "never refund $240" is also checked on the good runs.
 
-**Attempts.** Each run is replayed with its recorded command, under the code in the working directory. A replay forks at the first request the change affects, and everything after that runs live, so a forked run is a sample, and is replayed until its [gate](./gating.md) decides: after each attempt it either passes (the run passes its oracle at least 90% of the time), fails (70% or less), or takes another, each verdict wrong at most 5% of the time. A run that always passes is accepted after 12 attempts; one that always fails is rejected after 3; one still between the two after 40 is **inconclusive**, and the change is not accepted. The 4 of 5 verify used before let a run that passes 70% of the time through about half the time; the gate lets it through 4% of the time. `--gate` changes the figures, such as `--gate '{"good":0.95,"bad":0.8}'`; `--attempts` and `--passes` give a fixed count instead (4 of 5 by default), which stops as soon as its verdict is settled.
+**Attempts.** Each run is replayed with its recorded command, under the code in the working directory. A replay forks at the first request the change affects, and everything after that runs live, so a forked run is a sample, and is replayed until its [gate](./gating.md) decides: after each attempt it either passes (the run passes its oracle at least 90% of the time), fails (70% or less), or takes another, each verdict wrong at most 5% of the time. A run that always passes is accepted after 12 attempts; one that always fails is rejected after 3; one still between the two after 80 is **inconclusive**, and the change is not accepted (a run that passes 90% of the time ends so 0.9% of the time). The 4 of 5 verify used before let a run that passes 70% of the time through about half the time; the gate lets it through 4% of the time. `--gate` changes the figures, such as `--gate '{"good":0.95,"bad":0.8}'`; `--attempts` and `--passes` give a fixed count instead (4 of 5 by default), which stops as soon as its verdict is settled.
 
 **A replay that forks nowhere settles its run in one attempt.** Every call came from the recording, so every attempt would come out the same. A replay that made no model calls through Shadowlap, where the recording made some, is not one of them. The agent reached its model some other way, and what it did is unrecorded. The attempt fails and the report says why, because counting it would judge a run nobody saw. That makes verifying a harness fix free, since fixes to parsing, dispatch or stop conditions change no request. It also makes the good runs a change doesn't touch free.
 
@@ -65,7 +65,7 @@ Every attempt is a run in the store, bundled per verified run in the dashboard's
 
 ## Cost
 
-A run that replays clean costs nothing. A forked run costs up to the gate's `max` live suffixes (40), and usually far fewer: 12 for a fix that always works, 3 for one that never does. That is what it takes to tell a run that passes 90% of the time from one at 70% at 5% risk; [Gating](./gating.md#what-a-gate-costs) has the table.
+A run that replays clean costs nothing. A forked run costs up to the gate's `max` live suffixes (80), and usually far fewer: 12 for a fix that always works, 3 for one that never does. That is what it takes to tell a run that passes 90% of the time from one at 70% at 5% risk; [Gating](./gating.md#what-a-gate-costs) has the table.
 
 | Option | Effect |
 |---|---|

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { decide, Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
 import { unpricedOnly } from '../src/blame.js';
 
@@ -99,7 +99,7 @@ describe('shadowlap blame', () => {
     expect(r.stdout).toContain(`The run was lost at model call #${decision} (3 of 4)`);
     // Each probe is decided by blame's gate: a rescue at 60% or more, lost at 10% or less, 5% risk each.
     expect(r.stdout).toMatch(new RegExp(`The re-asked call #${decision} passes at least 60% of the time \\(\\d of \\d attempts\\); #${last}, the next model call, passes at most 10% of the time \\(0 of 4 attempts\\)\\.`));
-    expect(r.stdout).toContain('Probes (a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 10 attempts; resample the probed call)');
+    expect(r.stdout).toContain('Probes (a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 20 attempts; resample the probed call)');
     expect(r.stdout).toContain('Confidence: high');
     expect(r.stdout).toContain('issue_refund({"order_id":"A-1042","amount":240})');
     expect(r.stdout).toContain('"Above the limit.", escalate({"reason":"refund of $240 is above $100"})');
@@ -140,7 +140,7 @@ describe('shadowlap blame', () => {
     const plain = await shadowlap(['blame', runId, '--expect', ORACLE, '--json']);
     expect(plain.code, plain.out).toBe(0);
     const report = JSON.parse(plain.stdout) as Record<string, unknown> & { probes: Array<{ runs: unknown[] }> };
-    expect(report).toMatchObject({ outcome: 'unrescuable', blamed: null, confidence: 'high', modelCalls: 4, passesNeeded: 2, attemptsPerProbe: 10, gate: { kind: 'sprt', good: 0.6, bad: 0.1, risk: 0.05, max: 10 }, rescue: { fields: {} } });
+    expect(report).toMatchObject({ outcome: 'unrescuable', blamed: null, confidence: 'high', modelCalls: 4, passesNeeded: 2, attemptsPerProbe: 20, gate: { kind: 'sprt', good: 0.6, bad: 0.1, risk: 0.05, max: 20 }, rescue: { fields: {} } });
     expect(report.probes).toHaveLength(1);
     // Four straight failures: lost, passing at most 10% of the time with 95% confidence, as 2 of 5 would have called it.
     expect(report.probes[0]!.runs).toHaveLength(4);
@@ -256,4 +256,27 @@ describe('shadowlap blame', () => {
     expect(report.outcome).toBe('blamed');
     expect(report.blamed.step).toBe(3);
   });
+
+  it('decides a probe once with --concurrency 2 and mixed outcomes, on the attempts in the order they started', async () => {
+    // The small model alternates, so two attempts at once often end one passing, one failing.
+    const runId = await record();
+    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', '2', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as { gate: SprtGateJson; probes: Array<{ decision: string; passes: number; rescued: boolean; runs: Array<{ passed: boolean }>; rate: { decision: string; sentence: string } }> };
+    expect(report.probes.length).toBeGreaterThan(0);
+    for (const p of report.probes) {
+      // What it decided on: the first attempts to start, up to the one that settled it, and no more than
+      // one attempt past it (the other worker's, already running).
+      const on = Number(/after (\d+) attempts?/.exec(p.rate.sentence)![1]);
+      const prefix = p.runs.slice(0, on).map((x) => x.passed);
+      const decisions = prefix.map((_, i) => decide(prefix.slice(0, i + 1).filter(Boolean).length, i + 1, { kind: 'sprt', ...report.gate }));
+      expect(decisions.slice(0, -1).every((d) => d === 'continue'), JSON.stringify(prefix)).toBe(true);
+      expect(decisions.at(-1)).toBe(p.decision);
+      expect(p.rate.decision).toBe(p.decision);
+      expect(p.runs.length).toBeLessThanOrEqual(on + 1);
+      expect(p.rescued).toBe(p.decision === 'pass');
+    }
+  });
 });
+
+type SprtGateJson = { good: number; bad: number; risk: number; max: number };

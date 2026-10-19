@@ -146,7 +146,7 @@ describe('GET /api/tests', () => {
 describe('GET /api/tests/gate', () => {
   it('previews what a gate\'s figures would do, before they are saved, and refuses what the config would', async () => {
     const preview = await getJson<{ gate: unknown; description: string; toPass: number; toFail: number; odds: Array<{ rate: number; pass: number; attempts: number }>; defaults: { sprt: unknown } }>(dash, 'tests/gate?good=0.9&bad=0.7&risk=0.05&max=20');
-    expect(preview).toMatchObject({ gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, description: 'pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 20 attempts', toPass: 12, toFail: 3, defaults: { sprt: { good: 0.9, bad: 0.7, risk: 0.05, max: 40 } } });
+    expect(preview).toMatchObject({ gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, description: 'pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 20 attempts', toPass: 12, toFail: 3, defaults: { sprt: { good: 0.9, bad: 0.7, risk: 0.05, max: 80 } } });
     expect(preview.odds.find((o) => o.rate === 0.7)!.pass).toBeCloseTo(0.0222, 4);
     expect(await getJson(dash, 'tests/gate?baseline=history')).toMatchObject({ gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5 }, toPass: null, odds: [] });
     const refused = await api(dash, 'tests/gate?good=0.9&max=4');

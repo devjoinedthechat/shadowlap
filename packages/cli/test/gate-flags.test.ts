@@ -14,13 +14,13 @@ const blame = { defaults: BLAME_DEFAULTS, passes: (n: number) => Math.min(2, n) 
 
 describe('attemptRule', () => {
   it('decides by the command\'s own gate when given nothing', () => {
-    expect(attemptRule({}, verify)).toEqual({ gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 40 }, attempts: 40, needed: 0 });
-    expect(attemptRule({}, blame)).toEqual({ gate: { kind: 'sprt', good: 0.6, bad: 0.1, risk: 0.05, max: 10 }, attempts: 10, needed: 0 });
+    expect(attemptRule({}, verify)).toEqual({ gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, attempts: 80, needed: 0 });
+    expect(attemptRule({}, blame)).toEqual({ gate: { kind: 'sprt', good: 0.6, bad: 0.1, risk: 0.05, max: 20 }, attempts: 20, needed: 0 });
   });
 
   it('fills a partial --gate from the command\'s defaults', () => {
-    expect(attemptRule({ gate: '{"good":0.95,"bad":0.8}' }, verify).gate).toEqual({ kind: 'sprt', good: 0.95, bad: 0.8, risk: 0.05, max: 40 });
-    expect(attemptRule({ gate: '{"good":0.5}' }, blame).gate).toEqual({ kind: 'sprt', good: 0.5, bad: 0.1, risk: 0.05, max: 10 });
+    expect(attemptRule({ gate: '{"good":0.95,"bad":0.8}' }, verify).gate).toEqual({ kind: 'sprt', good: 0.95, bad: 0.8, risk: 0.05, max: 80 });
+    expect(attemptRule({ gate: '{"good":0.5}' }, blame).gate).toEqual({ kind: 'sprt', good: 0.5, bad: 0.1, risk: 0.05, max: 20 });
   });
 
   it('keeps the fixed count of before when --attempts or --passes is given', () => {
@@ -41,9 +41,9 @@ describe('attemptRule', () => {
 describe('readGate', () => {
   it('reads JSON or a file, and says what is wrong in the gate\'s own words', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sl-gate-flag-'));
-    writeFileSync(join(dir, 'gate.json'), '{"risk":0.01,"max":80}');
-    expect(readGate(`@${join(dir, 'gate.json')}`, SPRT_DEFAULTS)).toEqual({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.01, max: 80 });
-    expect(() => readGate('good=0.9', SPRT_DEFAULTS)).toThrow(`--gate takes JSON or @file.json, such as '{"good":0.9,"bad":0.7,"risk":0.05,"max":40}'`);
+    writeFileSync(join(dir, 'gate.json'), '{"risk":0.01,"max":120}');
+    expect(readGate(`@${join(dir, 'gate.json')}`, SPRT_DEFAULTS)).toEqual({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.01, max: 120 });
+    expect(() => readGate('good=0.9', SPRT_DEFAULTS)).toThrow(`--gate takes JSON or @file.json, such as '{"good":0.9,"bad":0.7,"risk":0.05,"max":80}'`);
     expect(() => readGate('{"good":0.9,"repeat":3}', SPRT_DEFAULTS)).toThrow('--gate has an unknown key "repeat" (expected "good", "bad", "risk", "max")');
     expect(() => readGate('{"max":5}', SPRT_DEFAULTS)).toThrow('--gate: max (5) is fewer than the 12 attempts an agent that always passes needs');
     expect(() => readGate('{"baseline":"history"}', SPRT_DEFAULTS)).toThrow('a gate against history belongs to a golden, under "tests" in shadowlap.config.json');

@@ -230,7 +230,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.steps[2]).toMatchObject({ short: '3 of 3 held', title: '3 of 3 runs held', meta: '1 earlier change rejected' });
     expect(shown.verify.map((v: { verdict: string }) => v.verdict)).toEqual(['accepted', 'rejected']);
     expect(shown.defaultVerify).toBe(shown.verify[0].verifyId);
-    expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: "a run's attempts must meet the check: the agent exits 0; issue_refund with {\"amount\":240} called 0 times; its gate decides after each one: pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 40 attempts" });
+    expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: "a run's attempts must meet the check: the agent exits 0; issue_refund with {\"amount\":240} called 0 times; its gate decides after each one: pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 80 attempts" });
     // Each run shows its rate, at the risk it was decided at.
     expect(shown.verify[0].rows[0].rate).toMatchObject({ decision: 'pass', confidence: 0.95, sentence: 'passed: at least 90% with 95% confidence after 12 attempts' });
     expect(shown.verify[0].rows.map((r: { role: string; outcome: string }) => [r.role, r.outcome])).toEqual([

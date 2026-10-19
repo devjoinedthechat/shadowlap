@@ -144,7 +144,7 @@ export function markdownReport(report: TestReport): string {
   }
   if (inconclusive) {
     const warned = report.results.some((r) => r.verdict === 'inconclusive' && r.ok);
-    lines.push('', `Inconclusive means neither verdict holds at the gate's stated risk after the most attempts it runs, or a check couldn't be judged. ${warned ? 'This run lets inconclusive recordings through (`--inconclusive warn`).' : 'It fails the run unless `--inconclusive warn` is given.'} More attempts settle a gate: raise its \`max\`, or run \`shadowlap test <recording> --max-attempts <n>\` once.`);
+    lines.push('', `Inconclusive means neither verdict holds at the gate's stated risk after the most attempts it runs, or a check couldn't be judged. ${warned ? 'This run lets inconclusive recordings through (`--inconclusive warn`).' : 'It fails the run unless `--inconclusive warn` is given.'} More attempts settle a gate: raise its \`max\`, or run \`shadowlap test <recording> --max-attempts <n> --continue\` once, which carries its attempts over.`);
   }
   if (report.interrupted) lines.push('', 'The session was interrupted: only the recordings above finished, and the rest did not run.');
   const updated = report.results.filter((r) => r.updated);

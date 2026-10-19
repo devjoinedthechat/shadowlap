@@ -129,15 +129,21 @@ function passedLine(o: GoldenOutcome): string {
 
 function printGolden(o: GoldenOutcome, suffix = ''): void {
   const gate = o.result?.gate;
+  // What to know about how its gate decided, under its line.
+  const notes = () => {
+    for (const note of o.notes ?? []) process.stdout.write(p.dim(`    ${note}\n`));
+  };
   if (!o.failure) {
     // A gate's verdict leads, in its one sentence, with the evidence under it.
     if (gate) process.stdout.write(`${p.green('✓')} ${o.name}: ${gate.sentence}${suffix}\n${p.dim(`    ${formatTally(gate)} · ${passedLine(o)}`)}\n`);
     else process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}${suffix}\n`);
+    notes();
     return;
   }
   // Inconclusive is neither: amber, whatever CI does with it.
   const inconclusive = verdictOf(o) === 'inconclusive';
   process.stdout.write(`${inconclusive ? p.yellow('!') : p.red('✗')} ${o.name}: ${o.failure.message}\n`);
+  notes();
   if (!o.result) return;
   const indent = (text: string, prefix = '    ') => text.split('\n').map((l) => prefix + l).join('\n') + '\n';
   if (o.result.shown.checks?.length) process.stdout.write(indent(formatChecks(o.result.shown.checks)));
@@ -164,8 +170,9 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'network guard: block, warn or off (re-recording under --update, warn unless given)', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
     .option('--inconclusive <mode>', "what an inconclusive verdict does, a gate's or a check's: fail the run, or warn and let it through", parseChoice<InconclusiveMode>(['fail', 'warn']), 'fail')
-    .option('--max-attempts <n>', "raise each gate's limit for this session: an SPRT gate's max, or the attempts a history gate decides after", parseIntArg)
-    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number }) {
+    .option('--max-attempts <n>', "raise each gate's limit for this session: its max, the most attempts it runs", parseIntArg)
+    .option('--continue', "carry an inconclusive gate's attempts over from the golden's last result, when its recording, checks and gate are unchanged, and run only the attempts still needed (with --max-attempts, the higher limit to run to)")
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; continue?: boolean }) {
       const opts = program.opts<GlobalOpts>();
       const guardGiven = this.getOptionValueSource('guard') === 'cli';
       const projectDir = process.cwd();
@@ -173,6 +180,7 @@ export function register(program: Command): void {
       const tests = loadTests(projectDir);
       const cwd = resolve(flags.cwd ?? projectDir);
       if (flags.maxAttempts !== undefined && (flags.maxAttempts < 1 || flags.maxAttempts > GATE_MAX_ATTEMPTS)) throw new InvalidArgumentError(`--max-attempts must be a whole number from 1 to ${GATE_MAX_ATTEMPTS}`);
+      if (flags.continue && flags.update) throw new InvalidArgumentError('--continue adds attempts to an inconclusive gate, --update re-records a golden: give one or the other');
       const { dirs: packs, unmatched } = expandRecordings(packArgs, projectDir);
       if (unmatched.length) {
         throw new InvalidArgumentError(`no recordings match ${unmatched.join(' ')}: a recording is a directory written by shadowlap pack, with a run.json inside`);
@@ -230,6 +238,7 @@ export function register(program: Command): void {
             onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${spec?.gate ? `up to ${of}` : of}` : ''}\n`)),
             stopped,
             ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
+            ...(flags.continue ? { continue: true } : {}),
           };
           // Every run this golden makes, for --push: its replays, and a re-recording with --update.
           const made: string[] = [];
@@ -340,15 +349,18 @@ export function register(program: Command): void {
       } finally {
         process.off('SIGINT', onSignal);
         process.off('SIGTERM', onSignal);
-        // Counted from the results recorded, so a session cut short by an error or a signal counts what ran.
-        const passed = results.filter((r) => r.ok).length;
-        const failed = results.length - passed;
+        // Counted from the results recorded, so a session cut short by an error or a signal counts what
+        // ran, each by how it came out: an inconclusive golden is neither passed nor failed, whatever CI
+        // does with it, and the test history keeps how many there were with the event.
+        const passed = results.filter((r) => r.verdict === 'passed').length;
+        const failed = results.filter((r) => r.verdict === 'failed').length;
+        const inconclusive = results.length - passed - failed;
         try {
           store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests, interrupted: signal !== null });
         } catch (err) {
           process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept in the test history: ${(err as Error).message}\n`));
         }
-        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: results.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}), ...(signal ? { interrupted: true, notRun: packs.length - results.length } : {}) } });
+        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, ...(inconclusive ? { inconclusive } : {}), goldens: results.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}), ...(signal ? { interrupted: true, notRun: packs.length - results.length } : {}) } });
         try {
           store.close();
         } catch {

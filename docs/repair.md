@@ -159,7 +159,7 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 | `--stronger <model>` | Rescue with this model when the recorded one can't be, and try switching to it |
 | `--scope <name>` | Blame only the model calls of this scope: the agent's, not a simulated user's |
 | `--set <key=value>` | Blame's probes set this request field, such as `temperature=1` for an agent recorded at 0, whose answers don't vary when asked again |
-| `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for [`verify`](./verify.md#how-a-run-is-judged): by default a run passes at 90% or more and fails at 70% or less, each at 5% risk, up to 40 attempts |
+| `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for [`verify`](./verify.md#how-a-run-is-judged): by default a run passes at 90% or more and fails at 70% or less, each at 5% risk, up to 80 attempts |
 | `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, such as `--attempts 5 --passes 4` |
 | `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this. Default 25 |
 | `--build <command>` | Rebuild the agent after its source changes |
