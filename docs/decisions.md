@@ -159,7 +159,7 @@ When no file names the model (it comes from an environment variable or a deploym
 
 ## Model retirements
 
-`decisions` and `migrate` warn when a model the runs use, or the one they switch to, retires. The dates come from a table that ships with Shadowlap, read from each provider's own deprecation page on the date it carries, each row with its page; nothing calls home, and a newer release ships a newer table.
+`decisions` and `migrate` warn when a model the runs use, or the one they switch to, retires. The dates come from a table that ships with Shadowlap as data, `packages/engine/data/model-retirements.json` in the repository, read from each provider's own pages on the date its `version` names, each row with its page; nothing calls home, and a newer release ships a newer table. The same file keeps the request fields newer models stop accepting, which `migrate` changes.
 
 | Platform | Page | What the table keeps |
 |---|---|---|

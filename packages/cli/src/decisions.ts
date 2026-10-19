@@ -22,9 +22,9 @@ import {
   refused,
   requestShape,
   resolveAuthor,
-  RETIREMENT_SOURCES,
   retiredFields,
   retirementsOf,
+  retirementTable,
   setRequestFields,
   switchModel,
   ulid,
@@ -392,7 +392,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, cap
             const set = setRequestFields(requestShape(provider, at, body), body, { [f.field]: allowed });
             if (!refused(set)) body = set.body;
           } else body = withoutFields(provider, at, body, [f.field]);
-          const why = `${model} is among ${f.rule.appliesTo}, where ${f.rule.says} (${RETIREMENT_SOURCES[f.rule.platform].owner}); the requests send ${f.field}=${JSON.stringify(f.value)}. ${f.rule.instead}`;
+          const why = `${model} is among ${f.rule.appliesTo}, where ${f.rule.says} (${retirementTable().platforms[f.rule.platform].owner}); the requests send ${f.field}=${JSON.stringify(f.value)}. ${f.rule.instead}`;
           if (note) remedies.note({ field: f.field, value: allowed ?? null, leftOut: allowed === undefined, why, source: f.rule.source });
           fieldsChanged = true;
         }

@@ -117,6 +117,6 @@ export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';
 export { promptOf, promptParts, samePrompt, withoutEarlierThinking, withPrompt, type RequestPrompt } from './prompt.js';
 export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LABELS, STOP_WORDS, argsDelta, byConsequence, callLine, clipText, compareDecisions, decisionLine, decisionOf, decisionOfResponse, decisionView, effectsOf, emptyCounts, formatDecisions, isHandover, normalizedArgs, stepDelta } from './decisions.js';
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
-export { FIELD_RETIREMENTS, MODEL_RETIREMENTS, RETIREMENT_SOURCES, RETIREMENTS_VERSION, longDate, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTableProblems, tableModel } from './model-retirements.js';
-export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform } from './model-retirements.js';
+export { longDate, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTable, retirementTableProblems, tableModel } from './model-retirements.js';
+export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform, RetirementSource, RetirementTable } from './model-retirements.js';
 export type { DecisionRunRow, DecisionSessionRow, NewDecisionSession } from './store.js';

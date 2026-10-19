@@ -1,36 +1,55 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { FIELD_RETIREMENTS, MODEL_RETIREMENTS, RETIREMENT_SOURCES, RETIREMENTS_VERSION, longDate, retiredFields, retirementOf, retirementsOf, retirementTableProblems, tableModel } from '../src/model-retirements.js';
+import { longDate, retiredFields, retirementOf, retirementsOf, retirementTable, retirementTableProblems, tableModel, type RetirementTable } from '../src/model-retirements.js';
 
-/** The retirement table ships with the code: every date from a provider's own page, nothing asked at runtime. */
+/** The retirement table ships with the code as data: every date from a provider's own page, nothing asked at runtime. */
 
 const at = (day: string) => Date.parse(`${day}T12:00:00Z`);
+const { models, fields, platforms, version } = retirementTable();
 
 describe('the retirement table', () => {
-  it('cites a provider page for every row, with a real date', () => {
+  it('is the data file the package ships, each row citing a provider page, with a real date', () => {
+    const file = JSON.parse(readFileSync(new URL('../data/model-retirements.json', import.meta.url), 'utf8')) as RetirementTable;
+    expect(retirementTable()).toEqual(file);
+    expect(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).files).toContain('data');
     expect(retirementTableProblems()).toEqual([]);
-    expect(MODEL_RETIREMENTS.length).toBeGreaterThan(100);
-    for (const s of Object.values(RETIREMENT_SOURCES)) {
+    expect(models.length).toBeGreaterThan(100);
+    for (const s of Object.values(platforms)) {
       for (const page of s.pages) expect(page).toMatch(/^https:\/\/(platform\.claude\.com|developers\.openai\.com|ai\.google\.dev|docs\.cloud\.google\.com|docs\.aws\.amazon\.com)\//);
       expect(s.pages).toContain(s.url);
     }
-    for (const f of FIELD_RETIREMENTS) expect(Object.values(RETIREMENT_SOURCES).flatMap((s) => s.pages)).toContain(f.source);
-    expect(RETIREMENTS_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    for (const f of fields) expect(Object.values(platforms).flatMap((s) => s.pages)).toContain(f.source);
+    expect(version).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('names what is wrong with a row or a rule, for whoever edits the file', () => {
+    const edited: RetirementTable = {
+      ...retirementTable(),
+      models: [{ platform: 'bedrock', model: 'm', retires: '2026-13-01', source: 'https://example.com/elsewhere' }],
+      fields: [{ ...fields[0]!, says: '' }],
+    };
+    expect(retirementTableProblems(edited)).toEqual([
+      'bedrock m: its source is not one of the platforms\' pages',
+      'bedrock m: retires is not a date',
+      'bedrock m: a Bedrock date needs its Regions',
+      `the ${fields[0]!.fields.join(', ')} rule: it needs the page's words`,
+    ]);
   });
 
   it('keeps no date a page does not set: no active Claude model, no "or later" date', () => {
-    expect(MODEL_RETIREMENTS.some((r) => r.platform === 'anthropic' && r.model === 'claude-opus-5-5')).toBe(false);
+    expect(models.some((r) => r.platform === 'anthropic' && r.model === 'claude-opus-5-5')).toBe(false);
     // Vertex AI gives gemini-3.8-flash "September 2, 2027 or later", and gemini-2.5-pro a date of its own.
-    expect(MODEL_RETIREMENTS.some((r) => r.platform === 'vertex' && r.model === 'gemini-3.8-flash')).toBe(false);
-    expect(MODEL_RETIREMENTS.find((r) => r.platform === 'vertex' && r.model === 'gemini-2.5-pro')).toMatchObject({ retires: '2026-10-20', replacement: 'gemini-3.8-flash or gemini-3.5-flash' });
+    expect(models.some((r) => r.platform === 'vertex' && r.model === 'gemini-3.8-flash')).toBe(false);
+    expect(models.find((r) => r.platform === 'vertex' && r.model === 'gemini-2.5-pro')).toMatchObject({ retires: '2026-10-20', replacement: 'gemini-3.8-flash or gemini-3.5-flash' });
     // The Gemini API keeps serving 2.5 Pro with no shutdown date: the same model, another platform's table.
-    expect(MODEL_RETIREMENTS.some((r) => r.platform === 'gemini' && r.model === 'gemini-2.5-pro')).toBe(false);
+    expect(models.some((r) => r.platform === 'gemini' && r.model === 'gemini-2.5-pro')).toBe(false);
   });
 });
 
 describe('retirementOf', () => {
   it('names a model that retires, the days left, and what the provider recommends', () => {
     const n = retirementOf('anthropic', 'claude-sonnet-4-5-20250929', { now: at('2026-10-19') });
-    expect(n).toMatchObject({ state: 'retiring', retires: '2026-11-30', days: 42, replacement: 'claude-sonnet-5-5', source: RETIREMENT_SOURCES.anthropic.url });
+    expect(n).toMatchObject({ state: 'retiring', retires: '2026-11-30', days: 42, replacement: 'claude-sonnet-5-5', source: platforms.anthropic.url });
     expect(n!.text).toBe('claude-sonnet-4-5-20250929 retires on the Claude API on November 30, 2026, in 42 days; Anthropic recommends claude-sonnet-5-5');
     expect(retirementOf('anthropic', 'claude-3-7-sonnet-20250219', { now: at('2026-10-19') })!.text).toBe('claude-3-7-sonnet-20250219 was retired on the Claude API on February 19, 2026: requests to it fail; Anthropic recommends claude-sonnet-5-5');
     expect(retirementOf('anthropic', 'claude-mythos-preview', { now: at('2026-10-19') })).toMatchObject({ state: 'deprecated', retires: null, days: null });
@@ -69,7 +88,7 @@ describe('retirementOf', () => {
 
   it("matches a Vertex AI version to the model Google's pages name: Gemini's stable versions, Claude's after @", () => {
     const pro = retirementOf('vertex', 'gemini-2.5-pro', { now: at('2026-10-19') });
-    expect(pro).toMatchObject({ state: 'retiring', retires: '2026-10-20', days: 1, source: RETIREMENT_SOURCES.vertex.url });
+    expect(pro).toMatchObject({ state: 'retiring', retires: '2026-10-20', days: 1, source: platforms.vertex.url });
     expect(pro!.text).toBe('gemini-2.5-pro retires on Vertex AI on October 20, 2026, in 1 day; Google Cloud recommends gemini-3.8-flash or gemini-3.5-flash');
     expect(retirementOf('vertex', 'projects/p/locations/us-central1/publishers/google/models/gemini-2.0-flash-001', { now: at('2026-10-19') })).toMatchObject({ matched: 'gemini-2.0-flash', state: 'retired' });
     const sonnet = retirementOf('vertex', 'claude-3-7-sonnet@20250219', { now: at('2026-10-19') });

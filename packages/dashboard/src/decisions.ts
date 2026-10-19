@@ -1,4 +1,4 @@
-import { commandIsImported, importedCommandSource, quoteArgv, readConfigFile, retirementOf, RETIREMENTS_VERSION, testsEntryFor, type DecisionRun, type DecisionsReport, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
+import { commandIsImported, importedCommandSource, quoteArgv, readConfigFile, retirementOf, retirementTable, testsEntryFor, type DecisionRun, type DecisionsReport, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import type { GoldenSource } from './tests.js';
@@ -124,7 +124,7 @@ export function retirementsView(store: Store, goldens: readonly GoldenSource[], 
     }
   }
   const order = (n: RetirementNotice) => (n.days === null ? Number.MAX_SAFE_INTEGER : n.days);
-  return { version: RETIREMENTS_VERSION, notices: [...byModel.values()].sort((a, b) => order(a) - order(b) || b.goldens.length - a.goldens.length) };
+  return { version: retirementTable().version, notices: [...byModel.values()].sort((a, b) => order(a) - order(b) || b.goldens.length - a.goldens.length) };
 }
 
 // ---- jobs ----
