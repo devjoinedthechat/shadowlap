@@ -78,3 +78,19 @@ describe('the python check', () => {
     expect(only({})).toEqual({ found: false, detail: 'no python3 or python on PATH' });
   });
 });
+
+describe('a judge check whose model retires', () => {
+  it('is named with its date, its page and what to ask instead', async () => {
+    const { parseTests } = await import('../src/checks.js');
+    const { judgeRetirements } = await import('../src/doctor.js');
+    const judge = (model: string) => ({ name: 'explains', question: 'Does the reply say why?', model });
+    const entries = parseTests({ 'goldens/a': { expect: { judge: [judge('claude-sonnet-4-5-20250929')] } }, 'goldens/b': { expect: { when: [{ if: { tool: 'x' }, then: { judge: [judge('anthropic:claude-sonnet-4-5-20250929')] } }] } }, 'goldens/c': { expect: { judge: [judge('claude-sonnet-5-5')] } } });
+    const checks = judgeRetirements(entries, Date.UTC(2026, 9, 19));
+    // A judge under a when is held too, named by its provider or not; one on a current model says nothing.
+    expect(checks.map((c) => c.detail)).toEqual([
+      'judge "explains" in tests["goldens/a"]: claude-sonnet-4-5-20250929 retires on the Claude API on November 30, 2026, in 42 days; Anthropic recommends claude-sonnet-5-5',
+      'judge "explains" in tests["goldens/b"]: claude-sonnet-4-5-20250929 retires on the Claude API on November 30, 2026, in 42 days; Anthropic recommends claude-sonnet-5-5',
+    ]);
+    expect(checks[0]).toMatchObject({ name: 'judge model', verdict: 'warn', fix: 'Give it another model, such as claude-sonnet-5-5, then record its verdicts again: shadowlap test goldens/a --update. Source: https://platform.claude.com/docs/en/about-claude/model-deprecations' });
+  });
+});

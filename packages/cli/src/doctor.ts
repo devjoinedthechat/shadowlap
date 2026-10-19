@@ -2,9 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SCHEMA_VERSION, Store, loadApiRequest, toolDefinitions, type CallRecord } from '@shadowlap/engine';
+import { SCHEMA_VERSION, Store, judgeTarget, loadApiRequest, retirementOf, toolDefinitions, type CallRecord } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
-import { closestName, pathsNamed, storedCalls, toolsNamed, unreadPaths, type NamedPath, type NamedTool, type RecordedCalls, type TestEntry } from './checks.js';
+import { closestName, judgeChecksOf, pathsNamed, storedCalls, toolsNamed, unreadPaths, type NamedPath, type NamedTool, type RecordedCalls, type TestEntry } from './checks.js';
 import { CONFIG_FILE, configPath as configFile, defaultDbPath, loadConfig, loadTests } from './config.js';
 import { expandRecordings, testsKeyFor } from './goldens.js';
 
@@ -180,6 +180,7 @@ export function runDoctor(options: DoctorOptions): Check[] {
         } catch (err) {
           push('check rules', 'warn', `the tools the checks name could not be held against their recordings: ${err instanceof Error ? err.message : String(err)}`);
         }
+        checks.push(...judgeRetirements(tests));
       }
     } catch (err) {
       push('config', 'fail', `${configPath}: ${err instanceof Error ? err.message : String(err)}`, 'Fix the JSON; shadowlap normalize ls / redact ls print what is loaded.');
@@ -251,6 +252,26 @@ interface Held {
  * of its tool has (a misspelt `result.totl`) fails the rule, or leaves a condition undecided. An
  * entry with checks and no pack is named too. The home for later checks on checks.
  */
+/**
+ * The judge checks whose model retires, by the table that ships with Shadowlap. A judge asked a
+ * model its provider has shut down gets no verdict, so its checks read not judged wherever a replay
+ * forks or a golden is packed; and the retirement notices on recordings leave a judge's calls out,
+ * since they are no model the agent uses, so this is where it is said.
+ */
+export function judgeRetirements(entries: readonly TestEntry[], now = Date.now()): Check[] {
+  const out: Check[] = [];
+  for (const e of entries) {
+    for (const j of judgeChecksOf(e.spec)) {
+      const target = judgeTarget(j.model);
+      const n = target ? retirementOf(target.provider, target.model, { now }) : null;
+      if (!n) continue;
+      const instead = n.replacements.length ? `, such as ${n.replacements.join(' or ')}` : '';
+      out.push({ name: 'judge model', verdict: 'warn', detail: `judge "${j.name}" in tests["${e.recording}"]: ${n.text}`, fix: `Give it another model${instead}, then record its verdicts again: shadowlap test ${e.recording} --update. Source: ${n.source}` });
+    }
+  }
+  return out;
+}
+
 export function checkRules(cwd: string, entries: readonly TestEntry[], dbPath?: string): Check[] {
   const out: Check[] = [];
   const byKey = new Map<string, string[]>();

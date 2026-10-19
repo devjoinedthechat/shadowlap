@@ -194,7 +194,7 @@ function fromArgs(raw: unknown): string[] | { error: string } {
 /** `--scope` from the request's `scope`: a scope's name, or `none` for the calls made in none. */
 function scopeArgs(raw: unknown): string[] | { error: string } {
   if (raw === undefined || raw === null) return [];
-  if (typeof raw !== 'string' || !/^[\w.:/-]{1,100}$/.test(raw) || raw.startsWith('shadowlap:')) return { error: 'scope is the name of a scope the agent made calls in, or none' };
+  if (typeof raw !== 'string' || !/^[\w.:/-]{1,100}$/.test(raw) || isReservedScope(raw)) return { error: 'scope is the name of a scope the agent made calls in, or none' };
   return ['--scope', raw];
 }
 
