@@ -37,6 +37,9 @@ export { choicesHere, choicesInCheckout, commitsHere, commitSubjects, forgetComm
 // Settings: one read model per tab; edits go through the engine's config-file module.
 export { CLEANUP_DAYS, agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, readShippedDoc, redactionSettings, splitCommandLine, stdioServerName, toolsSettings } from './settings.js';
 export type { AgentFile, CodingAgentsSettings, ConfigInfo, HttpHostRow, MatchingSettings, McpRecordedServer, McpServerRow, ProjectSettings, RedactionSettings, RuleForm, RuleRow, SettingsContext, ToolRow, ToolsSettings } from './settings.js';
+// The coding agents' plugin and rule: whether they are published, and the commands that install them.
+export { CURSOR_RULE, SKILL_COMMAND, SKILL_PLUGIN, SKILL_PUBLISHED, SKILL_REPOSITORY, skillOffer } from './agent-skill.js';
+export type { SkillOffer } from './agent-skill.js';
 // Training: pairs, tasks and the model picker.
 export { approx, exportPairsJob, modelsView, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, sourceFixes, trainingView } from './training.js';
 export type { ModelOptionView, ModelsView, PairFilter, ScoreDialogView, SourceFix, TrainingInput, TrainingOptions, TrainingView } from './training.js';

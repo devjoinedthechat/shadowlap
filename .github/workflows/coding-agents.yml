@@ -1,0 +1,37 @@
+name: Coding agents
+
+# The Claude Code plugin's skill, the Cursor rule and the section docs/agents.md gives to paste tell
+# coding agents which shadowlap commands to run. This job runs every command they name against the
+# reference agent, with the scripted fake of the Anthropic API (no key, no model), and checks the JSON
+# fields they say to read, so the instructions never drift from the CLI. Then Claude Code's own
+# validator checks the plugin and the repository's marketplace file.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  skill:
+    name: the skill's commands against the reference agent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Run every command the skill, the rule and the pasted section name
+        run: npx vitest run testing/coding-agents
+      - name: Validate the plugin and the marketplace with Claude Code
+        # The validator reads files only: no sign-in, no model call. Pinned, so a new release of it
+        # changes this job only when the version here does.
+        env:
+          DISABLE_AUTOUPDATER: '1'
+          DISABLE_TELEMETRY: '1'
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+        run: |
+          npx --yes @anthropic-ai/claude-code@2.1.292 plugin validate --strict coding-agents/claude-code
+          npx --yes @anthropic-ai/claude-code@2.1.292 plugin validate --strict .

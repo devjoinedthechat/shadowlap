@@ -1,0 +1,21 @@
+{
+  "name": "shadowlap",
+  "displayName": "Shadowlap",
+  "version": "0.1.0",
+  "description": "Change safety for agents: find a failing run, replay a change against what your agent actually did, find the model call that lost the run, and verify the fix, with the shadowlap CLI.",
+  "author": {
+    "name": "Shadowlap",
+    "url": "https://github.com/devjoinedthechat/shadowlap"
+  },
+  "homepage": "https://github.com/devjoinedthechat/shadowlap/blob/main/docs/agents.md",
+  "repository": "https://github.com/devjoinedthechat/shadowlap",
+  "license": "Apache-2.0",
+  "keywords": [
+    "agents",
+    "llm",
+    "replay",
+    "testing",
+    "debugging",
+    "ci"
+  ]
+}
