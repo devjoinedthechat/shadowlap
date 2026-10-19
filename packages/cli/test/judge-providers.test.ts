@@ -4,7 +4,7 @@ import { startMockGemini, turn as geminiTurn, withJudge as geminiJudge, judgeQue
 import { startMockOpenAI, turn as openaiTurn, withJudge as openaiJudge, judgeQuestion as openaiQuestion, type MockServer as OpenAIMock } from '@shadowlap-testing/mock-openai';
 import { Sidecar } from '@shadowlap/sidecar';
 import { askJudges } from '../src/judge.js';
-import type { JudgeCheck } from '../src/judge-check.js';
+import type { JudgeCheck } from '../src/checks.js';
 
 /**
  * A judge on OpenAI and on Gemini, through the sidecar to their scripted fakes: each asked once,

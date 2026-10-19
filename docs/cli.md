@@ -84,7 +84,7 @@ A replay is judged by checks when it has them: `--expect`, or, without it, the `
 
 The agent's output is captured, while still shown, only when a check reads it (`output`, or a judge check of the output). A replay that plants text with `--inject-result` and has no checks says that nothing judged whether the agent obeyed it.
 
-A [judge check](./judges.md) is asked once the agent exits, before the replay's run ends: a clean replay is answered from its recording, a fork asks the judge live, and either way the call is the replay's own. Its line gives the verdict, the judge's reason and where it came from, and its entry in `checks` has `status` (`passed`, `failed`, or `inconclusive` when it was not judged), `reason` and `judge`.
+A [judge check](./judges.md) is asked once the agent exits, before the replay's run ends: a clean replay is answered from its recording, a fork asks the judge live, and either way the call is the replay's own. Its line gives the verdict, the judge's reason and where it came from, and its entry in `checks` has `status` (`passed`, `failed`, or `inconclusive` when it was not judged), `reason`, `source` and `judge`.
 
 ### Repeating a fork
 
@@ -379,7 +379,7 @@ Each replay runs the recorded command, or the one after `--`, in the commit's wo
 | Option | Effect |
 |---|---|
 | `--expect <json\|@file>` | The checks a replay must pass besides exiting 0 (default: the golden's under `tests`) |
-| `--fork` | Let each replay diverge and run live from the fork, so only the exit status and the checks decide: for a run that failed a check, whose recording no older commit would replay. The live part costs tokens, and the result says how many |
+| `--fork` | Let each replay diverge and run live from the fork, so only the exit status and the checks decide: for a run that failed a check, whose recording no older commit would replay. The live part costs tokens, and the result says how many. |
 | `--build <command>` | Run in each worktree before its replay, e.g. `"npm ci && npm run build"`. A commit where it fails is skipped |
 | `--cwd <dir>` | Where the recorded command runs, inside the repository (default: the current directory) |
 | `--timeout <seconds>` | Stop a replay after this long and count it as failing (default 300) |

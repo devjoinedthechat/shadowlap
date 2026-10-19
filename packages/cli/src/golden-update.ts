@@ -4,9 +4,8 @@ import { agentCallsOf, describeChanges, formatUsd, judgeLine, maskedChange, norm
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { scratchDir } from './goldens.js';
-import { judgeEndedRun, materialOf } from './judge.js';
-import type { JudgeCheck } from './judge-check.js';
-import { checkLine, judgeResults } from './judge-results.js';
+import { judgedOptions, judgeEndedRun, materialOf } from './judge.js';
+import { checkLine, judgeResults, type JudgeCheck } from './checks.js';
 import { testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { telemetry, usageOf } from './shared.js';
 
@@ -235,7 +234,7 @@ export interface KeptVerdicts {
  */
 export async function keepJudgeVerdicts(dir: string, golden: RunRecord, replay: TestAttempt, judges: readonly JudgeCheck[], ctx: Pick<UpdateContext, 'store' | 'config' | 'projectDir'>): Promise<KeptVerdicts> {
   const r = await judgeEndedRun(ctx.store, golden, judges, { material: materialOf(ctx.store, replay.ended.summary.runId, replay.stdout, ctx.config.clock), config: ctx.config, upstreams: upstreamOverrides(process.env) });
-  const lines = judgeResults(judges, { judgeVerdicts: r.verdicts, notJudged: r.notJudged }).map(checkLine);
+  const lines = judgeResults(judges, judgedOptions(r)).map((c) => checkLine(c));
   const kept = judges.filter((j) => r.verdicts.has(j.name)).map((j) => j.name);
   if (!kept.length) return { kept, lines, judge: r.judge, reason: 'no judge check got a verdict to keep' };
   const failed = repackGolden(ctx.store, golden.runId, dir, ctx.projectDir, ctx.config.redact, packedLineage(dir));

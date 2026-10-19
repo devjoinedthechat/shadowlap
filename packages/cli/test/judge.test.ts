@@ -100,7 +100,7 @@ describe('a golden with a judge check', () => {
     const r = await shadowlap(['pack', recording, 'goldens/judged']);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain('judged 1 check for the pack');
-    expect(r.out).toContain('✓ summarizes: the judge answers yes to "Does the final answer summarize what the research found?": the judge answered yes: it reads: Done. Summary: recorded runs replay dete (judged live,');
+    expect(r.out).toContain('✓ judge "summarizes" answers yes · it reads: Done. Summary: recorded runs replay dete (judged live,');
     expect(judgeRequests(mock.requests).length).toBe(asked + 1);
     const [call] = packedJudgeCalls('goldens/judged');
     expect(call).toMatchObject({ kind: 'api', origin: 'live', meta: { scope: JUDGE_SCOPE, judge: { check: 'summarizes' } } });
@@ -140,7 +140,7 @@ describe('a golden with a judge check', () => {
     const r = await test('goldens/judged', [], { AGENT_SYSTEM_SUFFIX: 'Never send email.' });
     // The fork's answer says it did not email: the judge, asked about it live, says no.
     expect(r.code, r.out).toBe(1);
-    expect(r.out).toContain('✗ summarizes: the judge answers yes to "Does the final answer summarize what the research found?": the judge answered no: it says only that the summary was not emailed (judged live,');
+    expect(r.out).toContain('✗ judge "summarizes" answers yes: the judge answered no · it says only that the summary was not emailed (judged live,');
     expect(judgeRequests(mock.requests).length).toBe(asked + 1);
     expect(judgeRequests(mock.requests).at(-1)!.material).toBe('Done. Summary kept here, not emailed.');
     expect(r.result).toMatchObject({ ok: false, failure: 'check', judge: { calls: 1, live: 1, replayed: 0, upstreamRequests: 1 } });
@@ -159,9 +159,9 @@ describe('a golden with a judge check', () => {
     const r = await test('goldens/judged');
     expect(r.code).toBe(1);
     // Amber, not red: no check of the agent's failed, yet it never passes, so the run fails.
-    expect(r.out).toContain('? judged: check inconclusive: polite: the judge answers yes to "Is the final answer polite?", not judged: no recorded verdict and the test runs offline');
-    expect(r.out).toContain('    ? polite: the judge answers yes to "Is the final answer polite?": inconclusive, not judged: no recorded verdict and the test runs offline');
-    expect(r.out).toContain('0 passed, 0 failed, 1 inconclusive (it fails the run) · 0 upstream requests');
+    expect(r.out).toContain('? judged: check inconclusive: judge "polite" answers yes, but not judged: no recorded verdict and the test runs offline');
+    expect(r.out).toContain('    ? judge "polite" answers yes: inconclusive · not judged: no recorded verdict and the test runs offline');
+    expect(r.out).toContain('0 passed, 0 failed, 1 inconclusive (failing the run: --inconclusive warn lets them through) · 0 upstream requests');
     expect(r.result).toMatchObject({ ok: false, verdict: 'inconclusive', failure: 'inconclusive', upstreamRequests: 0, judge: null });
     expect(r.result.checks[0]).toMatchObject({ status: 'inconclusive', detail: 'not judged: no recorded verdict and the test runs offline', judge: { verdict: null, source: null } });
     // Nothing was sent, and nothing of a call no one answered is kept in the replay.
@@ -171,7 +171,7 @@ describe('a golden with a judge check', () => {
     // The run reads inconclusive, as the Runs list shows it: no failure of the agent's, and nothing for blame.
     const store = Store.open(join(work, '.shadowlap', 'shadowlap.db'));
     try {
-      expect(runOutcome(store.getRun(r.result.runId)!, { calls: 30 })).toEqual({ kind: 'inconclusive', check: 'polite: the judge answers yes to "Is the final answer polite?"' });
+      expect(runOutcome(store.getRun(r.result.runId)!, { calls: 30 })).toEqual({ kind: 'inconclusive', check: 'judge "polite" answers yes' });
     } finally {
       store.close();
     }
@@ -223,7 +223,7 @@ describe('a golden with a judge check', () => {
     const sent = mock.requests.length;
     const r = await shadowlap(['pack', recording, 'goldens/nokey'], { SHADOWLAP_UPSTREAM_ANTHROPIC: '', ANTHROPIC_BASE_URL: '', ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' });
     expect(r.code, r.out).toBe(0);
-    expect(r.out).toContain('inconclusive, not judged: no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)');
+    expect(r.out).toContain('inconclusive · not judged: no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)');
     expect(r.out).toContain('shadowlap test goldens/nokey --update');
     expect(mock.requests.length).toBe(sent);
     // Nothing was asked, so nothing of it is in the pack; the verdicts the recording holds for other checks are.
@@ -241,7 +241,7 @@ describe('a golden with a judge check', () => {
     expect(keys(c.summary.judge)).toEqual(fields('summaryJudge'));
     const fork = await shadowlap(['replay', recording, '--expect', expect_, '--summary-json', 'fork.json'], { AGENT_SYSTEM_SUFFIX: 'Never send email.' });
     expect(fork.code).toBe(1);
-    expect(fork.out).toContain('✗ summarizes: the judge answers yes to "Does the final answer summarize what the research found?": the judge answered no: it says only that the summary was not emailed (judged live,');
+    expect(fork.out).toContain('✗ judge "summarizes" answers yes, but the judge answered no · it says only that the summary was not emailed (judged live,');
     const f = JSON.parse(readFileSync(join(work, 'fork.json'), 'utf8')) as { summary: { judge: Record<string, unknown> }; checks: Result['checks'] };
     expect(f.checks[0]).toMatchObject({ status: 'failed', judge: { source: 'live' } });
     expect(f.summary.judge).toMatchObject({ calls: 1, live: 1, upstreamRequests: 1 });
@@ -251,6 +251,6 @@ describe('a golden with a judge check', () => {
     config({ 'goldens/judged': { expect: { judge: [{ name: 'x', question: 'Q?', model: 'llama-3' }] } } });
     const r = await shadowlap(['test', 'goldens/judged']);
     expect(r.code).toBe(1);
-    expect(r.out).toContain('tests["goldens/judged"].expect.judge[0].model "llama-3" names no model Shadowlap can ask');
+    expect(r.out).toContain('tests["goldens/judged"].expect.judge[0].model must name a model a judge can be asked through');
   });
 });

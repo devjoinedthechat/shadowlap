@@ -41,7 +41,7 @@ A judge check sits under `expect` beside the [other checks](./ci.md#outcome-chec
 ```
 $ shadowlap pack 01M58VCQ8Q goldens/research
 judged 1 check for the pack (1 call · 1 live (<$0.001) · 1 upstream request):
-  ✓ summarizes: the judge answers yes to "Does the answer say what was found?": the judge answered yes: It says runs replay exactly. (judged live, <$0.001)
+  ✓ judge "summarizes" answers yes · It says runs replay exactly. (judged live, <$0.001)
 packed 1 run (31 calls, 81 blobs) to goldens/research
 ```
 
@@ -50,7 +50,7 @@ Every test of it after that is offline and free. The replay sends the judge the 
 ```
 $ shadowlap test goldens/research
 ✓ research: 30/30 replayed, 12k input tokens not re-spent, 1 check passed
-    ✓ summarizes: the judge answers yes to "Does the answer say what was found?": the judge answered yes: It says runs replay exactly. (judged from the recording, free)
+    ✓ judge "summarizes" answers yes · It says runs replay exactly. (judged from the recording, free)
 
 1 passed, 0 failed · 0 upstream requests
 ```
@@ -64,10 +64,10 @@ $ shadowlap test goldens/research
 
 ```
 $ shadowlap test goldens/research --update
-? research: check inconclusive: sources: the judge answers yes to "Does it name its sources?", not judged: no recorded verdict and the test runs offline
+? research: check inconclusive: judge "sources" answers yes, but not judged: no recorded verdict and the test runs offline
     …
     ↻ keeping the verdict of sources in goldens/research: asking the judge live
-      ✓ sources: the judge answers yes to "Does it name its sources?": the judge answered yes: It names the docs it read. (judged live, <$0.001)
+      ✓ judge "sources" answers yes · It names the docs it read. (judged live, <$0.001)
       kept in goldens/research · judge: 1 call · 1 live (<$0.001) · 1 upstream request; review the change in your pull request
 ✓ research: 30/30 replayed, 12k input tokens not re-spent, 2 checks passed (judged)
 ```
@@ -79,16 +79,16 @@ A golden keeps its run id when it gains a verdict. A teammate's store that holds
 A check whose verdict the recording doesn't hold, where the judge can't be asked live (the test runs offline, or there is no key for its provider), is not judged. It reads *inconclusive* and says why, and it never passes. Nothing is sent, and nothing of the call is kept: a run, and a pack of it, only ever hold judge calls that were answered.
 
 ```
-? research: check inconclusive: sources: the judge answers yes to "Does it name its sources?", not judged: no recorded verdict and the test runs offline
-    ✓ summarizes: the judge answers yes to "Does the answer say what was found?": the judge answered yes: It says runs replay exactly. (judged from the recording, free)
-    ? sources: the judge answers yes to "Does it name its sources?": inconclusive, not judged: no recorded verdict and the test runs offline
+? research: check inconclusive: judge "sources" answers yes, but not judged: no recorded verdict and the test runs offline
+    ✓ judge "summarizes" answers yes · It says runs replay exactly. (judged from the recording, free)
+    ? judge "sources" answers yes: inconclusive · not judged: no recorded verdict and the test runs offline
     ✓ Replay clean: 30/30 calls replayed (11 api, 17 tool, 2 clock/random), 0 upstream requests, 12k input tokens not re-spent (≈$0.072)
       judge: 1 call · 1 from the recording, free · 0 upstream requests
 
-0 passed, 0 failed, 1 inconclusive (it fails the run) · 0 upstream requests
+0 passed, 0 failed, 1 inconclusive (failing the run: --inconclusive warn lets them through) · 0 upstream requests
 ```
 
-A golden whose only checks that did not pass are inconclusive ones is itself *inconclusive*, not failed: the agent failed no check. It is marked `?` in amber, counted apart, and fails the run all the same (exit status 1). The JSON report gives it `verdict: "inconclusive"` and the failure kind `inconclusive`, the Runs list shows the run as *inconclusive* in amber, blame refuses it (`unjudged`: no probe could pass a check no judge decides), and the GitHub Action's fix on failure skips it, saying how to record the verdict.
+A golden whose only checks that did not pass are inconclusive ones is itself *inconclusive*, not failed: the agent failed no check. It is marked `?` in amber, counted apart, and fails the run all the same (exit status 1) unless `--inconclusive warn` lets it through. The JSON report gives it `verdict: "inconclusive"` and the failure kind `inconclusive`, the Runs list shows the run as *check inconclusive* in amber, blame refuses it (`inconclusive`: no probe could pass a check that can't be decided as recorded), and the GitHub Action's fix on failure skips it, saying how to record the verdict.
 
 Record the verdict with `shadowlap test <golden> --update`, or pack the golden again with a way to ask the judge. When the recording holds a verdict for the check's question that doesn't answer the request a replay sends, the reason says which of these it is:
 
@@ -144,13 +144,13 @@ A judge's calls are made in the scope `shadowlap:judge`. They are recorded in th
 
 ## In the reports
 
-Each verdict and its reason are beside the check wherever checks are shown: the terminal (passing goldens too), the JUnit report, the Markdown summary (with a line of what the judges cost, apart from the agents), GitHub annotations, and the JSON. A check's JSON entry has `status` (`passed`, `failed` or `inconclusive`), the judge's `reason`, and `judge`: its `name`, `model`, `of`, `verdict` (`yes`, `no`, or `null` when not judged), `source` (`recording` or `live`), `cost` (USD: 0 from the recording, `null` for a model with no price), `redactions`, `normalized` (whether what it read had values that change every run masked), `cut` and `callNo`, the judge's call in the run. A run's summary and a golden's result in `test --json` have `judge` as well: `calls`, `replayed`, `live`, `notAsked`, `upstreamRequests`, `spent`, `saved`, `unknownModels`; a golden's result has its `verdict`, and the report counts the `inconclusive` ones. The JSON of `blame` and `verify` has `judge` (`spent`, `upstreamRequests`, or `null`), and `repair`'s `cost` has `judge`. The [CLI reference](./cli.md#test) lists them.
+Each verdict and its reason are beside the check wherever checks are shown: the terminal (passing goldens too), the JUnit report, the Markdown summary (with a line of what the judges cost, apart from the agents), GitHub annotations, and the JSON. A check's JSON entry has `status` (`passed`, `failed` or `inconclusive`), the judge's `reason`, `source` (`recording` or `live`), and `judge`: its `name`, `model`, `of`, `verdict` (`yes`, `no`, or `null` when not judged), `source` (`recording` or `live`), `cost` (USD: 0 from the recording, `null` for a model with no price), `redactions`, `normalized` (whether what it read had values that change every run masked), `cut` and `callNo`, the judge's call in the run. A run's summary and a golden's result in `test --json` have `judge` as well: `calls`, `replayed`, `live`, `notAsked`, `upstreamRequests`, `spent`, `saved`, `unknownModels`; a golden's result has its `verdict`, and the report counts the `inconclusive` ones. The JSON of `blame` and `verify` has `judge` (`spent`, `upstreamRequests`, or `null`), and `repair`'s `cost` has `judge`. The [CLI reference](./cli.md#test) lists them.
 
 The store keeps them: each run's checks with their verdicts, and each golden's result in the test history with its verdict and what its judges cost. Every copy of a run that leaves the machine (a pack, `export html`, a share link) masks a judge's reason with the project's redaction rules, as it masks the check's label and detail, and `redact preview` counts it.
 
 ## Limits
 
-- **A judge is a model, so it can be wrong.** Read its reasons. Across fork attempts, `repeat` and `passes` decide how many verdicts must pass.
+- **A judge is a model, so it can be wrong.** Read its reasons. Across fork attempts, `repeat` and `passes`, or a [gate](./gating.md), decide how many verdicts must pass.
 - **A judge only judges what it reads.** For order, arguments and counts, the other checks are exact and free; a judge is for what they can't say, such as whether a reply explains itself. What the normalizers and the date masking hide from the run and the output, it doesn't see.
 - **The verdict is the recording's.** A clean replay is judged on the material its recording had, so changing what a judge reads (its question, its model, the redaction rules, the normalizers) asks it live again, or reads not judged offline until the golden is updated.
 - **Providers.** A judge is asked through Anthropic, OpenAI or Gemini (or a server that speaks one of their APIs, through `SHADOWLAP_UPSTREAM_*`), not through Bedrock, Vertex AI or Azure.

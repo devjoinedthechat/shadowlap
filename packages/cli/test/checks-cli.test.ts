@@ -200,14 +200,15 @@ describe('a when rule through shadowlap test', () => {
     config({ 'goldens/escalated': { expect: { judge: [{ name: 'explains-escalation', question: 'Does the reply say why the refund was escalated?', model: 'claude-haiku-4-5' }] } } });
     const r = await shadowlap(['test', 'goldens/escalated', '--json', 'judged.json', '--markdown', 'judged.md']);
     expect(r.code, r.out).toBe(1);
-    expect(r.out).toContain('? escalated: check inconclusive: judge "explains-escalation" answers yes, but not judged: no recorded verdict and no key for anthropic');
+    // The test runs offline: the golden holds no verdict, and the judge can't be asked.
+    expect(r.out).toContain('? escalated: check inconclusive: judge "explains-escalation" answers yes, but not judged: no recorded verdict and the test runs offline');
     expect(r.out).toMatch(/0 passed, 0 failed, 1 inconclusive \(failing the run: --inconclusive warn lets them through\) · /);
     const report = JSON.parse(readFileSync(join(work, 'judged.json'), 'utf8')) as { failed: number; inconclusive: number; results: Array<{ ok: boolean; verdict: string; failure: string }> };
     expect(report).toMatchObject({ failed: 1, inconclusive: 1 });
     expect(report.results[0]).toMatchObject({ ok: false, verdict: 'inconclusive', failure: 'inconclusive' });
-    expect(r.out).toContain('? judge "explains-escalation" answers yes: inconclusive · not judged: no recorded verdict and no key for anthropic');
+    expect(r.out).toContain('? judge "explains-escalation" answers yes: inconclusive · not judged: no recorded verdict and the test runs offline');
     const md = readFileSync(join(work, 'judged.md'), 'utf8');
-    expect(md).toContain('- 🟡 judge "explains-escalation" answers yes: inconclusive · not judged: no recorded verdict and no key for anthropic');
+    expect(md).toContain('- 🟡 judge "explains-escalation" answers yes: inconclusive · not judged: no recorded verdict and the test runs offline');
     expect(md).toContain('Inconclusive means a check could not be decided');
     expect(md).toContain('### Shadowlap: 1 of 1 recording is inconclusive');
     expect(md).toContain('| 🟡 | `escalated` | check inconclusive: judge "explains-escalation" answers yes');

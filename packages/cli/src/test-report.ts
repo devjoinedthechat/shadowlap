@@ -1,4 +1,5 @@
 import { aboutUsd, checkStatus, formatTally, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { judgeSource } from './checks.js';
 
 /**
  * `shadowlap test` results for machines and for pull requests: a JSON report other tools read (the
@@ -194,10 +195,11 @@ export function markdownReport(report: TestReport): string {
 /** Each verdict as a job summary shows it: the same four words as everywhere, and a mark GitHub renders. */
 const MARKDOWN_MARK: Record<CheckStatus, string> = { passed: '✅', failed: '❌', inconclusive: '🟡', 'not-applicable': '➖' };
 
-/** A check as a line of the summary's list: its mark, what was expected, and for anything but a pass what happened; a judge's reason after it. */
+/** A check as a line of the summary's list: its mark, what was expected, and for anything but a pass what happened; a judge's reason after it, and where its verdict came from. */
 function markdownCheck(c: StoredCheck): string {
   const status = checkStatus(c);
-  const reason = c.reason ? ` · ${cell(c.reason)}` : '';
+  const source = c.judge ? judgeSource(c.judge) : null;
+  const reason = `${c.reason ? ` · ${cell(c.reason)}` : ''}${source ? ` (${cell(source)})` : ''}`;
   const word = status === 'inconclusive' ? 'inconclusive · ' : status === 'not-applicable' ? 'not applicable · ' : '';
   return `- ${MARKDOWN_MARK[status]} ${cell(c.label)}${status === 'passed' ? '' : `: ${word}${cell(c.detail ?? '')}`}${reason}`;
 }

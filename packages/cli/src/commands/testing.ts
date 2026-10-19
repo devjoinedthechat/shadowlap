@@ -6,15 +6,14 @@ import { EXTERNAL_COMMAND, endedEarlyCount, formatTally, formatTokens, GATE_MAX_
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
-import { specFor, type JudgeCheck, type TestSpec } from '../checks.js';
+import { checkLine, judgeResults, specFor, type JudgeCheck, type TestSpec } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
-import { cannotJudge, judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
-import { checkLine, judgeResults } from '../judge-results.js';
+import { cannotJudge, judgedOptions, judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
 import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
@@ -89,7 +88,7 @@ function printPackJudged(dir: string, run: RunRecord, judges: readonly JudgeChec
     return;
   }
   process.stdout.write(`judged ${judges.length} check${judges.length === 1 ? '' : 's'} for the pack${judged.judge ? ` (${judgeParts(judged.judge).join(' · ')})` : ''}:\n`);
-  for (const line of judgeResults(judges, { judgeVerdicts: judged.verdicts, notJudged: judged.notJudged }).map(checkLine)) process.stdout.write(`  ${safe(line)}\n`);
+  for (const line of judgeResults(judges, judgedOptions(judged)).map((c) => checkLine(c))) process.stdout.write(`  ${safe(line)}\n`);
   const again = `shadowlap test ${safe(quoteArgv([dir]))} --update`;
   const missing = judges.filter((j) => judged.notJudged.has(j.name));
   const names = (list: readonly JudgeCheck[]) => list.map((j) => safe(j.name)).join(', ');

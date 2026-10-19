@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { JUDGE_SCOPE, checkStatus, estimateCost, finalAnswer, formatUsd, parseGate, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type JudgeOutcome, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
+import { JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, judgeTarget, parseGate, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type JudgeOutcome, type JudgeProvider, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
 
 /**
  * Outcome checks for `shadowlap test`. A golden normally passes only when the replay is clean, which
@@ -161,8 +161,8 @@ export interface JudgeCheck {
   pass: 'yes' | 'no';
 }
 
-/** The providers a judge's model can belong to. */
-export type JudgeProvider = 'anthropic' | 'openai' | 'gemini';
+/** The providers a judge's model can belong to (the engine's, which builds each one's request). */
+export type { JudgeProvider };
 
 /** The environment variables a provider's key is read from. */
 export const JUDGE_KEYS: Readonly<Record<JudgeProvider, readonly string[]>> = {
@@ -497,12 +497,7 @@ export function parseJudge(raw: unknown, where: string): JudgeCheck {
 
 /** The provider a judge's model belongs to, as `provider:model` names it, or as the model's name says; null when neither does. */
 export function judgeProvider(model: string): JudgeProvider | null {
-  const named = /^(anthropic|openai|gemini):/.exec(model);
-  if (named) return named[1] as JudgeProvider;
-  if (/^claude-/.test(model)) return 'anthropic';
-  if (/^(gpt-|chatgpt-|o\d)/.test(model)) return 'openai';
-  if (/^gemini-/.test(model)) return 'gemini';
-  return null;
+  return judgeTarget(model)?.provider ?? null;
 }
 
 /**
@@ -712,11 +707,21 @@ export interface CheckInput {
 /** An input that judges no run, for what a spec's checks are called: their labels depend on the checks alone. */
 export const LABEL_INPUT: CheckInput = { calls: [], output: '', answer: null, argsOf: () => undefined, resultOf: () => undefined, costOf: () => 0 };
 
-/** A judge's verdict on a run, from its recorded call or one asked live, by the judge's name. */
+/**
+ * A judge's verdict on a run, from its recorded call or one asked live, by the judge's name, with
+ * what the judge run knows of it besides, for the result's `judge`: what it cost (0 from the
+ * recording, null for a model with no price), how many redaction rules applied to what it read,
+ * whether what it read had what replay matching masks masked, how much of it was cut, its call.
+ */
 export interface JudgeVerdict {
   verdict: 'yes' | 'no';
   reason: string;
   source: 'recording' | 'live';
+  cost?: number | null;
+  redactions?: number;
+  normalized?: boolean;
+  cut?: number;
+  callNo?: number;
 }
 
 export interface EvaluateOptions {
@@ -1066,13 +1071,33 @@ function whenResults(rule: WhenRule, scope: Scope, options: EvaluateOptions): Ch
   return inner.map((r) => ({ status: 'not-applicable' as const, ok: true, label: `${prefix}: ${r.label}`, detail: `the condition never held: ${seen}` }));
 }
 
-/** A judge check: its verdict, or inconclusive with why it has none. It never passes unjudged. */
+/**
+ * A judge check: its verdict, or inconclusive with why it has none. It never passes unjudged. Its
+ * `judge` keeps how it came out, for the reports: the verdict, where it came from and what it cost.
+ */
 function judgeResult(j: JudgeCheck, options: EvaluateOptions): CheckResult {
   const label = judgeLabel(j);
   const v = options.judgeVerdicts?.get(j.name);
-  if (!v) return { status: 'inconclusive', ok: false, label, detail: options.judgeMissing?.(j) ?? notJudgedWhy(j) };
+  const judge: JudgeOutcome = {
+    name: j.name,
+    model: j.model,
+    of: j.of,
+    verdict: v?.verdict ?? null,
+    source: v?.source ?? null,
+    cost: v ? (v.cost !== undefined ? v.cost : v.source === 'recording' ? 0 : null) : null,
+    redactions: v?.redactions ?? 0,
+    normalized: v?.normalized ?? false,
+    cut: v?.cut ?? 0,
+    ...(v?.callNo !== undefined ? { callNo: v.callNo } : {}),
+  };
+  if (!v) return { status: 'inconclusive', ok: false, label, detail: options.judgeMissing?.(j) ?? notJudgedWhy(j), judge };
   const ok = v.verdict === j.pass;
-  return { status: ok ? 'passed' : 'failed', ok, label, detail: ok ? null : `the judge answered ${v.verdict}`, reason: v.reason, source: v.source };
+  return { status: ok ? 'passed' : 'failed', ok, label, detail: ok ? null : `the judge answered ${v.verdict}`, reason: v.reason || 'no reason given', source: v.source, judge };
+}
+
+/** Judge checks alone, as `evaluateChecks` judges them: for a run judged after it ended (`pack`, `test --update`). */
+export function judgeResults(judges: readonly JudgeCheck[], options: EvaluateOptions = {}): CheckResult[] {
+  return judges.map((j) => judgeResult(j, options));
 }
 
 // ---- Reports ------------------------------------------------------------------------------------
@@ -1090,9 +1115,10 @@ export function checkLine(c: StoredCheck, join = ': '): string {
   return `${CHECK_MARKS[checkStatus(c)]} ${checkWords(c, join)}`;
 }
 
-/** The line `checkLine` writes, without its mark, for a report that draws the mark itself. */
+/** The line `checkLine` writes, without its mark, for a report that draws the mark itself. A judge's verdict says where it came from. */
 export function checkWords(c: StoredCheck, join = ': '): string {
-  const reason = c.reason ? ` · ${c.reason}` : '';
+  const source = c.judge ? judgeSource(c.judge) : null;
+  const reason = `${c.reason ? ` · ${c.reason}` : ''}${source ? ` (${source})` : ''}`;
   switch (checkStatus(c)) {
     case 'passed':
       return `${c.label}${reason}`;
@@ -1103,6 +1129,22 @@ export function checkWords(c: StoredCheck, join = ': '): string {
     case 'not-applicable':
       return `${c.label}: not applicable · ${c.detail ?? ''}`;
   }
+}
+
+/**
+ * Where a judge check's verdict came from and what it cost, with what was done to what it read:
+ * `judged from the recording, free`, `judged live, ≈$0.0004 · read with 1 redaction rule applied`.
+ * Null for a check that was not judged.
+ */
+export function judgeSource(j: JudgeOutcome): string | null {
+  if (!j.source) return null;
+  const read = [
+    j.redactions ? `read with ${j.redactions} redaction rule${j.redactions === 1 ? '' : 's'} applied` : null,
+    j.normalized ? 'values that change every run masked' : null,
+    j.cut ? `${j.cut.toLocaleString('en-US')} characters left out` : null,
+  ].filter(Boolean);
+  const how = j.source === 'recording' ? 'judged from the recording, free' : `judged live, ${j.cost === null ? `no price for ${j.model}` : aboutUsd(j.cost)}`;
+  return [how, ...read].join(' · ');
 }
 
 // ---- What the checks read of a run --------------------------------------------------------------

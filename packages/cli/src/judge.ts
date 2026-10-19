@@ -1,9 +1,7 @@
 import { applyNormalizers, canonicalize, estimateCost, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeRules, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, readVerdict, type CallRecord, type ClockMode, type ClockReference, type JudgeProvider, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
 import { providers, Sidecar } from '@shadowlap/sidecar';
-import { notJudgedWhy, type EvaluateOptions, type TestSpec } from './checks.js';
+import { JUDGE_KEYS, judgeChecksOf, notJudgedWhy, type EvaluateOptions, type JudgeCheck, type JudgeVerdict, type TestSpec } from './checks.js';
 import type { ShadowlapConfig } from './config.js';
-import type { JudgeCheck } from './judge-check.js';
-import type { JudgedEntry } from './judge-results.js';
 
 /**
  * Judge checks at runtime. After the agent exits, each judge check's question goes through the
@@ -22,19 +20,12 @@ import type { JudgedEntry } from './judge-results.js';
  */
 
 /**
- * Every judge check a spec holds: what is asked after the agent exits. The one place the runtime
- * reads them, so a check nested where `expect` nests checks is asked too.
+ * Every judge check a spec holds, those under a `when` included: what is asked after the agent
+ * exits. The one place the runtime reads them.
  */
 export function judgesOf(spec: TestSpec | null | undefined): JudgeCheck[] {
-  return spec?.judge ?? [];
+  return spec ? judgeChecksOf(spec) : [];
 }
-
-/** The environment variables a provider's key is read from, in order. */
-export const JUDGE_KEYS: Record<JudgeProvider, readonly string[]> = {
-  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
-  openai: ['OPENAI_API_KEY'],
-  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
-};
 
 function authHeaders(provider: JudgeProvider, name: string, key: string): Record<string, string> {
   if (provider === 'anthropic') return name === 'ANTHROPIC_AUTH_TOKEN' ? { authorization: `Bearer ${key}` } : { 'x-api-key': key };
@@ -103,7 +94,7 @@ function comparable(body: unknown, redactions: readonly Normalizer[], name: stri
 
 export interface Judged {
   /** The checks that got a verdict, by name: what `evaluateChecks` takes as `judgeVerdicts`. */
-  verdicts: Map<string, JudgedEntry>;
+  verdicts: Map<string, JudgeVerdict>;
   /** Why each other check got none. */
   notJudged: Map<string, string>;
 }
@@ -164,7 +155,7 @@ function whyNotAnswered(store: Store, runId: string, j: JudgeCheck, request: { b
 }
 
 /** One judge check, asked through the sidecar: its verdict, or why it has none. */
-async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: JudgeRunContext): Promise<JudgedEntry | { why: string }> {
+async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: JudgeRunContext): Promise<JudgeVerdict | { why: string }> {
   const target = judgeTarget(j.model);
   if (!target) return { why: `Shadowlap can't tell which provider serves ${j.model}` };
   let m: ReturnType<typeof judgeMaterial>;
@@ -228,7 +219,7 @@ async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: Judge
  * after its agent exited, before the run ends. What it reads comes from `material`.
  */
 export async function askJudges(judges: readonly JudgeCheck[], material: JudgeMaterialSource, ctx: JudgeRunContext): Promise<Judged> {
-  const verdicts = new Map<string, JudgedEntry>();
+  const verdicts = new Map<string, JudgeVerdict>();
   const notJudged = new Map<string, string>();
   for (const j of judges) {
     const r = await askJudge(j, material, ctx);
@@ -257,7 +248,7 @@ export function unjudged(judges: readonly JudgeCheck[], why: string): Judged {
  * request the check would send now, compared as a replay compares it (under the run's own redaction
  * rules, `redactions`), so a pack never keeps a verdict its replays would not be served.
  */
-export function heldVerdict(store: Store, calls: readonly CallRecord[], j: JudgeCheck, o: { material?: JudgeMaterialSource; redact?: readonly Normalizer[]; normalize?: readonly Normalizer[]; redactions?: readonly Normalizer[] } = {}): (JudgedEntry & { callNo: number }) | null {
+export function heldVerdict(store: Store, calls: readonly CallRecord[], j: JudgeCheck, o: { material?: JudgeMaterialSource; redact?: readonly Normalizer[]; normalize?: readonly Normalizer[]; redactions?: readonly Normalizer[] } = {}): (JudgeVerdict & { callNo: number }) | null {
   const ask = judgeAskId(j);
   const target = judgeTarget(j.model);
   let wanted: string | null = null;

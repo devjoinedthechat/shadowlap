@@ -139,7 +139,7 @@ describe('a judge reads what replay matching reads', () => {
     config({ normalize: [{ kind: 'api', pattern: 'iso-date', replace: '<date>' }], tests: { 'goldens/date': { fork: true, expect: { judge: date } } } });
     const run = await record();
     const pack = await shadowlap(['pack', run, 'goldens/date']);
-    expect(pack.out).toContain('the judge answered yes: it names 2026-10-20 (judged live,');
+    expect(pack.out).toContain('✓ judge "date" answers yes · it names 2026-10-20 (judged live,');
     const before = asked();
     // The fork's prompt differs, so it forks; its answer differs only in a date the normalizer masks.
     const t = await test('goldens/date', [], { VARIANT: 'b' });
@@ -150,7 +150,7 @@ describe('a judge reads what replay matching reads', () => {
     // So is a replay given the check.
     const r = await shadowlap(['replay', run, '--expect', JSON.stringify({ judge: date })], { VARIANT: 'b' });
     expect(r.code).toBe(1);
-    expect(r.out).toContain('the judge answered no: it names another date (judged live,');
+    expect(r.out).toContain('judge "date" answers yes, but the judge answered no · it names another date (judged live,');
     expect(asked()).toBe(before + 2);
   }, 90_000);
 
@@ -203,7 +203,7 @@ describe('a judge\'s reason', () => {
     const r = await shadowlap(['replay', rec, '--expect', JSON.stringify({ judge: [judge({ name: 'card', question: 'Does the reply name the card?' })] }), '--summary-json', 'card.json'], { VARIANT: 'card' });
     expect(r.code, r.out).toBe(0);
     const replay = (JSON.parse(readFileSync(join(work, 'card.json'), 'utf8')) as { summary: { runId: string } }).summary.runId;
-    expect(r.out).toContain('the judge answered yes: it names SECRET42');
+    expect(r.out).toContain('judge "card" answers yes · it names SECRET42');
     // Before sharing, the project adds a rule, as pack advises.
     config({ redact: [{ pattern: '/SECRET[0-9]+/', replace: '<CARD>' }] });
     const pack = await shadowlap(['pack', replay, 'shared/card']);

@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { JUDGE_SCOPE, judgeAskId, Store, storeApiRequest, type CallRecord } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels } from '../src/attempts.js';
-import { evaluateChecks, hasChecks, parseExpect, parseTests } from '../src/checks.js';
-import { liveJudge, recordedVerdicts } from '../src/judge.js';
-import { checkLine, judgeResults, judgeSource } from '../src/judge-results.js';
+import { checkLine, evaluateChecks, hasChecks, judgeResults, judgeSource, parseExpect, parseTests } from '../src/checks.js';
+import { judgedOptions, judgesOf, liveJudge, recordedVerdicts } from '../src/judge.js';
 
 /** Judge checks as the config writes them, and as results: passed, failed, or inconclusive with why. */
 
@@ -19,13 +18,13 @@ describe('the judge key of expect', () => {
 
   it('says what is wrong with one, where', () => {
     const bad = (j: unknown) => () => parseTests({ 'goldens/x': { expect: { judge: j } } });
-    expect(bad({ name: 'x' })).toThrow(`${at}.judge must be a list of judge checks`);
-    expect(bad([{ name: 'x', question: 'Q?' }])).toThrow(`${at}.judge[0].model must be a non-empty string`);
-    expect(bad([{ name: 'x', question: 'Q?', model: 'claude-haiku-4-5', of: 'everything' }])).toThrow(`${at}.judge[0].of must be "answer", "output" or "run"`);
+    expect(bad({ name: 'x' })).toThrow(`${at}.judge must be a list of questions`);
+    expect(bad([{ name: 'x', question: 'Q?' }])).toThrow(`${at}.judge[0].model must name a model a judge can be asked through`);
+    expect(bad([{ name: 'x', question: 'Q?', model: 'claude-haiku-4-5', of: 'everything' }])).toThrow(`${at}.judge[0].of must be "answer" (the last model response), "output" (what the agent printed) or "run"`);
     expect(bad([{ name: 'x', question: 'Q?', model: 'claude-haiku-4-5', pass: true }])).toThrow(`${at}.judge[0].pass must be "yes" or "no"`);
     expect(bad([{ name: 'x', question: 'Q?', model: 'claude-haiku-4-5', temperature: 1 }])).toThrow(`${at}.judge[0] has an unknown key "temperature"`);
-    expect(bad([judge, judge])).toThrow(`${at}.judge[1].name "explains" is used twice`);
-    expect(bad([{ ...judge, model: 'mystery-model' }])).toThrow(/names no model Shadowlap can ask/);
+    expect(bad([judge, judge])).toThrow(`${at}.judge[1].name "explains" is already the name of ${at}.judge[0]`);
+    expect(bad([{ ...judge, model: 'mystery-model' }])).toThrow(/must name a model a judge can be asked through/);
   });
 });
 
@@ -34,16 +33,18 @@ describe('a judge check\'s result', () => {
     const verdicts = new Map([['explains', { verdict: 'yes' as const, reason: 'It says a manager reviews refunds over $100.', source: 'recording' as const }]]);
     const [passed] = judgeResults([judge], { judgeVerdicts: verdicts });
     expect(passed).toEqual({
-      ok: true,
       status: 'passed',
-      label: 'explains: the judge answers yes to "Does the reply say why the refund was escalated?"',
-      detail: 'the judge answered yes: It says a manager reviews refunds over $100.',
+      ok: true,
+      label: 'judge "explains" answers yes',
+      detail: null,
       reason: 'It says a manager reviews refunds over $100.',
+      source: 'recording',
       judge: { name: 'explains', model: 'claude-haiku-4-5', of: 'answer', verdict: 'yes', source: 'recording', cost: 0, redactions: 0, normalized: false, cut: 0 },
     });
-    expect(checkLine(passed!)).toBe('✓ explains: the judge answers yes to "Does the reply say why the refund was escalated?": the judge answered yes: It says a manager reviews refunds over $100. (judged from the recording, free)');
+    expect(checkLine(passed!)).toBe('✓ judge "explains" answers yes · It says a manager reviews refunds over $100. (judged from the recording, free)');
     const [failed] = judgeResults([{ ...judge, pass: 'no' }], { judgeVerdicts: new Map([['explains', { verdict: 'yes', reason: 'r', source: 'live', cost: 0.0025, redactions: 2, cut: 1200 }]]) });
-    expect(failed).toMatchObject({ ok: false, status: 'failed', detail: 'the judge answered yes: r', reason: 'r' });
+    expect(failed).toMatchObject({ ok: false, status: 'failed', detail: 'the judge answered yes', reason: 'r' });
+    expect(checkLine(failed!)).toBe('✗ judge "explains" answers no: the judge answered yes · r (judged live, ≈$0.0025 · read with 2 redaction rules applied · 1,200 characters left out)');
     expect(judgeSource(failed!.judge!)).toBe('judged live, ≈$0.0025 · read with 2 redaction rules applied · 1,200 characters left out');
     expect(judgeSource({ ...failed!.judge!, cost: 0.0004, redactions: 0, cut: 0 })).toBe('judged live, <$0.001');
     expect(judgeSource({ ...failed!.judge!, cost: 0, source: 'recording', redactions: 0, normalized: true, cut: 0 })).toBe('judged from the recording, free · values that change every run masked');
@@ -51,13 +52,14 @@ describe('a judge check\'s result', () => {
   });
 
   it('is inconclusive with why when it has no verdict, and never passes', () => {
-    const [none] = judgeResults([judge], { notJudged: new Map([['explains', 'no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)']]) });
+    const judged = { verdicts: new Map(), notJudged: new Map([['explains', 'no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)']]) };
+    const [none] = judgeResults([judge], judgedOptions(judged));
     expect(none).toMatchObject({ ok: false, status: 'inconclusive', detail: 'not judged: no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)', judge: { verdict: null, source: null } });
     expect(none).not.toHaveProperty('reason');
-    expect(checkLine(none!)).toBe('? explains: the judge answers yes to "Does the reply say why the refund was escalated?": inconclusive, not judged: no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)');
-    // Given nothing at all, as the oracle's labels are worked out.
-    expect(judgeResults([judge])[0]).toMatchObject({ status: 'inconclusive', detail: 'not judged: no recorded verdict' });
-    expect(oracleLabels(parseExpect({ judge: [judge] }, 'expect'))).toEqual(['the agent exits 0', 'explains: the judge answers yes to "Does the reply say why the refund was escalated?"']);
+    expect(checkLine(none!)).toBe('? judge "explains" answers yes: inconclusive · not judged: no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)');
+    // Given nothing at all, as the oracle's labels are worked out: no verdict, and a key only if the environment has one.
+    expect(judgeResults([judge])[0]).toMatchObject({ status: 'inconclusive', detail: expect.stringMatching(/^not judged: no recorded verdict/) });
+    expect(oracleLabels(parseExpect({ judge: [judge] }, 'expect'))).toEqual(['the agent exits 0', 'judge "explains" answers yes']);
   });
 });
 
@@ -94,11 +96,11 @@ describe('a recording\'s own verdicts', () => {
     const store = Store.open(':memory:');
     const spec = parseExpect({ judge: [judge] }, 'expect');
     const yes = judgedRun(store, [{ ask: judgeAskId(judge), check: 'explains', text: '{"verdict":"yes","reason":"r"}' }]);
-    expect(judgeRecording(store, store.getRun(yes.runId)!, yes.calls, spec)).toEqual({ passed: true, failures: [] });
+    expect(judgeRecording(store, store.getRun(yes.runId)!, yes.calls, spec)).toMatchObject({ passed: true, failures: [], unsettled: [] });
     const no = judgedRun(store, [{ ask: judgeAskId(judge), check: 'explains', text: '{"verdict":"no","reason":"it never says why"}' }]);
-    expect(judgeRecording(store, store.getRun(no.runId)!, no.calls, spec)).toEqual({ passed: false, failures: ['explains: the judge answers yes to "Does the reply say why the refund was escalated?", but the judge answered no: it never says why'] });
+    expect(judgeRecording(store, store.getRun(no.runId)!, no.calls, spec)).toMatchObject({ passed: false, failures: ['judge "explains" answers yes, but the judge answered no'], checks: [{ status: 'failed', reason: 'it never says why', source: 'recording' }] });
     const none = judgedRun(store, []);
-    expect(judgeRecording(store, store.getRun(none.runId)!, none.calls, spec)).toEqual({ passed: null, failures: [] });
+    expect(judgeRecording(store, store.getRun(none.runId)!, none.calls, spec)).toMatchObject({ passed: null, failures: [], unsettled: ['judge "explains" answers yes, but it is inconclusive: not judged: no recorded verdict'] });
   });
 
   it('are none of the agent\'s calls: no other check counts them', () => {
@@ -120,13 +122,21 @@ describe('whether a judge can be asked live', () => {
     expect(liveJudge('openai', { openai: 'http://127.0.0.1:8080' }, {})).toEqual({ headers: {} });
     expect(liveJudge('anthropic', { anthropic: 'offline' }, { ANTHROPIC_API_KEY: 'k' })).toEqual({ why: 'the test runs offline' });
   });
+
+  it('are asked wherever a spec holds them, under a when too', () => {
+    const spec = parseExpect({ judge: [judge], when: [{ if: { tool: 'lookup_order', result: { total: { '>': 200 } } }, then: { judge: [{ ...judge, name: 'escalates' }] } }] }, 'expect');
+    expect(judgesOf(spec).map((j) => j.name)).toEqual(['explains', 'escalates']);
+  });
 });
 
 describe('the config schema', () => {
   it('describes a judge check as the parser reads it', async () => {
     const { readFileSync } = await import('node:fs');
-    const schema = JSON.parse(readFileSync(new URL('../../../shadowlap.config.schema.json', import.meta.url), 'utf8')) as { properties: { tests: { additionalProperties: { properties: { expect: { properties: { judge: { items: { properties: Record<string, { pattern?: string; enum?: string[] }>; required: string[] } } } } } } } } };
-    const item = schema.properties.tests.additionalProperties.properties.expect.properties.judge.items;
+    type Item = { properties: Record<string, { pattern?: string; enum?: string[] }>; required: string[] };
+    const schema = JSON.parse(readFileSync(new URL('../../../shadowlap.config.schema.json', import.meta.url), 'utf8')) as { $defs: { judge: Item }; properties: { tests: { additionalProperties: { properties: { expect: { properties: { judge: { items: { $ref: string } } } } } } } } };
+    // Each judge check of an expect, under when's then too, is the one definition.
+    expect(schema.properties.tests.additionalProperties.properties.expect.properties.judge.items.$ref).toBe('#/$defs/judge');
+    const item = schema.$defs.judge;
     expect(Object.keys(item.properties).sort()).toEqual(['model', 'name', 'of', 'pass', 'question']);
     expect(item.required).toEqual(['name', 'question', 'model']);
     expect(item.properties.of!.enum).toEqual(['answer', 'output', 'run']);
@@ -137,7 +147,7 @@ describe('the config schema', () => {
     }
     for (const m of ['llama-3', 'mistral-large']) {
       expect(model.test(m), m).toBe(false);
-      expect(() => parseExpect({ judge: [{ ...judge, model: m }] }, 'expect'), m).toThrow(/names no model/);
+      expect(() => parseExpect({ judge: [{ ...judge, model: m }] }, 'expect'), m).toThrow(/must name a model a judge can be asked through/);
     }
   });
 });

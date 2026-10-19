@@ -397,7 +397,7 @@ process.stdin.on('end', () => {
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ prices: { 'claude-haiku-4-5': { input: 1, output: 5 } }, tests: { 'goldens/f': { expect: { judge: JUDGED } } } }));
     // The failing run it is shown holds a judge call of its own, as a golden packed with its check does.
     const packed = await shadowlap(['pack', failed[0]!, 'goldens/f']);
-    expect(packed.out).toContain('the judge answered no: it refunds $240');
+    expect(packed.out).toContain('the judge answered no · it refunds $240');
     const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', JSON.stringify({ judge: JUDGED }), '--repairer', 'anthropic', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as Report & { cost: { blame: number; verify: number; judge?: number }; targets: Array<{ runId: string; steps: number }> };
