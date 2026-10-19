@@ -149,6 +149,8 @@ describe('shadowlap migrate', () => {
     expect(report.set.fields).toEqual([{ field: 'max_tokens', value: 512, leftOut: false, why: 'mock-small refused the recorded request: HTTP 400: max_tokens: 1024 > 512, which is the maximum allowed number of output tokens for mock-small', source: null, steps: 11 }]);
     expect(report.set.flags).toEqual(['--set max_tokens=512']);
     expect(report.decisions.counts.notAsked).toBe(0);
+    // Once refused, every request after it is sent with the fix: at most the first few are refused.
+    expect(report.decisions.cost.upstreamRequests).toBeLessThan(22);
     expect(report.decisions.verify!.commands[0]).toContain('--set max_tokens=512');
     // No price for the mock's model: what it costs after is unknown, and says why.
     expect(report.costs.perRun.after).toBeNull();

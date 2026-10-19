@@ -13,6 +13,7 @@ import {
   JUDGED_IN_RECORDED_STATE,
   loadApiRequest,
   NO_TOKENS,
+  outcomeOf,
   placeFields,
   promptOf,
   promptParts,
@@ -418,21 +419,30 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
   let stopReason: string | null = null;
   let next = 0;
   let done = 0;
+  // migrate: what a refusal named, changed in every request after it too, so each is refused once at most.
+  const learned = new Map<string, { value: unknown; why: string }>();
+  const apply = (plan: Planned, field: string, value: unknown, why: string): boolean => {
+    const set = setRequestFields(requestShape(plan.provider, plan.path, plan.body), plan.body, { [field]: value });
+    if (refused(set) || !set.changed) return false;
+    remedies.note({ field, value, leftOut: false, why, source: null });
+    plan.body = set.body;
+    return true;
+  };
   const worker = async () => {
     while (next < queue.length) {
       stopReason ??= stop() ?? (s.budget !== null && spent >= s.budget ? `the budget of $${s.budget.toFixed(2)} is spent` : null);
       if (stopReason) return;
-      const { plan } = queue[next++]!;
+      const { plan, sample } = queue[next++]!;
+      if (sample === 0) for (const [field, l] of learned) apply(plan, field, l.value, l.why);
       const ask = () => sender.send({ provider: plan.provider, method: plan.method, path: plan.path, ...(plan.query ? { query: plan.query } : {}), headers: plan.headers, body: plan.body });
       let answer = await ask();
       upstreamRequests += answer.attempts;
       // migrate: a refusal that names what to change is asked once more with it changed.
       const fix = s.remedies && answer.error && (answer.status === 400 || answer.status === 422) ? refusalRemedy(answer.error) : null;
       if (fix) {
-        const set = setRequestFields(requestShape(plan.provider, plan.path, plan.body), plan.body, { [fix.field]: fix.value });
-        if (!refused(set) && set.changed) {
-          remedies.note({ field: fix.field, value: fix.value, leftOut: false, why: `${plan.askedModel ?? 'the new model'} refused the recorded request: ${answer.error}`, source: null });
-          plan.body = set.body;
+        const why = `${plan.askedModel ?? 'the new model'} refused the recorded request: ${answer.error}`;
+        if (apply(plan, fix.field, fix.value, why)) {
+          if (!learned.has(fix.field)) learned.set(fix.field, { value: fix.value, why });
           answer = await ask();
           upstreamRequests += answer.attempts;
         }
@@ -552,17 +562,12 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
     out.spent += report.spent;
     out.upstreamRequests += report.upstreamRequests;
     out.reasons.push(...report.reasons);
-    for (const r of report.runs) out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeWord(r), passes: r.passes, attempts: r.attempts.length });
+    // In verify --json's words: fixed, not-fixed, kept, broken, unsettled.
+    for (const r of report.runs) out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length });
     if (report.verdict === 'rejected') out.verdict = 'rejected';
     else if (report.verdict === 'incomplete' && out.verdict !== 'rejected') out.verdict = 'incomplete';
   }
   return out;
-}
-
-function outcomeWord(r: { role: VerifyRole; verdict: string; attempts: unknown[] }): string {
-  if (!r.attempts.length || r.verdict === 'open') return 'unsettled';
-  if (r.role === 'good') return r.verdict === 'pass' ? 'kept' : 'broken';
-  return r.verdict === 'pass' ? 'fixed' : 'still-failing';
 }
 
 /** Why a run's command can't be run (for --from-code and --then-verify), or null. */

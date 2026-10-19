@@ -37,7 +37,7 @@ export interface MigrateSettings {
 export interface MigrateRunPass {
   runId: string;
   golden: string | null;
-  /** kept, broken, fixed, still-failing, unsettled (verified); unchanged (no write or stop decision changed, so not re-run); not-asked. */
+  /** kept, broken, fixed, not-fixed, unsettled (verified); unchanged (no write or stop decision changed, so not re-run); not-asked. */
   outcome: string;
   verified: boolean;
 }
@@ -298,7 +298,7 @@ export function formatMigrate(r: MigrateReport): string {
   if (c[3] + c[4] + c[5]) lines.push(p.dim(`  besides: ${[c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only`].filter(Boolean).join(', ')}`));
   lines.push('', p.bold('What still passes'));
   for (const x of r.passes.runs) {
-    const word = x.outcome === 'kept' || x.outcome === 'fixed' || x.outcome === 'unchanged' ? p.green(x.outcome) : x.outcome === 'broken' || x.outcome === 'still-failing' ? p.red(x.outcome) : p.yellow(x.outcome);
+    const word = x.outcome === 'kept' || x.outcome === 'fixed' || x.outcome === 'unchanged' ? p.green(x.outcome) : x.outcome === 'broken' || x.outcome === 'not-fixed' ? p.red(x.outcome) : p.yellow(x.outcome);
     lines.push(`  ${safeLine(name(x)).padEnd(28)} ${word}${x.verified ? p.dim(' · verified') : x.outcome === 'unchanged' ? p.dim(' · no write or stop decision changed, not re-run') : ''}`);
   }
   lines.push('', p.bold('What it costs'));

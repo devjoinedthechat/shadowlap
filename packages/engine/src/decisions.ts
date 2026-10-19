@@ -507,7 +507,7 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
   for (const run of r.runs) {
     lines.push('');
     const name = run.golden ? `${safeLine(run.golden)} ${p.dim(run.runId.slice(0, 10))}` : run.runId.slice(0, 10);
-    const summary = run.rank === null ? (run.asked ? 'the same decisions' : 'nothing asked') : `${run.decisions.filter((s) => s.rank !== null).length} changed, most: rank ${run.rank} (${RANK_LABELS[run.rank]})`;
+    const summary = run.rank !== null ? `${run.decisions.filter((s) => s.rank !== null).length} changed, most: rank ${run.rank} (${RANK_LABELS[run.rank]})` : run.asked ? 'the same decisions' : run.counts.untouched === run.steps && run.steps ? 'the change leaves its requests as recorded' : 'nothing asked';
     if (run.refused) {
       lines.push(`${p.bold(name)}  ${p.yellow('not asked')}: ${safeLine(run.refused)}`);
       continue;
