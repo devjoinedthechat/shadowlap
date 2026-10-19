@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BLAME_DEFAULTS, SPRT_DEFAULTS, type CallRecord, type SprtGate } from '@shadowlap/engine';
-import { evaluateChecks, parseExpect, type CheckResult } from '../src/checks.js';
+import { evaluateChecks, parseExpect, showValue, type CheckResult } from '../src/checks.js';
 import { blameCommand, checkText, failureTitle, repairCommand, verifyCommand } from '../src/fixes.js';
 
 /** Tool calls as a recording holds them, for judging checks against. */
@@ -28,6 +28,29 @@ describe('a failure in plain words', () => {
     expect(title({ cost: '<= 0.05' }, [], { models: 1 })).toBe('Costs more than $0.05');
     expect(title({ output: { includes: 'refund issued' } }, [])).toBe('Output never says "refund issued"');
     expect(title({ answer: { excludes: 'cannot help' } }, [], { answer: 'Sorry, I cannot help with that.' })).toBe('Final answer says "cannot help"');
+  });
+
+  it('takes a calls rule\'s first problem whole, a quoted value\'s own "; " and "#12" with it', () => {
+    const email = (body: string) => calls(['send_email', { to: 'team@example.com', body }]);
+    // The reference agent's email body, against a rule that wants another one.
+    expect(title({ calls: [{ tool: 'send_email', args: { body: 'Replay works.' } }] }, email('Replay works; forks fence writes.'))).toBe('send_email: body "Replay works; forks fence writes." != "Replay works."');
+    expect(title({ calls: [{ tool: 'send_email', args: { body: { includes: 'ok; go' } } }] }, email('See #12; then reply.'))).toBe('send_email: body "See #12; then reply." doesn\'t include "ok; go"');
+    // The call numbers outside the values still go, and the next problem still ends the title.
+    expect(title({ calls: [{ tool: 'send_email', after: 'lookup', args: { body: 'x' } }] }, email('a; b'))).toBe('send_email: no lookup call before it');
+    expect(title({ calls: [{ tool: 'send_email', args: { body: 'x', to: 'ops@example.com' } }] }, email('a; b'))).toBe('send_email: body "a; b" != "x"');
+    // A value cut short is closed after its mark, so the title ends where its problem does.
+    const long = `${'Replay works; '.repeat(8)}end`;
+    expect(title({ calls: [{ tool: 'send_email', args: { body: 'x', to: 'ops@example.com' } }] }, email(long))).toBe(`send_email: body "${long.slice(0, 78)}…" != "x"`);
+  });
+
+  it('shows a long value cut short with its quotes paired', () => {
+    expect(showValue('a'.repeat(100))).toBe(`"${'a'.repeat(78)}…"`);
+    expect(showValue({ body: 'a'.repeat(100) })).toBe(`{"body":"${'a'.repeat(70)}…"`);
+    const numbers = Array.from({ length: 30 }, (_, i) => i);
+    expect(showValue(numbers)).toBe(`${JSON.stringify(numbers).slice(0, 79)}…`);
+    // An escape cut in two loses its backslash, which would escape the closing quote.
+    expect(showValue(`${'a'.repeat(77)}"${'b'.repeat(20)}`)).toBe(`"${'a'.repeat(77)}…"`);
+    expect(showValue('a'.repeat(78))).toBe(`"${'a'.repeat(78)}"`);
   });
 
   it('takes the first check the recording failed, and the exit code when it failed none', () => {

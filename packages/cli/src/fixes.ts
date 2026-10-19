@@ -80,6 +80,28 @@ const counted = (detail: string, re: RegExp): number | null => {
   return m ? Number(m[1]) : null;
 };
 
+/**
+ * A calls rule's first problem, without the call numbers, as its fix's title says it (a fix groups
+ * runs whose calls are numbered differently): its detail up to the first '; ' outside a quoted
+ * value. Values are quoted as JSON (showValue), and one may hold '; ' or '#12' itself, as `body
+ * "Replay works; see #12."` does: it is kept whole.
+ */
+export function firstProblem(detail: string): string {
+  // The quoted values land at the odd places: JSON strings, escapes and all.
+  const parts = detail.split(/("(?:[^"\\]|\\.)*")/);
+  let out = '';
+  for (const [i, part] of parts.entries()) {
+    if (i % 2) {
+      out += part;
+      continue;
+    }
+    const end = part.indexOf('; ');
+    out += (end < 0 ? part : part.slice(0, end)).replace(/ \(#\d+\)/g, '').replace(/ #\d+/g, '');
+    if (end >= 0) break;
+  }
+  return out;
+}
+
 /** One check of a spec on its own, with how to say that a run failed it. */
 interface CheckItem {
   spec: TestSpec;
@@ -137,10 +159,8 @@ function checkItems(spec: TestSpec): CheckItem[] {
     for (const s of t.includes) items.push({ spec: { ...EMPTY_SPEC, [key]: { includes: [s], excludes: [] } }, title: () => `${what} never says "${s}"` });
     for (const s of t.excludes) items.push({ spec: { ...EMPTY_SPEC, [key]: { includes: [], excludes: [s] } }, title: () => `${what} says "${s}"` });
   }
-  // A rule's first problem, without the call numbers: a fix groups runs whose calls are numbered differently.
-  const unnumbered = (text: string) => text.replace(/ \(#\d+\)/g, '').replace(/ #\d+/g, '');
   for (const rule of spec.calls ?? []) {
-    items.push({ spec: { ...EMPTY_SPEC, calls: [rule] }, title: (detail) => `${rule.tool}: ${unnumbered(detail.split('; ')[0]!.replace(/^[^:]*#\d+: /, ''))}` });
+    items.push({ spec: { ...EMPTY_SPEC, calls: [rule] }, title: (detail) => `${rule.tool}: ${firstProblem(detail.replace(/^[^:]*#\d+: /, ''))}` });
   }
   for (const w of spec.when ?? []) {
     for (const inner of checkItems({ ...EMPTY_SPEC, ...w.then })) {

@@ -618,11 +618,29 @@ function parseOperator(op: Operator, value: unknown, where: string): Matcher {
 
 // ---- Labels -------------------------------------------------------------------------------------
 
-/** A value in a label or a detail: JSON in one line, cut at 80 characters. */
+/**
+ * A value in a label or a detail: JSON in one line, cut at 80 characters. Cut inside a quoted
+ * string, it is closed after the mark (`"Replay works; forks…"`), so a detail's quotes stay paired
+ * and what reads one (a fix's title, which takes its first problem) never takes a value's own '; '
+ * for the one between problems.
+ */
 export function showValue(v: unknown): string {
   if (v === undefined) return 'nothing';
   const s = JSON.stringify(v) ?? String(v);
-  return s.length > 80 ? `${s.slice(0, 79)}…` : s;
+  if (s.length <= 80) return s;
+  let cut = s.slice(0, 79);
+  let quoted = false;
+  let i = 0;
+  while (i < cut.length) {
+    if (cut[i] === '\\') i += 2;
+    else {
+      if (cut[i] === '"') quoted = !quoted;
+      i++;
+    }
+  }
+  // An escape cut in two loses its backslash, which would escape the closing quote.
+  if (i > cut.length) cut = cut.slice(0, -1);
+  return quoted ? `${cut}…"` : `${cut}…`;
 }
 
 /** A key or a position appended to a path as reports write it: `amount`, `customer.email`, `items[0]`, `["x y"]`. */
