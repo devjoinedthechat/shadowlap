@@ -9,6 +9,7 @@ SHADOWLAP_GUARD_ALLOW=host:port,host:port whitelists targets.
 If the project has its own sitecustomize further down sys.path, it is loaded afterwards.
 """
 
+import atexit
 import importlib.machinery
 import importlib.util
 import json
@@ -16,6 +17,7 @@ import os
 import socket
 import sys
 import threading
+import time
 
 _url = os.environ.get("SHADOWLAP_URL")
 _mode = os.environ.get("SHADOWLAP_GUARD", "warn")
@@ -53,25 +55,53 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
     _seen = {}
     # Set on the thread that reports: the guard's own connections are never reported.
     _reporting = threading.local()
+    # Reports on their way to the sidecar, which the agent waits for when it exits (_flush).
+    _sending = set()
 
     def _report(key, action):
         def send():
             _reporting.active = True
             try:
-                import urllib.request
+                import http.client
 
                 data = json.dumps({"target": key, "action": action, "runtime": "python"}).encode("utf-8")
                 headers = {"content-type": "application/json"}
                 run_id = os.environ.get("SHADOWLAP_RUN_ID")
                 if run_id:
                     headers["x-shadowlap-run"] = run_id
-                # Never through a proxy (HTTP_PROXY): the sidecar is on this machine's loopback.
-                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-                opener.open(urllib.request.Request(_url + "/v1/guard", data=data, headers=headers, method="POST"), timeout=2).read()
+                # Straight to the sidecar on this machine's loopback: never through a proxy
+                # (HTTP_PROXY), and with no TLS context made for nothing, as urllib's opener makes
+                # one, reading the system's certificates (slowly on Windows) for every report.
+                target = urlparse(_url + "/v1/guard")
+                connection = (http.client.HTTPSConnection if target.scheme == "https" else http.client.HTTPConnection)(target.hostname, target.port, timeout=2)
+                try:
+                    connection.request("POST", target.path, body=data, headers=headers)
+                    connection.getresponse().read()
+                finally:
+                    connection.close()
             except Exception:
                 pass
+            finally:
+                _sending.discard(threading.current_thread())
 
-        threading.Thread(target=send, daemon=True).start()
+        thread = threading.Thread(target=send, daemon=True)
+        _sending.add(thread)
+        try:
+            thread.start()
+        except RuntimeError:  # no new thread while the interpreter shuts down
+            _sending.discard(thread)
+
+    def _flush():
+        # The run lists what bypassed Shadowlap from these reports: one still on its way when the
+        # agent exits would be left out, so the agent waits for them, 2 seconds at most in all.
+        deadline = time.monotonic() + 2
+        for thread in list(_sending):
+            try:
+                thread.join(max(0.0, deadline - time.monotonic()))
+            except RuntimeError:  # not started yet
+                pass
+
+    atexit.register(_flush)
 
     # Python connects to the address a name resolved to, so the guard remembers every name that
     # resolved to each address: the run then says which host it reached (api.stripe.com:443, not
