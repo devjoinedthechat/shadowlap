@@ -88,8 +88,10 @@ the command says so.
 A preset's verdict is one of four:
 
 - **passed** and **failed**, by the gate below;
-- **inconclusive**: the gate ran out of attempts between its bounds, or the replay never reached the
-  call (a golden that no longer replays as far as that: `shadowlap test` says why);
+- **inconclusive**: the gate ran out of attempts between its bounds, the replay never reached the
+  call (a golden that no longer replays as far as that: `shadowlap test` says why), or a
+  [check](./checks.md#how-a-check-comes-out) could not be decided, such as a judge with no way to
+  be asked, which no further attempt would decide either;
 - **not applicable**: the recording has no call the preset can hit, or no answer it can change (a
   binary response, a result with no text or list to grow, a tool that already answered with nothing).
 

@@ -25,6 +25,7 @@ import {
 } from '@shadowlap/engine';
 import { type ChaosSpec } from './chaos-config.js';
 import { evaluateChecks, type TestSpec } from './checks.js';
+import { attemptVerdict } from './golden-test.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { storedResult } from './interventions.js';
 import { emitJobEvent } from './job-events.js';
@@ -279,6 +280,13 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
         unreached = s.divergence
           ? `the replay forked at call ${s.divergence.callNo}, before it reached #${target.callNo}, so the preset was never played in: the recording no longer replays as far as that (shadowlap test says why)`
           : `the replay never reached #${target.callNo}, so the preset was never played in`;
+        runs.push({ runId: s.runId, passed: false, exitCode: attempt.code, checks: attempt.checks, reason: unreached, lastLine: null });
+        break;
+      }
+      // A check no attempt can decide (a judge with no verdict, a condition it can't read) says nothing
+      // of the agent's error path, and won't on the next attempt either: inconclusive, with why.
+      if (attemptVerdict(attempt) === 'inconclusive') {
+        unreached = attempt.failure!.message;
         runs.push({ runId: s.runId, passed: false, exitCode: attempt.code, checks: attempt.checks, reason: unreached, lastLine: null });
         break;
       }

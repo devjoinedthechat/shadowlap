@@ -217,6 +217,18 @@ describe('test --chaos', () => {
     expect(plain.stdout).toContain('Each preset was judged on the agent exiting 0 alone: no checks say what an error path must do.\nSay it in its tests entry, as "chaos": { "expect": {"tools":{"issue_refund":"<= 1"}} }, or as upper bounds on write tools in its "expect".');
   }, 180_000);
 
+  it('reads a preset inconclusive, after one attempt, when its check can\'t be decided', async () => {
+    // A judge on a provider with no key and no upstream can't be asked: no attempt could decide it,
+    // so the preset is no failure of the agent's, and no gate runs on for it.
+    const judge = { name: 'calm', question: 'Does the final answer stay calm?', model: 'gemini-2.5-flash' };
+    config({ 'goldens/forecast': { chaos: { presets: ['timeout'], expect: { judge: [judge] }, gate: { good: 0.9, bad: 0.5, risk: 0.1, max: 6 } } } });
+    const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'undecided.json'], { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' });
+    expect(r.code, r.out).toBe(1);
+    const p = byPreset(report('undecided.json'));
+    expect(p.timeout).toMatchObject({ verdict: 'inconclusive', attempts: 1, passes: 0 });
+    expect(p.timeout!.reason).toMatch(/^check inconclusive: judge "calm" answers yes, but not judged: /);
+  }, 180_000);
+
   it('gates each preset as attempts come in: a sequential test stops as soon as it can say', async () => {
     // Each pass adds ln(0.9/0.5), each failure ln(0.1/0.5); the bounds are ±ln(0.9/0.1): four passes, or two failures.
     config({ 'goldens/forecast': { chaos: { presets: ['timeout', 'malformed'], gate: { good: 0.9, bad: 0.5, risk: 0.1, max: 6 } } } });
