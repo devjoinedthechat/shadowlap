@@ -379,7 +379,7 @@ Each replay runs the recorded command, or the one after `--`, in the commit's wo
 | Option | Effect |
 |---|---|
 | `--expect <json\|@file>` | The checks a replay must pass besides exiting 0 (default: the golden's under `tests`) |
-| `--fork` | Let each replay diverge and run live from the fork, so only the exit status and the checks decide: for a run that failed a check, whose recording no older commit would replay. The live part costs tokens, and the result says how many. |
+| `--fork` | Let each replay diverge and run live from the fork, so only the exit status and the checks decide: for a run that failed a check, whose recording no older commit would replay. The live part costs tokens, and the result says how many. A replay that forks asks its [judge checks](./judges.md) live: one no replay can ask (no key for its provider, and no upstream set for it) is refused before anything runs |
 | `--build <command>` | Run in each worktree before its replay, e.g. `"npm ci && npm run build"`. A commit where it fails is skipped |
 | `--cwd <dir>` | Where the recorded command runs, inside the repository (default: the current directory) |
 | `--timeout <seconds>` | Stop a replay after this long and count it as failing (default 300) |

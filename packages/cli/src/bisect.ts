@@ -3,6 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, sta
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { commandIsImported, formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
+import { undecidableChecks } from './attempts.js';
 import { specFor, type TestSpec } from './checks.js';
 import { defaultDbPath, loadConfig, loadTests } from './config.js';
 import { divergenceCause, importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
@@ -316,6 +317,15 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   // unless --fork lets it go live from the fork and leaves the verdict to the checks.
   const given = input.spec === undefined ? fromConfig : input.spec ? { ...input.spec, fork: false } : null;
   const spec: TestSpec | null = input.fork ? { ...(given ?? { repeat: 1, passes: 1, tools: [] }), fork: true } : given;
+  // With --fork a replay that forks asks its judge checks live: one no replay can ask would leave
+  // every commit inconclusive, so the search would spend tokens to say nothing.
+  const undecided = input.fork ? undecidableChecks(spec) : [];
+  if (undecided.length) {
+    store.close();
+    throw new BisectError(
+      `with --fork, a replay that forks asks its judge checks live, and ${undecided.length === 1 ? 'one' : `${undecided.length}`} can't be asked: ${undecided.map((u) => `${u.label} (${u.why})`).join('; ')}. Every commit would read inconclusive, so bisect would spend tokens to say nothing: give the judge its provider's key, or bisect without --fork`,
+    );
+  }
 
   const report: BisectReport = { outcome: 'stopped', target: { kind: target.kind, name: target.name, runId: target.run.runId }, good, bad, commits: commits.length, steps: [], first: null, untested: [], why: null, replays: 0, tokens: 0, upstreamRequests: 0, spent: 0, seconds: 0 };
   if (fromBase) input.log(`  ${fromBase}, ${good.short}`);

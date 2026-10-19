@@ -202,14 +202,16 @@ describe('shadowlap blame', () => {
     expect(unpricedOnly({ checks: [], failures: ['the agent exited with code 1'] })).toBeNull();
   });
 
-  it('refuses a judge check no attempt can decide, in blame, verify and repair, before anything runs', async () => {
+  it('refuses a judge check no attempt can ask live, in blame, verify and repair, before anything runs', async () => {
     const runId = await record();
     const before = mock.requests.length;
-    const judged = JSON.stringify({ tools: { issue_refund: 0 }, judge: [{ name: 'explains', question: 'Does the reply say why the refund was escalated?', model: 'claude-haiku-4-5' }] });
+    // Each attempt is a fork, whose judge is asked live: one on a provider with no key and no upstream can't be.
+    const judged = JSON.stringify({ tools: { issue_refund: 0 }, judge: [{ name: 'explains', question: 'Does the reply say why the refund was escalated?', model: 'gemini-2.5-flash' }] });
+    const noKey = { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' };
     for (const args of [['blame', runId], ['verify', '--fixes', runId], ['repair', '--fixes', runId]]) {
-      const r = await shadowlap([...args, '--expect', judged]);
+      const r = await shadowlap([...args, '--expect', judged], noKey);
       expect(r.code, r.out).toBe(1);
-      expect(r.out).toContain('--expect has a check no attempt can decide: judge "explains" answers yes (an attempt is a fork, whose judge would have to be asked live)');
+      expect(r.out).toContain('--expect has a check no attempt can decide: judge "explains" answers yes (an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY))');
       expect(r.out).toContain(`so ${args[0]} would spend attempts to say nothing`);
     }
     expect(mock.requests.length).toBe(before);

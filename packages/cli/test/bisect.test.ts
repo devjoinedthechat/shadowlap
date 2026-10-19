@@ -55,9 +55,9 @@ function commit(name: string, files: Record<string, string | null>, author = 'Te
   rev[name] = sh('git', ['rev-parse', '--short', 'HEAD']);
 }
 
-function shadowlap(args: string[]): Promise<{ code: number | null; out: string; stdout: string }> {
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, ...args], { cwd: project, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, ...args], { cwd: project, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let stdout = '';
     child.stdout.on('data', (d: Buffer) => {
@@ -144,6 +144,16 @@ describe('shadowlap bisect', () => {
     expect(report.upstreamRequests).toBe(mock.requests.length - hits);
     expect(report.upstreamRequests).toBeGreaterThan(0);
     expect(report.tokens).toBeGreaterThan(0);
+  });
+
+  it('with --fork, refuses a judge check no replay can ask live, before anything runs', async () => {
+    const hits = mock.requests.length;
+    const judged = JSON.stringify({ judge: [{ name: 'brief', question: 'Is the summary short?', model: 'gemini-2.5-flash' }] });
+    const r = await shadowlap(['bisect', briefRun, '--good', rev['Start the ticket agent']!, '--bad', rev['Mention the prompt']!, '--expect', judged, '--fork'], { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' });
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain('with --fork, a replay that forks asks its judge checks live, and one can\'t be asked: judge "brief" answers yes (an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY))');
+    expect(mock.requests.length).toBe(hits);
+    expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
   });
 
   it('tells a dashboard job what it found and where that shows', async () => {

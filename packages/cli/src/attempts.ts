@@ -1,12 +1,12 @@
 import type { ChildProcess } from 'node:child_process';
-import { checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
+import { checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
-import { judgedOptions, judgesOf, recordedVerdicts, type Judged } from './judge.js';
+import { judgedOptions, judgesOf, liveJudge, recordedVerdicts, type Judged } from './judge.js';
 import { agentEnv, judgeAttempt, outputDrained, recordsInput, type GuardMode } from './run-agent.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { pushIfQueued, teamEnv } from './team.js';
@@ -300,17 +300,22 @@ const failed = (checks: readonly CheckResult[]) => checks.filter((c) => !c.ok).m
 
 /**
  * Why an attempt can't have a verdict for a judge check, or null when it can: an attempt is a fork,
- * so its judge has to be asked live, and attempts ask none yet. The judge's live asking replaces
- * this with what it lacks for that judge (its provider's key, a run that may go online).
+ * so its judge is asked live, through the upstream the environment sets for its provider or with
+ * the provider's key, as the attempt itself will ask it (judgeAttempt).
  */
-export const attemptJudgeMissing = (_j: JudgeCheck): string | null => 'an attempt is a fork, whose judge would have to be asked live';
+export function attemptJudgeMissing(j: JudgeCheck, upstreams: Record<string, string> = upstreamOverrides(process.env), env: NodeJS.ProcessEnv = process.env): string | null {
+  const target = judgeTarget(j.model);
+  if (!target) return `Shadowlap can't tell which provider serves ${j.model}`;
+  const live = liveJudge(target.provider, upstreams, env);
+  return 'why' in live ? `an attempt is a fork, whose judge must be asked live: ${live.why}` : null;
+}
 
 /**
  * The checks of an oracle that no attempt can decide, each with why: a judge check no attempt can
  * have a verdict for. Every attempt would read inconclusive on it and none could pass, so blame,
  * verify and repair refuse such an oracle before they spend anything.
  */
-export function undecidableChecks(spec: TestSpec | null, missing: (j: JudgeCheck) => string | null = attemptJudgeMissing): Array<{ label: string; why: string }> {
+export function undecidableChecks(spec: TestSpec | null, missing: (j: JudgeCheck) => string | null = (j) => attemptJudgeMissing(j)): Array<{ label: string; why: string }> {
   if (!spec) return [];
   return judgeChecksOf(spec).flatMap((j) => {
     const why = missing(j);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { JUDGE_SCOPE, judgeAskId, Store, storeApiRequest, type CallRecord } from '@shadowlap/engine';
-import { judgeRecording, oracleLabels } from '../src/attempts.js';
+import { attemptJudgeMissing, judgeRecording, oracleLabels, undecidableChecks } from '../src/attempts.js';
 import { checkLine, evaluateChecks, hasChecks, judgeResults, judgeSource, parseExpect, parseTests } from '../src/checks.js';
 import { judgedOptions, judgesOf, liveJudge, recordedVerdicts } from '../src/judge.js';
 
@@ -121,6 +121,16 @@ describe('whether a judge can be asked live', () => {
     // A mock or a local server needs no key.
     expect(liveJudge('openai', { openai: 'http://127.0.0.1:8080' }, {})).toEqual({ headers: {} });
     expect(liveJudge('anthropic', { anthropic: 'offline' }, { ANTHROPIC_API_KEY: 'k' })).toEqual({ why: 'the test runs offline' });
+  });
+
+  it('decides whether blame, verify and repair can have a verdict: each attempt is a fork, which asks the judge live', () => {
+    expect(attemptJudgeMissing(judge, {}, { ANTHROPIC_API_KEY: 'k' })).toBeNull();
+    expect(attemptJudgeMissing(judge, { anthropic: 'http://127.0.0.1:9' }, {})).toBeNull();
+    const gemini = { ...judge, model: 'gemini-2.5-flash' };
+    expect(attemptJudgeMissing(gemini, {}, {})).toBe('an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY)');
+    expect(undecidableChecks(parseExpect({ judge: [judge, { ...gemini, name: 'brief' }] }, 'expect'), (j) => attemptJudgeMissing(j, {}, { ANTHROPIC_API_KEY: 'k' }))).toEqual([
+      { label: 'judge "brief" answers yes', why: 'an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY)' },
+    ]);
   });
 
   it('are asked wherever a spec holds them, under a when too', () => {
