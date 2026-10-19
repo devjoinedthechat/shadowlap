@@ -397,7 +397,7 @@ export function keepingCanaries<T>(value: T, canaries: readonly Canary[], rewrit
   const texts = [...new Set(canaries.flatMap((c) => needles(c).map((n) => n.text)))].sort((a, b) => b.length - a.length);
   if (!texts.length) return rewrite(value);
   const originals: string[] = [];
-  const mark = (i: number) => `${''.repeat(i + 1)}`;
+  const mark = (i: number) => `\uE000${'\uE002'.repeat(i + 1)}\uE001`;
   const pattern = new RegExp(texts.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
   const hide = (s: string) =>
     s.replace(pattern, (m) => {
@@ -412,7 +412,7 @@ export function keepingCanaries<T>(value: T, canaries: readonly Canary[], rewrit
   };
   const hidden = deep(value, hide) as T;
   const out = rewrite(hidden);
-  return deep(out, (s) => s.replace(/(+)/g, (m, run: string) => originals[run.length - 1] ?? m)) as T;
+  return deep(out, (s) => s.replace(/\uE000(\uE002+)\uE001/g, (m, run: string) => originals[run.length - 1] ?? m)) as T;
 }
 
 // ---- what an attempt wrote ----
