@@ -19,6 +19,7 @@ Claude Code, Cursor, Codex and other coding agents can debug an agent with Shado
 | Compare two runs | `shadowlap diff <a> <b> --json` | What changed, the first differing request, each run's course after it |
 | Find ids and temp paths that change every run | `shadowlap calibrate --json` | Proposed normalizers |
 | Run the recorded tests | `shadowlap test <pack...> --json report.json` | Per recording: result, divergence, checks |
+| Check whether text the agent reads can steer it | `shadowlap injection <run> --json` | Each untrusted read with each payload: obeyed, influenced or ignored, and the write that carried the planted canary ([details](./injection.md)) |
 
 A replay runs the agent's own command, so its output mixes with Shadowlap's on the terminal; `--summary-json` writes the outcome to a file instead. Replays make no model calls until the fork, so an agent can replay as often as it likes.
 
