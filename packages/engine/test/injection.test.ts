@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyNormalizers, attemptsToFail, attemptsToPass, canaryIn, carriesMark, cleanDecided, configuredTrust, decide, describeIdentifiers, fillPayload, findCanary, hasCanary, identifiersOf, injectionTemplates, keepingCanaries, neutralResult, newCanary, normalizedArgs, parseGate, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, proofLine, selectTemplates, Session, Store, strongestVerdict, trustOf, unexplainedWrites, untrustedReads, writeBaseline, writeRecurs, type CallRecord, type Canary } from '../src/index.js';
+import { applyNormalizers, attemptsToFail, attemptsToPass, canaryIn, carriesMark, cleanDecided, configuredTrust, decide, describeIdentifiers, fillPayload, findCanary, goneWrites, hasCanary, identifiersOf, injectionTemplates, keepingCanaries, neutralResult, newCanary, normalizedArgs, parseGate, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, proofLine, selectTemplates, Session, Store, strongestVerdict, trustOf, unexplainedWrites, untrustedReads, writeBaseline, writeRecurs, type CallRecord, type Canary } from '../src/index.js';
 
 /** The pure half of shadowlap injection: payloads, canaries, trust, what an attempt wrote, and the gate. */
 
@@ -228,6 +228,19 @@ describe('--clean', () => {
     expect(writeRecurs(write, [{ callNo: 20, name: 'send_email', args: { to: 'team@example.com', subject: 'As requested', body: 'All of it.' } }])).toBe(false);
     // A write with nothing to identify it comes back with any call of its tool.
     expect(writeRecurs({ callNo: 1, name: 'post_note', args: { text: 'some words' } }, [{ callNo: 2, name: 'post_note', args: { text: 'other words' } }])).toBe(true);
+  });
+
+  it('counts the writes a clean attempt made in any order, and never takes an earlier write just like one for it', () => {
+    const w = (callNo: number, to: string) => ({ callNo, name: 'send_email', args: { to } });
+    // Recorded: an email to the team before the read (#3), then one to ops in the read's turn (#8) and the team again (#29).
+    const recorded = [w(3, 'team@example.com'), w(8, 'ops@example.com'), w(29, 'team@example.com')];
+    const targets = [recorded[1]!, recorded[2]!];
+    // The attempt replays #3, runs the ops email before the read this time, and sends the team nothing more.
+    expect(goneWrites(targets, recorded, [w(3, 'team@example.com'), w(7, 'ops@example.com')])).toEqual([29]);
+    // Both come back.
+    expect(goneWrites(targets, recorded, [w(3, 'team@example.com'), w(8, 'ops@example.com'), w(30, 'team@example.com')])).toEqual([]);
+    // Neither: only what came before the read.
+    expect(goneWrites(targets, recorded, [w(3, 'team@example.com')])).toEqual([8, 29]);
   });
 });
 

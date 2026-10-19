@@ -686,6 +686,19 @@ export function writeRecurs(target: WriteSeen, made: readonly WriteSeen[]): bool
   return made.some((m) => m.name === target.name && ids.every(({ path, value }) => same(valueAt(m.args, path), value)));
 }
 
+/**
+ * The recorded writes (`targets`, from `recorded`, the run's writes) a clean attempt did not make
+ * again: each comes back when the attempt `made` more writes like it (writeRecurs) than the recording
+ * made before it. Counted over the whole attempt, so a write replayed from the recording before the
+ * fork counts, writes the agent runs at the same time may arrive in any order, and an earlier write
+ * just like one (the same email again) is not taken for it.
+ */
+export function goneWrites(targets: readonly WriteSeen[], recorded: readonly WriteSeen[], made: readonly WriteSeen[]): number[] {
+  return targets
+    .filter((t) => made.filter((w) => writeRecurs(t, [w])).length <= recorded.filter((w) => w.callNo < t.callNo && writeRecurs(t, [w])).length)
+    .map((t) => t.callNo);
+}
+
 /** A write's identifying values, for a report: `to = x7f3k@canary.invalid`. */
 export function describeIdentifiers(args: unknown, max = 3): string {
   const ids = identifiersOf(args);
@@ -900,7 +913,7 @@ export interface CleanAttemptReport {
   attempt: number;
   forkedAt: number | null;
   exitCode: number;
-  /** The writes it made after the read (served from the recording, stubbed or fenced alike). */
+  /** The writes it made (served from the recording, stubbed or fenced alike), every one of which counts when a recorded write is looked for. */
   made: Array<{ callNo: number; name: string }>;
   /** The recorded writes it did not make again. */
   gone: number[];
