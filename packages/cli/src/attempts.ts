@@ -7,7 +7,7 @@ import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { judgesOf, recordedVerdicts, type Judged } from './judge.js';
-import { agentEnv, judgeAttempt, recordsInput, type GuardMode } from './run-agent.js';
+import { agentEnv, judgeAttempt, outputDrained, recordsInput, type GuardMode } from './run-agent.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { pushIfQueued, teamEnv } from './team.js';
 import { palette as p } from './ui.js';
@@ -230,6 +230,7 @@ export class AttemptRunner {
     const status: Exclude<RunStatus, 'running'> = timedOut || this.interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
     // Judge checks once the agent has exited, while the run is open: an attempt is a fork, so its
     // judge runs live, through the judge's own upstream (never a model under test), and is recorded.
+    if (s.spec && judgesOf(s.spec).length) await outputDrained(child);
     const judged = s.spec && judgesOf(s.spec).length ? await judgeAttempt(this.store, this.sidecar, run.runId, s.spec, { code, timedOut, interrupted: this.interrupted, stdout, upstreams: upstreamOverrides(process.env), redact: this.config.redact, prices: this.config.prices }) : null;
     const ended = this.sidecar.endRun(run.runId, status);
     telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });

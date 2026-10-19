@@ -242,7 +242,9 @@ export async function testAttempt(
   if (timedOut) output += `\n[shadowlap] stopped after ${formatDuration(o.timeoutMs!)}\n`;
   if (interrupted) output += `\n[shadowlap] interrupted (${interrupted})\n`;
   // Judge checks are asked once the agent has exited, through this sidecar while the run is open, so
-  // their calls are the run's: a clean replay's from its recording, a fork's live.
+  // their calls are the run's: a clean replay's from its recording, a fork's live. What the agent
+  // printed is read to its end first: `exit` can come before the last of it.
+  if (o.spec && judgesOf(o.spec).length) await outputDrained(child);
   const judged = o.spec && judgesOf(o.spec).length ? await judgeAttempt(store, sidecar, run.runId, o.spec, { code, timedOut, interrupted: interrupted !== null, stdout, upstreams: o.upstreams, redact: o.redact ?? [], prices: o.prices, forkFails: !o.spec.fork }) : null;
   const ended = sidecar.endRun(run.runId, timedOut || interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   await sidecar.close();
@@ -306,6 +308,28 @@ export async function testAttempt(
     failure = { message: checksFailure(failedChecks), details: divergence + formatSummary(summary) };
   }
   return { ended, code, ms: Date.now() - started, output, stdout, checks, failure, kind, interrupted };
+}
+
+/**
+ * Resolves once a child's piped output has been read to its end, or after `ms`: a grandchild that
+ * holds the pipes open keeps nothing waiting longer than that.
+ */
+export function outputDrained(child: ReturnType<typeof spawn>, ms = 2_000): Promise<void> {
+  const open = [child.stdout, child.stderr].filter((s) => s !== null && !s.readableEnded && !s.destroyed);
+  if (!open.length) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref();
+    let left = open.length;
+    for (const s of open) {
+      s!.once('close', () => {
+        if (--left === 0) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+    }
+  });
 }
 
 /**

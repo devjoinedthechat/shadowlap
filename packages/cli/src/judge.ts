@@ -77,6 +77,10 @@ export interface Judged {
   notJudged: Map<string, string>;
 }
 
+/** How many times a judge's call that may pass is asked again, and how long it waits before each: half a second, then two. */
+const RETRIES = 2;
+const pause = (attempt: number) => new Promise<void>((resolve) => setTimeout(resolve, attempt === 0 ? 500 : 2_000));
+
 /** What a provider's error body says, as ": <message>", or nothing. */
 function errorMessage(bytes: Buffer): string {
   try {
@@ -110,15 +114,29 @@ async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: Judge
     // No way to ask it live: the recording answers, or no one does.
     ...('headers' in live ? { ...live.headers, ...(upstream ? { 'x-shadowlap-judge-upstream': upstream } : {}) } : { 'x-shadowlap-judge-offline': '1' }),
   };
-  let res: Response;
-  try {
-    res = await fetch(`${ctx.sidecar.url}/r/${encodeURIComponent(ctx.runId)}/${target.provider}${request.path}`, { method: 'POST', headers, body: JSON.stringify(request.body) });
-  } catch (err) {
-    return { why: `the judge's call failed: ${(err as Error).message}` };
+  // A failure that may pass (rate limited, overloaded, a dropped connection) is asked again, twice, as
+  // the providers' SDKs do: the sidecar keeps the attempts as one call.
+  let res: Response | null = null;
+  let bytes = Buffer.alloc(0);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(`${ctx.sidecar.url}/r/${encodeURIComponent(ctx.runId)}/${target.provider}${request.path}`, { method: 'POST', headers, body: JSON.stringify(request.body) });
+      bytes = Buffer.from(await res.arrayBuffer());
+    } catch (err) {
+      if (attempt < RETRIES) {
+        await pause(attempt);
+        continue;
+      }
+      return { why: `the judge's call failed: ${(err as Error).message}` };
+    }
+    if (res.status === 503 && bytes.toString('utf8').includes('shadowlap_offline')) return { why: `no recorded verdict and ${'why' in live ? live.why : 'the test runs offline'}` };
+    if (attempt < RETRIES && (res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500)) {
+      await pause(attempt);
+      continue;
+    }
+    break;
   }
-  const bytes = Buffer.from(await res.arrayBuffer());
   const contentType = res.headers.get('content-type') ?? undefined;
-  if (res.status === 503 && bytes.toString('utf8').includes('shadowlap_offline')) return { why: `no recorded verdict and ${'why' in live ? live.why : 'the test runs offline'}` };
   if (res.status >= 400) return { why: `the judge's call failed: HTTP ${res.status}${errorMessage(bytes)}` };
   const verdict = readVerdict(bytes, contentType, target.provider);
   if ('error' in verdict) return { why: verdict.error };

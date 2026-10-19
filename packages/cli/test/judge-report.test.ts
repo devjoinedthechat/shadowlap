@@ -32,3 +32,15 @@ describe('judge checks in the reports', () => {
     expect(githubAnnotations(testReport([unjudged]))).toContain(`%0A%0A? ${label}: inconclusive, not judged: no recorded verdict and the test runs offline`);
   });
 });
+
+describe('fix on failure', () => {
+  it('opens no fix for a golden whose only checks that did not pass are judge checks not judged', async () => {
+    const { planFixes } = await import('../../../action/fix.mjs');
+    const result = (name: string, checks: PackResult['checks']) => ({ name, dir: `goldens/${name}`, golden: `goldens/${name}`, ok: false, failure: 'check' as const, runId: 'R', runs: [{ runId: 'R', ok: false }], expect: { judge: [] }, checks });
+    const plans = planFixes({ results: [result('escalate', [passed, notJudged]), result('wrong', [notJudged, { ok: false, label: 'issue_refund called 0 times', detail: 'called 1 time' }])] });
+    expect(plans.map((p) => [p.result.name, p.skip])).toEqual([
+      ['escalate', 'its judge check explains was not judged, which no prompt fix changes: record its verdict with shadowlap test goldens/escalate --update'],
+      ['wrong', null],
+    ]);
+  });
+});

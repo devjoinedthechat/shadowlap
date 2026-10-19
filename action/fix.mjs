@@ -41,6 +41,16 @@ function unpricedOnly(checks) {
   return [...new Set(models.flatMap((m) => m.split(', ')))];
 }
 
+/**
+ * The judge checks, when checks that were not judged (inconclusive: no recorded verdict and no way
+ * to ask the judge) are the only ones that did not pass. No prompt fix gives them a verdict.
+ */
+function notJudgedOnly(checks) {
+  const notPassed = (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok);
+  if (!notPassed.length || !notPassed.every((c) => c.status === 'inconclusive')) return null;
+  return notPassed.map((c) => String(c.judge?.name ?? c.label));
+}
+
 /** The failed goldens of a test report, each with the fix it gets or why it gets none. */
 export function planFixes(report) {
   return report.results
@@ -50,6 +60,8 @@ export function planFixes(report) {
       if (!r.expect) return { result: r, skip: 'its checks are not under "tests" in shadowlap.config.json' };
       const unpriced = unpricedOnly(r.checks);
       if (unpriced) return { result: r, skip: `it fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, which no prompt fix changes: add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json` };
+      const notJudged = notJudgedOnly(r.checks);
+      if (notJudged) return { result: r, skip: `its judge check${notJudged.length === 1 ? '' : 's'} ${notJudged.join(', ')} ${notJudged.length === 1 ? 'was' : 'were'} not judged, which no prompt fix changes: record ${notJudged.length === 1 ? 'its verdict' : 'their verdicts'} with shadowlap test ${r.dir ?? r.golden} --update` };
       const failing = (r.runs ?? []).filter((x) => !x.ok).map((x) => x.runId);
       if (!failing.length) return { result: r, skip: 'no failing replay was kept' };
       return { result: r, skip: null, fixes: failing, keeps: (r.runs ?? []).filter((x) => x.ok).map((x) => x.runId) };

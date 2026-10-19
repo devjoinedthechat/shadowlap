@@ -12,8 +12,8 @@ export interface ReportResult {
   runId?: string | null;
   runs?: Array<{ runId: string; ok: boolean }>;
   expect?: Record<string, unknown> | null;
-  /** The checks of the attempt shown, each with why it failed. */
-  checks?: Array<{ ok: boolean; label: string; detail: string | null }> | null;
+  /** The checks of the attempt shown, each with why it failed; a judge check's with its status (`inconclusive` when not judged) and judge. */
+  checks?: Array<{ ok: boolean; label: string; detail: string | null; status?: string; judge?: { name: string } }> | null;
 }
 
 export interface FixPlan {

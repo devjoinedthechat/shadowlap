@@ -66,3 +66,32 @@ describe('a judge on OpenAI and Gemini', () => {
     }
   });
 });
+
+describe('a judge that fails once', () => {
+  it('is asked again, and the run keeps one judge call with both attempts', async () => {
+    let failed = 0;
+    const flaky = await startMockOpenAI({
+      script: openaiJudge(
+        () => (failed++ === 0 ? { status: 529, body: { error: { message: 'Overloaded' } } } : { verdict: 'yes', reason: 'second time' }),
+        () => ({ turn: openaiTurn('not a judge request') }),
+      ),
+    });
+    const store = Store.open(':memory:');
+    const upstreams = { openai: flaky.url };
+    const sidecar = await Sidecar.start({ store, upstreams });
+    try {
+      const run = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
+      const judged = await askJudges([judges[0]!], { calls: [], output: 'Done.' }, { sidecar, store, runId: run.runId, upstreams, env: {} });
+      expect(judged.verdicts.get('openai')).toMatchObject({ verdict: 'yes', reason: 'second time', source: 'live' });
+      sidecar.endRun(run.runId, 'completed');
+      const [call, ...more] = store.getCalls(run.runId);
+      expect(more).toEqual([]);
+      expect(call!.attempts.map((a) => a.meta.status)).toEqual([529]);
+      expect(call!.end).toMatchObject({ outcome: 'ok', meta: { status: 200 } });
+    } finally {
+      await sidecar.close();
+      store.close();
+      await flaky.close();
+    }
+  });
+});

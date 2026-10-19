@@ -55,9 +55,9 @@ $ shadowlap test goldens/research
 1 passed, 0 failed · 0 upstream requests
 ```
 
-- **A golden that may fork** (`"fork": true`) asks the judge live wherever its answer changed, and its replay keeps the call. The judge reads what the fork did, so a prompt fix is judged on the reply it now gives.
-- **A replay** (`shadowlap replay`, with the checks of the golden it came from or `--expect`) is judged the same way: from the recording when it is clean, live when it forked.
-- **Blame, verify and repair** fork every attempt, so each attempt asks the judge live. What that costs is reported apart from the agent's cost, and counts against `--budget`.
+- **A golden that may fork** (`"fork": true`) asks the judge live wherever what the judge reads changed, and its replay keeps the call. The judge reads what the fork did, so a prompt fix is judged on the reply it now gives.
+- **A replay** (`shadowlap replay`, with the checks of the golden it came from or `--expect`) is judged the same way: from the recording when it asks what the recording asked, live when what the judge reads changed.
+- **Blame, verify and repair** fork every attempt, so an attempt asks the judge live unless its recording holds the very same request. What that costs is reported apart from the agent's cost, and counts against `--budget`.
 - **`test --update`** re-records a golden that diverged, its judge checks with it, from the old golden when the answer didn't change. A golden that replayed clean but holds no verdict for a check (a check added after it was packed, or one that reads the output) gets that verdict asked live and added to its recording, so its pack carries it:
 
 ```
@@ -107,6 +107,7 @@ One message to the judge's model with the question and the material between `<ma
 
 - **Temperature 0** wherever the model takes a temperature. Claude Opus 4.7 and the generation 5 models refuse one, as do OpenAI's reasoning models (o1, o3, o4-mini, the gpt-5 family): they are sent none. A verdict from the recording is the same every time either way.
 - **Structured output.** The verdict's JSON schema, as `output_config.format` on Claude 4.1 and later, `response_format` on OpenAI and `responseSchema` on Gemini. Never a forced tool call, which current Claude models refuse. The verdict is read from the answer's text, in a code fence or a sentence too.
+- **Asked again on a failure that may pass.** A rate limit, an overloaded provider or a dropped connection is retried twice, as the providers' SDKs retry, and the run keeps the attempts as one call. A failure that persists is a check not judged.
 - **One call per check**, one after another. Its request is kept with the check's name and a digest of what it asks (its question, what it reads, its model), so a renamed check still finds its verdict, and a changed question never reads an old one.
 
 ## Never the agent's calls
@@ -115,7 +116,7 @@ A judge's calls are made in the scope `shadowlap:judge`. They are recorded in th
 
 - **Replay strictness leaves them out.** A judge call never forks a replay, never counts as replayed, and a recorded one that wasn't asked again is no call the agent left out, so a replay never [ends early](./ci.md#a-replay-that-ends-early) on one. A missing judge call means "ask the judge live", not "the agent changed".
 - **Nothing that measures the agent counts them**: the run's summary (calls by origin, upstream requests, tokens, cost), `modelCalls`, token and cost budgets, the final answer an `answer` check reads. Their own part is summed apart, as `judge`.
-- **No flag names one.** `--fail-at`, `--diverge-at`, `--set`, `--model`, `--inject` and `--prompt-from` count the agent's model calls only, and a judge's request is never rewritten.
+- **No flag names one.** `--fail-at`, `--set`, `--model`, `--inject` and `--prompt-from` refuse a judge's call by name and count the agent's model calls only; no flag rewrites a judge's request or forces it live.
 - **Only Shadowlap makes them.** The scope takes a token no agent's environment holds, and any scope under `shadowlap:` is refused to an agent's call: name the agent's scopes another way.
 
 Nothing is matched fuzzily because of a judge: a replay matches requests exactly, as always. The judge only judges the outcome, and only a judge's own request is ever served its recorded verdict.
