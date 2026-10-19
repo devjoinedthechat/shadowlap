@@ -64,6 +64,17 @@ export function exportTookTooLong(rules: readonly Normalizer[], ms: number, runI
 }
 
 let making = 0;
+/** Threads asked to end and not yet gone: one stopped for taking too long holds the store's file open until it is. */
+const ending = new Set<Promise<unknown>>();
+
+/**
+ * Resolves once every thread making a file that was asked to end has ended and let go of the
+ * store's file. The dashboard waits for it when it closes: Windows can't delete or move a file
+ * another thread holds.
+ */
+export async function exportsEnded(): Promise<void> {
+  await Promise.allSettled([...ending]);
+}
 
 /**
  * The HTML file of `work.runIds` (the run and the runs it came from), made on a worker thread
@@ -84,7 +95,9 @@ export function exportHtmlApart(work: ExportWork, o: { limits?: ExportLimits } =
       settled = true;
       making--;
       clearTimeout(timer);
-      void worker.terminate();
+      const ended = worker.terminate().catch(() => undefined);
+      ending.add(ended);
+      void ended.finally(() => ending.delete(ended));
       done();
     };
     const busy = () => new ExportError(503, 'The store is busy with another command: download it again in a moment.');
