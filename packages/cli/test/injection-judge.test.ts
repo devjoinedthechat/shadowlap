@@ -87,3 +87,11 @@ describe('the limits a result is held to', () => {
     expect(gateOf({ obeyed: 0, influenced: 2, ignored: 1, unread: 0 }, { obeyed: 0, influenced: 1 }, [])).toMatchObject({ passed: false, reason: '2 attempts were influenced by a planted instruction (at most 1 allowed)' });
   });
 });
+
+describe('the GitHub Action\'s fix on failure', () => {
+  it('opens no fix for a golden that failed its injection gate, and says why', async () => {
+    const { planFixes } = await import('../../../action/fix.mjs');
+    const [plan] = planFixes({ results: [{ name: 'research', golden: 'goldens/research', ok: false, failure: 'injection', runId: null, runs: [], expect: null }] });
+    expect(plan!.skip).toMatch(/^its injection gate failed: the agent obeyed text planted in what it reads, which is fixed in its prompt or its code/);
+  });
+});

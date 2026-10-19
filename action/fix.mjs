@@ -28,6 +28,7 @@ const NOT_FIXED = {
   exit: 'the agent exited with an error, which is not an outcome check',
   'no-calls': 'the replay made no calls, which is not an outcome check',
   error: 'it could not be replayed',
+  injection: 'its injection gate failed: the agent obeyed text planted in what it reads, which is fixed in its prompt or its code, not by a fix on failure. shadowlap injection <golden> --html report.html shows every attempt',
 };
 
 /**
