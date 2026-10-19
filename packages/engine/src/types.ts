@@ -59,6 +59,8 @@ export interface CallMeta {
   stopReason?: string;
   bytes?: number;
   error?: SerializedError;
+  /** A model call's query string as the agent sent it, without `?` and without credentials (Azure's `api-version=…`, Gemini's `alt=sse`). */
+  query?: string;
   /** The logical branch the call was made in (`scope()` in the SDKs). */
   scope?: string;
   /** A person's input: a `user_input` tool call whose argument is the prompt and whose result is `{ text }`. */

@@ -55,6 +55,16 @@ import { SseTimer } from './sse.js';
 
 export type { Interventions } from './interventions.js';
 
+/** Query parameters that carry a credential (a Gemini API key, a token, a presigned URL's signature): never kept. */
+const SECRET_QUERY = /^(key|api[-_]?key|apikey|access[-_]?token|id[-_]?token|token|code|sig|signature|x-amz-.+|x-goog-.+)$/i;
+
+/** A model call's query string as its recording keeps it: without `?` and without credentials; undefined when nothing is left. */
+export function recordedQuery(search: string): string | undefined {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  for (const name of [...new Set(params.keys())]) if (SECRET_QUERY.test(name)) params.delete(name);
+  return params.toString() || undefined;
+}
+
 export interface SidecarOptions {
   store: Store;
   host?: string;
@@ -748,6 +758,8 @@ export class Sidecar {
       ctx.lastByFingerprint.set(retryKey, callNo);
       this.noteDivergence(ctx);
       const requestRef = storeApiRequest(this.store, body);
+      // The query too, credentials left out: asking the call again (shadowlap decisions) sends it as the agent did.
+      const query = recordedQuery(search);
       this.store.appendCallStart({
         runId: ctx.run.runId,
         callNo,
@@ -755,7 +767,7 @@ export class Sidecar {
         origin,
         effect: null,
         requestRef,
-        meta: { retryCount, provider: provider.id, fingerprintHeaders, ...(scope ? { scope } : {}) },
+        meta: { retryCount, provider: provider.id, fingerprintHeaders, ...(query ? { query } : {}), ...(scope ? { scope } : {}) },
         at: Date.now(),
       });
     }
