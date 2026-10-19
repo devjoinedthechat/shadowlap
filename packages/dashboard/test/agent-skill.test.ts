@@ -19,13 +19,14 @@ afterEach(() => {
 
 describe('the skill on Settings → Coding agents', () => {
   it('offers no install until the owner has published it', () => {
-    expect(SKILL_PUBLISHED).toBe(false);
-    expect(skillOffer('0.1.0')).toEqual({ published: false, plugin: 'shadowlap@shadowlap', command: '/shadowlap:debug-agent', install: null });
+    expect(skillOffer('0.1.0', false)).toEqual({ published: false, plugin: 'shadowlap@shadowlap', command: '/shadowlap:debug-agent', install: null });
     const cwd = mkdtempSync(join(tmpdir(), 'sl-skill-'));
     dirs.push(cwd);
-    // The tab's read model carries it, at this dashboard's own version.
-    expect(codingAgentsSettings({ cwd }).skill).toEqual(skillOffer());
-    expect(codingAgentsSettings({ cwd }).skill.install).toBeNull();
+    // The tab's read model carries it, at this dashboard's own version, as SKILL_PUBLISHED says.
+    const offer = codingAgentsSettings({ cwd }).skill;
+    expect(offer).toEqual(skillOffer());
+    expect(offer.published).toBe(SKILL_PUBLISHED);
+    expect(offer.install === null).toBe(!SKILL_PUBLISHED);
   });
 
   it('once published, installs the plugin and the rule of the release it is', () => {
