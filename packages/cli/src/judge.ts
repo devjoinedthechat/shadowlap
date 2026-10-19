@@ -214,7 +214,14 @@ export async function judgeEndedRun(store: Store, run: RunRecord, judges: readon
     if (held) {
       out.verdicts.set(j.name, held);
       out.held.push(j.name);
-    } else ask.push(j);
+      continue;
+    }
+    // With no recording above it to answer from, a judge that can't be asked live is not asked at
+    // all: an unanswered call would only sit in the run, and in its pack.
+    const target = judgeTarget(j.model);
+    const live = target ? liveJudge(target.provider, o.upstreams, o.env) : null;
+    if (!run.parentRunId && live && 'why' in live) out.notJudged.set(j.name, `no recorded verdict and ${live.why}`);
+    else ask.push(j);
   }
   if (!ask.length) return out;
   const sidecar = await Sidecar.start({ store, normalizers: o.config.normalize, upstreams: o.upstreams, ...(o.config.prices ? { prices: o.config.prices } : {}), ...(o.config.clock ? { clock: o.config.clock } : {}), ...(o.config.http ? { http: o.config.http } : {}) });

@@ -1,0 +1,34 @@
+import { describe, expect, it } from 'vitest';
+import { formatChecks } from '../src/golden-test.js';
+import { githubAnnotations, markdownReport, testReport, type PackResult } from '../src/test-report.js';
+
+/** A judge check's verdict and reason beside it in every report, and the judge's cost apart from the agent's. */
+
+const label = 'explains: the judge answers yes to "Does the reply say why?"';
+const passed = { ok: true, status: 'passed' as const, label, detail: 'the judge answered yes: It names the $100 limit.', reason: 'It names the $100 limit.', judge: { name: 'explains', model: 'claude-haiku-4-5', of: 'answer' as const, verdict: 'yes' as const, source: 'recording' as const, cost: 0, redactions: 0, cut: 0 } };
+const notJudged = { ok: false, status: 'inconclusive' as const, label, detail: 'not judged: no recorded verdict and the test runs offline', judge: { ...passed.judge, verdict: null, source: null, cost: null } };
+
+const base: PackResult = { name: 'refund', dir: 'goldens/refund', golden: 'goldens/refund', mode: 'replay', ok: true, failure: null, message: null, details: null, output: null, seconds: 1, runId: 'R1', runs: [], goldenRunId: 'G1', calls: { total: 30, replayed: 30, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, tokensNotRespent: 1000, divergence: null, checks: [passed], attempts: null, expect: null, updated: null, judge: { calls: 1, replayed: 1, live: 0, notAsked: 0, upstreamRequests: 0, spent: 0, saved: 0.0005, unknownModels: [] } };
+const unjudged: PackResult = { ...base, name: 'escalate', dir: 'goldens/escalate', golden: 'goldens/escalate', ok: false, failure: 'check', message: `check inconclusive: ${label}, not judged: no recorded verdict and the test runs offline`, details: 'details', checks: [notJudged], judge: { calls: 1, replayed: 0, live: 0, notAsked: 1, upstreamRequests: 0, spent: 0, saved: 0, unknownModels: [] } };
+const live: PackResult = { ...base, name: 'fork', dir: 'goldens/fork', golden: 'goldens/fork', mode: 'fork', checks: [{ ...passed, judge: { ...passed.judge, source: 'live', cost: 0.0025 } }], judge: { calls: 2, replayed: 0, live: 2, notAsked: 0, upstreamRequests: 2, spent: 0.005, saved: 0, unknownModels: [] } };
+
+describe('judge checks in the reports', () => {
+  it('give the terminal and JUnit each verdict with its reason and where it came from', () => {
+    expect(formatChecks([passed, notJudged])).toBe(
+      [`✓ ${label}: the judge answered yes: It names the $100 limit. (judged from the recording, free)`, `? ${label}: inconclusive, not judged: no recorded verdict and the test runs offline`].join('\n'),
+    );
+  });
+
+  it('list the verdicts of goldens that passed in the Markdown report, those that did not pass under them, and the judges\' cost apart', () => {
+    const md = markdownReport(testReport([base, live, unjudged]));
+    expect(md).toContain(`- \`refund\` ✅ ${label}: the judge answered yes: It names the $100 limit. (judged from the recording, free)`);
+    expect(md).toContain('- `fork` ✅');
+    expect(md).toContain('(judged live, ≈$0.0025)');
+    expect(md).toContain(`- ❔ ${label}: inconclusive, not judged: no recorded verdict and the test runs offline`);
+    expect(md).toContain("4 judge calls: 1 from the recordings, free; 2 live, ≈$0.0050, apart from the agents' calls above.");
+  });
+
+  it('annotate a golden whose judge check was not judged with why', () => {
+    expect(githubAnnotations(testReport([unjudged]))).toContain(`%0A%0A? ${label}: inconclusive, not judged: no recorded verdict and the test runs offline`);
+  });
+});

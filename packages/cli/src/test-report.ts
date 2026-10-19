@@ -47,8 +47,8 @@ export interface PackResult {
   expect: Record<string, unknown> | null;
   /** `--update` re-recorded it: the run it replaced, the new one, its calls, and what the agent sends differently. */
   updated: { from: string | null; to: string; calls: number; changes?: string[] } | null;
-  /** Its judge checks' calls over every attempt, apart from the agent's: how many came from the recording, how many went live, and what they cost. Null without one. */
-  judge: JudgeSummary | null;
+  /** Its judge checks' calls over every attempt, apart from the agent's: how many came from the recording, how many went live, and what they cost. Null without one (always printed). */
+  judge?: JudgeSummary | null;
 }
 
 export interface TestReport {
