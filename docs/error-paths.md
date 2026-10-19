@@ -116,7 +116,7 @@ Forks vary, so a preset can be decided over several attempts, as they come in:
   always passes to reach the pass bound is refused, since the gate could never pass.
 
 `--inconclusive fail` (the default) fails the command on an inconclusive preset; `--inconclusive warn`
-reports it and exits 0.
+reports it, marks its JUnit case skipped, and exits 0.
 
 ## Configure a golden's presets
 

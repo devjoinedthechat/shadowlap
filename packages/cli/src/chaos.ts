@@ -462,9 +462,10 @@ export function chaosTotals(r: ChaosReport, upstreamRequests: number, spent: num
 }
 
 /**
- * Each preset of each recording as a JUnit case: a failed one fails, an inconclusive one fails when
- * CI counts it as failing. A CI shows each case on its own, so one a sequential gate decided states
- * the gate's rule after its tally and Wilson bound, in its message and its output.
+ * Each preset of each recording as a JUnit case: a failed one fails, and an inconclusive one fails
+ * when CI counts it as failing, else is skipped: neither passed nor failed, as a golden's case is. A
+ * CI shows each case on its own, so one a sequential gate decided states the gate's rule after its
+ * tally and Wilson bound, in its message and its output.
  */
 export function chaosJunit(results: readonly ChaosRecordingResult[], o: { inconclusive: 'fail' | 'warn' }): JunitCase[] {
   return results.flatMap((r) => {
@@ -473,8 +474,10 @@ export function chaosJunit(results: readonly ChaosRecordingResult[], o: { inconc
     return r.outcomes.map((x): JunitCase => {
       const rule = presetRule(x);
       const said = rule ? `${x.detail} · ${rule}` : x.detail;
+      const message = `${VERDICT_WORDS[x.verdict]}: ${said}`;
       const fails = x.verdict === 'failed' || (x.verdict === 'inconclusive' && o.inconclusive === 'fail');
-      return { name: x.label, classname, timeSeconds: 0, ...(fails ? { failure: { message: `${VERDICT_WORDS[x.verdict]}: ${said}`, details: x.runs.map((run, i) => `attempt ${i + 1} (run ${run.runId}): ${run.passed ? 'passed' : `failed: ${run.reason ?? ''}`}`).join('\n') } } : {}), systemOut: said };
+      const verdict = fails ? { failure: { message, details: x.runs.map((run, i) => `attempt ${i + 1} (run ${run.runId}): ${run.passed ? 'passed' : `failed: ${run.reason ?? ''}`}`).join('\n') } } : x.verdict === 'inconclusive' ? { skipped: { message } } : {};
+      return { name: x.label, classname, timeSeconds: 0, ...verdict, systemOut: said };
     });
   });
 }

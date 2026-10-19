@@ -158,7 +158,13 @@ describe('what a session reports', () => {
       ['goldens/broken', 'error-path presets', true],
     ]);
     expect(fail[1]!.failure).toEqual({ message: 'failed: get_forecast (#3) answered malformed JSON: the agent exited with code 1', details: 'attempt 1 (run R2): failed: the agent exited with code 1' });
-    expect(chaosJunit(results, { inconclusive: 'warn' })[2]!.failure).toBeUndefined();
+    expect(fail.some((c) => c.skipped)).toBe(false);
+    // Let through, an inconclusive one is skipped, neither passed nor failed, as a golden's case is.
+    const warn = chaosJunit(results, { inconclusive: 'warn' });
+    expect(warn[2]!.failure).toBeUndefined();
+    expect(warn[2]!.skipped).toEqual({ message: 'inconclusive: model call #4 failed with HTTP 429: 3 of 5 passed' });
+    expect(warn.filter((c) => c.skipped).map((c) => c.name)).toEqual(['provider 429']);
+    expect(warn[1]!.failure).toBeDefined();
   });
 
   it('writes a Markdown table for a job summary', () => {
