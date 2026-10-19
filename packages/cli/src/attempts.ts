@@ -254,7 +254,8 @@ export class AttemptRunner {
   }
 
   judgeRecorded(run: RunRecord, calls: CallRecord[]): { passed: boolean | null; failures: string[] } {
-    return judgeRecording(this.store, run, calls, this.settings.spec, this.config.prices);
+    const { passed, failures } = judgeRecording(this.store, run, calls, this.settings.spec, this.config.prices);
+    return { passed, failures };
   }
 
   /** The store's path as given (`--db`), for what runs after the attempts. */
@@ -287,9 +288,10 @@ export function oracleLabels(spec: TestSpec | null): string[] {
 /**
  * How a recorded run fares against the oracle, from what the recording holds: its exit status and
  * every check but those on its output, which is not recorded; `calls` and `when` rules read the
- * recorded arguments and results, so they cost nothing. Null when that can't settle it: a check on
- * the output, a check that is inconclusive (a judge with no verdict), a run still recording, or a
- * partial recording that holds no tool calls. `checks` are the results, the ones on the output left out.
+ * recorded arguments and results, so they cost nothing. Null when that can't settle it, and
+ * `unsettled` says why: a check on the output, a check that is inconclusive (a judge with no
+ * verdict), a run still recording, or a partial recording that holds no tool calls. `checks` are
+ * the results, the ones on the output left out.
  */
 export function judgeRecording(
   store: Store,
@@ -298,13 +300,17 @@ export function judgeRecording(
   spec: TestSpec | null,
   prices?: ShadowlapConfig['prices'],
   options: EvaluateOptions = {},
-): { passed: boolean | null; failures: string[]; checks: CheckResult[] } {
+): { passed: boolean | null; failures: string[]; checks: CheckResult[]; unsettled: string[] } {
   const failures: string[] = [];
   if (run.status === 'failed') failures.push('the agent exited with a non-zero code');
   else if (run.status === 'crashed') failures.push('the run was interrupted');
   const checks = spec ? evaluateChecks(withoutOutput(spec), storedCheckInput(store, calls, '', prices), options) : [];
   failures.push(...failed(checks.filter((c) => checkStatus(c) === 'failed')));
-  const partial = !!run.meta?.covers?.length && !run.meta.covers.includes('tool');
-  const unsettled = run.status === 'running' || (!!spec && readsOutput(spec)) || partial || checks.some((c) => c.status === 'inconclusive');
-  return { passed: failures.length ? false : unsettled ? null : true, failures, checks };
+  const unsettled = [
+    ...(run.status === 'running' ? ['it is still recording'] : []),
+    ...(spec && readsOutput(spec) ? ["a check reads what the agent printed, which a recording doesn't keep"] : []),
+    ...(run.meta?.covers?.length && !run.meta.covers.includes('tool') ? ['it is a partial recording that holds no tool calls'] : []),
+    ...failed(checks.filter((c) => c.status === 'inconclusive')),
+  ];
+  return { passed: failures.length ? false : unsettled.length ? null : true, failures, checks, unsettled };
 }
