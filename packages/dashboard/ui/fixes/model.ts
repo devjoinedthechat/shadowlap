@@ -412,6 +412,11 @@ export function bundledRuns(bundles: readonly FixBundle[]): Set<string> {
   return out;
 }
 
+/** An attempt's mark: none for a pass, amber for one that could not be judged (neither passed nor failed), red for a failure. */
+export function attemptMark(a: { passed: boolean; verdict?: string }): 'unsure' | 'no' | undefined {
+  return a.passed ? undefined : a.verdict === 'inconclusive' ? 'unsure' : 'no';
+}
+
 /** A bundle's icon and the words for it: blame attempts, or a verify accepted or rejected. */
 export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict'>): { kind: 'blame' | 'fixok' | 'fixbad' | 'fork'; label: string } {
   if (b.kind === 'blame') return { kind: 'blame', label: 'Blame attempts' };
@@ -420,10 +425,11 @@ export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict'>): { kind: 'bl
   return { kind: 'fork', label: 'Verify attempts, not settled' };
 }
 
-/** The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032", and for a verify the change and how it came out. */
+/** The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032" (with those that could not be judged counted apart), and for a verify the change and how it came out. */
 export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict'>, money: (usd: number) => string): string {
   const n = b.attempts.length;
-  return [`${n} attempt${s(n)}, ${b.passes} passed`, ...(b.spent ? [money(b.spent)] : []), ...(b.kind === 'verify' && b.change ? [`${b.change}${b.verdict ? ` ${b.verdict}` : ''}`] : [])].join(' · ');
+  const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
+  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...(b.kind === 'verify' && b.change ? [`${b.change}${b.verdict ? ` ${b.verdict}` : ''}`] : [])].join(' · ');
 }
 
 // ---------------------------------------------------------------------------------------------- report.md

@@ -59,6 +59,12 @@ export function footprintOf(calls: readonly CallRecord[], costOf: (c: CallRecord
 export interface VerifyAttempt {
   runId: string;
   passed: boolean;
+  /**
+   * How it came out: inconclusive when all it fell short on is a check that could not be decided (a
+   * judge that could not answer, a condition it could not read), which says nothing of the change.
+   * Absent from reports made before attempts had one.
+   */
+  verdict?: 'passed' | 'failed' | 'inconclusive';
   exitCode: number;
   failures: string[];
   /** Where the attempt forked, or null when it replayed clean. */
@@ -83,6 +89,12 @@ export interface VerifiedRun {
   gate?: GateResult | null;
   /** How the recording itself fares against the oracle; `passed` is null when the recording can't settle it. */
   recorded: { passed: boolean | null; failures: string[]; footprint: Footprint };
+  /**
+   * Why its last attempt could not be judged, when all it fell short on was a check no attempt could
+   * decide: the run stopped there, inconclusive, as no attempt after it would say more. Null or absent
+   * otherwise.
+   */
+  undecided?: string | null;
 }
 
 /** A run's verdict after `done` attempts. A deterministic run is settled by its first. */
@@ -115,15 +127,23 @@ export interface VerifyDecision {
 const ROLE: Record<VerifyRole, string> = { target: 'target', holdout: 'held-out', good: 'good' };
 const short = (id: string) => id.slice(0, 10);
 
-/** What happened to a run, in the words of its role: fixed or not, kept or broken; or that its gate couldn't tell. */
-export function outcomeOf(r: Pick<VerifiedRun, 'role' | 'verdict'> & { decision?: GateDecision | undefined }): 'fixed' | 'not fixed' | 'kept' | 'broken' | 'unsettled' | 'inconclusive' {
-  if (r.verdict === 'open') return r.decision === 'inconclusive' ? 'inconclusive' : 'unsettled';
+/** What happened to a run, in the words of its role: fixed or not, kept or broken; or that its gate couldn't tell, or an attempt couldn't be judged. */
+export function outcomeOf(r: Pick<VerifiedRun, 'role' | 'verdict'> & { decision?: GateDecision | undefined; undecided?: string | null | undefined }): 'fixed' | 'not fixed' | 'kept' | 'broken' | 'unsettled' | 'inconclusive' {
+  if (r.verdict === 'open') return r.decision === 'inconclusive' || r.undecided ? 'inconclusive' : 'unsettled';
   if (r.role === 'good') return r.verdict === 'pass' ? 'kept' : 'broken';
   return r.verdict === 'pass' ? 'fixed' : 'not fixed';
 }
 
-/** A run's tally, and under a gate the Wilson bound at the confidence it decided at: `12 of 12 passed · rate >= 0.76 (95%)`. */
+/**
+ * A run's tally, and under a gate the Wilson bound at the confidence it decided at: `12 of 12 passed
+ * · rate >= 0.76 (95%)`. An attempt that could not be judged is counted apart, never as one that
+ * failed, and a gate it stopped before deciding gives no bound: `2 of 2 passed, attempt 3 not judged`.
+ */
 function tally(r: VerifiedRun): string {
+  if (r.undecided) {
+    const judged = r.attempts.filter((a) => a.verdict !== 'inconclusive').length;
+    return `${judged ? `${r.passes} of ${judged} passed, ` : ''}attempt ${r.attempts.length} not judged`;
+  }
   if (r.deterministic) return 'clean replay';
   const g = r.gate;
   const bound = g && r.attempts.length ? wilsonBound(g) : null;
@@ -137,9 +157,11 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
     const why = r.attempts.find((a) => !a.passed)?.failures[0];
     reasons.push(`${ROLE[r.role]} run ${short(r.runId)} ${outcomeOf(r)}: ${tally(r)}${why ? ` (${why})` : ''}`);
   }
-  // A gate that ran out of attempts between its bounds settled nothing either, and says so apart.
+  // A gate that ran out of attempts between its bounds settled nothing either, and says so apart; so
+  // does a run whose attempt could not be judged, which is no failure of the change.
   for (const r of runs) if (r.decision === 'inconclusive') reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: ${tally(r)}, between the gate's bounds when its attempts ran out`);
-  const open = runs.filter((r) => r.verdict === 'open' && r.decision !== 'inconclusive');
+  for (const r of runs) if (r.undecided && r.decision !== 'inconclusive') reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: attempt ${r.attempts.length} could not be judged: ${r.undecided}`);
+  const open = runs.filter((r) => r.verdict === 'open' && r.decision !== 'inconclusive' && !r.undecided);
   if (open.length) reasons.push(`${open.length} run${open.length === 1 ? '' : 's'} not settled${stopReason ? `: ${stopReason}` : ''}`);
 
   const warnings: string[] = [];
@@ -234,15 +256,17 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
   const lines: string[] = [];
   const count = (role: VerifyRole) => {
     const of = r.runs.filter((x) => x.role === role);
-    return { of: of.length, ok: of.filter((x) => x.verdict === 'pass').length };
+    return { of: of.length, ok: of.filter((x) => x.verdict === 'pass').length, unsure: of.filter((x) => outcomeOf(x) === 'inconclusive').length };
   };
   const t = count('target');
   const h = count('holdout');
   const g = count('good');
+  // A run that is inconclusive is neither fixed nor kept, nor one the change failed: counted apart.
+  const unsure = (c: { unsure: number }) => (c.unsure ? ` (${c.unsure} inconclusive)` : '');
   const parts = [
-    t.of ? `fixes ${t.ok} of ${t.of} target run${t.of === 1 ? '' : 's'}` : '',
-    h.of ? `${t.of ? '' : 'fixes '}${h.ok} of ${h.of} held-out run${h.of === 1 ? '' : 's'}` : '',
-    g.of ? `keeps ${g.ok} of ${g.of} good run${g.of === 1 ? '' : 's'}` : '',
+    t.of ? `fixes ${t.ok} of ${t.of} target run${t.of === 1 ? '' : 's'}${unsure(t)}` : '',
+    h.of ? `${t.of ? '' : 'fixes '}${h.ok} of ${h.of} held-out run${h.of === 1 ? '' : 's'}${unsure(h)}` : '',
+    g.of ? `keeps ${g.ok} of ${g.of} good run${g.of === 1 ? '' : 's'}${unsure(g)}` : '',
   ].filter(Boolean);
   const sentence = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : (parts[0] ?? 'no runs');
   const head = r.verdict === 'accepted' ? `${p.green('✓')} ${p.bold('Accepted')}` : r.verdict === 'rejected' ? `${p.red('✗')} ${p.bold('Rejected')}` : `${p.yellow('!')} ${p.bold('Incomplete')}`;
@@ -257,7 +281,7 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
     for (const x of r.runs) {
       const o = outcomeOf(x);
       const colored = o === 'fixed' || o === 'kept' ? p.green(o.padEnd(outcomeWidth)) : o === 'unsettled' || o === 'inconclusive' ? p.yellow(o.padEnd(outcomeWidth)) : p.red(o.padEnd(outcomeWidth));
-      const failure = x.verdict === 'fail' ? x.attempts.find((a) => !a.passed)?.failures[0] : undefined;
+      const failure = x.verdict === 'fail' ? x.attempts.find((a) => !a.passed)?.failures[0] : (x.undecided ?? undefined);
       const forks = [...new Set(x.attempts.map((a) => a.forkedAt).filter((f): f is number => f !== null))];
       const note = failure ? safeLine(failure) : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '';
       lines.push(`    ${ROLE[x.role].padEnd(8)}  ${short(x.runId)}  ${colored}  ${tally(x).padEnd(r.gate ? 38 : 14)}${note ? `  ${p.dim(note)}` : ''}`.trimEnd());

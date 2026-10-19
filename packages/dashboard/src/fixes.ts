@@ -184,7 +184,7 @@ export interface BlameStep {
   /** Each probe: its tally and verdict, and under a gate the Wilson bound on the attempts it decided on (`bound`, `rate >= 0.34 (95%)`; null for a fixed count). */
   probes: Array<{ callNo: number; step: number; passes: number; attempts: number; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; bound: string | null; blamed: boolean; href: string }>;
   /** The attempts, bundled per probe. */
-  bundles: Array<{ callNo: number; title: string; blamed: boolean; passes: number; attempts: Array<{ runId: string; passed: boolean; note: string; spent: number; href: string }> }>;
+  bundles: Array<{ callNo: number; title: string; blamed: boolean; passes: number; attempts: Array<{ runId: string; passed: boolean; verdict: AttemptVerdict; note: string; spent: number; href: string }> }>;
   /** Every call of the run, for the row that shows where it was lost; `inScope` is false for a call outside the blame's scope. */
   callRow: Array<{ callNo: number; kind: string; inScope: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number }>;
   cost: { attempts: number; upstreamRequests: number; spent: number; unknownModels: string[] };
@@ -260,6 +260,8 @@ export interface VerifyRow {
   href: string;
   attempts: number;
   passes: number;
+  /** Attempts that could not be judged (all they fell short on is a check that could not be decided): neither passed nor failed. */
+  inconclusive: number;
   /** The first attempt replayed clean, so it settled the run. */
   deterministic: boolean;
   outcome: ReturnType<typeof outcomeOf>;
@@ -630,7 +632,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
       title: `blame · probe #${x.callNo}`,
       blamed: x.callNo === blamedCall,
       passes: x.passes,
-      attempts: x.attempts.map((a) => ({ runId: a.runId, passed: a.passed, note: a.passed ? (a.runId === contrast?.rescuedRunId ? rescuedNote : 'passed') : shortFailure(a.failures[0]), spent: a.spent, href: runHref(a.runId) })),
+      attempts: x.attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: a.passed ? (a.runId === contrast?.rescuedRunId ? rescuedNote : 'passed') : attemptNote(false, a.failures[0], undefined, attemptVerdictOf(a)), spent: a.spent, href: runHref(a.runId) })),
     })),
     callRow,
     cost: { attempts: r.attempts, upstreamRequests: r.upstreamRequests, spent: r.spent, unknownModels: r.unknownModels },
@@ -784,10 +786,11 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
       href: runHref(x.runId),
       attempts: n,
       passes: x.passes,
+      inconclusive: x.attempts.filter((a) => attemptVerdictOf(a) === 'inconclusive').length,
       deterministic: x.deterministic,
       outcome: outcomeOf(x),
       rate: rateOf(x.gate),
-      note: failure ? shortFailure(failure) : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
+      note: failure ? shortFailure(failure) : x.undecided ? 'an attempt could not be judged' : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
       tokens: now === null ? null : { recorded: x.recorded.footprint.inputTokens, now },
       cost: n ? { recorded: x.recorded.footprint.cost, now: mean((a) => a.footprint.cost) } : null,
     };
@@ -1240,6 +1243,8 @@ export function fixForRun(store: Store, runId: string): FixForRun | null {
 export interface FixBundleAttempt {
   runId: string;
   passed: boolean;
+  /** Passed, failed, or inconclusive: all it fell short on is a check that could not be decided, so it is neither. */
+  verdict: AttemptVerdict;
   /** "passed", "issue_refund called", "passed · called escalate". */
   note: string;
   href: string;
@@ -1313,9 +1318,23 @@ function storedReports(store: Store): { verdicts: StoredVerdict[]; repairs: Stor
   return read;
 }
 
-/** A failed attempt's first failure, from its run when the report kept none. */
-function attemptNote(passed: boolean, failure: string | undefined, run: RunRecord | undefined): string {
+type AttemptVerdict = 'passed' | 'failed' | 'inconclusive';
+
+/** An attempt's verdict as blame or verify kept it, or, for one kept before attempts had one, by whether it passed. */
+function attemptVerdictOf(a: { passed: boolean; verdict?: string | undefined }): AttemptVerdict {
+  return a.verdict === 'inconclusive' ? 'inconclusive' : a.passed ? 'passed' : 'failed';
+}
+
+/**
+ * A failed attempt's first failure, from its run when the report kept none; for one that could not be
+ * judged, the check that could not be decided, said as such: never as a failure.
+ */
+function attemptNote(passed: boolean, failure: string | undefined, run: RunRecord | undefined, verdict: AttemptVerdict = passed ? 'passed' : 'failed'): string {
   if (passed) return 'passed';
+  if (verdict === 'inconclusive') {
+    const label = failure?.split(', but it is inconclusive')[0] ?? run?.meta?.checks?.find((c) => !c.ok)?.label;
+    return `inconclusive${label ? `: ${shortFailure(label)}` : ''}`;
+  }
   if (failure) return shortFailure(failure);
   const check = run?.meta?.checks?.find((c) => !c.ok);
   return check ? shortFailure(check.label) : run?.status === 'crashed' ? 'interrupted' : 'failed';
@@ -1376,7 +1395,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
           verdict: null,
           role: null,
           passes: attempts.filter((a) => a.passed).length,
-          attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
+          attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
           spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
           at: startedAt(attempts.map((a) => a.runId), b.at),
           href: fix ? fixHref(fix.fixId, 'blame') : runHref(r.runId, blamedCall),
@@ -1403,7 +1422,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       verdict,
       role: ROLE[x.role],
       passes: attempts.filter((a) => a.passed).length,
-      attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, note: attemptNote(a.passed, a.failures[0], family.get(a.runId)), href: runHref(a.runId), rescued: false })),
+      attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: false })),
       spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
       at: startedAt(attempts.map((a) => a.runId), at),
       href,
@@ -1455,6 +1474,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
     const rescuedRunId = lost?.rescuedRunId ?? null;
     const fix = g.kind === 'blame' ? fixOfRun(store, g.parent.runId) : null;
     const passed = (r: RunRecord) => (g.kind === 'blame' ? r.meta?.probe?.passed === true : r.meta?.verify?.passed === true);
+    const verdict = (r: RunRecord) => attemptVerdictOf({ passed: passed(r), verdict: g.kind === 'blame' ? r.meta?.probe?.verdict : r.meta?.verify?.verdict });
     out.push({
       kind: g.kind,
       key,
@@ -1466,7 +1486,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       verdict: null,
       role: g.role,
       passes: g.runs.filter(passed).length,
-      attempts: g.runs.map((r) => ({ runId: r.runId, passed: passed(r), note: attemptNote(passed(r), undefined, r), href: runHref(r.runId), rescued: r.runId === rescuedRunId })),
+      attempts: g.runs.map((r) => ({ runId: r.runId, passed: passed(r), verdict: verdict(r), note: attemptNote(passed(r), undefined, r, verdict(r)), href: runHref(r.runId), rescued: r.runId === rescuedRunId })),
       spent: 0,
       at: Math.min(...g.runs.map((r) => r.startedAt)),
       href: fix ? fixHref(fix.fixId, 'blame') : runHref(g.parent.runId, blamed ? g.callNo : null),

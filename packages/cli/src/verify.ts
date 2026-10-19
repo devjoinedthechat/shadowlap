@@ -73,6 +73,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         result.attempts.push({
           runId: a.run.runId,
           passed: a.passed,
+          verdict: a.verdict,
           exitCode: a.code,
           failures: a.failures,
           forkedAt: a.summary.divergence?.callNo ?? null,
@@ -80,13 +81,21 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           upstreamRequests: a.summary.upstreamRequests,
           footprint: footprintOf(a.calls, runner.costOf),
         });
-        store.updateRunMeta(a.run.runId, { verify: { role, passed: a.passed }, ...(a.checks.length ? { checks: a.checks } : {}) });
+        store.updateRunMeta(a.run.runId, { verify: { role, passed: a.passed, verdict: a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
+        // A check no attempt can decide here (a judge that could not answer, a condition it can't
+        // read) says nothing of the change, and the next attempt wouldn't either: the run stops,
+        // inconclusive, with why. It never counts as a failure, nor as a pass.
+        if (a.verdict === 'inconclusive') {
+          result.undecided = a.failures[0] ?? 'a check could not be decided';
+          log(`  ${label}  ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}`);
+          break;
+        }
         if (s.gate) Object.assign(result, gateVerdict(result.passes, n, s.gate, result.deterministic));
         else result.verdict = runVerdict(result.passes, n, s.attempts, s.needed, result.deterministic);
         log(`  ${label}  ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}${result.deterministic ? p.dim(' · clean replay, so it settles the run') : ''}`);
       }
-      // What the gate made of the attempts: the rate's interval and the risk it decided at.
-      if (s.gate && result.attempts.length) result.gate = gateResult(s.gate, result.attempts.map((x) => x.passed), { clean: result.deterministic, decision: result.decision ?? 'continue' });
+      // What the gate made of the attempts it judged: the rate's interval and the risk it decided at.
+      if (s.gate && result.attempts.length) result.gate = gateResult(s.gate, result.attempts.filter((x) => x.verdict !== 'inconclusive').map((x) => x.passed), { clean: result.deterministic && !result.undecided, decision: result.decision ?? 'continue' });
       if (result.verdict === 'fail') failed = true;
       const o = outcomeOf(result);
       // The tally and the Wilson bound beside the outcome; the rule was said once, above.

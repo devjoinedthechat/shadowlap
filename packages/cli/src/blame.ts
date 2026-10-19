@@ -324,10 +324,11 @@ export function inconclusiveChecks(a: { checks: readonly StoredCheck[] }): Store
   return a.checks.filter((c) => checkStatus(c) === 'inconclusive');
 }
 
-/** One attempt in a line: its verdict, what ran live, what it cost, how long it took and its run. */
-export function describeAttempt(a: Attempt): string {
+/** One attempt in a line: its verdict (one only an undecided check held back is inconclusive, never failed), what ran live, what it cost, how long it took and its run. */
+export function describeAttempt(a: Pick<Attempt, 'passed' | 'verdict' | 'failures' | 'summary' | 'ms' | 'run'>): string {
   const cost = a.summary.cost.spent ? ` · ≈${formatUsd(a.summary.cost.spent)}` : '';
-  const verdict = a.passed ? p.green('✓ passed') : `${p.red('✗')} ${a.failures[0] ?? 'failed'}${a.failures.length > 1 ? p.dim(` (+${a.failures.length - 1} more)`) : ''}`;
+  const mark = a.verdict === 'inconclusive' ? p.yellow('?') : p.red('✗');
+  const verdict = a.passed ? p.green('✓ passed') : `${mark} ${a.failures[0] ?? a.verdict}${a.failures.length > 1 ? p.dim(` (+${a.failures.length - 1} more)`) : ''}`;
   return `${verdict}${p.dim(` · ${a.summary.byOrigin.live} live${cost} · ${formatDuration(a.ms)} · ${shortId(a.run.runId)}`)}`;
 }
 

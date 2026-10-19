@@ -4,7 +4,7 @@ import { approx, num, shortId } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import type { BlameStep, FixDetail } from '../types.js';
-import { blameWhere, callRowCells, probeBadge } from './model.js';
+import { attemptMark, blameWhere, callRowCells, probeBadge } from './model.js';
 import { StepHead } from './parts.js';
 
 /**
@@ -126,7 +126,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                   <div className="attempts">
                     {x.attempts.map((a) => (
                       <a key={a.runId} href={a.href} title={`${shortId(a.runId)} · ${a.note}`}>
-                        <i className={a.passed ? undefined : 'no'} />
+                        <i className={attemptMark(a)} />
                         <span className="t">
                           {shortId(a.runId)} · {a.note}
                         </span>

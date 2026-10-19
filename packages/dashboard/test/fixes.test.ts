@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BLAME_DEFAULTS, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
-import { fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
+import { fixBundles, fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
 
 let store: Store;
 beforeEach(() => {
@@ -309,6 +309,28 @@ describe('a fix', () => {
     expect(rejected.rows[2]).toMatchObject({ runId: good, attempts: 2, passes: 0, tokens: { recorded: 4_329, now: 5_193 } });
     expect(rejected.tokens).toMatchObject({ change: expect.stringMatching(/^\+/) });
     expect(rejected.attempts).toBe(10);
+  });
+
+  it('shows a run whose attempt could not be judged as inconclusive, never broken, and marks that attempt apart', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    const { fix } = blame(failing);
+    const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+    // The good run's one attempt: the agent exited 0 and failed no check, but its judge could not answer.
+    const attempt = makeRun(store, { mode: 'replay', parent: good, status: 'completed', meta: { verify: { role: 'good', passed: false, verdict: 'inconclusive' } } });
+    const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }]);
+    report.runs[1] = { ...report.runs[1]!, attempts: [{ ...report.runs[1]!.attempts[0]!, runId: attempt, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 0, verdict: 'open', undecided: why };
+    Object.assign(report, decideVerify(report.runs, null));
+    recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: NOW });
+    const v = fixDetail(store, fix.fixId)!.verify[0]!;
+    expect([v.verdict, v.headline]).toEqual(['incomplete', 'Not every run settled']);
+    expect(v.rows.map((r) => [r.role, r.outcome, r.attempts, r.passes, r.inconclusive, r.note])).toEqual([
+      ['target', 'fixed', 4, 4, 0, 'forked at #1'],
+      ['good', 'inconclusive', 1, 0, 1, 'an attempt could not be judged'],
+    ]);
+    // The Forks view under the good run: the attempt reads inconclusive, never failed.
+    const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
+    expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: attempt, passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
   });
 
   it("lists a verdict under another check with why it doesn't count, and leaves the steps as they were", () => {

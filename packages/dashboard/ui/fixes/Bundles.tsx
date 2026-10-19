@@ -4,7 +4,7 @@ import { approx, shortId, stamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import type { FixBundle } from '../types.js';
-import { bundledRuns, bundleGlyph, bundleLine } from './model.js';
+import { attemptMark, bundledRuns, bundleGlyph, bundleLine } from './model.js';
 
 /**
  * The Forks view's blame and verify bundles: the attempts each made, under the run they replayed,
@@ -47,7 +47,7 @@ export function FixBundleNode({ bundle: b, current }: { bundle: FixBundle; curre
       <span className="attempts fxwide">
         {b.attempts.map((a) => (
           <span key={a.runId} title={`${shortId(a.runId)} · ${a.note}`}>
-            <i className={a.passed ? undefined : 'no'} />
+            <i className={attemptMark(a)} />
             <span className="t">
               {shortId(a.runId)} · {a.note}
             </span>

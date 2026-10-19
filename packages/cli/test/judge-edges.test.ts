@@ -56,6 +56,8 @@ beforeAll(async () => {
     eventDelayMs: () => 0,
     script: withJudge(
       (q) => {
+        // A judge whose provider turns every request away: no verdict, so the check can't be decided.
+        if (q.question.includes('unreachable')) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
         if (q.question.includes('card')) return { verdict: 'yes', reason: `it names ${/SECRET\d+/.exec(q.material)?.[0] ?? 'no card'}` };
         if (q.question.includes('2026-10-20')) return q.material.includes('2026-10-20') ? { verdict: 'yes', reason: 'it names 2026-10-20' } : { verdict: 'no', reason: 'it names another date' };
         return q.material.includes('declined') ? { verdict: 'no', reason: 'it declines the refund' } : { verdict: 'yes', reason: 'it issues the refund' };
@@ -273,6 +275,30 @@ describe('what a judge cost', () => {
     const stopped = JSON.parse(capped.stdout) as { cost: { attempts: number }; stopReason: string | null };
     expect(stopped.cost.attempts).toBe(1);
     expect(stopped.stopReason).toContain('budget');
+  }, 120_000);
+});
+
+describe('an attempt a judge could not answer', () => {
+  it('is inconclusive in verify, never a failure that rejects the change', async () => {
+    config({});
+    const rec = await record({ VARIANT: 'plain' });
+    const unanswered = JSON.stringify({ judge: [judge({ question: 'Did the agent issue the refund? (unreachable)' })] });
+    const r = await shadowlap(['verify', '--keeps', rec, '--expect', unanswered, '--attempts', '3', '--passes', '3', '--set', 'max_tokens=99', '--json'], { VARIANT: 'plain' });
+    const v = JSON.parse(r.stdout) as { verdict: string; reasons: string[]; runs: Array<{ outcome: string; passes: number; attempts: number; runs: Array<{ runId: string; passed: boolean; verdict?: string; failures: string[] }>; undecided?: string | null }> };
+    // The good run's attempt said nothing of the change: it is neither kept nor broken, and no attempt
+    // after it could say more, so verify stops there and the change is not settled.
+    expect(v.verdict).toBe('incomplete');
+    expect(v.runs[0]).toMatchObject({ outcome: 'inconclusive', passes: 0, attempts: 1 });
+    expect(v.runs[0]!.runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
+    expect(v.runs[0]!.undecided).toMatch(/^judge "issued" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/);
+    expect(v.reasons).toEqual([expect.stringMatching(new RegExp(`^good run ${rec.slice(0, 10)} inconclusive: attempt 1 could not be judged: judge "issued" answers yes`))]);
+    expect(r.code).toBe(1);
+    // shadowlap show on the attempt says so too.
+    expect((await shadowlap(['show', v.runs[0]!.runs[0]!.runId])).stdout).toContain('an attempt of shadowlap verify, replaying a good run: inconclusive, a check could not be decided');
+    const text = await shadowlap(['verify', '--keeps', rec, '--expect', unanswered, '--attempts', '3', '--passes', '3', '--set', 'max_tokens=99'], { VARIANT: 'plain' });
+    expect(text.out).toMatch(/attempt 1 {2}\? judge "issued" answers yes, but it is inconclusive: not judged/);
+    expect(text.out).toContain('! Incomplete');
+    expect(text.out).not.toMatch(/broken|Rejected|✗ judge/);
   }, 120_000);
 });
 

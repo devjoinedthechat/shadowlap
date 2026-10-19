@@ -64,6 +64,12 @@ export interface Attempt {
   failures: string[];
   passed: boolean;
   /**
+   * How it came out: inconclusive when all it fell short on is a check that could not be decided (a
+   * judge that could not answer, a condition it could not read): no failure of the agent's, and no
+   * pass either.
+   */
+  verdict: 'passed' | 'failed' | 'inconclusive';
+  /**
    * The recording has model calls and the replay made none through Shadowlap: the agent reached its
    * model some other way, such as a local server Shadowlap was not told about. What it did is
    * unrecorded, so it is no evidence, and it must never pass for a clean replay.
@@ -267,7 +273,10 @@ export class AttemptRunner {
     this.judgeRequests += ended.summary.judge?.upstreamRequests ?? 0;
     for (const m of ended.summary.judge?.unknownModels ?? []) this.unknownModels.add(m);
     for (const w of ended.summary.warnings) this.warnings.add(w);
-    return { run, code, summary: ended.summary, calls, checks, failures, passed: failures.length === 0, bypassed, ms: Date.now() - started };
+    // The agent exited 0 in time, through Shadowlap, and failed no check: only an undecided check kept it from passing.
+    const undecided = !bypassed && !timedOut && code === 0 && checks.some((c) => !c.ok) && checks.every((c) => c.ok || c.status === 'inconclusive');
+    const verdict = failures.length === 0 ? 'passed' : undecided ? 'inconclusive' : 'failed';
+    return { run, code, summary: ended.summary, calls, checks, failures, passed: failures.length === 0, verdict, bypassed, ms: Date.now() - started };
   }
 
   private readonly modelCalls = new Map<string, number>();

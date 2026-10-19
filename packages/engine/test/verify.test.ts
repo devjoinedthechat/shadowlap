@@ -66,6 +66,34 @@ describe('decideVerify', () => {
   });
 });
 
+describe('a run an attempt of which could not be judged', () => {
+  const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+  /** A run whose attempts came out as `outcomes`, then one all that kept from passing was a check that could not be decided. */
+  const undecided = (role: VerifyRole, outcomes: boolean[], id: string): VerifiedRun => {
+    const r = run(role, outcomes, { id });
+    const last = { runId: `01M${outcomes.length}`.padEnd(26, '0'), passed: false, verdict: 'inconclusive' as const, exitCode: 0, failures: [why], forkedAt: 3, spent: 0.01, upstreamRequests: 2, footprint: fp(1000) };
+    return { ...r, attempts: [...r.attempts.map((a) => ({ ...a, verdict: a.passed ? ('passed' as const) : ('failed' as const) })), last], verdict: 'open', undecided: why };
+  };
+
+  it('is inconclusive, never a failure: the change is incomplete, not rejected, and the report says why', () => {
+    const good = undecided('good', [true, true], '01K5GOOD');
+    expect(outcomeOf(good)).toBe('inconclusive');
+    const d = decideVerify([run('target', [true, true, true, true]), good], null);
+    expect(d).toMatchObject({ verdict: 'incomplete', reasons: [`good run 01K5GOOD00 inconclusive: attempt 3 could not be judged: ${why}`] });
+    // A run that failed still rejects the change.
+    expect(decideVerify([run('target', [false, false]), good], null).verdict).toBe('rejected');
+  });
+
+  it('is counted apart in the first line, its tally left without the attempt that was not judged', () => {
+    const runs = [run('target', [true, true, true, true]), undecided('holdout', [], '01K5HELD'), undecided('good', [true, true], '01K5GOOD')];
+    const text = formatVerify({ ...decideVerify(runs, null), runs, attemptsPerRun: 5, needed: 4, oracle: ['the agent exits 0', 'judge "issued" answers yes'], fields: {}, codeVersion: null, attempts: 8, spent: 0, upstreamRequests: 16, unknownModels: [], stopReason: null, replayWarnings: [] });
+    expect(text).toContain('! Incomplete: the change fixes 1 of 1 target run, 0 of 1 held-out run (1 inconclusive) and keeps 0 of 1 good run (1 inconclusive)');
+    expect(text).toMatch(/held-out +01K5HELD00 +inconclusive +attempt 1 not judged +judge "issued" answers yes, but it is inconclusive/);
+    expect(text).toMatch(/good +01K5GOOD00 +inconclusive +2 of 2 passed, attempt 3 not judged +judge "issued" answers yes/);
+    expect(text).not.toMatch(/not fixed|broken|Rejected/);
+  });
+});
+
 describe('footprints', () => {
   it('adds up what a run would cost live, whatever each call\'s origin', () => {
     const call = (usage: object | undefined, kind = 'api'): CallRecord => ({ kind, end: usage ? { meta: { usage } } : null, meta: {} }) as unknown as CallRecord;

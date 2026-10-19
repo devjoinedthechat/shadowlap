@@ -193,7 +193,7 @@ export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Ar
     gate: r.gate ?? null,
     change: { fields: r.fields },
     summary: { targets: count('target'), holdout: count('holdout'), good: count('good') },
-    runs: r.runs.map((x) => ({ runId: x.runId, role: x.role, outcome: outcomeOf(x).replace(' ', '-'), passes: x.passes, attempts: x.attempts.length, decision: x.decision ?? null, rate: gateJson(x.gate), deterministic: x.deterministic, recorded: x.recorded, runs: x.attempts })),
+    runs: r.runs.map((x) => ({ runId: x.runId, role: x.role, outcome: outcomeOf(x).replace(' ', '-'), passes: x.passes, attempts: x.attempts.length, decision: x.decision ?? null, rate: gateJson(x.gate), deterministic: x.deterministic, recorded: x.recorded, undecided: x.undecided ?? null, runs: x.attempts })),
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
     // Judge checks' calls, apart from the agent's: what they sent upstream and spent. Null when no judge was asked live.
     judge: r.judge ?? null,

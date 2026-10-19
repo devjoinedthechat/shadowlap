@@ -194,7 +194,7 @@ export function register(program: Command): void {
       const probe = run.meta?.probe;
       if (probe && Number.isInteger(probe.callNo) && typeof probe.of === 'string') head.push(p.dim(`  an attempt of shadowlap blame ${safe(shortId(probe.of))}, forked at model call #${probe.callNo}: ${probe.passed ? 'passed' : 'failed'}`));
       const verify = run.meta?.verify;
-      if (verify) head.push(p.dim(`  an attempt of shadowlap verify, replaying a ${verify.role === 'good' ? 'good run' : verify.role === 'holdout' ? 'held-out failing run' : 'failing run'}: ${verify.passed ? 'passed' : 'failed'}`));
+      if (verify) head.push(p.dim(`  an attempt of shadowlap verify, replaying a ${verify.role === 'good' ? 'good run' : verify.role === 'holdout' ? 'held-out failing run' : 'failing run'}: ${verify.passed ? 'passed' : verify.verdict === 'inconclusive' ? 'inconclusive, a check could not be decided' : 'failed'}`));
       // An error-path preset's attempt: what was played in where; the preset's verdict is the session's (test --chaos).
       const chaos = run.meta?.chaos;
       if (chaos && isChaosPreset(chaos.preset) && Number.isInteger(chaos.callNo)) {
