@@ -15,8 +15,11 @@
 // dashboard` in the project, as anyone would, and takes each picture with headless Chrome at twice
 // the pixels, into .github/assets/readme/ (CHROME=/path/to/chrome chooses the browser). The dashboard
 // runs with the demo folder as its home folder, so the paths it shows are the ones a project in your
-// home folder shows (~/support-agent), never this machine's. The dashboard is dark only. Run ids,
-// commits, dates, times and durations differ from build to build; the rest comes out the same.
+// home folder shows (~/support-agent), never this machine's. It shows the dashboard as it is before
+// anyone sets up a team store: the demo project names one, so `store` is taken out of the project's
+// shadowlap.config.json while the dashboard runs, and the file is put back as it was afterwards. The
+// dashboard is dark only. Run ids, commits, dates, times and durations differ from build to build;
+// the rest comes out the same.
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
@@ -43,6 +46,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const given = process.argv[2];
 const scratch = mkdtempSync(join(tmpdir(), 'shadowlap-shots-'));
 const children = [];
+/** Puts the project's config back as it was, once the dashboard has stopped. */
+let restoreConfig = null;
 
 /** Runs a child to its end; its output is shown only when it fails. */
 function run(command, args, options) {
@@ -69,6 +74,16 @@ try {
   }
   const { runs } = JSON.parse(readFileSync(join(folder, 'runs.json'), 'utf8'));
   for (const key of ['override', 'refundFix']) if (!runs[key]) throw new Error(`readme-shots: the demo project has no ${key} (runs.json); build it again without --fast`);
+
+  // ---- no team store: the dashboard as a first-time user sees it ----
+  // With `store` in the config, the pill beside the logo says team and the status bar names the
+  // bucket and its last sync. Without it, they say dashboard and local only.
+  const configFile = join(folder, 'support-agent', 'shadowlap.config.json');
+  const configText = readFileSync(configFile, 'utf8');
+  const config = JSON.parse(configText);
+  delete config.store;
+  writeFileSync(configFile, `${JSON.stringify(config, null, 2)}\n`);
+  restoreConfig = () => writeFileSync(configFile, configText);
 
   // ---- the dashboard, as `shadowlap dashboard` starts it in the project ----
   const LEAKS = /^(SHADOWLAP_|ANTHROPIC_|OPENAI_|GOOGLE_|GEMINI_|AWS_|AZURE_|LANGFUSE_|LANGSMITH_|OTEL_|GIT_|GITHUB_|GITLAB_|BITBUCKET_|BUILDKITE|CIRCLECI|JENKINS_URL|TF_BUILD|CI$|NODE_OPTIONS|PYTHONPATH|GH_)/;
@@ -192,5 +207,6 @@ try {
     await Promise.race([gone, wait(10_000)]);
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
   }
+  restoreConfig?.();
   rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
