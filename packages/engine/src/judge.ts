@@ -128,17 +128,27 @@ function bounded(text: string): { text: string; cut: number } {
   return { text: `${text.slice(0, MATERIAL_HEAD)}\n[… ${cut} characters left out …]\n${text.slice(text.length - tail)}`, cut };
 }
 
-/** A model call's response, with the rules applied as a copy of the run applies them. */
-function responseBlocks(store: Store, call: CallRecord, rules: readonly Normalizer[]): { blocks: Block[]; stopReason: string | null } | null {
+/**
+ * A model's answer given in place of the one a call recorded: the decision diff's new answer at a
+ * step, which a judge reads in the recorded run's state. Its bytes as the provider sent them, read as
+ * the recorded call's response is: redacted as a copy of the run is, in the provider's wire format.
+ */
+export interface GivenAnswer {
+  bytes: Buffer;
+  contentType?: string | undefined;
+  provider?: string | undefined;
+}
+
+/** A model call's response, or the answer given in its place, with the rules applied as a copy of the run applies them. */
+function responseBlocks(store: Store, call: CallRecord, rules: readonly Normalizer[], given?: GivenAnswer): { blocks: Block[]; stopReason: string | null } | null {
   const ref = call.end?.responseRef;
-  if (!ref) return null;
-  const bytes = store.getBlob(ref);
+  const bytes = given ? given.bytes : ref ? store.getBlob(ref) : null;
   if (!bytes) return null;
   const masked = rules.length ? redactedResponse(bytes, [...rules], { kind: call.kind, name: call.name }) : bytes;
-  const provider = call.end?.meta.provider ?? call.meta.provider;
+  const provider = given ? given.provider : (call.end?.meta.provider ?? call.meta.provider);
   try {
     // The response's timings are left out: what was said is all a judge reads.
-    const r = normalizeResponse(masked, call.end?.meta.headers?.['content-type'], [], typeof provider === 'string' ? provider : undefined);
+    const r = normalizeResponse(masked, given ? given.contentType : call.end?.meta.headers?.['content-type'], [], typeof provider === 'string' ? provider : undefined);
     return { blocks: r.blocks, stopReason: r.stopReason };
   } catch {
     return null;
@@ -175,10 +185,13 @@ function maskedAsMatched(value: unknown, kind: CallKind, name: string, masks: Ma
  * the model read it, then its answer) and the tool calls no model asked for. The judge's own calls
  * are never part of it. Nothing in it depends on when the run was made or how its calls were
  * numbered, and what replay matching masks (`masks`) is masked in the agent's requests and in what
- * it printed, so a clean replay reads what its recording read.
+ * it printed, so a clean replay reads what its recording read. `answers` gives answers in place of
+ * the ones calls recorded, by call number: the run as recorded, with those answers instead, where a
+ * judge reads them as given (judgedAnswers).
  */
-export function judgeMaterial(store: Store, calls: readonly CallRecord[], of: JudgeReads, o: { output?: string | null; redact?: readonly Normalizer[] } & MatchMasks = {}): MaterialResult {
+export function judgeMaterial(store: Store, calls: readonly CallRecord[], of: JudgeReads, o: { output?: string | null; redact?: readonly Normalizer[]; answers?: ReadonlyMap<number, GivenAnswer> } & MatchMasks = {}): MaterialResult {
   const rules = o.redact ?? [];
+  const answers = o.answers ?? new Map<number, GivenAnswer>();
   const masks: MatchMasks = { ...(o.normalize?.length ? { normalize: o.normalize } : {}), ...(o.clock !== undefined ? { clock: o.clock } : {}) };
   const agent = agentCallsOf(calls);
   if (of === 'output') {
@@ -193,15 +206,48 @@ export function judgeMaterial(store: Store, calls: readonly CallRecord[], of: Ju
     return { ...bounded(text.trim() ? text : '(the agent printed nothing)'), redactions: applied.length, normalized: masks.clock !== undefined || normalizers.length > 0 };
   }
   if (of === 'answer') {
-    const last = [...agent].reverse().find((c) => c.kind === 'api' && c.end?.responseRef);
-    const answer = last ? responseBlocks(store, last, rules) : null;
+    const last = finalAnswerCall(agent);
+    const answer = last ? responseBlocks(store, last, rules, answers.get(last.callNo)) : null;
     if (!answer) return { missing: 'the run has no model response to judge' };
     const text = textOf(answer.blocks);
     return { ...bounded(text.trim() ? text : '(the last model response has no text)'), redactions: rules.length, normalized: false };
   }
-  const text = runTranscript(store, agent, rules, masks);
+  const text = runTranscript(store, agent, rules, masks, answers);
   if (!text) return { missing: 'the run has no conversation to judge' };
   return { ...bounded(text), redactions: rules.length, normalized: masks.clock !== undefined || !!masks.normalize?.length };
+}
+
+/** The agent's last model call with a response: the one whose text a judge of the answer reads. */
+function finalAnswerCall(agent: readonly CallRecord[]): CallRecord | undefined {
+  return [...agent].reverse().find((c) => c.kind === 'api' && c.end?.responseRef);
+}
+
+/** The last model call of each conversation, answered, by conversation: the request and the answer a judge of the run reads for it. */
+function conversationEnds(placed: ReturnType<typeof runConversations>, agent: readonly CallRecord[]): Map<number, CallRecord> {
+  const last = new Map<number, CallRecord>();
+  for (const c of agent) {
+    const n = placed.byCall.get(c.callNo)?.conversation;
+    if (c.kind === 'api' && n !== null && n !== undefined && placed.requests.has(c.callNo) && c.end?.outcome === 'ok') last.set(n, c);
+  }
+  return last;
+}
+
+/**
+ * The model calls whose answer a judge reads as it was given, which no later request carries: for
+ * `answer`, the agent's last model response; for `run`, the last call of each conversation, whose
+ * answer ends it (an earlier answer is read again in the requests after it, as the agent sent it
+ * back); for `output`, none, since what the agent printed is no model call's. An answer given in
+ * place of one of these (judgeMaterial's `answers`) is what such a judge reads in a run as recorded
+ * with that answer instead.
+ */
+export function judgedAnswers(store: Store, calls: readonly CallRecord[], of: JudgeReads): Set<number> {
+  const agent = agentCallsOf(calls);
+  if (of === 'output') return new Set();
+  if (of === 'answer') {
+    const last = finalAnswerCall(agent);
+    return new Set(last ? [last.callNo] : []);
+  }
+  return new Set([...conversationEnds(runConversations(store, agent, { attribute: true }), agent).values()].map((c) => c.callNo));
 }
 
 /** A turn's blocks as lines: who said what, the tools the model called and what they returned. */
@@ -261,16 +307,12 @@ function toolCallLine(store: Store, call: CallRecord, rules: readonly Normalizer
  * model asked for (a ticket fetched before the first model call, an email the code sends after the
  * last) follow, each after the model call before it in its scope, then by name and arguments.
  */
-function runTranscript(store: Store, agent: CallRecord[], rules: readonly Normalizer[], masks: MatchMasks): string {
+function runTranscript(store: Store, agent: CallRecord[], rules: readonly Normalizer[], masks: MatchMasks, answers: ReadonlyMap<number, GivenAnswer>): string {
   const placed = runConversations(store, agent, { attribute: true });
   // A tool's effect is declared once for the tool, whichever call says it.
   const effects = new Map<string, Effect>();
   for (const c of agent) if (c.kind === 'tool' && c.effect && !effects.has(c.name)) effects.set(c.name, c.effect);
-  const last = new Map<number, CallRecord>();
-  for (const c of agent) {
-    const n = placed.byCall.get(c.callNo)?.conversation;
-    if (c.kind === 'api' && n !== null && n !== undefined && placed.requests.has(c.callNo) && c.end?.outcome === 'ok') last.set(n, c);
-  }
+  const last = conversationEnds(placed, agent);
   const scopes = new Map(placed.conversations.map((s) => [s.n, s.scope ?? '']));
   const conversations: Array<{ scope: string; lines: string[] }> = [];
   for (const [n, call] of last) {
@@ -285,7 +327,7 @@ function runTranscript(store: Store, agent: CallRecord[], rules: readonly Normal
     if (!conversation) continue;
     const toolNames = new Map<string, string>();
     const lines = conversation.turns.flatMap((t) => turnLines(t, effects, toolNames));
-    const answer = responseBlocks(store, call, rules);
+    const answer = responseBlocks(store, call, rules, answers.get(call.callNo));
     if (answer) lines.push(...turnLines({ role: 'assistant', blocks: answer.blocks.flatMap((b) => (b.type === 'thinking' ? [] : [b])) }, effects, toolNames));
     conversations.push({ scope: scopes.get(n) ?? '', lines });
   }
