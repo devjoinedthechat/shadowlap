@@ -242,7 +242,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.verify[1].rows[0]).toMatchObject({ outcome: 'not fixed', deterministic: true, note: 'issue_refund called' });
     // The Blame step shows the latest blame that found the call; both are kept.
     expect(shown.blames).toHaveLength(2);
-    expect(shown.blame).toMatchObject({ runId: failed[1], outcome: 'blamed', lostAt: decision, step: 3, steps: 4, confidence: 'high', needed: 2, attemptsPerProbe: 10, rule: 'a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 10 attempts' });
+    expect(shown.blame).toMatchObject({ runId: failed[1], outcome: 'blamed', lostAt: decision, step: 3, steps: 4, confidence: 'high', needed: 2, attemptsPerProbe: 20, rule: 'a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 20 attempts' });
     expect(shown.blame.boundary).toMatch(new RegExp(`^The re-asked call #${decision} passes at least 60% of the time \\(\\d+ of \\d+ attempts\\); #\\d+, the next model call, passes at most 10% of the time \\(0 of 4 attempts\\)\\.$`));
     expect(shown.blame.answers).toMatchObject({ callNo: decision, recorded: 'issue_refund({"order_id":"A-1042","amount":240})', rescued: '"Above the limit.", escalate({"reason":"above the refund limit"})' });
     expect(shown.blame.probes.find((x: { blamed: boolean }) => x.blamed)).toMatchObject({ callNo: decision, verdict: 'rescued · blamed', href: `#/run/${failed[1]}/${decision}` });
@@ -309,7 +309,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
       repairer: 'anthropic:claude-opus-5-5',
       change: { file: 'agent.mjs', anchor: 'system prompt', before: ORIGINAL, after: FIX, added: { text: ': escalate every refund above the limit it sets' }, removed: '' },
       needed: 12,
-      attemptsPerRun: 40,
+      attemptsPerRun: 80,
       rule: 'each passing at 90% or more, at 5% risk',
       verify: { verifyId: report.verifyId },
     });
