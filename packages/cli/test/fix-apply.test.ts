@@ -106,38 +106,38 @@ describe("fix apply of a teammate's repair, from the team store", () => {
   });
 });
 
-describe('fix apply of a patch from the store that is more than the change its repair verified', () => {
-  /**
-   * A project whose agent writes RAN when it runs, with a golden of it that apply's check of the
-   * other goldens replays, and a fix verified by a repair that came with a pull. `patch` is what a
-   * bucket writer left in the repair's report (and the pull wrote to fix.patch).
-   */
-  function teammateFix(store: Store, patch: (own: string) => string, o: { pulled?: boolean } = {}) {
-    const agent = `const system = '${BEFORE}';\nimport('node:fs').then((fs) => fs.writeFileSync(new URL('./RAN', import.meta.url), system));\n`;
-    writeFileSync(join(project, 'agent.mjs'), agent);
-    writeFileSync(join(project, 'triage.mjs'), '// The triage agent\nexport const ticket = 1;\n');
-    writeFileSync(join(project, '.gitignore'), '.shadowlap/\nshadowlap.db*\ngoldens/\nRAN\n');
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: project, stdio: 'pipe' });
-    git('add', '-f', 'agent.mjs', 'triage.mjs', '.gitignore');
-    git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', 'agents');
-    // A golden of the agent, recorded before the fix: the check of the other goldens replays it.
-    const golden = makeRun(store, { status: 'completed' });
-    packRun(store, golden, join(project, 'goldens', 'before-fix'));
-    const run = makeRun(store, { labels: ['refund-over-limit'] });
-    recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
-    const dir = '.shadowlap/repairs/repair-mv9gxsdm';
-    const report: RepairReport = repairReport({ targets: [run], dir });
-    report.patch = patch(unifiedDiff('agent.mjs', agent, agent.replace(BEFORE, AFTER)));
-    // What a pull writes: the patch and the reports, never the goldens.
-    mkdirSync(join(project, dir), { recursive: true });
-    writeFileSync(join(project, dir, 'fix.patch'), report.patch);
-    const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
-    if (o.pulled !== false) store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
-    return { fix, agent };
-  }
-  const status = () => execFileSync('git', ['status', '--porcelain'], { cwd: project, encoding: 'utf8' });
-  const options = (lines: string[], build: string | null = null) => ({ cwd: project, goldens: 'goldens', test: true, build, db: join(project, 'shadowlap.db'), log: (l: string) => lines.push(l) });
+/**
+ * A project whose agent writes RAN when it runs, with a golden of it that apply's check of the
+ * other goldens replays, and a fix verified by a repair that came with a pull. `patch` is what a
+ * bucket writer left in the repair's report (and the pull wrote to fix.patch).
+ */
+function teammateFix(store: Store, patch: (own: string) => string, o: { pulled?: boolean } = {}) {
+  const agent = `const system = '${BEFORE}';\nimport('node:fs').then((fs) => fs.writeFileSync(new URL('./RAN', import.meta.url), system));\n`;
+  writeFileSync(join(project, 'agent.mjs'), agent);
+  writeFileSync(join(project, 'triage.mjs'), '// The triage agent\nexport const ticket = 1;\n');
+  writeFileSync(join(project, '.gitignore'), '.shadowlap/\nshadowlap.db*\ngoldens/\nRAN\n');
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: project, stdio: 'pipe' });
+  git('add', '-f', 'agent.mjs', 'triage.mjs', '.gitignore');
+  git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', 'agents');
+  // A golden of the agent, recorded before the fix: the check of the other goldens replays it.
+  const golden = makeRun(store, { status: 'completed' });
+  packRun(store, golden, join(project, 'goldens', 'before-fix'));
+  const run = makeRun(store, { labels: ['refund-over-limit'] });
+  recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
+  const dir = '.shadowlap/repairs/repair-mv9gxsdm';
+  const report: RepairReport = repairReport({ targets: [run], dir });
+  report.patch = patch(unifiedDiff('agent.mjs', agent, agent.replace(BEFORE, AFTER)));
+  // What a pull writes: the patch and the reports, never the goldens.
+  mkdirSync(join(project, dir), { recursive: true });
+  writeFileSync(join(project, dir, 'fix.patch'), report.patch);
+  const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+  if (o.pulled !== false) store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
+  return { fix, agent };
+}
+const status = () => execFileSync('git', ['status', '--porcelain'], { cwd: project, encoding: 'utf8' });
+const options = (lines: string[], build: string | null = null) => ({ cwd: project, goldens: 'goldens', test: true, build, db: join(project, 'shadowlap.db'), log: (l: string) => lines.push(l) });
 
+describe('fix apply of a patch from the store that is more than the change its repair verified', () => {
   it('refuses a patch that writes other files too, and changes nothing', async () => {
     const store = Store.open(join(project, 'shadowlap.db'));
     try {
@@ -235,6 +235,69 @@ describe('fix apply of a patch from the store that is more than the change its r
       expect(result).toMatchObject({ status: 'applied', patch: 'applied' });
       expect(lines).toContain("  checking the project's other goldens against the patch: 1 replayed offline");
       expect(existsSync(join(project, 'RAN'))).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+/**
+ * Git for Windows sets core.autocrlf: git checks text files out with CRLF, and git apply writes a file
+ * whose lines end with LF back with CRLF, every line of it. Set here in the project, on every system.
+ */
+describe('fix apply where git converts line endings (core.autocrlf, as Git for Windows sets it)', () => {
+  const crlf = (text: string) => text.replace(/\n/g, '\r\n');
+  const agentFile = () => readFileSync(join(project, 'agent.mjs'), 'utf8');
+  /** The agent checked out again, as git checks it out under core.autocrlf: every line ends with CRLF. */
+  function checkOut() {
+    rmSync(join(project, 'agent.mjs'));
+    execFileSync('git', ['checkout', '--', 'agent.mjs'], { cwd: project, stdio: 'pipe' });
+  }
+
+  it('puts the patch in as the repair verified it, a file with LF left with LF', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      execFileSync('git', ['config', 'core.autocrlf', 'true'], { cwd: project });
+      const { fix, agent } = teammateFix(store, (own) => own);
+      const result = await applyFix(store, fix, options([]));
+      expect(result).toMatchObject({ status: 'applied', patch: 'applied' });
+      expect(agentFile()).toBe(agent.replace(BEFORE, AFTER));
+      expect(status()).toBe(' M agent.mjs\n');
+    } finally {
+      store.close();
+    }
+  });
+
+  it("puts a patch with LF into a checkout's file with CRLF through git's conversion, which keeps the CRLF", async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      // A teammate's patch, made where the file has LF; here git checked it out with CRLF.
+      const { fix, agent } = teammateFix(store, (own) => own);
+      execFileSync('git', ['config', 'core.autocrlf', 'true'], { cwd: project });
+      checkOut();
+      expect(agentFile()).toBe(crlf(agent));
+      const result = await applyFix(store, fix, options([]));
+      expect(result).toMatchObject({ status: 'applied', patch: 'applied' });
+      expect(agentFile()).toBe(crlf(agent.replace(BEFORE, AFTER)));
+      expect(status()).toBe(' M agent.mjs\n');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('knows a patch git apply put in by hand there as in already', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      const { fix, agent } = teammateFix(store, (own) => own);
+      execFileSync('git', ['config', 'core.autocrlf', 'true'], { cwd: project });
+      checkOut();
+      execFileSync('git', ['apply', '.shadowlap/repairs/repair-mv9gxsdm/fix.patch'], { cwd: project, stdio: 'pipe' });
+      expect(agentFile()).toBe(crlf(agent.replace(BEFORE, AFTER)));
+      const lines: string[] = [];
+      const result = await applyFix(store, fix, { ...options(lines), test: false });
+      expect(result).toMatchObject({ status: 'applied', patch: 'already' });
+      expect(lines).toContain('  the patch is already in the working tree (.shadowlap/repairs/repair-mv9gxsdm/fix.patch)');
+      expect(agentFile()).toBe(crlf(agent.replace(BEFORE, AFTER)));
     } finally {
       store.close();
     }

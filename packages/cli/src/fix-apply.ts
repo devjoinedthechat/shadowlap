@@ -74,6 +74,27 @@ const CLI_BIN = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 
 const git = (cwd: string, args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 
+/**
+ * How `git apply` is run on a patch, tried in turn. First on the file's bytes as they are, with none
+ * of the line-ending conversion core.autocrlf asks for, so the file comes out as the repair verified
+ * it: Git for Windows sets core.autocrlf, under which git apply writes a file whose lines end with LF
+ * back with CRLF, every line of it. A patch whose lines end otherwise than the file's (a teammate's,
+ * made in a checkout with LF, for a Windows checkout's file with CRLF) applies only through that
+ * conversion, so then with git's own settings, which keep the file's CRLF.
+ */
+const APPLY_AS: ReadonlyArray<readonly string[]> = [['-c', 'core.autocrlf=false'], []];
+
+/** The settings `git apply <args> <patch>` works with (APPLY_AS), or null and what git said when it works with none. */
+function applyAs(root: string, args: string[], patch: string): { as: readonly string[] | null; said: string } {
+  let said = '';
+  for (const as of APPLY_AS) {
+    const r = git(root, [...as, 'apply', ...args, patch]);
+    if (r.status === 0) return { as, said: '' };
+    said = (r.stderr || r.stdout).trim();
+  }
+  return { as: null, said };
+}
+
 /** The repair whose change a fix is applied with: the one it was applied with, else the latest accepted one that counts for it. */
 export function acceptedRepair(store: Store, fix: StoredFix): StoredRepair | null {
   return repairToApply(fixRecords(store, fix));
@@ -146,22 +167,22 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     if (!existsSync(patch)) throw new ApplyError(`the repair's patch is not in this folder (${paths.dir}/fix.patch): run shadowlap fix apply in the folder ${repair.repairId} ran in`);
     if (readFileSync(patch, 'utf8') !== repair.report.patch) throw new ApplyError(`${paths.dir}/fix.patch is not the patch ${repair.repairId} verified: it changed since. Nothing was changed: apply it by hand if you changed it on purpose, or repair again`);
 
-    if (git(root, ['apply', '--reverse', '--check', patch]).status === 0) {
+    if (applyAs(root, ['--reverse', '--check'], patch).as) {
       result.patch = 'already';
       o.log(`  the patch is already in the working tree (${shown(o.cwd, patch)})`);
     } else {
-      const check = git(root, ['apply', '--check', patch]);
-      if (check.status !== 0) {
+      const check = applyAs(root, ['--check'], patch);
+      if (!check.as) {
         const files = patchFiles(repair.report.patch ?? '');
         const dirty = files.length ? git(root, ['status', '--porcelain', '--', ...files]).stdout.trim() : '';
-        const why = (check.stderr || check.stdout).trim().split('\n')[0] ?? '';
+        const why = check.said.split('\n')[0] ?? '';
         throw new ApplyError(
           dirty
             ? `${files.join(', ')} ${files.length === 1 ? 'has' : 'have'} uncommitted changes the patch conflicts with (${why}). Nothing was changed: commit or stash them, then run shadowlap fix apply ${fix.fixId} again`
             : `the patch no longer applies: ${files.join(', ') || 'the file it changes'} changed since the repair (${why}). Nothing was changed: apply it by hand with git apply --3way ${shown(o.cwd, patch)}, or repair again`,
         );
       }
-      const applied = git(root, ['apply', patch]);
+      const applied = git(root, [...check.as, 'apply', patch]);
       if (applied.status !== 0) throw new ApplyError(`git apply failed: ${(applied.stderr || applied.stdout).trim()}`);
       result.patch = 'applied';
       o.log(`  applied ${shown(o.cwd, patch)}`);
