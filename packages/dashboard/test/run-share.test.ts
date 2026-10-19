@@ -236,7 +236,9 @@ describe('what the run page offers', () => {
     const blamed = addRun(store, { startedAt: T0 + 25, calls: 'l', status: 'failed', meta: { blame: blameOf(1, null, T0) } });
     const cap = addRun(store, { startedAt: T0 + 26, argv: [NO_COMMAND], status: 'failed', calls: 'l' });
     const probe = addRun(store, { startedAt: T0 + 27, calls: 'l', status: 'failed', meta: { probe: { of: blamed, callNo: 1, passed: false } } });
-    for (const id of [passed, blamed, cap, probe]) expect(blameOffer(store, store.getRun(id)!, null)).toBeNull();
+    // A judge check with no verdict is no failure to blame: no answer of the model's would decide it.
+    const unjudged = addRun(store, { startedAt: T0 + 27.5, calls: 'l', meta: { checks: [{ ok: false, status: 'inconclusive', label: 'polite: the judge answers yes to "Is it polite?"', detail: 'not judged: no recorded verdict and the test runs offline' }] } });
+    for (const id of [passed, blamed, cap, probe, unjudged]) expect(blameOffer(store, store.getRun(id)!, null)).toBeNull();
   });
 
   it('offers Run blame only where a model call can be blamed, and never on a run that was stopped', () => {

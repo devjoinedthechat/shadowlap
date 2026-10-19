@@ -164,7 +164,8 @@ export function blameOffer(store: Store, run: RunRecord, tests: unknown): BlameO
   if (run.status === 'running' || !hasRecordedCommand(run) || run.meta?.blame) return null;
   // A blame probe's or a verify attempt's outcome belongs to the fix it was made for.
   if (run.meta?.probe || run.meta?.verify) return null;
-  const failed = (run.meta?.checks ?? []).filter((c) => isObject(c) && c.ok === false && typeof c.label === 'string').map((c) => c.label);
+  // A check that couldn't be decided (a judge with no verdict) is no failure to blame: no answer of the model's would decide it.
+  const failed = (run.meta?.checks ?? []).filter((c) => isObject(c) && c.ok === false && c.status !== 'inconclusive' && typeof c.label === 'string').map((c) => c.label);
   if (!failed.length && run.status !== 'failed') return null;
   if (!madeModelCall(store, run)) return null;
   if (failed.length) {

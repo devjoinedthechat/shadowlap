@@ -70,9 +70,10 @@ export interface CallMeta {
   mcp?: { transport: 'stdio' | 'http'; server: string; tools?: Array<{ name: string; effect: Effect }> };
   /**
    * A call Shadowlap's judge made (scope `shadowlap:judge`): the check it answered, by its name in
-   * the config, and `ask`, a digest of the check's question, what it reads and its model (judgeAskId).
+   * the config; `ask`, a digest of the check's question, what it reads and its model (judgeAskId);
+   * and `v`, the version of the request it sent (JUDGE_REQUEST_VERSION), absent before it was kept.
    */
-  judge?: { check: string; ask: string };
+  judge?: { check: string; ask: string; v?: number };
   [key: string]: unknown;
 }
 
@@ -94,6 +95,12 @@ export interface JudgeOutcome {
   cost: number | null;
   /** How many of the project's redaction rules applied to what the judge read. */
   redactions: number;
+  /**
+   * Whether what the judge read had what replay matching masks masked too (the project's normalizers,
+   * dates near the run's start): the agent's requests when it read the run, what it printed when it
+   * read the output. Absent from results kept before it was.
+   */
+  normalized?: boolean;
   /** Characters of what it read that were left out, to keep it within the judge's limit; 0 when it read it whole. */
   cut: number;
   /** The judge's call in the run, when it made one. */

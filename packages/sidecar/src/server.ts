@@ -49,7 +49,7 @@ import {
 // The run page: what a run did that was never recorded, kept on the run (engine run-facts.ts).
 import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 // Judge checks: calls in the reserved scope, which only this process can make (judge.ts in the engine).
-import { isJudgeCall, JUDGE_SCOPE, RESERVED_SCOPE_PREFIX, summarizeJudge } from '@shadowlap/engine';
+import { isJudgeCall, JUDGE_SCOPE, judgeRules, RESERVED_SCOPE_PREFIX, summarizeJudge } from '@shadowlap/engine';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { providers as defaultProviders, sdkBasesFromEnvironment, type Provider } from './providers.js';
@@ -443,9 +443,11 @@ export class Sidecar {
       if (this.clock === 'exact' && parent.meta?.normalizersHash === normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined)) {
         // A captured HTTP call is matched with the credentials in its query or form body masked, which
         // a recording made by an earlier version stored as sent: those calls are fingerprinted again.
-        const http = stored.some(capturedHttp);
-        parentCalls = http ? this.refingerprint(stored, normalizers, undefined, input.replay?.promptFrom !== undefined, redactions, capturedHttp) : stored;
-        this.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls${http ? ', captured HTTP calls fingerprinted again' : ''})`);
+        // A judge's call is matched by its request as sent (judgeFingerprint), whatever the normalizers: those are fingerprinted again too.
+        const again = (c: CallRecord) => capturedHttp(c) || isJudgeCall(c);
+        const some = stored.some(again);
+        parentCalls = some ? this.refingerprint(stored, normalizers, undefined, input.replay?.promptFrom !== undefined, redactions, again) : stored;
+        this.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls${some ? ', captured HTTP and judge calls fingerprinted again' : ''})`);
       } else {
         this.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers`);
         parentCalls = this.refingerprint(stored, normalizers, this.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, input.replay?.promptFrom !== undefined, redactions);
@@ -501,8 +503,8 @@ export class Sidecar {
     const run = this.store.getRun(runId);
     if (!run) throw new HttpError(404, `unknown run ${runId}`);
     const parent = run.parentRunId ? this.store.getRun(run.parentRunId) : null;
-    // A judge's request is matched as the run's own replay matched it: under the rules that redacted
-    // the parent, and with dates masked against both runs' starts.
+    // A judge's request is matched by its bytes as sent, under the rules that redacted the parent
+    // alone (judgeFingerprint); the run's own calls are matched as its replay matched them.
     const redactions = parent?.meta?.redactions ?? [];
     const normalizers = redactions.length ? [...this.normalizers, ...redactions] : this.normalizers;
     const clockRef = this.clock !== 'auto' ? undefined : parent ? [parent.startedAt, run.startedAt] : [run.startedAt];
@@ -521,7 +523,9 @@ export class Sidecar {
     if (!ctx?.judgeOnly) return null;
     this.runs.delete(runId);
     const made = this.store.getCalls(runId).filter((c) => isJudgeCall(c) && c.callNo >= ctx.judgeOnly!.from);
-    return summarizeJudge(ctx.run, made, { ...(this.prices ? { prices: this.prices } : {}), modelOf: storedModelResolver(this.store) });
+    // Made by this process, whatever made the run: a recording that came from a pack had its own
+    // calls made somewhere else, but these went upstream, and were paid for, here.
+    return summarizeJudge(ctx.run, made, { ...(this.prices ? { prices: this.prices } : {}), modelOf: storedModelResolver(this.store), imported: false });
   }
 
   endRun(runId: string, status: Exclude<RunStatus, 'running'>): EndRunResult {
@@ -695,6 +699,8 @@ export class Sidecar {
     if (!own) throw new HttpError(400, `the scope "${scope}" is reserved for Shadowlap's own calls; give the agent's scope another name`);
     const check = decodeHeader(headerValue(req, 'x-shadowlap-judge-check'));
     const ask = headerValue(req, 'x-shadowlap-judge-ask');
+    // The version of the request it sends (JUDGE_REQUEST_VERSION), kept so a later version can say an older verdict is no answer for it.
+    const version = headerValue(req, 'x-shadowlap-judge-version');
     // Where the judge is asked live: its own upstream, never one this sidecar points at a model under test.
     const upstream = headerValue(req, 'x-shadowlap-judge-upstream');
     if (upstream !== undefined && !/^https?:\/\/[^/\s]+/i.test(upstream)) throw new HttpError(400, `x-shadowlap-judge-upstream is not an http(s) URL: ${upstream}`);
@@ -703,7 +709,7 @@ export class Sidecar {
       judge: {
         offline: headerValue(req, 'x-shadowlap-judge-offline') === '1',
         ...(upstream ? { upstream: upstream.replace(/\/+$/, '') } : {}),
-        ...(check && ask && /^[0-9a-f]{1,64}$/.test(ask) ? { meta: { check: check.slice(0, 200), ask } } : {}),
+        ...(check && ask && /^[0-9a-f]{1,64}$/.test(ask) ? { meta: { check: check.slice(0, 200), ask, ...(version && /^\d{1,6}$/.test(version) ? { v: Number(version) } : {}) } } : {}),
       },
     };
   }
@@ -746,7 +752,8 @@ export class Sidecar {
     // A judge's call: no flag rewrites it, and the session matches it apart from the agent's.
     const { scope, judge } = this.callScope(req, ctx, 'api');
     const requested = this.requestedUpstream(req, provider, ctx);
-    ctx.providersUsed.add(provider.id);
+    // The providers the agent used: a judge's is none of them.
+    if (!judge) ctx.providersUsed.add(provider.id);
     const method = (req.method ?? 'GET').toUpperCase();
     let rawBody = await readBody(req);
     let headers = lowerHeaders(req.headers);
@@ -806,9 +813,19 @@ export class Sidecar {
     // What identifies the call, where the provider leaves part of its path out (Vertex AI's project and region).
     const matchPath = provider.matchPath?.(path);
     const matchName = matchPath !== undefined && matchPath !== path ? apiCallName(method, matchPath) : undefined;
-    const { fingerprint } = fingerprintApi({ method, path, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath });
+    const { fingerprint } = judge ? judgeFingerprint({ method, path, headers, body }, ctx.redactions, provider, matchPath) : fingerprintApi({ method, path, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath });
     const fingerprintHeaders: Record<string, string> = {};
     for (const h of provider.fingerprintHeaders) if (headers[h] !== undefined) fingerprintHeaders[h] = headers[h]!;
+
+    // A judge that may not be asked live, whose very request the recording never answered, is
+    // answered by no one: nothing is kept of it, since a call no one answered holds no verdict, and
+    // a run, or a pack of it, would only carry it.
+    if (judge && (judge.offline || ctx.offline) && !ctx.session.judgedFor(fingerprint)) {
+      const message = `shadowlap is offline: this judge check's request is not in the recording, and the judge may not be asked live`;
+      res.writeHead(503, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_offline', message } }));
+      return;
+    }
 
     // A retry of the previous attempt of the same call, rather than a new call.
     const retryKey = `api\n${scope ?? ''}\n${fingerprint}`;
@@ -1430,6 +1447,15 @@ export class Sidecar {
       try {
         if (only && !only(rec)) {
           // Valid as stored.
+        } else if (isJudgeCall(rec) && rec.kind === 'api' && rec.requestRef) {
+          // A judge's call is matched by its request as sent, not as the agent's calls are.
+          const provider = this.providers.get(String(rec.meta.provider ?? ''));
+          const [method = 'POST', ...pathParts] = rec.name.split(' ');
+          const headers = (rec.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {};
+          if (provider) {
+            const path = pathParts.join(' ');
+            fingerprint = judgeFingerprint({ method, path, headers, body: loadApiRequest(this.store, rec.requestRef) }, redactions, provider, provider.matchPath?.(path)).fingerprint;
+          }
         } else if (rec.kind === 'api' && rec.requestRef) {
           const provider = this.providers.get(String(rec.meta.provider ?? ''));
           const [method = 'POST', ...pathParts] = rec.name.split(' ');
@@ -1575,7 +1601,18 @@ interface JudgeAccess {
   offline: boolean;
   /** Where to ask the judge live, when it may be: its provider's upstream as the environment names it, or the provider's own. */
   upstream?: string;
-  meta?: { check: string; ask: string };
+  meta?: { check: string; ask: string; v?: number };
+}
+
+/**
+ * How a judge's request is matched against the recording: by its bytes as sent, with none of the
+ * project's normalizers and no masking of dates or prompts, since the judge read all of it and its
+ * verdict answers those bytes alone. The rules that redacted the recording, those that reach a
+ * judge's request (judgeRules), apply as a copy applied them, so a pack's masked request still
+ * matches the one a replay sends. Nothing is matched fuzzily because of a judge.
+ */
+function judgeFingerprint(req: { method: string; path: string; headers: Record<string, string>; body: unknown }, redactions: readonly Normalizer[], provider: Provider, matchPath: string | undefined): { fingerprint: string } {
+  return fingerprintApi(req, judgeRules(redactions), provider.fingerprintHeaders, undefined, { matchPath });
 }
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {

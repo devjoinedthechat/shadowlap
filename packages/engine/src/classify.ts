@@ -46,7 +46,7 @@ export interface ClassifiableMeta {
   probe?: { of?: unknown } | undefined;
   verify?: unknown;
   test?: unknown;
-  checks?: ReadonlyArray<{ ok?: unknown; label?: unknown }> | undefined;
+  checks?: ReadonlyArray<{ ok?: unknown; label?: unknown; status?: unknown }> | undefined;
   blame?: { outcome?: unknown; callNo?: unknown; rescuedRunId?: unknown } | undefined;
 }
 
@@ -192,6 +192,8 @@ export function lostAt(run: Pick<ClassifiableRun, 'meta'>): number | null {
  * - `check-failed`: an outcome check failed, blame confirmed a failure it could not place, the
  *   agent exited with an error (the first check of every oracle is that it exits 0), or a test
  *   replay made no calls.
+ * - `inconclusive`: no check failed, but one could not be decided (a judge check with no verdict,
+ *   and no way to ask the judge): never a pass, and no failure of the agent's either.
  * - `passed`: every outcome check passed.
  * - `clean`: a clean replay, or a test that replayed clean without checks.
  * - `none`: nothing to report.
@@ -201,6 +203,7 @@ export type RunOutcome =
   | { kind: 'diverged'; callNo: number }
   | { kind: 'lost'; callNo: number }
   | { kind: 'check-failed'; check: string | null }
+  | { kind: 'inconclusive'; check: string | null }
   | { kind: 'passed'; checks: number }
   | { kind: 'clean' }
   | { kind: 'none' };
@@ -245,26 +248,47 @@ export function runOutcome(run: ClassifiableRun, ctx: OutcomeContext = {}): RunO
   // Blame only records a result after replaying the run and seeing it fail.
   if (isObject(run.meta?.blame)) {
     const at = lostAt(run);
-    return at !== null ? { kind: 'lost', callNo: at } : { kind: 'check-failed', check: firstFailedCheck(run) };
+    return at !== null ? { kind: 'lost', callNo: at } : { kind: 'check-failed', check: firstFailedCheck(run) ?? null };
   }
   if (kind === 'test' && run.divergence && divergenceDecides(run, checks !== null, ctx.offline === true)) return { kind: 'diverged', callNo: run.divergence.callNo };
   // `shadowlap test` fails a golden whose replay made no calls at all: nothing was tested.
   if (kind === 'test' && ctx.calls === 0 && run.status === 'completed') return { kind: 'check-failed', check: NO_CALLS };
-  if (checks && checks.passed < checks.total) return { kind: 'check-failed', check: firstFailedCheck(run) };
+  const failed = firstFailedCheck(run);
+  if (failed !== undefined) return { kind: 'check-failed', check: failed };
   if (run.status === 'failed' && !ctx.injected) return { kind: 'check-failed', check: null };
+  // No check failed, but one could not be decided: the run neither passed nor failed its checks.
+  const unsure = firstInconclusiveCheck(run);
+  if (unsure !== undefined) return { kind: 'inconclusive', check: unsure };
   if (checks) return { kind: 'passed', checks: checks.total };
   if (kind === 'clean' || (kind === 'test' && run.status === 'completed')) return { kind: 'clean' };
   return { kind: 'none' };
 }
 
-function firstFailedCheck(run: ClassifiableRun): string | null {
+/** A check that could not be decided: inconclusive, which is never `ok` but no failure either. */
+const undecided = (c: unknown) => isObject(c) && c.status === 'inconclusive';
+
+/** The label of the first check that failed (null when it has none), or undefined when none failed. */
+function firstFailedCheck(run: ClassifiableRun): string | null | undefined {
   const checks = run.meta?.checks;
-  if (!Array.isArray(checks)) return null;
-  const failed = checks.find((c) => isObject(c) && c.ok !== true);
-  return failed && typeof failed.label === 'string' ? failed.label : null;
+  if (!Array.isArray(checks)) return undefined;
+  const failed = checks.find((c) => isObject(c) && c.ok !== true && !undecided(c));
+  if (!failed) return undefined;
+  return typeof failed.label === 'string' ? failed.label : null;
 }
 
-/** Whether an outcome is a failure: what the Failed chip and the calendar's red count. */
+/** The label of the first check that could not be decided, or undefined when every one was. */
+function firstInconclusiveCheck(run: ClassifiableRun): string | null | undefined {
+  const checks = run.meta?.checks;
+  if (!Array.isArray(checks)) return undefined;
+  const unsure = checks.find(undecided);
+  if (!unsure) return undefined;
+  return isObject(unsure) && typeof unsure.label === 'string' ? unsure.label : null;
+}
+
+/**
+ * Whether an outcome is a failure: what the Failed chip and the calendar's red count. An
+ * inconclusive one is not: it needs a verdict, not a fix.
+ */
 export function isFailedOutcome(o: RunOutcome): boolean {
   return o.kind === 'diverged' || o.kind === 'lost' || o.kind === 'check-failed';
 }
@@ -280,6 +304,8 @@ export function outcomeLabel(o: RunOutcome): string {
       return `lost at #${o.callNo}`;
     case 'check-failed':
       return 'check failed';
+    case 'inconclusive':
+      return 'inconclusive';
     case 'passed':
       return `${o.checks} ${o.checks === 1 ? 'check' : 'checks'} passed`;
     case 'clean':

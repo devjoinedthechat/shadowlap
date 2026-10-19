@@ -121,7 +121,7 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 | Field | |
 |---|---|
 | `runId` | The run blamed |
-| `outcome` | `blamed`, `unrescuable` or `stopped`; `error` when blame refused, with `error.reason` (`passes`, `unpriced`, `diverged`, `bypassed`, `prefix`, `no-model-calls`, `interrupted`) and `error.message` |
+| `outcome` | `blamed`, `unrescuable` or `stopped`; `error` when blame refused, with `error.reason` (`passes`, `unpriced`, `unjudged`, `diverged`, `bypassed`, `prefix`, `no-model-calls`, `interrupted`), `error.message`, and `judge` for what [judge checks](./judges.md) spent before it refused |
 | `blamed`, `lost` | `{ callNo, step, passes, attempts }` for the blamed call and the one after it, or `null` |
 | `confidence` | `high`, `medium` or `low` |
 | `contrast` | `{ callNo, recorded, rescued, rescuedRunId }`: the model's answer at the blamed call in the recording and in the rescued fork, as blocks (`text`, `thinking`, `tool_call` with `name` and `input`) |
@@ -130,7 +130,8 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 | `probes` | Per probe: `callNo`, `step`, `passes`, `attempts`, `rescued`, and `runs`, each with `runId`, `passed`, `exitCode`, `failures`, `spent` and `upstreamRequests` |
 | `oracle`, `recordedFailures` | What a passing run must do, and how the recording fails it |
 | `rescue` | `{ fields }`: the request fields a probe changed; empty when it resampled |
-| `modelCalls`, `attemptsPerProbe`, `passesNeeded`, `nonMonotone`, `cost`, `stopReason` | The search's parameters and what it spent |
+| `modelCalls`, `attemptsPerProbe`, `passesNeeded`, `nonMonotone`, `cost`, `stopReason` | The search's parameters and what it spent: `modelCalls` counts the agent's model calls, never a judge check's |
+| `judge` | `{ spent, upstreamRequests }`: what [judge checks](./judges.md)' calls cost, apart from `cost`, which is the agent's alone; `null` when no judge was asked live. `--budget` counts both |
 | `warnings` | What the replays warned about, such as a connection that bypassed Shadowlap |
 | `fix` | `{ fixId, title, status, opened }`: the [fix](#fixes) the blame opened (`opened: true`) or joined, or `null` when the store could not keep it |
 
@@ -140,6 +141,7 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 |---|---|---|
 | *passes its oracle when replayed* | The replayed run does what the oracle asks, so there is no failure | Say what it should have done with `--expect` |
 | *fails only because … has no price* | The only check it fails is a cost check, which can't be judged for a model with no price, whatever the model answers | Add the model under `prices` in `shadowlap.config.json`, and blame again if it still fails |
+| *fails nothing but judge checks with no verdict* | The only checks it doesn't pass are [judge checks](./judges.md#not-judged) that were not judged, which no probe could pass either | Give the judge a way to be asked live, such as its key, and blame again |
 | *does not replay as recorded* | The replay forks by itself, so a probe could not tell a changed answer from a changed prefix | [`shadowlap calibrate`](./normalizers-and-redaction.md#calibrate), then blame again |
 | *forked at call n instead* | An attempt ran a prefix the recording doesn't hold | As above. Branches that run at once need [scopes](./sdk.md#scopes) |
 | *made no model calls* | There is no model answer to blame, or none in the `--scope` given | Check the scope names blame lists |

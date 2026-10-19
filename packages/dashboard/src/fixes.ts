@@ -204,7 +204,8 @@ export interface RepairStep {
   /** report.md: the pull request body. */
   prBody: string;
   command: string;
-  cost: { blame: number; repairer: number | null; verify: number };
+  /** `judge`: what judge checks' calls cost across blame and verify, when one was asked live. */
+  cost: { blame: number; repairer: number | null; verify: number; judge?: number };
   output: { patch: string | null; applied: boolean; branch: string | null; pr: string | null; goldens: string[] };
   warnings: string[];
   /**

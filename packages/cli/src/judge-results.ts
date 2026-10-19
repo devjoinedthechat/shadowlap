@@ -20,6 +20,7 @@ export interface JudgeVerdictEntry {
 export interface JudgedEntry extends JudgeVerdictEntry {
   cost?: number | null;
   redactions?: number;
+  normalized?: boolean;
   cut?: number;
   callNo?: number;
 }
@@ -49,6 +50,7 @@ export function judgeResults(judges: readonly JudgeCheck[], inputs: JudgeInputs 
       source: v?.source ?? null,
       cost: v ? (extra.cost !== undefined ? extra.cost : v.source === 'recording' ? 0 : null) : null,
       redactions: extra.redactions ?? 0,
+      normalized: extra.normalized ?? false,
       cut: extra.cut ?? 0,
       ...(extra.callNo !== undefined ? { callNo: extra.callNo } : {}),
     };
@@ -68,6 +70,7 @@ export function judgeSource(j: JudgeOutcome): string | null {
   if (!j.source) return null;
   const read = [
     j.redactions ? `read with ${j.redactions} redaction rule${j.redactions === 1 ? '' : 's'} applied` : null,
+    j.normalized ? 'values that change every run masked' : null,
     j.cut ? `${j.cut.toLocaleString('en-US')} characters left out` : null,
   ].filter(Boolean);
   const how = j.source === 'recording' ? 'judged from the recording, free' : `judged live, ${j.cost === null ? `no price for ${j.model}` : aboutUsd(j.cost)}`;

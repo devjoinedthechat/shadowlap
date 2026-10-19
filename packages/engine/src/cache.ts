@@ -1,5 +1,6 @@
 import { importedRecording } from './classify.js';
 import { Lru, runConversations, type RunConversations } from './conversations.js';
+import { isJudgeCall } from './judge-scope.js';
 import { storedModelResolver, type ModelResolver } from './report.js';
 import { shortModel } from './prices.js';
 import type { Store } from './store.js';
@@ -72,8 +73,9 @@ export function cacheMisses(calls: readonly CallRecord[], conversations: RunConv
   let allInput = 0;
   let allRead = 0;
   for (const c of calls) {
-    // Model calls that are turns of a conversation: an embedding or a token count reads no prompt cache.
-    const u = c.kind === 'api' ? c.end?.meta.usage : undefined;
+    // Model calls that are turns of a conversation: an embedding or a token count reads no prompt
+    // cache, and a judge check's call is no turn of the agent's.
+    const u = c.kind === 'api' && !isJudgeCall(c) ? c.end?.meta.usage : undefined;
     const n = conversations.byCall.get(c.callNo)?.conversation ?? null;
     if (!u || n === null || !conversations.requests.has(c.callNo)) continue;
     const read = cacheRead(c, u);

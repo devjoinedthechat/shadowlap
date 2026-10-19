@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { canonicalize } from './canonical.js';
+import { maskClock, maskClockText, type ClockMode, type ClockReference } from './clock.js';
 import { normalizeConversation, type Turn } from './conversation.js';
 import { runConversations } from './conversations.js';
 import { agentCallsOf } from './judge-scope.js';
-import { rewriteText } from './normalize.js';
+import { applyNormalizers, rewriteText } from './normalize.js';
 import { redactedRequest, redactedResponse } from './redact.js';
 import { normalizeResponse, type Block } from './responses.js';
 import type { Store } from './store.js';
-import type { CallRecord, Effect, Normalizer } from './types.js';
+import type { CallKind, CallRecord, Effect, Normalizer } from './types.js';
 
 /**
  * Judge checks: a question a model answers about a run. The judge's call goes through the sidecar
@@ -19,11 +20,23 @@ import type { CallRecord, Effect, Normalizer } from './types.js';
  * the material a judge reads (the final answer, the agent's output, or the run), with the project's
  * redaction rules applied; the request each provider is sent, at temperature 0 where the model takes
  * one and with the verdict's JSON schema where it takes one; and the verdict read back. Everything a
- * request holds is the run's content, never its ids or times, so a clean replay sends it byte for
- * byte as its recording did.
+ * request holds is the run's content, never its ids or times, and what replay matching masks in the
+ * agent's requests (dates near the run's start, the project's normalizers) is masked in what the
+ * judge reads too, so a clean replay sends the judge byte for byte what its recording did, and a
+ * recorded verdict is only ever served for the very request it answered.
  */
 
-export { agentCallsOf, isJudgeCall, judgeCallsOf, JUDGE_SCOPE, RESERVED_SCOPE_PREFIX } from './judge-scope.js';
+export { agentCallsOf, isJudgeCall, judgeCallsOf, judgeRules, JUDGE_SCOPE, reachesJudgeRequest, RESERVED_SCOPE_PREFIX } from './judge-scope.js';
+
+/**
+ * The version of the request a judge is sent: its instructions, its schema, how its material is
+ * written and what else the request holds. A recorded verdict answers only the very request it was
+ * given, so a change to any of them leaves every recording without a verdict for its checks until
+ * it is judged again (`shadowlap test --update`); bumping this lets a check that finds only older
+ * verdicts say so instead of "no recorded verdict". A test pins the request, so a change is never
+ * made by accident.
+ */
+export const JUDGE_REQUEST_VERSION = 2;
 
 /** What a judge reads: the last model response's text, what the agent printed, or the whole run. */
 export type JudgeReads = 'answer' | 'output' | 'run';
@@ -81,8 +94,26 @@ export interface JudgeMaterial {
   text: string;
   /** How many redaction rules applied to it: the project's, as `pack` and every export apply them. */
   redactions: number;
+  /**
+   * Whether what replay matching masks applied to it as well (the project's normalizers, dates near
+   * the run's start): the agent's requests in `run`, what it printed in `output`. Never for `answer`,
+   * which a clean replay serves byte for byte from its recording.
+   */
+  normalized: boolean;
   /** Characters left out of the middle to keep it within MATERIAL_LIMIT; 0 when it was sent whole. */
   cut: number;
+}
+
+/**
+ * What replay matching masks before it compares two requests, and so what a judge's material masks
+ * too: dates and times near the run's start (`clock`, the references the sidecar matches the run
+ * under; none under `"clock": "exact"`), then the project's normalizers. With them, a clean replay
+ * whose requests differ from its recording's only where matching looks past (a ticket's time, a
+ * request id) reads the very material its recording read.
+ */
+export interface MatchMasks {
+  normalize?: readonly Normalizer[];
+  clock?: ClockReference;
 }
 
 export type MaterialResult = JudgeMaterial | { missing: string };
@@ -120,32 +151,57 @@ const textOf = (blocks: readonly Block[]) => blocks.flatMap((b) => (b.type === '
 const textRules = (rules: readonly Normalizer[]) => rules.filter((n) => n.path === undefined && n.pattern !== undefined && !n.kind && !n.name);
 
 /**
+ * The dates a run's requests are matched against (clock.ts), as the sidecar matches them: its own
+ * start, and for a replay its recording's start too. None under `"clock": "exact"`.
+ */
+export function matchedClockOf(store: Store, runId: string, mode: ClockMode | undefined): ClockReference | undefined {
+  if (mode === 'exact') return undefined;
+  const run = store.getRun(runId);
+  if (!run) return undefined;
+  const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
+  return parent ? [parent.startedAt, run.startedAt] : [run.startedAt];
+}
+
+/** A call's request, or its tool arguments, as replay matching reads it: dates near the run's start, then the normalizers, masked (fingerprint.ts). */
+function maskedAsMatched(value: unknown, kind: CallKind, name: string, masks: MatchMasks): unknown {
+  const clocked = masks.clock === undefined ? value : maskClock(value, masks.clock);
+  return masks.normalize?.length ? applyNormalizers(clocked, [...masks.normalize], kind, name) : clocked;
+}
+
+/**
  * What a judge reads in a run, with the project's redaction rules applied: `answer`, the text of
  * the agent's last model response; `output`, what the agent printed (a recording keeps none, so it
  * is given); `run`, every conversation the agent had with its model (the last request of each, as
  * the model read it, then its answer) and the tool calls no model asked for. The judge's own calls
  * are never part of it. Nothing in it depends on when the run was made or how its calls were
- * numbered, so a clean replay reads what its recording read.
+ * numbered, and what replay matching masks (`masks`) is masked in the agent's requests and in what
+ * it printed, so a clean replay reads what its recording read.
  */
-export function judgeMaterial(store: Store, calls: readonly CallRecord[], of: JudgeReads, o: { output?: string | null; redact?: readonly Normalizer[] } = {}): MaterialResult {
+export function judgeMaterial(store: Store, calls: readonly CallRecord[], of: JudgeReads, o: { output?: string | null; redact?: readonly Normalizer[] } & MatchMasks = {}): MaterialResult {
   const rules = o.redact ?? [];
+  const masks: MatchMasks = { ...(o.normalize?.length ? { normalize: o.normalize } : {}), ...(o.clock !== undefined ? { clock: o.clock } : {}) };
   const agent = agentCallsOf(calls);
   if (of === 'output') {
     if (o.output === undefined || o.output === null) return { missing: 'a recording keeps no output, so the output is judged when the agent runs' };
     const applied = textRules(rules);
-    const text = applied.length ? rewriteText(o.output, applied) : o.output;
-    return { ...bounded(text.trim() ? text : '(the agent printed nothing)'), redactions: applied.length };
+    const redacted = applied.length ? rewriteText(o.output, applied) : o.output;
+    // What it printed is matched by nothing, so it is masked as a request's text would be: the dates
+    // near the run's start, then the normalizers that hold for any text.
+    const normalizers = textRules(masks.normalize ?? []);
+    const clocked = masks.clock === undefined ? redacted : maskClockText(redacted, masks.clock);
+    const text = normalizers.length ? rewriteText(clocked, normalizers) : clocked;
+    return { ...bounded(text.trim() ? text : '(the agent printed nothing)'), redactions: applied.length, normalized: masks.clock !== undefined || normalizers.length > 0 };
   }
   if (of === 'answer') {
     const last = [...agent].reverse().find((c) => c.kind === 'api' && c.end?.responseRef);
     const answer = last ? responseBlocks(store, last, rules) : null;
     if (!answer) return { missing: 'the run has no model response to judge' };
     const text = textOf(answer.blocks);
-    return { ...bounded(text.trim() ? text : '(the last model response has no text)'), redactions: rules.length };
+    return { ...bounded(text.trim() ? text : '(the last model response has no text)'), redactions: rules.length, normalized: false };
   }
-  const text = runTranscript(store, agent, rules);
+  const text = runTranscript(store, agent, rules, masks);
   if (!text) return { missing: 'the run has no conversation to judge' };
-  return { ...bounded(text), redactions: rules.length };
+  return { ...bounded(text), redactions: rules.length, normalized: masks.clock !== undefined || !!masks.normalize?.length };
 }
 
 /** A turn's blocks as lines: who said what, the tools the model called and what they returned. */
@@ -169,11 +225,15 @@ function turnLines(turn: Turn, effects: ReadonlyMap<string, Effect>, toolNames: 
   return lines;
 }
 
-/** A tool call's arguments and what it got back, with the rules applied as a copy of the run applies them. */
-function toolCallLine(store: Store, call: CallRecord, rules: readonly Normalizer[]): string {
+/**
+ * A tool call's arguments and what it got back, with the rules applied as a copy of the run applies
+ * them, and its arguments masked as replay matching masks them.
+ */
+function toolCallLine(store: Store, call: CallRecord, rules: readonly Normalizer[], masks: MatchMasks): string {
   let args: unknown = null;
   try {
-    args = call.requestRef ? (redactedRequest(store, call, [...rules]) as { args?: unknown })?.args ?? null : null;
+    const request = call.requestRef ? (redactedRequest(store, call, [...rules]) as { args?: unknown } | null) : null;
+    args = request ? ((maskedAsMatched({ args: request.args ?? null }, 'tool', call.name, masks) as { args?: unknown }).args ?? null) : null;
   } catch {
     // unreadable: the name still says what ran
   }
@@ -201,7 +261,7 @@ function toolCallLine(store: Store, call: CallRecord, rules: readonly Normalizer
  * model asked for (a ticket fetched before the first model call, an email the code sends after the
  * last) follow, each after the model call before it in its scope, then by name and arguments.
  */
-function runTranscript(store: Store, agent: CallRecord[], rules: readonly Normalizer[]): string {
+function runTranscript(store: Store, agent: CallRecord[], rules: readonly Normalizer[], masks: MatchMasks): string {
   const placed = runConversations(store, agent, { attribute: true });
   // A tool's effect is declared once for the tool, whichever call says it.
   const effects = new Map<string, Effect>();
@@ -216,7 +276,8 @@ function runTranscript(store: Store, agent: CallRecord[], rules: readonly Normal
   for (const [n, call] of last) {
     let body: unknown;
     try {
-      body = redactedRequest(store, call, [...rules]);
+      // As the model read it, masked as a copy masks it, and as replay matching reads it.
+      body = maskedAsMatched(redactedRequest(store, call, [...rules]), 'api', call.name, masks);
     } catch {
       continue;
     }
@@ -241,7 +302,7 @@ function runTranscript(store: Store, agent: CallRecord[], rules: readonly Normal
     const scope = typeof c.meta.scope === 'string' ? c.meta.scope : '';
     if (c.kind === 'api') modelCalls.set(scope, (modelCalls.get(scope) ?? 0) + 1);
     if (c.kind !== 'tool' || placed.byCall.get(c.callNo)?.requestedBy) continue;
-    loose.push({ scope, after: modelCalls.get(scope) ?? 0, line: toolCallLine(store, c, rules) });
+    loose.push({ scope, after: modelCalls.get(scope) ?? 0, line: toolCallLine(store, c, rules, masks) });
   }
   loose.sort((a, b) => compare(a.scope, b.scope) || a.after - b.after || compare(a.line, b.line));
   if (loose.length) {
@@ -276,36 +337,77 @@ const WHAT = {
   run: "the agent's run: each conversation it had with its model, then the tool calls no model asked for",
 } as const;
 
+/**
+ * The material with every closing `material` tag it holds escaped, whatever its case and spacing
+ * (`</material>`, `</ Material >`, `</material` then a line break): it can't end its block early,
+ * whatever it says. The same text is always escaped the same way, so a clean replay still asks
+ * what its recording asked.
+ */
+export function escapeMaterial(text: string): string {
+  return text.replace(/<\s*\/\s*(material)/gi, (_m, word: string) => `<\\/${word}`);
+}
+
 /** The question and the material, as the judge's one user message. */
 export function judgePrompt(ask: JudgeAsk, material: JudgeMaterial): string {
   const notes = [
     material.redactions ? 'Values the project masks before a run leaves the machine are masked here too, and read as their replacement.' : null,
+    material.normalized ? 'Values that change from run to run, such as dates, times and ids, are masked as the project masks them to match runs, and read as their placeholder.' : null,
     material.cut ? `It was too long to send whole: ${material.cut} characters in the middle are left out, where it says so.` : null,
   ].filter((n): n is string => n !== null);
-  // The material can't end the tag early, whatever it says.
-  const body = material.text.replace(/<\/material>/gi, '<\\/material>');
-  return `Question: ${ask.question}\n\nThe material is ${WHAT[ask.of]}.${notes.length ? ` ${notes.join(' ')}` : ''}\n\n<material>\n${body}\n</material>`;
+  return `Question: ${ask.question}\n\nThe material is ${WHAT[ask.of]}.${notes.length ? ` ${notes.join(' ')}` : ''}\n\n<material>\n${escapeMaterial(material.text)}\n</material>`;
+}
+
+/** What a Claude model's judge request is sent with: see claudeTakes. */
+export interface ClaudeTakes {
+  /** A temperature (0): refused by Claude Opus 4.7 and later and the generation 5 models. */
+  temperature: boolean;
+  /** The verdict's JSON schema as `output_config.format`: from the 4.1 generation. */
+  schema: boolean;
+  /**
+   * `output_config.effort` (`low`): sent to Claude Opus and Sonnet 4.6, Haiku 5.5 and later, which
+   * take it as it is (Claude Haiku 4.5 and Sonnet 4.5 refuse it, and Opus 4.5 took it behind a beta).
+   * The models that think by default (the generation 5 and Fable) think least at `low`, which a
+   * yes-or-no verdict needs, so a long run doesn't spend `max_tokens` thinking.
+   */
+  effort: boolean;
+  /** The ceiling on the answer, thinking included: room for a model that thinks first, never a cost. */
+  maxTokens: number;
 }
 
 /**
  * What a Claude model takes. Sampling parameters went with Claude Opus 4.7 and the generation 5
- * models (a temperature is refused there), and structured outputs came with the 4.1 generation. A
- * model whose name says neither is taken for a new one.
+ * models (a temperature is refused there), structured outputs came with the 4.1 generation, and
+ * effort, as every model takes it, with the 4.6 generation. A model whose name says none of it is
+ * taken for a new one.
  */
-export function claudeTakes(model: string): { temperature: boolean; schema: boolean } {
-  if (/^claude-(?:instant|[123](?:[.-]|$))/i.test(model)) return { temperature: true, schema: false };
+export function claudeTakes(model: string): ClaudeTakes {
+  // A ceiling every Claude 3 model takes (the first of them answer no more).
+  if (/^claude-(?:instant|[123](?:[.-]|$))/i.test(model)) return { temperature: true, schema: false, effort: false, maxTokens: 4096 };
   const m = /^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d{1,2}))?(?:-|@|$)/i.exec(model);
-  if (!m) return { temperature: false, schema: true };
+  if (!m) return { temperature: false, schema: true, effort: true, maxTokens: 16_000 };
   const family = m[1]!.toLowerCase();
   const major = Number(m[2]);
   const version = major + (m[3] ? Number(m[3]) / 10 : 0);
-  if (family === 'fable' || family === 'mythos') return { temperature: false, schema: true };
-  return { temperature: major < 5 && !(family === 'opus' && version >= 4.7), schema: version >= 4.1 };
+  if (family === 'fable' || family === 'mythos') return { temperature: false, schema: true, effort: true, maxTokens: 16_000 };
+  return {
+    temperature: major < 5 && !(family === 'opus' && version >= 4.7),
+    schema: version >= 4.1,
+    effort: family === 'haiku' ? version >= 5 : version >= 4.6,
+    maxTokens: 16_000,
+  };
 }
 
 /** OpenAI's reasoning models (o1, o3, o4-mini, the gpt-5 family) take no temperature but their default. */
 export function openaiTakesTemperature(model: string): boolean {
   return !/^(o\d|gpt-5)/i.test(model);
+}
+
+/**
+ * OpenAI's reasoning models that take `reasoning_effort` (o3, o4-mini, the gpt-5 family, not its
+ * chat models): `low`, as a yes-or-no verdict needs.
+ */
+export function openaiTakesReasoningEffort(model: string): boolean {
+  return /^(o[34]|gpt-5)/i.test(model) && !/chat/i.test(model);
 }
 
 export interface JudgeRequest {
@@ -327,6 +429,8 @@ export function judgeRequest(target: { provider: JudgeProvider; model: string },
   const { provider, model } = target;
   if (provider === 'anthropic') {
     const takes = claudeTakes(model);
+    // The least thinking a model takes, and the verdict's schema, where the model takes them.
+    const output = { ...(takes.effort ? { effort: 'low' } : {}), ...(takes.schema ? { format: { type: 'json_schema', schema: VERDICT_SCHEMA } } : {}) };
     return {
       provider,
       path: '/v1/messages',
@@ -334,11 +438,11 @@ export function judgeRequest(target: { provider: JudgeProvider; model: string },
       body: {
         model,
         // A ceiling, not a cost: a model that thinks first needs room before the verdict.
-        max_tokens: 4096,
+        max_tokens: takes.maxTokens,
         ...(takes.temperature ? { temperature: 0 } : {}),
         system: JUDGE_INSTRUCTIONS,
         messages: [{ role: 'user', content: prompt }],
-        ...(takes.schema ? { output_config: { format: { type: 'json_schema', schema: VERDICT_SCHEMA } } } : {}),
+        ...(Object.keys(output).length ? { output_config: output } : {}),
       },
     };
   }
@@ -350,6 +454,7 @@ export function judgeRequest(target: { provider: JudgeProvider; model: string },
       body: {
         model,
         ...(openaiTakesTemperature(model) ? { temperature: 0 } : {}),
+        ...(openaiTakesReasoningEffort(model) ? { reasoning_effort: 'low' } : {}),
         messages: [
           { role: 'system', content: JUDGE_INSTRUCTIONS },
           { role: 'user', content: prompt },
@@ -372,6 +477,35 @@ export function judgeRequest(target: { provider: JudgeProvider; model: string },
       },
     },
   };
+}
+
+/** The material a judge's request gave it to read, from a request of any provider's; null when it holds none. */
+export function materialOfRequest(body: unknown): string | null {
+  const found = (v: unknown): string | null => {
+    if (typeof v === 'string') return /<material>\n([\s\S]*)\n<\/material>$/.exec(v)?.[1] ?? null;
+    for (const x of Array.isArray(v) ? v : typeof v === 'object' && v !== null ? Object.values(v) : []) {
+      const text = found(x);
+      if (text !== null) return text;
+    }
+    return null;
+  };
+  const b = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+  return found(b.messages ?? b.contents ?? null);
+}
+
+/**
+ * Where two materials first differ, in a few words: the line each has there, cut short. What tells
+ * a person why a recorded verdict no longer answers a check: what the judge would read now isn't
+ * what it read when the verdict was recorded (a value that changes every run that no normalizer
+ * masks, a rule added since).
+ */
+export function materialDifference(recorded: string, now: string): string {
+  const a = recorded.split('\n');
+  const b = now.split('\n');
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  const cut = (line: string | undefined) => (line === undefined ? '(nothing)' : `"${clip(line.trim(), 120)}"`);
+  return `it read ${cut(a[i])} where it now reads ${cut(b[i])}`;
 }
 
 // ---- the verdict ----

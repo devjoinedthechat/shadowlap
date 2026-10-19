@@ -1,4 +1,4 @@
-import { canonicalize, estimateCost, isJudgeCall, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeTarget, loadApiRequest, readVerdict, type CallRecord, type JudgeProvider, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
+import { applyNormalizers, canonicalize, estimateCost, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeRules, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, readVerdict, type CallRecord, type ClockMode, type ClockReference, type JudgeProvider, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
 import { providers, Sidecar } from '@shadowlap/sidecar';
 import type { TestSpec } from './checks.js';
 import type { ShadowlapConfig } from './config.js';
@@ -10,8 +10,12 @@ import type { JudgedEntry } from './judge-results.js';
  * sidecar in the scope `shadowlap:judge`, as one model request, so its call is stored in the run
  * like any other: a clean replay sends the same request and is answered from the recording, free
  * and the same verdict every time; a fork, whose material changed, asks the judge live and records
- * it. Where the judge can't be asked live (no key, a test that runs offline), a request the
- * recording doesn't hold is answered by no one, and the check is inconclusive, never passed.
+ * it. A recorded verdict answers only the very request it was given, byte for byte: what the judge
+ * reads has what replay matching masks masked already (the project's normalizers, dates near the
+ * run's start), so a clean replay asks what its recording asked, and nothing else is ever matched
+ * fuzzily. Where the judge can't be asked live (no key, a test that runs offline), a request the
+ * recording doesn't hold is answered by no one, nothing of it is kept, and the check is
+ * inconclusive, never passed, with why.
  *
  * `pack` and `test --update` judge a run that has ended: its judge calls are added to it
  * (Sidecar.openForJudge), so the pack carries them and every replay of it is judged for free.
@@ -61,13 +65,40 @@ export interface JudgeRunContext {
   env?: NodeJS.ProcessEnv;
   /** The project's redaction rules: what the judge reads has them applied. */
   redact?: readonly Normalizer[];
+  /** The project's normalizers: what the judge reads has them applied, as replay matching applies them. */
+  normalize?: readonly Normalizer[];
   prices?: Record<string, Price>;
 }
 
-/** What the material of a judge check comes from: a run's calls, and what its agent printed (null for a recording, which keeps none). */
+/**
+ * What the material of a judge check comes from: a run's calls, what its agent printed (null for a
+ * recording, which keeps none), and the dates replay matching masks in that run (matchedClockOf).
+ */
 export interface JudgeMaterialSource {
   calls: CallRecord[];
   output: string | null;
+  clock?: ClockReference;
+}
+
+/** A run's calls and output as the material of its judge checks, with the dates matching masks in it under `clock`. */
+export function materialOf(store: Store, runId: string, output: string | null, clock: ClockMode | undefined, calls = store.getCalls(runId)): JudgeMaterialSource {
+  const ref = matchedClockOf(store, runId, clock);
+  return { calls, output, ...(ref !== undefined ? { clock: ref } : {}) };
+}
+
+/** What a check's judge reads in `material`, with the project's rules: its redactions, then what matching masks. */
+function materialFor(store: Store, j: JudgeCheck, material: JudgeMaterialSource, o: { redact?: readonly Normalizer[] | undefined; normalize?: readonly Normalizer[] | undefined }): ReturnType<typeof judgeMaterial> {
+  return judgeMaterial(store, material.calls, j.of, { output: material.output, redact: o.redact ?? [], ...(o.normalize?.length ? { normalize: o.normalize } : {}), ...(material.clock !== undefined ? { clock: material.clock } : {}) });
+}
+
+/**
+ * A judge's request as a replay compares it with the recording's: the body as sent, with only the
+ * recording's own redaction rules that reach a judge's request applied, as the sidecar's matching
+ * applies them (judgeRules). Canonical text, so two compare as strings.
+ */
+function comparable(body: unknown, redactions: readonly Normalizer[], name: string): string {
+  const rules = judgeRules(redactions);
+  return canonicalize(rules.length ? applyNormalizers(body, rules, 'api', name) : body);
 }
 
 export interface Judged {
@@ -92,13 +123,38 @@ function errorMessage(bytes: Buffer): string {
   }
 }
 
+/**
+ * Why the recording doesn't answer a check's request, when the judge can't be asked live either:
+ * it holds no verdict for the check's question at all; or only one given to an older form of the
+ * judge's request; or one given on other material, and where that differs from what the judge
+ * would read now (a value that changes every run, which no normalizer masks).
+ */
+function whyNotAnswered(store: Store, runId: string, j: JudgeCheck, request: { body: unknown }, cannot: string): string {
+  const run = store.getRun(runId);
+  const recording = run?.parentRunId ? store.getRun(run.parentRunId) : null;
+  const ask = judgeAskId(j);
+  const held = recording ? store.getCalls(recording.runId).filter((c) => isJudgeCall(c) && c.meta.judge?.ask === ask && c.end?.outcome === 'ok' && c.requestRef) : [];
+  const newest = held.at(-1);
+  if (!newest) return `no recorded verdict and ${cannot}`;
+  if ((newest.meta.judge?.v ?? 1) !== JUDGE_REQUEST_VERSION) return `the recording's verdict was given to an older form of the judge's request, and ${cannot}: record it again with shadowlap test --update`;
+  let before: string | null = null;
+  try {
+    before = materialOfRequest(loadApiRequest(store, newest.requestRef!));
+  } catch {
+    // unreadable: it says no more than that the material changed
+  }
+  const now = materialOfRequest(request.body);
+  const where = before !== null && now !== null ? `: ${materialDifference(before, now)}` : '';
+  return `the recording's verdict was given on other material${where}, and ${cannot}`;
+}
+
 /** One judge check, asked through the sidecar: its verdict, or why it has none. */
 async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: JudgeRunContext): Promise<JudgedEntry | { why: string }> {
   const target = judgeTarget(j.model);
   if (!target) return { why: `Shadowlap can't tell which provider serves ${j.model}` };
   let m: ReturnType<typeof judgeMaterial>;
   try {
-    m = judgeMaterial(ctx.store, material.calls, j.of, { output: material.output, redact: ctx.redact ?? [] });
+    m = materialFor(ctx.store, j, material, ctx);
   } catch (err) {
     // A redaction rule that can't be applied: nothing is sent unmasked.
     return { why: `what it reads could not be made: ${(err as Error).message}` };
@@ -116,6 +172,7 @@ async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: Judge
     'x-shadowlap-judge': ctx.sidecar.judgeToken,
     'x-shadowlap-judge-check': encodeURIComponent(j.name),
     'x-shadowlap-judge-ask': judgeAskId(j),
+    'x-shadowlap-judge-version': String(JUDGE_REQUEST_VERSION),
     ...request.headers,
     // No way to ask it live: the recording answers, or no one does.
     ...('headers' in live ? { ...live.headers, ...(upstream ? { 'x-shadowlap-judge-upstream': upstream } : {}) } : { 'x-shadowlap-judge-offline': '1' }),
@@ -135,7 +192,7 @@ async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: Judge
       }
       return { why: `the judge's call failed: ${(err as Error).message}` };
     }
-    if (res.status === 503 && bytes.toString('utf8').includes('shadowlap_offline')) return { why: `no recorded verdict and ${'why' in live ? live.why : 'the test runs offline'}` };
+    if (res.status === 503 && bytes.toString('utf8').includes('shadowlap_offline')) return { why: whyNotAnswered(ctx.store, ctx.runId, j, request, 'why' in live ? live.why : 'the test runs offline') };
     if (attempt < RETRIES && (res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500)) {
       await pause(attempt);
       continue;
@@ -148,7 +205,7 @@ async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: Judge
   if ('error' in verdict) return { why: verdict.error };
   const source = res.headers.get('x-shadowlap-origin') === 'replayed' ? 'recording' : 'live';
   const cost = source === 'recording' ? 0 : estimateCost(target.model, provider?.extractUsage(bytes, contentType) ?? undefined, ctx.prices);
-  return { ...verdict, source, cost, redactions: m.redactions, cut: m.cut };
+  return { ...verdict, source, cost, redactions: m.redactions, normalized: m.normalized, cut: m.cut };
 }
 
 /**
@@ -182,21 +239,23 @@ export function unjudged(judges: readonly JudgeCheck[], why: string): Judged {
 /**
  * The verdict a run already holds for a judge check: its own judge call for the same ask (question,
  * what it reads, model), the newest that got one. With `material`, only a call that sent the very
- * request the check would send now, so a pack never keeps a verdict its replays would not ask for.
+ * request the check would send now, compared as a replay compares it (under the run's own redaction
+ * rules, `redactions`), so a pack never keeps a verdict its replays would not be served.
  */
-export function heldVerdict(store: Store, calls: readonly CallRecord[], j: JudgeCheck, o: { material?: JudgeMaterialSource; redact?: readonly Normalizer[] } = {}): (JudgedEntry & { callNo: number }) | null {
+export function heldVerdict(store: Store, calls: readonly CallRecord[], j: JudgeCheck, o: { material?: JudgeMaterialSource; redact?: readonly Normalizer[]; normalize?: readonly Normalizer[]; redactions?: readonly Normalizer[] } = {}): (JudgedEntry & { callNo: number }) | null {
   const ask = judgeAskId(j);
   const target = judgeTarget(j.model);
   let wanted: string | null = null;
   if (o.material && target) {
     let m: ReturnType<typeof judgeMaterial>;
     try {
-      m = judgeMaterial(store, o.material.calls, j.of, { output: o.material.output, redact: o.redact ?? [] });
+      m = materialFor(store, j, o.material, o);
     } catch {
       return null;
     }
     if ('missing' in m) return null;
-    wanted = canonicalize(judgeRequest(target, j, m).body);
+    const request = judgeRequest(target, j, m);
+    wanted = comparable(request.body, o.redactions ?? [], `POST ${request.path}`);
   }
   for (const c of [...calls].reverse()) {
     if (!isJudgeCall(c) || c.meta.judge?.ask !== ask || c.end?.outcome !== 'ok' || !c.end.responseRef) continue;
@@ -207,7 +266,7 @@ export function heldVerdict(store: Store, calls: readonly CallRecord[], j: Judge
       } catch {
         continue;
       }
-      if (canonicalize(sent) !== wanted) continue;
+      if (comparable(sent, o.redactions ?? [], c.name) !== wanted) continue;
     }
     const provider = c.end.meta.provider ?? c.meta.provider;
     const verdict = readVerdict(store.getBlob(c.end.responseRef), c.end.meta.headers?.['content-type'], typeof provider === 'string' ? provider : undefined);
@@ -236,19 +295,33 @@ export interface JudgedRun extends Judged {
 }
 
 /**
+ * Why a run that has ended can't be judged, or null when it can: one that failed or was stopped is
+ * never judged by its replays either (judgeAttempt), so a verdict for it would never be read, only
+ * paid for.
+ */
+export function cannotJudge(run: RunRecord): string | null {
+  if (run.status === 'completed') return null;
+  if (run.status === 'running') return 'the run is still recording';
+  return `the run did not complete (${run.status === 'failed' ? 'its agent exited with an error' : 'it was interrupted'}), and no replay of it is judged`;
+}
+
+/**
  * Judges a run that has ended, and keeps each judge call in it: a verdict it already holds for the
  * very request is kept and not asked again; every other check is asked through a sidecar that has
  * the run open for its judge alone, live where it can be (`upstreams`), so the run, and a pack of
  * it, holds the verdict from then on. `material` is what the judge reads: the run's own calls, or,
- * for a golden whose clean replay printed its output, the replay's.
+ * for a golden whose clean replay printed its output, the replay's. A run that didn't complete is
+ * not judged (cannotJudge).
  */
 export async function judgeEndedRun(store: Store, run: RunRecord, judges: readonly JudgeCheck[], o: { material?: JudgeMaterialSource; config: Pick<ShadowlapConfig, 'normalize' | 'redact' | 'prices' | 'clock' | 'http'>; upstreams: Record<string, string>; env?: NodeJS.ProcessEnv }): Promise<JudgedRun> {
-  const calls = store.getCalls(run.runId);
-  const material = o.material ?? { calls, output: null };
   const out: JudgedRun = { verdicts: new Map(), notJudged: new Map(), judge: null, held: [] };
+  const cannot = cannotJudge(run);
+  if (cannot) return { ...out, notJudged: new Map(judges.map((j) => [j.name, cannot])) };
+  const calls = store.getCalls(run.runId);
+  const material = o.material ?? materialOf(store, run.runId, null, o.config.clock, calls);
   const ask: JudgeCheck[] = [];
   for (const j of judges) {
-    const held = heldVerdict(store, calls, j, { material, redact: o.config.redact });
+    const held = heldVerdict(store, calls, j, { material, redact: o.config.redact, normalize: o.config.normalize, redactions: run.meta?.redactions ?? [] });
     if (held) {
       out.verdicts.set(j.name, held);
       out.held.push(j.name);
@@ -265,7 +338,7 @@ export async function judgeEndedRun(store: Store, run: RunRecord, judges: readon
   const sidecar = await Sidecar.start({ store, normalizers: o.config.normalize, upstreams: o.upstreams, ...(o.config.prices ? { prices: o.config.prices } : {}), ...(o.config.clock ? { clock: o.config.clock } : {}), ...(o.config.http ? { http: o.config.http } : {}) });
   try {
     sidecar.openForJudge(run.runId);
-    const asked = await askJudges(ask, material, { sidecar, store, runId: run.runId, upstreams: o.upstreams, redact: o.config.redact, ...(o.config.prices ? { prices: o.config.prices } : {}), ...(o.env ? { env: o.env } : {}) });
+    const asked = await askJudges(ask, material, { sidecar, store, runId: run.runId, upstreams: o.upstreams, redact: o.config.redact, normalize: o.config.normalize, ...(o.config.prices ? { prices: o.config.prices } : {}), ...(o.env ? { env: o.env } : {}) });
     for (const [k, v] of asked.verdicts) out.verdicts.set(k, v);
     for (const [k, v] of asked.notJudged) out.notJudged.set(k, v);
     out.judge = sidecar.closeForJudge(run.runId);

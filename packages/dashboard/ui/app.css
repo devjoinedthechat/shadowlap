@@ -272,6 +272,7 @@ table.runst .rsub { padding-left: 22px; }
 /* only a failure colours its words; a healthy outcome keeps a lime dot beside plain text */
 .st.ok { color: var(--dim); } .st.ok i { background: var(--o-rep); }
 .st.err { color: var(--err); } .st.err i { background: var(--err); }
+.st.warn { color: var(--warn); } .st.warn i { background: var(--warn); }
 .st.n { color: var(--faint); padding-left: 13px; } .st.n i { background: var(--line2); }
 .nil { color: var(--faint); }
 .st.live { color: var(--ink); } .st.live i { background: var(--lime); animation: pulse 1.6s infinite; }

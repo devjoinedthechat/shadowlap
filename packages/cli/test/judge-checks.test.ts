@@ -39,13 +39,14 @@ describe('a judge check\'s result', () => {
       label: 'explains: the judge answers yes to "Does the reply say why the refund was escalated?"',
       detail: 'the judge answered yes: It says a manager reviews refunds over $100.',
       reason: 'It says a manager reviews refunds over $100.',
-      judge: { name: 'explains', model: 'claude-haiku-4-5', of: 'answer', verdict: 'yes', source: 'recording', cost: 0, redactions: 0, cut: 0 },
+      judge: { name: 'explains', model: 'claude-haiku-4-5', of: 'answer', verdict: 'yes', source: 'recording', cost: 0, redactions: 0, normalized: false, cut: 0 },
     });
     expect(checkLine(passed!)).toBe('✓ explains: the judge answers yes to "Does the reply say why the refund was escalated?": the judge answered yes: It says a manager reviews refunds over $100. (judged from the recording, free)');
     const [failed] = judgeResults([{ ...judge, pass: 'no' }], { judgeVerdicts: new Map([['explains', { verdict: 'yes', reason: 'r', source: 'live', cost: 0.0025, redactions: 2, cut: 1200 }]]) });
     expect(failed).toMatchObject({ ok: false, status: 'failed', detail: 'the judge answered yes: r', reason: 'r' });
     expect(judgeSource(failed!.judge!)).toBe('judged live, ≈$0.0025 · read with 2 redaction rules applied · 1,200 characters left out');
     expect(judgeSource({ ...failed!.judge!, cost: 0.0004, redactions: 0, cut: 0 })).toBe('judged live, <$0.001');
+    expect(judgeSource({ ...failed!.judge!, cost: 0, source: 'recording', redactions: 0, normalized: true, cut: 0 })).toBe('judged from the recording, free · values that change every run masked');
     expect(judgeSource({ ...failed!.judge!, cost: null, redactions: 0, cut: 0 })).toBe('judged live, no price for claude-haiku-4-5');
   });
 

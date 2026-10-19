@@ -191,7 +191,7 @@ export function sideLine(r: RunLike): { text: string; err?: string } {
 }
 
 /** The Runs table's status: the outcome only, in a dot and a few words. */
-export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; text: string } {
+export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'warn' | 'ok' | 'n'; text: string } {
   if (isLive(r)) return { tone: 'live', text: 'in progress' };
   const o = r.outcome;
   if (o) {
@@ -200,6 +200,8 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; tex
     if (o.kind === 'lost' && typeof o.callNo === 'number') return { tone: 'err', text: `lost at #${o.callNo}` };
     // A check, or the agent's exit (an outcome that names no check), in the sidebar's words.
     if (o.kind === 'check-failed') return { tone: 'err', text: failedWord(r) };
+    // A check that couldn't be decided (a judge with no verdict): amber, needs a look, no failure.
+    if (o.kind === 'inconclusive') return { tone: 'warn', text: 'inconclusive' };
     if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: `${plural(o.checks, 'check')} passed` };
     if (o.kind === 'clean') return { tone: 'ok', text: 'clean' };
     // A run cut short (its recorder stopped before it ended) has no outcome, but says why.

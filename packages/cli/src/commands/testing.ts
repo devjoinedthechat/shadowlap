@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { EXTERNAL_COMMAND, endedEarlyCount, formatTokens, judgeLine, judgeParts, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, endedEarlyCount, formatTokens, judgeLine, judgeParts, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -13,7 +13,7 @@ import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
-import { judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
+import { cannotJudge, judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
 import { checkLine, judgeResults } from '../judge-results.js';
 import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
@@ -81,13 +81,23 @@ function judgesOfPack(dir: string): JudgeCheck[] {
 }
 
 /** Each judge check a pack was judged by: its verdict, or why it has none and how to get one. */
-function printPackJudged(dir: string, judges: readonly JudgeCheck[], judged: JudgedRun): void {
+function printPackJudged(dir: string, run: RunRecord, judges: readonly JudgeCheck[], judged: JudgedRun): void {
+  // A run that didn't complete is never judged, here or by its replays: nothing to get a verdict for.
+  const cannot = cannotJudge(run);
+  if (cannot) {
+    process.stdout.write(p.dim(`no judge asked for the pack: ${cannot}\n`));
+    return;
+  }
   process.stdout.write(`judged ${judges.length} check${judges.length === 1 ? '' : 's'} for the pack${judged.judge ? ` (${judgeParts(judged.judge).join(' · ')})` : ''}:\n`);
   for (const line of judgeResults(judges, { judgeVerdicts: judged.verdicts, notJudged: judged.notJudged }).map(checkLine)) process.stdout.write(`  ${safe(line)}\n`);
-  if (judged.notJudged.size) {
-    const again = `shadowlap test ${safe(quoteArgv([dir]))} --update`;
-    process.stdout.write(p.yellow(`  the pack holds no verdict for ${judged.notJudged.size === 1 ? 'it' : 'those'}, so ${judged.notJudged.size === 1 ? 'it is' : 'they are'} inconclusive offline: give the judge a way to be asked (its key) and pack again, or record ${judged.notJudged.size === 1 ? 'its verdict' : 'their verdicts'} with ${again}\n`));
-  }
+  const again = `shadowlap test ${safe(quoteArgv([dir]))} --update`;
+  const missing = judges.filter((j) => judged.notJudged.has(j.name));
+  const names = (list: readonly JudgeCheck[]) => list.map((j) => safe(j.name)).join(', ');
+  // A recording keeps no output: a check on it is judged on what a replay prints.
+  const outputs = missing.filter((j) => j.of === 'output');
+  const others = missing.filter((j) => j.of !== 'output');
+  if (outputs.length) process.stdout.write(p.yellow(`  a recording keeps no output, so ${names(outputs)} ${outputs.length === 1 ? 'is' : 'are'} judged on what a replay prints: record ${outputs.length === 1 ? 'its verdict' : 'their verdicts'} with ${again}\n`));
+  if (others.length) process.stdout.write(p.yellow(`  the pack holds no verdict for ${names(others)}, so ${others.length === 1 ? 'it is' : 'they are'} inconclusive offline: give the judge a way to be asked (its key) and pack again, or record ${others.length === 1 ? 'its verdict' : 'their verdicts'} with ${again}\n`));
 }
 
 /** The verdicts of a pack's judge checks, for a dashboard job: each one's verdict, reason, where it came from and its cost, or why it has none. */
@@ -169,7 +179,7 @@ function passedLine(o: GoldenOutcome): string {
 function verdictsToKeep(o: GoldenOutcome, spec: TestSpec | null): JudgeCheck[] {
   const shown = o.result?.shown;
   if (!judgesOf(spec).length || !shown || !o.parent || shown.code !== 0 || shown.interrupted || shown.ended.summary.divergence) return [];
-  if (o.failure && (o.kind !== 'check' || shown.checks?.some((c) => !c.ok && !c.judge))) return [];
+  if (o.failure && ((o.kind !== 'check' && o.kind !== 'inconclusive') || shown.checks?.some((c) => !c.ok && !c.judge))) return [];
   const names = new Set((shown.checks ?? []).filter((c) => c.judge && c.judge.source !== 'recording').map((c) => c.judge!.name));
   return judgesOf(spec).filter((j) => names.has(j.name));
 }
@@ -182,7 +192,9 @@ function printGolden(o: GoldenOutcome, suffix = ''): void {
     if (judged.length) process.stdout.write(p.dim(judged.map((c) => `    ${safe(checkLine(c))}`).join('\n')) + '\n');
     return;
   }
-  process.stdout.write(`${p.red('✗')} ${o.name}: ${o.failure.message}\n`);
+  // Inconclusive is no failure of the agent's, though it never passes: amber, with a ?.
+  const unsure = o.result?.verdict === 'inconclusive';
+  process.stdout.write(`${unsure ? p.yellow('?') : p.red('✗')} ${o.name}: ${o.failure.message}\n`);
   if (!o.result) return;
   const indent = (text: string, prefix = '    ') => text.split('\n').map((l) => prefix + l).join('\n') + '\n';
   if (o.result.shown.checks?.length) process.stdout.write(indent(formatChecks(o.result.shown.checks)));
@@ -322,7 +334,7 @@ export function register(program: Command): void {
             }
           } else if (flags.update && (outcome.failure || early) && !signal) {
             if ((outcome.kind !== 'diverged' && !early) || !outcome.parent || !outcome.result) {
-              process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : 'this one failed for another reason'}\n`));
+              process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : outcome.kind === 'inconclusive' ? 'a check that could not be decided gets its verdict once its judge can be asked (its key), not from a new recording' : 'this one failed for another reason'}\n`));
             } else {
               const before = outcome.parent;
               const divergence = outcome.result.shown.ended.summary.divergence;
@@ -437,7 +449,9 @@ export function register(program: Command): void {
       if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open the passing run' : 'Open the run', href: `#/run/${only.runId}` });
       else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: `#/run/${r.runId}`, secondary: true });
       emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests', ...(only?.runId ? { secondary: true } : {}) });
-      process.stdout.write(`\n${report.passed} passed, ${report.failed} failed${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
+      // Inconclusive ones are counted apart from the failures, and fail the run all the same.
+      const unsure = report.inconclusive ? `, ${report.inconclusive} inconclusive (${report.inconclusive === 1 ? 'it fails' : 'they fail'} the run)` : '';
+      process.stdout.write(`\n${report.passed} passed, ${report.failed - report.inconclusive} failed${unsure}${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
       for (const fix of settled) process.stdout.write(`${p.green('✓')} ${shortFixId(fix.fixId)} holds again: its goldens passed · ${safe(fix.title)}\n`);
       // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).
       if (updatable.length) process.stdout.write(p.dim(`If the change was intended, update ${updatable.length === 1 ? 'it' : 'them'}: shadowlap test ${safe(quoteArgv(updatable))} --update\n`));
@@ -515,7 +529,7 @@ export function register(program: Command): void {
       // pack, so every replay of the golden is judged from the recording, for free.
       const judges = judgesOfPack(dir);
       const judged = judges.length ? await judgeEndedRun(store, run, judges, { config, upstreams: upstreamOverrides(process.env) }) : null;
-      if (judged) printPackJudged(dir, judges, judged);
+      if (judged) printPackJudged(dir, run, judges, judged);
       const result = packRun(store, run.runId, dir, { lineage: flags.lineage === true, redact: rules });
       process.stdout.write(`packed ${result.runs.length} run${result.runs.length === 1 ? '' : 's'} (${result.calls} calls, ${result.blobs} blobs) to ${result.dir}${result.redacted ? ` with ${rules.length} redaction rule${rules.length === 1 ? '' : 's'}` : ''}\n`);
       if (!result.redacted) process.stderr.write(p.yellow(configured.length ? `  ${unredacted(configured.length, 'the pack holds everything the agent saw')}\n` : '  recordings contain everything the agent saw; add rules with `shadowlap redact add` before sharing\n'));

@@ -163,7 +163,10 @@ export class Session {
 
   private readonly parentRunId: string | null;
   private readonly index = new Map<string, CallRecord>();
-  /** The recording's judge calls that got a verdict back, by call key: a judge asked the same question about the same material gets it again. */
+  /**
+   * The recording's judge calls that got an answer back, by fingerprint, the newest kept: a judge
+   * asked the very request again gets the answer it gave, however often it is asked.
+   */
   private readonly judged = new Map<string, CallRecord>();
   private readonly parentCalls: CallRecord[];
   private readonly consumed = new Set<number>();
@@ -205,7 +208,8 @@ export class Session {
     for (const c of this.parentCalls) {
       // A judge call that failed holds no verdict: the judge is asked again.
       if (isJudgeCall(c)) {
-        if (c.end?.outcome === 'ok') this.judged.set(key(c.kind, c.fingerprint, c.occurrence, JUDGE_SCOPE), c);
+        const held = this.judged.get(c.fingerprint);
+        if (c.kind === 'api' && c.end?.outcome === 'ok' && (!held || held.callNo < c.callNo)) this.judged.set(c.fingerprint, c);
         continue;
       }
       if (c.end) this.index.set(key(c.kind, c.fingerprint, c.occurrence, this.scopeOf(c.meta.scope)), c);
@@ -311,20 +315,21 @@ export class Session {
   }
 
   /**
-   * A judge call (the scope `shadowlap:judge`): answered from the recording when it holds the same
-   * request with a verdict, whatever the agent's replay did, else run live. It never moves the
+   * A judge call (the scope `shadowlap:judge`): answered from the recording when it holds the very
+   * same request with an answer, whatever the agent's replay did, else run live. The sidecar
+   * fingerprints a judge's request as it was sent, with no normalizer and no masking of dates: the
+   * judge read every byte of it, so its answer is served for those bytes alone. It never moves the
    * replay: it is no call of the agent's, so it neither forks the replay nor counts as replayed, and
    * a missing one means "ask the judge live", not "the agent changed".
    */
   private judge(input: ResolveInput, occurrence: number): Decision {
-    if (this.mode === 'replay') {
-      const record = this.judged.get(key(input.kind, input.fingerprint, occurrence, JUDGE_SCOPE));
-      if (record && !this.consumed.has(record.callNo)) {
-        this.consumed.add(record.callNo);
-        return { origin: 'replayed', occurrence, record };
-      }
-    }
-    return { origin: 'live', occurrence };
+    const record = this.judgedFor(input.fingerprint);
+    return record ? { origin: 'replayed', occurrence, record } : { origin: 'live', occurrence };
+  }
+
+  /** The recorded judge call that answers this very request, or undefined: none in a recording, nor in a replay whose recording never asked it. */
+  judgedFor(fingerprint: string): CallRecord | undefined {
+    return this.mode === 'replay' ? this.judged.get(fingerprint) : undefined;
   }
 
   /** Whether a partial recording holds calls like this one: their kind, or for a tool, its name. */

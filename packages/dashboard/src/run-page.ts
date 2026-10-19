@@ -3,6 +3,7 @@ import {
   canonicalModel,
   Lru,
   hasRecordedCommand,
+  isJudgeCall,
   LiveConversations,
   previewRedaction,
   recordedDurations,
@@ -327,7 +328,8 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[]): RunBlame | null 
   const callNo = int(b.callNo);
   const scope = str(b.scope);
   // The model calls blame probed: those with an answer, in its scope (the agent's, not a simulated user's).
-  const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope)).map((c) => c.callNo);
+  // The agent's model calls: a judge check's are none of blame's steps.
+  const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope) && !isJudgeCall(c)).map((c) => c.callNo);
   const k = callNo === null ? 0 : steps.indexOf(callNo) + 1;
   return {
     outcome: oneOf(b.outcome, ['blamed', 'unrescuable', 'stopped'] as const, 'stopped'),
@@ -354,6 +356,7 @@ function storedJudge(v: unknown): JudgeOutcome | null {
     source: v.source === 'recording' || v.source === 'live' ? v.source : null,
     cost: num(v.cost),
     redactions: num(v.redactions) ?? 0,
+    ...(typeof v.normalized === 'boolean' ? { normalized: v.normalized } : {}),
     cut: num(v.cut) ?? 0,
     ...(int(v.callNo) !== null ? { callNo: int(v.callNo)! } : {}),
   };

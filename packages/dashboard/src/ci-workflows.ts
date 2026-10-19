@@ -170,7 +170,7 @@ export function fixPreview(store: Store, budget: string): PullRequestPreview | n
     const fix = fixDetail(store, row.fixId);
     const repair = fix?.repair;
     if (!fix || !repair?.accepted) continue;
-    const spent = repair.cost.blame + (repair.cost.repairer ?? 0) + repair.cost.verify;
+    const spent = repair.cost.blame + (repair.cost.repairer ?? 0) + repair.cost.verify + (repair.cost.judge ?? 0);
     const patch = repair.files.find((f) => f.name === 'fix.patch')?.note.replace(/^1 file · /, '') ?? null;
     return {
       title: repair.title,

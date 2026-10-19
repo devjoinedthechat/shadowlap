@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
+import { isJudgeCall } from './judge-scope.js';
 import { hasRecordedCommand, PACK_FORMAT, PACK_VERSION } from './pack.js';
 import { PACK_LIMITS, PackError, validateCall, validateRun } from './pack-schema.js';
 import { safeLine } from './text.js';
@@ -355,7 +356,8 @@ function usageFrom(calls: readonly CallRecord[], from: number): Usage | null {
   const u: Required<Usage> = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
   let any = false;
   for (const c of calls) {
-    const x = c.kind === 'api' && c.callNo >= from ? c.end?.meta.usage : undefined;
+    // The agent's calls after the takeover: a judge check's are none of what a model's turn takes.
+    const x = c.kind === 'api' && c.callNo >= from && !isJudgeCall(c) ? c.end?.meta.usage : undefined;
     if (!x) continue;
     any = true;
     u.inputTokens += x.inputTokens ?? 0;

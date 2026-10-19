@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { JUDGE_SCOPE, Store, type CallRecord } from '@shadowlap/engine';
+import { JUDGE_SCOPE, runOutcome, Store, type CallRecord } from '@shadowlap/engine';
 import { judgeRequests, startMockAnthropic, withJudge, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 import { departures, fields, keys } from './json-shapes.js';
@@ -69,11 +69,11 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code:
 
 type Result = { ok: boolean; failure: string | null; message: string | null; runId: string; upstreamRequests: number; judge: Record<string, unknown> | null; checks: Array<{ status?: string; reason?: string; detail: string | null; judge?: { source: string | null; verdict: string | null; cost: number | null; callNo?: number } }> };
 
-async function test(golden: string, extra: string[] = [], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; result: Result }> {
+async function test(golden: string, extra: string[] = [], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; result: Result; report: Record<string, unknown> }> {
   const report = join(work, `report-${Math.random().toString(36).slice(2)}.json`);
   const r = await shadowlap(['test', golden, '--json', report, ...extra], env);
   const parsed = JSON.parse(readFileSync(report, 'utf8')) as { results: Result[] };
-  return { ...r, result: parsed.results[0]! };
+  return { ...r, result: parsed.results[0]!, report: parsed };
 }
 
 /** The judge calls a pack holds. */
@@ -155,12 +155,26 @@ describe('a golden with a judge check', () => {
 
   it('is inconclusive offline when the golden holds no verdict for it, and never passes', async () => {
     config({ 'goldens/judged': { expect: { judge: [judge({ name: 'polite', question: 'Is the final answer polite?' })] } } });
+    const sent = mock.requests.length;
     const r = await test('goldens/judged');
     expect(r.code).toBe(1);
-    expect(r.out).toContain('✗ judged: check inconclusive: polite: the judge answers yes to "Is the final answer polite?", not judged: no recorded verdict and the test runs offline');
-    expect(r.out).toContain('? polite: the judge answers yes to "Is the final answer polite?": inconclusive, not judged: no recorded verdict and the test runs offline');
-    expect(r.result).toMatchObject({ ok: false, failure: 'check', upstreamRequests: 0, judge: { calls: 1, notAsked: 1, live: 0, upstreamRequests: 0 } });
+    // Amber, not red: no check of the agent's failed, yet it never passes, so the run fails.
+    expect(r.out).toContain('? judged: check inconclusive: polite: the judge answers yes to "Is the final answer polite?", not judged: no recorded verdict and the test runs offline');
+    expect(r.out).toContain('    ? polite: the judge answers yes to "Is the final answer polite?": inconclusive, not judged: no recorded verdict and the test runs offline');
+    expect(r.out).toContain('0 passed, 0 failed, 1 inconclusive (it fails the run) · 0 upstream requests');
+    expect(r.result).toMatchObject({ ok: false, verdict: 'inconclusive', failure: 'inconclusive', upstreamRequests: 0, judge: null });
     expect(r.result.checks[0]).toMatchObject({ status: 'inconclusive', detail: 'not judged: no recorded verdict and the test runs offline', judge: { verdict: null, source: null } });
+    // Nothing was sent, and nothing of a call no one answered is kept in the replay.
+    expect(mock.requests.length).toBe(sent);
+    expect(storeCalls(r.result.runId).filter((c) => c.meta.scope === JUDGE_SCOPE)).toEqual([]);
+    expect(r.report).toMatchObject({ passed: 0, failed: 1, inconclusive: 1 });
+    // The run reads inconclusive, as the Runs list shows it: no failure of the agent's, and nothing for blame.
+    const store = Store.open(join(work, '.shadowlap', 'shadowlap.db'));
+    try {
+      expect(runOutcome(store.getRun(r.result.runId)!, { calls: 30 })).toEqual({ kind: 'inconclusive', check: 'polite: the judge answers yes to "Is the final answer polite?"' });
+    } finally {
+      store.close();
+    }
   }, 60_000);
 
   it('keeps a verdict it lacks with --update, judged on what the clean replay printed, and answers from it offline after', async () => {

@@ -28,6 +28,7 @@ const NOT_FIXED = {
   exit: 'the agent exited with an error, which is not an outcome check',
   'no-calls': 'the replay made no calls, which is not an outcome check',
   error: 'it could not be replayed',
+  inconclusive: 'its verdict is inconclusive: a check could not be decided, which no prompt fix changes',
 };
 
 /**
@@ -47,8 +48,8 @@ function unpricedOnly(checks) {
  */
 function notJudgedOnly(checks) {
   const notPassed = (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok);
-  if (!notPassed.length || !notPassed.every((c) => c.status === 'inconclusive')) return null;
-  return notPassed.map((c) => String(c.judge?.name ?? c.label));
+  if (!notPassed.length || !notPassed.every((c) => c.status === 'inconclusive' && c.judge)) return null;
+  return notPassed.map((c) => String(c.judge.name ?? c.label));
 }
 
 /** The failed goldens of a test report, each with the fix it gets or why it gets none. */
@@ -56,12 +57,13 @@ export function planFixes(report) {
   return report.results
     .filter((r) => !r.ok)
     .map((r) => {
+      // Judge checks that were not judged, and nothing else, say how to get their verdicts.
+      const notJudged = r.failure === 'check' || r.failure === 'inconclusive' ? notJudgedOnly(r.checks) : null;
+      if (notJudged) return { result: r, skip: `its judge check${notJudged.length === 1 ? '' : 's'} ${notJudged.join(', ')} ${notJudged.length === 1 ? 'was' : 'were'} not judged, which no prompt fix changes: record ${notJudged.length === 1 ? 'its verdict' : 'their verdicts'} with shadowlap test ${r.dir ?? r.golden} --update` };
       if (r.failure !== 'check') return { result: r, skip: NOT_FIXED[r.failure] ?? 'not an outcome check' };
       if (!r.expect) return { result: r, skip: 'its checks are not under "tests" in shadowlap.config.json' };
       const unpriced = unpricedOnly(r.checks);
       if (unpriced) return { result: r, skip: `it fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, which no prompt fix changes: add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json` };
-      const notJudged = notJudgedOnly(r.checks);
-      if (notJudged) return { result: r, skip: `its judge check${notJudged.length === 1 ? '' : 's'} ${notJudged.join(', ')} ${notJudged.length === 1 ? 'was' : 'were'} not judged, which no prompt fix changes: record ${notJudged.length === 1 ? 'its verdict' : 'their verdicts'} with shadowlap test ${r.dir ?? r.golden} --update` };
       const failing = (r.runs ?? []).filter((x) => !x.ok).map((x) => x.runId);
       if (!failing.length) return { result: r, skip: 'no failing replay was kept' };
       return { result: r, skip: null, fixes: failing, keeps: (r.runs ?? []).filter((x) => x.ok).map((x) => x.runId) };

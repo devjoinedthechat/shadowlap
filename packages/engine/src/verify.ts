@@ -1,4 +1,5 @@
 import { probeVerdict } from './blame.js';
+import { agentCallsOf } from './judge-scope.js';
 import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
@@ -23,7 +24,10 @@ import type { CallRecord } from './types.js';
 export type VerifyRole = 'target' | 'holdout' | 'good';
 export type RunVerdict = 'pass' | 'fail' | 'open';
 
-/** What a run would cost to run live: its model requests whatever their origin, as budget checks count them. */
+/**
+ * What a run would cost to run live: its model requests whatever their origin, as budget checks
+ * count them. The agent's: a judge check's calls are none of what a change to the agent costs.
+ */
 export interface Footprint {
   /** Uncached input, cache reads and cache writes. */
   inputTokens: number;
@@ -36,7 +40,7 @@ export function footprintOf(calls: readonly CallRecord[], costOf: (c: CallRecord
   let inputTokens = 0;
   let outputTokens = 0;
   let cost: number | null = 0;
-  for (const c of calls) {
+  for (const c of agentCallsOf(calls)) {
     const u = c.kind === 'api' ? c.end?.meta.usage : undefined;
     if (!u) continue;
     inputTokens += u.inputTokens + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0);

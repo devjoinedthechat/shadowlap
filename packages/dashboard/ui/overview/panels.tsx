@@ -168,6 +168,7 @@ function outcomeWords(o: { kind: string; callNo?: number }): string {
   if (o.kind === 'diverged' && o.callNo) return `diverged at #${o.callNo}`;
   if (o.kind === 'lost' && o.callNo) return `lost at #${o.callNo}`;
   if (o.kind === 'check-failed') return 'check failed';
+  if (o.kind === 'inconclusive') return 'inconclusive';
   return 'failed';
 }
 

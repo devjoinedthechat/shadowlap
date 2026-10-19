@@ -97,7 +97,7 @@ describe('the judge scope', () => {
     }
   });
 
-  it('answers a judge that may not be asked live from the recording or not at all, sending nothing upstream', async () => {
+  it('answers a judge that may not be asked live from the recording or not at all, sending nothing upstream and keeping nothing of it', async () => {
     const store = Store.open(':memory:');
     const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
     try {
@@ -107,8 +107,75 @@ describe('the judge scope', () => {
       expect(res.status).toBe(503);
       expect(await res.text()).toContain('shadowlap_offline');
       expect(mock.requests.length).toBe(sent);
-      const s = sidecar.endRun(run.runId, 'completed').summary;
-      expect(s.judge).toMatchObject({ calls: 1, live: 0, notAsked: 1, upstreamRequests: 0 });
+      // A call no one answered holds no verdict: neither the run nor a pack of it carries one.
+      expect(store.getCalls(run.runId)).toEqual([]);
+      expect(sidecar.endRun(run.runId, 'completed').summary.judge).toBeUndefined();
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
+  it('matches a judge request by its bytes, whatever the normalizers mask, and only under the recording\'s own pathless redaction rules', async () => {
+    const store = Store.open(':memory:');
+    // A normalizer that masks dates for the agent's calls: two judge requests that differ only in a date are two requests.
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url }, normalizers: [{ kind: 'api', pattern: 'iso-date', replace: '<date>' }, { kind: 'api', path: '$.messages[0].content', replace: '<msg>' }] });
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      await (await agentCall(sidecar, rec.runId)).json();
+      await (await ask(sidecar, rec.runId, judgeBody('Refund issued on 2026-10-20.'), { 'x-shadowlap-judge-version': '2' })).json();
+      sidecar.endRun(rec.runId, 'completed');
+      expect(store.getCalls(rec.runId)[1]!.meta.judge).toEqual({ check: 'done', ask: 'abc123', v: 2 });
+
+      const sent = mock.requests.length;
+      const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command });
+      await (await agentCall(sidecar, fork.runId)).json();
+      // The agent's call matched under the normalizers; the judge's, which differs in its date, is asked live.
+      const live = await ask(sidecar, fork.runId, judgeBody('Refund issued on 2026-12-01.'));
+      expect(live.headers.get('x-shadowlap-origin')).toBe('live');
+      // Offline, the very same request is still served, and a changed one is answered by no one.
+      expect((await ask(sidecar, fork.runId, judgeBody('Refund issued on 2026-10-20.'), { 'x-shadowlap-judge-offline': '1' })).headers.get('x-shadowlap-origin')).toBe('replayed');
+      expect((await ask(sidecar, fork.runId, judgeBody('Refund issued on 2026-12-02.'), { 'x-shadowlap-judge-offline': '1' })).status).toBe(503);
+      expect(mock.requests.length).toBe(sent + 1);
+      sidecar.endRun(fork.runId, 'completed');
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
+  it('serves a redacted recording\'s verdict to the request it masked, and never lets a path rule reach a judge\'s request', async () => {
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      await (await agentCall(sidecar, rec.runId)).json();
+      await (await ask(sidecar, rec.runId, judgeBody('Card SECRET42 refunded.'))).json();
+      sidecar.endRun(rec.runId, 'completed');
+      // Copied as a pack copies it, with a pattern rule and a path rule that names a place in the agent's requests.
+      const { redactRun } = await import('@shadowlap/engine');
+      const copy = Store.open(':memory:');
+      redactRun(store, rec.runId, [{ pattern: '/SECRET\\d+/', replace: '<CARD>' }, { path: '$.messages[0].content', replace: '<msg>' }], copy);
+      const [agentCopy, judgeCopy] = copy.getCalls(rec.runId);
+      expect(loadApiRequest(copy, agentCopy!.requestRef!)).toMatchObject({ messages: [{ content: '<msg>' }] });
+      // The judge's request keeps its question: only the pattern masked it.
+      expect(loadApiRequest(copy, judgeCopy!.requestRef!)).toMatchObject({ messages: [{ content: expect.stringContaining('Card <CARD> refunded.') }] });
+
+      const copied = await Sidecar.start({ store: copy, upstreams: { anthropic: mock.url } });
+      try {
+        const sent = mock.requests.length;
+        const replay = copied.startRun({ mode: 'replay', parentRunId: rec.runId, command });
+        await (await agentCall(copied, replay.runId)).json();
+        // The replay's agent read the card again: its judge's request carries it, and is masked as the copy was to match.
+        const served = await ask(copied, replay.runId, judgeBody('Card SECRET42 refunded.'), { 'x-shadowlap-judge-offline': '1' });
+        expect(served.headers.get('x-shadowlap-origin')).toBe('replayed');
+        expect((await ask(copied, replay.runId, judgeBody('Card SECRET42 refunded twice.'), { 'x-shadowlap-judge-offline': '1' })).status).toBe(503);
+        expect(mock.requests.length).toBe(sent);
+        copied.endRun(replay.runId, 'completed');
+      } finally {
+        await copied.close();
+        copy.close();
+      }
     } finally {
       await sidecar.close();
       store.close();
@@ -170,11 +237,17 @@ describe('an ended run opened for its judge', () => {
       expect((await ask(sidecar, rec.runId, judgeBody('Done.'))).status).toBe(200);
       expect(() => sidecar.endRun(rec.runId, 'completed')).toThrow(/open for its judge's calls only/);
       expect(sidecar.closeForJudge(rec.runId)).toMatchObject({ calls: 1, live: 1, upstreamRequests: 1 });
+      // A run that came from a pack (an imported recording) still counts what its judge asked here.
+      store.updateRunMeta(rec.runId, { imported: { from: 'goldens/g', at: 0 } });
+      sidecar.openForJudge(rec.runId);
+      expect((await ask(sidecar, rec.runId, judgeBody('Done again.'))).status).toBe(200);
+      expect(sidecar.closeForJudge(rec.runId)).toMatchObject({ calls: 1, live: 1, upstreamRequests: 1 });
       expect(sidecar.closeForJudge(rec.runId)).toBeNull();
       expect(store.getRun(rec.runId)).toMatchObject({ status: 'failed', endedAt: before.endedAt });
       expect(store.getCalls(rec.runId).map((c) => [c.callNo, c.meta.scope ?? null])).toEqual([
         [1, null],
         [2, JUDGE_SCOPE],
+        [3, JUDGE_SCOPE],
       ]);
 
       // A replay opened for its judge is answered from its recording's judge calls.

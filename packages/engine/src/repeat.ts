@@ -1,3 +1,4 @@
+import { agentCallsOf } from './judge-scope.js';
 import type { Palette } from './report.js';
 import { formatTokens, plain } from './report.js';
 import { formatUsd } from './prices.js';
@@ -90,8 +91,10 @@ export interface RepeatOptions {
   responseContent?: (call: CallRecord) => string | null;
 }
 
-export function summarizeRepeats(parentRunId: string, inputs: RepeatAttemptInput[], options: RepeatOptions = {}): RepeatReport {
+export function summarizeRepeats(parentRunId: string, given: RepeatAttemptInput[], options: RepeatOptions = {}): RepeatReport {
   const contentOf = options.responseContent ?? ((c: CallRecord) => c.end?.responseRef ?? null);
+  // What the agent did: a judge check's calls are none of its paths, tools or final answers.
+  const inputs = given.map((i) => ({ ...i, calls: agentCallsOf(i.calls) }));
   const attempts: RepeatAttempt[] = inputs.map(({ runId, exitCode, summary: s, calls }) => {
     const d = s.divergence;
     const forkedAt = d && d.type !== 'ended_early' ? d.callNo : null;

@@ -37,10 +37,12 @@ export function storedModelResolver(store: Store): ModelResolver {
 
 /**
  * What a run's judge calls did and cost: from the recording at no cost, or live. An imported run's
- * were made somewhere else, as its other calls were.
+ * were made somewhere else, as its other calls were, unless `imported` says otherwise: the judge
+ * calls `pack` or `test --update` add to a recording that came from a pack are this machine's own,
+ * and what they sent upstream and spent was sent and spent here.
  */
-export function summarizeJudge(run: RunRecord, calls: readonly CallRecord[], options: SummaryOptions = {}): JudgeSummary {
-  const imported = importedRecording(run);
+export function summarizeJudge(run: RunRecord, calls: readonly CallRecord[], options: SummaryOptions & { imported?: boolean } = {}): JudgeSummary {
+  const imported = options.imported ?? importedRecording(run);
   const out: JudgeSummary = { calls: calls.length, replayed: 0, live: 0, notAsked: 0, upstreamRequests: 0, spent: 0, saved: 0, unknownModels: [] };
   for (const c of calls) {
     if (c.origin === 'replayed') out.replayed++;

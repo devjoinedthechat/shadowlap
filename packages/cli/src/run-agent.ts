@@ -9,7 +9,7 @@ import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
-import { askJudges, judgesOf, unjudged, type Judged } from './judge.js';
+import { askJudges, judgesOf, materialOf, unjudged, type Judged } from './judge.js';
 import { emitJobEvent } from './job-events.js';
 import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
@@ -245,7 +245,7 @@ export async function testAttempt(
   // their calls are the run's: a clean replay's from its recording, a fork's live. What the agent
   // printed is read to its end first: `exit` can come before the last of it.
   if (o.spec && judgesOf(o.spec).length) await outputDrained(child);
-  const judged = o.spec && judgesOf(o.spec).length ? await judgeAttempt(store, sidecar, run.runId, o.spec, { code, timedOut, interrupted: interrupted !== null, stdout, upstreams: o.upstreams, redact: o.redact ?? [], prices: o.prices, forkFails: !o.spec.fork }) : null;
+  const judged = o.spec && judgesOf(o.spec).length ? await judgeAttempt(store, sidecar, run.runId, o.spec, { code, timedOut, interrupted: interrupted !== null, stdout, upstreams: o.upstreams, redact: o.redact ?? [], normalize: o.normalizers, clock: o.clock, prices: o.prices, forkFails: !o.spec.fork }) : null;
   const ended = sidecar.endRun(run.runId, timedOut || interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   await sidecar.close();
   // Nothing waits for this attempt: the process ends as the signal meant it to, with the run ended.
@@ -304,7 +304,9 @@ export async function testAttempt(
     kind = 'diverged';
     failure = { message: divergenceLine(summary.divergence), details: formatSummary(summary) };
   } else if (failedChecks.length) {
-    kind = 'check';
+    // A check that could not be decided (a judge with no verdict) fails no check of the agent's:
+    // when it is all that did not pass, the attempt is inconclusive, which never passes either.
+    kind = failedChecks.every((c) => c.status === 'inconclusive') ? 'inconclusive' : 'check';
     failure = { message: checksFailure(failedChecks), details: divergence + formatSummary(summary) };
   }
   return { ended, code, ms: Date.now() - started, output, stdout, checks, failure, kind, interrupted };
@@ -347,15 +349,23 @@ export function checksFailure(notPassed: readonly CheckResult[]): string {
 /**
  * The judge checks of an attempt whose agent has exited: asked through its sidecar, unless the
  * attempt can't pass anyway (the agent failed or was stopped, or, with `forkFails`, the replay
- * forked), when asking a judge would only cost: each then says why it was not judged.
+ * forked), when asking a judge would only cost: each then says why it was not judged. What a judge
+ * reads is masked as the replay was matched (`normalize`, and the dates near the run's start unless
+ * `clock` is exact), so a clean replay asks what its recording asked.
  */
-export async function judgeAttempt(store: Store, sidecar: Sidecar, runId: string, spec: TestSpec, a: { code: number; timedOut?: boolean; interrupted: boolean; stdout: string; upstreams: Record<string, string>; redact: ReturnType<typeof loadConfig>['redact']; prices: ReturnType<typeof loadConfig>['prices']; forkFails?: boolean }): Promise<Judged> {
+export async function judgeAttempt(
+  store: Store,
+  sidecar: Sidecar,
+  runId: string,
+  spec: TestSpec,
+  a: { code: number; timedOut?: boolean; interrupted: boolean; stdout: string; upstreams: Record<string, string>; redact: ReturnType<typeof loadConfig>['redact']; normalize?: ReturnType<typeof loadConfig>['normalize']; clock?: ReturnType<typeof loadConfig>['clock']; prices: ReturnType<typeof loadConfig>['prices']; forkFails?: boolean },
+): Promise<Judged> {
   const judges = judgesOf(spec);
   if (a.interrupted) return unjudged(judges, 'the replay was interrupted');
   if (a.timedOut) return unjudged(judges, 'the agent was stopped before it finished');
   if (a.code !== 0) return unjudged(judges, `the agent exited with code ${a.code}`);
   if (a.forkFails && store.getRun(runId)?.divergence) return unjudged(judges, 'the replay diverged, which fails the test whatever the judge says');
-  return askJudges(judges, { calls: store.getCalls(runId), output: a.stdout }, { sidecar, store, runId, upstreams: a.upstreams, redact: a.redact, ...(a.prices ? { prices: a.prices } : {}) });
+  return askJudges(judges, materialOf(store, runId, a.stdout, a.clock), { sidecar, store, runId, upstreams: a.upstreams, redact: a.redact, ...(a.normalize ? { normalize: a.normalize } : {}), ...(a.prices ? { prices: a.prices } : {}) });
 }
 
 export function parseOverrides(specs: string[], parentCalls: CallRecord[]): Map<number, unknown> {

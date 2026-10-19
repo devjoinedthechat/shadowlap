@@ -102,7 +102,7 @@ A clean replay proves the agent still sends the same requests. Sometimes you wan
 | `cost` | The same in dollars, from the [price table](./cli.md#the-configuration-file). An amount is a number, `"<= 0.50"` or a range such as `"0.1-0.4"`. A model with no price **fails** the check and names the model, rather than passing because an unknown price counted as zero |
 | `output` | What the agent printed (stdout and stderr) `includes` each string and `excludes` each string. Case doesn't matter |
 | `answer` | The same, for the text of the last model response |
-| `judge` | A model answers a question about the run, yes or no, such as whether the reply says why. Its call is recorded like any model call: a golden is judged once when it is packed, and every clean replay after is judged from the recording, free and the same every time ([Judge checks](./judges.md)) |
+| `judge` | A model answers a question about the run, yes or no, such as whether the reply says why. Its call is recorded like any model call: a golden is judged once when it is packed, and every clean replay after is judged from the recording, free and the same every time ([Judge checks](./judges.md)). One with no recorded verdict and no way to ask the judge is *inconclusive*: it never passes, and fails the recording as inconclusive rather than failed |
 
 A key is a recording directory relative to the config file, and `*` may stand for part of its last path segment (`goldens/refund-*`). An exact path wins over a pattern. A mistake in `tests`, such as an unknown key, fails `shadowlap test` before anything runs, and `shadowlap doctor` reports it.
 

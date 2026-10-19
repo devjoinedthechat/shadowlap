@@ -177,7 +177,7 @@ export function register(program: Command): void {
       const verdicts = new Map<string, Judged>();
       const beforeEnd: BeforeEnd | undefined = judgesOf(checks?.spec).length
         ? async (sidecar, store, run, agent) => {
-            verdicts.set(run.runId, await judgeAttempt(store, sidecar, run.runId, checks!.spec, { code: agent.code, interrupted: agent.interrupted, stdout: agent.stdout, upstreams: upstreamOverrides(process.env), redact: config!.redact, prices: config!.prices }));
+            verdicts.set(run.runId, await judgeAttempt(store, sidecar, run.runId, checks!.spec, { code: agent.code, interrupted: agent.interrupted, stdout: agent.stdout, upstreams: upstreamOverrides(process.env), redact: config!.redact, normalize: config!.normalize, clock: config!.clock, prices: config!.prices }));
           }
         : undefined;
       const judge = (runId: string, output: string): CheckResult[] => {

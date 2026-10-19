@@ -17,6 +17,7 @@ export type RunOutcomeView =
   | { kind: 'diverged'; callNo: number }
   | { kind: 'lost'; callNo: number }
   | { kind: 'check-failed'; check: string | null }
+  | { kind: 'inconclusive'; check: string | null }
   | { kind: 'passed'; checks: number }
   | { kind: 'clean' }
   | { kind: 'none' };

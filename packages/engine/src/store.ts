@@ -387,8 +387,13 @@ export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt'
     owner?: RunOwner | null;
   };
 
-/** Why a golden failed: its replay sent a request the recording doesn't have, a check failed, the agent exited non-zero, it made no calls, or it couldn't run at all. */
-export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error';
+/**
+ * Why a golden failed: its replay sent a request the recording doesn't have, a check failed, the
+ * agent exited non-zero, it made no calls, or it couldn't run at all; or why it didn't pass:
+ * `inconclusive`, a check couldn't be decided (a judge check with no verdict, and no way to ask the
+ * judge), which fails the run all the same.
+ */
+export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'inconclusive';
 
 /** What a result keeps besides its verdict, for the Tests screen. Every field is optional to readers. */
 export interface TestResultData {
@@ -405,6 +410,8 @@ export interface TestResultData {
   judge?: JudgeSummary;
   /** A recording that repeats: attempts run, passed and needed, and each attempt's run. */
   attempts?: { total: number; passed: number; required: number; runs: string[] };
+  /** How the golden came out: passed, failed, or inconclusive (a check couldn't be decided). Absent before results said. */
+  verdict?: 'passed' | 'failed' | 'inconclusive';
   /**
    * Where the replay diverged; `text` is the report as the CLI prints it. `diff` keeps the first
    * changes, cut short; `entries` is how many there were, and `volatile` what volatileValues() made
@@ -728,6 +735,7 @@ export class Store {
     eventsForRun: SqliteStatement;
     maxCallNo: SqliteStatement;
     countCalls: SqliteStatement;
+    countAgentCalls: SqliteStatement;
     deleteRun: SqliteStatement;
   };
 
@@ -754,6 +762,8 @@ export class Store {
       eventsForRun: db.prepare(`SELECT * FROM call_events WHERE run_id = ? ORDER BY call_no ASC, phase DESC, attempt ASC`),
       maxCallNo: db.prepare(`SELECT COALESCE(MAX(call_no), 0) AS n FROM call_events WHERE run_id = ?`),
       countCalls: db.prepare(`SELECT COUNT(*) AS n FROM call_events WHERE run_id = ? AND phase = 'start'`),
+      // The agent's calls: every call but a judge check's (scope `shadowlap:judge`, judge-scope.ts).
+      countAgentCalls: db.prepare(`SELECT COUNT(*) AS n FROM call_events WHERE run_id = ? AND phase = 'start' AND COALESCE(meta ->> '$.scope', '') <> 'shadowlap:judge'`),
       deleteRun: db.prepare(`DELETE FROM runs WHERE run_id = ?`),
     };
   }
@@ -1996,6 +2006,11 @@ export class Store {
 
   countCalls(runId: string): number {
     return Number(this.stmts.countCalls.get(runId)?.n ?? 0);
+  }
+
+  /** The agent's calls in a run: every call but a judge check's, which are none of the agent's. */
+  countAgentCalls(runId: string): number {
+    return Number(this.stmts.countAgentCalls.get(runId)?.n ?? 0);
   }
 
   appendCallStart(row: CallStartRow): void {

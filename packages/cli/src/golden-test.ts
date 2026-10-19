@@ -58,6 +58,11 @@ export interface RecordingOutcome {
   /** Why it failed, or undefined when it passed. */
   failure: JunitCase['failure'];
   kind: TestFailure | null;
+  /**
+   * How it came out: inconclusive when what kept it from passing is a check that could not be
+   * decided (a judge with no verdict, and no way to ask the judge), which fails the run all the same.
+   */
+  verdict: 'passed' | 'failed' | 'inconclusive';
   /** A signal cut an attempt short, or kept the rest from starting: the outcome says nothing about the recording. */
   interrupted: boolean;
 }
@@ -103,25 +108,36 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
     });
     attempts.push(attempt);
     if (attempt.interrupted) break;
+    // A check that couldn't be decided here won't be on the next attempt either: no verdict to
+    // record, and no way to ask the judge. More attempts would only cost.
+    if (attempt.kind === 'inconclusive') break;
   }
   if (!attempts.length) throw new ReplayInterrupted();
-  const interrupted = attempts.length < repeat || attempts.some((a) => a.interrupted !== null);
+  const unsure = attempts.find((a) => a.kind === 'inconclusive');
+  const interrupted = (attempts.length < repeat && !unsure) || attempts.some((a) => a.interrupted !== null);
   const passed = attempts.filter((a) => !a.failure).length;
   const required = spec?.passes ?? 1;
-  const shown = passed >= required ? attempts.filter((a) => !a.failure).at(-1)! : attempts.find((a) => a.failure)!;
+  // An attempt that failed a check of the agent's says more than one that couldn't be decided.
+  const shown = passed >= required ? attempts.filter((a) => !a.failure).at(-1)! : (attempts.find((a) => a.failure && a.kind !== 'inconclusive') ?? attempts.find((a) => a.failure)!);
   if (attempts.length > 1 && !interrupted) fileUnder(ctx.store, attempts, shown, testMeta);
   let failure: JunitCase['failure'];
   if (passed < required) {
     const f = shown.failure!;
+    // The attempts an undecided check kept from running.
+    const left = unsure ? repeat - attempts.length : 0;
+    const notRun = left ? `; ${left} more attempt${left === 1 ? '' : 's'} not run: ${left === 1 ? 'it' : 'they'} would be undecided too` : '';
     failure =
       attempts.length === 1
-        ? f
+        ? notRun
+          ? { message: `${f.message}${notRun}`, details: f.details }
+          : f
         : {
-            message: `${passed} of ${attempts.length} attempts passed, ${required} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
-            details: `${attempts.map((a, i) => `attempt ${i + 1}  ${a.failure ? `✗ ${a.failure.message}` : '✓ passed'}`).join('\n')}\n\n${f.details}`,
+            message: `${passed} of ${attempts.length} attempts passed, ${required} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}${notRun}`,
+            details: `${attempts.map((a, i) => `attempt ${i + 1}  ${a.failure ? `${a.kind === 'inconclusive' ? '?' : '✗'} ${a.failure.message}` : '✓ passed'}`).join('\n')}\n\n${f.details}`,
           };
   }
-  return { spec, attempts, shown, passed, required, failure, kind: failure ? (shown.kind ?? 'error') : null, interrupted };
+  const kind: TestFailure | null = failure ? (shown.kind ?? 'error') : null;
+  return { spec, attempts, shown, passed, required, failure, kind, verdict: !failure ? 'passed' : kind === 'inconclusive' ? 'inconclusive' : 'failed', interrupted };
 }
 
 /**
@@ -295,6 +311,7 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
   if (r.shown.checks) data.checks = r.shown.checks;
   const judge = judgeOf(r.attempts);
   if (judge) data.judge = judge;
+  data.verdict = r.verdict;
   if (r.attempts.length > 1) data.attempts = { total: r.attempts.length, passed: r.passed, required: r.required, runs: r.attempts.map((a) => a.ended.summary.runId) };
   if (s.divergence) {
     const d = s.divergence;
@@ -320,6 +337,9 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
   return data;
 }
 
+/** How a golden came out: one that couldn't be replayed at all failed. */
+export const verdictOf = (o: Pick<GoldenOutcome, 'result' | 'failure'>): RecordingOutcome['verdict'] => o.result?.verdict ?? (o.failure ? 'failed' : 'passed');
+
 /** The golden's entry in the JSON report (`--json`), which the GitHub Action reads. */
 export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated'] }): PackResult {
   const r = o.result;
@@ -330,6 +350,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     golden: o.golden,
     mode: o.spec?.fork ? 'fork' : 'replay',
     ok: !o.failure,
+    verdict: verdictOf(o),
     failure: o.kind,
     message: o.failure?.message ?? null,
     details: o.failure?.details ?? null,

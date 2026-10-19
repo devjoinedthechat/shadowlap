@@ -142,7 +142,8 @@ export function normalizeOutcome(v: unknown): RunOutcomeView | null {
     case 'lost':
       return int(v.callNo) !== null ? { kind: v.kind, callNo: int(v.callNo)! } : null;
     case 'check-failed':
-      return { kind: 'check-failed', check: str(v.check) };
+    case 'inconclusive':
+      return { kind: v.kind, check: str(v.check) };
     case 'passed':
       return int(v.checks) !== null ? { kind: 'passed', checks: int(v.checks)! } : null;
     default:

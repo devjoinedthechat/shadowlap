@@ -231,7 +231,7 @@ export class AttemptRunner {
     // Judge checks once the agent has exited, while the run is open: an attempt is a fork, so its
     // judge runs live, through the judge's own upstream (never a model under test), and is recorded.
     if (s.spec && judgesOf(s.spec).length) await outputDrained(child);
-    const judged = s.spec && judgesOf(s.spec).length ? await judgeAttempt(this.store, this.sidecar, run.runId, s.spec, { code, timedOut, interrupted: this.interrupted, stdout, upstreams: upstreamOverrides(process.env), redact: this.config.redact, prices: this.config.prices }) : null;
+    const judged = s.spec && judgesOf(s.spec).length ? await judgeAttempt(this.store, this.sidecar, run.runId, s.spec, { code, timedOut, interrupted: this.interrupted, stdout, upstreams: upstreamOverrides(process.env), redact: this.config.redact, normalize: this.config.normalize, clock: this.config.clock, prices: this.config.prices }) : null;
     const ended = this.sidecar.endRun(run.runId, status);
     telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });
 
@@ -245,11 +245,13 @@ export class AttemptRunner {
       this.spent += ended.summary.cost.spent;
       this.upstreamRequests += ended.summary.upstreamRequests;
       for (const m of ended.summary.cost.unknownModels) this.unknownModels.add(m);
-      // The judge's calls apart: what they cost counts against the budget, and is reported beside the agent's.
-      this.judgeSpent += ended.summary.judge?.spent ?? 0;
-      this.judgeRequests += ended.summary.judge?.upstreamRequests ?? 0;
-      for (const m of ended.summary.judge?.unknownModels ?? []) this.unknownModels.add(m);
     }
+    // The judge's calls apart, in every attempt: a replay as recorded is free for the agent, but a
+    // judge its recording held no verdict for was asked live. What they cost counts against the
+    // budget, and is reported beside the agent's.
+    this.judgeSpent += ended.summary.judge?.spent ?? 0;
+    this.judgeRequests += ended.summary.judge?.upstreamRequests ?? 0;
+    for (const m of ended.summary.judge?.unknownModels ?? []) this.unknownModels.add(m);
     for (const w of ended.summary.warnings) this.warnings.add(w);
     return { run, code, summary: ended.summary, calls, checks, failures, passed: failures.length === 0, bypassed, ms: Date.now() - started };
   }
