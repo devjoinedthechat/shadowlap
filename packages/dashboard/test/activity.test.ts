@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { packRun, recordEvent, Store, unpackRun, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
+import { gateResult, packRun, recordEvent, Store, unpackRun, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
 import { activity, describeEvent, type ActivityItem } from '../src/index.js';
 // Tests registers the wording of what Find the commit answers with no commit.
 import '../src/routes/tests.js';
@@ -334,6 +334,54 @@ describe('a test session', () => {
       [`r:${flow[2]}:end`, 225, 'Test passed · refund-flow · 3 of 3 attempts passed', `#/run/${flow[2]}`],
       [`r:${over[4]}:end`, 155, 'Test failed · refund-over-limit · 4 of 5 attempts passed, 5 needed', `#/run/${over[2]}`],
     ]);
+    store.close();
+  });
+
+  it('tells a golden by what its result says, now that every result keeps its attempts: a gate by its evidence, an inconclusive one apart', () => {
+    const store = Store.open(':memory:');
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 1 }).runId;
+    store.endRun(rec, 'completed', 2);
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: 100 });
+    const replay = (golden: string, at: number) => {
+      const r = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: at, meta: { test: { golden, session: session.sessionId } } });
+      store.endRun(r.runId, 'completed', at + 5);
+      return r.runId;
+    };
+    const one = (runId: string) => ({ total: 1, passed: 0, required: 1, runs: [runId] });
+    const SPRT = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 20 };
+    // A plain golden that diverged, its one attempt kept: it reads as its replay, as before attempts were kept.
+    const plain = replay('goldens/plain', 110);
+    store.setDivergence(plain, { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2 } as never);
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/plain', ok: false, failure: 'diverged', reason: 'diverged at call 3 (api POST /v1/messages)', runId: plain, at: 120, data: { mode: 'replay', attempts: one(plain), verdict: 'failed' } });
+    const clean = replay('goldens/clean', 130);
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/clean', ok: true, runId: clean, at: 140, data: { mode: 'replay', attempts: { ...one(clean), passed: 1 }, verdict: 'passed' } });
+    // Gated: passed and failed by their evidence, and an inconclusive one told apart, in amber.
+    const passes = replay('goldens/gated-pass', 150);
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/gated-pass', ok: true, runId: passes, at: 160, data: { mode: 'fork', attempts: { total: 12, passed: 12, required: null, runs: [passes] }, verdict: 'passed', gate: gateResult(SPRT, Array(12).fill(true)) } });
+    const fails = replay('goldens/gated-fail', 170);
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/gated-fail', ok: false, failure: 'check', reason: 'failed: at most 70% with 95% confidence after 3 attempts', runId: fails, at: 180, data: { mode: 'fork', attempts: { total: 3, passed: 0, required: null, runs: [fails] }, verdict: 'failed', gate: gateResult(SPRT, [false, false, false]) } });
+    const unsure = replay('goldens/flaky', 190);
+    const outcomes = [...Array(16).fill(true), false, false, false, false];
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/flaky', ok: false, failure: 'inconclusive', reason: 'inconclusive: neither at least 90% nor at most 70%', runId: unsure, at: 200, data: { mode: 'fork', attempts: { total: 20, passed: 16, required: null, runs: [unsure] }, verdict: 'inconclusive', gate: gateResult(SPRT, outcomes) } });
+    recordEvent(store, { kind: 'test.session', ref: session.sessionId, data: { passed: 2, failed: 2, inconclusive: 1, goldens: 5 }, at: 210 });
+    recordEvent(store, { kind: 'test.session', ref: 'S2', data: { passed: 4, failed: 0, inconclusive: 1, goldens: 5 }, at: 220 });
+    recordEvent(store, { kind: 'blame.done', runId: rec, ref: 'fx-01K5CQ4N7G8M2XWQH6V3T9RB1D', data: { outcome: 'unrescuable', callNo: null, confidence: 'low', title: 'Refunds above the limit', unsettled: true }, at: 230 });
+
+    const items = activity(store).items;
+    const line = (runId: string) => {
+      const i = byId(items, `r:${runId}:end`);
+      return [i?.kind, i?.text];
+    };
+    expect(line(plain)).toEqual(['fail', 'Test failed · plain diverged at call 3']);
+    expect(line(clean)).toEqual(['test', 'Test passed · clean · 0/0 replayed']);
+    expect(line(passes)).toEqual(['test', 'Test passed · gated-pass · 12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00']);
+    expect(line(fails)).toEqual(['fail', 'Test failed · gated-fail · 0 of 3 passed · pass rate ≤ 0.56 (95%, Wilson)']);
+    expect(line(unsure)).toEqual(['warn', 'Test inconclusive · flaky · 16 of 20 passed · pass rate 0.58 to 0.92 (95%, Wilson) · pass^5 0.28']);
+    expect(JSON.stringify(items)).not.toContain('needed');
+    expect(JSON.stringify(items)).not.toContain('null');
+    expect(items.find((i) => i.at === 210)).toMatchObject({ kind: 'fail', text: 'Tests ran · 2 passed, 2 failed, 1 inconclusive' });
+    expect(items.find((i) => i.at === 220)).toMatchObject({ kind: 'warn', text: 'Tests ran · 4 passed, 0 failed, 1 inconclusive' });
+    expect(items.find((i) => i.at === 230)).toMatchObject({ kind: 'blame', text: 'Blamed · Refunds above the limit, not settled from the first model call' });
     store.close();
   });
 

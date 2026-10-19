@@ -34,6 +34,9 @@ describe('the panels\' options', () => {
   it('take their defaults, and what the query string gives', () => {
     expect(parseCiOptions(new URLSearchParams())).toEqual(CI_DEFAULTS);
     expect(parseCiOptions(new URLSearchParams('fix=true&budget=$1&repairer=anthropic:claude-opus-5-5&onlyMain=0&secret=HOOK'))).toEqual({ fix: true, budget: '1.00', repairer: 'anthropic:claude-opus-5-5', onlyMain: false, secret: 'HOOK' });
+    // What an inconclusive golden does to the step: fail it, the default, or warn.
+    expect(parseCiOptions(new URLSearchParams('inconclusive=warn'))).toMatchObject({ inconclusive: 'warn' });
+    expect(parseCiOptions(new URLSearchParams('inconclusive=maybe'))).toEqual({ error: 'inconclusive is fail or warn' });
     // An empty secret is the default one; a name with other characters keeps what GitHub allows.
     expect(parseCiOptions(new URLSearchParams('secret=')).valueOf()).toMatchObject({ secret: 'SLACK_WEBHOOK_URL' });
     expect(parseCiOptions(new URLSearchParams('secret=my-hook!'))).toMatchObject({ secret: 'myhook' });

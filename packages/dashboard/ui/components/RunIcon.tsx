@@ -4,14 +4,16 @@ import { Icon } from './Icon.js';
 
 /**
  * One set of icons for runs and events, each with the same words beside it or on hover: a pulsing
- * dot (recording now), a ring (recording), a crossed circle (failed), replay, fork, import (capture)
- * and tests; events add Fixes, a folder (project), sliders (settings) and a target (training).
+ * dot (recording now), a ring (recording), a crossed circle (failed), a level-lined circle
+ * (inconclusive), replay, fork, import (capture) and tests; events add Fixes, a folder (project),
+ * sliders (settings) and a target (training).
  */
 
 export const EVENT_LABEL: Record<GlyphKind, string> = {
   live: 'Recording',
   rec: 'Recorded',
   fail: 'Failed',
+  warn: 'Inconclusive',
   clean: 'Clean replay',
   fork: 'Fork',
   cap: 'Imported',
@@ -39,6 +41,14 @@ function Mark({ kind }: { kind: GlyphKind }) {
         <svg viewBox="0 0 16 16" aria-hidden="true">
           <circle cx="8" cy="8" r="5.75" />
           <path d="M6.1 6.1l3.8 3.8M9.9 6.1l-3.8 3.8" />
+        </svg>
+      );
+    case 'warn':
+      // Neither passed nor failed: a circle with a level line, amber.
+      return (
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r="5.75" />
+          <path d="M5.6 8h4.8" />
         </svg>
       );
     case 'clean':

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
-import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from '../ui/overview/model.js';
+import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, todayTestsLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, localTitle } from '../ui/runspage/bulk.js';
 import { bisectCommand, bisectRequest } from '../ui/runspage/find-commit.js';
@@ -39,6 +39,12 @@ describe('the Overview’s words', () => {
     const now = new Date(2026, 9, 1, 12, 0).getTime();
     expect(testsKpi({ goldens: 4, passing: 3, inconclusive: 0, lastWeek: 4, regressions: 1, lastRunAt: new Date(2026, 9, 1, 10, 2).getTime() }, now)).toEqual({ value: '3 / 4', note: '1 regression caught · last run 10:02', failing: true });
     expect(testsKpi({ goldens: 2, passing: 2, inconclusive: 0, lastWeek: null, regressions: 0, lastRunAt: null }, now).note).toBe('no regressions · not run yet');
+    // Inconclusive goldens count apart: neither passing nor a regression.
+    expect(testsKpi({ goldens: 4, passing: 3, inconclusive: 1, lastWeek: null, regressions: 0, lastRunAt: null }, now)).toEqual({ value: '3 / 4', note: 'no regressions · 1 inconclusive · not run yet', failing: false });
+    expect(todayTestsLine({ count: 3, failed: 0, inconclusive: 1 }, null)).toEqual({ text: '1 inconclusive', icon: 'warn' });
+    expect(todayTestsLine({ count: 3, failed: 1, inconclusive: 1 }, 'check failed')).toEqual({ text: '1 failed · check failed · 1 inconclusive', icon: 'fail' });
+    expect(todayTestsLine({ count: 2, failed: 0, inconclusive: 0 }, null)).toEqual({ text: 'all clean', icon: 'test' });
+    expect(todayTestsLine({ count: 0, failed: 0 }, null)).toEqual({ text: 'none yet today', icon: 'test' });
     expect(spentNote({ value: 1.29, lastWeek: 1.69, notRespent: 2.81, notWaitedMs: 28 * 60_000 })).toBe('$2.81 not re-spent · 28m not waited');
   });
 
@@ -74,6 +80,7 @@ describe('the Overview’s words', () => {
     expect(kindGlyph('recording', { live: true }).kind).toBe('live');
     expect(kindGlyph('pack').kind).toBe('rec');
     expect(activityGlyph('fixok')).toBe('fixok');
+    expect(activityGlyph('warn')).toBe('warn');
     expect(activityGlyph('release')).toBe('rec');
     expect(personName('dana@northwind.example')).toBe('dana');
     expect(personName('ci')).toBe('ci');

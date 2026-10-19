@@ -113,7 +113,7 @@ export function runCounts(r: RunLike): OriginCounts | null {
   return o ? countOrigins(o) : null;
 }
 
-export type GlyphKind = 'live' | 'rec' | 'fail' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train';
+export type GlyphKind = 'live' | 'rec' | 'fail' | 'warn' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train';
 
 /** Where a fork left its recording: `fork @17`, or `ended early @11` for a replay that stopped before its recording did. */
 function forkAt(d: { callNo: number; type?: string }, fork = 'fork'): string {

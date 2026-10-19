@@ -244,6 +244,8 @@ describe('the Blame step', () => {
     expect(probeBadge('rescued')).toBe('ok');
     expect(probeBadge('lost')).toBe('no');
     expect(probeBadge('rescued · blamed')).toBe('y');
+    // Inconclusive reads amber, as every page shows it: neither rescued nor lost.
+    expect(probeBadge('inconclusive')).toBe('y');
   });
 });
 

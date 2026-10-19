@@ -226,7 +226,7 @@ export interface CallCell {
   /** A model call (a ring) or another call (a dot); `gap` stands for calls left out. */
   kind: 'm' | 't' | 'gap';
   /** Where blame looked: rescued, lost, or the call it blamed. */
-  verdict: 'rescued' | 'lost' | 'blamed' | null;
+  verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null;
   passes: number;
   attempts: number;
   /** Outside the blame's scope. */
@@ -278,9 +278,9 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
   return { cells, toolsLeftOut: true };
 }
 
-/** How a probe's verdict reads as a badge: rescued in lime, lost in red, the blamed one in amber. */
-export function probeBadge(verdict: BlameStep['probes'][number]['verdict']): 'ok' | 'no' | 'y' | 'n' {
-  return verdict === 'rescued · blamed' ? 'y' : verdict === 'lost' ? 'no' : verdict === 'inconclusive' ? 'n' : 'ok';
+/** How a probe's verdict reads as a badge: rescued in lime, lost in red, the blamed one and an inconclusive one in amber. */
+export function probeBadge(verdict: BlameStep['probes'][number]['verdict']): 'ok' | 'no' | 'y' {
+  return verdict === 'rescued · blamed' || verdict === 'inconclusive' ? 'y' : verdict === 'lost' ? 'no' : 'ok';
 }
 
 /** "Model call 3 of 4" (in scope agent), or the run alone when blame placed the failure on no call. */

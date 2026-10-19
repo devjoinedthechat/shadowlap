@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { findPairs, fixRecords, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type Block } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
@@ -114,6 +114,34 @@ describe('the Fixes list', () => {
     expect(fixForRun(store, same.blame.runId)!.blame!.short).toBe('not rescued from any model call');
     const met = keep({ ...blameReport('X', 'unrescuable'), failedWrite: { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 } }, ['f']);
     expect(fixDetail(store, met.fix.fixId)!.blame).toMatchObject({ boundary: "Every attempt from the first model call, #1, made post_digest's recorded call again and failed on its error, as the recording did: channel_not_found: #refunds.", look: "No answer of the model's lost this run: look at the tools, the harness or the command." });
+  });
+
+  it('reads a blame whose first probe could not tell apart, and one whose gate it can\'t read without breaking the page', () => {
+    const gate: SprtGate = { kind: 'sprt', ...BLAME_DEFAULTS };
+    const runId = makeRun(store, { labels: ['flaky'], calls: ['api', 'tool', 'api'] });
+    // Seven passes in twenty from the first model call: between 10% and 60%, so not settled.
+    const outcomes = [...Array(6).fill([true, false, false]).flat(), true, false] as boolean[];
+    const base = blameReport(runId, 'unrescuable');
+    const first = { ...base.probes[0]!, passes: 7, rescued: false, decision: 'inconclusive' as const, gate: gateResult(gate, outcomes), attempts: outcomes.map((passed, i) => ({ ...base.probes[0]!.attempts[0]!, runId: `${runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })) };
+    const unsettled = recordBlame(store, { runId, report: { ...base, gate, confidence: 'low', probes: [first], lost: first }, expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Flaky refunds', checkText: 'x', at: NOW });
+    const b = fixDetail(store, unsettled.fix.fixId)!.blame!;
+    expect(b).toMatchObject({ title: 'Not settled from the first model call', confidence: 'low', confidenceWhy: '#1 was inconclusive: whether resampling rescues the run is not settled', boundary: 'Resampled from the first model call, #1, the run is inconclusive: between 10% and 60% after 20 attempts (7 of 20).' });
+    expect(b.look).toContain('Not settled: resampled from #1');
+    expect(b.probes[0]).toMatchObject({ verdict: 'inconclusive' });
+    expect(b.callRow.find((c) => c.callNo === 1)).toMatchObject({ verdict: 'inconclusive' });
+
+    // A report a store holds with its gate malformed reads as a fixed count's, and a run's rate as none.
+    const odd = makeRun(store, { labels: ['odd'] });
+    const report = { ...blameReport(odd), gate: { kind: 'sprt', good: 'most' } } as unknown as BlameReport;
+    const kept = recordBlame(store, { runId: odd, report: { ...report, probes: report.probes.map((p) => ({ ...p, gate: {} as never })) }, expect: EXPECT, scope: null, command: 'c', title: 'Odd', checkText: 'x', at: NOW });
+    const detail = fixDetail(store, kept.fix.fixId)!;
+    expect(detail.blame).toMatchObject({ rule: 'a rescue needs 2 of 5 attempts to pass' });
+    expect(JSON.stringify(detail)).not.toContain('NaN');
+    const v = verifyReport([{ runId: odd, role: 'target', pass: true }]);
+    recordVerdict(store, { report: { ...v, gate: { kind: 'sprt' } as never, runs: v.runs.map((x) => ({ ...x, gate: { decision: 'pass', interval: null } as never })) }, expect: EXPECT, command: `shadowlap verify --fixes ${odd}`, at: NOW + 1 });
+    const verified = fixDetail(store, kept.fix.fixId)!;
+    expect(verified.verify[0]!.rows[0]).toMatchObject({ rate: null });
+    expect(verified.verify[0]!.oracle).toContain('a run passes when 4 of 5 attempts meet the check');
   });
 
   it('says where a fix came from', () => {

@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateOdds, hasRecordedCommand, parseGate, passesPerFailure, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type Normalizer, type RunRecord, type Store, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type Normalizer, type RunRecord, type Store, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -53,12 +53,28 @@ export type GateResultView = GateResult & {
   tally: string;
   /** USD an attempt cost on average, to estimate what more attempts would; null when nothing was spent or it wasn't kept. */
   perAttempt: number | null;
-  /**
-   * Run more attempts, for an inconclusive verdict: the `test` job's arguments (after `shadowlap`) that
-   * raise the gate's limit for one session, twice what it was, and how many attempts that allows. Null otherwise.
-   */
-  more: { args: string[]; attempts: number } | null;
+  /** Run more attempts, for an inconclusive verdict; null otherwise. */
+  more: MoreAttempts | null;
 };
+
+/**
+ * Run more attempts: the `test` job that continues an inconclusive gate (`--continue`) to twice its
+ * limit, carrying its attempts over, and what that would take, estimated from the attempts so far.
+ */
+export interface MoreAttempts {
+  /** The `test` job's arguments, after `shadowlap`: `test <golden> --max-attempts 160 --continue`. */
+  args: string[];
+  /** The job request that runs it: `{ golden, maxAttempts, continue: true }`. */
+  job: { golden: string; maxAttempts: number; continue: true };
+  /** The limit it continues to, and the most attempts that adds. */
+  attempts: number;
+  most: number;
+  /** The attempts it adds on average, for an agent that passes as often as it has so far, and how often it then decides. */
+  expected: number;
+  settles: number;
+  /** USD that would cost at the attempts' average so far; null when nothing was spent or it wasn't kept. */
+  cost: number | null;
+}
 
 export interface TestsOptions {
   /** How many recent revisions the history shows (default 6). */
@@ -77,8 +93,10 @@ export interface TestsSessionView {
   startedAt: number;
   /** Null while it runs, or when its process was killed before it could end it: then the counts are of the results it has. */
   endedAt: number | null;
+  /** Its goldens by how they came out: an inconclusive one is neither passed nor failed. */
   passed: number;
   failed: number;
+  inconclusive: number;
   upstreamRequests: number;
   actor: string | null;
   /** A signal stopped it: the goldens after the one it was replaying didn't run. */
@@ -95,6 +113,8 @@ export interface SinceResult {
   golden: string;
   name: string;
   ok: boolean;
+  /** How it came out, inconclusive told apart (`ok` reads it as not passing). */
+  verdict: GoldenVerdict;
   revision: string | null;
   at: number;
 }
@@ -395,12 +415,16 @@ function nameOf(path: string, folder: string): string {
  */
 function sessionView(store: Store, s: TestSession): TestsSessionView {
   let { passed, failed } = s;
-  if (s.endedAt === null) {
-    const results = store.listTestResults({ sessionId: s.sessionId, limit: 100_000 });
-    passed = results.filter((r) => r.ok).length;
-    failed = results.length - passed;
+  let inconclusive = 0;
+  // By each result's verdict: an inconclusive golden counts apart, whatever its session's
+  // `--inconclusive` let CI do with it (a session from before verdicts counted it by that).
+  const results = store.listTestResults({ sessionId: s.sessionId, limit: 100_000 });
+  if (results.length || s.endedAt === null) {
+    passed = results.filter((r) => verdictOfResult(r) === 'passed').length;
+    inconclusive = results.filter((r) => verdictOfResult(r) === 'inconclusive').length;
+    failed = results.length - passed - inconclusive;
   }
-  return { id: s.sessionId, command: s.command.join(' '), revision: s.revision, startedAt: s.startedAt, endedAt: s.endedAt, passed, failed, upstreamRequests: s.upstreamRequests, actor: s.actor, interrupted: s.interrupted, live: sessionLive(store, s) };
+  return { id: s.sessionId, command: s.command.join(' '), revision: s.revision, startedAt: s.startedAt, endedAt: s.endedAt, passed, failed, inconclusive, upstreamRequests: s.upstreamRequests, actor: s.actor, interrupted: s.interrupted, live: sessionLive(store, s) };
 }
 
 /** When a session last did something: its end, or its newest result while it has none. */
@@ -542,24 +566,47 @@ function gateView(gate: Gate | null | undefined): GateView | null {
 /** What a gate would do, before it is saved: Settings → CI's preview of the gate's figures. */
 export interface GatePreview {
   gate: Gate;
-  /** `pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 40 attempts`. */
+  /** `pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 80 attempts`. */
   description: string;
   /** An SPRT gate: the attempts an agent that always passes needs (12 at 0.9, 0.7, 0.05), one that always fails (3), and the passes that make up for a failure (about 4.4). Null for history. */
   toPass: number | null;
   toFail: number | null;
   passesPerFailure: number | null;
-  /** An SPRT gate's exact odds of each verdict, and attempts on average, for agents that pass at these rates; empty for history, whose odds depend on the history. */
+  /**
+   * The exact odds of each verdict, and attempts on average, for agents that pass at these rates.
+   * A gate against history is figured against `history`, a baseline it says (47 of 50 unless the
+   * query names one): the chance it fails, by the pass rate now, is its power to catch a drop.
+   */
   odds: Array<{ rate: number; pass: number; fail: number; inconclusive: number; attempts: number }>;
+  /** A gate against history: the baseline its odds are figured against. Null for an SPRT gate. */
+  history: { passes: number; attempts: number } | null;
+  /** With 100 forked goldens of an agent that passes 95% of the time, how often a CI run goes red for nothing, under `--inconclusive fail` and `warn`. */
+  ci: { goldens: number; rate: number; red: number; redWarn: number };
   /** What `{}` and `{ "baseline": "history" }` stand for in a golden's gate, and blame's own figures. */
   defaults: { sprt: Omit<Gate & { kind: 'sprt' }, 'kind'>; baseline: Omit<Gate & { kind: 'baseline' }, 'kind'>; blame: Omit<Gate & { kind: 'sprt' }, 'kind'> };
 }
 
 const PREVIEW_RATES = [0.99, 0.95, 0.9, 0.8, 0.7, 0.5];
+/** A history gate's preview by the pass rate now, against its baseline: unchanged, then by how far it dropped. */
+const HISTORY_RATES = [0.95, 0.9, 0.85, 0.75, 0.6, 0.5, 0.2];
+/** The baseline a history gate's preview is figured against when the query names none: a golden that passed 47 of its last 50 attempts. */
+export const PREVIEW_HISTORY = { passes: 47, attempts: 50 } as const;
+
+/** `47/50`: a baseline's passes and attempts, as the preview's `history` query value gives them. */
+function historyQuery(raw: string | null): { passes: number; attempts: number } {
+  if (raw === null || raw === '') return { ...PREVIEW_HISTORY };
+  const m = /^(\d{1,6})\/(\d{1,6})$/.exec(raw);
+  const passes = m ? Number(m[1]) : NaN;
+  const attempts = m ? Number(m[2]) : NaN;
+  if (!m || attempts < 1 || passes > attempts) throw new Error('history must be passes/attempts, such as 47/50');
+  return { passes, attempts };
+}
 
 /**
  * A gate's preview from its figures as a page sends them (query values, all optional): `good`,
- * `bad`, `risk`, `max`, or `baseline=history` with `drop`, `risk`, `window`, `min`. Throws with the
- * config's own message for a gate it would refuse.
+ * `bad`, `risk`, `max`, or `baseline=history` with `drop`, `risk`, `window`, `min`, `max` and the
+ * baseline to figure it against, `history=47/50`. Throws with the config's own message for a gate it
+ * would refuse.
  */
 export function gatePreview(query: { get(name: string): string | null }): GatePreview {
   const json: Record<string, unknown> = {};
@@ -569,13 +616,19 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
     json[key] = key === 'baseline' ? raw : Number(raw);
   }
   const gate = parseGate(json, 'gate');
+  const history = gate.kind === 'baseline' ? historyQuery(query.get('history')) : null;
+  const odds = gateOddsAt(gate, gate.kind === 'sprt' ? PREVIEW_RATES : HISTORY_RATES, history);
+  // A healthy agent's CI: the baseline it is figured against is its own rate, for a gate against history.
+  const healthy = gate.kind === 'sprt' ? odds.find((o) => o.rate === 0.95)! : gateOdds(gate, 0.95, { passes: 95, attempts: 100 });
   return {
     gate,
     description: describeGate(gate),
     toPass: gate.kind === 'sprt' ? attemptsToPass(gate) : null,
     toFail: gate.kind === 'sprt' ? attemptsToFail(gate) : null,
     passesPerFailure: gate.kind === 'sprt' ? passesPerFailure(gate) : null,
-    odds: gate.kind === 'sprt' ? PREVIEW_RATES.map((rate) => ({ rate, ...gateOdds(gate, rate) })) : [],
+    odds: odds.map((o) => ({ rate: o.rate, pass: o.pass, fail: o.fail, inconclusive: o.inconclusive, attempts: o.attempts })),
+    history,
+    ci: { goldens: 100, rate: 0.95, red: runsRed(healthy, 100, 'fail'), redWarn: runsRed(healthy, 100, 'warn') },
     defaults: { sprt: { ...SPRT_DEFAULTS }, baseline: { ...BASELINE_DEFAULTS }, blame: { ...BLAME_DEFAULTS } },
   };
 }
@@ -587,12 +640,36 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
 export function gateResultView(r: TestResult, golden: string): GateResultView | null {
   const g = r.data?.gate;
   if (!g) return null;
+  // What this session's own attempts cost: carried-over ones were paid for before.
   const spent = r.data?.spent;
-  const perAttempt = typeof spent === 'number' && spent > 0 && g.attempts > 0 ? spent / g.attempts : null;
-  const limit = g.kind === 'sprt' ? g.max : g.min;
+  const own = r.data?.attempts?.total ?? g.attempts;
+  const perAttempt = typeof spent === 'number' && spent > 0 && own > 0 ? spent / own : null;
+  return { ...g, tally: formatTally(g), perAttempt, more: moreAttempts(g, golden, perAttempt) };
+}
+
+/**
+ * Run more attempts for an inconclusive gate: continue it to twice its limit, carrying its attempts
+ * over, with what that adds on average for an agent that passes as often as it has so far (an exact
+ * walk from where it stopped, under the raised limit).
+ */
+function moreAttempts(g: GateResult, golden: string, perAttempt: number | null): MoreAttempts | null {
+  if (g.decision !== 'inconclusive' || g.clean || optionLike(golden) || g.attempts < 1) return null;
+  const limit = g.max;
   const raised = Math.min(GATE_MAX_ATTEMPTS, limit * 2);
-  const more = g.decision === 'inconclusive' && raised > limit && !optionLike(golden) ? { args: ['test', golden, '--max-attempts', String(raised)], attempts: raised } : null;
-  return { ...g, tally: formatTally(g), perAttempt, more };
+  if (raised <= g.attempts) return null;
+  const gate = { ...gateOf(g), max: raised };
+  const history = g.evidence?.kind === 'baseline' ? g.evidence.history : null;
+  const odds = gateOdds(gate, g.passes / g.attempts, history, { passes: g.passes, attempts: g.attempts });
+  const expected = Math.max(0, odds.attempts - g.attempts);
+  return {
+    args: ['test', golden, '--max-attempts', String(raised), '--continue'],
+    job: { golden, maxAttempts: raised, continue: true },
+    attempts: raised,
+    most: raised - g.attempts,
+    expected,
+    settles: odds.pass + odds.fail,
+    cost: perAttempt === null ? null : perAttempt * expected,
+  };
 }
 
 const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun(runId) ? runId : null);
@@ -983,7 +1060,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : untested ? `${passing} of ${total} goldens pass, ${untested} not run yet` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
       session: sessionView(store, shown),
-      since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, revision: r.revision, at: r.at })),
+      since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, verdict: verdictOfResult(r), revision: r.revision, at: r.at })),
     };
   }
 
@@ -1358,6 +1435,11 @@ export function runTestsJob(goldens: readonly GoldenSource[], req: Record<string
     const n = req.maxAttempts;
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > GATE_MAX_ATTEMPTS) return { error: `maxAttempts is a whole number from 1 to ${GATE_MAX_ATTEMPTS}` };
     more = ['--max-attempts', String(n)];
+  }
+  // Run more attempts carries an inconclusive gate's attempts over rather than starting again.
+  if (req.continue !== undefined) {
+    if (typeof req.continue !== 'boolean') return { error: 'continue is true or false' };
+    if (req.continue) more.push('--continue');
   }
   if (req.golden !== undefined) {
     const golden = knownGolden(goldens, req.golden);

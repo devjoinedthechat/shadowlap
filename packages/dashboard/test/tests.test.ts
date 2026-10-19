@@ -95,7 +95,7 @@ describe('the Tests screen', () => {
     expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, passing: 2, untested: 0, title: 'refund-in-limit diverged at call 1', first: { golden: 'goldens/refund-in-limit' } });
     // The line under it is the newest session that ran them all, with its own counts; what ran since on its own is said apart.
     expect(view.verdict!.session).toMatchObject({ revision: 'd2e8a1f', command: 'shadowlap test goldens/*', passed: 2, failed: 1 });
-    expect(view.verdict!.since).toEqual([{ golden: 'goldens/refund-flow', name: 'refund-flow', ok: true, revision: 'e3f9b20', at: T0 + DAY + 1 }]);
+    expect(view.verdict!.since).toEqual([{ golden: 'goldens/refund-flow', name: 'refund-flow', ok: true, verdict: 'passed', revision: 'e3f9b20', at: T0 + DAY + 1 }]);
     expect(view.rows.map((r) => r.last.result)).toEqual(['pass', 'fail', 'pass']);
     // It adds no column of dashes for the others: the history is the full sessions'.
     expect(view.revisions).toEqual(['5e1a9d3', 'c91d0f4', 'd2e8a1f']);
@@ -958,7 +958,14 @@ describe('goldens with a gate', () => {
     expect(g.evidence.scores.at(-1)).toBeGreaterThanOrEqual(g.evidence.upper);
     // Inconclusive: told apart from failing, with Run more attempts at twice the limit, and what an attempt cost.
     expect(flaky!.last).toMatchObject({ result: 'fail', verdict: 'inconclusive', failure: 'inconclusive' });
-    expect(flaky!.last.gate).toMatchObject({ decision: 'inconclusive', perAttempt: 0.02, more: { args: ['test', 'goldens/flaky', '--max-attempts', '40'], attempts: 40 } });
+    // Run more attempts continues it to twice its limit, carrying its 20 attempts over: for an agent
+    // passing 80% of the time, as far, about 17 more on average, settling it 38% of the time, $0.34 at
+    // $0.02 an attempt (80% sits between the gate's two rates, where telling them apart costs most).
+    expect(flaky!.last.gate).toMatchObject({ decision: 'inconclusive', perAttempt: 0.02, more: { args: ['test', 'goldens/flaky', '--max-attempts', '40', '--continue'], job: { golden: 'goldens/flaky', maxAttempts: 40, continue: true }, attempts: 40, most: 20 } });
+    const more = flaky!.last.gate!.more!;
+    expect(more.expected).toBeCloseTo(17.17, 2);
+    expect(more.settles).toBeCloseTo(0.378, 3);
+    expect(more.cost).toBeCloseTo(0.34, 2);
     // History cells: shaded by their pass rate, ringed where a gate against history found a drop.
     expect(drops!.history.map((c) => [c.verdict, c.rate, c.dropped])).toEqual([
       ['passed', { passes: 3, attempts: 3 }, false],

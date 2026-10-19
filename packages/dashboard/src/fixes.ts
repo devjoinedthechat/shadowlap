@@ -41,11 +41,35 @@ import {
   type StoredBlame,
   type StoredFix,
   type StoredRepair,
+  type SprtGate,
   type StoredVerdict,
   type VerdictStanding,
   type VerifiedRun,
   type VerifyOutcome,
+  unsettledFirst,
 } from '@shadowlap/engine';
+
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * A report's gate as the steps read it: an SPRT gate with its four figures, or null for a fixed
+ * count, or for one a copy from elsewhere carries malformed (the team store refuses those on pull;
+ * a store edited by hand could still hold one).
+ */
+function sprtGate(g: unknown): SprtGate | null {
+  if (!g || typeof g !== 'object') return null;
+  const x = g as Record<string, unknown>;
+  return x.kind === 'sprt' && finite(x.good) && finite(x.bad) && finite(x.risk) && finite(x.max) ? { kind: 'sprt', good: x.good, bad: x.bad, risk: x.risk, max: x.max } : null;
+}
+
+/** A run's gate result as the Verify step shows it: its decision, the Wilson interval and its sentence; null when there is none to read. */
+function rateOf(g: unknown): VerifyRow['rate'] {
+  if (!g || typeof g !== 'object') return null;
+  const x = g as Record<string, unknown>;
+  const i = x.interval as Record<string, unknown> | null | undefined;
+  if (typeof x.decision !== 'string' || typeof x.sentence !== 'string' || !i || typeof i !== 'object' || !finite(i.lo) || !finite(i.hi) || !finite(i.confidence)) return null;
+  return { decision: x.decision, lo: i.lo, hi: i.hi, confidence: i.confidence, sentence: x.sentence };
+}
 
 /**
  * Fixes, as the dashboard and `shadowlap fix --json` read them: plain JSON from the store, one
@@ -156,7 +180,7 @@ export interface BlameStep {
   /** The attempts, bundled per probe. */
   bundles: Array<{ callNo: number; title: string; blamed: boolean; passes: number; attempts: Array<{ runId: string; passed: boolean; note: string; spent: number; href: string }> }>;
   /** Every call of the run, for the row that shows where it was lost; `inScope` is false for a call outside the blame's scope. */
-  callRow: Array<{ callNo: number; kind: string; inScope: boolean; verdict: 'rescued' | 'lost' | 'blamed' | null; passes: number; attempts: number }>;
+  callRow: Array<{ callNo: number; kind: string; inScope: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number }>;
   cost: { attempts: number; upstreamRequests: number; spent: number; unknownModels: string[] };
   oracle: string[];
   recordedFailures: string[];
@@ -528,7 +552,8 @@ function blamePairs(store: Store, runId: string): number | null {
 }
 
 function blameStep(store: Store, b: StoredBlame): BlameStep {
-  const r = b.report;
+  // The gate as it can be read: a malformed one reads as none, the fixed count's words then.
+  const r = { ...b.report, gate: sprtGate(b.report.gate) };
   const run = store.getRun(b.runId);
   const rate = (x: { passes: number; attempts: unknown[] }) => `${x.passes} of ${x.attempts.length}`;
   const blamedCall = r.blamed?.callNo ?? null;
@@ -541,7 +566,8 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
         ? `The re-asked call #${r.blamed.callNo} ${probeFinding(r.blamed, r.gate)}; ${r.lost ? `#${r.lost.callNo}, the next model call, ${probeFinding(r.lost, r.gate)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`
         : `Resampling #${r.blamed.callNo} rescued ${rate(r.blamed)} attempts; ${r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${rate(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
   } else if (b.outcome === 'unrescuable') {
-    title = 'Not rescued from any model call';
+    // Its first probe couldn't tell: not a finding that no answer lost it.
+    title = unsettledFirst(r) ? 'Not settled from the first model call' : 'Not rescued from any model call';
     boundary = unrescuedWhy(r).evidence ?? 'No probe rescued the run.';
   } else {
     title = 'Stopped before the search finished';
@@ -551,7 +577,9 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     r.confidence === 'low'
       ? r.nonMonotone.length
         ? `rescue worked again at ${r.nonMonotone.map((x) => `#${x.rescued} after failing at #${x.lost}`).join(', ')}, so the boundary is not clean`
-        : 'the search did not finish'
+        : unsettledFirst(r)
+          ? `#${r.probes[0]!.callNo} was inconclusive: whether resampling rescues the run is not settled`
+          : 'the search did not finish'
       : r.confidence === 'medium' && r.lost
         ? r.lost.decision === 'inconclusive'
           ? `#${r.lost.callNo} was inconclusive: the run was not reliably lost there`
@@ -562,7 +590,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
   const callRow = run
     ? store.getCalls(b.runId).map((c) => {
         const p = probeOf.get(c.callNo);
-        return { callNo: c.callNo, kind: c.kind, inScope: inScope(c.meta.scope, b.scope), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : p.rescued ? ('rescued' as const) : ('lost' as const)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0 };
+        return { callNo: c.callNo, kind: c.kind, inScope: inScope(c.meta.scope, b.scope), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0 };
       })
     : [];
   const contrast = r.contrast;
@@ -602,7 +630,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     oracle: r.oracle,
     recordedFailures: r.recordedFailures,
     stopReason: r.stopReason,
-    look: noAnswerLost(b) ? unrescuedWhy(r).look : null,
+    look: noAnswerLost(b) || unsettledFirst(r) ? unrescuedWhy(r).look : null,
     warnings: r.warnings,
     command: b.command,
     hrefs: { run: runHref(b.runId), lostAt: blamedCall ? runHref(b.runId, blamedCall) : null, rescued: contrast ? runHref(contrast.rescuedRunId) : null },
@@ -679,7 +707,7 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
     roles,
     needed: v?.needed ?? null,
     attemptsPerRun: v?.attemptsPerRun ?? null,
-    rule: v ? eachRun(v) : null,
+    rule: v ? eachRun({ ...v, gate: sprtGate(v.gate) }) : null,
     lost: rep.targets.map((t) => ({
       runId: t.runId,
       at: t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? 'not rescued from any model call' : (t.note ?? t.outcome),
@@ -751,7 +779,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
       passes: x.passes,
       deterministic: x.deterministic,
       outcome: outcomeOf(x),
-      rate: x.gate ? { decision: x.gate.decision, lo: x.gate.interval.lo, hi: x.gate.interval.hi, confidence: x.gate.interval.confidence, sentence: x.gate.sentence } : null,
+      rate: rateOf(x.gate),
       note: failure ? shortFailure(failure) : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
       tokens: now === null ? null : { recorded: x.recorded.footprint.inputTokens, now },
       cost: n ? { recorded: x.recorded.footprint.cost, now: mean((a) => a.footprint.cost) } : null,
@@ -768,7 +796,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
     code,
     label: `${code} · ${v.verdict}`,
     headline: headline(v),
-    oracle: r.gate ? `a run's attempts must meet the check: ${r.oracle.join('; ')}; its gate decides after each one: ${describeGate(r.gate)}` : `a run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the check: ${r.oracle.join('; ')}`,
+    oracle: sprtGate(r.gate) ? `a run's attempts must meet the check: ${r.oracle.join('; ')}; its gate decides after each one: ${describeGate(sprtGate(r.gate)!)}` : `a run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the check: ${r.oracle.join('; ')}`,
     needed: r.needed,
     attemptsPerRun: r.attemptsPerRun,
     rows,

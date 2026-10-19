@@ -108,7 +108,7 @@ describe('the Overview: today', () => {
     expect(t.recording).toEqual([{ runId: id.live1, command: 'python refund_agent.py', calls: 3, startedAt: at(10, 1, 10, 10) }]);
     expect(t.replays).toBe(1);
     expect(t.forks).toEqual({ count: 1, live: 4, blocked: 1 });
-    expect(t.tests).toEqual({ count: 2, failed: 1, latestFailure: { runId: id.test2, outcome: { kind: 'diverged', callNo: 1 } } });
+    expect(t.tests).toEqual({ count: 2, failed: 1, inconclusive: 0, latestFailure: { runId: id.test2, outcome: { kind: 'diverged', callNo: 1 } } });
     expect(t.blame).toEqual({ probes: 0, attempts: 0, runs: [] });
   });
 

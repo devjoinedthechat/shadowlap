@@ -140,6 +140,11 @@ describe('the Fix on failure step', () => {
     expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push: 'oidc' }))).toEqual(['recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'push']);
     expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push: 'keys' }))).toEqual(['recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'push']);
     for (const push of [null, 'oidc', 'keys'] as const) for (const key of withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push }))) expect(inputs).toContain(key);
+    // Inconclusive goldens let through: the action's own input, written only when it isn't the default.
+    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', inconclusive: 'warn' }))).toEqual(['recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'inconclusive']);
+    expect(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', inconclusive: 'fail' })).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic' }));
+    expect(inputs).toEqual(expect.arrayContaining(['inconclusive', 'max-attempts', 'keep-history']));
+    expect(outputs).toContain('inconclusive');
     expect(outputs).toEqual(expect.arrayContaining(['passed', 'failed', 'diverged', 'checks-failed', 'session', 'fixes', 'fix-prs']));
   });
 });
@@ -155,6 +160,10 @@ describe('the Alerts steps', () => {
     expect(everywhere).not.toContain('github.ref ==');
     expect(everywhere).toContain('${{ secrets.teamhook }}');
     for (const key of withKeys(yaml)) expect(inputs).toContain(key);
+    // With inconclusive goldens let through, the failed count Slack hears of leaves them out.
+    const warned = alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', inconclusive: 'warn' });
+    expect(warned).toContain('    fail-on-divergence: false\n    inconclusive: warn\n');
+    for (const key of withKeys(warned)) expect(inputs).toContain(key);
     expect(yaml).toContain('steps.goldens.outputs.failed');
     expect(outputs).toContain('failed');
   });

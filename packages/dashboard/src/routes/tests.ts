@@ -12,12 +12,14 @@ import { bisectChoices, bisectJob, gatePreview, liveTestSession, normalizeAndTes
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
  * replay and Find the commit (`GET /api/tests/runs/:id`), what a gate's figures would do
- * (`GET /api/tests/gate?good=&bad=&risk=&max=`, or `?baseline=history&drop=&window=&min=`), the
+ * (`GET /api/tests/gate?good=&bad=&risk=&max=`, or `?baseline=history&drop=&window=&min=&max=`
+ * figured against `&history=47/50`), the
  * workflow steps Settings → CI shows (`GET /api/ci/workflows`), and the jobs the Tests screen starts:
  *
- *   test                 { golden?, maxAttempts? }      every golden on disk (the goldens folder's pattern, which the CLI
- *                                                       expands without a shell, and each pack named elsewhere), or one;
- *                                                       `maxAttempts` raises each gate's limit for that session (Run more attempts)
+ *   test                 { golden?, maxAttempts?,       every golden on disk (the goldens folder's pattern, which the CLI
+ *                          continue? }                  expands without a shell, and each pack named elsewhere), or one;
+ *                                                       `maxAttempts` raises each gate's limit for that session, and
+ *                                                       `continue` carries an inconclusive gate's attempts over (Run more attempts)
  *   test-update          { goldens: [...] } | { golden } re-record each live with writes stubbed; replaced when its checks pass
  *   bisect               { golden | runId, good, bad? }  Find the commit: replays at each commit, halving the range;
  *                                                       for a run, as `GET /api/tests/runs/:id` offers it

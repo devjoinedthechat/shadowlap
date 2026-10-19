@@ -210,7 +210,7 @@ function CallRow({ b }: { b: BlameStep }) {
                 <span className="cl" />
               </li>
             );
-          const tone = c.verdict === 'blamed' ? 'hot' : c.verdict === 'lost' ? 'lost' : c.verdict === 'rescued' ? 'ok' : '';
+          const tone = c.verdict === 'blamed' ? 'hot' : c.verdict === 'lost' ? 'lost' : c.verdict === 'inconclusive' ? 'unsure' : c.verdict === 'rescued' ? 'ok' : '';
           return (
             <li key={c.callNo} className={`${c.kind}${tone ? ` ${tone}` : ''}${c.dim ? ' dim' : ''}`}>
               <span className="pp">{c.verdict ? <Pips ok={c.passes} no={c.attempts - c.passes} /> : null}</span>

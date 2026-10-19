@@ -25,6 +25,8 @@ export interface CiWorkflowOptions {
   onlyMain: boolean;
   /** The repository secret that holds the Slack webhook URL. */
   secret: string;
+  /** What an inconclusive golden does to the steps: fail them (the default, when absent), or warn and let it through. */
+  inconclusive?: 'fail' | 'warn';
 }
 
 export const CI_DEFAULTS: CiWorkflowOptions = { fix: false, budget: '2.00', repairer: 'claude-code', onlyMain: true, secret: 'SLACK_WEBHOOK_URL' };
@@ -137,6 +139,11 @@ export function parseCiOptions(q: URLSearchParams): CiWorkflowOptions | { error:
   }
   const secret = q.get('secret');
   if (secret !== null) out.secret = alertsSecret(secret.slice(0, 100));
+  const inconclusive = q.get('inconclusive');
+  if (inconclusive !== null && inconclusive !== '') {
+    if (inconclusive !== 'fail' && inconclusive !== 'warn') return { error: 'inconclusive is fail or warn' };
+    out.inconclusive = inconclusive;
+  }
   return out;
 }
 
@@ -331,7 +338,7 @@ export function ciWorkflows(
       budgets: FIX_BUDGETS.map((b) => ({ value: b, label: `$${Number(b)}` })),
       repairers: REPAIRERS.map((r) => ({ ...r })),
       offNote: 'Off: a failed check fails the build, and nobody opens a fix.',
-      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings, push }),
+      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings, push, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}) }),
       needs: rows(fixOnFailureNeeds(o.repairer, push)),
       never: rows(fixOnFailureNever(o.budget)),
       preview: context.preview ? { ...context.preview, base: main, spent: context.preview.spent.replace(/ of \$[\d.]+$/, ` of $${o.budget}`) } : examplePreview(o.budget, main),
@@ -341,7 +348,7 @@ export function ciWorkflows(
       onlyMain: o.onlyMain,
       branch: main,
       secret: alertsSecret(o.secret),
-      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings, branch: main }),
+      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings, branch: main, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}) }),
       needs: rows(alertsNeeds(o.secret)),
       failures: rows(ALERT_FAILURES),
       message: { app: 'GitHub Actions', text: message.text, link: message.link, at: context.at },
