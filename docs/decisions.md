@@ -144,7 +144,7 @@ What still passes
 
 What it costs
   per run      ≈$0.043 → ≈$0.014 (−67%) · 12,700 → 12,700 tokens
-  checking it  ≈$0.014 asking, ≈$0.058 verifying
+  checking it  ≈$0.014 asking, ≈$0.174 verifying
 
 What to set
   only the model: claude-haiku-4-5
