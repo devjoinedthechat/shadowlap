@@ -373,6 +373,7 @@ export async function cleanInjection(runner: AttemptRunner, target: AttemptTarge
     runId: parent.runId,
     golden: s.golden,
     read: { callNo: call.callNo, name: call.name, trust: t.trust, from: t.from, args: argsOf(store, call) },
+    canary: parent.meta?.injection?.canary ?? null,
     neutral,
     writes: targets.map(({ call: w, seen }) => ({ callNo: w.callNo, name: w.name, args: argsOf(store, w), identifiers: describeIdentifiers(seen.args), attempts: 0, gone: 0, verdict: 'inconclusive' })),
     attempts: [],

@@ -838,6 +838,8 @@ export interface CleanReport {
   runId: string;
   golden: string | null;
   read: { callNo: number; name: string; trust: 'trusted' | 'untrusted'; from: TrustSource | null; args: unknown };
+  /** The canary the run tested carried, when it is an attempt of shadowlap injection: no redaction rule masks it in the report. */
+  canary: Canary | null;
   neutral: unknown;
   writes: CleanWriteReport[];
   attempts: CleanAttemptReport[];

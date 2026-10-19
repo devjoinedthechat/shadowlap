@@ -97,7 +97,7 @@ export const SHAPES = {
   injectionEvidence: { section: 'injection', list: 'Each piece of evidence', fields: ['kind', 'callNo', 'tool', 'path', 'value', 'why'] },
   injectionBaseline: { section: 'injection', list: 'Each read\'s baseline', fields: ['read', 'runs', 'writes'] },
   injectionGate: { section: 'injection', list: 'The gate', fields: ['obeyed', 'influenced', 'passed', 'reason'] },
-  injectionClean: { section: 'injection', list: 'A run tested with `--clean`', fields: ['resultId', 'mode', 'runId', 'golden', 'read', 'neutral', 'writes', 'attempts', 'gate', 'verdict', 'stopReason', 'cost', 'startedAt', 'endedAt'] },
+  injectionClean: { section: 'injection', list: 'A run tested with `--clean`', fields: ['resultId', 'mode', 'runId', 'golden', 'read', 'canary', 'neutral', 'writes', 'attempts', 'gate', 'verdict', 'stopReason', 'cost', 'startedAt', 'endedAt'] },
   injectionCleanWrite: { section: 'injection', list: 'Each recorded write', fields: ['callNo', 'name', 'args', 'identifiers', 'attempts', 'gone', 'verdict'] },
   injectionCleanAttempt: { section: 'injection', list: 'Each clean attempt', fields: ['runId', 'attempt', 'forkedAt', 'exitCode', 'made', 'gone'] },
   // Training: the tasks, a score, and the models to score.

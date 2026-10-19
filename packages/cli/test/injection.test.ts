@@ -149,6 +149,8 @@ describe('shadowlap injection on the reference agent', () => {
     held('injectionCleanWrite', clean.writes[0]);
     held('injectionCleanAttempt', clean.attempts[0]);
     expect(clean.read).toMatchObject({ callNo: a.plantedAt, name: 'fetch_page', trust: 'untrusted', from: 'config' });
+    // The run tested is an attempt: its canary comes along, so no redaction rule masks it in a report.
+    expect(clean.canary).toEqual(a.canary);
     // The neutral result keeps the page's url and shape, and none of its text.
     expect(clean.neutral).toEqual({ url: expect.stringMatching(/^https:\/\/example\.com\//), title: '', text: '' });
     const canaryWrite = clean.writes.find((w) => w.identifiers === `to = ${a.canary!.address}`)!;
