@@ -13,7 +13,7 @@ shadowlap repair --fixes label:refund-bug --keeps label:good \
   - You are a support agent. Follow the refund policy.
   + You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.
 
-  Verified: fixes 1 of 1 target run, 1 of 1 held-out, keeps 1 of 1 good, each passing at 90% or more, at 5% risk
+  Verified: fixes 1 of 1 target run, 1 of 1 held-out, keeps 1 of 1 good, each by its gate, which tells 90%+ from 70%- at <= 5% risk
 
   Where the failing runs were lost
     01M3RZ4XKN  model call #5 (3 of 4)
@@ -25,7 +25,7 @@ shadowlap repair --fixes label:refund-bug --keeps label:good \
      1  invalid   system prompt: You are a support agent. Follow the refund policy, and never ref…
         it mentions A-1042, which only the failing runs contain: a fix has to hold for cases it has not seen
      2  rejected  tool issue_refund: Refund an order. Check the policy first.
-        target run 01M3RZ4XKN not fixed: 1 of 3 passed (issue_refund with {"amount":240} called 0 times, but called 1 time (1 blocked or stubbed))
+        target run 01M3RZ4XKN not fixed: 0 of 3 passed · rate <= 0.56 (95%) (issue_refund with {"amount":240} called 0 times, but called 1 time (1 blocked or stubbed))
      3  accepted  system prompt: You are a support agent. Follow the refund policy: escalate ever…
 
   cost: blame ≈$0.041 · repairer ≈$0.0040 · verify ≈$0.082

@@ -104,7 +104,11 @@ Forks vary, so a preset can be decided over several attempts, as they come in:
 
 - **By default**, by the golden's `repeat` and `passes`, as its own forks are.
 - **With `chaos.gate`**, by a sequential test: `{ "good": 0.9, "bad": 0.5, "risk": 0.1, "max": 6 }`
-  passes at 90% or more and fails at 50% or less, each with at most 10% risk of the wrong verdict.
+  tells an agent that copes 90% of the time or more from one that copes 50% or less, each verdict
+  wrong at most 10% of the time at those two rates (between them, either can come). Each preset's
+  line shows its tally and the Wilson bound of its pass rate, `timed out: 4 of 4 attempts passed ·
+  rate >= 0.60 (90%)`, and the table states the rule once under it: `gate: tells 90%+ from 50%- at
+  <= 10% risk, up to 6 attempts`.
   Each passing attempt adds ln(good/bad) to its score, each failure ln((1−good)/(1−bad)), and it stops
   as soon as the score reaches ±ln((1−risk)/risk): with these figures, after four passes or two
   failures. Inconclusive after `max` attempts. Every figure is optional (0.9, 0.7, 0.05 and 80 when

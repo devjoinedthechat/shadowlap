@@ -139,7 +139,7 @@ shadowlap verify --fixes <runs> --holdout <runs> --keeps label:good
 
 - **Blame** names the model call that lost the run: the last one whose answer, asked again, lets the run pass. Every call before a probe replays from the recording, and the search halves the run each time, so 30 model calls take about six probes. [docs/blame.md](docs/blame.md)
 - **Repair** asks a model you choose (Anthropic, OpenAI or a compatible server, or your own Claude Code) to rewrite the system prompt or a tool description, and keeps the smallest rewrite verify accepts. The fix comes back as a patch, a pull request body and the fixed runs as goldens; `--branch` and `--pr` hand it over. [docs/repair.md](docs/repair.md)
-- **Verify** accepts a change only when the failing runs pass, failing runs it was not written against pass too, and the good runs still pass, 4 of 5 attempts each. It exits 1 when it rejects, so it can gate a merge. [docs/verify.md](docs/verify.md)
+- **Verify** accepts a change only when the failing runs pass, failing runs it was not written against pass too, and the good runs still pass, each decided by a [gate](docs/gating.md) that tells a run passing 90% of the time or more from one passing 70% or less, at 5% risk. It exits 1 when it rejects, so it can gate a merge. [docs/verify.md](docs/verify.md)
 
 A passing run exits 0 and meets `--expect`: tools that must or must not be called and with what arguments, call counts, token and cost budgets, and text in the answer.
 

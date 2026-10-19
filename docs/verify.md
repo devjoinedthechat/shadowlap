@@ -9,13 +9,13 @@ shadowlap verify --fixes 01M3RXQ4VB --holdout 01M3RXQ51B --keeps label:good \
 
 ```
 ✗ Rejected: the change fixes 1 of 1 target run, 1 of 1 held-out run and keeps 0 of 1 good run
-  · good run 01M3RXQ56V broken: 0 of 3 passed, ≤ 0.56 (the agent exited with code 1)
+  · good run 01M3RXQ56V broken: 0 of 3 passed · rate <= 0.56 (95%) (the agent exited with code 1)
 
-  A run's attempts must meet the oracle: the agent exits 0; issue_refund with {"amount":240} called 0 times. Its gate decides after each attempt: pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 80 attempts; a clean replay settles it in one.
+  A run's attempts must meet the oracle: the agent exits 0; issue_refund with {"amount":240} called 0 times. Its gate decides after each attempt (gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts); a clean replay settles it in one.
 
-    target    01M3RXQ4VB  fixed   12 of 12 passed, ≥ 0.76  forked at #1
-    held-out  01M3RXQ51B  fixed   12 of 12 passed, ≥ 0.76  forked at #1
-    good      01M3RXQ56V  broken  0 of 3 passed, ≤ 0.56   the agent exited with code 1
+    target    01M3RXQ4VB  fixed   12 of 12 passed · rate >= 0.76 (95%)    forked at #1
+    held-out  01M3RXQ51B  fixed   12 of 12 passed · rate >= 0.76 (95%)    forked at #1
+    good      01M3RXQ56V  broken  0 of 3 passed · rate <= 0.56 (95%)      the agent exited with code 1
 
   per run, as it would run live: 4,329 → 5,193 input tokens (+20%) · ≈$0.015 → ≈$0.018 (+16%)
   verifying: 27 attempts · 102 upstream requests · ≈$0.486 spent · code 370712a+dirty
@@ -41,7 +41,7 @@ It also warns when a recording contradicts its role. A target that already passe
 
 **The oracle** is the same as [blame's](./blame.md#how-it-works): the agent exits 0, and meets `--expect`, the `expect` object of an [outcome check](./ci.md#outcome-checks). One oracle applies to every run, so a policy such as "never refund $240" is also checked on the good runs. Each attempt is a fork, so a [judge check](./judges.md) in `--expect` is asked live; one whose judge can't be (no key for its provider, and no upstream set for it) is refused before anything runs, since every attempt would read inconclusive and none could pass.
 
-**Attempts.** Each run is replayed with its recorded command, under the code in the working directory. A replay forks at the first request the change affects, and everything after that runs live, so a forked run is a sample, and is replayed until its [gate](./gating.md) decides: after each attempt it either passes (the run passes its oracle at least 90% of the time), fails (70% or less), or takes another, each verdict wrong at most 5% of the time. A run that always passes is accepted after 12 attempts; one that always fails is rejected after 3; one still between the two after 80 is **inconclusive**, and the change is not accepted (a run that passes 90% of the time ends so 0.9% of the time). The 4 of 5 verify used before let a run that passes 70% of the time through about half the time; the gate lets it through 4% of the time. `--gate` changes the figures, such as `--gate '{"good":0.95,"bad":0.8}'`; `--attempts` and `--passes` give a fixed count instead (4 of 5 by default), which stops as soon as its verdict is settled.
+**Attempts.** Each run is replayed with its recorded command, under the code in the working directory. A replay forks at the first request the change affects, and everything after that runs live, so a forked run is a sample, and is replayed until its [gate](./gating.md) decides. The gate tells a run that meets its oracle 90% of the time or more from one that meets it 70% or less, each verdict wrong at most 5% of the time at those two rates: after each attempt it passes the run, fails it, or takes another. Between the two rates either verdict can come (a run that passes 80% of the time is passed 38% of the time), so a run's line states its outcome, its tally and the Wilson bound of its pass rate, and the report states the rule once, never a rate the run is claimed to pass at. A run that always passes is accepted after 12 attempts; one that always fails is rejected after 3; one still between the two after 80 is **inconclusive**, and the change is not accepted (a run that passes 90% of the time ends so 0.9% of the time). The 4 of 5 verify used before let a run that passes 70% of the time through about half the time; the gate lets it through 4% of the time. `--gate` changes the figures, such as `--gate '{"good":0.95,"bad":0.8}'`; `--attempts` and `--passes` give a fixed count instead (4 of 5 by default), which stops as soon as its verdict is settled.
 
 **A replay that forks nowhere settles its run in one attempt.** Every call came from the recording, so every attempt would come out the same. A replay that made no model calls through Shadowlap, where the recording made some, is not one of them. The agent reached its model some other way, and what it did is unrecorded. The attempt fails and the report says why, because counting it would judge a run nobody saw. That makes verifying a harness fix free, since fixes to parsing, dispatch or stop conditions change no request. It also makes the good runs a change doesn't touch free.
 
@@ -56,7 +56,7 @@ The change can also be a request field instead of code: `--model` and `--set key
 | Part | Meaning |
 |---|---|
 | **Accepted / Rejected / Incomplete** | Accepted: every target and held-out run fixed, every good run kept. Rejected: any run failed, each listed with its first failure. Incomplete: nothing failed, but a run never settled (budget, Ctrl-C) or its gate ended inconclusive |
-| **The runs** | Each run's role, outcome (*fixed*, *not fixed*, *kept*, *broken*, *inconclusive* or *unsettled*), attempts passed (or *clean replay*) with its pass rate as the gate decided it (`≥ 0.76`: the low end of the Wilson interval at 95% for a run that passed, the high end for one that failed), and where it forked or why it failed |
+| **The runs** | Each run's role, outcome (*fixed*, *not fixed*, *kept*, *broken*, *inconclusive* or *unsettled*), attempts passed (or *clean replay*) with the Wilson bound of its pass rate at the gate's confidence (`rate >= 0.76 (95%)`: the interval's low end for a run that passed, the high end for one that failed, both ends for one left inconclusive), and where it forked or why it failed. The rule they were decided by is stated once, above them |
 | **Warnings** | What the evidence lacks: no held-out or good runs, a recording that contradicts its role, a tool that changed without `--live-tool`, a connection that bypassed Shadowlap |
 | **per run, as it would run live** | Input tokens and cost per run as recorded and under the change, as budget checks count them: every model request, whatever its origin. A prompt that grows shows up here |
 | **verifying** | What the verification itself cost, and the code version it verified |
@@ -110,7 +110,7 @@ The verdict is logged as a `verify.accepted` or `verify.rejected` event in the s
 | `verdict` | `accepted`, `rejected` or `incomplete` |
 | `reasons`, `warnings` | Why it was not accepted, run by run; what the evidence lacks |
 | `summary` | `{ targets, holdout, good }`, each `{ passed, total }` |
-| `runs` | Per run: `runId`, `role` (`target`, `holdout`, `good`), `outcome` (`fixed`, `not-fixed`, `kept`, `broken`, `inconclusive`, `unsettled`), `passes`, `attempts`, the gate's `decision` (`pass`, `fail`, `inconclusive` or `continue`; `null` under a fixed count), its `rate` (the `decision`, the Wilson `interval` of the pass rate as `{ lo, hi, confidence }`, and the `sentence`; `null` under a fixed count), `deterministic`, `recorded` (`{ passed, failures, footprint }`), and `runs`, each attempt with `runId`, `passed`, `exitCode`, `failures`, `forkedAt`, `spent`, `upstreamRequests` and `footprint` |
+| `runs` | Per run: `runId`, `role` (`target`, `holdout`, `good`), `outcome` (`fixed`, `not-fixed`, `kept`, `broken`, `inconclusive`, `unsettled`), `passes`, `attempts`, the gate's `decision` (`pass`, `fail`, `inconclusive` or `continue`; `null` under a fixed count), its `rate` (the `decision`, the Wilson `interval` of the pass rate as `{ lo, hi, confidence }`, and the `sentence`, the verdict line: `passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`; `null` under a fixed count), `deterministic`, `recorded` (`{ passed, failures, footprint }`), and `runs`, each attempt with `runId`, `passed`, `exitCode`, `failures`, `forkedAt`, `spent`, `upstreamRequests` and `footprint` |
 | `gate` | The gate each run was decided by, `{ kind, good, bad, risk, max }`, or `null` when a fixed count (`--attempts`, `--passes`) decided |
 | `oracle`, `attemptsPerRun`, `passesNeeded`, `change`, `codeVersion` | What was checked, against what: with a gate, `attemptsPerRun` is its `max` and `passesNeeded` the fewest passes that can pass it (12) |
 | `cost`, `stopReason` | What verifying cost, and why it stopped early |
