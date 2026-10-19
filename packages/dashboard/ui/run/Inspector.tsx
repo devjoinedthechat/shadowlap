@@ -310,7 +310,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
   const [raw, setRaw] = useState(false);
   if (c.kind !== 'api') {
     const result = detail.result as { result?: unknown; error?: { name?: string; message?: string } } | null;
-    const head = c.origin === 'blocked' ? 'Blocked: a write tool after the fork. The agent got this instead of the real result:' : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:';
+    const head = c.origin === 'blocked' ? (c.effect === 'read' ? 'Fenced: a read the recording doesn\'t hold, after the fork. The agent got this instead of a live result:' : 'Blocked: a write tool after the fork. The agent got this instead of the real result:') : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:';
     return (
       <>
         <div className="ibar">{head}</div>
