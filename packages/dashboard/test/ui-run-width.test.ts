@@ -3,6 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CallRow } from '../ui/types.js';
+import { bannerFor } from '../ui/run/banner.js';
 import { Inspector } from '../ui/run/Inspector.js';
 
 /**
@@ -14,16 +15,17 @@ import { Inspector } from '../ui/run/Inspector.js';
 
 const css = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8');
 
-/** The declarations of the rule for `selector` at the top level of the stylesheet (not inside a media query). */
+/** The declarations of every rule that names `selector` at the top level of the stylesheet (not inside a media query). */
 function topRule(selector: string): string {
   let depth = 0;
   let start = 0;
+  const found: string[] = [];
   for (let i = 0; i < css.length; i++) {
     const ch = css[i];
     if (ch === '{') {
       if (depth === 0) {
         const head = css.slice(start, i).replace(/\/\*[\s\S]*?\*\//g, '').trim();
-        if (head.split(',').map((s) => s.trim()).includes(selector)) return css.slice(i + 1, css.indexOf('}', i));
+        if (head.split(',').map((s) => s.trim()).includes(selector)) found.push(css.slice(i + 1, css.indexOf('}', i)));
       }
       depth++;
     } else if (ch === '}') {
@@ -31,7 +33,8 @@ function topRule(selector: string): string {
       if (depth === 0) start = i + 1;
     }
   }
-  throw new Error(`no top-level rule for ${selector}`);
+  if (!found.length) throw new Error(`no top-level rule for ${selector}`);
+  return found.join(';');
 }
 
 const MODEL = 'ft:gpt-4o-mini-2024-07-18:northwind-support:refund-agent-v3:9XyZabcd';
@@ -60,5 +63,35 @@ describe('a run page with a long command and model id', () => {
     expect(isum?.[1]).toBe(`${MODEL} · 1.2k → 56 · 812 ms`);
     expect(isum?.[2]).toContain(`<span class="im">${MODEL}</span>`);
     expect(isum?.[2]).toContain('<span class="ir"> · 1.2k → 56 · 812 ms</span>');
+  });
+});
+
+describe('a fork made with a long flag value, as every attempt of injection --clean is', () => {
+  // At 390 px, a clean attempt's page was 414 px wide: its banner's flag, the --override of the
+  // neutral page it was served, has no space to break at.
+  const flag = '--override 7={"url":"https://example.com/a","title":"","text":""}';
+
+  it('names the flag whole in its banner, which shows it as code', () => {
+    const banner = bannerFor({
+      status: 'completed',
+      type: 'fork',
+      divergence: { callNo: 9, type: 'request_changed', name: 'POST /v1/messages', replayedBefore: 8, diff: [{ path: '$.messages[4].content[0].content' }] },
+      intervention: { flag: '--override', value: '7={"url":"https://example.com/a","title":"","text":""}', callNo: 7 },
+      interventions: [{ flag: '--override', value: '7={"url":"https://example.com/a","title":"","text":""}', callNo: 7 }, { flag: '--writes', value: 'stub', callNo: null }],
+      flagCall: { kind: 'tool', name: 'fetch_page', attempts: 0 },
+      rescued: null,
+      blame: null,
+      notRecorded: null,
+      checks: [],
+      fix: null,
+      upstreamRequests: 3,
+    });
+    expect(banner).toMatchObject({ kind: 'fork', flag, why: `tool #7 overridden with ${flag} · writes stubbed · 8 calls replayed before it` });
+  });
+
+  it('breaks the flag and a path anywhere where the banner wraps, so a phone never scrolls sideways', () => {
+    expect(topRule('.banner')).toMatch(/flex-wrap: wrap/);
+    expect(topRule('.banner .why code')).toMatch(/overflow-wrap: anywhere/);
+    expect(topRule('.banner .path')).toMatch(/overflow-wrap: anywhere/);
   });
 });
