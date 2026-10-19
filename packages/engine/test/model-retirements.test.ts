@@ -9,14 +9,21 @@ describe('the retirement table', () => {
   it('cites a provider page for every row, with a real date', () => {
     expect(retirementTableProblems()).toEqual([]);
     expect(MODEL_RETIREMENTS.length).toBeGreaterThan(100);
-    for (const s of Object.values(RETIREMENT_SOURCES)) expect(s.url).toMatch(/^https:\/\/(platform\.claude\.com|developers\.openai\.com|ai\.google\.dev|docs\.cloud\.google\.com|docs\.aws\.amazon\.com)\//);
-    for (const f of FIELD_RETIREMENTS) expect(Object.values(RETIREMENT_SOURCES).map((s) => s.url)).toContain(f.source);
+    for (const s of Object.values(RETIREMENT_SOURCES)) {
+      for (const page of s.pages) expect(page).toMatch(/^https:\/\/(platform\.claude\.com|developers\.openai\.com|ai\.google\.dev|docs\.cloud\.google\.com|docs\.aws\.amazon\.com)\//);
+      expect(s.pages).toContain(s.url);
+    }
+    for (const f of FIELD_RETIREMENTS) expect(Object.values(RETIREMENT_SOURCES).flatMap((s) => s.pages)).toContain(f.source);
     expect(RETIREMENTS_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('keeps no date a page does not set: no active Claude model, no "not before" date', () => {
+  it('keeps no date a page does not set: no active Claude model, no "or later" date', () => {
     expect(MODEL_RETIREMENTS.some((r) => r.platform === 'anthropic' && r.model === 'claude-opus-5-5')).toBe(false);
-    expect(MODEL_RETIREMENTS.some((r) => r.platform === 'vertex' && r.model === 'gemini-2.5-pro')).toBe(false);
+    // Vertex AI gives gemini-3.8-flash "September 2, 2027 or later", and gemini-2.5-pro a date of its own.
+    expect(MODEL_RETIREMENTS.some((r) => r.platform === 'vertex' && r.model === 'gemini-3.8-flash')).toBe(false);
+    expect(MODEL_RETIREMENTS.find((r) => r.platform === 'vertex' && r.model === 'gemini-2.5-pro')).toMatchObject({ retires: '2026-10-20', replacement: 'gemini-3.8-flash or gemini-3.5-flash' });
+    // The Gemini API keeps serving 2.5 Pro with no shutdown date: the same model, another platform's table.
+    expect(MODEL_RETIREMENTS.some((r) => r.platform === 'gemini' && r.model === 'gemini-2.5-pro')).toBe(false);
   });
 });
 
@@ -56,8 +63,26 @@ describe('retirementOf', () => {
     const gemini = retirementOf('gemini', 'models/gemini-3.1-flash-lite', { now: at('2026-10-19') });
     expect(gemini).toMatchObject({ earliest: true, state: 'retiring', retires: '2027-05-07' });
     expect(gemini!.text).toContain('the earliest date Google gives');
-    expect(retirementOf('vertex', 'publishers/google/models/gemini-2.0-flash', { now: at('2026-10-19') })).toMatchObject({ state: 'retired', retires: '2026-06-01' });
+    expect(retirementOf('vertex', 'publishers/google/models/gemini-2.0-flash', { now: at('2026-10-19') })).toMatchObject({ state: 'retired', retires: '2026-06-01', replacement: 'gemini-3.1-flash-lite' });
     expect(retirementOf('azure', 'gpt-4o-2024-08-06')).toBeNull();
+  });
+
+  it("matches a Vertex AI version to the model Google's pages name: Gemini's stable versions, Claude's after @", () => {
+    const pro = retirementOf('vertex', 'gemini-2.5-pro', { now: at('2026-10-19') });
+    expect(pro).toMatchObject({ state: 'retiring', retires: '2026-10-20', days: 1, source: RETIREMENT_SOURCES.vertex.url });
+    expect(pro!.text).toBe('gemini-2.5-pro retires on Vertex AI on October 20, 2026, in 1 day; Google Cloud recommends gemini-3.8-flash or gemini-3.5-flash');
+    expect(retirementOf('vertex', 'projects/p/locations/us-central1/publishers/google/models/gemini-2.0-flash-001', { now: at('2026-10-19') })).toMatchObject({ matched: 'gemini-2.0-flash', state: 'retired' });
+    const sonnet = retirementOf('vertex', 'claude-3-7-sonnet@20250219', { now: at('2026-10-19') });
+    expect(sonnet).toMatchObject({ matched: 'claude-3-7-sonnet', deprecated: '2025-11-11', retires: '2026-05-11', state: 'retired', replacement: null });
+    expect(sonnet!.source).toMatch(/\/deprecations\/partner-models$/);
+    // A model the page doesn't name is no match, whatever its version.
+    expect(retirementOf('vertex', 'claude-sonnet-4-5@20250929', { now: at('2026-10-19') })).toBeNull();
+    expect(retirementOf('vertex', 'gemini-3.8-flash-001', { now: at('2026-10-19') })).toBeNull();
+  });
+
+  it("names the computer use previews, an agent's models too", () => {
+    expect(retirementOf('openai', 'computer-use-preview', { now: at('2026-10-19') })).toMatchObject({ state: 'retired', retires: '2026-07-23', replacement: 'gpt-5.6-terra' });
+    expect(retirementOf('gemini', 'gemini-2.5-computer-use-preview-10-2025', { now: at('2026-10-19') })).toMatchObject({ earliest: true, retires: '2026-07-28', replacement: 'gemini-3.8-flash' });
   });
 
   it('lists each retiring model once, the soonest first', () => {

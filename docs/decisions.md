@@ -164,12 +164,12 @@ When no file names the model (it comes from an environment variable or a deploym
 | Platform | Page | What the table keeps |
 |---|---|---|
 | The Claude API | [platform.claude.com, model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations) | Deprecated and retired models, with their retirement dates and replacements; "not sooner than" dates for active models set no date and are left out. Its note on `temperature`, `top_p` and `top_k` too |
-| The OpenAI API | [developers.openai.com, deprecations](https://developers.openai.com/api/docs/deprecations) | Every chat and text model's shutdown date, snapshots with the aliases the page names |
+| The OpenAI API | [developers.openai.com, deprecations](https://developers.openai.com/api/docs/deprecations) | Every chat, text and computer use model's shutdown date, snapshots with the aliases the page names |
 | The Gemini API | [ai.google.dev, deprecations](https://ai.google.dev/gemini-api/docs/deprecations) | Gemini 3, 2.5 and 2.0 shutdown dates, which Google gives as the earliest a model may shut down |
-| Vertex AI | [cloud.google.com, model versions](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions) | Gemini models with a retirement date, and retired ones |
+| Vertex AI | [cloud.google.com, model versions](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions) and [partner model deprecations](https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/partner-models) | Gemini models with a set retirement date (an "or later" date sets none) and retired ones; Claude and Jamba models with their shutdown dates |
 | Amazon Bedrock | [docs.aws.amazon.com, model lifecycle](https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle-legacy.html) | Text models' end-of-life dates, by the Regions each covers |
 
-A call is judged by the platform that served it: a Claude model called through Bedrock has Bedrock's date, not Anthropic's. An Anthropic alias (`claude-sonnet-4-5`) matches the one dated snapshot it names; OpenAI's aliases match only where the page names them. Azure OpenAI is left out: a call names its deployment, which can serve any model.
+A call is judged by the platform that served it: a Claude model called through Bedrock has Bedrock's date, and one called through Vertex AI Google's, not Anthropic's. An Anthropic alias (`claude-sonnet-4-5`) matches the one dated snapshot it names, and a Vertex AI version the model the page lists (`gemini-2.0-flash-001` is `gemini-2.0-flash`, `claude-3-7-sonnet@20250219` is `claude-3-7-sonnet`); OpenAI's aliases match only where the page names them. Models that hold no conversation (embeddings, images, speech) are left out, and so is Azure OpenAI: a call names its deployment, which can serve any model.
 
 ## In CI
 

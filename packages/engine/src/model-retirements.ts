@@ -11,8 +11,12 @@
  * - Google's Gemini API gives the earliest date a model may shut down (`earliest`);
  * - Amazon Bedrock's dates differ by Region (`regions`), and apply to Bedrock only: a platform that
  *   serves another provider's models sets its own dates, so a Claude model called through Bedrock is
- *   judged by Bedrock's table, not Anthropic's;
+ *   judged by Bedrock's table, not Anthropic's, and one called through Vertex AI by Google's page
+ *   for partner models;
  * - Azure OpenAI is left out: a call there names the deployment, which can serve any model.
+ *
+ * Models that hold no conversation (embeddings, images, speech, video) and the Live APIs, which
+ * Shadowlap doesn't record, are left out.
  */
 
 /** Where a model is served, as the table tells its dates apart: a provider's own API, or a platform that serves it. */
@@ -30,8 +34,6 @@ export interface ModelRetirement {
   earliest?: true;
   /** The Regions the date covers (Bedrock). */
   regions?: readonly string[];
-  /** An alias the page says points to this model id. */
-  aliasOf?: string;
   /** The replacement the page recommends, as it words it. */
   replacement?: string;
   /** The page the row comes from. */
@@ -45,15 +47,16 @@ const ANTHROPIC = 'https://platform.claude.com/docs/en/about-claude/model-deprec
 const OPENAI = 'https://developers.openai.com/api/docs/deprecations';
 const GEMINI = 'https://ai.google.dev/gemini-api/docs/deprecations';
 const VERTEX = 'https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions';
+const VERTEX_PARTNERS = 'https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/partner-models';
 const BEDROCK = 'https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle-legacy.html';
 
-/** Each platform's page, and how a report names the platform. */
-export const RETIREMENT_SOURCES: Record<RetirementPlatform, { name: string; owner: string; url: string }> = {
-  anthropic: { name: 'the Claude API', owner: 'Anthropic', url: ANTHROPIC },
-  openai: { name: 'the OpenAI API', owner: 'OpenAI', url: OPENAI },
-  gemini: { name: 'the Gemini API', owner: 'Google', url: GEMINI },
-  vertex: { name: 'Vertex AI', owner: 'Google Cloud', url: VERTEX },
-  bedrock: { name: 'Amazon Bedrock', owner: 'AWS', url: BEDROCK },
+/** Each platform's main page, every page its rows cite (`pages`), and how a report names the platform. */
+export const RETIREMENT_SOURCES: Record<RetirementPlatform, { name: string; owner: string; url: string; pages: readonly string[] }> = {
+  anthropic: { name: 'the Claude API', owner: 'Anthropic', url: ANTHROPIC, pages: [ANTHROPIC] },
+  openai: { name: 'the OpenAI API', owner: 'OpenAI', url: OPENAI, pages: [OPENAI] },
+  gemini: { name: 'the Gemini API', owner: 'Google', url: GEMINI, pages: [GEMINI] },
+  vertex: { name: 'Vertex AI', owner: 'Google Cloud', url: VERTEX, pages: [VERTEX, VERTEX_PARTNERS] },
+  bedrock: { name: 'Amazon Bedrock', owner: 'AWS', url: BEDROCK, pages: [BEDROCK] },
 };
 
 export const MODEL_RETIREMENTS: readonly ModelRetirement[] = [
@@ -119,6 +122,8 @@ export const MODEL_RETIREMENTS: readonly ModelRetirement[] = [
   { platform: 'openai', model: 'gpt-5.4-cyber', deprecated: '2026-09-11', retires: '2026-10-01', replacement: 'The most capable cyber model available to you.', source: OPENAI },
   { platform: 'openai', model: 'gpt-5.2-chat-latest', deprecated: '2026-05-08', retires: '2026-08-10', replacement: 'gpt-5.6-sol', source: OPENAI },
   { platform: 'openai', model: 'gpt-5.3-chat-latest', deprecated: '2026-05-08', retires: '2026-08-10', replacement: 'gpt-5.6-sol', source: OPENAI },
+  { platform: 'openai', model: 'computer-use-preview-2025-03-11', deprecated: '2026-04-22', retires: '2026-07-23', replacement: 'gpt-5.6-terra', source: OPENAI },
+  { platform: 'openai', model: 'computer-use-preview', deprecated: '2026-04-22', retires: '2026-07-23', replacement: 'gpt-5.6-terra', source: OPENAI },
   { platform: 'openai', model: 'gpt-4o-mini-search-preview-2025-03-11', deprecated: '2026-04-22', retires: '2026-07-23', replacement: 'gpt-5.6-terra', source: OPENAI },
   { platform: 'openai', model: 'gpt-4o-search-preview-2025-03-11', deprecated: '2026-04-22', retires: '2026-07-23', replacement: 'gpt-5.6-terra', source: OPENAI },
   { platform: 'openai', model: 'gpt-5-chat-latest', deprecated: '2026-04-22', retires: '2026-07-23', replacement: 'gpt-5.6-sol', source: OPENAI },
@@ -174,6 +179,7 @@ export const MODEL_RETIREMENTS: readonly ModelRetirement[] = [
   { platform: 'gemini', model: 'gemini-3.1-flash-lite', retires: '2027-05-07', earliest: true, replacement: 'gemini-3.5-flash-lite', source: GEMINI },
   { platform: 'gemini', model: 'gemini-3-pro-preview', retires: '2026-03-09', earliest: true, replacement: 'gemini-3.1-pro-preview', source: GEMINI },
   { platform: 'gemini', model: 'gemini-3.1-flash-lite-preview', retires: '2026-05-25', earliest: true, replacement: 'gemini-3.1-flash-lite', source: GEMINI },
+  { platform: 'gemini', model: 'gemini-2.5-computer-use-preview-10-2025', retires: '2026-07-28', earliest: true, replacement: 'gemini-3.8-flash', source: GEMINI },
   { platform: 'gemini', model: 'gemini-2.5-pro-preview-03-25', retires: '2025-12-02', earliest: true, replacement: 'gemini-3.1-pro-preview', source: GEMINI },
   { platform: 'gemini', model: 'gemini-2.5-pro-preview-05-06', retires: '2025-12-02', earliest: true, replacement: 'gemini-3.1-pro-preview', source: GEMINI },
   { platform: 'gemini', model: 'gemini-2.5-pro-preview-06-05', retires: '2025-12-02', earliest: true, replacement: 'gemini-3.1-pro-preview', source: GEMINI },
@@ -186,22 +192,36 @@ export const MODEL_RETIREMENTS: readonly ModelRetirement[] = [
   { platform: 'gemini', model: 'gemini-2.0-flash-lite-001', retires: '2026-06-01', earliest: true, replacement: 'gemini-3.1-flash-lite', source: GEMINI },
   { platform: 'gemini', model: 'gemini-2.0-flash-lite-preview', retires: '2025-12-09', earliest: true, replacement: 'gemini-2.5-flash-lite', source: GEMINI },
   { platform: 'gemini', model: 'gemini-2.0-flash-lite-preview-02-05', retires: '2025-12-09', earliest: true, replacement: 'gemini-2.5-flash-lite', source: GEMINI },
-  // ---- Google Cloud: Gemini on Vertex AI (models with a retirement date, and retired models) ----
-  { platform: 'vertex', model: 'gemini-2.0-flash-001', retires: '2026-06-01', source: VERTEX },
-  { platform: 'vertex', model: 'gemini-2.0-flash-lite-001', retires: '2026-06-01', source: VERTEX },
-  // The page's auto-updated aliases that point to those two.
-  { platform: 'vertex', model: 'gemini-2.0-flash', retires: '2026-06-01', aliasOf: 'gemini-2.0-flash-001', source: VERTEX },
-  { platform: 'vertex', model: 'gemini-2.0-flash-lite', retires: '2026-06-01', aliasOf: 'gemini-2.0-flash-lite-001', source: VERTEX },
-  { platform: 'vertex', model: 'gemini-1.5-pro-001', retires: '2025-05-24', replacement: 'gemini-2.0-flash', source: VERTEX },
-  { platform: 'vertex', model: 'gemini-1.5-pro-002', retires: '2025-09-24', replacement: 'gemini-2.0-flash', source: VERTEX },
-  { platform: 'vertex', model: 'gemini-1.5-flash-001', retires: '2025-05-24', replacement: 'gemini-2.0-flash-lite', source: VERTEX },
-  { platform: 'vertex', model: 'gemini-1.5-flash-002', retires: '2025-09-24', replacement: 'gemini-2.0-flash-lite', source: VERTEX },
-  { platform: 'vertex', model: 'gemini-1.0-pro-001', retires: '2025-04-21', replacement: 'gemini-2.0-flash', source: VERTEX },
-  { platform: 'vertex', model: 'gemini-1.0-pro-002', retires: '2025-04-21', replacement: 'gemini-2.0-flash', source: VERTEX },
-  { platform: 'vertex', model: 'gemini-1.0-pro-vision-001', retires: '2025-04-21', replacement: 'gemini-2.0-flash', source: VERTEX },
-  { platform: 'vertex', model: 'text-bison', retires: '2025-04-21', replacement: 'gemini-2.0-flash-lite', source: VERTEX },
-  { platform: 'vertex', model: 'chat-bison', retires: '2025-04-21', replacement: 'gemini-2.0-flash-lite', source: VERTEX },
-  { platform: 'vertex', model: 'code-gecko', retires: '2025-04-21', replacement: 'gemini-2.0-flash-lite', source: VERTEX },
+  // ---- Google Cloud: Gemini on Vertex AI (models with a set retirement date, short-term ones, and retired
+  // ones; an "or later" date sets none). A stable version the page lists by its model's name
+  // (`gemini-2.0-flash-001`) is that model: see `rowsFor` ----
+  { platform: 'vertex', model: 'gemini-2.5-pro', retires: '2026-10-20', replacement: 'gemini-3.8-flash or gemini-3.5-flash', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-2.5-flash', retires: '2026-10-20', replacement: 'gemini-3.8-flash or gemini-3.5-flash-lite or gemini-3.1-flash-lite', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-2.5-flash-lite', retires: '2026-10-20', replacement: 'gemini-3.8-flash or gemini-3.1-flash-lite or Gemma 4', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-3.7-flash', retires: '2027-01-28', replacement: 'gemini-3.8-flash', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-3.6-flash', retires: '2026-11-19', replacement: 'gemini-3.8-flash', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-2.0-flash', retires: '2026-06-01', replacement: 'gemini-3.1-flash-lite', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-2.0-flash-lite', retires: '2026-06-01', replacement: 'gemini-3.1-flash-lite', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-1.5-pro-001', retires: '2025-05-24', replacement: 'gemini-2.5-flash', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-1.5-pro-002', retires: '2025-09-24', replacement: 'gemini-2.5-flash', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-1.5-flash-001', retires: '2025-05-24', replacement: 'gemini-2.5-flash-lite', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-1.5-flash-002', retires: '2025-09-24', replacement: 'gemini-2.5-flash-lite', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-1.0-pro-001', retires: '2025-04-21', replacement: 'gemini-2.5-flash', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-1.0-pro-002', retires: '2025-04-21', replacement: 'gemini-2.5-flash', source: VERTEX },
+  { platform: 'vertex', model: 'gemini-1.0-pro-vision-001', retires: '2025-04-21', replacement: 'gemini-2.5-flash', source: VERTEX },
+  { platform: 'vertex', model: 'text-bison', retires: '2025-04-21', replacement: 'gemini-2.5-flash-lite', source: VERTEX },
+  { platform: 'vertex', model: 'chat-bison', retires: '2025-04-21', replacement: 'gemini-2.5-flash-lite', source: VERTEX },
+  { platform: 'vertex', model: 'code-gecko', retires: '2025-04-21', replacement: 'gemini-2.5-flash-lite', source: VERTEX },
+  // ---- Google Cloud: partner models on Vertex AI (Claude and Jamba), by the model ids the page names; a
+  // call names a Claude version after `@` (`claude-3-7-sonnet@20250219`). The page names no replacements ----
+  { platform: 'vertex', model: 'claude-3-haiku', deprecated: '2026-02-23', retires: '2026-08-23', source: VERTEX_PARTNERS },
+  { platform: 'vertex', model: 'claude-3-5-haiku', deprecated: '2026-01-05', retires: '2026-07-05', source: VERTEX_PARTNERS },
+  { platform: 'vertex', model: 'claude-3-7-sonnet', deprecated: '2025-11-11', retires: '2026-05-11', source: VERTEX_PARTNERS },
+  { platform: 'vertex', model: 'claude-3-5-sonnet-v2', deprecated: '2025-08-20', retires: '2026-02-19', source: VERTEX_PARTNERS },
+  { platform: 'vertex', model: 'claude-3-5-sonnet', deprecated: '2025-08-20', retires: '2026-02-19', source: VERTEX_PARTNERS },
+  { platform: 'vertex', model: 'jamba-1.5-large', deprecated: '2025-08-27', retires: '2026-02-27', source: VERTEX_PARTNERS },
+  { platform: 'vertex', model: 'jamba-1.5-mini', deprecated: '2025-08-27', retires: '2026-02-27', source: VERTEX_PARTNERS },
+  { platform: 'vertex', model: 'claude-3-opus', deprecated: '2025-06-30', retires: '2025-08-01', source: VERTEX_PARTNERS },
   // ---- Amazon Bedrock: models launched before September 7, 2026 (text models), by the Regions each date covers ----
   { platform: 'bedrock', model: 'ai21.jamba-1-5-large-v1:0', deprecated: '2026-05-26', retires: '2026-11-26', regions: ['us-east-1'], source: BEDROCK },
   { platform: 'bedrock', model: 'ai21.jamba-1-5-mini-v1:0', deprecated: '2026-05-26', retires: '2026-11-26', regions: ['us-east-1'], source: BEDROCK },
@@ -353,7 +373,14 @@ const dayMs = (day: string) => Date.parse(`${day}T00:00:00Z`);
 
 function rowsFor(platform: RetirementPlatform, model: string): ModelRetirement[] {
   const exact = MODEL_RETIREMENTS.filter((r) => r.platform === platform && r.model === model);
-  if (exact.length || platform !== 'anthropic') return exact;
+  if (exact.length) return exact;
+  if (platform === 'vertex') {
+    // A version of a model Google's pages list by name: a Claude version after `@`
+    // (`claude-3-7-sonnet@20250219`), a Gemini stable version (`gemini-2.0-flash-001`).
+    const named = model.replace(/@[^@]+$/, '').replace(/^(gemini-.+)-\d{3}$/, '$1');
+    return named === model ? [] : MODEL_RETIREMENTS.filter((r) => r.platform === 'vertex' && r.model === named);
+  }
+  if (platform !== 'anthropic') return [];
   // An Anthropic alias (`claude-sonnet-4-5`, `claude-3-7-sonnet-latest`) names the one dated snapshot it points to.
   const base = model.replace(/-latest$/, '');
   const dated = MODEL_RETIREMENTS.filter((r) => r.platform === 'anthropic' && new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d{8}$`).test(r.model));
@@ -438,7 +465,8 @@ export function retiredFields(provider: string | null | undefined, model: string
 /** The table's own checks: every row dated and sourced, for its test. */
 export function retirementTableProblems(): string[] {
   const problems: string[] = [];
-  const pages = new Set(Object.values(RETIREMENT_SOURCES).map((s) => s.url));
+  const pages = new Set(Object.values(RETIREMENT_SOURCES).flatMap((s) => s.pages));
+  for (const f of FIELD_RETIREMENTS) if (!pages.has(f.source)) problems.push(`the ${f.fields.join(', ')} rule: its source is not one of the platforms' pages`);
   for (const r of MODEL_RETIREMENTS) {
     const at = `${r.platform} ${r.model}`;
     if (!pages.has(r.source)) problems.push(`${at}: its source is not one of the platforms' pages`);
