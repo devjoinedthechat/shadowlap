@@ -1,4 +1,4 @@
-import { canonicalize, endedEarlyCount, formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
+import { canonicalize, checkStatus, endedEarlyCount, formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type RunRecord, type Store, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -49,7 +49,7 @@ export interface BlameInput {
 export class BlameError extends Error {
   constructor(
     message: string,
-    readonly reason: 'no-model-calls' | 'diverged' | 'bypassed' | 'passes' | 'unpriced' | 'prefix' | 'interrupted',
+    readonly reason: 'no-model-calls' | 'diverged' | 'bypassed' | 'passes' | 'unpriced' | 'inconclusive' | 'prefix' | 'interrupted',
   ) {
     super(message);
     this.name = 'BlameError';
@@ -100,6 +100,17 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     const unpriced = unpricedOnly(baseline);
     if (unpriced) {
       throw new BlameError(`${shortId(parent.runId)} fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, so the cost check can't be judged whatever the model answers. Add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json, and blame again if it still fails.`, 'unpriced');
+    }
+    // A check that can't be decided on the recording (a judge with no verdict, a condition it can't
+    // read) can't be on a probe either, and a probe passes only when every check does: none could,
+    // whatever the model answers, so searching would spend money to say nothing.
+    const undecided = inconclusiveChecks(baseline);
+    if (undecided.length) {
+      const one = undecided.length === 1;
+      throw new BlameError(
+        `${shortId(parent.runId)} has ${one ? 'a check' : `${undecided.length} checks`} that can't be decided as recorded, so no probe could pass whatever the model answers: ${undecided.map((c) => `${c.label} (${c.detail ?? 'inconclusive'})`).join('; ')}. Give ${one ? 'it what it needs' : 'them what they need'} (a verdict for a judge, a value a condition can read), or leave ${one ? 'it' : 'them'} out of --expect, and blame again.`,
+        'inconclusive',
+      );
     }
     log(`  ${p.green('✓')} replays as recorded and fails: ${baseline.failures.join('; ')}`);
 
@@ -237,12 +248,17 @@ const NO_PRICE = /^no price for (.+?); add it under "prices"/;
  * The models with no price, when they are the only reason an attempt failed: every failure is a
  * cost check that could not be judged for want of a price. Null when anything else failed too.
  */
-export function unpricedOnly(a: Pick<Attempt, 'checks' | 'failures'>): string[] | null {
+export function unpricedOnly(a: { checks: readonly StoredCheck[]; failures: readonly string[] }): string[] | null {
   const failed = a.checks.filter((c) => !c.ok);
   if (!failed.length || failed.length !== a.failures.length) return null;
   const models = failed.map((c) => NO_PRICE.exec(c.detail ?? '')?.[1]);
   if (!models.every((m): m is string => !!m)) return null;
   return [...new Set(models.flatMap((m) => m.split(', ')))];
+}
+
+/** The checks of an attempt that could not be decided (inconclusive): no attempt like it can pass while they stay so. */
+export function inconclusiveChecks(a: { checks: readonly StoredCheck[] }): StoredCheck[] {
+  return a.checks.filter((c) => checkStatus(c) === 'inconclusive');
 }
 
 /** One attempt in a line: its verdict, what ran live, what it cost, how long it took and its run. */

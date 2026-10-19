@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { EXTERNAL_COMMAND, endedEarlyCount, formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, endedEarlyCount, formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -10,7 +10,7 @@ import { specFor } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
-import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
+import { formatChecks, goldenVerdict, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
 import { describeChange, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
 import { emitJobEvent } from '../job-events.js';
@@ -122,7 +122,7 @@ function passedLine(o: GoldenOutcome): string {
         ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed`
         : `${replayed}/${replayed + s.notReached.length} replayed`,
     `${formatTokens(s.tokensNotRespent.inputTokens)} input tokens not re-spent`,
-    ...(r.shown.checks?.length ? [`${r.shown.checks.length} check${r.shown.checks.length === 1 ? '' : 's'} passed`] : []),
+    ...(r.shown.checks?.length ? [statusTally(r.shown.checks)] : []),
     ...(r.attempts.length > 1 ? [`${r.passed}/${r.attempts.length} attempts passed`] : []),
   ].join(', ');
 }
@@ -132,7 +132,8 @@ function printGolden(o: GoldenOutcome, suffix = ''): void {
     process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}${suffix}\n`);
     return;
   }
-  process.stdout.write(`${p.red('✗')} ${o.name}: ${o.failure.message}\n`);
+  // One that fell short only on checks that could not be decided is inconclusive: it fails the run, but nothing in it failed.
+  process.stdout.write(`${goldenVerdict(o) === 'inconclusive' ? p.yellow('?') : p.red('✗')} ${o.name}: ${o.failure.message}\n`);
   if (!o.result) return;
   const indent = (text: string, prefix = '    ') => text.split('\n').map((l) => prefix + l).join('\n') + '\n';
   if (o.result.shown.checks?.length) process.stdout.write(indent(formatChecks(o.result.shown.checks)));
@@ -362,7 +363,9 @@ export function register(program: Command): void {
       if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open the passing run' : 'Open the run', href: `#/run/${only.runId}` });
       else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: `#/run/${r.runId}`, secondary: true });
       emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests', ...(only?.runId ? { secondary: true } : {}) });
-      process.stdout.write(`\n${report.passed} passed, ${report.failed} failed${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
+      // Inconclusive ones fail the run, and are counted apart from those that failed.
+      const counts = report.inconclusive ? `${report.failed - report.inconclusive} failed, ${report.inconclusive} inconclusive` : `${report.failed} failed`;
+      process.stdout.write(`\n${report.passed} passed, ${counts}${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
       for (const fix of settled) process.stdout.write(`${p.green('✓')} ${shortFixId(fix.fixId)} holds again: its goldens passed · ${safe(fix.title)}\n`);
       // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).
       if (updatable.length) process.stdout.write(p.dim(`If the change was intended, update ${updatable.length === 1 ? 'it' : 'them'}: shadowlap test ${safe(quoteArgv(updatable))} --update\n`));

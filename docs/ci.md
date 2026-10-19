@@ -102,6 +102,7 @@ A clean replay proves the agent still sends the same requests. Sometimes you wan
 | `cost` | The same in dollars, from the [price table](./cli.md#the-configuration-file). An amount is a number, `"<= 0.50"` or a range such as `"0.1-0.4"`. A model with no price **fails** the check and names the model, rather than passing because an unknown price counted as zero |
 | `output` | What the agent printed (stdout and stderr) `includes` each string and `excludes` each string. Case doesn't matter |
 | `answer` | The same, for the text of the last model response |
+| `calls`, `when`, `judge` | Every call of a tool meets a rule (what it comes after, its arguments, values from earlier calls); checks that apply once a call matched a condition; a model's answer to a question about the run. See [Checks](./checks.md) |
 
 A key is a recording directory relative to the config file, and `*` may stand for part of its last path segment (`goldens/refund-*`). An exact path wins over a pattern. A mistake in `tests`, such as an unknown key, fails `shadowlap test` before anything runs, and `shadowlap doctor` reports it.
 
@@ -248,7 +249,7 @@ Pin the action to a release tag once there is one. Until `shadowlap` is on npm, 
 | `fix-budget` | `2.00` | Dollars that may be spent per failing golden on finding and proving a fix |
 | `repairer` | empty | The model that proposes fixes, as for `shadowlap repair --repairer`; empty uses `repair.repairer` in the config |
 
-Outputs: `passed`, `failed` (every failure), `diverged`, `checks-failed`, `session` (the test session's id), `fixes` and `fix-prs` (the fix pull requests opened, and their URLs), and the paths `report-json`, `report-markdown` and `junit`.
+Outputs: `passed`, `failed` (every failure), `diverged`, `checks-failed`, `inconclusive` (recordings that fell short only on a check that could not be decided, counted among `failed` too), `session` (the test session's id), `fixes` and `fix-prs` (the fix pull requests opened, and their URLs), and the paths `report-json`, `report-markdown` and `junit`.
 
 The action reads `tests` from `shadowlap.config.json` in the working directory. A recording marked `fork` calls the providers after the fork, so pass their keys to the step as environment variables (`env: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}`).
 

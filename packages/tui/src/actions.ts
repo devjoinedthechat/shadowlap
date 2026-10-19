@@ -1,4 +1,4 @@
-import { commandIsImported, hasRecordedCommand, importedCommandSource, literalValue, noLateSystemMessage, normalizeAddArgs, type CallRecord, type RunIntervention, type RunRecord, type Store } from '@shadowlap/engine';
+import { checkStatus, commandIsImported, hasRecordedCommand, importedCommandSource, literalValue, noLateSystemMessage, normalizeAddArgs, type CallRecord, type RunIntervention, type RunRecord, type Store } from '@shadowlap/engine';
 
 /**
  * The actions palette and the dashboard's fork menu: everything the CLI can do from the selected
@@ -123,7 +123,8 @@ const WAITS: Record<string, string> = { r: 'replay once the recording finishes',
  */
 export function bisectAction(run: RunRecord): Action | null {
   if (!hasRecordedCommand(run)) return null;
-  const failed = run.status === 'failed' || (run.meta?.checks ?? []).some((c) => !c.ok);
+  // A check that could not be decided is no failure: nothing broke.
+  const failed = run.status === 'failed' || (run.meta?.checks ?? []).some((c) => checkStatus(c) === 'failed');
   const own = run.codeVersion?.replace(/\+dirty$/, '') || null;
   const disabled = commandIsImported(run)
     ? `This run came from ${importedCommandSource(run)}: bisect would run its command at every commit. Replay it with your own command first, and bisect that run`

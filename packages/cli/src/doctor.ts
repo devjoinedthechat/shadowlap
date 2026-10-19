@@ -2,8 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SCHEMA_VERSION, Store } from '@shadowlap/engine';
+import { SCHEMA_VERSION, Store, loadApiRequest, toolDefinitions, type CallRecord } from '@shadowlap/engine';
+import { packRecording } from './check-recordings.js';
+import { closestName, pathsNamed, storedCalls, toolsNamed, unreadPaths, type NamedPath, type NamedTool, type RecordedCalls, type TestEntry } from './checks.js';
 import { CONFIG_FILE, configPath as configFile, defaultDbPath, loadConfig, loadTests } from './config.js';
+import { expandRecordings, testsKeyFor } from './goldens.js';
 
 /**
  * `shadowlap doctor`: the environment, the store and the configuration, checked the way support
@@ -170,6 +173,14 @@ export function runDoctor(options: DoctorOptions): Check[] {
       const tests = loadTests(cwd);
       if (tests.length) parts.push(`checks for ${tests.length} recording${tests.length === 1 ? '' : 's'}`);
       push('config', 'ok', `${configPath}: ${parts.join(', ')}`);
+      if (tests.length) {
+        // What goes wrong reading the packs says nothing about the config, which parsed.
+        try {
+          checks.push(...checkRules(cwd, tests, dbPath));
+        } catch (err) {
+          push('check rules', 'warn', `the tools the checks name could not be held against their recordings: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     } catch (err) {
       push('config', 'fail', `${configPath}: ${err instanceof Error ? err.message : String(err)}`, 'Fix the JSON; shadowlap normalize ls / redact ls print what is loaded.');
     }
@@ -187,6 +198,136 @@ export function runDoctor(options: DoctorOptions): Check[] {
   if ((env.PYTHONPATH ?? '').split(delimiter).some((p) => p.endsWith('guard'))) push('PYTHONPATH', 'warn', 'contains the Shadowlap guard directory', 'Unset it outside agent processes.');
 
   return checks;
+}
+
+/** The tools a run's model was offered: in any of its requests, or in its first that names them (empty when none says). */
+function offeredTools(store: Store, calls: readonly CallRecord[], everyRequest: boolean): Set<string> {
+  const offered = new Set<string>();
+  for (const c of calls) {
+    if (c.kind !== 'api' || !c.requestRef) continue;
+    try {
+      const body = loadApiRequest(store, c.requestRef);
+      if (body && typeof body === 'object' && !Array.isArray(body)) for (const name of toolDefinitions(body as Record<string, unknown>).keys()) offered.add(name);
+    } catch {
+      // an unreadable request offers nothing we can name
+    }
+    if (!everyRequest && offered.size) break;
+  }
+  return offered;
+}
+
+/** What a rule that names a tool no recording knows does, by what it names the tool for. */
+const UNKNOWN: Record<NamedTool['use'], string> = {
+  count: 'so the count is of calls that never happen',
+  rule: 'so the rule has no call to check',
+  after: 'so every call the rule checks fails it',
+  reference: 'so the value it reads is never there, and the rule fails wherever it reads it',
+  condition: 'so the condition never holds and the rule is never applied',
+};
+
+/** What a rule that reads a value no recorded call has does, by what it reads it for. */
+const UNREAD: Record<NamedPath['use'], string> = {
+  rule: 'so the rule fails on every call it checks',
+  reference: 'so a rule that reads it fails, or a condition that reads it is inconclusive',
+  condition: 'so whether the condition held can\'t be told, and its checks read inconclusive',
+};
+
+/** How many of the store's runs, newest first, the rules are held against beside the packs. */
+export const STORE_RUNS = 200;
+
+/** A recording the rules are held against: its calls, how to read them, and the tools its model was offered. */
+interface Held {
+  calls: CallRecord[];
+  input: RecordedCalls['input'];
+  offered: Set<string>;
+}
+
+/**
+ * Rules under `tests` held against every recording there is: the packs the entries apply to and the
+ * store's newest runs, read without changing either. A tool a rule names that no recording called
+ * or offered its model is most likely misspelt, or renamed since, and a rule on it checks nothing;
+ * one the agent has but no recording called yet is left alone (a rule that guards against a call,
+ * on a golden that never makes it, is what it should be). A value a rule reads that no recorded call
+ * of its tool has (a misspelt `result.totl`) fails the rule, or leaves a condition undecided. An
+ * entry with checks and no pack is named too. The home for later checks on checks.
+ */
+export function checkRules(cwd: string, entries: readonly TestEntry[], dbPath?: string): Check[] {
+  const out: Check[] = [];
+  const byKey = new Map<string, string[]>();
+  for (const e of entries) {
+    let dirs: string[] = [];
+    try {
+      dirs = expandRecordings([e.recording], cwd).dirs.filter((d) => existsSync(join(resolve(cwd, d), 'run.json')));
+    } catch {
+      // a wildcard where the reader takes none: loadTests would have said so
+    }
+    for (const d of dirs) {
+      const key = testsKeyFor(entries, resolve(cwd, d), cwd);
+      if (key === null) continue;
+      const list = byKey.get(key) ?? [];
+      if (!list.includes(d)) list.push(d);
+      byKey.set(key, list);
+    }
+  }
+  const stores: Store[] = [];
+  try {
+    const held: Held[] = [];
+    const hold = (store: Store, calls: CallRecord[], everyRequest: boolean) => held.push({ calls, input: storedCalls(store), offered: offeredTools(store, calls, everyRequest) });
+    const packs = [...new Set([...byKey.values()].flat())];
+    let packsRead = 0;
+    for (const dir of packs) {
+      try {
+        const { run, store } = packRecording(resolve(cwd, dir));
+        stores.push(store);
+        hold(store, store.getCalls(run.runId), true);
+        packsRead++;
+      } catch {
+        // a pack that can't be read: shadowlap test reports it
+      }
+    }
+    let runsRead = 0;
+    if (dbPath && existsSync(dbPath)) {
+      const store = Store.open(dbPath);
+      stores.push(store);
+      const runs = store.allRuns().filter((r) => r.status !== 'running').sort((a, b) => b.startedAt - a.startedAt).slice(0, STORE_RUNS);
+      // A run's first model request names the tools its model has; reading every request of hundreds of runs would make doctor slow.
+      for (const r of runs) hold(store, store.getCalls(r.runId), false);
+      runsRead = runs.length;
+    }
+    const called = new Set(held.flatMap((h) => h.calls.filter((c) => c.kind === 'tool').map((c) => c.name)));
+    const offered = new Set(held.flatMap((h) => [...h.offered]));
+    const where = [packsRead ? `${packsRead} pack${packsRead === 1 ? '' : 's'}` : '', runsRead ? `${runsRead} run${runsRead === 1 ? '' : 's'} in the store` : ''].filter(Boolean).join(' and ') || 'no recordings';
+    const calledList = [...called].sort();
+    const theyCall = calledList.length ? `the recordings call ${calledList.length > 8 ? `${calledList.slice(0, 8).join(', ')} and ${calledList.length - 8} more` : calledList.join(', ')}` : 'the recordings call no tools';
+    for (const e of entries) {
+      const names = toolsNamed(e.spec, `${CONFIG_FILE}: tests["${e.recording}"].expect`);
+      if (!names.length) continue;
+      if (!(byKey.get(e.recording) ?? []).length) {
+        out.push({ name: 'check rules', verdict: 'warn', detail: `tests["${e.recording}"] has checks but no recording: there is no pack ${e.recording.includes('*') ? 'that matches it' : 'there'}`, fix: `Pack a run there (shadowlap pack <run> ${e.recording.includes('*') ? e.recording.replace(/\*/g, 'name') : e.recording}), or remove the entry.` });
+      }
+      if (!held.length) continue;
+      const seen = new Set<string>();
+      for (const n of names) {
+        if (called.has(n.tool) || offered.has(n.tool)) continue;
+        // A "never" count on a tool nobody can tell is unknown, when no request names its tools.
+        if (n.use === 'count' && n.zero && !offered.size) continue;
+        if (seen.has(`${n.tool} ${n.at}`)) continue;
+        seen.add(`${n.tool} ${n.at}`);
+        const meant = closestName(n.tool, new Set([...called, ...offered]));
+        out.push({ name: 'check rules', verdict: 'warn', detail: `${n.at} names ${n.tool}, which no recording called or offered to its model (${where}), ${UNKNOWN[n.use]}`, fix: meant ? `Did you mean ${meant}? Otherwise check the name: ${theyCall}.` : `Check the name: ${theyCall}.` });
+      }
+      for (const u of unreadPaths(pathsNamed(e.spec), held)) {
+        const last = u.path.at(-1);
+        const meant = last?.type === 'key' ? closestName(last.key, u.keys) : null;
+        const has = u.keys.length ? `they have ${u.keys.length > 8 ? `${u.keys.slice(0, 8).join(', ')} and ${u.keys.length - 8} more` : u.keys.join(', ')} there` : `they have nothing there`;
+        out.push({ name: 'check rules', verdict: 'warn', detail: `${u.at} reads ${u.text} from ${u.tool}, which none of its ${u.calls} recorded call${u.calls === 1 ? '' : 's'} has, ${UNREAD[u.use]}`, fix: `${meant ? `Did you mean ${meant}? ` : ''}Check the path: ${has}.` });
+      }
+    }
+    if (!out.length && held.length) out.push({ name: 'check rules', verdict: 'ok', detail: `every tool and value the checks name is in the recordings (${where})` });
+  } finally {
+    for (const s of stores) s.close();
+  }
+  return out;
 }
 
 export function formatDoctor(checks: Check[], p: { green: (s: string) => string; yellow: (s: string) => string; red: (s: string) => string; dim: (s: string) => string }): string {

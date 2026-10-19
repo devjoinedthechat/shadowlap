@@ -327,6 +327,28 @@ describe('scopes, labels and the dashboard', () => {
   });
 });
 
+describe('check results in the runs list', () => {
+  it('never counts a check that did not apply as passed, and marks one that could not be decided', async () => {
+    const { store, runId } = goldenStore();
+    const na = { status: 'not-applicable' as const, ok: true, label: 'when x is called: y called 1 time', detail: 'the condition never held: x was never called' };
+    store.updateRunMeta(runId, { labels: ['refund'], checks: [{ status: 'passed', ok: true, label: 'a', detail: null }, na, na] });
+    const other = store.createRun({ mode: 'record', command: { argv: ['python', 'triage.py'], cwd: '.' } });
+    store.endRun(other.runId, 'completed');
+    store.updateRunMeta(other.runId, { labels: ['triage'], checks: [{ status: 'passed', ok: true, label: 'a', detail: null }, { status: 'inconclusive', ok: false, label: 'judge "j" answers yes', detail: 'not judged' }] });
+    const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
+    // Passed of those that applied; amber when one could not be decided.
+    await frameWith(lastFrame, '✓ 1/1 refund');
+    await frameWith(lastFrame, '? 1/2 triage');
+    stdin.write('/');
+    await frameWith(lastFrame, RUN_SEARCH);
+    stdin.write('refund');
+    stdin.write('\r');
+    const frame = await frameWith(lastFrame, '1/2 runs');
+    expect(frame).toContain('checks 1/3 passed, 2 not applicable');
+    store.close();
+  });
+});
+
 describe('actions palette', () => {
   it('lists context-aware actions, prompts for input, runs the CLI and opens the created run', async () => {
     const { spawn } = await import('node:child_process');

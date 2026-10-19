@@ -83,6 +83,7 @@ describe('the JSON the CLI prints', () => {
     const checked = await shadowlap(['replay', recording, '--expect', '{"tools":{"escalate":0}}', '--summary-json', 'checked.json']);
     expect(checked.code, checked.out).toBe(1);
     expect(keys(file('checked.json'))).toEqual(fields('replayChecks'));
+    for (const c of file<{ checks: object[] }>('checked.json').checks) expect(keys(c)).toEqual(fields('checkResult'));
 
     const repeat = await shadowlap(['replay', recording, '--repeat', '2', '--summary-json', 'repeat.json']);
     expect(repeat.code, repeat.out).toBe(0);
@@ -95,6 +96,22 @@ describe('the JSON the CLI prints', () => {
     const fork = await shadowlap(['replay', recording, '--strict', '--inject', '3=Answer in one line.']);
     expect(fork.code, fork.out).toBe(1);
   }, 120_000);
+
+  it('check: recordings judged by checks, each check with its status, and its exit status', async () => {
+    // A rule that holds, one that doesn't apply, and a judge with no verdict: inconclusive, so exit 1.
+    const expect_ = { calls: [{ tool: 'escalate', after: 'lookup_order' }], when: [{ if: { tool: 'issue_refund' }, then: { tools: { escalate: 0 } } }], judge: [{ name: 'polite', question: 'Is the reply polite?', model: 'claude-haiku-4-5' }] };
+    const r = await shadowlap(['check', recording, '--expect', JSON.stringify(expect_), '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = json<{ recordings: Array<{ checks: object[] }>; counts: object }>(r);
+    expect(keys(report)).toEqual(fields('check'));
+    expect(keys(report.recordings[0])).toEqual(fields('checkRecording'));
+    expect(keys(report.counts)).toEqual(fields('checkCounts'));
+    for (const c of report.recordings[0]!.checks) expect(keys(c).filter((k) => k !== 'reason' && k !== 'source')).toEqual(fields('checkResult'));
+    expect(report.recordings[0]!.checks.map((c) => (c as { status: string }).status)).toEqual(['passed', 'not-applicable', 'inconclusive']);
+    // Without the judge, every recording judged passes: exit 0.
+    const { judge: _judge, ...plain } = expect_;
+    expect((await shadowlap(['check', recording, '--expect', JSON.stringify(plain)])).code).toBe(0);
+  }, 60_000);
 
   it('show, ls, label, search and diff', async () => {
     const show = json<{ run: object; summary: object; calls: object[] }>(await shadowlap(['show', recording, '--json']));

@@ -1,8 +1,8 @@
 import { importedRecording, pulledRun } from '../../../engine/src/classify.js';
 import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
 import { personName } from '../overview/model.js';
-import type { BlameView, CallRow, CheckView, LineageNode, RunDetail, RunListItem } from '../types.js';
-import type { RunLike } from '../runs.js';
+import type { BlameView, CallRow, CheckStatusView, CheckView, LineageNode, RunDetail, RunListItem } from '../types.js';
+import { countChecks, type RunLike } from '../runs.js';
 import { modelCallOf, originOf } from './calls.js';
 
 /**
@@ -18,7 +18,7 @@ import { modelCallOf, originOf } from './calls.js';
 export function runLikeOf(d: RunDetail): RunLike {
   const meta = d.run.meta;
   const state = d.state ?? null;
-  const checks = meta?.checks?.length ? { passed: meta.checks.filter((c) => c.ok).length, total: meta.checks.length } : null;
+  const checks = meta?.checks?.length ? countChecks(meta.checks) : null;
   return {
     runId: d.run.runId,
     parentRunId: d.run.parentRunId,
@@ -160,7 +160,7 @@ export function blameOf(d: Pick<RunDetail, 'blame' | 'calls'> & { run: { meta?: 
 /** The run's outcome checks, with how many attempts each held in when the server counts them. */
 export function checksOf(d: Pick<RunDetail, 'checks'> & { run: { meta?: RunDetail['run']['meta'] } }): CheckView[] {
   if (d.checks?.length) return d.checks;
-  return (d.run.meta?.checks ?? []).map((c) => ({ label: c.label, ok: c.ok }));
+  return (d.run.meta?.checks ?? []).map((c) => ({ label: c.label, ok: c.ok, ...(typeof c.status === 'string' && ['passed', 'failed', 'inconclusive', 'not-applicable'].includes(c.status) ? { status: c.status as CheckStatusView } : {}) }));
 }
 
 export { callDetail, callTitle, conversationLink, modelCalls, originOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike, type TimelineRow, type Turn } from './calls.js';

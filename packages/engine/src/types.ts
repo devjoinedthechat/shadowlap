@@ -133,6 +133,21 @@ export interface Normalizer {
   replace: string;
 }
 
+/**
+ * One check's result, as a run or a test result keeps it: `status` passed, failed, inconclusive or
+ * not applicable (absent on results kept before checks had one, which `ok` then says), `ok` (true
+ * for passed and not applicable), what was expected (`label`), what happened (`detail`), and for a
+ * judge check its `reason` and where its verdict came from (`source`).
+ */
+export interface StoredCheck {
+  status?: 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
+  ok: boolean;
+  label: string;
+  detail: string | null;
+  reason?: string;
+  source?: 'recording' | 'live';
+}
+
 export interface RunMeta {
   /** Rules applied to this run's stored content on export; replays apply them as normalizers. */
   redactions?: Normalizer[];
@@ -162,8 +177,8 @@ export interface RunMeta {
   commandFromImport?: boolean;
   /** One attempt of `shadowlap replay --repeat`: attempts of one invocation share the group. */
   repeat?: { group: string; attempt: number; of: number };
-  /** Outcome checks from `shadowlap test` or `shadowlap blame`, as they came out for this run. */
-  checks?: Array<{ ok: boolean; label: string; detail: string | null }>;
+  /** Outcome checks from `shadowlap test` or `shadowlap blame`, as they came out for this run. Older runs' carry no `status`: read it with `checkStatus`. */
+  checks?: StoredCheck[];
   /** One attempt of a `shadowlap blame` probe: the run blamed, the model call forced live, and whether the attempt passed. */
   probe?: { of: string; callNo: number; passed: boolean };
   /** The last `shadowlap blame` of this run. */

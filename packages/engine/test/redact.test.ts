@@ -7,7 +7,7 @@ import { encodeEventStreamFrame, eventStreamFrames, eventStreamMessages } from '
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { applyNormalizers, rewriteText } from '../src/normalize.js';
 import { packRun, unpackRun } from '../src/pack.js';
-import { redactBytes, redactRun } from '../src/redact.js';
+import { redactBytes, redactRun, redactRunDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
 import type { Normalizer } from '../src/types.js';
 
@@ -289,6 +289,24 @@ describe('redactRun: the run record', () => {
     const manifest = readFileSync(join(dir, 'run.json'), 'utf8');
     expect(manifest).not.toContain('example.com');
     expect(manifest).toContain('--override 2=…');
+    src.close();
+  });
+
+  it("masks a judge's reason in every copy, as it masks a check's detail", () => {
+    const src = Store.open(':memory:');
+    const run = seed(src);
+    // A judge read the conversation, and its reason may quote it.
+    const judged = { status: 'failed' as const, ok: false, label: 'judge "explains-escalation" answers yes', detail: 'the judge answered no', reason: 'It tells maya@example.com the refund was issued.', source: 'recording' as const };
+    src.updateRunMeta(run.runId, { checks: [judged] });
+    const dst = Store.open(':memory:');
+    const copy = redactRun(src, run.runId, [EMAIL], dst);
+    expect(copy.meta?.checks).toEqual([{ ...judged, reason: 'It tells <EMAIL> the refund was issued.' }]);
+    const dir = join(mkdtempSync(join(tmpdir(), 'fp-redact-judge-')), 'pack');
+    packRun(src, run.runId, dir, { redact: [EMAIL] });
+    expect(readFileSync(join(dir, 'run.json'), 'utf8')).not.toContain('maya@example.com');
+    // The copies that are only read mask what a person or a model wrote in the record too.
+    expect(redactRunDetails(src.getRun(run.runId)!, [EMAIL]).meta?.checks).toEqual([{ ...judged, reason: 'It tells <EMAIL> the refund was issued.' }]);
+    dst.close();
     src.close();
   });
 

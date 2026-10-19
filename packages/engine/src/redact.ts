@@ -380,7 +380,8 @@ function redactMeta(meta: RunMeta | undefined, rules: Normalizer[], observer?: R
   const out: RunMeta = { ...rest, redactions: [...(meta?.redactions ?? []), ...rules] };
   const text = (v: unknown): string => (typeof v === 'string' ? rewriteText(v, rules, observer) : '');
   if (Array.isArray(meta?.interventions)) out.interventions = meta.interventions.filter(isObject).map((i) => ({ kind: i.kind, at: i.at, flag: text(i.flag) }));
-  if (Array.isArray(meta?.checks)) out.checks = meta.checks.filter(isObject).map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail) }));
+  // A judge's reason is a model's words about the conversation it read: masked like the detail.
+  if (Array.isArray(meta?.checks)) out.checks = meta.checks.filter(isObject).map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail), ...(typeof c.reason === 'string' ? { reason: text(c.reason) } : {}) }));
   if (isObject(meta?.blame)) {
     const b = meta.blame;
     out.blame = { ...b, ...('oracle' in b ? { oracle: rewriteDeep(b.oracle, rules, observer) as string[] } : {}), ...('fields' in b ? { fields: rewriteDeep(b.fields, rules, observer) as Record<string, unknown> } : {}) };
@@ -525,7 +526,7 @@ export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord
     const m: RunMeta = { ...meta };
     if (meta.labels !== undefined) m.labels = deep(meta.labels) as string[];
     if (Array.isArray(meta.notes)) m.notes = meta.notes.map((n) => (isRecord(n) ? { ...n, text: deep(n.text) as string } : (deep(n) as RunNote)));
-    if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isRecord(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null } : (deep(c) as RunCheck)));
+    if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isRecord(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null, ...('reason' in c ? { reason: deep(c.reason) as string } : {}) } : (deep(c) as RunCheck)));
     if (isRecord(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from) };
     if (isRecord(meta.test) && typeof meta.test.golden === 'string') m.test = { ...meta.test, golden: text(meta.test.golden) };
     if (typeof meta.author === 'string') m.author = text(meta.author);
@@ -1008,7 +1009,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
     }
   }
   // What the run's own record repeats of its content, as a copy masks it (redactRun): a fork's
-  // flags, the checks' labels and details, the last blame's oracle and fields, the hosts the guard
+  // flags, the checks' labels, details and judges' reasons, the last blame's oracle and fields, the hosts the guard
   // named, the divergence report. Masked in a pack as in every copy, so counted with the rest.
   const record: RewriteObserver = { changed: observer.changed! };
   redactMeta(run.meta, rules, record);

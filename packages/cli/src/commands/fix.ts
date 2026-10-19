@@ -3,7 +3,7 @@ import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { applyLeft, commandIsImported, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, prNumber, resolveFix, setFixTitle, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fixDetail, fixHref, fixList, ghReader, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
-import { formatBudget } from '../attempts.js';
+import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
 import { parseExpect } from '../checks.js';
 import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
@@ -213,6 +213,8 @@ export function register(program: Command): void {
       if (passes > flags.attempts) throw new InvalidArgumentError(`--passes (${passes}) can't be more than --attempts (${flags.attempts})`);
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
       const spec = expect?.spec ?? null;
+      const undecidable = undecidableRefusal(spec, 'blame');
+      if (undecidable) throw new InvalidArgumentError(undecidable);
       const fields = parseFields(flags.set, flags.model);
 
       const store = readStore(opts);
@@ -292,6 +294,8 @@ export function register(program: Command): void {
       if (passes > flags.attempts) throw new InvalidArgumentError(`--passes (${passes}) can't be more than --attempts (${flags.attempts})`);
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
       const spec = expect?.spec ?? null;
+      const undecidable = undecidableRefusal(spec, 'verify');
+      if (undecidable) throw new InvalidArgumentError(undecidable);
       const fields = parseFields(flags.set, flags.model);
 
       const store = readStore(opts);
@@ -388,6 +392,8 @@ export function register(program: Command): void {
       if (passes > flags.attempts) throw new InvalidArgumentError(`--passes (${passes}) can't be more than --attempts (${flags.attempts})`);
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
       const spec = expect?.spec ?? null;
+      const undecidable = undecidableRefusal(spec, 'repair');
+      if (undecidable) throw new InvalidArgumentError(undecidable);
       const config = loadConfig(process.cwd());
       const repairerSpec = flags.repairer ?? config.repair?.repairer;
       let repairer: Repairer | null = null;

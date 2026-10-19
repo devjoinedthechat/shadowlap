@@ -1,9 +1,9 @@
 import type { ChildProcess } from 'node:child_process';
-import { estimateCost, finalAnswer, formatDuration, formatUsd, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
+import { checkStatus, estimateCost, formatDuration, formatUsd, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
-import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
+import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { agentEnv, recordsInput, type GuardMode } from './run-agent.js';
@@ -254,7 +254,8 @@ export class AttemptRunner {
   }
 
   judgeRecorded(run: RunRecord, calls: CallRecord[]): { passed: boolean | null; failures: string[] } {
-    return judgeRecording(this.store, run, calls, this.settings.spec, this.config.prices);
+    const { passed, failures } = judgeRecording(this.store, run, calls, this.settings.spec, this.config.prices);
+    return { passed, failures };
   }
 
   /** The store's path as given (`--db`), for what runs after the attempts. */
@@ -272,47 +273,72 @@ export class AttemptRunner {
 
   private check(calls: CallRecord[], output: string, spec = this.settings.spec): CheckResult[] {
     if (!spec) return [];
-    return evaluateChecks(spec, {
-      calls,
-      output,
-      answer: finalAnswer(this.store, calls),
-      argsOf: (c) => (c.requestRef ? this.store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined),
-      costOf: this.costOf,
-    });
+    return evaluateChecks(spec, { ...storedCheckInput(this.store, calls, output, this.config.prices), costOf: this.costOf });
   }
 }
 
-const failed = (checks: CheckResult[]) => checks.filter((c) => !c.ok).map((c) => `${c.label}, but ${c.detail}`);
+/** Why the checks fail a run: each failed check, and each that could not be decided (an inconclusive check never passes). */
+const failed = (checks: readonly CheckResult[]) => checks.filter((c) => !c.ok).map((c) => `${c.label}, but ${c.status === 'inconclusive' ? `it is inconclusive: ${c.detail}` : c.detail}`);
+
+/**
+ * Why an attempt can't have a verdict for a judge check, or null when it can: an attempt is a fork,
+ * so its judge has to be asked live, and attempts ask none yet. The judge's live asking replaces
+ * this with what it lacks for that judge (its provider's key, a run that may go online).
+ */
+export const attemptJudgeMissing = (_j: JudgeCheck): string | null => 'an attempt is a fork, whose judge would have to be asked live';
+
+/**
+ * The checks of an oracle that no attempt can decide, each with why: a judge check no attempt can
+ * have a verdict for. Every attempt would read inconclusive on it and none could pass, so blame,
+ * verify and repair refuse such an oracle before they spend anything.
+ */
+export function undecidableChecks(spec: TestSpec | null, missing: (j: JudgeCheck) => string | null = attemptJudgeMissing): Array<{ label: string; why: string }> {
+  if (!spec) return [];
+  return judgeChecksOf(spec).flatMap((j) => {
+    const why = missing(j);
+    return why ? [{ label: judgeLabel(j), why }] : [];
+  });
+}
+
+/** The refusal of an oracle with checks no attempt can decide, for `command` (blame, verify, repair), or null when there are none. */
+export function undecidableRefusal(spec: TestSpec | null, command: string): string | null {
+  const undecided = undecidableChecks(spec);
+  if (!undecided.length) return null;
+  const one = undecided.length === 1;
+  return `--expect has ${one ? 'a check' : `${undecided.length} checks`} no attempt can decide: ${undecided.map((u) => `${u.label} (${u.why})`).join('; ')}. Every attempt would read inconclusive, and none could pass, so ${command} would spend attempts to say nothing. Leave ${one ? 'it' : 'them'} out of --expect; shadowlap check judges recordings by ${one ? 'it' : 'them'}, from what they recorded.`;
+}
 
 /** The oracle, as the labels of what a passing run must do. */
 export function oracleLabels(spec: TestSpec | null): string[] {
-  return [EXIT_LABEL, ...(spec ? evaluateChecks(spec, { calls: [], output: '', answer: null, argsOf: () => undefined, costOf: () => 0 }).map((c) => c.label) : [])];
+  return [EXIT_LABEL, ...(spec ? evaluateChecks(spec, LABEL_INPUT).map((c) => c.label) : [])];
 }
 
 /**
  * How a recorded run fares against the oracle, from what the recording holds: its exit status and
- * every check but those on its output, which is not recorded. Null when that can't settle it: a
- * check on the output, a run still recording, or a partial recording that holds no tool calls.
+ * every check but those on its output, which is not recorded; `calls` and `when` rules read the
+ * recorded arguments and results, so they cost nothing. Null when that can't settle it, and
+ * `unsettled` says why: a check on the output, a check that is inconclusive (a judge with no
+ * verdict), a run still recording, or a partial recording that holds no tool calls. `checks` are
+ * the results, the ones on the output left out.
  */
-export function judgeRecording(store: Store, run: RunRecord, calls: CallRecord[], spec: TestSpec | null, prices?: ShadowlapConfig['prices']): { passed: boolean | null; failures: string[] } {
+export function judgeRecording(
+  store: Store,
+  run: RunRecord,
+  calls: CallRecord[],
+  spec: TestSpec | null,
+  prices?: ShadowlapConfig['prices'],
+  options: EvaluateOptions = {},
+): { passed: boolean | null; failures: string[]; checks: CheckResult[]; unsettled: string[] } {
   const failures: string[] = [];
   if (run.status === 'failed') failures.push('the agent exited with a non-zero code');
   else if (run.status === 'crashed') failures.push('the run was interrupted');
-  if (spec) {
-    const { output: _unrecorded, ...recordable } = spec;
-    failures.push(
-      ...failed(
-        evaluateChecks(recordable, {
-          calls,
-          output: '',
-          answer: finalAnswer(store, calls),
-          argsOf: (c) => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined),
-          costOf: (c) => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, prices),
-        }),
-      ),
-    );
-  }
-  const partial = !!run.meta?.covers?.length && !run.meta.covers.includes('tool');
-  const unsettled = run.status === 'running' || spec?.output !== undefined || partial;
-  return { passed: failures.length ? false : unsettled ? null : true, failures };
+  const checks = spec ? evaluateChecks(withoutOutput(spec), storedCheckInput(store, calls, '', prices), options) : [];
+  failures.push(...failed(checks.filter((c) => checkStatus(c) === 'failed')));
+  const unsettled = [
+    ...(run.status === 'running' ? ['it is still recording'] : []),
+    ...(spec && readsOutput(spec) ? ["a check reads what the agent printed, which a recording doesn't keep"] : []),
+    ...(run.meta?.covers?.length && !run.meta.covers.includes('tool') ? ['it is a partial recording that holds no tool calls'] : []),
+    ...failed(checks.filter((c) => c.status === 'inconclusive')),
+  ];
+  return { passed: failures.length ? false : unsettled.length ? null : true, failures, checks, unsettled };
 }

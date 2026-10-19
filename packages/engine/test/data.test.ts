@@ -136,6 +136,20 @@ describe('dataset export', () => {
     store.close();
   });
 
+  it('counts a run\'s checks as ls --json does: a check that did not apply is not one that passed', () => {
+    const { store, runId } = golden();
+    store.updateRunMeta(runId, {
+      checks: [
+        { status: 'passed', ok: true, label: 'send_email called 1 time', detail: null },
+        { status: 'not-applicable', ok: true, label: 'when lookup_order has result.total > 200: escalate called at least 1 time', detail: 'the condition never held: lookup_order was never called' },
+        { status: 'inconclusive', ok: false, label: 'judge "explains" answers yes', detail: 'not judged: no recorded verdict and no key for anthropic' },
+      ],
+    });
+    const [row] = datasetRows(store, [store.getRun(runId)!], { calls: 'final', format: 'jsonl' }) as Array<{ metadata: Record<string, unknown> }>;
+    expect(row!.metadata.checks).toEqual({ passed: 1, total: 3, inconclusive: 1, notApplicable: 1 });
+    store.close();
+  });
+
   it('shapes rows for OpenAI chat, Braintrust and Langfuse, and applies pathless redaction rules', () => {
     const { store, runId } = golden();
     const run = store.getRun(runId)!;

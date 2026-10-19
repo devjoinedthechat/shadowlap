@@ -1,4 +1,5 @@
 import { Command, Option } from 'commander';
+import { register as registerCheck } from './commands/check.js';
 import { register as registerData } from './commands/data.js';
 import { register as registerFix } from './commands/fix.js';
 import { register as registerImport } from './commands/import.js';
@@ -31,6 +32,8 @@ export async function main(argv: string[]): Promise<void> {
   registerInspect(program);
   registerFix(program);
   registerTesting(program);
+  // Under Test: recordings judged by checks, nothing replayed.
+  registerCheck(program);
   registerSetup(program);
   program.helpCommand(true); // listed under "Set up:" rather than a group of its own
   registerImport(program);

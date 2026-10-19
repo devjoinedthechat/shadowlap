@@ -205,6 +205,10 @@ describe('tasks', () => {
     expect(averageTokens([t({ inputTokens: 1000, outputTokens: 100 }), t({ inputTokens: 3000, outputTokens: 300, cacheReadInputTokens: 400 }), t(null)])).toEqual({ inputTokens: 2000, outputTokens: 200, cacheReadInputTokens: 200, cacheCreationInputTokens: 0 });
     expect(averageTokens([])).toBeNull();
     expect(attemptScore([{ ok: true }, { ok: false }, { ok: true }, { ok: true }])).toBe(0.75);
+    // A check that did not apply is no part of the score; one that could not be decided is no pass.
+    expect(attemptScore([{ ok: true, status: 'passed' }, { ok: true, status: 'not-applicable' }, { ok: true, status: 'not-applicable' }, { ok: false, status: 'failed' }])).toBe(0.5);
+    expect(attemptScore([{ ok: true, status: 'passed' }, { ok: false, status: 'inconclusive' }])).toBe(0.5);
+    expect(attemptScore([{ ok: true, status: 'not-applicable' }])).toBe(0);
     const tasks = [{ golden: 'goldens/refund-over-limit', name: 'refund-over-limit' }, { golden: 'goldens/a/refund', name: 'refund' }, { golden: 'goldens/b/refund', name: 'refund' }];
     expect(matchTask(tasks, 'refund-over-limit')).toEqual({ task: tasks[0] });
     expect(matchTask(tasks, 'goldens/refund-over-limit/')).toEqual({ task: tasks[0] });

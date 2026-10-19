@@ -65,6 +65,8 @@ export const JOB_KINDS = {
   pairs: 'pairs',
   score: 'score',
   taskUpdate: 'task-update',
+  // Checks: a check tried on the recordings, nothing replayed (the check builder's preview); its result is a CheckReportView.
+  check: 'check',
 } as const;
 
 export class ApiError extends Error {

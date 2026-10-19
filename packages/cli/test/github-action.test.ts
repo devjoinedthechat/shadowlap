@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -102,6 +102,20 @@ describe('the GitHub Action', () => {
     expect(empty.code).toBe(1);
     expect(empty.out).toContain('no recordings match testing/golden/refund-*');
     expect(empty.out).not.toContain('shadowlap test ');
+  });
+
+  it('counts a golden whose check could not be decided apart from a failed check, and fails the job all the same', () => {
+    // The committed golden in a project of its own, with a judge check no run can answer here.
+    const project = mkdtempSync(join(tmpdir(), 'fp-unjudged-'));
+    dirs.push(project);
+    cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(project, 'goldens', 'reference-agent'), { recursive: true });
+    symlinkSync(join(ROOT, 'testing'), join(project, 'testing'), 'dir');
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/reference-agent': { expect: { judge: [{ name: 'summarizes', question: 'Does the email summarize what the agent found?', model: 'claude-haiku-4-5' }] } } } }));
+    const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project, GUARD: 'off' });
+    expect(r.code, r.out).toBe(1);
+    expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '0', 'checks-failed': '0', inconclusive: '1' });
+    expect(r.summary).toContain('### Shadowlap: 1 of 1 recording is inconclusive');
+    expect(r.summary).toContain('| 🟡 | `reference-agent` |');
   });
 
   it('opens no fix for a divergence, even with fix-on-failure on', () => {

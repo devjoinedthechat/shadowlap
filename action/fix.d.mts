@@ -12,8 +12,8 @@ export interface ReportResult {
   runId?: string | null;
   runs?: Array<{ runId: string; ok: boolean }>;
   expect?: Record<string, unknown> | null;
-  /** The checks of the attempt shown, each with why it failed. */
-  checks?: Array<{ ok: boolean; label: string; detail: string | null }> | null;
+  /** The checks of the attempt shown, each with why it failed, and its `status` (absent from reports made before checks had one). */
+  checks?: Array<{ ok: boolean; label: string; detail: string | null; status?: 'passed' | 'failed' | 'inconclusive' | 'not-applicable' }> | null;
 }
 
 export interface FixPlan {

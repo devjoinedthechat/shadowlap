@@ -35,16 +35,46 @@ export interface RunLike {
   verify?: unknown;
   /** The last blame: the call the run was lost at. */
   blame?: { callNo: number | null } | null;
-  /** Outcome checks, as they came out for this run. */
-  checks?: { passed: number; total: number } | null;
+  /** Outcome checks, as they came out for this run: `passed` of `total`, and when any, `inconclusive` and `notApplicable`. */
+  checks?: CheckCounts | null;
   author?: string | null;
   /** What kind of run it is and how it came out, when the server classifies runs itself. */
   kind?: string | null;
-  outcome?: { kind: string; callNo?: number; checks?: number; check?: string | null } | null;
+  outcome?: { kind: string; callNo?: number; checks?: number; notApplicable?: number; check?: string | null } | null;
   failed?: boolean | null;
 }
 
 export type RunType = 'recording' | 'capture' | 'fork' | 'clean' | 'replay' | 'test';
+
+/** A run's checks counted, as the server counts them. */
+export interface CheckCounts {
+  passed: number;
+  total: number;
+  inconclusive?: number;
+  notApplicable?: number;
+}
+
+/**
+ * A run's checks counted as the server counts them: `passed` only those that passed, and when there
+ * are any, those `inconclusive` and `notApplicable`. A check kept before checks had a status reads as
+ * its `ok` says.
+ */
+export function countChecks(checks: ReadonlyArray<{ ok: boolean; status?: string }>): CheckCounts {
+  const status = (c: { ok: boolean; status?: string }) => c.status ?? (c.ok ? 'passed' : 'failed');
+  const n = (s: string) => checks.filter((c) => status(c) === s).length;
+  const inconclusive = n('inconclusive');
+  const notApplicable = n('not-applicable');
+  return { passed: n('passed'), total: checks.length, ...(inconclusive ? { inconclusive } : {}), ...(notApplicable ? { notApplicable } : {}) };
+}
+
+/** The checks counts say failed: neither passed, inconclusive nor not applicable. */
+export const checksFailed = (c: CheckCounts): number => c.total - c.passed - (c.inconclusive ?? 0) - (c.notApplicable ?? 0);
+
+/** `2 checks passed`, `1 check passed, 2 not applicable`: a check that did not apply never counts as passed. */
+export function checksPassedText(passed: number, notApplicable = 0): string {
+  if (!notApplicable) return `${plural(passed, 'check')} passed`;
+  return passed ? `${plural(passed, 'check')} passed, ${num(notApplicable)} not applicable` : `${plural(notApplicable, 'check')} not applicable`;
+}
 
 export const isLive = (r: Pick<RunLike, 'status'>): boolean => r.status === 'running';
 
@@ -81,7 +111,7 @@ export function runType(r: RunLike): RunType {
 export function isFailed(r: RunLike): boolean {
   if (typeof r.failed === 'boolean') return r.failed;
   if (r.status === 'failed') return true;
-  if (r.checks && r.checks.passed < r.checks.total) return true;
+  if (r.checks && checksFailed(r.checks) > 0) return true;
   if (r.blame && r.blame.callNo) return true;
   return !!r.test && !!r.divergence;
 }
@@ -101,7 +131,7 @@ export function isInterrupted(r: RunLike): boolean {
 export function failedWord(r: RunLike): string {
   const o = r.outcome;
   if (o?.kind === 'lost' || (o?.kind === 'check-failed' && (o.check || r.status !== 'failed'))) return 'check failed';
-  return r.checks && r.checks.passed < r.checks.total ? 'check failed' : 'failed';
+  return r.checks && checksFailed(r.checks) > 0 ? 'check failed' : 'failed';
 }
 
 export function runOrigins(r: RunLike): Origin7[] | null {
@@ -191,7 +221,7 @@ export function sideLine(r: RunLike): { text: string; err?: string } {
 }
 
 /** The Runs table's status: the outcome only, in a dot and a few words. */
-export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; text: string } {
+export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' | 'n'; text: string } {
   if (isLive(r)) return { tone: 'live', text: 'in progress' };
   const o = r.outcome;
   if (o) {
@@ -200,7 +230,9 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; tex
     if (o.kind === 'lost' && typeof o.callNo === 'number') return { tone: 'err', text: `lost at #${o.callNo}` };
     // A check, or the agent's exit (an outcome that names no check), in the sidebar's words.
     if (o.kind === 'check-failed') return { tone: 'err', text: failedWord(r) };
-    if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: `${plural(o.checks, 'check')} passed` };
+    // No check failed, and one could not be decided: amber, neither a pass nor a failure.
+    if (o.kind === 'inconclusive') return { tone: 'warn', text: 'check inconclusive' };
+    if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: checksPassedText(o.checks, o.notApplicable) };
     if (o.kind === 'clean') return { tone: 'ok', text: 'clean' };
     // A run cut short (its recorder stopped before it ended) has no outcome, but says why.
     if (o.kind === 'none') return { tone: 'n', text: r.status === 'crashed' ? 'interrupted' : '—' };
@@ -208,8 +240,9 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; tex
   if (r.test && r.divergence) return { tone: 'err', text: `diverged at #${r.divergence.callNo}` };
   if (r.blame && r.blame.callNo) return { tone: 'err', text: `lost at #${r.blame.callNo}` };
   if (r.checks && r.checks.total) {
-    if (r.checks.passed < r.checks.total) return { tone: 'err', text: 'check failed' };
-    return { tone: 'ok', text: `${plural(r.checks.total, 'check')} passed` };
+    if (checksFailed(r.checks) > 0) return { tone: 'err', text: 'check failed' };
+    if (r.checks.inconclusive) return { tone: 'warn', text: 'check inconclusive' };
+    return { tone: 'ok', text: checksPassedText(r.checks.passed, r.checks.notApplicable) };
   }
   if (r.status === 'crashed') return { tone: 'n', text: 'interrupted' };
   if (r.status === 'failed') return { tone: 'err', text: 'failed' };
@@ -360,7 +393,7 @@ export interface RepeatAttempt {
   spent: number;
   startedAt: number;
   repeat: { attempt: number; of: number } | null;
-  checks: { passed: number; total: number } | null;
+  checks: CheckCounts | null;
 }
 
 /**
@@ -373,7 +406,8 @@ export interface RepeatAttempt {
  */
 export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: string; line: string; attempts: Array<{ runId: string; text: string; ok: boolean; cut?: true }> } {
   const sorted = [...attempts].sort((a, b) => (a.repeat?.attempt ?? 0) - (b.repeat?.attempt ?? 0) || a.startedAt - b.startedAt);
-  const ok = (n: RepeatAttempt) => (n.checks ? n.checks.passed === n.checks.total : n.status === 'completed');
+  // Passed: no check failed or could not be decided; one that did not apply is no failure.
+  const ok = (n: RepeatAttempt) => (n.checks ? checksFailed(n.checks) === 0 && !n.checks.inconclusive : n.status === 'completed');
   const cut = (n: RepeatAttempt) => !n.checks && n.status === 'crashed';
   const forkAt = sorted[0]?.divergence?.callNo ?? null;
   const spent = sorted.reduce((s, n) => s + n.spent, 0);
@@ -384,7 +418,7 @@ export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: strin
     line: `${forkAt !== null ? 'forked ' : ''}${plural(sorted.length, 'attempt')}, ${num(passed)} passed${stopped ? `, ${num(stopped)} interrupted` : ''}${spent ? ` · ${approx(spent)}` : ''}`,
     attempts: sorted.map((n) => {
       const where = n.divergence && n.divergence.callNo !== forkAt ? ` · forked at #${n.divergence.callNo}` : '';
-      const how = n.checks ? `checks ${n.checks.passed} of ${n.checks.total}` : n.status === 'completed' ? 'passed' : n.status === 'running' ? 'running' : n.status === 'crashed' ? 'interrupted' : 'failed';
+      const how = n.checks ? `checks ${n.checks.passed} of ${n.checks.total}${n.checks.inconclusive ? `, ${n.checks.inconclusive} inconclusive` : ''}${n.checks.notApplicable ? `, ${n.checks.notApplicable} not applicable` : ''}` : n.status === 'completed' ? 'passed' : n.status === 'running' ? 'running' : n.status === 'crashed' ? 'interrupted' : 'failed';
       return { runId: n.runId, text: `${shortId(n.runId)} · ${how}${where}`, ok: ok(n), ...(cut(n) ? { cut: true as const } : {}) };
     }),
   };

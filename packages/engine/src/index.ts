@@ -18,6 +18,8 @@ export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyLeft, checkKey, cleanTitle, 
 export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
 // The tests entry a run is judged by when it was given no --expect (the CLI's replays, the dashboard's Run blame).
 export { recordingsOfRun, testsEntryFor } from './run-checks.js';
+// How a check came out (passed, failed, inconclusive, not applicable), read the same way from any run or test result.
+export { CHECK_STATUSES, JUDGE_SCOPE, STATUS_WORDS, checkOutcome, checkStatus, countStatuses, statusTally, type CheckStatus, type StoredCheckLike } from './check-status.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
@@ -57,7 +59,7 @@ export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { callRefs, validateCall, validateRun } from './pack-schema.js';
 export { quoteArgv, safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
-export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, isFailedOutcome, kindLabel, lostAt, notableOrigin, originCells, outcomeLabel, pulledRun, runKind, runOutcome } from './classify.js';
+export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, failedChecks, isFailedOutcome, kindLabel, lostAt, notableOrigin, originCells, outcomeLabel, pulledRun, runKind, runOutcome, type CheckCounts } from './classify.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';

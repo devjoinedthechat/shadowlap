@@ -4,6 +4,7 @@
  * what people know about the run (labels, notes, check results). Exported rows carry all of that in
  * the shapes eval tools import.
  */
+import { checksOf, type CheckCounts } from './classify.js';
 import { normalizeConversation, type Turn, type TurnBlock } from './conversation.js';
 import { loadApiRequest } from './manifest.js';
 import { compilePattern, parsePath } from './normalize.js';
@@ -43,7 +44,8 @@ export interface DatasetExample {
     model: string | null;
     labels: string[];
     notes: string[];
-    checks: { passed: number; total: number } | null;
+    /** As `ls --json` counts them: `passed` of `total`, and when any, `inconclusive` and `notApplicable`. */
+    checks: CheckCounts | null;
     command: string;
     code_version: string | null;
     forked_at: number | null;
@@ -85,7 +87,6 @@ function example(store: Store, run: RunRecord, call: CallRecord, rules: Normaliz
   const stored = store.getBlob(call.end.responseRef);
   const bytes = stored && rules.length ? redactedResponse(stored, rules, call) : stored;
   const response = normalizeResponse(bytes, call.end.meta.headers?.['content-type'], call.end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined);
-  const checks = run.meta?.checks;
   return {
     input: { messages: messagesOf(conv.turns), tools: conv.tools },
     output: {
@@ -98,7 +99,8 @@ function example(store: Store, run: RunRecord, call: CallRecord, rules: Normaliz
       model: call.end.meta.model ?? conv.model ?? null,
       labels: run.meta?.labels ?? [],
       notes: (run.meta?.notes ?? []).filter((x) => x.callNo === null || x.callNo === call.callNo).map((x) => x.text),
-      checks: checks?.length ? { passed: checks.filter((c) => c.ok).length, total: checks.length } : null,
+      // As `ls --json` counts them: a check that did not apply is not one that passed.
+      checks: checksOf(run),
       command: run.command.argv.join(' '),
       code_version: run.codeVersion,
       // A replay that stopped before its recording did forked nowhere: every call it made was replayed.

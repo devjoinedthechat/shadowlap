@@ -461,9 +461,14 @@ export function averageTokens(tasks: readonly Task[]): Usage | null {
   return { inputTokens: avg((u) => u.inputTokens), outputTokens: avg((u) => u.outputTokens), cacheReadInputTokens: avg((u) => u.cacheReadInputTokens), cacheCreationInputTokens: avg((u) => u.cacheCreationInputTokens) };
 }
 
-/** The score of one attempt: the share of its checks that passed. */
-export function attemptScore(results: ReadonlyArray<{ ok: boolean }>): number {
-  return results.length ? results.filter((r) => r.ok).length / results.length : 0;
+/**
+ * The score of one attempt: the share of its checks that passed, of those that applied. A check that
+ * did not apply (a `when` whose condition never held) is no part of it; one that could not be
+ * decided (inconclusive) is no pass.
+ */
+export function attemptScore(results: ReadonlyArray<{ ok: boolean; status?: string }>): number {
+  const applied = results.filter((r) => r.status !== 'not-applicable');
+  return applied.length ? applied.filter((r) => r.ok).length / applied.length : 0;
 }
 
 /**

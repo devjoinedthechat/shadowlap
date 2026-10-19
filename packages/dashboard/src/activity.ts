@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoredEvent } from '@shadowlap/engine';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
 import { shortReason } from './tests.js';
@@ -266,11 +266,24 @@ function drift(d: DivergenceReport): string | null {
   return what;
 }
 
-function checksOutcome(run: RunRecord): { failed: string | null; passed: number; total: number } | null {
+/** A run's checks: the first that failed, the first that could not be decided, and how they came out in words. */
+function checksOutcome(run: RunRecord): { failed: string | null; inconclusive: string | null; text: string } | null {
   const checks = run.meta?.checks;
   if (!checks?.length) return null;
-  const failed = checks.find((c) => !c.ok);
-  return { failed: failed ? failed.label : null, passed: checks.filter((c) => c.ok).length, total: checks.length };
+  const first = (status: 'failed' | 'inconclusive') => checks.find((c) => checkStatus(c) === status)?.label ?? null;
+  return { failed: first('failed'), inconclusive: first('inconclusive'), text: checksPassed(checks) };
+}
+
+/**
+ * `2 of 2 checks passed`, or with checks that did not pass or did not apply, `1 of 1 checks passed,
+ * 2 not applicable`: a check that did not apply is not counted among those that could pass.
+ */
+function checksPassed(checks: readonly StoredCheck[]): string {
+  const statuses = checks.map((c) => checkStatus(c));
+  const n = (s: string) => statuses.filter((x) => x === s).length;
+  const na = n('not-applicable');
+  const inconclusive = n('inconclusive');
+  return `${n('passed')} of ${checks.length - na} checks passed${inconclusive ? `, ${inconclusive} inconclusive` : ''}${na ? `, ${na} not applicable` : ''}`;
 }
 
 function base(run: RunRecord, id: string, at: number): Omit<ActivityItem, 'kind' | 'text'> {
@@ -284,6 +297,7 @@ function recordingEnd(store: Store, run: RunRecord): ActivityItem {
   const item = base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt);
   if (run.status === 'failed') return { ...item, kind: 'fail', text: `Recording failed · ${calls} · ${command(run)}` };
   if (checks?.failed) return { ...item, kind: 'fail', text: `Recorded ${calls} · check failed: ${checks.failed}` };
+  if (checks?.inconclusive) return { ...item, kind: 'rec', text: `Recorded ${calls} · check inconclusive: ${checks.inconclusive}` };
   if (run.status === 'crashed') return { ...item, kind: 'rec', text: `Recording interrupted · ${calls} · ${command(run)}` };
   return { ...item, kind: 'rec', text: `Recorded ${calls} · ${command(run)}` };
 }
@@ -314,15 +328,15 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   const attempts = result?.data?.attempts;
   const judged = result?.data?.checks ?? null;
   if (result?.ok) {
-    const how = attempts ? `${attempts.passed} of ${attempts.total} attempts passed` : judged?.length ? `${judged.filter((c) => c.ok).length} of ${judged.length} checks passed` : checks ? `${checks.passed} of ${checks.total} checks passed` : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
+    const how = attempts ? `${attempts.passed} of ${attempts.total} attempts passed` : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
     return { ...item, kind: 'test', text: `Test passed · ${golden} · ${how}` };
   }
   if (attempts && result) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${attempts.passed} of ${attempts.total} attempts passed, ${attempts.required} needed` };
   const diverged = d && d.type !== 'forced' ? `diverged at call ${d.callNo}${drifted ? `, ${drifted}` : ''}` : null;
   if (result) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${result.failure === 'diverged' && diverged ? diverged : shortReason(result)}` };
-  const reason = diverged ?? (checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : null);
+  const reason = diverged ?? (checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : checks?.inconclusive ? `check inconclusive: ${checks.inconclusive}` : null);
   if (reason) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${reason}` };
-  const detail = checks ? `${checks.passed} of ${checks.total} checks passed` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
+  const detail = checks ? checks.text : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
   return { ...item, kind: 'test', text: `Test passed · ${golden} · ${detail}` };
 }
 
@@ -332,7 +346,7 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
   const s = f.summary;
   const checks = checksOutcome(run);
   const item = base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt);
-  const outcome = checks ? (checks.failed ? `check failed: ${checks.failed}` : `${checks.passed} of ${checks.total} checks passed`) : null;
+  const outcome = checks ? (checks.failed ? `check failed: ${checks.failed}` : checks.inconclusive ? `check inconclusive: ${checks.inconclusive}` : checks.text) : null;
   const d = run.divergence;
   const drifted = d ? drift(d) : null;
   if (d && drifted) {

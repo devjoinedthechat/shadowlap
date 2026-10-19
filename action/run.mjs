@@ -93,7 +93,9 @@ const outputs = {
   passed: report.passed,
   failed: report.failed,
   diverged: count('diverged'),
-  'checks-failed': count('check'),
+  // A golden whose only shortfall is a check that could not be decided is inconclusive, not a failed check.
+  'checks-failed': report.results.filter((x) => !x.ok && x.failure === 'check' && x.verdict !== 'inconclusive').length,
+  inconclusive: report.results.filter((x) => x.verdict === 'inconclusive').length,
   session: report.session ?? '',
   fixes: opened.length,
   'fix-prs': opened.map((f) => f.pr).join(' '),

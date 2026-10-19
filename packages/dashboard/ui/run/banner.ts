@@ -39,7 +39,8 @@ export interface BannerInput {
   rescued: { callNo: number | null } | null;
   blame: { callNo: number | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; short?: string | null } | null;
   notRecorded: { hosts: ReadonlyArray<{ target: string; count: number | null; action: string | null }>; tools: readonly string[] } | null;
-  checks: ReadonlyArray<{ label: string; ok: boolean; count?: number; of?: number; detail?: string }>;
+  /** Each check, with its `status` when the server says (passed, failed, inconclusive, not-applicable). */
+  checks: ReadonlyArray<{ label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
   fix: { id: string; status: string; title: string } | null;
   upstreamRequests: number;
   /** A test replay whose golden diverged on a value made anew on every run: what it looks like. */
@@ -69,7 +70,7 @@ export type Banner =
   | { kind: 'fork'; callNo: number; name: string; why: string; flag: string | null; path: string | null; normalizer: boolean; diff: boolean }
   | { kind: 'lost'; callNo: number; why: string; rescuedRunId: string | null }
   | { kind: 'not-recorded'; why: string }
-  | { kind: 'checks'; checks: ReadonlyArray<{ label: string; text: string }>; why: string | null }
+  | { kind: 'checks'; checks: ReadonlyArray<{ label: string; text: string; status?: string }>; why: string | null }
   | { kind: 'interrupted'; why: string }
   | { kind: 'failed'; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean };
 
@@ -227,13 +228,28 @@ export function fixCheckShort(check: string, calls: ReadonlyArray<{ kind: string
  * names (a fix's, for a run the fix lists as failing), then an interruption that failed something.
  */
 export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame' | 'outcome' | 'calls'>, short = false): string | null {
-  const failedCheck = i.checks.find((c) => !c.ok);
+  const failedCheck = i.checks.find(failedOne);
   if (failedCheck) return short ? failedCheckShort(failedCheck) : failedCheckText(failedCheck);
   if (i.status === 'failed') return 'the agent exited with an error';
   const o = i.outcome;
   if (o?.kind === 'check-failed' && o.check) return fixCheckShort(o.check, i.calls ?? [], short);
   if (i.status === 'crashed') return 'the run was interrupted';
   return i.blame ? 'blame confirmed it fails' : null;
+}
+
+/** A check that failed: not passed, and not one that could not be decided (inconclusive), which is no failure of the agent's. */
+const failedOne = (c: BannerInput['checks'][number]): boolean => !c.ok && c.status !== 'inconclusive';
+
+/**
+ * A check in the checks banner: what it asks, then for one that did not apply or could not be
+ * decided, that and why in a few words (`not applicable · the condition never held`), else how many
+ * attempts it held in.
+ */
+function checkText(c: BannerInput['checks'][number]): string {
+  const why = c.detail ? ` · ${c.detail.split(':')[0]}` : '';
+  if (c.status === 'not-applicable') return `${c.label} · not applicable${why}`;
+  if (c.status === 'inconclusive') return `${c.label} · inconclusive${why}`;
+  return `${c.label}${c.count !== undefined && c.of !== undefined ? ` · ${c.count} of ${c.of}` : ''}`;
 }
 
 /** An interrupted run's line: what stopped, and what it kept. */
@@ -269,11 +285,12 @@ export function bannerFor(i: BannerInput): Banner | null {
   const b = i.blame;
   if (b && b.callNo !== null && b.outcome !== 'unrescuable' && b.outcome !== 'stopped') return { kind: 'lost', callNo: b.callNo, why: lostWhy(b), rescuedRunId: b.rescuedRunId ?? null };
   if (i.notRecorded && (i.notRecorded.tools.length || i.notRecorded.hosts.length)) return { kind: 'not-recorded', why: notRecordedWhy(i.notRecorded) };
-  const failedCheck = i.checks.find((c) => !c.ok);
+  const failedCheck = i.checks.find(failedOne);
+  // No check failed: each says how it came out, one that did not apply or could not be decided too.
   if (i.checks.length && !failedCheck && i.status === 'completed')
     return {
       kind: 'checks',
-      checks: i.checks.map((c) => ({ label: c.label, text: `${c.label}${c.count !== undefined && c.of !== undefined ? ` · ${c.count} of ${c.of}` : ''}` })),
+      checks: i.checks.map((c) => ({ label: c.label, text: checkText(c), ...(c.status ? { status: c.status } : {}) })),
       why: i.upstreamRequests === 0 ? 'replayed offline · 0 upstream' : forkedTest && d ? `forked at #${d.callNo}, as its golden may · ${num(i.upstreamRequests)} upstream` : null,
     };
   if (i.interrupted) return { kind: 'interrupted', why: interruptedWhy(i) };

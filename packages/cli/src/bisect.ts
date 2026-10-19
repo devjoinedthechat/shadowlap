@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { commandIsImported, formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
+import { commandIsImported, formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
 import { specFor, type TestSpec } from './checks.js';
 import { defaultDbPath, loadConfig, loadTests } from './config.js';
 import { divergenceCause, importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
@@ -236,8 +236,8 @@ function loadTarget(input: BisectInput, projectDir: string, store: Store): { run
 function describeResult(o: Awaited<ReturnType<typeof testRecording>>, rules: readonly Normalizer[]): string {
   const s = o.shown.ended.summary;
   if (!o.failure) {
-    const checks = o.shown.checks?.length ?? 0;
-    return s.divergence ? `${s.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${s.divergence.callNo}, ${checks} check${checks === 1 ? '' : 's'} passed` : checks ? `replayed clean · ${checks} check${checks === 1 ? '' : 's'} passed` : 'replayed clean';
+    const checks = o.shown.checks?.length ? statusTally(o.shown.checks) : '';
+    return s.divergence ? `${s.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${s.divergence.callNo}, ${checks || '0 checks passed'}` : checks ? `replayed clean · ${checks}` : 'replayed clean';
   }
   const d = s.divergence;
   const path = d ? (divergenceCause(d, rules) ?? d.diff?.[0]?.path) : undefined;

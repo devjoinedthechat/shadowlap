@@ -111,6 +111,9 @@ function normalizeChecks(v: unknown): CheckView[] | null {
     .filter((c): c is Record<string, unknown> => isObject(c) && typeof c.label === 'string' && typeof c.ok === 'boolean')
     .map((c) => {
       const out: CheckView = { label: c.label as string, ok: c.ok as boolean };
+      if (c.status === 'passed' || c.status === 'failed' || c.status === 'inconclusive' || c.status === 'not-applicable') out.status = c.status;
+      if (typeof c.reason === 'string') out.reason = c.reason;
+      if (c.source === 'recording' || c.source === 'live') out.source = c.source;
       const count = int(c.count);
       const of = int(c.of);
       if (count !== null && of !== null) {
@@ -142,9 +145,12 @@ export function normalizeOutcome(v: unknown): RunOutcomeView | null {
     case 'lost':
       return int(v.callNo) !== null ? { kind: v.kind, callNo: int(v.callNo)! } : null;
     case 'check-failed':
-      return { kind: 'check-failed', check: str(v.check) };
-    case 'passed':
-      return int(v.checks) !== null ? { kind: 'passed', checks: int(v.checks)! } : null;
+    case 'inconclusive':
+      return { kind: v.kind, check: str(v.check) };
+    case 'passed': {
+      const notApplicable = int(v.notApplicable);
+      return int(v.checks) !== null ? { kind: 'passed', checks: int(v.checks)!, ...(notApplicable ? { notApplicable } : {}) } : null;
+    }
     default:
       return null;
   }

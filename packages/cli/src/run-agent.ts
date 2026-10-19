@@ -3,11 +3,11 @@ import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, statSync, write
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, divergenceLine, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
-import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
+import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
 import { emitJobEvent } from './job-events.js';
 import { killTree } from './kill-tree.js';
@@ -240,13 +240,7 @@ export async function testAttempt(
   let checks: CheckResult[] | null = null;
   if (o.spec) {
     const calls = store.getCalls(run.runId);
-    checks = evaluateChecks(o.spec, {
-      calls,
-      output,
-      answer: finalAnswer(store, calls),
-      argsOf: (c) => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined),
-      costOf: (c) => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, o.prices),
-    });
+    checks = evaluateChecks(o.spec, storedCheckInput(store, calls, output, o.prices));
     store.updateRunMeta(run.runId, { checks });
   }
   const failedChecks = checks?.filter((c) => !c.ok) ?? [];
@@ -286,9 +280,14 @@ export async function testAttempt(
     failure = { message: divergenceLine(summary.divergence), details: formatSummary(summary) };
   } else if (failedChecks.length) {
     kind = 'check';
-    const first = failedChecks[0]!;
-    const more = failedChecks.length > 1 ? `; ${failedChecks.length - 1} more check${failedChecks.length > 2 ? 's' : ''} failed` : '';
-    failure = { message: `check failed: ${first.label}, but ${first.detail}${more}`, details: divergence + formatSummary(summary) };
+    // A check that could not be decided (a judge with no verdict) never passes, and says it is inconclusive, not failed.
+    const definite = failedChecks.filter((c) => c.status !== 'inconclusive');
+    const first = definite[0] ?? failedChecks[0]!;
+    const word = definite.length ? 'failed' : 'inconclusive';
+    const others = definite.length ? definite.length - 1 : failedChecks.length - 1;
+    const more = others > 0 ? `; ${others} more check${others > 1 ? 's' : ''} ${word}` : '';
+    const inconclusive = definite.length && failedChecks.length > definite.length ? `; ${failedChecks.length - definite.length} inconclusive` : '';
+    failure = { message: `check ${word}: ${first.label}, but ${first.detail}${more}${inconclusive}`, details: divergence + formatSummary(summary) };
   }
   return { ended, code, ms: Date.now() - started, output, checks, failure, kind, interrupted };
 }

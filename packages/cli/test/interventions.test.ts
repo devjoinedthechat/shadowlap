@@ -88,7 +88,7 @@ describe('replay --inject-result', () => {
       expect(planted.origin).toBe('overridden');
       // Prose over a URL: a title with spaces is what the model reads, an address is not.
       expect(planted.end?.meta.planted).toMatch(/^\$\.results\[\d\]\.title$/);
-      expect(store.getRun(attempt)!.meta?.checks).toEqual([{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time (1 blocked or stubbed)' }]);
+      expect(store.getRun(attempt)!.meta?.checks).toEqual([{ status: 'failed', ok: false, label: 'send_email called 0 times', detail: 'called 1 time (1 blocked or stubbed)' }]);
     } finally {
       store.close();
     }
@@ -137,8 +137,8 @@ describe('replay --expect', () => {
     const store = Store.open(db);
     try {
       expect(store.getRun(replayed)!.meta?.checks).toEqual([
-        { ok: true, label: 'send_email called 1 time', detail: null },
-        { ok: true, label: 'output includes "recorded runs replay deterministically"', detail: null },
+        { status: 'passed', ok: true, label: 'send_email called 1 time', detail: null },
+        { status: 'passed', ok: true, label: 'output includes "recorded runs replay deterministically"', detail: null },
       ]);
       // Kept as given, so making the replay again from the fork menu judges it the same way.
       expect(store.getRun(replayed)!.meta?.expect).toEqual({ output: { includes: ['recorded runs replay deterministically'] }, tools: { send_email: 1 } });

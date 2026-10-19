@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
-import { estimateCost, finalAnswer, loadApiRequest, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
+import { loadApiRequest, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
-import { evaluateChecks, specFor, type CheckResult, type TestSpec } from './checks.js';
+import { evaluateChecks, specFor, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { loadTests, type ShadowlapConfig } from './config.js';
 
 /**
@@ -163,14 +163,7 @@ export const UNJUDGED_PLANT =
  * the checks came from when they were given with `--expect`, kept on the run with them.
  */
 export function judgeRun(store: Store, runId: string, spec: TestSpec, output: string, prices: ShadowlapConfig['prices'], expect?: Record<string, unknown>): CheckResult[] {
-  const calls = store.getCalls(runId);
-  const checks = evaluateChecks(spec, {
-    calls,
-    output,
-    answer: finalAnswer(store, calls),
-    argsOf: (c) => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined),
-    costOf: (c) => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, prices),
-  });
+  const checks = evaluateChecks(spec, storedCheckInput(store, store.getCalls(runId), output, prices));
   store.updateRunMeta(runId, { checks, ...(expect ? { expect } : {}) });
   return checks;
 }

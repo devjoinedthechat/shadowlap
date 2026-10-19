@@ -24,6 +24,7 @@ import type {
   RunMode,
   RunRecord,
   RunStatus,
+  StoredCheck,
 } from './types.js';
 
 /*
@@ -397,7 +398,7 @@ export interface TestResultData {
   tokensNotRespent?: number;
   /** Input tokens of the run's model requests, cache reads included: what it costs to run live. */
   inputTokens?: number;
-  checks?: Array<{ ok: boolean; label: string; detail: string | null }>;
+  checks?: StoredCheck[];
   /** A recording that repeats: attempts run, passed and needed, and each attempt's run. */
   attempts?: { total: number; passed: number; required: number; runs: string[] };
   /**
@@ -1216,7 +1217,7 @@ export class Store {
   /**
    * The revisions runs were made at (their code version), newest first: when each was last seen,
    * how many runs ended there and how many of those failed (a non-zero exit, a crash, or a failed
-   * check). `argv` counts only runs of that command, `before` only runs started before it. Blame's
+   * check: not one that could not be decided, nor one that did not apply). `argv` counts only runs of that command, `before` only runs started before it. Blame's
    * probes and verify's attempts are left out: they ran with a change of their own. Bisect offers
    * these as commits where a run still worked.
    */
@@ -1232,7 +1233,8 @@ export class Store {
       params.push(options.before);
     }
     params.push(Math.max(1, Math.min(1000, options.limit ?? 50)));
-    const failed = `status IN ('failed', 'crashed') OR EXISTS (SELECT 1 FROM json_each(meta, '$.checks') WHERE json_extract(value, '$.ok') = 0)`;
+    // A check kept before checks had a status failed when it was not ok.
+    const failed = `status IN ('failed', 'crashed') OR EXISTS (SELECT 1 FROM json_each(meta, '$.checks') WHERE json_extract(value, '$.ok') = 0 AND COALESCE(json_extract(value, '$.status'), 'failed') = 'failed')`;
     return this.db
       .prepare(`SELECT code_version, MAX(started_at) AS last_at, COUNT(*) AS runs, SUM(CASE WHEN ${failed} THEN 1 ELSE 0 END) AS failed FROM runs WHERE ${where.join(' AND ')} GROUP BY code_version ORDER BY last_at DESC, code_version ASC LIMIT ?`)
       .all(...params)

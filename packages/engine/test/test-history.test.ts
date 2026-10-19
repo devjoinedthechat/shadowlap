@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, Store, valueHints, volatileValues, type DivergenceReport } from '../src/index.js';
+import { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, Store, valueHints, volatileValues, type DivergenceReport, type StoredCheck } from '../src/index.js';
 
 describe('test history in the store', () => {
   it('keeps sessions and per-golden results, newest first, with what the Tests screen needs', () => {
@@ -90,6 +90,19 @@ describe('test history in the store', () => {
     ]);
     expect(store.runRevisions({ argv: agent, before: 300, limit: 1 })).toEqual([{ revision: 'bbb2222', lastAt: 210, runs: 2, failed: 1 }]);
     expect(store.runRevisions().map((r) => r.revision)).toEqual(['ddd4444', 'ccc3333', 'bbb2222', 'aaa1111']);
+    store.close();
+  });
+
+  it('counts no run as failed for a check that could not be decided, or did not apply', () => {
+    const store = Store.open(':memory:');
+    const run = (codeVersion: string, startedAt: number, checks: StoredCheck[]) => {
+      const r = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, codeVersion, startedAt, meta: { checks } });
+      store.endRun(r.runId, 'completed', startedAt + 1);
+    };
+    run('aaa1111', 100, [{ status: 'inconclusive', ok: false, label: 'judge "j" answers yes', detail: 'not judged' }]);
+    run('aaa1111', 110, [{ status: 'not-applicable', ok: true, label: 'when x is called: y called 1 time', detail: 'the condition never held' }]);
+    run('aaa1111', 120, [{ status: 'failed', ok: false, label: 'y called 1 time', detail: 'called 0 times' }]);
+    expect(store.runRevisions()).toEqual([{ revision: 'aaa1111', lastAt: 120, runs: 3, failed: 1 }]);
     store.close();
   });
 

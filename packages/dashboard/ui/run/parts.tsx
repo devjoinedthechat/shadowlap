@@ -301,7 +301,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
         <section className="banner live">
           <span className="bk">checks</span>
           {b.checks.map((c) => (
-            <span className="st ok" key={c.label}>
+            <span className={`st ${c.status === 'not-applicable' ? 'n' : c.status === 'inconclusive' ? 'warn' : 'ok'}`} key={c.label}>
               <i />
               {c.text}
             </span>

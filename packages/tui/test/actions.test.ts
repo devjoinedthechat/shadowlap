@@ -246,6 +246,13 @@ describe('the terminal UI\'s fork menu', () => {
     expect([passed.label, passed.prompt!.initial]).toEqual(['Find the commit that changed it', 'a1b2c3d']);
   });
 
+  it('says a run whose check could not be decided changed, not that it broke', () => {
+    const undecided = run({ checks: [{ status: 'inconclusive', ok: false, label: 'judge "j" answers yes', detail: 'not judged' }] }, { codeVersion: 'a1b2c3d' });
+    expect(terminalActions(undecided, call).find((a) => a.key === 'b')!.label).toBe('Find the commit that changed it');
+    const failed = run({ checks: [{ status: 'failed', ok: false, label: 'issue_refund never called', detail: 'called once' }] }, { codeVersion: 'a1b2c3d' });
+    expect(terminalActions(failed, call).find((a) => a.key === 'b')!.label).toBe('Find the commit that broke it');
+  });
+
   it('waits for a run still recording to finish before it replays, forks or packs it, as the dashboard does', () => {
     const live = run(undefined, { status: 'running', endedAt: null, codeVersion: 'a1b2c3d' });
     const actions = terminalActions(live, call);

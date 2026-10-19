@@ -4,6 +4,7 @@
  * bar count by. Pure functions over a run's record. No Node imports: the dashboard's browser bundle
  * imports this module on its own (`@shadowlap/engine/classify`).
  */
+import { checkStatus } from './check-status.js';
 import type { Origin, Outcome, RunMode, RunStatus } from './types.js';
 
 /**
@@ -170,11 +171,31 @@ export function classifyRun(run: ClassifiableRun, ctx: ClassifyContext = {}): Ru
   return { kind, attemptOf: run.parentRunId, attemptKind };
 }
 
-/** The outcome checks a run carries (`meta.checks`, from `shadowlap test` or an attempt's oracle), passed of total. */
-export function checksOf(run: Pick<ClassifiableRun, 'meta'>): { passed: number; total: number } | null {
+/**
+ * How a run's outcome checks came out: `passed` of `total`, and, when there are any, how many were
+ * `inconclusive` (could not be decided) or `notApplicable` (a `when` whose condition never held);
+ * the rest failed. A not-applicable check is never counted as passed.
+ */
+export interface CheckCounts {
+  passed: number;
+  total: number;
+  inconclusive?: number;
+  notApplicable?: number;
+}
+
+/** The checks counts says failed: those neither passed, inconclusive nor not applicable. */
+export const failedChecks = (n: CheckCounts): number => n.total - n.passed - (n.inconclusive ?? 0) - (n.notApplicable ?? 0);
+
+/** The outcome checks a run carries (`meta.checks`, from `shadowlap test` or an attempt's oracle), counted by how they came out. */
+export function checksOf(run: Pick<ClassifiableRun, 'meta'>): CheckCounts | null {
   const checks = run.meta?.checks;
   if (!Array.isArray(checks) || checks.length === 0) return null;
-  return { passed: checks.filter((c) => isObject(c) && c.ok === true).length, total: checks.length };
+  // Something stored that is no check at all counts as failed: it is no pass.
+  const statuses = checks.map((c) => (isObject(c) ? checkStatus(c) : 'failed'));
+  const n = (s: string) => statuses.filter((x) => x === s).length;
+  const inconclusive = n('inconclusive');
+  const notApplicable = n('not-applicable');
+  return { passed: n('passed'), total: checks.length, ...(inconclusive ? { inconclusive } : {}), ...(notApplicable ? { notApplicable } : {}) };
 }
 
 /** The model call `shadowlap blame` found lost the run, or null when it found none (or never ran). */
@@ -192,7 +213,10 @@ export function lostAt(run: Pick<ClassifiableRun, 'meta'>): number | null {
  * - `check-failed`: an outcome check failed, blame confirmed a failure it could not place, the
  *   agent exited with an error (the first check of every oracle is that it exits 0), or a test
  *   replay made no calls.
- * - `passed`: every outcome check passed.
+ * - `inconclusive`: no check failed, but one could not be decided (a judge with no verdict, a
+ *   condition that could not be read). Not a failure, and never a pass.
+ * - `passed`: every outcome check passed or did not apply: `checks` passed, `notApplicable` did
+ *   not apply (when any did).
  * - `clean`: a clean replay, or a test that replayed clean without checks.
  * - `none`: nothing to report.
  */
@@ -201,7 +225,8 @@ export type RunOutcome =
   | { kind: 'diverged'; callNo: number }
   | { kind: 'lost'; callNo: number }
   | { kind: 'check-failed'; check: string | null }
-  | { kind: 'passed'; checks: number }
+  | { kind: 'inconclusive'; check: string | null }
+  | { kind: 'passed'; checks: number; notApplicable?: number }
   | { kind: 'clean' }
   | { kind: 'none' };
 
@@ -245,23 +270,25 @@ export function runOutcome(run: ClassifiableRun, ctx: OutcomeContext = {}): RunO
   // Blame only records a result after replaying the run and seeing it fail.
   if (isObject(run.meta?.blame)) {
     const at = lostAt(run);
-    return at !== null ? { kind: 'lost', callNo: at } : { kind: 'check-failed', check: firstFailedCheck(run) };
+    return at !== null ? { kind: 'lost', callNo: at } : { kind: 'check-failed', check: firstCheck(run, 'failed') };
   }
   if (kind === 'test' && run.divergence && divergenceDecides(run, checks !== null, ctx.offline === true)) return { kind: 'diverged', callNo: run.divergence.callNo };
   // `shadowlap test` fails a golden whose replay made no calls at all: nothing was tested.
   if (kind === 'test' && ctx.calls === 0 && run.status === 'completed') return { kind: 'check-failed', check: NO_CALLS };
-  if (checks && checks.passed < checks.total) return { kind: 'check-failed', check: firstFailedCheck(run) };
+  if (checks && failedChecks(checks) > 0) return { kind: 'check-failed', check: firstCheck(run, 'failed') };
   if (run.status === 'failed' && !ctx.injected) return { kind: 'check-failed', check: null };
-  if (checks) return { kind: 'passed', checks: checks.total };
+  if (checks?.inconclusive) return { kind: 'inconclusive', check: firstCheck(run, 'inconclusive') };
+  if (checks) return { kind: 'passed', checks: checks.passed, ...(checks.notApplicable ? { notApplicable: checks.notApplicable } : {}) };
   if (kind === 'clean' || (kind === 'test' && run.status === 'completed')) return { kind: 'clean' };
   return { kind: 'none' };
 }
 
-function firstFailedCheck(run: ClassifiableRun): string | null {
+/** The label of the run's first check that came out `status`. */
+function firstCheck(run: ClassifiableRun, status: 'failed' | 'inconclusive'): string | null {
   const checks = run.meta?.checks;
   if (!Array.isArray(checks)) return null;
-  const failed = checks.find((c) => isObject(c) && c.ok !== true);
-  return failed && typeof failed.label === 'string' ? failed.label : null;
+  const found = checks.find((c) => isObject(c) && checkStatus(c) === status);
+  return found && typeof found.label === 'string' ? found.label : null;
 }
 
 /** Whether an outcome is a failure: what the Failed chip and the calendar's red count. */
@@ -280,8 +307,14 @@ export function outcomeLabel(o: RunOutcome): string {
       return `lost at #${o.callNo}`;
     case 'check-failed':
       return 'check failed';
-    case 'passed':
-      return `${o.checks} ${o.checks === 1 ? 'check' : 'checks'} passed`;
+    case 'inconclusive':
+      return 'check inconclusive';
+    case 'passed': {
+      const na = o.notApplicable ?? 0;
+      const noun = (n: number) => (n === 1 ? 'check' : 'checks');
+      if (!na) return `${o.checks} ${noun(o.checks)} passed`;
+      return o.checks ? `${o.checks} ${noun(o.checks)} passed, ${na} not applicable` : `${na} ${noun(na)} not applicable`;
+    }
     case 'clean':
       return 'clean';
     case 'none':
