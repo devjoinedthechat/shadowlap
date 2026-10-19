@@ -1,6 +1,6 @@
 # Introduction
 
-Shadowlap records every model API call and tool call an agent makes, then re-runs the agent's **real code** against that recording. Calls that haven't changed are served from the recording: no tokens spent, no side effects repeated. The first call that differs is reported with a precise diff, and from that point the run continues live as a *fork* of the original, with write tools fenced off.
+Shadowlap is change safety for agents: every change to an agent (its code, its prompt, its model, a tool, the route to its provider) is checked against what the agent actually did. It records every model API call and tool call an agent makes, then re-runs the agent's **real code** against that recording. Calls that haven't changed are served from the recording: no tokens spent, no side effects repeated. The first call that differs is reported with a precise diff, and from that point the run continues live as a *fork* of the original, with write tools fenced off.
 
 > Replay your agent, not a trace of it.
 

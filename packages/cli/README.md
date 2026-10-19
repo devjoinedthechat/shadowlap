@@ -1,6 +1,6 @@
 # shadowlap
 
-Record, replay and fork AI agent runs.
+Change safety for agents: record, replay and fork AI agent runs.
 
 Shadowlap records every model API call and tool call an agent makes, then re-runs the agent's *real code* against that recording. Calls that haven't changed are served from the recording: no tokens spent, no side effects repeated. The first call that differs is reported with a precise diff, and from there the run continues live as a fork of the original, with write tools fenced off.
 

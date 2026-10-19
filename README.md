@@ -6,8 +6,8 @@
 </p>
 
 <p align="center">
-  <b>Record, replay and fork AI agent runs.</b><br>
-  Replay a failure exactly, find the call that lost the run, and prove your fix holds before it ships.
+  <b>Change safety for agents.</b><br>
+  Record, replay and fork AI agent runs: reproduce a failure exactly, find the call that lost the run, and prove your fix holds before it ships.
 </p>
 
 <p align="center">

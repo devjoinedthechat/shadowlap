@@ -1,7 +1,7 @@
 {
   "name": "shadowlap",
   "version": "0.1.0",
-  "description": "Record, replay and fork AI agent runs.",
+  "description": "Change safety for agents: record, replay and fork AI agent runs.",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {

@@ -1,6 +1,6 @@
 # Compared with other tools
 
-Shadowlap does one thing: it replays an agent's *real code* against a recording of what the model and the tools said last time, and forks at the first call that changed. Several other tools touch the same problem from a different side. This page says where each one is the better choice.
+Shadowlap is change safety for agents, by one mechanism: it replays an agent's *real code* against a recording of what the model and the tools said last time, and forks at the first call that changed. Several other tools touch the same problem from a different side. This page says where each one is the better choice.
 
 | | Shadowlap | HTTP cassettes | Tracing platforms | Replay evals | Framework time travel | Durable execution |
 |---|---|---|---|---|---|---|
