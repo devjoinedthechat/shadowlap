@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { applyLeft, BLAME_DEFAULTS, commandIsImported, describeGate, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { applyLeft, BLAME_DEFAULTS, commandIsImported, describeGate, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fixDetail, fixHref, fixList, ghReader, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
@@ -144,7 +144,8 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
     contrast: r.contrast,
     sameAnswer: r.sameAnswer ?? null,
     failedWrite: r.failedWrite ?? null,
-    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: gateJson(x.gate), runs: x.attempts })),
+    // A probe's sentence in blame's words, as its report says it: rescued or lost, the tally, the Wilson bound and the rule.
+    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: x.gate ? { ...gateJson(x.gate)!, sentence: `${probeFinding(x, r.gate ?? null)} · ${rescueRule(r)}` } : null, runs: x.attempts })),
     nonMonotone: r.nonMonotone,
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
     // Judge checks' calls, apart from the agent's: what they sent upstream and spent. Null when no judge was asked live.
@@ -246,7 +247,7 @@ export function register(program: Command): void {
     .argument('<run>', 'the failed run: id or unique prefix')
     .argument('[command...]', 'override the recorded command (after "--")')
     .option('--expect <json|@file>', 'what a passing run must do besides exiting 0, as under "expect" in shadowlap.config.json tests: \'{"tools":{"send_email":0}}\'')
-    .option('--gate <json|@file>', `how a probe decides, after each attempt: a rescue when the re-asked call passes at least "good" of the time, lost at "bad" or less, each at "risk", up to "max" attempts (default '{"good":${BLAME_DEFAULTS.good},"bad":${BLAME_DEFAULTS.bad},"risk":${BLAME_DEFAULTS.risk},"max":${BLAME_DEFAULTS.max}}'; give any of them)`)
+    .option('--gate <json|@file>', `how a probe decides, after each attempt: a gate that tells a re-asked call passing "good" of the time or more (a rescue) from one passing "bad" or less (lost), each verdict wrong at most "risk" of the time at those two rates, up to "max" attempts (default '{"good":${BLAME_DEFAULTS.good},"bad":${BLAME_DEFAULTS.bad},"risk":${BLAME_DEFAULTS.risk},"max":${BLAME_DEFAULTS.max}}'; give any of them)`)
     .option('--attempts <n>', 'a fixed count instead of the gate: attempts per probed model call (5 with --passes alone)', parseIntArg)
     .option('--passes <n>', 'with a fixed count: passing attempts that make a probe a rescue (default: 2, or 1 with one attempt)', parseIntArg)
     .option('--model <model>', 'rescue with this model from the probed call on, instead of asking the recorded one again')
@@ -327,7 +328,7 @@ export function register(program: Command): void {
     .option('--holdout <run...>', 'failing runs of the same kind that the change was not written against')
     .option('--keeps <run...>', 'passing runs the change must not break, e.g. label:good')
     .option('--expect <json|@file>', 'what a passing run must do besides exiting 0, as under "expect" in shadowlap.config.json tests')
-    .option('--gate <json|@file>', `how a run decides, after each attempt where the replay forks: pass at "good" or more, fail at "bad" or less, each at "risk", up to "max" attempts (default '{"good":${SPRT_DEFAULTS.good},"bad":${SPRT_DEFAULTS.bad},"risk":${SPRT_DEFAULTS.risk},"max":${SPRT_DEFAULTS.max}}'; give any of them)`)
+    .option('--gate <json|@file>', `how a run decides, after each attempt where the replay forks: a gate that tells a run passing "good" of the time or more from one passing "bad" or less, each verdict wrong at most "risk" of the time at those two rates, up to "max" attempts (default '{"good":${SPRT_DEFAULTS.good},"bad":${SPRT_DEFAULTS.bad},"risk":${SPRT_DEFAULTS.risk},"max":${SPRT_DEFAULTS.max}}'; give any of them)`)
     .option('--attempts <n>', 'a fixed count instead of the gate: attempts per run, where the replay forks (5 with --passes alone)', parseIntArg)
     .option('--passes <n>', 'with a fixed count: attempts that must pass for a run to pass (default: 80%, rounded up: 4 of 5)', parseIntArg)
     .option('--model <model>', 'the change is this model, from each run\'s first model call')

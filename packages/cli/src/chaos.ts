@@ -1,6 +1,7 @@
 import {
   chaosTargets,
   decide,
+  describeGate,
   effectsFor,
   formatUsd,
   PRESET_LABELS,
@@ -11,6 +12,8 @@ import {
   resultShape,
   safeLine,
   storeEffects,
+  wilson,
+  wilsonBound,
   type CallRecord,
   type ChaosPreset,
   type ChaosVerdict,
@@ -116,9 +119,9 @@ function decideFixed(passes: number, attempts: number, g: FixedGate): GateDecisi
   return attempts >= g.repeat ? 'fail' : 'continue';
 }
 
-/** The gate in words: `pass at 90% or more, fail at 70% or less, at most 5% risk, up to 20 attempts`, or `1 of 1 attempt must pass`. */
+/** The gate in words, its rule: `tells 90%+ from 70%- at <= 5% risk, up to 20 attempts`, or `1 of 1 attempt must pass`. */
 export function gateWords(g: PresetOutcome['gate']): string {
-  if ('good' in g) return `pass at ${Math.round(g.good * 100)}% or more, fail at ${Math.round(g.bad * 100)}% or less, at most ${Math.round(g.risk * 100)}% risk, up to ${g.max} attempts`;
+  if ('good' in g) return describeGate({ kind: 'sprt', good: g.good, bad: g.bad, risk: g.risk, max: g.max });
   return `${g.passes} of ${g.repeat} attempt${g.repeat === 1 ? '' : 's'} must pass`;
 }
 
@@ -299,7 +302,10 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
     const verdict: ChaosVerdict = unreached ? 'inconclusive' : decision === 'pass' ? 'passed' : decision === 'fail' ? 'failed' : 'inconclusive';
     const firstFail = runs.find((r) => !r.passed);
     const checks = runs.at(-1)?.checks?.length ?? 0;
-    const tally = runs.length > 1 ? `${passes} of ${runs.length} attempts passed` : null;
+    // Under a gate, the Wilson bound beside the tally; the rule is said once, under the table.
+    const sprt = 'kind' in gate && gate.kind === 'sprt' ? gate : null;
+    const bound = sprt && runs.length ? wilsonBound({ attempts: runs.length, interval: { ...wilson(passes, runs.length, 1 - sprt.risk), confidence: 1 - sprt.risk }, decision }) : null;
+    const tally = runs.length > 1 ? `${passes} of ${runs.length} attempts passed${bound ? ` · ${bound}` : ''}` : null;
     const said = firstFail?.lastLine ? ` (${firstFail.lastLine})` : '';
     const summary = unreached
       ? `${what}: ${unreached}`

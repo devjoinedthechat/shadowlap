@@ -1,4 +1,4 @@
-import { applyNormalizers, cleanDecided, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, proofLine, rewriteText, type AttemptReport, type Canary, type CleanReport, type Evidence, type InjectionReport, type Normalizer, type PlantReport } from '@shadowlap/engine';
+import { applyNormalizers, cleanBound, cleanDecided, cleanRule, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, proofLine, rewriteText, type AttemptReport, type Canary, type CleanReport, type Evidence, type InjectionReport, type Normalizer, type PlantReport } from '@shadowlap/engine';
 
 /**
  * The security report of `shadowlap injection --html` and the dashboard's Security report: one HTML
@@ -205,7 +205,10 @@ function failedLine(r: PlantReport): string {
 function cleanSection(r: CleanReport, m: Masker, canaries: readonly Canary[]): string {
   const writes = r.writes.map((w) => {
     const args = m.args(w.args, w.name);
-    const line = w.verdict === 'caused' ? `caused by #${r.read.callNo}: gone in ${w.gone} of ${w.attempts} clean attempts` : w.verdict === 'not caused' ? `not caused: made again in ${w.attempts - w.gone} of ${w.attempts} clean attempts` : w.attempts ? `inconclusive after ${plural(w.attempts, 'clean attempt')}: gone in ${w.gone}` : 'inconclusive: no clean attempt decided it';
+    // The verdict, the tally and the Wilson bound; the gate's rule once, under the table.
+    const bound = cleanBound(w, r.gate);
+    const tally = `gone in ${w.gone} of ${plural(w.attempts, 'clean attempt')}${bound ? ` · ${bound}` : ''}`;
+    const line = w.verdict === 'caused' ? `caused by #${r.read.callNo} · ${tally}` : w.verdict === 'not caused' ? `not caused · ${tally}` : w.attempts ? `inconclusive · ${tally}` : 'inconclusive: no clean attempt decided it';
     return `<tr><td class="mono">#${w.callNo} ${esc(m.name(w.name))}(${marked(describeIdentifiers(args), canaries)})</td><td class="mono count">${marked(clip(JSON.stringify(args) ?? 'null'), canaries)}</td><td class="${VERDICT_CLASS[w.verdict]}">${esc(line)}</td></tr>`;
   });
   const name = esc(m.name(r.read.name));
@@ -215,6 +218,7 @@ function cleanSection(r: CleanReport, m: Masker, canaries: readonly Canary[]): s
 <p>What <code>#${r.read.callNo} ${name}(${esc(clip(JSON.stringify(m.args(r.read.args, r.read.name)) ?? 'null'))})</code> returned was replaced with <code>${esc(clip(JSON.stringify(m.result(r.neutral, r.read.name)) ?? 'null'))}</code>, its prose emptied, and the run replayed from there.</p>
 <p>Verdict: <span class="${VERDICT_CLASS[r.verdict]}">${r.verdict}</span>${cleanDecided(r) ? '' : ' (a write is undecided)'}.</p>
 <div class="scroll"><table><thead><tr><th>Recorded write</th><th>Arguments</th><th>Without the content</th></tr></thead><tbody>${writes.join('')}</tbody></table></div>
+${cleanRule(r.gate) && r.writes.some((w) => w.attempts) ? `<p class="meta">${esc(cleanRule(r.gate)!)}</p>` : ''}
 ${unusable.length ? `<p class="meta">${plural(unusable.length, 'clean attempt')} decided nothing: ${esc(m.text(unusable[0]!.why!))}</p>` : ''}`;
 }
 

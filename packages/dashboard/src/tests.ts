@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -36,7 +36,7 @@ export const verdictOfResult = (r: Pick<TestResult, 'ok' | 'failure' | 'data'>):
 /** A golden's gate as the config gives it, in the words Settings previews it in. */
 export interface GateView {
   gate: Gate;
-  /** `pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 40 attempts`. */
+  /** The gate's rule: `tells 90%+ from 70%- at <= 5% risk, up to 40 attempts`. */
   description: string;
   /** An SPRT gate: the attempts an agent that always passes needs (12 at 0.9, 0.7, 0.05), and one that always fails (3). Null for history. */
   toPass: number | null;
@@ -49,7 +49,7 @@ export interface GateView {
  * `lower`) and Run more attempts.
  */
 export type GateResultView = GateResult & {
-  /** `18 of 20 passed · pass rate ≥ 0.70 (95%, Wilson) · pass^5 0.55`. */
+  /** `18 of 20 passed · rate >= 0.70 (95%) · pass^5 0.55`. */
   tally: string;
   /** USD an attempt cost on average, to estimate what more attempts would; null when nothing was spent or it wasn't kept. */
   perAttempt: number | null;
@@ -515,11 +515,24 @@ function causeOf(r: TestResult, d: DivergenceReport, normalizers: readonly Norma
   return (d.diff ?? []).find((e) => !maskedChange(e, normalizers, d))?.path ?? null;
 }
 
+/**
+ * A kept gate result's verdict line, in the words every report says it now (the verdict word, the
+ * tally, the Wilson bound, the rule), whatever words the result was kept in; the kept sentence when
+ * its figures can't be read.
+ */
+export function gateVerdictLine(g: GateResult): string {
+  try {
+    return gateSentence(gateOf(g), g);
+  } catch {
+    return g.sentence;
+  }
+}
+
 /** The line under a golden's last result: what it did, or why it failed; `normalizers` are the config's now. */
 export function resultLine(r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
   const data = r.data ?? {};
-  // A gate's verdict is its sentence, passed, failed or inconclusive, with the tally beside it.
-  if (data.gate && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit')) return `${data.gate.sentence} · ${formatTally(data.gate)}`;
+  // A gate's verdict is its verdict line, passed, failed or inconclusive, with pass^k beside it.
+  if (data.gate && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit')) return [gateVerdictLine(data.gate), formatPassK(data.gate)].filter(Boolean).join(' · ');
   if (!r.ok) {
     if (r.failure === 'diverged') {
       const d = divergenceOf(r);
@@ -572,7 +585,7 @@ function gateView(gate: Gate | null | undefined): GateView | null {
 /** What a gate would do, before it is saved: Settings → CI's preview of the gate's figures. */
 export interface GatePreview {
   gate: Gate;
-  /** `pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 80 attempts`. */
+  /** The gate's rule: `tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`. */
   description: string;
   /** An SPRT gate: the attempts an agent that always passes needs (12 at 0.9, 0.7, 0.05), one that always fails (3), and the passes that make up for a failure (about 4.4). Null for history. */
   toPass: number | null;
@@ -1005,7 +1018,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     if (!latest || latest.ok) continue;
     // Neither passed nor failed: nothing to bisect or fix, only attempts to add.
     if (verdictOfResult(latest) === 'inconclusive') {
-      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: latest.reason ?? 'inconclusive', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: row.last.gate, failure: latest.failure });
+      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: latest.data?.gate ? gateVerdictLine(latest.data.gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: row.last.gate, failure: latest.failure });
       continue;
     }
     const past = store.listTestResults({ golden: row.path, limit: 1000 });

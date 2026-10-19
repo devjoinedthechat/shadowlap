@@ -204,8 +204,9 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       const rescued = decision === 'pass';
       // The gate's result rests on the attempts it decided on: the first to start, up to the one that settled it.
       const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(s.gate ? { decision, gate: gateResult(s.gate, tally.decidedOn(), { decision }) } : {}) };
-      const words = s.gate ? `: the re-asked call ${probeFinding(found, s.gate)}` : `: ${passes} of ${attempts.length} passed`;
-      log(`    ${rescued ? p.green(`rescued${words}`) : decision === 'inconclusive' ? p.yellow(`inconclusive${words.replace(/^: the re-asked call is inconclusive/, '')}`) : p.red(`lost${words}`)}`);
+      // Under a gate, its verdict word, tally and Wilson bound; the rule was said once, above.
+      const words = s.gate ? probeFinding(found, s.gate) : `${rescued ? 'rescued' : 'lost'}: ${passes} of ${attempts.length} passed`;
+      log(`    ${rescued ? p.green(words) : decision === 'inconclusive' ? p.yellow(words) : p.red(words)}`);
       return found;
     };
 

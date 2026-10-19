@@ -155,10 +155,10 @@ describe('the goldens table', () => {
   });
 
   it('prints an inconclusive golden\'s report with its gate\'s evidence, and what more attempts would take', () => {
-    const gate = { tally: '16 of 20 passed · pass rate 0.58 to 0.92 (95%, Wilson) · pass^5 0.28', more: { args: ['test', 'goldens/flaky', '--max-attempts', '40', '--continue'], job: { golden: 'goldens/flaky', maxAttempts: 40, continue: true as const }, attempts: 40, most: 20, expected: 17.17, settles: 0.378, cost: 0.34 } };
-    const v = { golden: 'goldens/flaky', name: 'flaky', runId: null, reason: 'inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: `${gate.tally}\nattempt 1  ✓ passed`, gate } as unknown as InconclusiveView;
+    const gate = { tally: '16 of 20 passed · rate 0.58 to 0.92 (95%) · pass^5 0.28', more: { args: ['test', 'goldens/flaky', '--max-attempts', '40', '--continue'], job: { golden: 'goldens/flaky', maxAttempts: 40, continue: true as const }, attempts: 40, most: 20, expected: 17.17, settles: 0.378, cost: 0.34 } };
+    const v = { golden: 'goldens/flaky', name: 'flaky', runId: null, reason: 'inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: `${gate.tally}\nattempt 1  ✓ passed`, gate } as unknown as InconclusiveView;
     expect(inconclusiveLines(v).map((l) => l.text)).toEqual([
-      '? flaky: inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs',
+      '? flaky: inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts',
       `    ${gate.tally}`,
       '    ✗ send_email called 0 times: called 1 time',
       '    attempt 1  ✓ passed',

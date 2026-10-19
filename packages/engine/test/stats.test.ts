@@ -15,6 +15,7 @@ import {
   decideCount,
   describeGate,
   dropProbability,
+  formatPassK,
   formatTally,
   gateOdds,
   gateOddsAt,
@@ -31,14 +32,16 @@ import {
   sprtBounds,
   sprtScore,
   sprtStep,
+  verdictLine,
   wilson,
+  wilsonBound,
   type BaselineGate,
   type SprtGate,
 } from '../src/stats.js';
 
 const sprt = (o: Partial<Omit<SprtGate, 'kind'>> = {}): SprtGate => ({ kind: 'sprt', ...SPRT_DEFAULTS, ...o });
 const baseline = (o: Partial<Omit<BaselineGate, 'kind'>> = {}): BaselineGate => ({ kind: 'baseline', ...BASELINE_DEFAULTS, ...o });
-/** The figures docs/gating.md opens with: pass at 90% or more, fail at 70% or less, 5% risk each, give up after 20. */
+/** The figures docs/gating.md opens with: tell 90% or more from 70% or less, 5% risk each, give up after 20. */
 const SPEC = sprt({ good: 0.9, bad: 0.7, risk: 0.05, max: 20 });
 
 describe('the binomial table: what a fixed 4 of 5 lets through', () => {
@@ -515,25 +518,31 @@ describe('parseGate', () => {
 });
 
 describe('what the reports say', () => {
-  it('in one sentence, for each verdict', () => {
-    expect(gateResult(SPEC, Array(12).fill(true)).sentence).toBe('passed: at least 90% with 95% confidence after 12 attempts');
-    expect(gateResult(SPEC, [false, false, false]).sentence).toBe('failed: at most 70% with 95% confidence after 3 attempts');
+  // The verdict word, the tally, the Wilson bound and the rule, stated once: never a claimed rate,
+  // since a gate bounds its error only at its two rates.
+  it('in one line, for each verdict', () => {
+    expect(gateResult(SPEC, Array(12).fill(true)).sentence).toBe('passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(gateResult(SPEC, [false, false, false]).sentence).toBe('failed · 0 of 3 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
     const mixed = [...Array(16).fill(true), false, false, false, false];
-    expect(gateResult(SPEC, mixed).sentence).toBe('inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs');
-    expect(gateResult(SPEC, [true], { clean: true }).sentence).toBe('passed: a clean replay comes out the same every time, so its one attempt settles it');
-    expect(gateResult(SPEC, [true, true], { decision: 'continue' }).sentence).toBe('undecided after 2 attempts: between 70% and 90% so far');
+    expect(gateResult(SPEC, mixed).sentence).toBe('inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(gateResult(SPEC, [true], { clean: true }).sentence).toBe('passed · 1 of 1 · a clean replay, the same every time, so its one attempt settles it');
+    expect(gateResult(SPEC, [true, true], { decision: 'continue' }).sentence).toBe('undecided · 2 of 2 · rate 0.34 to 1.00 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    // Without the rule, for a report that states it once above its lines.
+    expect(verdictLine(gateResult(SPEC, Array(12).fill(true)))).toBe('passed · 12 of 12 · rate >= 0.76 (95%)');
+    for (const r of [gateResult(SPEC, Array(12).fill(true)), gateResult(SPEC, mixed), gateResult(baseline(), Array(5).fill(true))]) expect(r.sentence).not.toMatch(/at least|at most|of the time|confidence/);
   });
 
   it('for the history gate, with its baseline', () => {
     const history = { passes: 47, attempts: 50, sessions: 10 };
     const g = baseline();
-    expect(gateResult(g, Array(5).fill(true), { history }).sentence).toBe('passed: no sign of a drop of 15 points or more from its baseline, 0.94 over the last 10 sessions (47 of 50 attempts), after 5 attempts');
-    expect(gateResult(g, [true, false, true, false, false], { history }).sentence).toBe('failed: its pass rate dropped 15 points or more from its baseline, 0.94 over the last 10 sessions (47 of 50 attempts), with 95% confidence after 5 attempts');
-    expect(gateResult(g, [...Array(29).fill(true), ...Array(11).fill(false)], { history }).sentence).toBe('inconclusive: a drop of 15 points or more from its baseline, 0.94 over the last 10 sessions (47 of 50 attempts), is likelier than not but short of 95% confidence after 40 attempts, the most the gate runs');
-    expect(gateResult(g, [true, true, true, true, false], { history }).sentence).toBe('undecided after 5 attempts: a drop of 15 points or more is likelier than not, short of 95% confidence so far');
-    expect(gateResult(g, [true, true], { history }).sentence).toBe('undecided after 2 attempts: it decides from 5 attempts on');
-    expect(gateResult(g, Array(5).fill(true)).sentence).toBe('passed: no sign of a drop of 15 points or more from its baseline, its recording, the one attempt it was packed from, since it has no history yet, after 5 attempts');
-    expect(gateResult(g, Array(5).fill(true), { history: { ...history, sessions: 1 } }).sentence).toContain('0.94 over its last session (47 of 50 attempts)');
+    const rule = 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40';
+    expect(gateResult(g, Array(5).fill(true), { history }).sentence).toBe(`passed · 5 of 5 · rate >= 0.57 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
+    expect(gateResult(g, [true, false, true, false, false], { history }).sentence).toBe(`failed · 2 of 5 · rate <= 0.77 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
+    expect(gateResult(g, [...Array(29).fill(true), ...Array(11).fill(false)], { history }).sentence).toBe(`inconclusive · 29 of 40 · rate 0.57 to 0.84 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
+    expect(gateResult(g, [true, true, true, true, false], { history }).sentence).toBe(`undecided · 4 of 5 · rate 0.38 to 0.96 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
+    expect(gateResult(g, [true, true], { history }).sentence).toBe(`undecided · 2 of 2 · rate 0.34 to 1.00 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
+    expect(gateResult(g, Array(5).fill(true)).sentence).toBe(`passed · 5 of 5 · rate >= 0.57 (95%) · against its recording (no history yet) · ${rule}`);
+    expect(gateResult(g, Array(5).fill(true), { history: { ...history, sessions: 1 } }).sentence).toContain('against 0.94 over its last session (47 of 50)');
   });
 
   it('counts attempts carried over from a session it continued', () => {
@@ -542,20 +551,22 @@ describe('what the reports say', () => {
     expect(r.outcomes).toHaveLength(22);
     expect(r.attempts).toBe(22);
     expect(gateResult(SPEC, [true]).carried).toBeUndefined();
-    expect(gateResult(sprt({ max: 40 }), [...Array(16).fill(true), false, false, false, false, ...Array(22).fill(true)].slice(0, 26), { carried: 20, decision: 'continue' }).sentence).toBe('undecided after 26 attempts (20 carried over): between 70% and 90% so far');
+    expect(gateResult(sprt({ max: 40 }), [...Array(16).fill(true), false, false, false, false, ...Array(22).fill(true)].slice(0, 26), { carried: 20, decision: 'continue' }).sentence).toBe('undecided · 22 of 26 (20 carried over) · rate 0.66 to 0.94 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 40 attempts');
   });
 
   it('shows the evidence: the tally, the interval and pass^k', () => {
     const r = gateResult(SPEC, [...Array(18).fill(true), false, false]);
     // The end of the interval that explains the verdict: the low end for a pass, the high end for a failure, both otherwise.
-    expect(formatTally({ ...r, decision: 'pass' })).toBe('18 of 20 passed · pass rate ≥ 0.70 (95%, Wilson) · pass^5 0.55');
+    expect(formatTally({ ...r, decision: 'pass' })).toBe('18 of 20 passed · rate >= 0.70 (95%) · pass^5 0.55');
     expect(r.decision).toBe('inconclusive');
-    expect(formatTally(r)).toBe('18 of 20 passed · pass rate 0.70 to 0.97 (95%, Wilson) · pass^5 0.55');
-    expect(formatTally(gateResult(SPEC, [false, false, false]))).toBe('0 of 3 passed · pass rate ≤ 0.56 (95%, Wilson)');
+    expect(formatTally(r)).toBe('18 of 20 passed · rate 0.70 to 0.97 (95%) · pass^5 0.55');
+    expect(formatPassK(r)).toBe('pass^5 0.55');
+    expect(formatPassK(gateResult(SPEC, [true, true]))).toBeNull();
+    expect(formatTally(gateResult(SPEC, [false, false, false]))).toBe('0 of 3 passed · rate <= 0.56 (95%)');
     expect(formatTally(gateResult(SPEC, [true], { clean: true }))).toBe('1 of 1 passed · a clean replay, the same every time');
     expect(r.passK.map((x) => x.k)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(r.interval).toEqual({ lo: expect.closeTo(0.699, 3), hi: expect.closeTo(0.972, 3), confidence: 0.95 });
-    expect(formatTally(gateResult(SPEC, [true, true, false]))).toBe('2 of 3 passed · pass rate 0.21 to 0.94 (95%, Wilson)');
+    expect(formatTally(gateResult(SPEC, [true, true, false]))).toBe('2 of 3 passed · rate 0.21 to 0.94 (95%)');
   });
 
   it('keeps the running score after each attempt, against both bounds', () => {
@@ -587,9 +598,12 @@ describe('what the reports say', () => {
     expect(gateResult(baseline(), [true]).evidence).toMatchObject({ history: null, baseline: 1, probability: null, probabilities: [null] });
   });
 
-  it('describes a gate in the words Settings will preview it in', () => {
-    expect(describeGate(SPEC)).toBe('pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 20 attempts');
-    expect(describeGate(baseline())).toBe('fail on a drop of 15 points or more from the pass rate of its last 10 sessions at 95% confidence, pass once no drop shows, from 5 attempts up to 40');
-    expect(gateSentence(SPEC, { decision: 'pass', attempts: 1, clean: false, evidence: gateResult(SPEC, [true]).evidence })).toBe('passed: at least 90% with 95% confidence after 1 attempt');
+  it('describes a gate by its rule, in the words Settings will preview it in', () => {
+    expect(describeGate(SPEC)).toBe('tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(describeGate(sprt({ good: 0.875, bad: 0.5, risk: 0.1, max: 1 }))).toBe('tells 87.5%+ from 50%- at <= 10% risk, up to 1 attempt');
+    expect(describeGate(baseline())).toBe('fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40');
+    const one = gateResult(SPEC, [true]);
+    expect(gateSentence(SPEC, { ...one, decision: 'pass' })).toBe('passed · 1 of 1 · rate >= 0.21 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(wilsonBound({ attempts: 0, interval: { lo: 0, hi: 1, confidence: 0.95 }, decision: 'pass' })).toBeNull();
   });
 });

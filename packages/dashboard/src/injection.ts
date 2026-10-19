@@ -1,4 +1,4 @@
-import { cleanDecided, commandIsImported, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type Store, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
+import { cleanBound, cleanDecided, commandIsImported, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type Store, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
@@ -47,7 +47,12 @@ export function injectionLine(r: StoredInjectionResult): string {
     const read = c.read ? `#${c.read.callNo} ${c.read.name}` : 'the read';
     const caused = (c.writes ?? []).filter((w) => w.verdict === 'caused');
     if (r.endedAt === null) return `testing whether ${read} caused its writes`;
-    if (caused.length) return `caused by ${read} · ${caused.map((w) => `the write is gone in ${w.gone} of ${w.attempts} clean attempts`)[0]}`;
+    if (caused.length) {
+      // The tally and the Wilson bound the verdict rests on; the rule is the gate's, in its report.
+      const w = caused[0]!;
+      const bound = cleanBound(w, c.gate);
+      return `caused by ${read} · gone in ${w.gone} of ${plural(w.attempts, 'clean attempt')}${bound ? ` · ${bound}` : ''}`;
+    }
     return r.verdict === 'not caused' ? `not caused by ${read}: the writes come back without its content` : `inconclusive: whether ${read} caused the writes`;
   }
   const p = data as Partial<PlantReport>;

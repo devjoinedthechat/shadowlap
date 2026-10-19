@@ -1,7 +1,7 @@
 import { probeVerdict } from './blame.js';
 import { agentCallsOf } from './judge-scope.js';
 import { formatUsd } from './prices.js';
-import { decide, describeGate, percent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
+import { atLeast, atMost, decide, describeGate, percent, wilsonBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
@@ -16,10 +16,11 @@ import type { CallRecord } from './types.js';
  *   fix that only fits the runs it was written against shows up here;
  * - **good** runs passed, and must still pass.
  *
- * A run passes when its attempts meet the oracle often enough, as a gate decides after each one
- * (stats.ts): by default it passes at 90% or more and fails at 70% or less, each verdict wrong at
- * most 5% of the time, and is inconclusive when the gate's attempts run out between the two. A fixed
- * count (`needed` of `attempts`) still decides when one is given. The change is accepted only when
+ * A run passes or fails on its attempts as a gate decides after each one (stats.ts): by default it
+ * tells a run that meets the oracle 90% of the time or more from one that meets it 70% or less, each
+ * verdict wrong at most 5% of the time at those two rates, and is inconclusive when the gate's
+ * attempts run out between them. A fixed count (`needed` of `attempts`) still decides when one is
+ * given. The change is accepted only when
  * every failing run is fixed and every good run kept. A replay that forks nowhere served every call
  * from the recording, so it would come out the same every time: one attempt settles it, which is
  * what makes checking a harness fix, or the good runs a prompt change doesn't touch, free.
@@ -121,12 +122,12 @@ export function outcomeOf(r: Pick<VerifiedRun, 'role' | 'verdict'> & { decision?
   return r.verdict === 'pass' ? 'fixed' : 'not fixed';
 }
 
+/** A run's tally, and under a gate the Wilson bound at the confidence it decided at: `12 of 12 passed · rate >= 0.76 (95%)`. */
 function tally(r: VerifiedRun): string {
   if (r.deterministic) return 'clean replay';
-  // A gate's rate, from the Wilson interval at the confidence it decided at: the end that says why.
   const g = r.gate;
-  const rate = !g || !r.attempts.length ? '' : g.decision === 'pass' ? `, ≥ ${g.interval.lo.toFixed(2)}` : g.decision === 'fail' ? `, ≤ ${g.interval.hi.toFixed(2)}` : `, ${g.interval.lo.toFixed(2)}–${g.interval.hi.toFixed(2)}`;
-  return `${r.passes} of ${r.attempts.length} passed${rate}`;
+  const bound = g && r.attempts.length ? wilsonBound(g) : null;
+  return `${r.passes} of ${r.attempts.length} passed${bound ? ` · ${bound}` : ''}`;
 }
 
 export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | null): VerifyDecision {
@@ -137,7 +138,7 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
     reasons.push(`${ROLE[r.role]} run ${short(r.runId)} ${outcomeOf(r)}: ${tally(r)}${why ? ` (${why})` : ''}`);
   }
   // A gate that ran out of attempts between its bounds settled nothing either, and says so apart.
-  for (const r of runs) if (r.decision === 'inconclusive') reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: ${r.gate?.sentence.replace(/^inconclusive: /, '') ?? tally(r)}`);
+  for (const r of runs) if (r.decision === 'inconclusive') reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: ${tally(r)}, between the gate's bounds when its attempts ran out`);
   const open = runs.filter((r) => r.verdict === 'open' && r.decision !== 'inconclusive');
   if (open.length) reasons.push(`${open.length} run${open.length === 1 ? '' : 's'} not settled${stopReason ? `: ${stopReason}` : ''}`);
 
@@ -208,25 +209,25 @@ const pct = (before: number, after: number) => {
 
 /**
  * How a run is judged, in a sentence: the oracle, and the rule that decides on its attempts. With a
- * gate, `A run passes at 90% or more, fails at 70% or less, at most 5% risk of the wrong verdict, up
- * to 40 attempts, deciding after each one; …`.
+ * gate, `… Its gate decides after each attempt (gate: tells 90%+ from 70%- at <= 5% risk, up to 80
+ * attempts); a clean replay settles it in one.`
  */
 export function verifyRule(r: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | 'gate' | 'fields' | 'oracle'>): string {
   const fields = Object.entries(r.fields);
   const change = fields.length ? `, with ${fields.map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ')} from each run's first model call` : '';
   const oracle = r.oracle.map(safeLine).join('; ');
-  if (r.gate) return `A run's attempts must meet the oracle${change}: ${oracle}. Its gate decides after each attempt: ${describeGate(r.gate)}; a clean replay settles it in one.`;
+  if (r.gate) return `A run's attempts must meet the oracle${change}: ${oracle}. Its gate decides after each attempt (gate: ${describeGate(r.gate)}); a clean replay settles it in one.`;
   return `A run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the oracle${change}: ${oracle}.`;
 }
 
-/** A gate's figures in a few words, for a step's line: `at 90% or more, at 5% risk`. */
-export function gateShort(g: Pick<SprtGate, 'good' | 'risk'>): string {
-  return `at ${percent(g.good)} or more, at ${percent(g.risk)} risk`;
+/** A gate's rule in a few words, for a step's line: `tells 90%+ from 70%- at <= 5% risk`. */
+export function gateShort(g: Pick<SprtGate, 'good' | 'bad' | 'risk'>): string {
+  return `tells ${atLeast(g.good)} from ${atMost(g.bad)} at <= ${percent(g.risk)} risk`;
 }
 
-/** How each run was decided, after a tally of runs: `each at 4 of 5 attempts`, or `each passing at 90% or more, at 5% risk`. */
+/** How each run was decided, after a tally of runs: `each at 4 of 5 attempts`, or `each by its gate, which tells 90%+ from 70%- at <= 5% risk`. */
 export function eachRun(v: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | 'gate'>): string {
-  return v.gate ? `each passing ${gateShort(v.gate)}` : `each at ${v.needed} of ${v.attemptsPerRun} attempts`;
+  return v.gate ? `each by its gate, which ${gateShort(v.gate)}` : `each at ${v.needed} of ${v.attemptsPerRun} attempts`;
 }
 
 export function formatVerify(r: VerifyReport, p: Palette = plain): string {
@@ -259,7 +260,7 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
       const failure = x.verdict === 'fail' ? x.attempts.find((a) => !a.passed)?.failures[0] : undefined;
       const forks = [...new Set(x.attempts.map((a) => a.forkedAt).filter((f): f is number => f !== null))];
       const note = failure ? safeLine(failure) : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '';
-      lines.push(`    ${ROLE[x.role].padEnd(8)}  ${short(x.runId)}  ${colored}  ${tally(x).padEnd(r.gate ? 22 : 14)}${note ? `  ${p.dim(note)}` : ''}`.trimEnd());
+      lines.push(`    ${ROLE[x.role].padEnd(8)}  ${short(x.runId)}  ${colored}  ${tally(x).padEnd(r.gate ? 38 : 14)}${note ? `  ${p.dim(note)}` : ''}`.trimEnd());
     }
   }
 

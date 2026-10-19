@@ -67,6 +67,7 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
                   <Pips ok={x.passes} no={x.attempts - x.passes} />{' '}
                   <span className="fxof">
                     {x.passes} of {x.attempts}
+                    {x.rate?.bound ? <span className="fxdim"> · {x.rate.bound}</span> : null}
                   </span>
                 </td>
                 <td>

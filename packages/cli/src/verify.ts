@@ -1,4 +1,4 @@
-import { attemptsToPass, decideVerify, footprintOf, gateResult, gateVerdict, outcomeOf, runVerdict, sameModel, type SprtGate, type VerifiedRun, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { attemptsToPass, decideVerify, footprintOf, gateResult, gateVerdict, outcomeOf, runVerdict, sameModel, wilsonBound, type SprtGate, type VerifiedRun, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -89,7 +89,9 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       if (s.gate && result.attempts.length) result.gate = gateResult(s.gate, result.attempts.map((x) => x.passed), { clean: result.deterministic, decision: result.decision ?? 'continue' });
       if (result.verdict === 'fail') failed = true;
       const o = outcomeOf(result);
-      const said = result.gate && !result.deterministic && result.decision !== 'continue' ? p.dim(` · ${result.gate.sentence}`) : '';
+      // The tally and the Wilson bound beside the outcome; the rule was said once, above.
+      const g = result.gate;
+      const said = g && !result.deterministic && result.decision !== 'continue' ? p.dim(` · ${[`${g.passes} of ${g.attempts}`, wilsonBound(g)].filter(Boolean).join(' · ')}`) : '';
       log(`  ${label}  ${!result.attempts.length ? p.yellow('not started') : o === 'fixed' || o === 'kept' ? p.green(o) : o === 'unsettled' || o === 'inconclusive' ? p.yellow(o) : p.red(o)}${said}`);
     };
 

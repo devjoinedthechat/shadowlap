@@ -230,9 +230,9 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.steps[2]).toMatchObject({ short: '3 of 3 held', title: '3 of 3 runs held', meta: '1 earlier change rejected' });
     expect(shown.verify.map((v: { verdict: string }) => v.verdict)).toEqual(['accepted', 'rejected']);
     expect(shown.defaultVerify).toBe(shown.verify[0].verifyId);
-    expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: "a run's attempts must meet the check: the agent exits 0; issue_refund with {\"amount\":240} called 0 times; its gate decides after each one: pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 80 attempts" });
-    // Each run shows its rate, at the risk it was decided at.
-    expect(shown.verify[0].rows[0].rate).toMatchObject({ decision: 'pass', confidence: 0.95, sentence: 'passed: at least 90% with 95% confidence after 12 attempts' });
+    expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: "a run's attempts must meet the check: the agent exits 0; issue_refund with {\"amount\":240} called 0 times; its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts" });
+    // Each run shows its tally and the Wilson bound, at the confidence it was decided at.
+    expect(shown.verify[0].rows[0].rate).toMatchObject({ decision: 'pass', confidence: 0.95, sentence: 'passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', bound: 'rate >= 0.76 (95%)' });
     expect(shown.verify[0].rows.map((r: { role: string; outcome: string }) => [r.role, r.outcome])).toEqual([
       ['target', 'fixed'],
       ['target', 'fixed'],
@@ -242,10 +242,10 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.verify[1].rows[0]).toMatchObject({ outcome: 'not fixed', deterministic: true, note: 'issue_refund called' });
     // The Blame step shows the latest blame that found the call; both are kept.
     expect(shown.blames).toHaveLength(2);
-    expect(shown.blame).toMatchObject({ runId: failed[1], outcome: 'blamed', lostAt: decision, step: 3, steps: 4, confidence: 'high', needed: 2, attemptsPerProbe: 20, rule: 'a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 20 attempts' });
-    expect(shown.blame.boundary).toMatch(new RegExp(`^The re-asked call #${decision} passes at least 60% of the time \\(\\d+ of \\d+ attempts\\); #\\d+, the next model call, passes at most 10% of the time \\(0 of 4 attempts\\)\\.$`));
+    expect(shown.blame).toMatchObject({ runId: failed[1], outcome: 'blamed', lostAt: decision, step: 3, steps: 4, confidence: 'high', needed: 2, attemptsPerProbe: 20, rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
+    expect(shown.blame.boundary).toMatch(new RegExp(`^The re-asked call #${decision}: rescued · \\d+ of \\d+ · rate >= 0\\.\\d\\d \\(95%\\); #\\d+, the next model call: lost · 0 of 4 · rate <= 0\\.49 \\(95%\\)\\.$`));
     expect(shown.blame.answers).toMatchObject({ callNo: decision, recorded: 'issue_refund({"order_id":"A-1042","amount":240})', rescued: '"Above the limit.", escalate({"reason":"above the refund limit"})' });
-    expect(shown.blame.probes.find((x: { blamed: boolean }) => x.blamed)).toMatchObject({ callNo: decision, verdict: 'rescued · blamed', href: `#/run/${failed[1]}/${decision}` });
+    expect(shown.blame.probes.find((x: { blamed: boolean }) => x.blamed)).toMatchObject({ callNo: decision, verdict: 'rescued · blamed', bound: expect.stringMatching(/^rate >= 0\.\d\d \(95%\)$/), href: `#/run/${failed[1]}/${decision}` });
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
     expect(shown.blame.callRow.filter((c: { kind: string }) => c.kind === 'api')).toHaveLength(4);
     // Verified on the working tree, with no repair behind it: applying it only marks it.
@@ -257,6 +257,12 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(human).toMatch(/✓ 01 blame +Lost at model call/);
     expect(human).toContain('✓ accepted');
     expect(human).toContain('✗ rejected');
+    // Each probe and each verified run with its tally and Wilson bound, under its gate's rule.
+    expect(human).toContain('probes: gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts');
+    expect(human).toMatch(/0 of 4 passed · rate <= 0\.49 \(95%\) +lost/);
+    expect(human).toMatch(/kept +12 of 12 · rate >= 0\.76 \(95%\)/);
+    expect(human).toContain('its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
+    expect(human).not.toMatch(/at least|at most|of the time/);
     expect(human).toContain(`next: shadowlap fix apply ${fixId.slice(0, 13)}`);
 
     const applied = await shadowlap(['fix', 'apply', fixId, '--json']);
@@ -310,7 +316,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
       change: { file: 'agent.mjs', anchor: 'system prompt', before: ORIGINAL, after: FIX, added: { text: ': escalate every refund above the limit it sets' }, removed: '' },
       needed: 12,
       attemptsPerRun: 80,
-      rule: 'each passing at 90% or more, at 5% risk',
+      rule: 'each by its gate, which tells 90%+ from 70%- at <= 5% risk',
       verify: { verifyId: report.verifyId },
     });
     expect(shown.repair.roles).toEqual([

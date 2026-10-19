@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, formatTally, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, describeGate, formatTally, gateOf, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoredEvent } from '@shadowlap/engine';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
 import { shortReason, verdictOfResult } from './tests.js';
@@ -329,10 +329,15 @@ function testEntry(store: Store, attempts: RunRecord[]): ActivityItem {
   return { ...testEnd(store, shown, test, result), id: `r:${newest.runId}:end`, at: newest.endedAt ?? newest.startedAt };
 }
 
-/** A gate's evidence as the feed says it, `12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00`; its tally alone when the result kept less. */
+/**
+ * A gate's evidence as the feed says it, after the verdict word, with the rule it was decided by:
+ * `12 of 12 passed · rate >= 0.76 (95%) · pass^5 1.00 · gate: tells 90%+ from 70%- at <= 5% risk, up
+ * to 20 attempts` (a clean replay needs no rule: its one attempt settled it); its tally alone when
+ * the result kept less.
+ */
 function gateTally(g: GateResult): string {
   try {
-    return formatTally(g);
+    return g.clean ? formatTally(g) : `${formatTally(g)} · gate: ${describeGate(gateOf(g))}`;
   } catch {
     return `${g.passes} of ${g.attempts} passed`;
   }

@@ -11,8 +11,10 @@
  *     `bad`: each pass adds ln(good/bad) to a score and each failure ln((1−good)/(1−bad)); the gate
  *     passes once the score reaches ln((1−risk)/risk) and fails once it falls to minus that, so an
  *     agent at `bad` or below is passed, and one at `good` or above failed, at most about `risk` of
- *     the time (Wald's bound is risk / (1 − risk)). When `max` attempts run out between the bounds,
- *     it is inconclusive: an honest answer, not a coin toss.
+ *     the time (Wald's bound is risk / (1 − risk)). Between the two rates nothing is promised: an
+ *     agent that passes 80% of the time passes a gate between 90% and 70% about 38% of the time. So
+ *     a verdict says what the gate tells apart, never that the agent passes at some rate. When `max`
+ *     attempts run out between the bounds, it is inconclusive: an honest answer, not a coin toss.
  *   - `baseline`, against the golden's own history: the pass rates now and in the last `window`
  *     sessions, each a Beta posterior under a uniform prior (a beta-binomial comparison). From `min`
  *     attempts on, after each one, it fails when P(now < baseline − drop) > 1 − risk, passes once
@@ -25,8 +27,9 @@
  * - `passHatK`: the chance an agent passes all of k tries, from c passes in n, as C(c,k)/C(n,k) (the
  *   τ-bench estimator), which matters more than one success for an agent that runs unattended.
  *
- * Plus what the reports say: the one sentence (`passed: at least 90% with 95% confidence after 12
- * attempts`), the evidence path (the score after each attempt, against both bounds), and the exact
+ * Plus what the reports say: the verdict line (`passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells
+ * 90%+ from 70%- at <= 5% risk, up to 80 attempts`: the verdict word, the tally, the Wilson bound and
+ * the rule), the evidence path (the score after each attempt, against both bounds), and the exact
  * odds of each verdict for an agent with a given pass rate (`gateOdds`), which the docs' tables and
  * Settings' preview are made from.
  */
@@ -75,23 +78,23 @@ export interface GateHistory extends Tally {
 }
 
 /**
- * The figures `{}` stands for: pass at 90% or more, fail at 70% or less, at most 5% risk each, up to
- * 80 attempts. An agent that always passes is accepted after 12 and one that passes 95% of the time
+ * The figures `{}` stands for: tell a pass rate of 90% or more from one of 70% or less, at most 5%
+ * risk each way, up to 80 attempts. An agent that always passes is accepted after 12 and one that passes 95% of the time
  * after 16.6 on average whatever the limit; 80 leaves almost none of the latter inconclusive, where
  * 40 left 0.75% of them so (with 100 forked goldens in CI, a red run 60% of the time) and 20 a fifth.
  */
 export const SPRT_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ good: 0.9, bad: 0.7, risk: 0.05, max: 80 });
 
 /**
- * Blame's: a probe rescues the run when the re-asked call passes at least 60% of the time, and the
- * run is lost there when it passes at most 10%. Two straight passes rescue and four straight
+ * Blame's: a probe tells a re-asked call that passes 60% of the time or more (a rescue) from one
+ * that passes 10% or less (the run is lost there). Two straight passes rescue and four straight
  * failures lose, what 2 of 5 cost; up to 20 attempts settle the calls in between, which 10 left
  * inconclusive about a quarter of the time.
  */
 export const BLAME_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ good: 0.6, bad: 0.1, risk: 0.05, max: 20 });
 
 /**
- * The figures `{ "baseline": "history" }` stands for: fail on a 15-point drop at 95% confidence,
+ * The figures `{ "baseline": "history" }` stands for: fail once a 15-point drop is 95% likely,
  * deciding from 5 attempts on, up to 40. Against a history of 47 of 50, an unchanged agent that
  * passes 95% of the time passes after 5.7 attempts on average and fails 0.1% of the time; one now
  * at 60% fails 74% of the time.
@@ -534,6 +537,12 @@ export function runsRed(odds: Pick<GateOdds, 'fail' | 'inconclusive'>, goldens: 
 }
 
 // ---- What the reports say ---------------------------------------------------------------------
+//
+// A gate's verdict states the test and shows the tally, never a claimed rate. An SPRT gate bounds its
+// error only at its two rates: an agent between them gets either verdict, so "passed" can't mean
+// "passes at least 90% of the time". Every report says the verdict word, the tally, the Wilson bound
+// and the rule, the rule stated once: `passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+
+// from 70%- at <= 5% risk, up to 80 attempts`.
 
 /** A share as a percentage, as few digits as it needs: 0.9 is 90%, 0.875 is 87.5%. */
 export function percent(x: number): string {
@@ -544,17 +553,35 @@ export function percent(x: number): string {
 const rate = (x: number) => x.toFixed(2);
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
-/** Points of a drop: 0.15 is `15 points`. */
-const points = (drop: number) => `${+(drop * 100).toFixed(1)} points`;
+/** A gate's rate as its rule names it: 0.9 is `90%+`, 90% or more; 0.7, below, is `70%-`, 70% or less. */
+export const atLeast = (x: number): string => `${percent(x)}+`;
+export const atMost = (x: number): string => `${percent(x)}-`;
+
+/** Points of a drop: 0.15 is `15`. */
+const points = (drop: number) => `${+(drop * 100).toFixed(1)}`;
 
 /**
- * A gate in one sentence: `pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong
- * verdict, up to 80 attempts`, or for history `fail on a drop of 15 points or more from the pass rate
- * of its last 10 sessions at 95% confidence, pass once no drop shows, from 5 attempts up to 40`.
+ * A gate's rule in one line, what its verdicts are decided by: `tells 90%+ from 70%- at <= 5% risk,
+ * up to 80 attempts` (an agent at 90% or more passes, and one at 70% or less fails, each verdict
+ * wrong at most 5% of the time; between the two nothing is promised), or for history `fails a drop
+ * of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40`.
  */
 export function describeGate(gate: Gate): string {
-  if (gate.kind === 'sprt') return `pass at ${percent(gate.good)} or more, fail at ${percent(gate.bad)} or less, at most ${percent(gate.risk)} risk of the wrong verdict, up to ${plural(gate.max, 'attempt')}`;
-  return `fail on a drop of ${points(gate.drop)} or more from the pass rate of its last ${plural(gate.window, 'session')} at ${percent(1 - gate.risk)} confidence, pass once no drop shows, from ${plural(gate.min, 'attempt')} up to ${gate.max}`;
+  if (gate.kind === 'sprt') return `tells ${atLeast(gate.good)} from ${atMost(gate.bad)} at <= ${percent(gate.risk)} risk, up to ${plural(gate.max, 'attempt')}`;
+  return `fails a drop of ${points(gate.drop)}+ points from its last ${plural(gate.window, 'session')} once ${percent(1 - gate.risk)} likely, from ${plural(gate.min, 'attempt')} up to ${gate.max}`;
+}
+
+/**
+ * The pass rate's Wilson bound that bears on a verdict, at the gate's confidence: `rate >= 0.76
+ * (95%)` for a pass, `rate <= 0.56 (95%)` for a failure, both ends otherwise (`rate 0.21 to 0.94
+ * (95%)`). What the attempts show, beside the verdict, which the gate decided: null with none.
+ */
+export function wilsonBound(r: Pick<GateResult, 'attempts' | 'interval'> & { decision?: GateDecision | undefined }): string | null {
+  if (r.attempts === 0) return null;
+  const at = `(${percent(r.interval.confidence)})`;
+  if (r.decision === undefined || r.decision === 'pass') return `rate >= ${rate(r.interval.lo)} ${at}`;
+  if (r.decision === 'fail') return `rate <= ${rate(r.interval.hi)} ${at}`;
+  return `rate ${rate(r.interval.lo)} to ${rate(r.interval.hi)} ${at}`;
 }
 
 /** The running score after each attempt, against both bounds: why the gate stopped where it did. */
@@ -597,7 +624,7 @@ export interface GateOutcome {
   clean: boolean;
   /** Attempts carried over from an earlier session this one continued: the first `carried` of `outcomes`. Absent when none were. */
   carried?: number;
-  /** The one sentence: `passed: at least 90% with 95% confidence after 12 attempts`. */
+  /** The verdict line, rule included: `passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`. */
   sentence: string;
 }
 
@@ -668,7 +695,7 @@ export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { histor
     evidence,
     clean,
     ...(carried ? { carried } : {}),
-    sentence: gateSentence(gate, { decision, attempts, clean, evidence, ...(carried ? { carried } : {}) }),
+    sentence: gateSentence(gate, { decision, passes, attempts, interval: { ...w, confidence }, clean, evidence, ...(carried ? { carried } : {}) }),
   };
 }
 
@@ -677,49 +704,58 @@ export function decisionWord(d: GateDecision): 'passed' | 'failed' | 'inconclusi
   return d === 'pass' ? 'passed' : d === 'fail' ? 'failed' : d === 'inconclusive' ? 'inconclusive' : 'undecided';
 }
 
-/** The baseline in words: `0.94 over the last 10 sessions (47 of 50 attempts)`, or the recording when there is no history yet. */
+/** The baseline in words: `against 0.94 over the last 10 sessions (47 of 50)`, or the recording when there is no history yet. */
 function baselineWords(e: BaselineEvidence): string {
-  if (!e.history) return 'its recording, the one attempt it was packed from, since it has no history yet';
+  if (!e.history) return 'against its recording (no history yet)';
   const over = e.history.sessions > 1 ? `the last ${e.history.sessions} sessions` : 'its last session';
-  return `${rate(e.baseline)} over ${over} (${e.history.passes} of ${e.history.attempts} attempts)`;
+  return `against ${rate(e.baseline)} over ${over} (${e.history.passes} of ${e.history.attempts})`;
 }
 
 /**
- * The one sentence every report says: `passed: at least 90% with 95% confidence after 12 attempts`,
- * `failed: at most 70% with 95% confidence after 3 attempts`, `inconclusive: …`; for a gate against
- * history, `passed: no sign of a drop of 15 points or more from its baseline, …`.
+ * A gate's verdict without its rule, for a report that states the rule once above its lines: the
+ * verdict word, the tally and the Wilson bound, `passed · 12 of 12 · rate >= 0.76 (95%)`; against
+ * history, the baseline after them. A clean replay's one attempt has no rate to show: it is the same
+ * every time.
  */
-export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'attempts' | 'clean' | 'evidence'> & { carried?: number | undefined }): string {
-  const word = decisionWord(r.decision);
-  const after = `after ${plural(r.attempts, 'attempt')}${r.carried ? ` (${r.carried} carried over)` : ''}`;
-  if (r.clean) return `${word}: a clean replay comes out the same every time, so its one attempt settles it`;
-  const confidence = percent(1 - g.risk);
-  if (g.kind === 'sprt') {
-    if (r.decision === 'pass') return `passed: at least ${percent(g.good)} with ${confidence} confidence ${after}`;
-    if (r.decision === 'fail') return `failed: at most ${percent(g.bad)} with ${confidence} confidence ${after}`;
-    if (r.decision === 'inconclusive') return `inconclusive: neither at least ${percent(g.good)} nor at most ${percent(g.bad)} with ${confidence} confidence ${after}, the most the gate runs`;
-    return `undecided ${after}: between ${percent(g.bad)} and ${percent(g.good)} so far`;
-  }
-  const e = r.evidence as BaselineEvidence;
-  const drop = points(g.drop);
-  if (r.decision === 'pass') return `passed: no sign of a drop of ${drop} or more from its baseline, ${baselineWords(e)}, ${after}`;
-  if (r.decision === 'fail') return `failed: its pass rate dropped ${drop} or more from its baseline, ${baselineWords(e)}, with ${confidence} confidence ${after}`;
-  if (r.decision === 'inconclusive') return `inconclusive: a drop of ${drop} or more from its baseline, ${baselineWords(e)}, is likelier than not but short of ${confidence} confidence ${after}, the most the gate runs`;
-  if (r.attempts < g.min) return `undecided ${after}: it decides from ${plural(g.min, 'attempt')} on`;
-  return `undecided ${after}: a drop of ${drop} or more is likelier than not, short of ${confidence} confidence so far`;
+export function verdictLine(r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined }): string {
+  const tally = `${r.passes} of ${r.attempts}${r.carried ? ` (${r.carried} carried over)` : ''}`;
+  if (r.clean) return `${decisionWord(r.decision)} · ${tally} · a clean replay, the same every time`;
+  const parts = [decisionWord(r.decision), tally, wilsonBound(r)];
+  if (r.evidence.kind === 'baseline') parts.push(baselineWords(r.evidence));
+  return parts.filter(Boolean).join(' · ');
 }
 
 /**
- * The evidence in one line: `18 of 20 passed · pass rate ≥ 0.70 (95%, Wilson) · pass^5 0.55`. The
- * interval's end that explains the verdict: the low end for a pass, the high end for a failure, both
- * otherwise. A clean replay's one attempt has no rate to estimate: it is the same every time.
+ * The verdict line every report says, the rule stated once after the evidence: `passed · 12 of 12 ·
+ * rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`, `failed · 0 of
+ * 3 · rate <= 0.56 (95%) · gate: …`, `inconclusive · 14 of 20 · rate 0.48 to 0.86 (95%) · gate: …`;
+ * against history, `passed · 5 of 5 · rate >= 0.57 (95%) · against 0.94 over the last 10 sessions
+ * (47 of 50) · gate: fails a drop of 15+ points …`. A clean replay is settled by its one attempt.
+ */
+export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined }): string {
+  if (r.clean) return `${verdictLine(r)}, so its one attempt settles it`;
+  return `${verdictLine(r)} · gate: ${describeGate(g)}`;
+}
+
+/** pass^k as the tally shows it, `pass^5 0.55`: null for a clean replay, and before k attempts. */
+export function formatPassK(r: Pick<GateResult, 'passK'> & { clean?: boolean }): string | null {
+  const k = r.clean ? undefined : r.passK.find((x) => x.k === PASS_K_SHOWN);
+  return k ? `pass^${k.k} ${rate(k.value)}` : null;
+}
+
+/**
+ * The evidence in one line: `18 of 20 passed · rate >= 0.70 (95%) · pass^5 0.55`. The interval's end
+ * that bears on the verdict: the low end for a pass, the high end for a failure, both otherwise. A
+ * clean replay's one attempt has no rate to estimate: it is the same every time.
  */
 export function formatTally(r: Pick<GateResult, 'passes' | 'attempts' | 'interval' | 'passK'> & { decision?: GateDecision; clean?: boolean }): string {
   const parts = [`${r.passes} of ${r.attempts} passed`];
-  const at = `(${percent(r.interval.confidence)}, Wilson)`;
   if (r.clean) parts.push('a clean replay, the same every time');
-  else if (r.attempts > 0) parts.push(r.decision === 'fail' ? `pass rate ≤ ${rate(r.interval.hi)} ${at}` : r.decision === undefined || r.decision === 'pass' ? `pass rate ≥ ${rate(r.interval.lo)} ${at}` : `pass rate ${rate(r.interval.lo)} to ${rate(r.interval.hi)} ${at}`);
-  const k = r.clean ? undefined : r.passK.find((x) => x.k === PASS_K_SHOWN);
-  if (k) parts.push(`pass^${k.k} ${rate(k.value)}`);
+  else {
+    const bound = wilsonBound(r);
+    if (bound) parts.push(bound);
+  }
+  const k = formatPassK(r);
+  if (k) parts.push(k);
   return parts.join(' · ');
 }

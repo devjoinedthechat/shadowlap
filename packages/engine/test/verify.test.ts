@@ -144,7 +144,7 @@ describe('runs decided by a gate', () => {
     expect(outcomeOf(unsure)).toBe('inconclusive');
     const d = decideVerify([gated('target', Array(12).fill(true)), unsure], null);
     expect(d.verdict).toBe('incomplete');
-    expect(d.reasons).toEqual(['good run 01K5GOOD00 inconclusive: neither at least 90% nor at most 70% with 95% confidence after 40 attempts, the most the gate runs']);
+    expect(d.reasons).toEqual(["good run 01K5GOOD00 inconclusive: 33 of 40 passed · rate 0.68 to 0.91 (95%), between the gate's bounds when its attempts ran out"]);
     // A failure still rejects it, inconclusive runs or not.
     expect(decideVerify([gated('target', [false, false, false]), unsure], null).verdict).toBe('rejected');
   });
@@ -152,11 +152,13 @@ describe('runs decided by a gate', () => {
   it('reports each run with its rate, and the gate it was decided by', () => {
     const runs = [gated('target', Array(12).fill(true)), gated('holdout', [false, false, false], { id: '01K5HELD' }), gated('good', [true], { deterministic: true })];
     const text = formatVerify({ ...decideVerify(runs, null), runs, attemptsPerRun: 40, needed: 12, gate: GATE, oracle: ['the agent exits 0', 'issue_refund called 0 times'], fields: {}, codeVersion: null, attempts: 16, spent: 0, upstreamRequests: 60, unknownModels: [], stopReason: null, replayWarnings: [] });
-    expect(text).toContain("A run's attempts must meet the oracle: the agent exits 0; issue_refund called 0 times. Its gate decides after each attempt: pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 40 attempts; a clean replay settles it in one.");
-    expect(text).toMatch(/target +01K5TARGET +fixed +12 of 12 passed, ≥ 0\.76 +forked at #3/);
-    expect(text).toMatch(/held-out +01K5HELD00 +not fixed +0 of 3 passed, ≤ 0\.56 +issue_refund called 0 times/);
+    // The rule stated once; each run's outcome, tally and Wilson bound under it.
+    expect(text).toContain("A run's attempts must meet the oracle: the agent exits 0; issue_refund called 0 times. Its gate decides after each attempt (gate: tells 90%+ from 70%- at <= 5% risk, up to 40 attempts); a clean replay settles it in one.");
+    expect(text).toMatch(/target +01K5TARGET +fixed +12 of 12 passed · rate >= 0\.76 \(95%\) +forked at #3/);
+    expect(text).toMatch(/held-out +01K5HELD00 +not fixed +0 of 3 passed · rate <= 0\.56 \(95%\) +issue_refund called 0 times/);
+    expect(text).not.toMatch(/at least|at most|of the time|confidence/);
     expect(text).toMatch(/good +01K5GOOD00 +kept +clean replay/);
-    expect(eachRun({ gate: GATE, needed: 12, attemptsPerRun: 40 })).toBe('each passing at 90% or more, at 5% risk');
+    expect(eachRun({ gate: GATE, needed: 12, attemptsPerRun: 40 })).toBe('each by its gate, which tells 90%+ from 70%- at <= 5% risk');
     expect(eachRun({ gate: null, needed: 4, attemptsPerRun: 5 })).toBe('each at 4 of 5 attempts');
     expect(verifyRule({ gate: null, needed: 4, attemptsPerRun: 5, fields: {}, oracle: ['the agent exits 0'] })).toBe('A run passes when 4 of 5 attempts meet the oracle: the agent exits 0.');
   });

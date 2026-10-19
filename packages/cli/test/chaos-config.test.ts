@@ -96,7 +96,7 @@ describe('the gate', () => {
   });
 
   it('is described in words, as the report and the docs say it', () => {
-    expect(gateWords({ good: 0.9, bad: 0.7, risk: 0.05, max: 20 })).toBe('pass at 90% or more, fail at 70% or less, at most 5% risk, up to 20 attempts');
+    expect(gateWords({ good: 0.9, bad: 0.7, risk: 0.05, max: 20 })).toBe('tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
     expect(gateWords({ repeat: 1, passes: 1 })).toBe('1 of 1 attempt must pass');
     expect(gateWords({ repeat: 5, passes: 4 })).toBe('4 of 5 attempts must pass');
   });

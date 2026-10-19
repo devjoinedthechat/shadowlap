@@ -90,16 +90,20 @@ function shadowlapTest(tests: unknown, env: NodeJS.ProcessEnv = {}, o: { db?: st
 }
 
 describe('shadowlap test with a gate', () => {
-  it('passes an agent that always passes after the 12 attempts its gate states, and says so in one sentence', async () => {
+  // The verdict word, the tally, the Wilson bound and the rule, stated once: never a claimed rate.
+  const PASSED = 'passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts';
+
+  it('passes an agent that always passes after the 12 attempts its gate states, and says so in one line', async () => {
     const r = await shadowlapTest({ 'goldens/reference-agent': { fork: true, gate: { good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, expect: CHECKS } }, FIX);
     expect(r.code, r.out).toBe(0);
-    expect(r.out).toContain('✓ reference-agent: passed: at least 90% with 95% confidence after 12 attempts');
-    expect(r.out).toContain('12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00 · forked at call 3');
+    expect(r.out).toContain(`✓ reference-agent: ${PASSED}`);
+    expect(r.out).toContain('    pass^5 1.00 · forked at call 3');
+    expect(r.out).not.toMatch(/at least|at most|% confidence/);
     expect(r.out).toContain('attempt 12 of up to 20');
     expect(r.out).not.toContain('attempt 13 of');
     const result = r.report.results[0]!;
     expect(result).toMatchObject({ ok: true, verdict: 'passed', failure: null, attempts: { total: 12, passed: 12, required: null } });
-    expect(result.gate).toMatchObject({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20, decision: 'pass', passes: 12, attempts: 12, clean: false, sentence: 'passed: at least 90% with 95% confidence after 12 attempts' });
+    expect(result.gate).toMatchObject({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20, decision: 'pass', passes: 12, attempts: 12, clean: false, sentence: PASSED });
     // The evidence path: the score after each attempt, crossing the upper bound at the twelfth.
     const e = result.gate.evidence;
     expect(e.scores).toHaveLength(12);
@@ -108,16 +112,16 @@ describe('shadowlap test with a gate', () => {
     expect(result.gate.passK[0]).toEqual({ k: 1, value: 1 });
     expect(r.report).toMatchObject({ passed: 1, failed: 0, inconclusive: 0 });
     hold([['test', r.report], ['testResult', result], ['testGate', result.gate], ['testGateInterval', result.gate.interval], ['testGatePassK', result.gate.passK[0]], ['testGateSprtEvidence', e]]);
-    // The reports say the same sentence.
-    expect(r.markdown).toContain('| ✅ | `reference-agent` | passed: at least 90% with 95% confidence after 12 attempts · 12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00 · forked at call 3, 1 check passed |');
-    expect(r.junit).toContain('[shadowlap] passed: at least 90% with 95% confidence after 12 attempts');
+    // The reports say the same line.
+    expect(r.markdown).toContain(`| ✅ | \`reference-agent\` | ${PASSED} · pass^5 1.00 · forked at call 3, 1 check passed |`);
+    expect(r.junit).toContain(`[shadowlap] ${PASSED}\n[shadowlap] pass^5 1.00`);
   }, 120_000);
 
   it('fails an agent that always fails after 3 attempts', async () => {
     const r = await shadowlapTest({ 'goldens/reference-agent': { fork: true, gate: {}, expect: CHECKS } }, FORKS_AND_EMAILS);
     expect(r.code).toBe(1);
-    expect(r.out).toContain('✗ reference-agent: failed: at most 70% with 95% confidence after 3 attempts. Attempt 1: check failed: send_email called 0 times, but called 1 time');
-    expect(r.out).toContain('0 of 3 passed · pass rate ≤ 0.56 (95%, Wilson)');
+    expect(r.out).toContain('✗ reference-agent: failed · 0 of 3 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts. Attempt 1: check failed: send_email called 0 times, but called 1 time');
+    expect(r.out).toContain('0 of 3 passed · rate <= 0.56 (95%)');
     expect(r.report.results[0]).toMatchObject({ ok: false, verdict: 'failed', failure: 'check', gate: { decision: 'fail', attempts: 3, max: 80, outcomes: [false, false, false] } });
     expect(r.markdown).toContain('### Shadowlap: 1 of 1 recording failed');
   }, 120_000);
@@ -125,7 +129,7 @@ describe('shadowlap test with a gate', () => {
   it('settles a replay that forks nowhere with its one attempt, which would come out the same every time', async () => {
     const r = await shadowlapTest({ 'goldens/reference-agent': { fork: true, gate: {}, expect: CHECKS } });
     expect(r.code).toBe(1);
-    expect(r.out).toContain('✗ reference-agent: failed: a clean replay comes out the same every time, so its one attempt settles it');
+    expect(r.out).toContain('✗ reference-agent: failed · 0 of 1 · a clean replay, the same every time, so its one attempt settles it');
     expect(r.report.results[0]).toMatchObject({ verdict: 'failed', gate: { decision: 'fail', attempts: 1, clean: true }, upstreamRequests: 0 });
   }, 60_000);
 
@@ -136,13 +140,14 @@ describe('shadowlap test with a gate', () => {
       const tests = { 'goldens/reference-agent': { fork: true, gate: { good: 0.6, bad: 0.4, risk: 0.2, max: 4 }, expect: CHECKS } };
       const failing = await shadowlapTest(tests, FIX);
       expect(failing.code).toBe(1);
-      expect(failing.out).toContain('? reference-agent: inconclusive: neither at least 60% nor at most 40% with 80% confidence after 4 attempts, the most the gate runs');
+      const unsure = 'inconclusive · 2 of 4 · rate 0.23 to 0.77 (80%) · gate: tells 60%+ from 40%- at <= 20% risk, up to 4 attempts';
+      expect(failing.out).toContain(`? reference-agent: ${unsure}`);
       expect(failing.out).toContain('0 passed, 0 failed, 1 inconclusive (failing the run: --inconclusive warn lets them through)');
       expect(failing.report).toMatchObject({ passed: 0, failed: 1, inconclusive: 1 });
       expect(failing.report.results[0]).toMatchObject({ ok: false, verdict: 'inconclusive', failure: 'inconclusive', gate: { decision: 'inconclusive', passes: 2, attempts: 4 } });
-      expect(failing.junit).toContain('<failure message="inconclusive: neither at least 60%');
+      expect(failing.junit).toContain('<failure message="inconclusive · 2 of 4 · rate 0.23 to 0.77 (80%) · gate: tells 60%+ from 40%- at &lt;= 20% risk');
       expect(failing.markdown).toContain('### Shadowlap: 1 of 1 recording is inconclusive');
-      expect(failing.markdown).toContain('| 🟡 | `reference-agent` | inconclusive: neither at least 60% nor at most 40% with 80% confidence after 4 attempts, the most the gate runs · 2 of 4 passed');
+      expect(failing.markdown).toContain(`| 🟡 | \`reference-agent\` | ${unsure} |`);
 
       const warned = await shadowlapTest(tests, FIX, { flags: ['--inconclusive', 'warn', '--annotations'] });
       expect(warned.code, warned.out).toBe(0);
@@ -150,7 +155,7 @@ describe('shadowlap test with a gate', () => {
       expect(warned.report).toMatchObject({ passed: 1, failed: 0, inconclusive: 1 });
       expect(warned.report.results[0]).toMatchObject({ ok: true, verdict: 'inconclusive' });
       expect(warned.junit).toContain('skipped="1"');
-      expect(warned.junit).toContain('<skipped message="inconclusive: neither at least 60%');
+      expect(warned.junit).toContain('<skipped message="inconclusive · 2 of 4');
       expect(warned.out).toMatch(/::warning file=goldens\/reference-agent\/run\.json,title=Shadowlap%3A reference-agent::inconclusive/);
 
       // More attempts for this session only: the gate's limit is raised, its figures kept.
@@ -178,7 +183,7 @@ describe('shadowlap test with a gate', () => {
       const result = more.report.results[0]!;
       expect(result).toMatchObject({ verdict: 'inconclusive', attempts: { total: 2, passed: 1 }, gate: { max: 6, attempts: 6, passes: 3, carried: 4 } });
       expect(result.gate.outcomes).toHaveLength(6);
-      expect(result.gate.sentence).toBe('inconclusive: neither at least 60% nor at most 40% with 80% confidence after 6 attempts (4 carried over), the most the gate runs');
+      expect(result.gate.sentence).toBe('inconclusive · 3 of 6 (4 carried over) · rate 0.27 to 0.73 (80%) · gate: tells 60%+ from 40%- at <= 20% risk, up to 6 attempts');
       // Nothing to continue once a verdict is settled, or when nothing was inconclusive: it runs afresh, and says why.
       const fresh = await shadowlapTest({ 'goldens/reference-agent': { fork: true, gate: {}, expect: CHECKS } }, FIX, { db, flags: ['--continue'] });
       expect(fresh.out).toContain('nothing to continue (its gate changed since its last result): it ran afresh');
@@ -211,7 +216,8 @@ describe('shadowlap test with a gate against history', () => {
     const first = await shadowlapTest(tests, FIX, { db });
     expect(first.code, first.out).toBe(0);
     expect(first.report.results[0]).toMatchObject({ verdict: 'passed', gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40, decision: 'pass', attempts: 5, evidence: { history: null, baseline: 1, passAt: 0.5 } } });
-    expect(first.out).toContain('✓ reference-agent: passed: no sign of a drop of 15 points or more from its baseline, its recording, the one attempt it was packed from, since it has no history yet, after 5 attempts');
+    const rule = 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40';
+    expect(first.out).toContain(`✓ reference-agent: passed · 5 of 5 · rate >= 0.57 (95%) · against its recording (no history yet) · ${rule}`);
     expect(first.out).toContain('no test history for it yet, so its gate compared with its recording');
     hold([['testGateHistory', first.report.results[0]!.gate], ['testGateHistoryEvidence', first.report.results[0]!.gate.evidence]]);
 
@@ -219,7 +225,7 @@ describe('shadowlap test with a gate against history', () => {
     const again = await shadowlapTest(tests, FIX, { db });
     expect(again.code, again.out).toBe(0);
     expect(again.report.results[0]).toMatchObject({ verdict: 'passed', attempts: { total: 5, passed: 5 }, gate: { decision: 'pass', attempts: 5, evidence: { history: { passes: 5, attempts: 5, sessions: 1 } } } });
-    expect(again.out).toContain('passed: no sign of a drop of 15 points or more from its baseline, 1.00 over its last session (5 of 5 attempts), after 5 attempts');
+    expect(again.out).toContain(`passed · 5 of 5 · rate >= 0.57 (95%) · against 1.00 over its last session (5 of 5) · ${rule}`);
     expect(again.out).toContain('attempt 5 of up to 40');
     expect(again.out).not.toContain('attempt 6 of');
     expect(again.out).not.toContain('no test history');
@@ -236,7 +242,7 @@ describe('shadowlap test with a gate against history', () => {
     }
     expect(halved.code).toBe(1);
     expect(halved.report.results[0]).toMatchObject({ verdict: 'failed', attempts: { total: 10, passed: 5 }, gate: { decision: 'fail', attempts: 10, evidence: { history: { passes: 10, attempts: 10, sessions: 2 } } } });
-    expect(halved.out).toContain('failed: its pass rate dropped 15 points or more from its baseline, 1.00 over the last 2 sessions (10 of 10 attempts), with 95% confidence after 10 attempts');
+    expect(halved.out).toContain(`failed · 5 of 10 · rate <= 0.76 (95%) · against 1.00 over the last 2 sessions (10 of 10) · ${rule}`);
     expect(halved.out).toContain('attempt 10 of up to 40');
     expect(halved.out).not.toContain('attempt 11 of');
     const path = halved.report.results[0]!.gate.evidence.probabilities as Array<number | null>;
@@ -248,7 +254,7 @@ describe('shadowlap test with a gate against history', () => {
     const broken = await shadowlapTest(tests, FORKS_AND_EMAILS, { db });
     expect(broken.code).toBe(1);
     expect(broken.report.results[0]).toMatchObject({ verdict: 'failed', gate: { decision: 'fail', attempts: 5, evidence: { history: { passes: 15, attempts: 20, sessions: 3 } } } });
-    expect(broken.out).toContain('✗ reference-agent: failed: its pass rate dropped 15 points or more from its baseline, 0.75 over the last 3 sessions (15 of 20 attempts), with 95% confidence after 5 attempts');
+    expect(broken.out).toContain(`✗ reference-agent: failed · 0 of 5 · rate <= 0.43 (95%) · against 0.75 over the last 3 sessions (15 of 20) · ${rule}`);
 
     // The history keeps each session's attempts, passed and total, and the gate's result with them.
     const store = Store.open(db);

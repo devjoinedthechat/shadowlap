@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { agentCallsOf, decide, formatDivergence, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { agentCallsOf, decide, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { oracleLabels } from './attempts.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
@@ -538,8 +538,9 @@ export function formatChecks(checks: CheckResult[]): string {
 
 /**
  * The golden as a JUnit test case. An inconclusive one is a failure, or, when inconclusive verdicts
- * warn, skipped: neither passed nor failed. A gated golden's output starts with its gate's sentence
- * and tally, which CI dashboards show beside the case.
+ * warn, skipped: neither passed nor failed. A gated golden's output starts with its gate's verdict
+ * line (the verdict word, the tally, the Wilson bound and the rule) and pass^k, which CI dashboards
+ * show beside the case.
  */
 export function junitCase(o: GoldenOutcome, mode: InconclusiveMode = 'fail'): JunitCase {
   const checks = o.result?.shown.checks;
@@ -548,7 +549,8 @@ export function junitCase(o: GoldenOutcome, mode: InconclusiveMode = 'fail'): Ju
   // A golden that passed with a check that did not apply says so where a CI's view of the case shows
   // it: a plain pass would claim more than was checked.
   const notAll = !failure && checks?.some((c) => c.status !== 'passed') ? `${formatChecks(checks)}\n\n` : '';
-  const output = `${gate ? `[shadowlap] ${gate.sentence}\n[shadowlap] ${formatTally(gate)}\n` : ''}${notAll}${o.result?.shown.output ?? ''}`;
+  const passK = gate ? formatPassK(gate) : null;
+  const output = `${gate ? `[shadowlap] ${gate.sentence}\n${passK ? `[shadowlap] ${passK}\n` : ''}` : ''}${notAll}${o.result?.shown.output ?? ''}`;
   const skipped = verdictOf(o) === 'inconclusive' && mode === 'warn' && failure ? { message: failure.message } : null;
   return { name: o.name, classname: 'shadowlap.replay', timeSeconds: o.seconds, ...(skipped ? { skipped } : failure ? { failure } : {}), ...(output ? { systemOut: output } : {}) };
 }

@@ -74,7 +74,8 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     }
     if (b.probes.length) {
       out.push(`  ${p.dim(`probes: ${b.rule}; ${b.rescue}`)}`);
-      const rows = b.probes.map((x) => [`#${x.callNo}`, `${x.step} of ${b.steps}`, `${x.passes} of ${x.attempts} passed`, x.verdict]);
+      // Each probe's tally with the Wilson bound its gate decided on; the rule is the line above.
+      const rows = b.probes.map((x) => [`#${x.callNo}`, `${x.step} of ${b.steps}`, `${x.passes} of ${x.attempts} passed${x.bound ? ` · ${x.bound}` : ''}`, x.verdict]);
       out.push(table(rows, '    '));
     }
     out.push(p.dim(`  ${b.cost.attempts} attempt${s(b.cost.attempts)} · ${b.cost.upstreamRequests} upstream requests · ≈${formatUsd(b.cost.spent)} spent${unpriced(b.cost.unknownModels)}`));
@@ -114,7 +115,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
       out.push(`  ${badge}  ${one(v.code, 40)}  ${v.headline}${v.counts ? '' : p.dim(" (doesn't count)")}`);
       if (v.note) out.push(`    ${v.counts ? p.red(one(v.note, 200)) : p.yellow(one(v.note, 200))}`);
       out.push(p.dim(`    ${one(v.oracle, 200)}`));
-      const rows = v.rows.map((x) => [x.role, x.runId.slice(0, 10), x.outcome, x.deterministic ? 'clean replay' : `${x.passes} of ${x.attempts}`, x.note === 'clean replay' ? '' : one(x.note, 70)]);
+      const rows = v.rows.map((x) => [x.role, x.runId.slice(0, 10), x.outcome, x.deterministic ? 'clean replay' : `${x.passes} of ${x.attempts}${x.rate?.bound ? ` · ${x.rate.bound}` : ''}`, x.note === 'clean replay' ? '' : one(x.note, 70)]);
       if (rows.length) out.push(table(rows, '    '));
       const delta = v.tokens ? `${Math.round(v.tokens.before).toLocaleString('en-US')} → ${Math.round(v.tokens.after).toLocaleString('en-US')} input tokens per run (${v.tokens.change})` : '';
       out.push(p.dim(`    ${v.attempts} attempt${s(v.attempts)} · ${v.upstreamRequests} upstream requests · ≈${formatUsd(v.spent)} spent${unpriced(v.unknownModels)}${delta ? ` · ${delta}` : ''}`));

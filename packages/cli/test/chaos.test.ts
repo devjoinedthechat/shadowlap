@@ -235,9 +235,11 @@ describe('test --chaos', () => {
     const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'gate.json']);
     expect(r.code, r.out).toBe(1);
     const p = byPreset(report('gate.json'));
-    expect(p.timeout).toMatchObject({ verdict: 'passed', passes: 4, attempts: 4, summary: 'timed out: 4 of 4 attempts passed', gate: { good: 0.9, bad: 0.5, risk: 0.1, max: 6 } });
+    // Each preset's tally and Wilson bound; the gate's rule once, under the table.
+    expect(p.timeout).toMatchObject({ verdict: 'passed', passes: 4, attempts: 4, summary: 'timed out: 4 of 4 attempts passed · rate >= 0.60 (90%)', gate: { good: 0.9, bad: 0.5, risk: 0.1, max: 6 } });
     expect(p.malformed).toMatchObject({ verdict: 'failed', passes: 0, attempts: 2 });
-    expect(r.stdout).toContain('gate: pass at 90% or more, fail at 50% or less, at most 10% risk, up to 6 attempts');
+    expect(r.stdout).toContain('gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts');
+    expect(r.stdout).not.toMatch(/at least|at most|of the time/);
   }, 180_000);
 });
 

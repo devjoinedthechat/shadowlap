@@ -1,4 +1,4 @@
-import { aboutUsd, checkStatus, formatTally, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { aboutUsd, checkStatus, formatPassK, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
 import { judgeSource } from './checks.js';
 
 /**
@@ -111,17 +111,23 @@ function judgeTotals(results: readonly PackResult[]): string | null {
   return `${calls} judge call${calls === 1 ? '' : 's'}${said.length ? `: ${said.join('; ')}` : ''}, apart from the agents' calls above.`;
 }
 
-/** The result cell for a passing recording; one with a gate leads with its sentence and its evidence. */
+/** A gate's pass^k, after its verdict line: ` · pass^5 1.00`, or nothing. */
+const passKAfter = (g: PackResult['gate']): string => {
+  const k = g ? formatPassK(g) : null;
+  return k ? ` · ${k}` : '';
+};
+
+/** The result cell for a passing recording; one with a gate leads with its verdict line (the tally, the Wilson bound and the rule) and pass^k. */
 function passedLabel(r: PackResult): string {
   const parts = [r.updated ? 'updated' : r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${r.divergence.callNo}` : 'clean'];
   if (r.checks?.length) parts.push(statusTally(r.checks));
-  if (r.gate) return `${r.gate.sentence} · ${formatTally(r.gate)} · ${parts.join(', ')}`;
+  if (r.gate) return `${r.gate.sentence}${passKAfter(r.gate)} · ${parts.join(', ')}`;
   if (r.attempts) parts.push(`${r.attempts.passed}/${r.attempts.total} attempts`);
   return parts.join(', ');
 }
 
-/** The result cell for a recording that didn't pass: why, and for a gate, its evidence. */
-const notPassedLabel = (r: PackResult): string => (r.gate ? `${r.message ?? r.gate.sentence} · ${formatTally(r.gate)}` : (r.message ?? 'failed'));
+/** The result cell for a recording that didn't pass: why, which for a gate is its verdict line, and its pass^k. */
+const notPassedLabel = (r: PackResult): string => (r.gate ? `${r.message ?? r.gate.sentence}${passKAfter(r.gate)}` : (r.message ?? 'failed'));
 
 export function markdownReport(report: TestReport): string {
   const lines: string[] = [];
@@ -234,9 +240,9 @@ export function githubAnnotations(report: TestReport): string {
       const failedChecks = (r.checks ?? []).filter((c) => !c.ok).map((c) => (checkStatus(c) === 'inconclusive' ? `? ${safeText(c.label)}: inconclusive · ${safeText(c.detail ?? '')}` : `✗ ${safeText(c.label)}: ${safeText(c.detail ?? '')}`));
       const details = moreThanMessage(r);
       const body = [r.message ?? 'failed', ...(failedChecks.length ? ['', ...failedChecks] : []), ...(details ? ['', ...safeText(details).split('\n').slice(0, 30)] : [])].join('\n');
-      // The gate's evidence, unless the details already carry it.
-      const tally = r.gate ? formatTally(r.gate) : null;
-      const evidence = tally && !details?.includes(tally) ? ['', tally] : [];
+      // The gate's pass^k, which its verdict line (the message) leaves out, unless the details carry it.
+      const passK = r.gate ? formatPassK(r.gate) : null;
+      const evidence = passK && !details?.includes(passK) ? ['', passK] : [];
       const text = [body, ...evidence].join('\n');
       return `::${r.ok ? 'warning' : 'error'} file=${escapeProperty(file)},title=${escapeProperty(`Shadowlap: ${safeText(r.name)}`)}::${escapeData(text)}`;
     })

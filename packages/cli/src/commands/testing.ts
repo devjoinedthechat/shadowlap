@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { EXTERNAL_COMMAND, endedEarlyCount, formatTally, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, endedEarlyCount, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -192,8 +192,8 @@ function printGolden(o: GoldenOutcome, suffix = ''): void {
     for (const note of o.notes ?? []) process.stdout.write(p.dim(`    ${note}\n`));
   };
   if (!o.failure) {
-    // A gate's verdict leads, in its one sentence, with the evidence under it.
-    if (gate) process.stdout.write(`${p.green('✓')} ${o.name}: ${gate.sentence}${suffix}\n${p.dim(`    ${formatTally(gate)} · ${passedLine(o)}`)}\n`);
+    // A gate's verdict line leads (the verdict word, the tally, the Wilson bound, the rule), with pass^k and the rest under it.
+    if (gate) process.stdout.write(`${p.green('✓')} ${o.name}: ${gate.sentence}${suffix}\n${p.dim(`    ${[formatPassK(gate), passedLine(o)].filter(Boolean).join(' · ')}`)}\n`);
     else process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}${suffix}\n`);
     // A judge's verdict and reason are worth reading on a golden that passed too.
     const judged = (o.result?.shown.checks ?? []).filter((c) => c.judge);

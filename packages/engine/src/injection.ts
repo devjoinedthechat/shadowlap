@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { canonicalize } from './canonical.js';
 import { looksGenerated } from './volatile.js';
-import type { Gate } from './stats.js';
+import { atLeast, atMost, percent, wilson, wilsonBound, type Gate } from './stats.js';
 import type { Refusal } from './interventions.js';
 import { applyNormalizers } from './normalize.js';
 import type { CallRecord, Effect, Normalizer, Trust } from './types.js';
@@ -947,6 +947,23 @@ export type InjectionReport = PlantReport | CleanReport;
 
 /** Whether a --clean result decided every write it tested: one left inconclusive makes the result inconclusive, whatever the others say. */
 export const cleanDecided = (r: Pick<CleanReport, 'writes'>): boolean => r.writes.length > 0 && r.writes.every((w) => w.verdict !== 'inconclusive');
+
+/**
+ * A --clean write's Wilson bound on the share of clean attempts it was gone in, at its gate's
+ * confidence, beside the tally its verdict shows: `rate >= 0.44 (95%)` for a caused write, `rate <=
+ * 0.56 (95%)` for one not caused. Null without attempts, or without a gate between two rates.
+ */
+export function cleanBound(w: Pick<CleanWriteReport, 'gone' | 'attempts' | 'verdict'>, gate: Gate | null | undefined): string | null {
+  if (!gate || gate.kind !== 'sprt' || !Number.isInteger(w.attempts) || w.attempts < 1 || !Number.isInteger(w.gone) || w.gone < 0 || w.gone > w.attempts) return null;
+  const confidence = 1 - gate.risk;
+  return wilsonBound({ attempts: w.attempts, interval: { ...wilson(w.gone, w.attempts, confidence), confidence }, decision: w.verdict === 'caused' ? 'pass' : w.verdict === 'not caused' ? 'fail' : 'inconclusive' });
+}
+
+/** The rule a --clean write is decided by, said once under its writes: `gate: tells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts`. */
+export function cleanRule(gate: Gate | null | undefined): string | null {
+  if (!gate || gate.kind !== 'sprt') return null;
+  return `gate: tells a write gone in ${atLeast(gate.good)} of clean attempts from one gone in ${atMost(gate.bad)}, at <= ${percent(gate.risk)} risk, up to ${gate.max} attempt${gate.max === 1 ? '' : 's'}`;
+}
 
 function parsedArgs(text: string): unknown {
   try {

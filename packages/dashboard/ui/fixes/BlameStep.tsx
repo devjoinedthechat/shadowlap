@@ -100,6 +100,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                     </td>
                     <td className="num left">
                       {p.passes} of {p.attempts}
+                      {p.bound ? <span className="fxdim"> · {p.bound}</span> : null}
                     </td>
                     <td>
                       <Badge tone={probeBadge(p.verdict)}>{p.verdict}</Badge>

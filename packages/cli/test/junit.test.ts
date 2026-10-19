@@ -64,13 +64,13 @@ function parse(xml: string): { name: string; attrs: Record<string, string>; text
 describe('junitXml', () => {
   it('reports an inconclusive verdict CI lets through as skipped, neither passed nor failed', () => {
     const xml = junitXml('shadowlap', [
-      { name: 'refund', classname: 'shadowlap.replay', timeSeconds: 2, skipped: { message: 'inconclusive: neither at least 90% nor at most 70% & so on' }, systemOut: '[shadowlap] 33 of 40 passed' },
+      { name: 'refund', classname: 'shadowlap.replay', timeSeconds: 2, skipped: { message: 'inconclusive · 33 of 40 · rate 0.68 to 0.91 (95%) & so on' }, systemOut: '[shadowlap] pass^5 0.39' },
       { name: 'triage', classname: 'shadowlap.replay', timeSeconds: 1 },
     ]);
     const doc = parse(xml);
     expect(doc.attrs).toMatchObject({ tests: '2', failures: '0', skipped: '1' });
     const [skipped] = doc.children as Array<{ children: Array<{ name: string; attrs: Record<string, string> }> }>;
-    expect(skipped!.children[0]).toMatchObject({ name: 'skipped', attrs: { message: 'inconclusive: neither at least 90% nor at most 70% & so on' } });
+    expect(skipped!.children[0]).toMatchObject({ name: 'skipped', attrs: { message: 'inconclusive · 33 of 40 · rate 0.68 to 0.91 (95%) & so on' } });
     // A suite with nothing skipped says nothing about it, as before.
     expect(junitXml('shadowlap', [{ name: 'triage', classname: 'shadowlap.replay', timeSeconds: 1 }])).not.toContain('skipped');
   });

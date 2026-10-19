@@ -144,7 +144,7 @@ describe('the GitHub Action and inconclusive goldens', () => {
         'writeFileSync(process.env.FAKE_ARGS, JSON.stringify(args));',
         "const at = (flag) => args[args.indexOf(flag) + 1];",
         "const warn = at('--inconclusive') === 'warn';",
-        "const result = { name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'fork', ok: warn, verdict: 'inconclusive', failure: 'inconclusive', message: 'inconclusive: neither at least 90% nor at most 70% with 95% confidence after 80 attempts, the most the gate runs', details: null, output: null, checks: null };",
+        "const result = { name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'fork', ok: warn, verdict: 'inconclusive', failure: 'inconclusive', message: 'inconclusive · 64 of 80 · rate 0.70 to 0.87 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', details: null, output: null, checks: null };",
         "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: '01K5CQ4N7G8M2XWQH6V3T9RB1D', revision: null, passed: warn ? 1 : 0, failed: warn ? 0 : 1, inconclusive: 1, interrupted: false, results: [result] }));",
         "appendFileSync(at('--markdown'), '### Shadowlap: 1 of 1 recording is inconclusive\\n');",
         'process.exit(warn ? 0 : 1);',
@@ -260,13 +260,15 @@ describe('test reports', () => {
     return { ...failed, name: `refund-${verdict}`, dir: `goldens/refund-${verdict}`, golden: `goldens/refund-${verdict}`, mode: 'fork', ok, verdict, gate, failure: verdict === 'passed' ? null : verdict === 'inconclusive' ? 'inconclusive' : 'check', message: verdict === 'passed' ? null : gate.sentence, details: null, output: null, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages' }, attempts: { total: attempts, passed: passes, required: null } };
   };
 
-  it('says a gate\'s sentence and its evidence, and counts inconclusive ones apart', () => {
+  it('says a gate\'s verdict line and its pass^k, and counts inconclusive ones apart', () => {
     const passed = gated('passed', true, 12, 12);
     const unsure = gated('inconclusive', false, 16, 20);
     const md = markdownReport(testReport([passed, unsure, failed]));
     expect(md).toContain('### Shadowlap: 1 of 3 recordings failed, 1 inconclusive');
-    expect(md).toContain('| ✅ | `refund-passed` | passed: at least 90% with 95% confidence after 12 attempts · 12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00 · forked at call 3 | 2/5 | 1k |');
-    expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs · 16 of 20 passed · pass rate 0.58 to 0.92 (95%, Wilson) · pass^5 0.28 | 2/5 | 1k |');
+    // The verdict word, the tally, the Wilson bound and the rule, stated once; never a claimed rate.
+    expect(md).toContain('| ✅ | `refund-passed` | passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00 · forked at call 3 | 2/5 | 1k |');
+    expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 0.28 | 2/5 | 1k |');
+    expect(md).not.toMatch(/at least|at most|% confidence/);
     expect(md).toContain('It fails the run unless `--inconclusive warn` is given.');
     // Under --inconclusive warn it is let through, and says so; the heading still counts it.
     const warned = markdownReport(testReport([passed, { ...unsure, ok: true }]));
@@ -274,7 +276,7 @@ describe('test reports', () => {
     expect(warned).toContain('This run lets inconclusive recordings through (`--inconclusive warn`).');
     expect(testReport([passed, { ...unsure, ok: true }])).toMatchObject({ passed: 2, failed: 0, inconclusive: 1 });
     expect(githubAnnotations(testReport([passed, { ...unsure, ok: true }]))).toBe(
-      '::warning file=goldens/refund-inconclusive/run.json,title=Shadowlap%3A refund-inconclusive::inconclusive: neither at least 90%25 nor at most 70%25 with 95%25 confidence after 20 attempts, the most the gate runs%0A%0A16 of 20 passed · pass rate 0.58 to 0.92 (95%25, Wilson) · pass^5 0.28',
+      '::warning file=goldens/refund-inconclusive/run.json,title=Shadowlap%3A refund-inconclusive::inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%25) · gate: tells 90%25+ from 70%25- at <= 5%25 risk, up to 20 attempts%0A%0Apass^5 0.28',
     );
   });
 

@@ -125,9 +125,9 @@ describe('the Fixes list', () => {
     const first = { ...base.probes[0]!, passes: 7, rescued: false, decision: 'inconclusive' as const, gate: gateResult(gate, outcomes), attempts: outcomes.map((passed, i) => ({ ...base.probes[0]!.attempts[0]!, runId: `${runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })) };
     const unsettled = recordBlame(store, { runId, report: { ...base, gate, confidence: 'low', probes: [first], lost: first }, expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Flaky refunds', checkText: 'x', at: NOW });
     const b = fixDetail(store, unsettled.fix.fixId)!.blame!;
-    expect(b).toMatchObject({ title: 'Not settled from the first model call', confidence: 'low', confidenceWhy: '#1 was inconclusive: whether resampling rescues the run is not settled', boundary: 'Resampled from the first model call, #1, the run is inconclusive: between 10% and 60% after 20 attempts (7 of 20).' });
+    expect(b).toMatchObject({ title: 'Not settled from the first model call', confidence: 'low', confidenceWhy: '#1 was inconclusive: whether resampling rescues the run is not settled', boundary: 'Resampled from the first model call, #1: inconclusive · 7 of 20 · rate 0.18 to 0.57 (95%).', rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
     expect(b.look).toContain('Not settled: resampled from #1');
-    expect(b.probes[0]).toMatchObject({ verdict: 'inconclusive' });
+    expect(b.probes[0]).toMatchObject({ verdict: 'inconclusive', bound: 'rate 0.18 to 0.57 (95%)' });
     expect(b.callRow.find((c) => c.callNo === 1)).toMatchObject({ verdict: 'inconclusive' });
 
     // A report a store holds with its gate malformed reads as a fixed count's, and a run's rate as none.

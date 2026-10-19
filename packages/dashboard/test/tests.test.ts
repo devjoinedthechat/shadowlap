@@ -934,9 +934,12 @@ describe('goldens with a gate', () => {
       { golden: 'goldens/drops', ok: true, runId: 'R3', data: result(history, [true, true, true]) },
     ]);
     const unsure = [...Array(16).fill(true), false, false, false, false];
+    // Kept in the words results had before a verdict stated its test and showed its tally (a claimed
+    // rate): the screen says them in today's.
+    const kept = (d: TestResultData, sentence: string): TestResultData => ({ ...d, gate: { ...d.gate!, sentence } });
     session(store, 'e4f5a6b', T0, [
-      { golden: 'goldens/escalates', ok: true, runId: 'R4', data: result(sprt, Array(12).fill(true), { spent: 0.24 }) },
-      { golden: 'goldens/flaky', ok: false, failure: 'inconclusive' as never, reason: 'inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs', runId: 'R5', data: result(sprt, unsure, { spent: 0.4 }) },
+      { golden: 'goldens/escalates', ok: true, runId: 'R4', data: kept(result(sprt, Array(12).fill(true), { spent: 0.24 }), 'passed: at least 90% with 95% confidence after 12 attempts') },
+      { golden: 'goldens/flaky', ok: false, failure: 'inconclusive' as never, reason: 'inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs', runId: 'R5', data: kept(result(sprt, unsure, { spent: 0.4 }), 'inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs') },
       { golden: 'goldens/drops', ok: false, failure: 'check', reason: 'failed: its pass rate dropped', runId: 'R6', data: result(history, [false, false, false], { history: { passes: 30, attempts: 30, sessions: 10 } }) },
     ]);
     return store;
@@ -946,12 +949,13 @@ describe('goldens with a gate', () => {
     const store = gatedStore();
     const view = testsView(store, gated);
     const [escalates, flaky, drops] = view.rows;
-    expect(escalates!.gate).toEqual({ gate: sprt, description: 'pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 20 attempts', toPass: 12, toFail: 3 });
+    expect(escalates!.gate).toEqual({ gate: sprt, description: 'tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', toPass: 12, toFail: 3 });
     expect(escalates!.modeLabel).toBe('fork · gate');
     expect(drops!.modeLabel).toBe('fork · history');
-    expect(escalates!.last).toMatchObject({ result: 'pass', verdict: 'passed', line: 'passed: at least 90% with 95% confidence after 12 attempts · 12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00' });
+    // The verdict word, the tally, the Wilson bound and the rule, then pass^k: never a claimed rate.
+    expect(escalates!.last).toMatchObject({ result: 'pass', verdict: 'passed', line: 'passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00' });
     const g = escalates!.last.gate!;
-    expect(g).toMatchObject({ kind: 'sprt', decision: 'pass', passes: 12, attempts: 12, tally: '12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00', perAttempt: 0.02, more: null });
+    expect(g).toMatchObject({ kind: 'sprt', decision: 'pass', passes: 12, attempts: 12, tally: '12 of 12 passed · rate >= 0.76 (95%) · pass^5 1.00', perAttempt: 0.02, more: null });
     expect(g.interval.lo).toBeCloseTo(0.7575, 4);
     if (g.evidence.kind !== 'sprt') throw new Error('an SPRT gate keeps its scores');
     expect(g.evidence.scores).toHaveLength(12);
@@ -985,7 +989,7 @@ describe('goldens with a gate', () => {
     const store = gatedStore();
     const view = testsView(store, gated);
     expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, inconclusive: 1, passing: 1, untested: 0 });
-    expect(view.inconclusive).toEqual([expect.objectContaining({ golden: 'goldens/flaky', reason: expect.stringContaining('inconclusive: neither at least 90%'), gate: expect.objectContaining({ decision: 'inconclusive' }) })]);
+    expect(view.inconclusive).toEqual([expect.objectContaining({ golden: 'goldens/flaky', reason: 'inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', gate: expect.objectContaining({ decision: 'inconclusive' }) })]);
     // Nothing to bisect or fix there: only the golden that failed is a failure.
     expect(view.failures.map((f) => f.golden)).toEqual(['goldens/drops']);
     expect(testsView(store, gated.slice(0, 2)).verdict).toMatchObject({ state: 'inconclusive', failing: 0, inconclusive: 1, passing: 1, title: 'flaky inconclusive after 20 attempts' });
