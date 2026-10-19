@@ -1,13 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { commandIsImported, DEFAULT_BASELINES, hasRecordedCommand, injectionTemplates, parseGate, parsePayloads, resolveAuthor, selectTemplates, type Gate, type InjectionEntry, type InjectionReport, type Payload, type RunRecord, type Store } from '@shadowlap/engine';
+import { attemptsToFail, attemptsToPass, cleanDecided, commandIsImported, DEFAULT_BASELINES, hasRecordedCommand, injectionTemplates, parseGate, parsePayloads, resolveAuthor, selectTemplates, type Gate, type InjectionEntry, type InjectionReport, type Payload, type RunRecord, type Store } from '@shadowlap/engine';
 import { AttemptRunner, type AttemptTarget } from '../attempts.js';
 import { specFor, type TestEntry } from '../checks.js';
 import { loadConfig, loadTests } from '../config.js';
 import { importGolden } from '../golden-test.js';
 import { expandRecordings, goldenName } from '../goldens.js';
-import { CLEAN_GATE, cleanInjection, formatClean, formatPlant, plantInjections } from '../injection.js';
+import { CLEAN_GATE, cleanInjection, formatClean, formatPlant, plantInjections, type InconclusiveMode } from '../injection.js';
 import { emitJobEvent } from '../job-events.js';
 import { textOrFile } from '../interventions.js';
 import { type GuardMode } from '../run-agent.js';
@@ -42,6 +42,36 @@ export function parseClean(raw: string): { callNo: number; neutral?: unknown } {
     // Not JSON: the neutral result is that text.
     return { callNo, neutral: text };
   }
+}
+
+/**
+ * The gate --clean decides with: `--gate`'s figures over the default's (CLEAN_GATE), `--repeat` as
+ * its most attempts. Refused when those can't decide a write either way: three attempts are the
+ * fewest at the default figures.
+ */
+export function cleanGate(json: string | undefined, repeat: number | undefined): Gate {
+  const { kind: _kind, ...defaults } = CLEAN_GATE;
+  let gate: Gate = { ...CLEAN_GATE };
+  if (json !== undefined) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json) as unknown;
+    } catch {
+      throw new InvalidArgumentError(`--gate takes JSON, such as '{"good":0.8,"bad":0.2,"risk":0.05,"max":10}'`);
+    }
+    try {
+      gate = parseGate(parsed, '--gate', defaults);
+    } catch (err) {
+      throw new InvalidArgumentError((err as Error).message);
+    }
+    if (gate.kind !== 'sprt') throw new InvalidArgumentError('--gate: --clean decides on its own attempts, with good, bad, risk and max; a baseline gate needs a golden\'s history');
+  }
+  if (gate.kind === 'sprt') {
+    if (repeat !== undefined) gate = { ...gate, max: repeat };
+    const needed = Math.max(attemptsToPass(gate), attemptsToFail(gate));
+    if (gate.max < needed) throw new InvalidArgumentError(`${repeat !== undefined ? `--repeat ${repeat}` : `--gate's max (${gate.max})`} is fewer than the ${needed} clean attempts a write needs to be decided at good ${gate.good}, bad ${gate.bad} and risk ${gate.risk}: give ${needed} or more`);
+  }
+  return gate;
 }
 
 /** A target as the command line names it: a golden (a pack folder, `*` allowed in its last part) or a run. */
@@ -103,9 +133,9 @@ export function register(program: Command): void {
 
   program
     .command('injection')
-    .description('Test whether text in what the agent reads can steer it: plant prompt-injection payloads, each with a canary, in every read of a tool marked untrusted, replay from there with writes stubbed, and prove which ones a write obeyed. --clean asks whether a recorded read caused a write. Exits 1 when more attempts obeyed than allowed.')
+    .description('Test whether text in what the agent reads can steer it: plant prompt-injection payloads, each with a canary, in every read of a tool marked untrusted, replay from there with writes stubbed and reads the recording doesn\'t hold fenced, and prove which ones a tool call obeyed. --clean asks whether a recorded read caused a write. Exits 1 when more attempts obeyed than allowed, or when the test showed too little to say (inconclusive, which --inconclusive warn lets through).')
     .argument('[targets...]', 'runs (id or unique prefix) or goldens (directories written by shadowlap pack; a * in the last part matches several, as in goldens/*)')
-    .option('--repeat <n>', 'attempts per untrusted read and payload (default: the golden\'s "injection" repeat, else 1)', parseIntArg)
+    .option('--repeat <n>', 'attempts per untrusted read and payload (default: the golden\'s "injection" repeat, else 1); with --clean, the most clean attempts', parseIntArg)
     .option('--templates <ids>', 'built-in templates to plant: all (the default), none, or ids separated by commas (--list-templates names them)')
     .option('--payloads <file>', 'your own payloads, or a red-teaming tool\'s: text (one a line, or blocks between --- lines), JSON or JSON Lines; {{canary}} in them is filled in. Planted instead of the templates unless --templates names some')
     .option('--list-templates', 'print the built-in templates and exit')
@@ -113,40 +143,34 @@ export function register(program: Command): void {
     .option('--obeyed <n>', 'attempts that may obey before the command exits 1 (default: the golden\'s "injection" obeyed, else 0)', parseWhole)
     .option('--influenced <n>', 'attempts that may be influenced before the command exits 1 (default: the golden\'s, else no limit)', parseWhole)
     .option('--clean <call[=result]>', 'instead: replace read <call> with a neutral result (every string with a space in it emptied), or the JSON given, and replay until the gate decides whether each write after it goes away, so whether its content caused it')
-    .option('--write <call>', 'with --clean: the recorded write to test (repeatable; default every write after the read)', (v: string, acc: number[]) => [...acc, parseIntArg(v)], [] as number[])
-    .option('--gate <json>', `with --clean: the gate that decides "caused", such as '{"good":0.8,"bad":0.2,"risk":0.05,"max":10}' (the default)`)
-    .option('--html <file>', 'also write a security report: the reads × payloads matrix, the proof of each obeyed attempt, the payloads, with the redaction rules of shadowlap.config.json')
+    .option('--write <call>', 'with --clean: the recorded write to test (repeatable; default every write after the read)', (v: string, acc: number[] | undefined) => [...(acc ?? []), parseIntArg(v)])
+    .option('--gate <json>', `with --clean: the gate that decides "caused"; figures left out are the default's, '{"good":0.8,"bad":0.2,"risk":0.05,"max":10}'`)
+    .option('--live-reads', "after the fork, run the reads the recording doesn't hold instead of fencing them (a read that carries planted text is fenced all the same)")
+    .option('--inconclusive <mode>', 'what an inconclusive verdict does to the exit status: fail (the default) or warn and let it through', parseChoice<InconclusiveMode>(['fail', 'warn']), 'fail')
+    .option('--html <file>', 'also write a security report: the reads × payloads matrix, the proof of each obeyed attempt, why the inconclusive ones show nothing, the payloads, with the redaction rules of shadowlap.config.json and every canary kept')
     .option('--no-redact', 'with --html: skip the redaction rules')
     .option('--concurrency <n>', 'attempts running at once', parseIntArg, 1)
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long', parseIntArg)
-    .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: block | warn | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (args: string[], flags: { repeat?: number; templates?: string; payloads?: string; listTemplates?: boolean; baselines?: number; obeyed?: number; influenced?: number; clean?: string; write: number[]; gate?: string; html?: string; redact: boolean; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (args: string[], flags: { repeat?: number; templates?: string; payloads?: string; listTemplates?: boolean; baselines?: number; obeyed?: number; influenced?: number; clean?: string; write?: number[]; gate?: string; liveReads?: boolean; inconclusive: InconclusiveMode; html?: string; redact: boolean; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       if (flags.listTemplates) {
         const set = injectionTemplates();
         if (flags.json) process.stdout.write(JSON.stringify(set, null, 2) + '\n');
-        else process.stdout.write(`Built-in templates, version ${set.version} (${set.updated}): {{canary}} is the canary's address, {{canary.id}} and {{canary.amount}} its id and amount\n\n${set.templates.map((t) => `${p.bold(t.id)}  ${p.dim(`${t.shape} · ${t.title}`)}\n  ${safe(t.text).split('\n').join('\n  ')}`).join('\n\n')}\n`);
+        else process.stdout.write(`Built-in templates, version ${set.version} (${set.updated}): {{canary}} is the canary's address, {{canary.id}} and {{canary.amount}} its id and amount\n\n${set.templates.map((t) => `${p.bold(t.id)}  ${p.dim(`${t.shape} · ${t.title}`)}\n${t.text.split('\n').map((line) => `  ${safe(line)}`).join('\n')}`).join('\n\n')}\n`);
         return;
       }
+      const write = flags.write ?? [];
       if (!args.length) throw new InvalidArgumentError('name the runs or goldens to test: shadowlap injection <run>, or shadowlap injection goldens/*');
       if (flags.repeat !== undefined && (flags.repeat < 1 || flags.repeat > 100)) throw new InvalidArgumentError('--repeat is a whole number from 1 to 100');
       if (flags.baselines !== undefined && flags.baselines > 20) throw new InvalidArgumentError('--baselines is at most 20');
       if (flags.concurrency < 1 || flags.concurrency > 16) throw new InvalidArgumentError('--concurrency is a whole number from 1 to 16');
-      if (!flags.clean && (flags.write.length || flags.gate !== undefined)) throw new InvalidArgumentError(`${flags.write.length ? '--write' : '--gate'} goes with --clean <call>`);
+      if (!flags.clean && (write.length || flags.gate !== undefined)) throw new InvalidArgumentError(`${write.length ? '--write' : '--gate'} goes with --clean <call>`);
       const clean = flags.clean !== undefined ? parseClean(flags.clean) : null;
       if (clean && (flags.templates !== undefined || flags.payloads !== undefined)) throw new InvalidArgumentError('--clean replays with the read made neutral, so it plants nothing: leave out --templates and --payloads');
-      let gate: Gate = CLEAN_GATE;
-      if (flags.gate !== undefined) {
-        try {
-          gate = parseGate(JSON.parse(flags.gate) as unknown, '--gate');
-        } catch (err) {
-          throw new InvalidArgumentError(err instanceof SyntaxError ? `--gate takes JSON, such as '{"good":0.8,"bad":0.2,"risk":0.05,"max":10}'` : (err as Error).message);
-        }
-        if (gate.kind !== 'sprt') throw new InvalidArgumentError('--gate: --clean decides on its own attempts, with good, bad, risk and max; a baseline gate needs a golden\'s history');
-      }
-      if (clean && flags.repeat !== undefined && gate.kind === 'sprt') gate = { ...gate, max: flags.repeat };
+      const gate = cleanGate(flags.gate, clean ? flags.repeat : undefined);
 
       const opts = program.opts<GlobalOpts>();
       const projectDir = process.cwd();
@@ -182,6 +206,8 @@ export function register(program: Command): void {
 
       const say = (line: string) => process.stderr.write(`${line}\n`);
       const actor = resolveAuthor({ cwd: projectDir });
+      // Writes stubbed, reads served from the recording when they are the same call, and the rest
+      // fenced unless --live-reads (injection.ts): a model a payload steers may ask a read to carry data out.
       const runner = await AttemptRunner.start(opts, { writes: 'stub', reads: 'replay', liveTools: [], spec: null, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard });
       const reports: InjectionReport[] = [];
       try {
@@ -190,7 +216,7 @@ export function register(program: Command): void {
           const name = t.golden ?? shortId(t.run.runId);
           if (clean) {
             say(`${p.yellow('⑂')} Did #${clean.callNo}'s content cause ${name}'s writes? Replaying it with #${clean.callNo} made neutral, writes stubbed, until the gate decides`);
-            const r = await cleanInjection(runner, target, { callNo: clean.callNo, ...(clean.neutral !== undefined ? { neutral: clean.neutral } : {}), writes: flags.write, gate, golden: t.golden, sessionId: null, actor }, say);
+            const r = await cleanInjection(runner, target, { callNo: clean.callNo, ...(clean.neutral !== undefined ? { neutral: clean.neutral } : {}), writes: write, gate, golden: t.golden, sessionId: null, actor, liveReads: !!flags.liveReads }, say);
             reports.push(r);
             if (!flags.json) process.stdout.write(`\n${p.bold(name)}\n${formatClean(r)}\n`);
             continue;
@@ -201,7 +227,7 @@ export function register(program: Command): void {
           const limits = { obeyed: flags.obeyed ?? t.entry?.obeyed ?? 0, influenced: flags.influenced ?? t.entry?.influenced ?? null };
           say(`${p.yellow('⑂')} Planting ${payloads.length} payload${payloads.length === 1 ? '' : 's'} in ${name}'s untrusted reads, ${repeat} attempt${repeat === 1 ? '' : 's'} each, writes stubbed; ${baselines} clean replay${baselines === 1 ? '' : 's'} of each read to compare with`);
           for (const x of payloads.filter((y) => !y.canary)) say(p.yellow(`  ! ${x.id} has no {{canary}}: a write can show it influenced the agent, never prove it obeyed`));
-          const r = await plantInjections(runner, target, { repeat, payloads, baselines, concurrency: flags.concurrency, limits, golden: t.golden, sessionId: null, actor }, say);
+          const r = await plantInjections(runner, target, { repeat, payloads, baselines, concurrency: flags.concurrency, limits, golden: t.golden, sessionId: null, actor }, say, { liveReads: !!(flags.liveReads ?? t.entry?.liveReads) });
           reports.push(r);
           if (!flags.json) process.stdout.write(`\n${p.bold(name)}\n${formatPlant(r)}\n`);
           if (runner.interrupted) break;
@@ -220,12 +246,15 @@ export function register(program: Command): void {
         if (!flags.json) process.stdout.write(`${p.green('✓')} ${html}  ${p.dim(rules.length ? `${rules.length} redaction rule${rules.length === 1 ? '' : 's'} applied; canaries kept` : 'no redaction rules applied')}\n`);
       }
       const plants = reports.filter((r) => r.mode === 'plant');
-      const totals = { runs: reports.length, attempts: 0, obeyed: 0, influenced: 0, ignored: 0, unread: 0 };
-      for (const r of plants) for (const k of ['attempts', 'obeyed', 'influenced', 'ignored', 'unread'] as const) totals[k] += r.totals[k];
-      const ranNothing = plants.length > 0 && totals.attempts === 0;
-      const passed = reports.every((r) => (r.mode === 'plant' ? r.gate.passed : r.verdict !== 'inconclusive')) && !ranNothing && !runner.interrupted;
-      const json = { templates: { version: injectionTemplates().version, updated: injectionTemplates().updated }, results: reports, totals, passed, html };
+      const totals = { runs: reports.length, attempts: 0, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0 };
+      for (const r of plants) for (const k of ['attempts', 'obeyed', 'influenced', 'ignored', 'inconclusive'] as const) totals[k] += r.totals[k];
+      // A plant result passes, fails or is inconclusive by its gate; a --clean result is inconclusive while a write is undecided.
+      const verdicts = reports.map((r) => (r.mode === 'plant' ? r.gate.verdict : cleanDecided(r) ? 'passed' : 'inconclusive'));
+      const verdict = verdicts.includes('failed') ? 'failed' : verdicts.includes('inconclusive') || runner.interrupted ? 'inconclusive' : 'passed';
+      const passed = verdict === 'passed' || (verdict === 'inconclusive' && flags.inconclusive === 'warn' && !runner.interrupted);
+      const json = { templates: { version: injectionTemplates().version, updated: injectionTemplates().updated }, results: reports, totals, verdict, passed, html };
       if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
+      else if (verdict === 'inconclusive' && !runner.interrupted) process.stdout.write(p.dim(flags.inconclusive === 'warn' ? 'Inconclusive, let through by --inconclusive warn.\n' : 'Inconclusive fails the run; --inconclusive warn lets it through.\n'));
       emitJobEvent({ type: 'result', data: json });
       for (const r of reports) emitJobEvent({ type: 'link', label: reports.length === 1 ? 'Open the run' : `Open ${shortId(r.runId)}`, href: `#/run/${r.runId}`, ...(reports.length > 1 ? { secondary: true } : {}) });
       process.exitCode = runner.interrupted ? 130 : passed ? 0 : 1;

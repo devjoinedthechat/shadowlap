@@ -69,6 +69,8 @@ mailbox, an issue tracker) is recorded as untrusted, where [`shadowlap injection
 plants payloads. Only a hint the server sets counts: MCP reads a missing one as true, which would
 mark every read of a server that annotates nothing. An open-world write stays a write. Mark any
 other tool, or unmark one, in the config: `"tools": { "search_issues": { "trust": "untrusted" } }`.
+The config's mark is recorded on the call too (`meta.trustFrom` `config`), and wins over the
+server's.
 
 ## Finding the run
 

@@ -69,11 +69,13 @@ export interface CallMeta {
    */
   mcp?: { transport: 'stdio' | 'http'; server: string; tools?: Array<{ name: string; effect: Effect; trust?: 'untrusted' }> };
   /**
-   * The tool brings outside text in (a web page, an email, a ticket), as the SDK's `trust` option or
-   * an MCP server's `openWorldHint` declared it: `shadowlap injection` plants payloads in its reads.
-   * Only `untrusted` is recorded; the config's `tools` can mark a tool either way (injection.ts).
+   * Whether the tool brings outside text in (a web page, an email, a ticket), where `shadowlap
+   * injection` plants payloads, as declared when the call was made (`trustFrom`): the config's
+   * `tools` (either way), the SDK's `trust` option or an MCP server's `openWorldHint` (untrusted only).
+   * The config read when a run is analysed wins over it (injection.ts).
    */
-  trust?: 'untrusted';
+  trust?: 'untrusted' | 'trusted';
+  trustFrom?: 'config' | 'sdk' | 'mcp';
   [key: string]: unknown;
 }
 
@@ -228,11 +230,13 @@ export interface InjectionMark {
   attempt: number;
   of: number;
   canary?: { token: string; address: string; id: string; amount: string };
-  verdict?: 'obeyed' | 'influenced' | 'ignored' | 'unread';
+  verdict?: 'obeyed' | 'influenced' | 'ignored' | 'inconclusive';
+  /** Why an inconclusive attempt shows nothing. */
+  why?: string | null;
   /** The attempt's model call that first read the planted text: where it forked. */
   readAt?: number | null;
-  /** What the verdict rests on: a write carrying the canary, one quoting the planted text, a write no clean replay made, a read carrying the canary. */
-  evidence?: Array<{ callNo: number; tool: string; path: string; value: string; kind: 'canary' | 'quoted' | 'write' | 'read' }>;
+  /** What the verdict rests on: a write or a read carrying the canary, or a write no clean replay made. */
+  evidence?: Array<{ callNo: number; tool: string; path: string; value: string; kind: 'canary' | 'read' | 'write' }>;
 }
 
 /**

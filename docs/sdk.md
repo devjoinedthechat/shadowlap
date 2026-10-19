@@ -102,13 +102,15 @@ def fetch_page(url: str) -> dict:
     return fetch_text(url)
 ```
 
-- The mark is recorded on each call (`meta.trust`), and never enters its fingerprint: marking a
-  tool keeps every recording of it.
+- The mark is recorded on each call (`meta.trust`, with `meta.trustFrom`), and never enters its
+  fingerprint: marking a tool keeps every recording of it.
 - The default is `trusted`; anything but `trusted` or `untrusted` is refused when the tool is made.
 - The framework adapters pass it on: `{ effect: 'read', trust: 'untrusted' }` in TypeScript, and
   `trust="untrusted"` to `with_effect` and `function_tool` in Python.
-- Without touching the code, mark it in the config, which wins over what a recording says:
-  `"tools": { "fetch_page": { "trust": "untrusted" } }`. A host under `http` is marked by its name.
+- Without touching the code, mark it in the config: `"tools": { "fetch_page": { "trust": "untrusted" } }`.
+  A host under `http` is marked by its name. The config's mark is recorded on each call too, so a
+  run keeps it wherever it is opened, and the config read when a run is tested wins over every
+  recorded mark: `"trust": "trusted"` unmarks a tool.
 - Behind [`shadowlap mcp`](./mcp.md#effects), a read tool whose server sets `openWorldHint` is
   untrusted already.
 

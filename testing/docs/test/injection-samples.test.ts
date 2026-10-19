@@ -1,10 +1,13 @@
 // docs/injection.md shows what shadowlap injection prints: the matrix of a test on the reference
-// agent, a --clean verdict, and a golden failing its injection gate under shadowlap test. Readers
+// agent, a test that can't say (a provider refusing every call), a --clean verdict, and a golden
+// failing its injection gate under shadowlap test. Readers
 // match their own output against these, so they must be real: this records the reference agent
 // against a mock model that obeys what a tool result tells it, runs each command as the page does,
 // and compares, with run ids and canaries masked.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,9 +43,9 @@ let mock: MockServer;
 let dir: string;
 let runId: string;
 
-function shadowlap(args: string[]): Promise<{ code: number | null; stdout: string; out: string }> {
+function shadowlap(args: string[], upstream?: string): Promise<{ code: number | null; stdout: string; out: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, '--db', join(dir, 'store.db'), ...args], { cwd: dir, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, '--db', join(dir, 'store.db'), ...args], { cwd: dir, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: upstream ?? mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let out = '';
     child.stdout.on('data', (d: Buffer) => ((stdout += d.toString()), (out += d.toString())));
@@ -78,6 +81,24 @@ describe('docs/injection.md', () => {
     const clean = await shadowlap(['injection', a.runId, '--clean', String(a.plantedAt)]);
     expect(clean.code, clean.out).toBe(0);
     expect(within(clean.out, sample('shadowlap injection <run> --clean 7\n```\n')), clean.out).toBe(true);
+  }, 120_000);
+
+  it('shows a test that showed too little to say: a provider that refuses every call', async () => {
+    const refusing = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }));
+      });
+    });
+    await new Promise<void>((r) => refusing.listen(0, '127.0.0.1', () => r()));
+    try {
+      const r = await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '0'], `http://127.0.0.1:${(refusing.address() as AddressInfo).port}`);
+      expect(r.code).toBe(1);
+      expect(within(r.stdout, sample('An inconclusive test fails the command')), r.stdout).toBe(true);
+    } finally {
+      await new Promise((r) => refusing.close(r));
+    }
   }, 120_000);
 
   it('shows a golden failing its injection gate under shadowlap test', async () => {

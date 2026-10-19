@@ -373,7 +373,7 @@ CREATE TABLE IF NOT EXISTS injection_results (
   obeyed      INTEGER NOT NULL DEFAULT 0,
   influenced  INTEGER NOT NULL DEFAULT 0,
   ignored     INTEGER NOT NULL DEFAULT 0,
-  unread      INTEGER NOT NULL DEFAULT 0,
+  inconclusive INTEGER NOT NULL DEFAULT 0,
   verdict     TEXT,
   actor       TEXT,
   data        TEXT    NOT NULL
@@ -418,7 +418,7 @@ export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt'
 /**
  * Why a golden failed: its replay sent a request the recording doesn't have, a check failed, the
  * agent exited non-zero, it made no calls, it couldn't run at all, or (`injection`) its injection
- * gate saw more attempts obey a planted instruction than it allows.
+ * gate saw more attempts obey a planted instruction than it allows, or showed too little to say.
  */
 export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'injection';
 
@@ -467,19 +467,24 @@ export interface TestResultData {
   injection?: InjectionGateData;
 }
 
-/** An injection gate's outcome, as the test history and the JSON report keep it. */
+/**
+ * An injection gate's outcome, as the test history and the JSON report keep it: `verdict` passed,
+ * failed (more attempts obeyed, or were influenced, than allowed) or inconclusive (the test showed
+ * too little to say: nothing to plant in, an attempt that failed, none a model read, a run cut
+ * short), with `reason`; null with `skipped` when the gate did not run (the golden failed first).
+ */
 export interface InjectionGateData {
   resultId: string | null;
   attempts: number;
   obeyed: number;
   influenced: number;
   ignored: number;
-  unread: number;
+  inconclusive: number;
   allowed: { obeyed: number; influenced: number | null };
-  passed: boolean;
-  /** One line: what failed it. */
+  verdict: 'passed' | 'failed' | 'inconclusive' | null;
+  /** One line: why it failed or is inconclusive. */
   reason: string | null;
-  /** Why it planted nothing (no untrusted read, the golden failed), else null. */
+  /** Why it did not run (the golden failed), else null. */
   skipped: string | null;
 }
 
@@ -704,8 +709,8 @@ export interface StoredInjectionResult {
   obeyed: number;
   influenced: number;
   ignored: number;
-  unread: number;
-  /** plant: obeyed, influenced, ignored or unread; clean: caused, not caused or inconclusive. */
+  inconclusive: number;
+  /** plant: obeyed, influenced, ignored or inconclusive; clean: caused, not caused or inconclusive. */
   verdict: string | null;
   actor: string | null;
   /** The report as `shadowlap injection --json` prints it for this run. */
@@ -1396,9 +1401,9 @@ export class Store {
   putInjectionResult(r: StoredInjectionResult): void {
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO injection_results (result_id, run_id, golden, session_id, mode, at, ended_at, attempts, obeyed, influenced, ignored, unread, verdict, actor, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO injection_results (result_id, run_id, golden, session_id, mode, at, ended_at, attempts, obeyed, influenced, ignored, inconclusive, verdict, actor, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(r.resultId, r.runId, r.golden, r.sessionId, r.mode, r.at, r.endedAt, r.attempts, r.obeyed, r.influenced, r.ignored, r.unread, r.verdict, r.actor, JSON.stringify(r.data));
+      .run(r.resultId, r.runId, r.golden, r.sessionId, r.mode, r.at, r.endedAt, r.attempts, r.obeyed, r.influenced, r.ignored, r.inconclusive, r.verdict, r.actor, JSON.stringify(r.data));
   }
 
   getInjectionResult(resultId: string): StoredInjectionResult | null {
@@ -2403,7 +2408,7 @@ function rowToInjectionResult(row: Record<string, unknown>): StoredInjectionResu
     obeyed: Number(row.obeyed),
     influenced: Number(row.influenced),
     ignored: Number(row.ignored),
-    unread: Number(row.unread),
+    inconclusive: Number(row.inconclusive),
     verdict: str(row.verdict),
     actor: str(row.actor),
     data: parseJsonColumn<Record<string, unknown>>(row.data, {}),

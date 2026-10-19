@@ -492,6 +492,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     normalizers: config.normalize,
     upstreams: upstreamOverrides(process.env),
     ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}),
+    ...(config.tools ? { trust: config.tools } : {}),
     ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
   });
   const run = start(sidecar);
@@ -593,6 +594,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
     normalizers: config.normalize,
     upstreams: upstreamOverrides(process.env),
     ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}),
+    ...(config.tools ? { trust: config.tools } : {}),
     ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
   });
   const results: AttemptResult[] = new Array(count);

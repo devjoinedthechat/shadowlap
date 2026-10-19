@@ -140,6 +140,7 @@ export class AttemptRunner {
         ...(config.prices ? { prices: config.prices } : {}),
         ...(config.clock ? { clock: config.clock } : {}),
         ...(config.http ? { http: config.http } : {}),
+        ...(config.tools ? { trust: config.tools } : {}),
         ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
       });
       const runner = new AttemptRunner(store, sidecar, config, settings, upstreams);
@@ -173,7 +174,7 @@ export class AttemptRunner {
    * `repeat`), so run lists bundle it as an attempt while it runs, not only once it is done.
    * `extra.recordedWrites` answers a write the recording made with what it got then (see `ReplayOptions`).
    */
-  async attempt(target: AttemptTarget, extra: { divergeAt?: number; interventions?: Interventions; meta?: Partial<RunMeta>; recordedWrites?: boolean; plants?: ReadonlyMap<number, string>; overrides?: ReadonlyMap<number, unknown> } = {}, tally = true): Promise<Attempt> {
+  async attempt(target: AttemptTarget, extra: { divergeAt?: number; interventions?: Interventions; meta?: Partial<RunMeta>; recordedWrites?: boolean; plants?: ReadonlyMap<number, string>; overrides?: ReadonlyMap<number, unknown>; plantMarks?: ReplayOptions['plantMarks']; unrecordedReads?: ReplayOptions['unrecordedReads'] } = {}, tally = true): Promise<Attempt> {
     const s = this.settings;
     const cwd = s.cwd ?? process.cwd();
     const { parent, argv } = target;
@@ -189,6 +190,9 @@ export class AttemptRunner {
       // shadowlap injection: a payload planted in an untrusted read, or the read made neutral (--clean).
       ...(extra.plants?.size ? { plants: extra.plants } : {}),
       ...(extra.overrides?.size ? { overrides: extra.overrides } : {}),
+      ...(extra.plantMarks?.texts.length ? { plantMarks: extra.plantMarks } : {}),
+      // shadowlap injection: reads the recording doesn't hold fenced after the fork.
+      ...(extra.unrecordedReads ? { unrecordedReads: extra.unrecordedReads } : {}),
     };
     const run = this.sidecar.startRun({
       mode: 'replay',

@@ -54,6 +54,21 @@ export interface ReplayOptions {
    */
   plants?: ReadonlyMap<number, string>;
   /**
+   * Text only the planted text holds (an injection attempt's canary), lower case, and the flag that
+   * planted it. The first model request that carries any of it forks the replay there, as a request a
+   * flag changed does (`changedBy`), even when a normalizer masks it into a match: the point of the
+   * plant is a model reading it. After the fork, a read whose request carries it is fenced, whatever
+   * `unrecordedReads` says: it would send planted text out.
+   */
+  plantMarks?: { texts: readonly string[]; by: string };
+  /**
+   * After the fork, what a read the recording doesn't hold does: runs live (the default), or is
+   * fenced (`blocked`), answered with an error the agent sees, so nothing it would send leaves the
+   * machine. `shadowlap injection` fences them: a model steered by planted text may ask a read to
+   * fetch an address that carries data out.
+   */
+  unrecordedReads?: 'live' | 'fence';
+  /**
    * Ask for a person's input live after the fork (`--live-input`). By default there is no one to
    * type there, so recorded input is served in the order it was given.
    */
@@ -244,6 +259,7 @@ export class Session {
         if (this.options.writes === 'block') return { origin: 'blocked', occurrence };
         if (this.options.writes === 'stub') return { origin: 'stubbed', occurrence };
       }
+      if (input.kind === 'tool' && effect === 'read' && this.carriesPlant(input.request)) return { origin: 'blocked', occurrence };
       return { origin: 'live', occurrence };
     }
     // A recording made before what a person types was recorded never saw the agent's reads.
@@ -295,7 +311,17 @@ export class Session {
       if (this.options.writes === 'block') return { origin: 'blocked', occurrence };
       if (this.options.writes === 'stub') return { origin: 'stubbed', occurrence };
     }
+    // A read the recording doesn't hold: fenced when asked, and always when it carries planted text out.
+    if (input.kind === 'tool' && effect === 'read' && !input.input && (this.options.unrecordedReads === 'fence' || this.carriesPlant(input.request))) return { origin: 'blocked', occurrence };
     return { origin: 'live', occurrence };
+  }
+
+  /** Whether a request carries text only a plant holds (`plantMarks`). */
+  carriesPlant(request: unknown): boolean {
+    const texts = this.options.plantMarks?.texts;
+    if (!texts?.length || request === undefined) return false;
+    const text = (typeof request === 'string' ? request : (JSON.stringify(request) ?? '')).toLowerCase();
+    return texts.some((t) => text.includes(t));
   }
 
   /** Whether a partial recording holds calls like this one: their kind, or for a tool, its name. */

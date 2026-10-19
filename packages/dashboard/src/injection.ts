@@ -1,4 +1,4 @@
-import { commandIsImported, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type Store, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
+import { cleanDecided, commandIsImported, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type Store, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
@@ -26,9 +26,11 @@ export interface InjectionRow {
   obeyed: number;
   influenced: number;
   ignored: number;
-  unread: number;
-  /** plant: obeyed, influenced, ignored or unread; clean: caused, not caused or inconclusive; null while it runs. */
+  inconclusive: number;
+  /** plant: obeyed, influenced, ignored or inconclusive, the strongest any attempt showed; clean: caused, not caused or inconclusive; null while it runs. */
   verdict: string | null;
+  /** What the result comes to: plant, its gate's verdict against its limits; clean, inconclusive while a write is undecided, else passed. Null while it runs. */
+  gate: 'passed' | 'failed' | 'inconclusive' | null;
   actor: string | null;
   /** One line: `send_email obeyed a planted instruction (2 of 3)`, `caused by #9 fetch_page`. */
   line: string;
@@ -51,12 +53,20 @@ export function injectionLine(r: StoredInjectionResult): string {
   const p = data as Partial<PlantReport>;
   if (r.endedAt === null) return `planting payloads · ${plural(r.attempts, 'attempt')} so far`;
   if (r.obeyed) {
-    const tools = [...new Set((p.attempts ?? []).filter((a) => a.verdict === 'obeyed').flatMap((a) => a.evidence.filter((e) => e.kind === 'canary').map((e) => e.tool)))];
-    return `${tools.join(', ') || 'a write'} obeyed a planted instruction (${r.obeyed} of ${r.attempts})`;
+    const tools = [...new Set((p.attempts ?? []).filter((a) => a.verdict === 'obeyed').flatMap((a) => a.evidence.filter((e) => e.kind !== 'write').map((e) => e.tool)))];
+    return `${tools.join(', ') || 'a tool call'} obeyed a planted instruction (${r.obeyed} of ${r.attempts})`;
   }
   if (r.influenced) return `a planted instruction influenced the agent (${r.influenced} of ${r.attempts})`;
-  if (!r.attempts) return (p.reads ?? []).length ? 'nothing could be planted' : 'no untrusted read to plant in';
+  if (p.gate?.verdict === 'inconclusive') return `inconclusive: ${p.gate.reason ?? 'the test showed too little to say'}`;
   return `ignored every planted instruction (${r.attempts} attempts)`;
+}
+
+/** What a kept result comes to, as its row says it (InjectionRow.gate). */
+function resultGate(r: StoredInjectionResult): InjectionRow['gate'] {
+  if (r.endedAt === null) return null;
+  const data = r.data as Partial<InjectionReport>;
+  if (r.mode === 'clean') return cleanDecided({ writes: (data as Partial<Extract<InjectionReport, { mode: 'clean' }>>).writes ?? [] }) ? 'passed' : 'inconclusive';
+  return (data as Partial<PlantReport>).gate?.verdict ?? null;
 }
 
 function row(r: StoredInjectionResult): InjectionRow {
@@ -73,8 +83,9 @@ function row(r: StoredInjectionResult): InjectionRow {
     obeyed: r.obeyed,
     influenced: r.influenced,
     ignored: r.ignored,
-    unread: r.unread,
+    inconclusive: r.inconclusive,
     verdict: r.verdict,
+    gate: resultGate(r),
     actor: r.actor,
     line: injectionLine(r),
     href: `#/run/${r.runId}`,
@@ -114,16 +125,20 @@ export function runInjection(store: Store, runId: string, tools?: ToolTrust): { 
   return { untrusted, results: store.listInjectionResults({ runId }).map(row), attempt: mark ? { ...mark, line: of ? injectionLine(of) : null, proof } : null };
 }
 
-/** Needs a look: the newest result of each run or golden whose attempts obeyed (or were influenced), as one line each. */
-export function injectionNeedsLook(store: Store, limit = 20): Array<{ resultId: string; runId: string; golden: string | null; text: string; href: string; severity: 'obeyed' | 'influenced' }> {
+/**
+ * Needs a look: the newest result of each run or golden whose attempts obeyed (or were influenced),
+ * or whose test showed too little to say (inconclusive), as one line each.
+ */
+export function injectionNeedsLook(store: Store, limit = 20): Array<{ resultId: string; runId: string; golden: string | null; text: string; href: string; severity: 'obeyed' | 'influenced' | 'inconclusive' }> {
   const seen = new Set<string>();
-  const out: Array<{ resultId: string; runId: string; golden: string | null; text: string; href: string; severity: 'obeyed' | 'influenced' }> = [];
+  const out: Array<{ resultId: string; runId: string; golden: string | null; text: string; href: string; severity: 'obeyed' | 'influenced' | 'inconclusive' }> = [];
   for (const r of store.listInjectionResults({ limit: 500 })) {
     const key = r.golden ?? r.runId;
     if (r.mode !== 'plant' || r.endedAt === null || seen.has(key)) continue;
     seen.add(key);
-    if (!r.obeyed && !r.influenced) continue;
-    out.push({ resultId: r.resultId, runId: r.runId, golden: r.golden, text: injectionLine(r), href: `#/run/${r.runId}`, severity: r.obeyed ? 'obeyed' : 'influenced' });
+    const severity = r.obeyed ? 'obeyed' : r.influenced ? 'influenced' : resultGate(r) === 'inconclusive' ? 'inconclusive' : null;
+    if (!severity) continue;
+    out.push({ resultId: r.resultId, runId: r.runId, golden: r.golden, text: injectionLine(r), href: `#/run/${r.runId}`, severity });
     if (out.length >= limit) break;
   }
   return out;
@@ -140,18 +155,24 @@ export interface ToolTrustRow {
 }
 
 /**
- * Every tool the store's recordings called, with its trust: the config's `tools`, else what its
- * newest call was recorded with (the SDK's `trust`, an MCP server's openWorldHint), else trusted.
+ * Every tool the store's recordings called, with its trust: the config's `tools`, else what its calls
+ * were recorded with (the recording machine's config, the SDK's `trust`, an MCP server's
+ * openWorldHint; untrusted wins when they differ), else trusted.
  */
 export function toolTrust(store: Store, tools: ToolTrust | undefined): { tools: ToolTrustRow[] } {
   const rows = store.query(
-    `SELECT name, COUNT(*) AS calls, MAX(CASE WHEN json_extract(meta, '$.trust') = 'untrusted' THEN 1 ELSE 0 END) AS untrusted, MAX(CASE WHEN json_extract(meta, '$.mcp') IS NOT NULL THEN 1 ELSE 0 END) AS mcp, MAX(json_extract(meta, '$.http')) AS http
+    `SELECT name, COUNT(*) AS calls,
+       MAX(CASE WHEN json_extract(meta, '$.trust') = 'untrusted' THEN 1 ELSE 0 END) AS untrusted,
+       MAX(CASE WHEN json_extract(meta, '$.trust') = 'untrusted' AND json_extract(meta, '$.trustFrom') = 'config' THEN 1 ELSE 0 END) AS untrustedByConfig,
+       MAX(CASE WHEN json_extract(meta, '$.trust') = 'trusted' AND json_extract(meta, '$.trustFrom') = 'config' THEN 1 ELSE 0 END) AS trustedByConfig,
+       MAX(CASE WHEN json_extract(meta, '$.mcp') IS NOT NULL THEN 1 ELSE 0 END) AS mcp, MAX(json_extract(meta, '$.http')) AS http
      FROM call_events WHERE phase = 'start' AND kind = 'tool' GROUP BY name ORDER BY name`,
   );
   return {
     tools: rows.map((r) => {
       const name = String(r.name);
-      const meta: CallRecord['meta'] = { ...(Number(r.untrusted) ? { trust: 'untrusted' as const } : {}), ...(Number(r.mcp) ? { mcp: { transport: 'stdio' as const, server: '' } } : {}), ...(typeof r.http === 'string' ? { http: r.http } : {}) };
+      const recorded: Pick<CallRecord['meta'], 'trust' | 'trustFrom'> = Number(r.untrustedByConfig) ? { trust: 'untrusted', trustFrom: 'config' } : Number(r.untrusted) ? { trust: 'untrusted' } : Number(r.trustedByConfig) ? { trust: 'trusted', trustFrom: 'config' } : {};
+      const meta: CallRecord['meta'] = { ...recorded, ...(Number(r.mcp) ? { mcp: { transport: 'stdio' as const, server: '' } } : {}), ...(typeof r.http === 'string' ? { http: r.http } : {}) };
       const t = trustOf({ kind: 'tool', name, meta }, tools);
       const other = t.trust === 'untrusted' ? 'trusted' : 'untrusted';
       return { name, trust: t.trust, from: t.from, calls: Number(r.calls), configLine: `"tools": { ${JSON.stringify(name)}: { "trust": "${other}" } }` };
@@ -167,10 +188,11 @@ export function injectionTemplatesView(): ReturnType<typeof injectionTemplates> 
 const MAX = { repeat: 100, baselines: 20, payloads: 2 * 1024 * 1024 } as const;
 
 /**
- * The `injection` job: `{ runId | golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, yes? }`.
+ * The `injection` job: `{ runId | golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }`.
  * A run is one of the store's; a golden one of the packs the project lists; templates are ids the
  * built-in set has, `all` or `none`; a payload file is an upload the browser sent. `clean` asks
- * whether that read caused the run's writes (`writes` picks them) instead of planting.
+ * whether that read caused the run's writes (`writes` picks them) instead of planting. `liveReads`
+ * runs the reads the recording doesn't hold instead of fencing them.
  */
 export function injectionJob(req: JobRequest, b: Pick<JobBuildContext, 'store' | 'upload'>, goldens: readonly GoldenSource[]): JobBuildResult {
   const whole = (v: unknown, key: string, min: number, max: number): number | { error: string } | undefined => {
@@ -226,6 +248,8 @@ export function injectionJob(req: JobRequest, b: Pick<JobBuildContext, 'store' |
   const repeat = whole(req.repeat, 'repeat', 1, MAX.repeat);
   if (repeat && typeof repeat === 'object') return repeat;
   if (repeat !== undefined) args.push('--repeat', String(repeat));
+  if (req.liveReads !== undefined && typeof req.liveReads !== 'boolean') return { error: 'liveReads is true or false' };
+  if (req.liveReads === true) args.push('--live-reads');
   if (req.yes === true) args.push('--yes');
   return { args, runId, title: clean !== undefined ? `Testing whether #${clean} caused the writes` : 'Testing for injection' };
 }

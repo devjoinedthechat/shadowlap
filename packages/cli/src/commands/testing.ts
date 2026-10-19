@@ -20,7 +20,7 @@ import { captureConfig, noProxyEnv, type GuardMode } from '../run-agent.js';
 import { ancestorsOf, confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, readStore, requireEnded, requireRun, telemetry, unredacted, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { prepareTestPush, pushIfQueued, teamEnv } from '../team.js';
 import { takeoverReader } from '../tasks.js';
-import { gateLine, injectionGate } from '../injection.js';
+import { gateLetsThrough, gateLine, injectionGate, type InconclusiveMode } from '../injection.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
@@ -38,7 +38,7 @@ async function serveRecordings(store: Store, config: ReturnType<typeof loadConfi
   const root = process.cwd();
   const upstreams = upstreamOverrides(process.env);
   const host = new RecordingHost(store, root, { codeVersion: codeVersion(root), redact: config.redact });
-  const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams, api: host.api, ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}) });
+  const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams, api: host.api, ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), ...(config.tools ? { trust: config.tools } : {}) });
   host.attach(sidecar);
   const captureDir = fileURLToPath(new URL('../../guard/', import.meta.url));
   process.stdout.write(
@@ -160,7 +160,8 @@ export function register(program: Command): void {
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
     .option('--guard <mode>', 'network guard: block, warn or off (re-recording under --update, warn unless given)', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
-    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean }) {
+    .option('--inconclusive <mode>', "what an inconclusive verdict does, a gate's or a check's: fail the run, or warn and let it through", parseChoice<InconclusiveMode>(['fail', 'warn']), 'fail')
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode }) {
       const opts = program.opts<GlobalOpts>();
       const guardGiven = this.getOptionValueSource('guard') === 'cli';
       const projectDir = process.cwd();
@@ -242,12 +243,13 @@ export function register(program: Command): void {
             break;
           }
           // Its injection gate, once its replay passed: plant payloads in its untrusted reads, live from
-          // the model call that reads them, writes stubbed, and fail it when too many attempts obey.
+          // the model call that reads them, writes stubbed, and fail it when too many attempts obey, or
+          // when the gate showed too little to say (inconclusive, which --inconclusive warn lets through).
           // Null when a signal cut the gate short: then the golden has no result, as for its replay.
           const gated = async (o: GoldenOutcome): Promise<{ outcome: GoldenOutcome; injection: InjectionGateData | null } | null> => {
             if (!spec?.injection || !o.parent) return { outcome: o, injection: null };
             const allowed = { obeyed: spec.injection.obeyed, influenced: spec.injection.influenced };
-            if (o.failure) return { outcome: o, injection: { resultId: null, attempts: 0, ...noVerdicts(), allowed, passed: false, reason: null, skipped: 'the golden failed, so its injection gate did not run' } };
+            if (o.failure) return { outcome: o, injection: { resultId: null, attempts: 0, ...noVerdicts(), allowed, verdict: null, reason: null, skipped: 'the golden failed, so its injection gate did not run' } };
             if (signal) return null;
             process.stderr.write(p.dim(`[shadowlap] injection gate for ${golden}: planting payloads in its untrusted reads\n`));
             let data: InjectionGateData;
@@ -260,13 +262,15 @@ export function register(program: Command): void {
               const obeyed = gate.report.attempts.find((a) => a.verdict === 'obeyed');
               proof = obeyed ? proofLine(obeyed) : null;
             } catch (err) {
-              data = { resultId: null, attempts: 0, ...noVerdicts(), allowed, passed: false, reason: `the injection gate could not run: ${(err as Error).message}`, skipped: null };
+              // A gate that can't run (a payload file gone) fails the golden: nothing let it through.
+              data = { resultId: null, attempts: 0, ...noVerdicts(), allowed, verdict: 'failed', reason: `the injection gate could not run: ${(err as Error).message}`, skipped: null };
             }
-            if (data.passed) return { outcome: o, injection: data };
-            return { outcome: { ...o, failure: { message: `injection: ${data.reason}`, details: `${proof ? `${proof}\n` : ''}Every attempt, with its proof: shadowlap injection ${golden} --html report.html` }, kind: 'injection' }, injection: data };
+            if (gateLetsThrough(data, flags.inconclusive)) return { outcome: o, injection: data };
+            const word = data.verdict === 'inconclusive' ? 'injection inconclusive' : 'injection';
+            return { outcome: { ...o, failure: { message: `${word}: ${data.reason}`, details: `${proof ? `${proof}\n` : ''}${data.verdict === 'inconclusive' ? '--inconclusive warn lets an inconclusive gate through. Every attempt, and why: ' : 'Every attempt, with its proof: '}shadowlap injection ${golden} --html report.html` }, kind: 'injection' }, injection: data };
           };
           const printGate = (d: InjectionGateData | null) => {
-            if (d && !d.skipped?.startsWith('the golden failed')) process.stdout.write(gateLine(d) + '\n');
+            if (d && d.verdict !== null) process.stdout.write(gateLine(d, flags.inconclusive) + '\n');
           };
           const first = await gated(outcome);
           if (!first) {
@@ -284,7 +288,7 @@ export function register(program: Command): void {
           let updated: PackResult['updated'] = null;
           if (flags.update && (outcome.failure || early) && !signal) {
             if ((outcome.kind !== 'diverged' && !early) || !outcome.parent || !outcome.result) {
-              process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : outcome.kind === 'injection' ? 'an agent that obeys planted text is fixed in its prompt or code, not in its golden' : 'this one failed for another reason'}\n`));
+              process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : outcome.kind === 'injection' ? (injection?.verdict === 'inconclusive' ? 'an inconclusive injection gate says why it showed nothing, and a new recording changes none of that' : 'an agent that obeys planted text is fixed in its prompt or code, not in its golden') : 'this one failed for another reason'}\n`));
             } else {
               const before = outcome.parent;
               const divergence = outcome.result.shown.ended.summary.divergence;
@@ -536,7 +540,7 @@ export function register(program: Command): void {
         await serveRecordings(store, config, opts.db);
         return;
       }
-      const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
+      const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), ...(config.tools ? { trust: config.tools } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
       // The person starts the agent, so serve never knows its command: the run has none, as a
       // capture has none, and a replay of it asks for one after --.
       const run = sidecar.startRun({ mode: 'record', command: { argv: [EXTERNAL_COMMAND], cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) });

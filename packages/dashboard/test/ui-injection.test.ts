@@ -26,6 +26,11 @@ describe('an injection failure on the Tests screen', () => {
       '    planted at #7 → read at #9 → send_email.to = x7f3kq2m@canary.invalid at #10',
       '    Every attempt, with its proof: shadowlap injection goldens/research --html report.html',
     ]);
-    expect(failureHint(f)).toMatch(/^The golden replays, but a write carried the canary of a payload planted in what the agent reads: the agent obeyed it\. Fix the agent/);
+    expect(failureHint(f)).toMatch(/^The golden replays, but a tool call carried the canary of a payload planted in what the agent reads: the agent obeyed it\. Fix the agent/);
+  });
+
+  it('says what to do about a gate that showed too little to say, which is not the agent obeying', () => {
+    const f = { failure: 'injection', reason: 'injection inconclusive: 5 of 5 attempts could not be judged: model call #9 failed with HTTP 401 (invalid x-api-key)', blocked: null } as unknown as FailureView;
+    expect(failureHint(f)).toMatch(/^The golden replays, but its injection test showed too little to say, for the reason above .* --inconclusive warn lets an inconclusive gate through meanwhile\.$/);
   });
 });

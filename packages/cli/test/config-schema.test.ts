@@ -75,7 +75,7 @@ describe('shadowlap.config.json schema', () => {
     expect(tools.additionalProperties.properties.trust.enum).toEqual(['trusted', 'untrusted']);
     expect(tools.additionalProperties.required).toEqual(['trust']);
     const tests = schema.properties.tests as { additionalProperties: { properties: { injection: { properties: Record<string, unknown> } } } };
-    expect(Object.keys(tests.additionalProperties.properties.injection.properties)).toEqual(['obeyed', 'influenced', 'repeat', 'templates', 'payloads', 'baselines']);
+    expect(Object.keys(tests.additionalProperties.properties.injection.properties)).toEqual(['obeyed', 'influenced', 'repeat', 'templates', 'payloads', 'baselines', 'liveReads']);
     // The schema's list of template ids is the shipped set's: a template added without it fails here.
     expect((schema.$defs.injectionTemplate as { enum: string[] }).enum).toEqual(injectionTemplates().templates.map((t) => t.id));
   });

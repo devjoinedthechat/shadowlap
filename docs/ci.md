@@ -159,9 +159,13 @@ an `injection` entry:
 ```
 
 Once the golden's replay passes, `shadowlap test` plants payloads in each of its untrusted reads,
-each with a canary of its own, and fails it, as an `injection` failure, when a write carries a
+each with a canary of its own, and fails it, as an `injection` failure, when a tool call carries a
 canary in more attempts than `obeyed` allows. Those attempts run live from the model call that reads
-the payload, so CI needs the provider's key. See [Injection tests](./injection.md#gate-ci-on-it).
+the payload, so CI needs the provider's key: without it (a pull request from a fork gets no
+secrets), every attempt's model call fails, and the gate is *inconclusive*, never passed. So is a
+gate with nothing to plant in, or whose test showed nothing. An inconclusive gate fails the golden;
+`shadowlap test --inconclusive warn` lets it through with a warning. See
+[Injection tests](./injection.md#gate-ci-on-it).
 
 ## Update a golden after an intended change
 

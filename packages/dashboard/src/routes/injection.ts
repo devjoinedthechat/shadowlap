@@ -13,12 +13,12 @@ import type { Router } from '../router.js';
  *   GET /api/injection                    { results }: newest first; ?run=<id>, ?golden=<path>, ?limit=<n>
  *   GET /api/injection/templates          the built-in templates, versioned, for the dialog
  *   GET /api/injection/tools              { tools }: every recorded tool with its trust, for Settings → Tools
- *   GET /api/injection/needs-look         { items }: runs and goldens whose newest test obeyed or was influenced
+ *   GET /api/injection/needs-look         { items }: runs and goldens whose newest test obeyed, was influenced or is inconclusive
  *   GET /api/injection/runs/:id           { untrusted, results, attempt }: a run's untrusted reads, its tests, and the test it is an attempt of
  *   GET /api/injection/:id                { row, report, gone }: one result, as --json printed it
  *   GET /api/injection/:id/report         the security report (HTML), the project's redaction rules applied
  *
- *   job injection  { runId | golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, yes? }
+ *   job injection  { runId | golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }
  */
 
 export const INJECTION_JOB_KIND = 'injection';
@@ -28,8 +28,14 @@ describeEvent('injection.tested', (e, d) => {
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
   const name = typeof e.ref === 'string' && !e.ref.startsWith('inj-') ? e.ref : e.runId ? e.runId.slice(0, 10) : 'a run';
   if (d.mode === 'clean') return { kind: d.verdict === 'caused' ? 'fail' : 'test', text: `Injection · ${name}: ${typeof d.verdict === 'string' ? d.verdict : 'tested'} by #${n(d.read)}` };
-  const text = n(d.obeyed) ? `obeyed a planted instruction in ${n(d.obeyed)} of ${n(d.attempts)} attempts` : n(d.influenced) ? `influenced in ${n(d.influenced)} of ${n(d.attempts)} attempts` : `ignored every planted instruction (${n(d.attempts)} attempts)`;
-  return { kind: n(d.obeyed) ? 'fail' : 'test', text: `Injection · ${name}: ${text}` };
+  const text = n(d.obeyed)
+    ? `obeyed a planted instruction in ${n(d.obeyed)} of ${n(d.attempts)} attempts`
+    : n(d.influenced)
+      ? `influenced in ${n(d.influenced)} of ${n(d.attempts)} attempts`
+      : d.gate === 'inconclusive'
+        ? `inconclusive after ${n(d.attempts)} attempts`
+        : `ignored every planted instruction (${n(d.attempts)} attempts)`;
+  return { kind: n(d.obeyed) || d.gate === 'failed' ? 'fail' : 'test', text: `Injection · ${name}: ${text}` };
 });
 
 export function register(router: Router, ctx: RouteContext): void {
