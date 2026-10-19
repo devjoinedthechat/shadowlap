@@ -125,6 +125,27 @@ export function gateWords(g: PresetOutcome['gate']): string {
   return `${g.passes} of ${g.repeat} attempt${g.repeat === 1 ? '' : 's'} must pass`;
 }
 
+/**
+ * The rule a sequential gate (`chaos.gate`) decided a preset by, as a report states it beside the
+ * tally and the Wilson bound: `gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts`. Null
+ * when no gate decided it: no attempt ran, the golden's own repeat and passes decided (its tally
+ * says the count), or it is inconclusive for a reason of its own (the replay never reached the
+ * call, a check no attempt could decide), which only a gate that ran out of attempts leaves unsaid.
+ */
+export function presetRule(o: Pick<PresetOutcome, 'attempts' | 'gate' | 'verdict' | 'reason'>): string | null {
+  if (o.attempts === 0 || !('good' in o.gate) || (o.verdict === 'inconclusive' && o.reason !== null)) return null;
+  return `gate: ${gateWords(o.gate)}`;
+}
+
+/** The rule a recording's presets were decided by, stated once under them; null as presetRule says. */
+export function recordingRule(outcomes: readonly PresetOutcome[]): string | null {
+  for (const o of outcomes) {
+    const rule = presetRule(o);
+    if (rule) return rule;
+  }
+  return null;
+}
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** The call a preset hits, as a sentence names it: `lookup_order (#4)`, `model call #5`. */
@@ -380,13 +401,14 @@ export interface ChaosReport {
   inconclusive: number;
   notApplicable: number;
   interrupted: boolean;
-  results: ChaosRecordingResult[];
+  /** Each recording, with the rule its presets were decided by, stated once (recordingRule), or null. */
+  results: Array<ChaosRecordingResult & { rule: string | null }>;
 }
 
 export function chaosReport(results: ChaosRecordingResult[], o: { session: string; revision: string | null; presets: ChaosPreset[]; interrupted: boolean }): ChaosReport {
   const all = results.flatMap((r) => r.outcomes);
   const n = (v: ChaosVerdict) => all.filter((x) => x.verdict === v).length;
-  return { version: 1, session: o.session, revision: o.revision, presets: o.presets, passed: n('passed'), failed: n('failed'), inconclusive: n('inconclusive'), notApplicable: n('not-applicable'), interrupted: o.interrupted, results };
+  return { version: 1, session: o.session, revision: o.revision, presets: o.presets, passed: n('passed'), failed: n('failed'), inconclusive: n('inconclusive'), notApplicable: n('not-applicable'), interrupted: o.interrupted, results: results.map((r) => ({ ...r, rule: recordingRule(r.outcomes) })) };
 }
 
 const VERDICT_WORDS: Readonly<Record<ChaosVerdict, string>> = { passed: 'passed', failed: 'failed', inconclusive: 'inconclusive', 'not-applicable': 'not applicable' };
@@ -420,9 +442,9 @@ export function formatPresets(name: string, outcomes: readonly PresetOutcome[], 
     const said = o.verdict === 'failed' ? o.runs.find((r) => !r.passed)?.lastLine : null;
     if (said) lines.push(p.dim(`      ${safeLine(said)}`));
   }
-  const gated = outcomes.find((o) => o.attempts > 0);
-  if (gated && 'good' in gated.gate) lines.push(p.dim(`  gate: ${gateWords(gated.gate)}`));
-  if (gated && judge && judge.source !== 'exit') lines.push(p.dim(`  checks: ${judge.checks.map(safeLine).join('; ')} (${JUDGED_FROM[judge.source]})`));
+  const rule = recordingRule(outcomes);
+  if (rule) lines.push(p.dim(`  ${rule}`));
+  if (outcomes.some((o) => o.attempts > 0) && judge && judge.source !== 'exit') lines.push(p.dim(`  checks: ${judge.checks.map(safeLine).join('; ')} (${JUDGED_FROM[judge.source]})`));
   return lines.join('\n');
 }
 
@@ -439,24 +461,36 @@ export function chaosTotals(r: ChaosReport, upstreamRequests: number, spent: num
   return `${parts.join(', ')} · ${plural(upstreamRequests, 'upstream request')}${spent ? ` · ≈${formatUsd(spent)} spent` : ''}`;
 }
 
-/** Each preset of each recording as a JUnit case: a failed one fails, an inconclusive one fails when CI counts it as failing. */
+/**
+ * Each preset of each recording as a JUnit case: a failed one fails, an inconclusive one fails when
+ * CI counts it as failing. A CI shows each case on its own, so one a sequential gate decided states
+ * the gate's rule after its tally and Wilson bound, in its message and its output.
+ */
 export function chaosJunit(results: readonly ChaosRecordingResult[], o: { inconclusive: 'fail' | 'warn' }): JunitCase[] {
   return results.flatMap((r) => {
     const classname = r.golden ?? r.runId ?? 'recording';
     if (r.error) return [{ name: 'error-path presets', classname, timeSeconds: 0, failure: { message: r.error, details: r.error } }];
     return r.outcomes.map((x): JunitCase => {
+      const rule = presetRule(x);
+      const said = rule ? `${x.detail} · ${rule}` : x.detail;
       const fails = x.verdict === 'failed' || (x.verdict === 'inconclusive' && o.inconclusive === 'fail');
-      return { name: x.label, classname, timeSeconds: 0, ...(fails ? { failure: { message: `${VERDICT_WORDS[x.verdict]}: ${x.detail}`, details: x.runs.map((run, i) => `attempt ${i + 1} (run ${run.runId}): ${run.passed ? 'passed' : `failed: ${run.reason ?? ''}`}`).join('\n') } } : {}), systemOut: x.detail };
+      return { name: x.label, classname, timeSeconds: 0, ...(fails ? { failure: { message: `${VERDICT_WORDS[x.verdict]}: ${said}`, details: x.runs.map((run, i) => `attempt ${i + 1} (run ${run.runId}): ${run.passed ? 'passed' : `failed: ${run.reason ?? ''}`}`).join('\n') } } : {}), systemOut: said };
     });
   });
 }
 
-/** A Markdown table for a CI job summary: each recording, each preset, its verdict and what came of it. */
+/**
+ * A Markdown table for a CI job summary: each recording, each preset, its verdict and what came of
+ * it. Under the table, the rule of each sequential gate that decided presets, stated once: alone
+ * when one gate decided every recording's, else after the recordings it decided.
+ */
 export function chaosMarkdown(r: ChaosReport): string {
   const cell = (s: string) => safeLine(s).replace(/\|/g, '\\|');
   const lines = ['## Shadowlap error-path presets', '', `${r.passed} passed · ${r.failed} failed${r.inconclusive ? ` · ${r.inconclusive} inconclusive` : ''}${r.notApplicable ? ` · ${r.notApplicable} not applicable` : ''}`, '', '| Recording | Preset | Verdict | What came of it |', '|---|---|---|---|'];
   // A recording whose presets couldn't run has no verdict: the Verdict column keeps the four words.
   const apart: string[] = [];
+  const rules = new Map<string, string[]>();
+  let decided = 0;
   for (const res of r.results) {
     const name = cell(res.golden ?? res.runId ?? '');
     if (res.error || res.skipped) {
@@ -464,7 +498,13 @@ export function chaosMarkdown(r: ChaosReport): string {
       continue;
     }
     for (const x of res.outcomes) lines.push(`| ${name} | ${cell(x.label)} | ${VERDICT_WORDS[x.verdict]} | ${cell(x.detail)} |`);
+    if (res.outcomes.some((x) => x.attempts > 0)) decided++;
+    if (res.rule) rules.set(res.rule, [...(rules.get(res.rule) ?? []), name]);
   }
+  // A blank line ends the table: a line right under it would be read as one more row.
+  const grouped = [...rules];
+  if (grouped.length === 1 && grouped[0]![1].length === decided) lines.push('', cell(grouped[0]![0]));
+  else if (grouped.length) lines.push('', ...grouped.map(([rule, names]) => `- ${names.join(', ')}: ${cell(rule)}`));
   if (apart.length) lines.push('', ...apart);
   return `${lines.join('\n')}\n`;
 }

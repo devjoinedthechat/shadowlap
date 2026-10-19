@@ -170,6 +170,60 @@ describe('what a session reports', () => {
     expect(md).not.toContain('| skipped |');
     expect(md.trimEnd().split('\n').slice(-2)).toEqual(['- goldens/broken: not run: the pack contains no runs', '- goldens/quiet: skipped: its tests entry turns the presets off ("chaos": false)']);
   });
+
+  describe('under a chaos.gate', () => {
+    const gate = { good: 0.9, bad: 0.5, risk: 0.1, max: 6 };
+    const rule = 'gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts';
+    const research = {
+      golden: 'goldens/research',
+      runId: 'G2',
+      error: null,
+      skipped: null,
+      judge: { source: 'exit' as const, checks: [] },
+      outcomes: [
+        outcome({ gate, passes: 4, attempts: 4, detail: 'search_web (#4) timed out: 4 of 4 attempts passed · rate >= 0.60 (90%)' }),
+        outcome({ preset: '429', label: 'provider 429', verdict: 'failed', gate, passes: 0, attempts: 2, detail: 'model call #5 failed with HTTP 429: 0 of 2 attempts passed · rate <= 0.57 (90%); the agent exited with code 1', reason: 'the agent exited with code 1' }),
+        outcome({ preset: 'empty', label: 'empty result', verdict: 'not-applicable', gate, passes: 0, attempts: 0, runs: [], detail: 'search_web (#4): its result is empty already' }),
+      ],
+    };
+    const report = (rs: Parameters<typeof chaosReport>[0]) => chaosReport(rs, { session: 'S', revision: null, presets: [], interrupted: false });
+
+    it('states its rule once under the Markdown table, as the terminal does', () => {
+      const md = report([research]);
+      expect(chaosMarkdown(md)).toContain('| goldens/research | tool timeout | passed | search_web (#4) timed out: 4 of 4 attempts passed · rate >= 0.60 (90%) |');
+      // After a blank line, which ends the table: a line right under it would be one more row.
+      expect(chaosMarkdown(md).trimEnd().split('\n').slice(-2)).toEqual(['', rule]);
+      expect(chaosMarkdown(md).split(rule)).toHaveLength(2);
+      // With recordings its gate didn't decide, it names the ones it did.
+      const mixed = chaosMarkdown(report([research, ...results]));
+      expect(mixed).toContain(`\n\n- goldens/research: ${rule}\n\n- goldens/broken: not run`);
+      expect(mixed.split(rule)).toHaveLength(2);
+      // The golden's own repeat and passes decide by a count each tally says: no rule line.
+      expect(chaosMarkdown(report(results))).not.toContain('gate:');
+    });
+
+    it('states it in each JUnit case it decided, after the tally and the Wilson bound', () => {
+      const [timeout, provider, empty] = chaosJunit([research], { inconclusive: 'fail' });
+      expect(timeout!.systemOut).toBe(`search_web (#4) timed out: 4 of 4 attempts passed · rate >= 0.60 (90%) · ${rule}`);
+      expect(provider!.failure!.message).toBe(`failed: model call #5 failed with HTTP 429: 0 of 2 attempts passed · rate <= 0.57 (90%); the agent exited with code 1 · ${rule}`);
+      expect(provider!.systemOut).toContain(rule);
+      // A preset that ran no attempt was decided by no gate.
+      expect(empty!.systemOut).toBe('search_web (#4): its result is empty already');
+      expect(chaosJunit(results, { inconclusive: 'fail' }).some((c) => `${c.systemOut ?? ''}${c.failure?.message ?? ''}`.includes('gate:'))).toBe(false);
+      // Inconclusive when its attempts ran out between the bounds: the gate's doing, so its rule.
+      // Inconclusive for a reason of its own (the replay never reached the call): none.
+      const ranOut = outcome({ preset: '500', label: 'provider 500', verdict: 'inconclusive', gate, passes: 3, attempts: 6, detail: "model call #5 failed with HTTP 500: 3 of 6 attempts passed · rate 0.22 to 0.78 (90%), between the gate's bounds when its 6 attempts ran out" });
+      const unreached = outcome({ verdict: 'inconclusive', gate, passes: 0, attempts: 1, reason: 'the replay never reached #4, so the preset was never played in', detail: 'search_web (#4) timed out: the replay never reached #4, so the preset was never played in' });
+      const [out, never] = chaosJunit([{ ...research, outcomes: [ranOut, unreached] }], { inconclusive: 'fail' });
+      expect(out!.failure!.message).toBe(`inconclusive: ${ranOut.detail} · ${rule}`);
+      expect(never!.failure!.message).toBe(`inconclusive: ${unreached.detail}`);
+      expect(report([{ ...research, outcomes: [unreached] }]).results[0]!.rule).toBeNull();
+    });
+
+    it('gives each recording its rule in the JSON, null for one no sequential gate decided', () => {
+      expect(report([research, ...results]).results.map((r) => r.rule)).toEqual([rule, null, null, null]);
+    });
+  });
 });
 
 describe('the store', () => {

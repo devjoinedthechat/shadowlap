@@ -491,21 +491,26 @@ the store for the dashboard. Exit status: 1 when a preset failed, a golden could
   ✓ provider 500      passed  failed with HTTP 500: the agent exited 0
 ```
 
-Under the table, a line names the checks that judged every attempt and where they came from
-(`checks: send_alert called at most 1 time (the write limits of the golden's expect)`), or, when
-only the exit status did, two lines say how to give them.
+When a `chaos.gate` decided the presets, every line gives the tally and the Wilson bound of the
+pass rate, and a line under the table states the gate's rule once
+(`gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts`). Under the table, a line names the
+checks that judged every attempt and where they came from (`checks: send_alert called at most 1
+time (the write limits of the golden's expect)`), or, when only the exit status did, two lines say
+how to give them.
 
 `--json <file>` writes `{ version, session, revision, presets, passed, failed, inconclusive, notApplicable, interrupted, results }`,
 with each recording (`golden`, the `runId` the presets forked, its `outcomes`, the `judge` of its
 presets: the `source` of their checks, `chaos.expect`, `--expect`, `write-limits` or `exit`, and the
-`checks` as a failure names them, and the `error` that kept it from running or why it was
-`skipped`) and, for each preset (`preset`, its `label`, the `verdict`, the `callNo` it hit and its
-`target` (`kind`, `name`), the `passes` and `attempts`, a `detail` sentence naming what came of it
-(and its `summary`, without the call, as the table shows it), the first failure's `reason`, the
-`gate` it was decided by, `upstreamRequests`, `spent`, and its `runs`), each attempt (`runId`,
-`passed`, the agent's `exitCode`, its `checks`, the `reason` it failed and, for an agent that
-exited with an error, `lastLine`: the error it died of, as it printed it). `--junit` writes a case
-per preset and `--markdown` a table of them, listing under it any golden whose presets couldn't run.
+`checks` as a failure names them, the `rule` a `chaos.gate` decided its presets by, as the table
+states it, or null, and the `error` that kept it from running or why it was `skipped`) and, for
+each preset (`preset`, its `label`, the `verdict`, the `callNo` it hit and its `target` (`kind`,
+`name`), the `passes` and `attempts`, a `detail` sentence naming what came of it (and its
+`summary`, without the call, as the table shows it), the first failure's `reason`, the `gate` it was
+decided by, `upstreamRequests`, `spent`, and its `runs`), each attempt (`runId`, `passed`, the
+agent's `exitCode`, its `checks`, the `reason` it failed and, for an agent that exited with an
+error, `lastLine`: the error it died of, as it printed it). `--junit` writes a case per preset, and
+`--markdown` a table of them, listing under it any golden whose presets couldn't run; both state a
+`chaos.gate`'s rule, once under the table and in each case it decided.
 
 ## bisect
 

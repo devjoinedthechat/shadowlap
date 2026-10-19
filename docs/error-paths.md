@@ -153,8 +153,9 @@ shadowlap test goldens/* --chaos --junit chaos.xml --markdown "$GITHUB_STEP_SUMM
 ```
 
 `--junit` writes a case per preset, and `--markdown` a table of them, with any golden whose presets
-couldn't run listed under it. `--json` writes the report, with each attempt's run
-([its fields](./cli.md#error-path-presets)).
+couldn't run listed under it. Under a `chaos.gate`, the table states its rule once under the rows,
+and each case the gate decided states it after its tally and Wilson bound. `--json` writes the
+report, with each attempt's run ([its fields](./cli.md#error-path-presets)).
 
 ## What is kept
 

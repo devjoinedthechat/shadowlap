@@ -232,14 +232,25 @@ describe('test --chaos', () => {
   it('gates each preset as attempts come in: a sequential test stops as soon as it can say', async () => {
     // Each pass adds ln(0.9/0.5), each failure ln(0.1/0.5); the bounds are ±ln(0.9/0.1): four passes, or two failures.
     config({ 'goldens/forecast': { chaos: { presets: ['timeout', 'malformed'], gate: { good: 0.9, bad: 0.5, risk: 0.1, max: 6 } } } });
-    const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'gate.json']);
+    const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'gate.json', '--markdown', 'gate.md', '--junit', 'gate.xml']);
     expect(r.code, r.out).toBe(1);
     const p = byPreset(report('gate.json'));
     // Each preset's tally and Wilson bound; the gate's rule once, under the table.
     expect(p.timeout).toMatchObject({ verdict: 'passed', passes: 4, attempts: 4, summary: 'timed out: 4 of 4 attempts passed · rate >= 0.60 (90%)', gate: { good: 0.9, bad: 0.5, risk: 0.1, max: 6 } });
     expect(p.malformed).toMatchObject({ verdict: 'failed', passes: 0, attempts: 2 });
-    expect(r.stdout).toContain('gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts');
+    const rule = 'gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts';
+    expect(r.stdout).toContain(rule);
     expect(r.stdout).not.toMatch(/at least|at most|of the time/);
+    // So do the reports a CI shows: the job summary once under its table, the JSON once for the
+    // recording, and each JUnit case after its tally and bound, since a CI shows each case alone.
+    const md = readFileSync(join(work, 'gate.md'), 'utf8');
+    expect(md).toContain('| goldens/forecast | tool timeout | passed | get_forecast (#3) timed out: 4 of 4 attempts passed · rate >= 0.60 (90%) |');
+    expect(md.split(rule)).toHaveLength(2);
+    expect(report('gate.json').results[0]).toMatchObject({ rule });
+    const xml = readFileSync(join(work, 'gate.xml'), 'utf8');
+    expect(xml).toContain(`<system-out><![CDATA[get_forecast (#3) timed out: 4 of 4 attempts passed · rate >= 0.60 (90%) · ${rule}]]></system-out>`);
+    expect(xml).toMatch(/<failure message="failed: get_forecast \(#3\) answered malformed JSON: 0 of 2 attempts passed · rate &lt;= 0\.\d\d \(90%\); [^"]* · gate: tells 90%\+ from 50%- at &lt;= 10% risk, up to 6 attempts">/);
+    expect(`${md}${xml}`).not.toMatch(/at least|at most|of the time/);
   }, 180_000);
 });
 
