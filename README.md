@@ -194,7 +194,7 @@ Tests in your own suite work the same way: mark a test with `@pytest.mark.shadow
 | SDKs | TypeScript (`@shadowlap/sdk`) and Python (`shadowlap`): tools, clock, randomness and scopes. Any other language speaks the [wire protocol](docs/protocol.md). [docs/sdk.md](docs/sdk.md) |
 | Frameworks | Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain and LangGraph, the Anthropic tool runner; in Python, Pydantic AI, OpenAI Agents SDK, LangGraph and CrewAI. Each adapter is tested against the real framework. [docs/frameworks.md](docs/frameworks.md) |
 | MCP | `shadowlap mcp -- <server>` records, replays and fences an MCP server's tool calls. [docs/mcp.md](docs/mcp.md) |
-| Coding agents | Claude Code, Cursor and Codex drive the CLI as it is: every command they need reads and writes JSON. [docs/agents.md](docs/agents.md) |
+| Coding agents | Claude Code, Cursor and Codex drive the CLI as it is: every command they need reads and writes JSON. The Claude Code plugin and the Cursor rule that tell them how go into your project with `shadowlap skill install`. [docs/agents.md](docs/agents.md) |
 | Imports | HAR files, nock recordings, VCR cassettes and production traffic from a LiteLLM gateway become recordings you replay your own code against. [docs/gateways.md](docs/gateways.md) |
 | Exports | Redacted packs, one-file HTML reports, HAR, OpenTelemetry traces, and datasets for evals (JSONL, OpenAI chat, Braintrust, Langfuse). [docs/cli.md](docs/cli.md#export-dataset) |
 

@@ -200,6 +200,12 @@ const tested = fp(['test', golden]);
 check('packs it and passes it as a golden', packed.code === 0 && tested.code === 0 && tested.out.includes('1 passed, 0 failed'), `${packed.out}\n${tested.out}`);
 const doctor = fp(['doctor'], env);
 check('runs doctor', /node|Node/.test(doctor.out), doctor.out);
+// The coding agents' plugin and rule come inside the packages: skill install puts them into the project, offline.
+const skilled = fp(['skill', 'install']);
+const ruled = fp(['skill', 'install', 'cursor']);
+const manifest = join(app, '.claude', 'skills', 'shadowlap', '.claude-plugin', 'plugin.json');
+const pluginVersion = existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).version : null;
+check('installs the skill and the Cursor rule from the packages', skilled.code === 0 && ruled.code === 0 && pluginVersion === VERSION && existsSync(join(app, '.cursor', 'rules', 'shadowlap.mdc')), `${skilled.out}\n${ruled.out}`);
 
 // ---- 5. The dashboard: its bundled UI and API from the installed package.
 // Its list of projects goes in the rehearsal's own folder, not the real ~/.shadowlap.
