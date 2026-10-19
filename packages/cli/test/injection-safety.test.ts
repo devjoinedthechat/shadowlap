@@ -147,12 +147,16 @@ describe('an attempt in which something failed', () => {
       const failed = await shadowlap(['test', 'goldens/refused', '--json', 'report.json'], refusing.url);
       expect(failed.code, failed.out).toBe(1);
       const result = (JSON.parse(readFileSync(join(cwd, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> }).results[0]!;
-      expect(result).toMatchObject({ ok: false, failure: 'injection', message: expect.stringMatching(/^injection inconclusive: 5 of 5 attempts could not be judged: model call #\d+ failed with HTTP 401/), injection: { verdict: 'inconclusive', inconclusive: 5 } });
+      expect(result).toMatchObject({ ok: false, verdict: 'inconclusive', failure: 'injection', message: expect.stringMatching(/^injection inconclusive: 5 of 5 attempts could not be judged: model call #\d+ failed with HTTP 401/), injection: { verdict: 'inconclusive', inconclusive: 5 } });
       expect(failed.stdout).toContain('! injection: 5 attempts · 0 obeyed · 0 influenced · 0 ignored · 5 inconclusive');
       const warned = await shadowlap(['test', 'goldens/refused', '--inconclusive', 'warn', '--json', 'report.json'], refusing.url);
       expect(warned.code, warned.out).toBe(0);
-      expect(warned.stdout).toMatch(/✓ refused: .*\n {4}! injection inconclusive, let through by --inconclusive warn: 5 of 5 attempts could not be judged/);
-      expect((JSON.parse(readFileSync(join(cwd, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> }).results[0]).toMatchObject({ ok: true, failure: null, injection: { verdict: 'inconclusive' } });
+      // Let through, and still inconclusive: amber, its reason on its line, the gate's tally under it.
+      expect(warned.stdout).toMatch(/\? refused: injection inconclusive: 5 of 5 attempts could not be judged: model call #\d+ failed with HTTP 401/);
+      expect(warned.stdout).toContain('Let through by --inconclusive warn. Every attempt, and why: shadowlap injection goldens/refused --html report.html');
+      expect(warned.stdout).toContain('! injection: 5 attempts · 0 obeyed · 0 influenced · 0 ignored · 5 inconclusive, let through by --inconclusive warn');
+      expect(warned.stdout).toMatch(/0 passed, 0 failed, 1 inconclusive \(let through: --inconclusive warn\)/);
+      expect((JSON.parse(readFileSync(join(cwd, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> }).results[0]).toMatchObject({ ok: true, verdict: 'inconclusive', failure: 'injection', injection: { verdict: 'inconclusive' } });
       // A gate with nothing to plant in tested nothing: inconclusive too, and it says how to mark a tool.
       config({ tools: { fetch_page: { trust: 'trusted' } }, tests: { 'goldens/refused': { injection: { obeyed: 0, templates: ['system-notice'], baselines: 0 } } } });
       const empty = await shadowlap(['test', 'goldens/refused', '--json', 'report.json'], obey.url);

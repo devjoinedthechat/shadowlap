@@ -165,6 +165,8 @@ describe('the goldens table', () => {
     ]);
     expect(inconclusiveHint(v)).toBe("Neither verdict holds at the gate's stated risk yet: more attempts settle it, not a change to the agent. Run more attempts continues it to 40: about 17 more on average, about $0.34, settling it 38% of the time.");
     expect(inconclusiveHint({ ...v, gate: null })).toContain('A check could not be judged');
+    // An injection gate that showed too little to say: its own hint.
+    expect(inconclusiveHint({ ...v, gate: null, failure: 'injection', reason: 'injection inconclusive: 5 of 5 attempts could not be judged' })).toContain('its injection test showed too little to say');
   });
 
   it('says where each golden came from: a run here, or a pack made elsewhere', () => {

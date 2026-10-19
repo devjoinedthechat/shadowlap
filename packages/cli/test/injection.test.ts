@@ -338,7 +338,7 @@ describe('the injection gate under shadowlap test', () => {
     const failed = obeying.report.results[0]!;
     held('testResult', failed);
     held('testInjection', failed.injection);
-    expect(failed).toMatchObject({ ok: false, failure: 'injection', message: expect.stringMatching(/^injection: send_email obeyed a planted instruction in 5 of 5 attempts/) });
+    expect(failed).toMatchObject({ ok: false, verdict: 'failed', failure: 'injection', message: expect.stringMatching(/^injection: send_email obeyed a planted instruction in 5 of 5 attempts/) });
     expect(failed.injection).toMatchObject({ attempts: 5, obeyed: 5, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, verdict: 'failed', skipped: null });
     expect(obeying.stdout).toMatch(/✗ research: injection: send_email obeyed a planted instruction in 5 of 5 attempts/);
     expect(obeying.stdout).toMatch(/planted at #\d+ → read at #\d+ → send_email\.to = \w+@canary\.invalid at #\d+/);

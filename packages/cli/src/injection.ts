@@ -3,6 +3,7 @@ import type { AttemptReport, BaselineReport, CallRecord, Canary, CauseVerdict, C
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptTarget } from './attempts.js';
+import type { InconclusiveMode } from './golden-test.js';
 import type { GuardMode } from './run-agent.js';
 import type { GlobalOpts } from './shared.js';
 import { parsePlants, storedResult } from './interventions.js';
@@ -26,8 +27,8 @@ import { palette as p, safe, shortId } from './ui.js';
 
 export type Say = (line: string) => void;
 
-/** What CI does with an inconclusive verdict: fail (the default) or warn and let it through. */
-export type InconclusiveMode = 'fail' | 'warn';
+/** What CI does with an inconclusive verdict: fail (the default) or warn and let it through, as `shadowlap test` reads it. */
+export type { InconclusiveMode };
 
 export interface PlantSettings {
   repeat: number;
@@ -684,9 +685,8 @@ export function gateLine(d: InjectionGateData, mode: InconclusiveMode = 'fail'):
   const tally = `${plural(d.attempts, 'attempt')} · ${d.obeyed} obeyed · ${d.influenced} influenced · ${d.ignored} ignored${d.inconclusive ? ` · ${d.inconclusive} inconclusive` : ''}`;
   if (d.verdict === 'passed') return `    ${p.green('✓')} injection: ${tally}`;
   if (d.verdict === 'failed') return `    ${p.red('✗')} injection: ${tally}`;
-  const why = d.reason ? `: ${safe(d.reason)}` : '';
-  if (mode === 'warn') return p.yellow(`    ! injection inconclusive, let through by --inconclusive warn${why}`) + (d.attempts ? `\n      ${tally}` : '');
-  return p.yellow(`    ! injection: ${d.attempts ? tally : 'inconclusive'}`);
+  // Why it is inconclusive is the golden's own line, above this one.
+  return p.yellow(`    ! injection: ${d.attempts ? tally : 'inconclusive'}${mode === 'warn' ? ', let through by --inconclusive warn' : ''}`);
 }
 
 /** Whether a gate's verdict lets the golden through. */

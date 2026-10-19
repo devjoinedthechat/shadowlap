@@ -229,6 +229,7 @@ export function inconclusiveLines(v: InconclusiveView): ReportLine[] {
 
 /** What an inconclusive verdict means, in one line under its report, with what more attempts would take when the gate can say. */
 export function inconclusiveHint(v: InconclusiveView): string {
+  if (v.failure === 'injection') return 'The golden replays, but its injection test showed too little to say, for the reason above (a model call that failed, a run cut short, nothing a model read). Settle that and run it again; --inconclusive warn lets an inconclusive gate through meanwhile.';
   if (!v.gate) return 'A check could not be judged, so the golden is neither passed nor failed: give the judge a recorded verdict or a key to ask.';
   const more = v.gate.more;
   const cost = more?.cost !== null && more?.cost !== undefined ? `, about $${more.cost.toFixed(2)}` : '';

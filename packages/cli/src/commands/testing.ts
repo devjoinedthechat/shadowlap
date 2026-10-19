@@ -342,9 +342,14 @@ export function register(program: Command): void {
               // A gate that can't run (a payload file gone) fails the golden: nothing let it through.
               data = { resultId: null, attempts: 0, ...noVerdicts(), allowed, verdict: 'failed', reason: `the injection gate could not run: ${(err as Error).message}`, skipped: null };
             }
-            if (gateLetsThrough(data, flags.inconclusive)) return { outcome: o, injection: data };
-            const word = data.verdict === 'inconclusive' ? 'injection inconclusive' : 'injection';
-            return { outcome: { ...o, failure: { message: `${word}: ${data.reason}`, details: `${proof ? `${proof}\n` : ''}${data.verdict === 'inconclusive' ? '--inconclusive warn lets an inconclusive gate through. Every attempt, and why: ' : 'Every attempt, with its proof: '}shadowlap injection ${golden} --html report.html` }, kind: 'injection' }, injection: data };
+            if (data.verdict === 'passed') return { outcome: o, injection: data };
+            // The golden's verdict is the gate's: failed, or inconclusive, which --inconclusive warn lets
+            // through (packResult and the JUnit case read it), while every report still says it.
+            const verdict = data.verdict === 'inconclusive' ? 'inconclusive' : 'failed';
+            const word = verdict === 'inconclusive' ? 'injection inconclusive' : 'injection';
+            const through = verdict === 'inconclusive' ? (gateLetsThrough(data, flags.inconclusive) ? 'Let through by --inconclusive warn. ' : '--inconclusive warn lets an inconclusive gate through. ') : '';
+            const failure = { message: `${word}: ${data.reason}`, details: `${proof ? `${proof}\n` : ''}${through}${verdict === 'inconclusive' ? 'Every attempt, and why: ' : 'Every attempt, with its proof: '}shadowlap injection ${golden} --html report.html` };
+            return { outcome: { ...o, ...(o.result ? { result: { ...o.result, verdict } } : {}), failure, kind: 'injection' }, injection: data };
           };
           const printGate = (d: InjectionGateData | null) => {
             if (d && d.verdict !== null) process.stdout.write(gateLine(d, flags.inconclusive) + '\n');

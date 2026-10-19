@@ -339,8 +339,10 @@ export interface InconclusiveView {
   /** Its checks as the result kept them, each with its status (passed, failed, inconclusive, not-applicable) since results had one. */
   checks: StoredCheck[] | null;
   details: string | null;
-  /** What its gate decided; null when a check couldn't be judged instead. */
+  /** What its gate decided; null when a check couldn't be judged, or its injection gate showed too little to say, instead. */
   gate: GateResultView | null;
+  /** `injection` when its injection gate is what is inconclusive. */
+  failure?: TestFailure | null;
 }
 
 export interface TestsView {
@@ -1000,7 +1002,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     if (!latest || latest.ok) continue;
     // Neither passed nor failed: nothing to bisect or fix, only attempts to add.
     if (verdictOfResult(latest) === 'inconclusive') {
-      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: latest.reason ?? 'inconclusive', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: row.last.gate });
+      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: latest.reason ?? 'inconclusive', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: row.last.gate, failure: latest.failure });
       continue;
     }
     const past = store.listTestResults({ golden: row.path, limit: 1000 });

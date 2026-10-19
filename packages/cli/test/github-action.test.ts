@@ -278,6 +278,15 @@ describe('test reports', () => {
     );
   });
 
+  it('says an injection gate that showed too little to say is why a golden is inconclusive, not a gate that ran out', () => {
+    const injection = { resultId: 'inj-1', attempts: 5, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 5, allowed: { obeyed: 0, influenced: null }, verdict: 'inconclusive' as const, reason: '5 of 5 attempts could not be judged', skipped: null };
+    const unsure: PackResult = { ...failed, name: 'refused', dir: 'goldens/refused', golden: 'goldens/refused', verdict: 'inconclusive', failure: 'injection', message: 'injection inconclusive: 5 of 5 attempts could not be judged', checks: null, injection };
+    const md = markdownReport(testReport([unsure]));
+    expect(md).toContain('| 🟡 | `refused` | injection inconclusive: 5 of 5 attempts could not be judged |');
+    expect(md).toContain('Inconclusive means an injection gate showed too little to say, as its reason says');
+    expect(md).not.toContain("the gate's stated risk");
+  });
+
   it('escapes GitHub annotation properties and data', () => {
     expect(githubAnnotations(testReport([clean, failed]))).toBe('::error file=goldens/summarize/run.json,title=Shadowlap%3A summarize|thread::diverged at call 3 (api POST /v1/messages)%0A%0Aa ``` fence%0A50%25 of it: here, there');
   });

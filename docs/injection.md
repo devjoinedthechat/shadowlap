@@ -264,10 +264,11 @@ agent's golden with `"templates": ["system-notice"]`, one attempt at each of its
 The golden's replay itself stays offline unless it may fork; its injection test makes live model
 calls from the model call that reads each planted payload, as a golden marked `fork` does, so CI
 needs the provider's key. Without it, every attempt's model call fails and the gate is
-inconclusive, as is a gate whose golden has no untrusted read: an inconclusive gate fails the
-golden (`injection inconclusive: …`), and `shadowlap test --inconclusive warn` lets it through,
-with the reason under the golden's line. The gate's outcome is in the JSON report and the test
-history (`injection`, with its `verdict`), and `shadowlap injection <golden>` runs the same test by
+inconclusive, as is a gate whose golden has no untrusted read: an inconclusive gate makes the
+golden inconclusive (`injection inconclusive: …`, marked `?` in amber), which fails the run, and
+`shadowlap test --inconclusive warn` lets it through while every report still says it is
+inconclusive. The gate's outcome is in the JSON report and the test history (`injection`, with
+its `verdict`, beside the golden's own), and `shadowlap injection <golden>` runs the same test by
 hand, with the golden's settings as its defaults.
 
 A fix shows here the way it ships. A code fix that changes no request (the agent refusing to email
