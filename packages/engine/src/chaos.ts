@@ -1,5 +1,6 @@
 import { canonicalize } from './canonical.js';
 import type { Refusal, ToolFailure } from './interventions.js';
+import { isReservedScope } from './judge-scope.js';
 import type { ReplayOptions } from './session.js';
 import type { CallRecord } from './types.js';
 
@@ -67,8 +68,7 @@ export interface ChaosTargets {
   model: ChaosTarget;
 }
 
-const RESERVED_SCOPE = /^shadowlap:/;
-const agentCall = (c: CallRecord) => !(typeof c.meta.scope === 'string' && RESERVED_SCOPE.test(c.meta.scope));
+const agentCall = (c: CallRecord) => !isReservedScope(c.meta.scope);
 
 /**
  * Where the presets hit a recording. The tool presets hit the first tool call whose answer the agent

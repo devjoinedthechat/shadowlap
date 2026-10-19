@@ -1,6 +1,5 @@
-import { CHAOS_PRESETS, OVERSIZE_CHARS, parsePresets, readConfigFile, type ChaosPreset } from '@shadowlap/engine';
+import { CHAOS_PRESETS, OVERSIZE_CHARS, parseGate, parsePresets, readConfigFile, type ChaosPreset, type Gate } from '@shadowlap/engine';
 import type { TestSpec } from './checks.js';
-import { parseGate, type Gate } from './gate-standin.js';
 
 /**
  * A golden's error-path presets, as `"chaos"` in its `tests` entry says them: which presets

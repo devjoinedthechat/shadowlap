@@ -6,7 +6,7 @@ import { Store } from '@shadowlap/engine';
 import { CHAOS_TIMEOUT, chaosFor, DEFAULT_CHAOS, parseChaosFields } from '../src/chaos-config.js';
 import { chaosJunit, chaosMarkdown, chaosReport, checkLabels, gateWords, writeLimits, type PresetOutcome } from '../src/chaos.js';
 import { parseExpect, parseTests, specFor } from '../src/checks.js';
-import { attemptsToFail, attemptsToPass, decide, parseGate, type SprtGate } from '../src/gate-standin.js';
+import { attemptsToFail, attemptsToPass, decide, parseGate, type SprtGate } from '@shadowlap/engine';
 
 /** The presets' settings under a tests entry, the gate that decides them, and what they report. */
 
@@ -101,18 +101,18 @@ describe('the gate', () => {
     expect(gateWords({ repeat: 5, passes: 4 })).toBe('4 of 5 attempts must pass');
   });
 
-  it('takes each figure as optional, with the defaults the contract gives', () => {
-    expect(parseGate({}, 'g')).toEqual({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 40 });
+  it('takes each figure as optional, with the defaults the engine\'s gate gives', () => {
+    expect(parseGate({}, 'g')).toEqual({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 });
     expect(parseGate({ max: 20 }, 'g')).toEqual({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 });
-    expect(parseGate({ baseline: 'history' }, 'g')).toEqual({ kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5 });
-    expect(parseGate({ baseline: 'history', drop: 0.2, min: 3 }, 'g')).toEqual({ kind: 'baseline', drop: 0.2, risk: 0.05, window: 10, min: 3 });
+    expect(parseGate({ baseline: 'history' }, 'g')).toEqual({ kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40 });
+    expect(parseGate({ baseline: 'history', drop: 0.2, min: 3 }, 'g')).toEqual({ kind: 'baseline', drop: 0.2, risk: 0.05, window: 10, min: 3, max: 40 });
     expect(parseChaosFields({ gate: { max: 20 } }, 'c', parseExpect)).toMatchObject({ gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 } });
   });
 
   it('refuses one it can\'t decide, or one that could never pass', () => {
-    expect(() => parseGate({ good: 1.2, bad: 0.5, risk: 0.05, max: 5 }, 'g')).toThrow('g.good must be the pass rate it passes: a number between 0 and 1');
-    expect(() => parseGate({ good: 0.9, bad: 0.5, risk: 0.6, max: 5 }, 'g')).toThrow('g.risk must be the most a verdict may be wrong: a number between 0 and 0.5');
-    expect(() => parseGate({ good: 0.9, bad: 0.5, risk: 0.05, max: 0 }, 'g')).toThrow('g.max must be the most attempts it runs: a whole number from 1 to 1000');
+    expect(() => parseGate({ good: 1.2, bad: 0.5, risk: 0.05, max: 5 }, 'g')).toThrow('g.good must be a number between 0 and 1, such as 0.9: the pass rate it passes at');
+    expect(() => parseGate({ good: 0.9, bad: 0.5, risk: 0.6, max: 5 }, 'g')).toThrow('g.risk must be below 0.5: the most a verdict may be wrong, such as 0.05');
+    expect(() => parseGate({ good: 0.9, bad: 0.5, risk: 0.05, max: 0 }, 'g')).toThrow('g.max must be a whole number from 1 to 1000: the most attempts it runs');
     expect(() => parseGate({ good: 0.9, bad: 0.5, risk: 0.05, max: 5, min: 1 }, 'g')).toThrow('unknown key "min"');
     // 0.9 against 0.7 at 5% risk takes 12 passes in a row: 5 attempts would make every preset inconclusive.
     expect(attemptsToPass({ good: 0.9, bad: 0.7, risk: 0.05 })).toBe(12);

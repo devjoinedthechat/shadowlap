@@ -105,9 +105,9 @@ Forks vary, so a preset can be decided over several attempts, as they come in:
   passes at 90% or more and fails at 50% or less, each with at most 10% risk of the wrong verdict.
   Each passing attempt adds ln(good/bad) to its score, each failure ln((1−good)/(1−bad)), and it stops
   as soon as the score reaches ±ln((1−risk)/risk): with these figures, after four passes or two
-  failures. Inconclusive after `max` attempts. Every figure is optional (0.9, 0.7, 0.05 and 40 when
-  left out), and a `max` too small for an agent that always passes to reach the pass bound is
-  refused, since the gate could never pass.
+  failures. Inconclusive after `max` attempts. Every figure is optional (0.9, 0.7, 0.05 and 80 when
+  left out, as for a golden's own [gate](./gating.md)), and a `max` too small for an agent that
+  always passes to reach the pass bound is refused, since the gate could never pass.
 
 `--inconclusive fail` (the default) fails the command on an inconclusive preset; `--inconclusive warn`
 reports it and exits 0.

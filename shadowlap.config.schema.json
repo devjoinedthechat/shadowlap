@@ -473,7 +473,7 @@
                         "exclusiveMaximum": 0.5
                       },
                       "max": {
-                        "description": "The most attempts it runs. Default 40. It must allow an agent that always passes to pass: 12 attempts at the defaults.",
+                        "description": "The most attempts it runs. Default 80, as a tests entry's gate. It must allow an agent that always passes to pass: 12 attempts at the defaults.",
                         "type": "integer",
                         "minimum": 1,
                         "maximum": 1000

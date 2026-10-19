@@ -3,7 +3,9 @@ import { canonicalize } from './canonical.js';
 import { runKind } from './classify.js';
 import { normalizeConversation } from './conversation.js';
 import { responseInfo } from './conversations.js';
+import type { EffectOf } from './decisions.js';
 import { sha256 } from './ids.js';
+import { isReservedScope } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
 import { commandIsImported, hasRecordedCommand } from './pack.js';
 import { normalizeResponse } from './responses.js';
@@ -49,18 +51,14 @@ export interface Behaviour {
   outcome: BehaviourOutcome;
 }
 
-/** A tool's declared effect, or null when nothing says. */
-export type EffectOf = (tool: string) => Effect | null;
-
-/** The reserved scope of judge calls: never the agent's behaviour. */
-const RESERVED_SCOPE = /^shadowlap:/;
 
 /** Stop reasons that mean the answer was cut at the token limit, whatever the provider calls it. */
 const TOKEN_LIMIT = new Set(['max_tokens', 'length', 'MAX_TOKENS', 'max_output_tokens', 'model_context_window_exceeded']);
 
 function agentModelCalls(calls: readonly CallRecord[]): CallRecord[] {
   return [...calls]
-    .filter((c) => c.kind === 'api' && !(typeof c.meta.scope === 'string' && RESERVED_SCOPE.test(c.meta.scope)))
+    // Shadowlap's own calls (its judge's) are never the agent's behaviour.
+    .filter((c) => c.kind === 'api' && !isReservedScope(c.meta.scope))
     .sort((a, b) => a.callNo - b.callNo);
 }
 

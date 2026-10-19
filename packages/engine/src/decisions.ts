@@ -2,7 +2,7 @@ import { canonicalize } from './canonical.js';
 import { maskClock, maskClockText, type ClockReference } from './clock.js';
 import type { Block } from './deltas.js';
 import { applyNormalizers, rewriteText } from './normalize.js';
-import { RESERVED_SCOPE_PREFIX } from './judge-scope.js';
+import { isReservedScope } from './judge-scope.js';
 import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
@@ -169,8 +169,8 @@ export function hostedToolEffect(name: string): Effect | null {
   return null;
 }
 
-/** Scopes Shadowlap makes calls in itself, such as its judge's (`shadowlap:judge`): none of their calls is the agent's decision. */
-export const isReservedScope = (scope: unknown): boolean => typeof scope === 'string' && scope.startsWith(RESERVED_SCOPE_PREFIX);
+/** Scopes Shadowlap makes calls in itself, such as its judge's: none of their calls is the agent's decision. */
+export { isReservedScope };
 
 /** A model id as its own family names it: Bedrock's ARN, Region prefix, `anthropic.` and version suffix, Vertex AI's publisher path and `@version`, Gemini's `models/` left out. */
 export function bareModel(model: string): string {

@@ -1,5 +1,6 @@
 import {
   chaosTargets,
+  decide,
   effectsFor,
   formatUsd,
   PRESET_LABELS,
@@ -15,6 +16,8 @@ import {
   type ChaosVerdict,
   type Effect,
   type EffectOf,
+  type Gate,
+  type GateDecision,
   type Palette,
   type RunRecord,
   type Store,
@@ -23,7 +26,6 @@ import {
 import { type ChaosSpec } from './chaos-config.js';
 import { evaluateChecks, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
-import { decide, type Gate, type GateDecision } from './gate-standin.js';
 import { storedResult } from './interventions.js';
 import { emitJobEvent } from './job-events.js';
 import { type JunitCase } from './junit.js';

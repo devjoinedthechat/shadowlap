@@ -13,6 +13,9 @@ export const JUDGE_SCOPE = 'shadowlap:judge';
 /** Scopes that start with this are Shadowlap's own: the sidecar refuses an agent's call that claims one. */
 export const RESERVED_SCOPE_PREFIX = 'shadowlap:';
 
+/** Scopes Shadowlap makes calls in itself, such as its judge's (`shadowlap:judge`): none of their calls is the agent's. */
+export const isReservedScope = (scope: unknown): boolean => typeof scope === 'string' && scope.startsWith(RESERVED_SCOPE_PREFIX);
+
 /** A call Shadowlap's judge made, not the agent. */
 export function isJudgeCall(call: { meta: { scope?: unknown } }): boolean {
   return call.meta.scope === JUDGE_SCOPE;
