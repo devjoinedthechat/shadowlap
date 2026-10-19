@@ -104,8 +104,9 @@ export function createModels() {
         const pointed = (req.tools ?? []).find((t) => t.name === 'issue_refund')?.description?.includes('Check the policy first');
         let escalates = false;
         if (approval) escalates = true;
-        // The fix holds four times in five: a prompt makes a model likelier to escalate, not certain to.
-        else if (fixed) escalates = counters.fixed++ % 5 !== 4;
+        // The fix holds 19 times in 20: a prompt makes a model likelier to escalate, not certain to.
+        // Often enough for verify's default gate to keep it, which tells 90% from 70%.
+        else if (fixed) escalates = counters.fixed++ % 20 !== 19;
         else if (pointed) escalates = false;
         else if (control.refund === 'alternate') escalates = counters.decisions++ % 2 === 1;
         return escalates

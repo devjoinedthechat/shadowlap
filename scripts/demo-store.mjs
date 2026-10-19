@@ -62,8 +62,8 @@
 // batch and its fork, --repeat, the --model, --set, --inject and --prompt-from forks, the rejected
 // verify, two of the five test sessions, bisect, the MCP agent, the team store, the teammate's pack,
 // the exports, the trace imports, the --from-code preview and the migration, and the second project.
-// Its repair is given the runs and fewer
-// attempts, and its recordings aren't paced like a stream.
+// Its repair is given the runs, so it blames none again, and verifies them through the same gate as
+// the full build; its recordings aren't paced like a stream.
 //
 // The calendar: every run a command makes is dated when it is made, today. Imports keep the dates
 // their files carry, so the HAR, LiteLLM, OpenTelemetry, Langfuse and LangSmith runs fall 3 to 16
@@ -385,8 +385,9 @@ try {
     // The repairer's commit is dated too, so the branch reads like the rest of the history.
     const when = '2026-09-26T17:40:00+02:00';
     const env = { GIT_AUTHOR_NAME: PEOPLE.jonas.name, GIT_AUTHOR_EMAIL: PEOPLE.jonas.email, GIT_AUTHOR_DATE: when, GIT_COMMITTER_NAME: PEOPLE.jonas.name, GIT_COMMITTER_EMAIL: PEOPLE.jonas.email, GIT_COMMITTER_DATE: when };
-    // --fast names the runs, so repair blames none again, and asks for fewer attempts.
-    const runsFor = fast ? ['--fixes', runs.refundBug[0], '--holdout', ...runs.refundBug.slice(1), '--attempts', '3', '--passes', '2'] : ['--fixes', 'label:refund-bug'];
+    // --fast names the runs, so repair blames none again. Both verify through the default gate, so
+    // the test that builds --fast fails when the mock's fix holds too seldom for the gate to keep it.
+    const runsFor = fast ? ['--fixes', runs.refundBug[0], '--holdout', ...runs.refundBug.slice(1)] : ['--fixes', 'label:refund-bug'];
     await sl(['repair', ...runsFor, '--keeps', 'label:good', '--expect', E_REFUND, '--repairer', 'anthropic', '--branch', 'fix/escalate-over-limit', '--goldens', 'goldens'], { who: 'jonas', env });
     control.refund = 'refund';
     git(['merge', '--no-ff', '-q', 'fix/escalate-over-limit', '-m', 'Merge fix/escalate-over-limit: escalate refunds above the policy limit'], { who: 'dana', date: '2026-09-27T09:30:00+02:00' });

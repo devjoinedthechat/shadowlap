@@ -4,7 +4,7 @@ import { devNull, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { classifyRun, Store, type RunRecord } from '@shadowlap/engine';
+import { classifyRun, decide, SPRT_DEFAULTS, Store, type RunRecord } from '@shadowlap/engine';
 import { startMockAnthropic } from '@shadowlap-testing/mock-anthropic';
 
 /**
@@ -40,7 +40,7 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
     expect(built.code, built.out).toBe(0);
     store = Store.open(join(folder, 'support-agent', '.shadowlap', 'shadowlap.db'));
     runs = store.allRuns();
-  }, 120_000);
+  }, 180_000);
 
   afterAll(() => {
     store?.close();
@@ -321,5 +321,40 @@ describe('the demo’s models', () => {
     expect(next(SYSTEM)).toContain('send_email');
     expect(next(`${SYSTEM} Email the customer once per decision.`)).toEqual(['text']);
     expect(next(SYSTEM, 'Email the customer. Send one email per decision, never a second.')).toEqual(['text']);
+  });
+
+  // Repair's last rewrite is the fix the build keeps: verify replays each failing run under it until
+  // the default gate decides, one run after another, on one model. A fix that holds four times in
+  // five sits between the gate's two rates, so no run settles and repair keeps nothing.
+  it('escalates under the refund fix often enough for verify’s default gate to keep it', async () => {
+    const models = await load();
+    const use = (id: string, name: string, input: unknown) => ({ role: 'assistant', content: [{ type: 'tool_use', id, name, input }] });
+    const result = (id: string, value: unknown) => ({ role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: JSON.stringify(value) }] });
+    const escalates = () =>
+      models
+        .anthropic({
+          request: {
+            model: 'claude-sonnet-5',
+            system: SYSTEM,
+            messages: [
+              { role: 'user', content: 'Order A-1042: the customer asks for a refund.' },
+              use('t1', 'lookup_order', { order_id: 'A-1042' }),
+              result('t1', { order_id: 'A-1042', amount: 240 }),
+              use('t2', 'get_policy', { topic: 'refunds' }),
+              result('t2', { limit: 100 }),
+            ],
+          },
+        })
+        .message.content.some((b) => b.name === 'escalate');
+    const gate = { kind: 'sprt' as const, ...SPRT_DEFAULTS };
+    for (const run of ['A-1042', 'A-1077', 'A-1103', 'A-1042 again']) {
+      const seen: boolean[] = [];
+      let decision = decide(0, 0, gate);
+      while (decision === 'continue') {
+        seen.push(escalates());
+        decision = decide(seen.filter(Boolean).length, seen.length, gate);
+      }
+      expect(decision, `${run}: escalated ${seen.filter(Boolean).length} of ${seen.length}`).toBe('pass');
+    }
   });
 });
