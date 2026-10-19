@@ -158,10 +158,15 @@ parseGate(json, where, defaults?): Gate
 // 'pass' | 'fail' | 'continue' | 'inconclusive'; a baseline gate without history
 // compares with the recording (RECORDING_BASELINE, one attempt that passed)
 decide(passes, attempts, gate, history?)
-// the decision, each outcome, the interval, pass^k, the evidence path and the sentence;
+// the decision, each outcome, the interval, pass^k, the evidence path and the verdict line;
 // `decision` freezes one reached before attempts still running ended, `carried` counts
 // attempts a continued session took over
 gateResult(gate, outcomes, { history?, clean?, decision?, carried? }): GateResult
+// what a report says, never a claimed rate: the rule (`tells 90%+ from 70%- at <= 5% risk,
+// up to 80 attempts`), the verdict word with the tally and the Wilson bound (`passed · 12 of 12
+// · rate >= 0.76 (95%)`), the two as one line, the bound alone, and the tally with pass^k
+describeGate(gate) / verdictLine(result) / gateSentence(gate, result)
+wilsonBound(result) / formatTally(result)
 // the exact odds of each verdict, and the attempts run on average, every look counted;
 // `from` continues from a tally already seen
 gateOdds(gate, p, history?, from?): GateOdds
