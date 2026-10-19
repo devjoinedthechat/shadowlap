@@ -581,6 +581,7 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
     const m = run.meta;
     if (m?.blame && !covered.has(`blame:${run.runId}`)) stubs.push({ id: `r:${run.runId}:blame`, at: time(m.blame.at, run.endedAt ?? run.startedAt), render: () => blamed(run) });
     if (m?.probe || m?.verify) continue; // bundled under the blame or verify that made them
+    if (m?.chaos) continue; // an error-path preset's attempt: its session's chaos.session event tells it
     if (m?.task) continue; // a scoring attempt (tasks score): told by its model.scored event, not as a --repeat
     if (m?.repeat) {
       const group = String(m.repeat.group);

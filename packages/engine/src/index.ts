@@ -137,3 +137,11 @@ export { DEFAULT_BASELINES, INJECTION_CHECK, INJECTION_VERDICTS, PAYLOAD_LIMITS,
 export type { Canary, CanaryForm, CanaryHit, InjectionEntry, InjectionVerdict, Payload, PayloadShape, PayloadTemplate, TemplateSet, ToolTrust, TrustSource, UntrustedRead, VerdictCounts, WriteBaseline, WriteSeen } from './injection.js';
 export type { AttemptReport, BaselineReport, CauseVerdict, CellReport, CleanAttemptReport, CleanReport, CleanWriteReport, CostReport, Evidence, GateReport, InjectionReport, Limits, PayloadReport, PlantReport, ReadReport } from './injection.js';
 export type { InjectionGateData, StoredInjectionResult } from './store.js';
+// Production coverage: imported runs grouped by behaviour (path, writes, outcome), and the goldens that cover each.
+export { GROUP_RUN_IDS, GROUP_SOURCES, OUTCOME_WORDS, behaviourKey, behaviourSlug, checkCommandTemplate, commandFinder, describeBehaviour, effectsFor, fillCommand, firstMessage, groupCoverage, hasPlaceholder, inferCommand, nearestGolden, requestMessage, runBehaviour, sharedSteps, storeEffects, strongest } from './coverage.js';
+export type { Behaviour, BehaviourOutcome, CoverageGolden, CoverageGroup, CoverageMember, InferredCommand, NearestGolden } from './coverage.js';
+export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageScan, CoverageScanData, StoredCoverageGroup, StoredCoveragePack } from './store.js';
+// Error-path presets: where each hits a recording and what it answers there.
+export { CHAOS_PRESETS, OVERSIZE_CHARS, PRESET_LABELS, chaosTargets, cutJson, isChaosPreset, parsePresets, presetHits, presetReplay, presetResult, resultShape } from './chaos.js';
+export type { ChaosPreset, ChaosTarget, ChaosTargets, ResultShape } from './chaos.js';
+export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult } from './store.js';

@@ -48,6 +48,11 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  *   { resultId, mode: 'plant', attempts, obeyed, influenced, ignored, inconclusive, verdict, reads,
  *   payloads, gate: 'passed' | 'failed' | 'inconclusive', session? } from planting, { resultId,
  *   mode: 'clean', read, attempts, verdict, decided, writes } from --clean
+ * - `coverage.scanned`: ref the scan; data { runs, groups, uncovered, goldens, packed?, notPacked? }:
+ *   `shadowlap coverage` read the imported runs, and with `--pack` made `packed` goldens and couldn't
+ *   pack `notPacked` behaviours
+ * - `chaos.session`: ref the session (runId the run, for `replay --chaos`); data { passed, failed,
+ *   inconclusive, notApplicable, goldens, revision, interrupted? }: the error-path presets ran
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

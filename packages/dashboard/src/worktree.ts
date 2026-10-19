@@ -50,6 +50,8 @@ export function commandTreeUse(args: readonly string[]): TreeUse | null {
   if (command === 'decisions' && (args.includes('--from-code') || args.includes('--then-verify'))) return { use: 'reads', doing: 'a decision diff is running your agent from your working tree', verb: 'preview the change' };
   if (command === 'repair') return { use: 'writes', doing: 'a repair is trying candidates in your working tree', verb: 'repair' };
   if (command === 'fix' && sub === 'apply') return { use: 'writes', doing: 'a patch is being applied to your working tree', verb: 'apply the patch' };
+  // `coverage` only reads the store, but with --pack it replays each capture with the agent's command.
+  if (command === 'coverage') return args.includes('--pack') ? { use: 'reads', doing: 'coverage --pack is running your agent from your working tree', verb: 'pack' } : null;
   const reads = command === 'tasks' ? (sub === 'score' ? { noun: 'tasks score', verb: 'score' } : undefined) : TREE_READS[command ?? ''];
   return reads ? { use: 'reads', doing: `${reads.noun} is running your agent from your working tree`, verb: reads.verb } : null;
 }

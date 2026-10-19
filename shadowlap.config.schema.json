@@ -413,6 +413,88 @@
                 "type": "boolean"
               }
             }
+          },
+          "chaos": {
+            "description": "`shadowlap test --chaos`: the golden's error-path presets, each a fork where a tool or the provider fails. false leaves the golden out of test --chaos. Every key is optional.",
+            "oneOf": [
+              {
+                "const": false
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "presets": {
+                    "description": "The presets to run, in any order: timeout (a tool times out), empty (it answers with nothing), malformed (its JSON cut short), oversized (its longest text repeated), 429 and 500 (the model call that reads it fails). Defaults to all of them.",
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "enum": [
+                        "timeout",
+                        "empty",
+                        "malformed",
+                        "oversized",
+                        "429",
+                        "500",
+                        "all"
+                      ]
+                    }
+                  },
+                  "expect": {
+                    "description": "What every attempt must pass besides the agent exiting 0, in the grammar of the entry's own expect: those checks describe the path the recording took, which a path through a failure needn't take. Defaults to the upper bounds the entry's expect sets on write tools, which hold on any path.",
+                    "$ref": "#/properties/tests/additionalProperties/properties/expect"
+                  },
+                  "tool": {
+                    "description": "The tool whose first call the tool presets hit. Defaults to the first tool call that reads the world (a read, else a tool of no declared effect, else a write).",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "gate": {
+                    "description": "The sequential test each preset's attempts are decided by (Wald's sequential probability ratio test, as a tests entry's gate takes it; a gate against the golden's history is refused, since a preset has none): pass at `good` or more, fail at `bad` or less, each verdict wrong at most `risk` of the time, inconclusive when `max` attempts run out between the two. Defaults to the golden's repeat and passes.",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "good": {
+                        "description": "A pass rate the gate passes. Default 0.9.",
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "exclusiveMaximum": 1
+                      },
+                      "bad": {
+                        "description": "A pass rate the gate fails, below `good`. Default 0.7.",
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "exclusiveMaximum": 1
+                      },
+                      "risk": {
+                        "description": "The most a verdict may be wrong at `good` or at `bad`. Default 0.05.",
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "exclusiveMaximum": 0.5
+                      },
+                      "max": {
+                        "description": "The most attempts it runs. Default 40. It must allow an agent that always passes to pass: 12 attempts at the defaults.",
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000
+                      }
+                    }
+                  },
+                  "oversize": {
+                    "description": "The characters an oversized result grows to. Defaults to 1000000, past what a model's context takes.",
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 50000000
+                  },
+                  "timeout": {
+                    "description": "Seconds an attempt may run before it is stopped, and fails: an error path can hang. Defaults to 300.",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 86400
+                  }
+                }
+              }
+            ]
           }
         }
       }

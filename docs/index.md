@@ -36,6 +36,8 @@ Shadowlap records every model API call and tool call an agent makes, then re-run
 - [Judge checks](./judges.md): a model answers a question about a run, recorded like any call, so a clean replay is judged from the recording, free and the same every time.
 - [Decisions](./decisions.md): what a prompt edit or a model switch decides differently on your recorded runs, ranked by consequence, before anything runs live; `migrate` for a model a provider retires.
 - [Injection tests](./injection.md): payloads planted in every read of a tool marked untrusted, with proof of which ones a tool call obeyed, `--clean` to ask whether a recorded read caused a write, and a gate for CI that never passes a test that showed nothing.
+- [Production coverage](./coverage.md): the behaviours your imported production traffic shows that no golden covers, and a golden made of one run of each.
+- [Error-path presets](./error-paths.md): a golden forked where a tool times out or answers malformed JSON, or the provider fails, to check the agent's error path.
 - [Training](./training.md): the preference pairs your blames and verifies already left in the store, exported for fine-tuning, and goldens as tasks a model is scored on, in the CLI or on the dashboard's Training page.
 - [Compared with other tools](./compare.md): cassettes, tracing platforms, framework time travel, durable execution.
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.

@@ -4,7 +4,7 @@ import type { Store } from './store.js';
 
 /**
  * How a project's runs stand with its team store, counted by run, as the Runs page, the Overview and
- * the status bar count runs: attempts (`--repeat`, blame's probes, verify's attempts) are filed
+ * the status bar count runs: attempts (`--repeat`, blame's probes, verify's and the error-path presets' attempts) are filed
  * under the run they came from and never counted on their own. A run is only on this machine when
  * it, or an attempt filed under it, isn't in the store's index yet: what the Runs page tags `local`,
  * and what a push of that run sends. Runs still recording (they go when they end) and runs pulled
@@ -30,7 +30,7 @@ export interface TeamRunCounts {
 /** The run columns and the few fields of `meta` that say whether a run is an attempt, for every run. */
 const RUNS_SQL = `
 SELECT r.run_id AS id, r.parent_run_id AS parent, r.status AS status,
-       r.meta -> '$.repeat' AS rep, r.meta -> '$.probe' AS probe, r.meta -> '$.verify' AS verify, r.meta -> '$.test' AS test,
+       r.meta -> '$.repeat' AS rep, r.meta -> '$.probe' AS probe, r.meta -> '$.verify' AS verify, r.meta -> '$.test' AS test, r.meta -> '$.chaos' AS chaos,
        r.meta ->> '$.blame.rescuedRunId' AS rescued, r.meta ->> '$.imported.pr' AS pr
 FROM runs r
 ORDER BY r.started_at DESC, r.run_id DESC`;
@@ -67,7 +67,7 @@ function runRows(store: Store, ended: ReadonlySet<string>): Row[] {
   return raw.map((r) => {
     const id = String(r.id);
     const parent = typeof r.parent === 'string' ? r.parent : null;
-    const meta: ClassifiableMeta = { repeat: json(r.rep), probe: json(r.probe) as ClassifiableMeta['probe'], verify: json(r.verify), test: json(r.test) };
+    const meta: ClassifiableMeta = { repeat: json(r.rep), probe: json(r.probe) as ClassifiableMeta['probe'], verify: json(r.verify), test: json(r.test), chaos: json(r.chaos) };
     const { attemptOf } = classifyRun({ runId: id, parentRunId: parent, mode: 'replay', status: r.status as RunStatus, divergence: null, meta }, { rescued: rescued.has(id) });
     // A recording whose recorder is gone counts as ended: a push ends it, as interrupted, and sends it.
     const status = r.status === 'running' && ended.has(id) ? 'crashed' : (r.status as RunStatus);

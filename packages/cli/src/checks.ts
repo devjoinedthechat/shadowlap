@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, judgeTarget, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
+import { parseChaosFields } from './chaos-config.js';
 
 /**
  * Outcome checks for `shadowlap test`. A golden normally passes only when the replay is clean, which
@@ -340,10 +341,12 @@ function parseText(value: unknown, where: string): TextCheck {
 
 function parseSpec(raw: unknown, where: string): TestSpec {
   if (!isObject(raw)) throw new Error(`${where} must be an object`);
-  // `task` (where a model takes over, why, what it rewards) is read by `shadowlap tasks` (tasks.ts);
-  // a mistake in it fails here too, as any other mistake under `tests` does.
-  onlyKeys(raw, ['fork', 'repeat', 'passes', 'gate', 'expect', 'task', 'injection'], where);
+  // `task` (where a model takes over, why, what it rewards) is read by `shadowlap tasks` (tasks.ts),
+  // and `chaos` (the error-path presets) by `test --chaos` (chaos-config.ts); a mistake in either
+  // fails here too, as any other mistake under `tests` does.
+  onlyKeys(raw, ['fork', 'repeat', 'passes', 'gate', 'expect', 'task', 'injection', 'chaos'], where);
   parseTaskFields(raw.task, `${where}.task`);
+  parseChaosFields(raw.chaos, `${where}.chaos`, parseExpect);
   if (raw.fork !== undefined && typeof raw.fork !== 'boolean') throw new Error(`${where}.fork must be true or false`);
   // Statistical gating: the gate decides how many attempts run, so it stands in for repeat and passes.
   let gate: Gate | undefined;

@@ -178,9 +178,9 @@ function calledTools(store: FactsSource, runId: string): string[] {
   return [...new Set(calls.filter((c) => c.kind === 'tool').map((c) => c.name))];
 }
 
-/** An attempt rather than a run of its own: `replay --repeat`, a blame probe, a verify attempt. */
+/** An attempt rather than a run of its own: `replay --repeat`, a blame probe, a verify attempt, an error-path preset's attempt. */
 export function isAttempt(run: RunRecord): boolean {
-  return Boolean(run.meta?.repeat || run.meta?.probe || run.meta?.verify);
+  return Boolean(run.meta?.repeat || run.meta?.probe || run.meta?.verify || run.meta?.chaos);
 }
 
 /**

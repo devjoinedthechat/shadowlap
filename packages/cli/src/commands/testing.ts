@@ -6,6 +6,7 @@ import { EXTERNAL_COMMAND, endedEarlyCount, formatTally, formatTokens, GATE_MAX_
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
+import { testChaos } from '../chaos-session.js';
 import { checkLine, judgeResults, specFor, type JudgeCheck, type TestSpec } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { readExpect } from './fix.js';
@@ -230,11 +231,22 @@ export function register(program: Command): void {
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
     .option('--guard <mode>', 'network guard: block, warn or off (re-recording under --update, warn unless given)', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
-    .option('--inconclusive <mode>', "what an inconclusive verdict does, a gate's or a check's: fail the run, or warn and let it through", parseChoice<InconclusiveMode>(['fail', 'warn']), 'fail')
+    .option('--inconclusive <mode>', "what an inconclusive verdict does, a gate's, a check's or, with --chaos, a preset's: fail the run, or warn and let it through", parseChoice<InconclusiveMode>(['fail', 'warn']), 'fail')
     .option('--max-attempts <n>', "raise each gate's limit for this session: its max, the most attempts it runs", parseIntArg)
     .option('--continue', "carry an inconclusive gate's attempts over from the golden's last result, when its recording, checks and gate are unchanged, and run only the attempts still needed (with --max-attempts, the higher limit to run to)")
-    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; continue?: boolean }) {
+    // Error-path presets: each golden forked where a tool or the provider fails, instead of the session above.
+    .option('--chaos', "run the error-path presets instead: each golden forked at one call with a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, live from the call it hits (writes stubbed unless --writes says otherwise), each judged by its tests entry's chaos.expect, else the upper bounds its expect sets on write tools")
+    .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all, or the tests entry\'s "chaos.presets")')
+    .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string }) {
       const opts = program.opts<GlobalOpts>();
+      if (flags.chaos) {
+        if (flags.update || flags.push || flags.annotations || flags.maxAttempts || flags.continue) throw new InvalidArgumentError('--chaos runs the error-path presets, not a test session: --update, --push, --annotations, --max-attempts and --continue are for a test session');
+        const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.json ? { json: flags.json } : {}), ...(flags.junit ? { junit: flags.junit } : {}), ...(flags.markdown ? { markdown: flags.markdown } : {}), ...(flags.cwd ? { cwd: flags.cwd } : {}) };
+        await testChaos(opts, packArgs, chaosFlags, givenCommand(process.argv, 'test'));
+        return;
+      }
+      if (flags.presets || flags.chaosTool) throw new InvalidArgumentError('--presets and --chaos-tool go with --chaos');
       const guardGiven = this.getOptionValueSource('guard') === 'cli';
       const projectDir = process.cwd();
       const config = loadConfig(projectDir);

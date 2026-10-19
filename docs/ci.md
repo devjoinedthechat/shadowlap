@@ -168,6 +168,14 @@ gate with nothing to plant in, or whose test showed nothing. An inconclusive gat
 `shadowlap test --inconclusive warn` lets it through with a warning. See
 [Injection tests](./injection.md#gate-ci-on-it).
 
+### Error paths
+
+A golden records a healthy run, so it never holds a tool timeout or a rate limit. `shadowlap test
+goldens/* --chaos` forks each golden where the first tool that reads the world times out, answers
+nothing, answers malformed or oversized JSON, and where the model call after it gets a 429 or a
+500, and judges each fork by the checks that hold on any path: the upper bounds its `expect` sets on
+write tools, or its `chaos.expect`. See [Error-path presets](./error-paths.md).
+
 ## Update a golden after an intended change
 
 A prompt you changed on purpose makes its goldens diverge, which is the test doing its job. Once you mean the change, update them (`shadowlap test` prints this command after its totals when a golden diverged on more than a value that changes every run):

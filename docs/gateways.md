@@ -67,6 +67,14 @@ Three things to expect:
 - **`stream_options` may need a normalizer.** LiteLLM adds it to a streamed request that did not carry it, and an agent asking for usage counts sends the same field, so a capture cannot tell them apart. If it turns out to be why a replay forks, `shadowlap calibrate` proposes the rule.
 - **A top-level `metadata` field is lost.** LiteLLM overwrites it with its own bookkeeping.
 
+## Which of it no golden covers
+
+Once a week of traffic is in the store, [`shadowlap coverage`](./coverage.md) groups it by what
+the agent did (the tools it called, the writes among them, how it ended) and names the behaviours
+no golden covers. `--pack` replays one run of each with your agent's command, its own input filled
+in where `{message}` stands, offline, its tool results taken from the capture, and keeps it as a
+golden.
+
 ## Keeping the volume down
 
 Everything the proxy serves is written, which is rarely what you want. Two things help, and both are

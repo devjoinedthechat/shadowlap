@@ -1,6 +1,7 @@
 import { Command, Option } from 'commander';
 import { register as registerCheck } from './commands/check.js';
 import { register as registerChanges } from './commands/changes.js';
+import { register as registerCoverage } from './commands/coverage.js';
 import { register as registerData } from './commands/data.js';
 import { register as registerFix } from './commands/fix.js';
 import { register as registerImport } from './commands/import.js';
@@ -40,6 +41,8 @@ export async function main(argv: string[]): Promise<void> {
   registerCheck(program);
   // Injection tests sit with the tests: `shadowlap injection`, and the gate `test` runs for a golden.
   registerInjection(program);
+  // Production coverage joins the Test group: what imported runs did that no golden covers.
+  registerCoverage(program);
   registerSetup(program);
   program.helpCommand(true); // listed under "Set up:" rather than a group of its own
   registerImport(program);

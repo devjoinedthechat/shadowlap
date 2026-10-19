@@ -27,7 +27,7 @@ export interface IndexedRun {
   /** A test run that diverged had a call refused because it ran offline: the replay needed the network. */
   offline: boolean;
   kind: RunKind;
-  /** For an attempt (`--repeat`, a blame probe, a verify attempt): the run it came from. */
+  /** For an attempt (`--repeat`, a blame probe, a verify attempt, an error-path preset's attempt): the run it came from. */
   attemptOf: string | null;
   attemptKind: AttemptKind | null;
   /**
@@ -66,6 +66,8 @@ export interface IndexedMeta {
   /** Each check as stored, with its `status` when it has one (a result kept before checks had one reads as `ok` says). */
   checks: Array<{ ok: boolean; label: string; detail: string | null; status?: CheckStatus }> | null;
   blame: { at: number; outcome: string; callNo: number | null; rescuedRunId: string | null } | null;
+  /** Set on an attempt of an error-path preset (`test --chaos`, `replay --chaos`): bundled under the recording it forked. */
+  chaos: { preset: string; callNo: number | null; session: string; attempt: number | null; golden: string | null } | null;
   author: string | null;
   /** For a run made in CI (`author` is `ci`): the provider, such as `github`. */
   ci: string | null;
@@ -87,7 +89,7 @@ SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS st
        r.divergence ->> '$.callNo' AS div_call, r.divergence ->> '$.type' AS div_type,
        r.meta -> '$.labels' AS labels, r.meta -> '$.imported' AS imported, r.meta -> '$.covers' AS covers,
        r.meta -> '$.repeat' AS rep, r.meta -> '$.probe' AS probe, r.meta -> '$.verify' AS verify,
-       r.meta -> '$.test' AS test, r.meta -> '$.checks' AS checks, r.meta -> '$.blame' AS blame,
+       r.meta -> '$.test' AS test, r.meta -> '$.checks' AS checks, r.meta -> '$.blame' AS blame, r.meta -> '$.chaos' AS chaos,
        r.meta ->> '$.author' AS author, r.meta ->> '$.ci' AS ci,
        (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start') AS calls,
        (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start' AND COALESCE(c.meta ->> '$.scope', '') <> 'shadowlap:judge') AS agent_calls,
@@ -132,6 +134,7 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
   const test = json(row.test);
   const checks = json(row.checks);
   const blame = json(row.blame);
+  const chaos = json(row.chaos);
   return {
     labels: Array.isArray(labels) ? labels.filter((l): l is string => typeof l === 'string') : [],
     imported: isObject(imported) ? { at: num(imported.at) ?? 0, from: str(imported.from) ?? '' } : null,
@@ -142,6 +145,7 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
     test: isObject(test) ? { golden: str(test.golden) ?? '', session: str(test.session) ?? '', fork: typeof test.fork === 'boolean' ? test.fork : null, passes: num(test.passes), attempt: num(test.attempt), of: str(test.of) } : null,
     checks: Array.isArray(checks) ? checks.filter(isObject).map((c) => ({ ok: c.ok === true, label: str(c.label) ?? '', detail: str(c.detail), ...(typeof c.status === 'string' && (CHECK_STATUSES as readonly string[]).includes(c.status) ? { status: c.status as CheckStatus } : {}) })) : null,
     blame: isObject(blame) ? { at: num(blame.at) ?? 0, outcome: str(blame.outcome) ?? '', callNo: num(blame.callNo), rescuedRunId: str(blame.rescuedRunId) } : null,
+    chaos: isObject(chaos) ? { preset: str(chaos.preset) ?? '', callNo: num(chaos.callNo), session: str(chaos.session) ?? '', attempt: num(chaos.attempt), golden: str(chaos.golden) } : null,
     author: str(row.author),
     ci: str(row.ci),
   };
@@ -180,6 +184,7 @@ export function classifiable(r: Pick<IndexedRun, 'runId' | 'parentRunId' | 'mode
       ...(m.test ? { test: m.test } : {}),
       ...(m.checks ? { checks: m.checks } : {}),
       ...(m.blame ? { blame: m.blame } : {}),
+      ...(m.chaos ? { chaos: m.chaos } : {}),
     },
   };
 }

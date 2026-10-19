@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
 import { addRules, calibrationTarget, checkOutcome, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, statusTally, summarizeRepeats, type CheckStatus, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
+import { replayChaos } from '../chaos-session.js';
 import { CHECK_MARKS, checkWords, type CheckResult, type TestSpec } from '../checks.js';
 import { codeVersion, configPath, loadConfig, upstreamOverrides } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
@@ -10,6 +11,7 @@ import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { judgeAttempt, parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type BeforeEnd, type GuardMode } from '../run-agent.js';
 import { readExpect } from './fix.js';
+import { givenCommand } from './testing.js';
 import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, readStore, recordEvents, requireEnded, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
@@ -98,8 +100,18 @@ export function register(program: Command): void {
     .option('--repeat <n>', 'run the replay n times and report how the attempts differ after the fork', parseIntArg)
     .option('--concurrency <n>', 'with --repeat: attempts running at once', parseIntArg, 1)
     .option('--summary-json <file>', 'also write the replay\'s summary (or, with --repeat, every attempt and the report) as JSON to <file>')
-    .action(async (runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean }) => {
+    // Error-path presets on any run: each a fork where a tool or the provider fails.
+    .option('--chaos', "run the error-path presets instead: a fork of the run for each of a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, each judged by --expect, or by its golden's chaos.expect or the write limits of its expect (writes stubbed unless --writes is given)")
+    .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all)')
+    .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
+    .option('--inconclusive <policy>', 'with --chaos: what a preset whose gate ran out between its bounds does to the exit status: fail or warn', parseChoice<'fail' | 'warn'>(['fail', 'warn']), 'fail')
+    .action(async function (this: Command, runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; inconclusive: 'fail' | 'warn' }) {
       const opts = program.opts<GlobalOpts>();
+      if (flags.chaos) {
+        // The presets play their own failures in, one at a time: anything else that changes the replay would be judged with them.
+        const others = [flags.override.length && '--override', flags.failAt.length && '--fail-at', flags.injectResult.length && '--inject-result', flags.inject && '--inject', flags.set.length && '--set', flags.model && '--model', flags.promptFrom !== undefined && '--prompt-from', flags.divergeAt !== undefined && '--diverge-at', flags.liveTool.length && '--live-tool', flags.repeat !== undefined && '--repeat', flags.watch && '--watch', flags.strict && '--strict'].filter((x): x is string => typeof x === 'string');
+        if (others.length) throw new InvalidArgumentError(`--chaos plays each preset in alone; it doesn't combine with ${others.join(', ')}`);
+      } else if (flags.presets || flags.chaosTool) throw new InvalidArgumentError('--presets and --chaos-tool go with --chaos');
       const store = readStore(opts);
       const parent = requireRun(store, runArg);
       const parentCalls = store.getCalls(parent.runId);
@@ -152,6 +164,11 @@ export function register(program: Command): void {
       const commandFromImport = !command.length && commandIsImported(parent);
       if (commandFromImport && !flags.yes && !(await confirmImportedCommand(parent, argv))) {
         process.exitCode = 1;
+        return;
+      }
+      if (flags.chaos) {
+        const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.summaryJson ? { json: flags.summaryJson } : {}) };
+        await replayChaos(opts, parent, checks, chaosFlags, givenCommand(process.argv, 'replay'), command.length ? command : undefined);
         return;
       }
       const replay: Partial<ReplayOptions> = { writes: flags.writes, reads: flags.reads, liveTools: new Set(flags.liveTool) };

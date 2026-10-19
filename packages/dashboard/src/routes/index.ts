@@ -26,6 +26,9 @@ import * as injection from './injection.js';
 import * as overview from './overview.js';
 import * as runsList from './runs-list.js';
 import * as teamStore from './store.js';
+// Error-path presets and production coverage: their results, read models and jobs.
+import * as chaos from './chaos.js';
+import * as coverage from './coverage.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
 export interface RouteModule {
@@ -64,6 +67,9 @@ export const ROUTE_MODULES: RouteModule[] = [
   decisions,
   // Injection tests (shadowlap injection): results, trust, templates, the security report.
   injection,
+  // Error-path presets (a run's presets matrix) and production coverage (Tests' Not covered panel).
+  chaos,
+  coverage,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

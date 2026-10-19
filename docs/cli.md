@@ -2,7 +2,7 @@
 
 Global options: `--db <path>` (default `./.shadowlap/shadowlap.db`), `-v` / `--verbose` (sidecar log on stderr), given before the command or after it: `shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Each command's `--help` lists them. Run ids can be abbreviated to any unique prefix.
 
-A store is created by the first command that records into it. Commands that only read it (`ls`, `show`, `search`, `diff`, `pack`, the exports, `fix ls`, `tasks`), or change only what it already holds (`label`, `note`, `rm`, `fix title`), never create one: where there is none they find nothing, and when the project's store is in a folder above (run from `src/`, say) they name it.
+A store is created by the first command that records into it. Commands that only read it (`ls`, `show`, `search`, `diff`, `pack`, the exports, `fix ls`, `tasks`), or change only what it already holds (`label`, `note`, `rm`, `fix title`, and `coverage`, which keeps its scans there), never create one: where there is none they find nothing, and when the project's store is in a folder above (run from `src/`, say) they name it.
 
 ## init
 
@@ -66,6 +66,8 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--concurrency <n>` | With `--repeat`: attempts running at once. Default 1 |
 | `--model <call>:<model>` | Switch the model from model call *n* on: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure |
 | `--guard warn\|block\|off` | [Network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. Default `warn` (`run` accepts `warn\|off`; `test` defaults to `block`) |
+| `--chaos` | Run the [error-path presets](#error-path-presets) on this run instead of one replay: a fork for each, judged by `--expect` (or, for a golden's run, by its `chaos.expect` or the write limits of its `expect`), writes stubbed unless `--writes` is given. `--summary-json` writes their report. It doesn't combine with the flags that change a replay |
+| `--presets <list>`, `--chaos-tool <name>`, `--inconclusive fail\|warn` | With `--chaos`, as for [`test --chaos`](#test) |
 
 Exit status: the agent's, except 1 with `--strict` when the replay diverged or ended early, and 1 when a [check](#checks-on-a-replay) failed. With `--repeat`, 0 only when every attempt asked for ran, exited 0 and passed its checks (with `--strict`, 1 when any attempt diverged or ended early); a `--repeat` cut short exits 1. A run still recording is refused, exit status 1, until it has ended: it has no end to replay to yet, as the dashboard's Replay and Fork wait for it; one whose recording process was killed (see [`gc`](#rm-gc)) replays as it is. `--summary-json` writes what `run` writes, with `checks` (each check as it [came out](./checks.md#how-a-check-comes-out): `status`, `ok`, `label`, `detail`) when the replay has checks; with `--repeat`, `{ "attempts", "report" }`: each attempt's `exitCode`, `summary` and `checks`, and the report the terminal prints (`parentRunId`, `attempts`, `forkedAt`, `paths`, `tools`, `distinctFinalResponses`, `succeeded`, `spent`, `saved`, `tokensNotRespent`).
 
@@ -415,6 +417,7 @@ The [terminal UI](./tui.md). A fork opens at its divergence, unless `--call` nam
 shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [--annotations]
                [--update] [--online] [--writes <policy>] [--cwd <dir>] [--guard <mode>] [--push]
                [--inconclusive fail|warn] [--max-attempts <n>] [--continue]
+shadowlap test <pack...> --chaos [--presets <list>] [--chaos-tool <name>] [--inconclusive fail|warn]
 ```
 
 [CI mode](./ci.md): replays packed recordings offline, re-running each recorded command; a divergence, a live call, a non-zero exit, a replay that [ends before its recording does](./ci.md#a-replay-that-ends-early) or a failed [outcome check](./ci.md#outcome-checks) fails the pack. Checks, and recordings allowed to fork, are configured under `tests` in `shadowlap.config.json`. A pack with Bedrock calls gets [placeholder AWS credentials](./providers.md#credentials-on-replay) when the environment has none. A `*` in the last part of a path (`goldens/*`) is expanded by the command itself. A golden replays the recording and the command its own pack holds: when the store already holds another recording under the pack's run id (a copy pulled from a pull request's folder, a pack someone sent that reused the id, the golden a copied one came from), the pack's command runs if only the command differs, and the golden fails, naming where the store's copy came from, if the calls differ. The store's copy's command never runs. A store's copy that differs only in its [redaction rules](./normalizers-and-redaction.md#redaction), more of them or fewer (the run recorded here under the golden packed from it, or a newer pack's copy under an older checkout's pack), is the pack's recording, and replays with every rule either one carries as a normalizer.
@@ -435,11 +438,74 @@ Each session is kept in the project's store as [test history](./ci.md#test-histo
 | `--cwd <dir>` | Where the recorded commands run. Default: the current directory |
 | `--guard block\|warn\|off` | The [network guard](./how-it-works.md#the-network-guard). Default `block` |
 | `--push` | Push every test run, with the golden it replayed, and the session's report to the [team store](./team.md#push-from-ci); a pull request's CI job pushes to [its own folder](./team.md#pull-requests). A missing store or missing credentials is a warning; the tests still decide the exit status |
-| `--inconclusive fail\|warn` | What an inconclusive verdict does, a gate's, a check's or an [injection gate](./injection.md#gate-ci-on-it)'s (one whose test showed too little to say): `fail` the run (the default), or `warn`: the pack counts as passed for the exit status, a JUnit report marks it skipped, `--annotations` gives it a warning, and every report still says it is inconclusive |
+| `--inconclusive fail\|warn` | What an inconclusive verdict does, a gate's, a check's, an [injection gate](./injection.md#gate-ci-on-it)'s (one whose test showed too little to say) or, with `--chaos`, a preset's (one whose gate ran out of attempts between its bounds): `fail` the run (the default), or `warn`: the pack counts as passed for the exit status, a JUnit report marks it skipped, `--annotations` gives it a warning, and every report still says it is inconclusive |
 | `--max-attempts <n>` | Raise every [gate](./gating.md)'s limit, its `max`, for this session only, to settle an inconclusive golden without changing the config |
 | `--continue` | Carry an inconclusive gate's attempts over from the golden's last result, when its recording, checks and gate are unchanged, and run only the attempts still needed: with `--max-attempts`, up to the higher limit. A gate continued this way decides exactly as one that had that limit from the start. A golden whose last result isn't an inconclusive gate's runs afresh, and says why |
+| `--chaos` | Run the [error-path presets](#error-path-presets) instead of the session above: each golden forked at one call with a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500 |
+| `--presets <list>` | With `--chaos`: the presets to run, comma-separated (`timeout`, `empty`, `malformed`, `oversized`, `429`, `500`, or `all`). Default: the golden's `chaos.presets`, else all |
+| `--chaos-tool <name>` | With `--chaos`: the tool whose first call the tool presets hit. Default: the golden's `chaos.tool`, else the first tool call that reads the world |
 
 The `--json` report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results }`: `passed` and `failed` count the packs by what CI does with them (an inconclusive one counts as failed, or as passed under `--inconclusive warn`), and `inconclusive` counts the inconclusive ones either way: a gate that ran out of attempts between its bounds, or a pack that fell short only on a check that [could not be decided](./checks.md#how-a-check-comes-out). One result per pack: its `name`, `dir` and `golden` (as test history names it), `mode` (`replay`, or `fork` for a recording that forks on purpose), `ok` (whether CI lets it through), its `verdict` (`passed`, `failed` or `inconclusive`, whatever CI does with it), the `failure` kind (`inconclusive` for an inconclusive one) with its one-line `message` and the `details` the terminal shows, the agent's last lines of `output` when it failed, `seconds`, the replay shown (`runId`) and every attempt's (`runs`, each `runId` and `ok`), the recording replayed (`goldenRunId`), `calls` by origin (`total`, `replayed`, `live`, `blocked`, `stubbed`), `upstreamRequests`, `tokensNotRespent`, the `divergence` (`type`, `callNo`, `kind`, `name`, and for one that [ended early](./ci.md#a-replay-that-ends-early) `recorded`, the calls its recording holds), its `checks` (each `status`, `passed`, `failed`, `inconclusive` or `not-applicable`, with `ok`, `label`, `detail`, and a [judge check](./judges.md#in-the-reports)'s `reason`, `source` and `judge`: `name`, `model`, `of`, `verdict`, `source`, `cost`, `redactions`, `normalized`, `cut`, `callNo`; see [how a check comes out](./checks.md#how-a-check-comes-out)) with the `expect` they came from, `attempts` for a recording that repeats or has a gate (`total`, `passed`, `required`, which is null with a gate), the `gate` for a golden with one (null otherwise), what its judge checks' calls did and cost over every attempt, apart from the agent's (`judge`: `calls`, `replayed`, `live`, `notAsked`, `upstreamRequests`, `spent`, `saved`, `unknownModels`, or `null`), with `--update`, what it `updated` (`from`, `to`, `calls`, `changes`), and its injection gate (`resultId`, the result it is kept under; `attempts` and how many `obeyed`, `influenced`, `ignored` and `inconclusive`; what it `allowed`, as `obeyed` and `influenced`; its `verdict`, `passed`, `failed` or `inconclusive`, or null when it did not run; the `reason` it failed or is inconclusive; `skipped`, why it did not run) or null as `injection`. `upstreamRequests` counts the judge's too. A `gate` is the gate's figures (`kind` `sprt` with `good`, `bad`, `risk` and `max`, or `baseline` with `drop`, `risk`, `window`, `min` and `max`), then what it made of the attempts: its `decision` (`pass`, `fail`, `inconclusive`), `passes` of `attempts`, each attempt in order (`outcomes`, true for a pass), with `--continue` how many of them were `carried` over from the session it continued (`attempts` beside the gate counts this session's own), the Wilson `interval` of the pass rate (`lo`, `hi`, `confidence`), `passK` (`k`, `value` for k up to 8), `clean` (a replay that forked nowhere settled it with one attempt), the one `sentence` the terminal prints, and the `evidence`: for an SPRT gate the score after each attempt (`scores`) with what a pass and a failure add (`pass`, `fail`) and the bounds it passes and fails at (`upper`, `lower`); for a history gate the `history` it pooled (`passes`, `attempts`, `sessions`, or null when there is none and the golden's recording is the baseline), the `baseline` rate, the `probability` of a drop after the last attempt and after each one (`probabilities`, null before `min`), the `threshold` it fails above and the chance it passes at or below (`passAt`, 1/2). [Gating](./gating.md) has the maths.
+
+### Error-path presets
+
+`test --chaos` runs a golden's [error-path presets](./error-paths.md) instead of replaying it: the
+failures a recording of a healthy run never holds, each played in at one call so the agent's own
+error path runs.
+
+| Preset | What the agent gets |
+|---|---|
+| `timeout` | The tool call times out: the tool doesn't run, and the agent's SDK raises the timeout it would |
+| `empty` | The tool answers with nothing: an empty list, object or text, as it recorded one |
+| `malformed` | The tool answers with its JSON cut short. A tool that returned data gets the cut JSON text in its place |
+| `oversized` | The tool answers with its longest text repeated until it is a million characters long (`chaos.oversize`); JSON stays JSON |
+| `429`, `500` | The model call that reads the tool's answer fails with that status, every attempt of it |
+
+The tool presets hit the first tool call that reads the world (a `read`, else a tool whose effect
+nothing declares, else a write; never a pure tool, a person's input or a call that failed when
+recorded), or the first call of `--chaos-tool`; the provider presets hit the model call after it.
+Each preset is a fork from there, live with writes stubbed (`--writes` changes that), so like a
+[golden that forks](./ci.md#recordings-that-fork-on-purpose) it needs the providers. An attempt passes
+when the agent exits 0 and passes the checks an error path must pass: those under `chaos.expect` in
+the golden's `tests` entry, else the write limits of its own `expect` (the upper bounds it sets on
+write tools, which hold on any path; the rest describes the path its recording took, which a path
+through a failure needn't take). A preset's attempts are gated as they come in: by `chaos.gate`
+(`{ good, bad, risk, max }`, each optional) when the entry has one, else by the golden's `repeat`
+and `passes`. Its verdict is `passed`, `failed`, `inconclusive` (the gate ran out of attempts between
+its bounds, or the replay never reached the call, which a golden that no longer replays does) or
+`not-applicable` (the recording has no call the preset can hit, or no result it can change, such as
+a binary one or one that is empty already). An attempt stops after `chaos.timeout` seconds (default
+300) and fails: an error path can hang. `"chaos": false` leaves a golden out of `test --chaos`. Each
+attempt is a run bundled under the golden's recording, and the session and every result are kept in
+the store for the dashboard. Exit status: 1 when a preset failed, a golden couldn't be run, or (with
+`--inconclusive fail`) a preset was inconclusive; 130 or 143 on a signal.
+
+```
+⚡ goldens/forecast: 6 error-path presets at get_forecast (#3) and model call #4
+  ✓ tool timeout      passed  timed out: the agent exited 0
+  ✓ empty result      passed  answered with nothing: the agent exited 0
+  ✗ malformed JSON    failed  answered malformed JSON: the agent exited with code 1
+      SyntaxError: Unterminated string in JSON at position 52 (line 1 column 53)
+  ✓ oversized result  passed  answered 1,000,000 characters: the agent exited 0
+  ✓ provider 429      passed  failed with HTTP 429: the agent exited 0
+  ✓ provider 500      passed  failed with HTTP 500: the agent exited 0
+```
+
+Under the table, a line names the checks that judged every attempt and where they came from
+(`checks: send_alert called at most 1 time (the write limits of the golden's expect)`), or, when
+only the exit status did, two lines say how to give them.
+
+`--json <file>` writes `{ version, session, revision, presets, passed, failed, inconclusive, notApplicable, interrupted, results }`,
+with each recording (`golden`, the `runId` the presets forked, its `outcomes`, the `judge` of its
+presets: the `source` of their checks, `chaos.expect`, `--expect`, `write-limits` or `exit`, and the
+`checks` as a failure names them, and the `error` that kept it from running or why it was
+`skipped`) and, for each preset (`preset`, its `label`, the `verdict`, the `callNo` it hit and its
+`target` (`kind`, `name`), the `passes` and `attempts`, a `detail` sentence naming what came of it
+(and its `summary`, without the call, as the table shows it), the first failure's `reason`, the
+`gate` it was decided by, `upstreamRequests`, `spent`, and its `runs`), each attempt (`runId`,
+`passed`, the agent's `exitCode`, its `checks`, the `reason` it failed and, for an agent that
+exited with an error, `lastLine`: the error it died of, as it printed it). `--junit` writes a case
+per preset and `--markdown` a table of them, listing under it any golden whose presets couldn't run.
 
 ## bisect
 
@@ -676,6 +742,91 @@ the correlation id for LiteLLM, the trace id for `otel`, `langfuse` and `langsmi
 `null`. When nothing could be imported, `runs` is empty and the exit code is 1. Started from the
 dashboard, the command also reports each run to the job that started it.
 
+## coverage
+
+```sh
+shadowlap coverage [--json]
+shadowlap coverage --pack [<behaviour>...] [--not-packed fail|warn] [--json] [-- <command>]
+shadowlap coverage --pack <behaviour>... --fork --expect <checks> [-- <command>]
+```
+
+[Production coverage](./coverage.md): groups the project's imported runs (the captures and traces
+`import` made, a teammate's from the team store included: runs that came with no command of their
+own) by behaviour, and names the behaviours no golden covers. A behaviour is the tools the model
+called, in order (the calls one answer asked for together in any order, as
+[`--repeat`](#repeating-a-fork) reads paths), the writes among them (a tool whose effect nothing
+recorded or configured names counts as one), and how the run ended: `answered`, `model-error` (its
+last model call failed), `token-limit`, `tool-call` (it ended asking for a tool), `agent-error` (a
+recording whose agent failed) or `no-model-calls`. The path is read from the model's own answers,
+so a capture with no tool calls compares with a golden. Arguments are not part of a behaviour. The
+goldens are read from their packs on disk (the goldens folder and the packs `tests` names), as
+`test` reads them; a golden covers a behaviour when its recording behaves the same way. A behaviour
+no golden covers names the golden that shares the most of its path, and where they part, and why
+the last `--pack` couldn't pack it. Each scan is kept in the store, its groups replacing the last
+scan's, for the dashboard. Exit status 0; with `--pack`, 1 when a behaviour asked for could not be
+packed, unless `--not-packed warn`.
+
+```
+Coverage of what 3 imported runs did: 2 behaviours, 1 not covered by a golden (1 golden read)
+
+  ✗ 2 runs   lookup_order → read_policy → issue_refund
+             writes issue_refund · answered · seen 2d ago in refund.har
+             nearest golden: goldens/escalate, the same for 2 steps;
+             then it calls issue_refund where the golden calls escalate
+             runs: 01K5CQ9C4H 01K5CQ9B7Q · behaviour 3f9a2c1d5e8b7a60
+
+  ✓ 1 run    lookup_order → read_policy → escalate
+             writes escalate · answered · seen 2d ago in escalate.har
+             covered by goldens/escalate
+```
+
+| Option | Effect |
+|---|---|
+| `--json` | Print the scan as JSON (below) |
+| `--pack [<behaviour>...]` | Make a golden of one run of each behaviour no golden covers, or of the behaviours named by their key (four characters of it or more): see below |
+| `-- <command>` | With `--pack`: the agent's command, for a capture no run here says the command of. `{message}` in it stands for the capture's first message (the text of the first user turn it sent), `{message:/regex/}` for the part of it the regex picks (its first group, else the whole match), so each capture starts as production started it. A placeholder is an argument of the agent's own command, passed as it is: one in a shell's script, or after an interpreter's `-c`, `-e` or `-m`, is refused |
+| `--fork` | With `--pack` and the behaviours named: pack each as a golden that forks, its tests entry written with `"fork": true` and `--expect`, even when the agent no longer does what production did |
+| `--expect <checks>` | With `--fork`: what the agent must do on that input now, as JSON or `@file.json`, in the grammar of a tests entry's `expect` |
+| `--not-packed fail\|warn` | With `--pack`: what a behaviour that could not be packed does to the exit status. Default `fail`; `warn` reports it and exits 0, for a scheduled job |
+| `--guard <mode>` | The [network guard](./how-it-works.md#the-network-guard) for the replays `--pack` makes: `block` (default), `warn` or `off` |
+
+`--pack` turns a capture into a golden `test` can replay. A capture holds model calls and no
+command, so its newest runs (up to three) are each replayed with the agent's command until one
+reproduces it: the command of the newest run here (not one from a pack or the team store) whose
+first model call sent the capture's first request (its fingerprint under the normalizers, or its
+bytes), then the command given after `--`, its placeholders filled for that capture. The replay is
+offline and needs no tool to answer: each tool call the model asked for is served the result the
+next request carried back to the model (as MCP content for a tool this store has recorded through
+`shadowlap mcp`), a tool the capture holds calls of itself keeps them, a tool some of whose calls got
+no answer back runs live, and writes are stubbed. A replay that sends every request the capture
+holds and exits 0 is a recording of the agent as it is now doing what production did, and is packed
+into `goldens/<first tool>-<writes>-<key>` (with the project's redaction rules, as `pack` writes one)
+and logged in the activity feed. One that doesn't is not packed, and says why: nothing says what
+starts the agent (`no-command`); the command started it with another first message than
+production's (`other-message`: the wrong command, or one that needs `{message}`); the agent sends
+something else now (`not-reproduced`: the code changed since the traffic was captured, or a tool's
+arguments are not the model's); the agent failed on what production got back (`agent-error`); or
+its runs were deleted (`gone`). A behaviour the agent no longer reproduces can still be kept, as
+the test that the change holds: `--fork` packs production's run, with the command that starts the
+agent as production did, as a golden that forks where the agent parts from it and passes on
+`--expect`. What `--pack` made of each behaviour is kept in the store, and the scan after it counts
+the new goldens.
+
+`--json` prints `{ scanId, at, runs, uncovered, groups, goldens, pack }`: the scan in the store,
+when it ran, the imported runs read and the behaviours no golden covers; for every behaviour
+(`key`, `covered`, the goldens it is `coveredBy`, its `path`, `writes`, the tools of `unknown`
+effect, its `outcome`, how many `runs` behaved so and their `runIds`, newest first, the `sources`
+they came from, `firstSeen` and `lastSeen`, the `nearest` golden for one no golden covers
+(`golden`, the steps `shared`, and where it `differs`: the `step`, what the behaviour does there as
+`seen` and the golden's), the `command` that would reproduce its newest run with the run it came
+`from`, the golden this `--pack` made of it, `packed` (`golden`, `runId`, `mode`), and `lastPack`,
+what the last `--pack` made of it, here or before: `at`, the `golden` (or null), its `mode`, and the
+`reason` and `why` it wasn't packed); for every golden read (`golden`, `runId`, its `path`, `writes`
+and `outcome`, or the `error` that kept it from being read); and, with `--pack`, what each became
+(`key`, the `golden` written and the `runId` packed, the imported run it came `from`, the `command`
+it ran with where that came from, the `mode` of the golden, `replay` or `fork`, and the `reason`
+and `why` it wasn't packed), else `null`.
+
 ## calibrate
 
 ```sh
@@ -711,7 +862,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
 | `tools` | `trust` by tool name (or a host under `http`): `untrusted` for a read that brings outside text in, where [`shadowlap injection`](./injection.md) plants payloads. Recorded on each call of the tool as it is made, and, read when a run is tested, it wins over every recorded mark (the SDK's, an MCP server's, an earlier config's) |
 | `prices` | USD per million tokens by model prefix, for cost estimates |
-| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks); `calls`, `when` and `judge` in [Checks](./checks.md), and [judge checks](./judges.md)), a `gate` that decides on a forked golden's attempts with stated error rates ([gating](./gating.md)), an `injection` gate ([details](./injection.md#gate-ci-on-it)), and a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)) |
+| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks); `calls`, `when` and `judge` in [Checks](./checks.md), and [judge checks](./judges.md)), a `gate` that decides on a forked golden's attempts with stated error rates ([gating](./gating.md)), an `injection` gate ([details](./injection.md#gate-ci-on-it)), a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)), and a `chaos` object with the golden's [error-path presets](./error-paths.md#configure-a-goldens-presets) (or `false` to leave it out of them) |
 | `repair` | `repairer` (`provider:model`) and `baseUrl` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
 | `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
 | `ciPush` | `false` keeps `test --push` from pushing to the team store in CI, and the GitHub Action from pushing the fixes it opens (`shadowlap store push-from-ci on\|off`) |

@@ -3,7 +3,7 @@ import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, statSync, write
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
@@ -168,6 +168,8 @@ export async function testAttempt(
     // replay (`test: { golden, session }`), a callback once the replay run exists, a time limit, and a
     // call forced live (`test --update` re-records from call 1).
     argv?: string[]; meta?: Partial<RunMeta>; onRun?: (runId: string) => void; timeoutMs?: number | null; divergeAt?: number;
+    /** What the replay plays in besides its policies: an error-path preset's failing tool, result or model call (`test --chaos`). */
+    replay?: Partial<ReplayOptions>;
     /**
      * A signal always reaches the agent's whole process group, and the run ends as crashed. Then, with
      * `return`, the attempt returns (`interrupted`) to a caller that winds down by itself (`test`,
@@ -187,7 +189,7 @@ export async function testAttempt(
     command: { argv, cwd: o.cwd },
     codeVersion: codeVersion(o.cwd),
     // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
-    replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}), ...(o.divergeAt !== undefined ? { divergeAt: o.divergeAt } : {}) },
+    replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}), ...(o.divergeAt !== undefined ? { divergeAt: o.divergeAt } : {}), ...(o.replay ?? {}) },
   });
   if (o.meta) store.updateRunMeta(run.runId, o.meta);
   // Who replayed it: `shadowlap test`'s runs show by whom on Runs, as every other run does.
