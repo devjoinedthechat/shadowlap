@@ -239,6 +239,16 @@ describe('what the run page offers', () => {
     for (const id of [passed, blamed, cap, probe]) expect(blameOffer(store, store.getRun(id)!, null)).toBeNull();
   });
 
+  it('offers no Run blame for a run with a check that could not be decided, which blame refuses', () => {
+    const judge = { ok: false, status: 'inconclusive', label: 'judge "explains" answers yes', detail: 'not judged: no recorded verdict and no key for anthropic' };
+    const unjudged = addRun(store, { startedAt: T0 + 40, calls: 'l', meta: { expect: { tools: { send_email: 0 } }, checks: [judge] } });
+    const both = addRun(store, { startedAt: T0 + 41, calls: 'l', meta: { expect: { tools: { send_email: 0 } }, checks: [{ ok: false, status: 'failed', label: 'send_email called 0 times', detail: 'called 1 time' }, judge] } });
+    for (const id of [unjudged, both]) expect(blameOffer(store, store.getRun(id)!, null)).toBeNull();
+    // Not applicable is no failure, and doesn't keep a real one from being blamed.
+    const applies = addRun(store, { startedAt: T0 + 42, calls: 'l', meta: { expect: { tools: { send_email: 0 } }, checks: [{ ok: false, status: 'failed', label: 'send_email called 0 times', detail: 'called 1 time' }, { ok: true, status: 'not-applicable', label: 'when x is called: y called 1 time', detail: 'the condition never held: x was never called' }] } });
+    expect(blameOffer(store, store.getRun(applies)!, null)).toEqual({ from: 'run', expect: { tools: { send_email: 0 } }, failed: ['send_email called 0 times'] });
+  });
+
   it('offers Run blame only where a model call can be blamed, and never on a run that was stopped', () => {
     // Exited before its first model call, or made only tool calls: no answer of the model's to blame.
     const early = addRun(store, { startedAt: T0 + 28, status: 'failed' });

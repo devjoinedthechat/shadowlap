@@ -198,6 +198,33 @@ describe('shadowlap blame', () => {
     expect(unpricedOnly({ checks: [], failures: ['the agent exited with code 1'] })).toBeNull();
   });
 
+  it('refuses a judge check no attempt can decide, in blame, verify and repair, before anything runs', async () => {
+    const runId = await record();
+    const before = mock.requests.length;
+    const judged = JSON.stringify({ tools: { issue_refund: 0 }, judge: [{ name: 'explains', question: 'Does the reply say why the refund was escalated?', model: 'claude-haiku-4-5' }] });
+    for (const args of [['blame', runId], ['verify', '--fixes', runId], ['repair', '--fixes', runId]]) {
+      const r = await shadowlap([...args, '--expect', judged]);
+      expect(r.code, r.out).toBe(1);
+      expect(r.out).toContain('--expect has a check no attempt can decide: judge "explains" answers yes (an attempt is a fork, whose judge would have to be asked live)');
+      expect(r.out).toContain(`so ${args[0]} would spend attempts to say nothing`);
+    }
+    expect(mock.requests.length).toBe(before);
+  });
+
+  it('refuses a run with a check it can\'t decide as recorded, after the free replay, without a live request', async () => {
+    const runId = await record();
+    const before = mock.requests.length;
+    // The condition reads a field lookup_order's result doesn't have: whether it held can't be told,
+    // on the recording or on any probe, so no probe could pass.
+    const unreadable = JSON.stringify({ tools: { issue_refund: 0 }, when: [{ if: { tool: 'lookup_order', result: { totl: { '>': 100 } } }, then: { tools: { escalate: 1 } } }] });
+    const r = await shadowlap(['blame', runId, '--expect', unreadable, '--json']);
+    expect(r.code, r.out).toBe(1);
+    const err = JSON.parse(r.stdout) as { outcome: string; error: { reason: string; message: string } };
+    expect(err).toMatchObject({ outcome: 'error', error: { reason: 'inconclusive' } });
+    expect(err.error.message).toMatch(/has a check that can't be decided as recorded, so no probe could pass whatever the model answers: when lookup_order has result\.totl > 100: escalate called 1 time \(could not tell whether the condition held: lookup_order #\d+: has no result\.totl\)/);
+    expect(mock.requests.length).toBe(before);
+  });
+
   it('stops at a budget and says what it found so far', async () => {
     writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ prices: { 'small-model': { input: 20000, output: 20000 } } }));
     const runId = await record();

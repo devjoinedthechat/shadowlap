@@ -1,4 +1,4 @@
-import { abandonedRuns, hasRecordedCommand, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
+import { abandonedRuns, checkStatus, hasRecordedCommand, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { loadRunIndex } from './run-index.js';
@@ -164,7 +164,11 @@ export function blameOffer(store: Store, run: RunRecord, tests: unknown): BlameO
   if (run.status === 'running' || !hasRecordedCommand(run) || run.meta?.blame) return null;
   // A blame probe's or a verify attempt's outcome belongs to the fix it was made for.
   if (run.meta?.probe || run.meta?.verify) return null;
-  const failed = (run.meta?.checks ?? []).filter((c) => isObject(c) && c.ok === false && typeof c.label === 'string').map((c) => c.label);
+  const notPassed = (run.meta?.checks ?? []).filter((c) => isObject(c) && c.ok === false && typeof c.label === 'string');
+  // A check that could not be decided can't be on a probe either, so no probe could pass: blame
+  // refuses such a run, and it isn't offered.
+  if (notPassed.some((c) => checkStatus(c) === 'inconclusive')) return null;
+  const failed = notPassed.map((c) => c.label);
   if (!failed.length && run.status !== 'failed') return null;
   if (!madeModelCall(store, run)) return null;
   if (failed.length) {

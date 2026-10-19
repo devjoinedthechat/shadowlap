@@ -3,7 +3,7 @@ import { checkStatus, estimateCost, formatDuration, formatUsd, type CallRecord, 
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
-import { evaluateChecks, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type TestSpec } from './checks.js';
+import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { agentEnv, recordsInput, type GuardMode } from './run-agent.js';
@@ -279,6 +279,34 @@ export class AttemptRunner {
 
 /** Why the checks fail a run: each failed check, and each that could not be decided (an inconclusive check never passes). */
 const failed = (checks: readonly CheckResult[]) => checks.filter((c) => !c.ok).map((c) => `${c.label}, but ${c.status === 'inconclusive' ? `it is inconclusive: ${c.detail}` : c.detail}`);
+
+/**
+ * Why an attempt can't have a verdict for a judge check, or null when it can: an attempt is a fork,
+ * so its judge has to be asked live, and attempts ask none yet. The judge's live asking replaces
+ * this with what it lacks for that judge (its provider's key, a run that may go online).
+ */
+export const attemptJudgeMissing = (_j: JudgeCheck): string | null => 'an attempt is a fork, whose judge would have to be asked live';
+
+/**
+ * The checks of an oracle that no attempt can decide, each with why: a judge check no attempt can
+ * have a verdict for. Every attempt would read inconclusive on it and none could pass, so blame,
+ * verify and repair refuse such an oracle before they spend anything.
+ */
+export function undecidableChecks(spec: TestSpec | null, missing: (j: JudgeCheck) => string | null = attemptJudgeMissing): Array<{ label: string; why: string }> {
+  if (!spec) return [];
+  return judgeChecksOf(spec).flatMap((j) => {
+    const why = missing(j);
+    return why ? [{ label: judgeLabel(j), why }] : [];
+  });
+}
+
+/** The refusal of an oracle with checks no attempt can decide, for `command` (blame, verify, repair), or null when there are none. */
+export function undecidableRefusal(spec: TestSpec | null, command: string): string | null {
+  const undecided = undecidableChecks(spec);
+  if (!undecided.length) return null;
+  const one = undecided.length === 1;
+  return `--expect has ${one ? 'a check' : `${undecided.length} checks`} no attempt can decide: ${undecided.map((u) => `${u.label} (${u.why})`).join('; ')}. Every attempt would read inconclusive, and none could pass, so ${command} would spend attempts to say nothing. Leave ${one ? 'it' : 'them'} out of --expect; shadowlap check judges recordings by ${one ? 'it' : 'them'}, from what they recorded.`;
+}
 
 /** The oracle, as the labels of what a passing run must do. */
 export function oracleLabels(spec: TestSpec | null): string[] {

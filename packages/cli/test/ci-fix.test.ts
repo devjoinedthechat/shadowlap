@@ -548,6 +548,25 @@ describe('planning fixes from a test report', () => {
     expect(repairArgs(plans[0], { db: '/tmp/ci.db', budget: 2, repairer: 'claude-code', expectFile: '/tmp/expect.json' })).toEqual(['--db', '/tmp/ci.db', 'repair', '--fixes', 'A', 'C', '--keeps', 'B', '--expect', '@/tmp/expect.json', '--budget', '2', '--repairer', 'claude-code', '--branch', 'shadowlap/fix-refund-flow-t9rb1d', '--yes', '--json']);
   });
 
+  it('leaves alone a golden with a check that can\'t be decided, whatever else it failed', () => {
+    const judge = { ok: false, status: 'inconclusive' as const, label: 'judge "explains" answers yes', detail: 'not judged: no recorded verdict and no key for anthropic' };
+    const plans = planFixes({
+      results: [
+        result({ name: 'unjudged', checks: [{ ok: true, status: 'passed', label: 'issue_refund called 0 times', detail: null }, judge] }),
+        // A real failure beside it: a fix could pass that one, but no replay passes while the judge can't decide.
+        result({ name: 'refunds-too', checks: [{ ok: false, status: 'failed', label: 'issue_refund called 0 times', detail: 'called 1 time' }, judge] }),
+        // A check that didn't apply is no reason to skip.
+        result({ name: 'not-applied', checks: [{ ok: false, status: 'failed', label: 'issue_refund called 0 times', detail: 'called 1 time' }, { ok: true, status: 'not-applicable', label: 'when x is called: y called 1 time', detail: 'the condition never held: x was never called' }] }),
+      ],
+    });
+    const why = 'a check is inconclusive (judge "explains" answers yes), which no prompt fix decides, and no replay passes while it is: give it what decides it (a verdict for a judge, a value a condition can read)';
+    expect(plans.map((p) => [p.result.name, p.skip])).toEqual([
+      ['unjudged', why],
+      ['refunds-too', why],
+      ['not-applied', null],
+    ]);
+  });
+
   it('writes the job summary', () => {
     const md = fixSummary([
       { name: 'a|b', outcome: 'opened', pr: 'https://example.com/pr/1', title: 'Fix it', verify: 'target 1 of 1', spent: 0.84, why: null, goldenState: { state: 'recorded', golden: 'goldens/a', why: null } },

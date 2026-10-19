@@ -149,7 +149,7 @@ Some outcomes are not in the calls: whether the reply explains why the refund wa
 
 A verdict is the judge's `yes` or `no` with a one-line reason, which the report shows beside the check, and where it came from: the judge's call recorded in the run, or one asked live. Calls in the scope `shadowlap:judge` are a judge's, not the agent's, and no other check counts them: a `modelCalls` limit or a cost budget is about the agent.
 
-Until a run holds a verdict for it, a judge check is **inconclusive**, saying what is missing: `not judged: no recorded verdict and no key for anthropic`, or without `and no key…` when the environment has the provider's key (`ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_API_KEY`). It never passes, and it fails a test as a failed check does.
+Until a run holds a verdict for it, a judge check is **inconclusive**, saying what is missing: `not judged: no recorded verdict and no key for anthropic`, or without `and no key…` when the environment has the provider's key (`ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_API_KEY`). It never passes, and it fails a test as a failed check does. `blame`, `verify` and `repair` refuse a judge check before they start: each of their attempts is a fork, which would need the judge's verdict asked live, so every attempt would read inconclusive and none could pass.
 
 ## How a check comes out
 

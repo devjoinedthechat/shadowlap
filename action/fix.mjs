@@ -42,12 +42,12 @@ function unpricedOnly(checks) {
 }
 
 /**
- * Whether every check that failed a golden is one that could not be decided (a judge check with no
- * verdict): a prompt fix changes none of them. A result kept before results had a status has none.
+ * The checks of a golden that could not be decided (a judge check with no verdict, a condition that
+ * can't be read). A prompt fix decides none of them, and while one stays so no replay of the golden
+ * passes, so its verify could never accept a fix. A result kept before results had a status has none.
  */
-function inconclusiveOnly(checks) {
-  const failed = (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok);
-  return failed.length > 0 && failed.every((c) => c.status === 'inconclusive');
+function inconclusiveChecks(checks) {
+  return (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok && c.status === 'inconclusive');
 }
 
 /** The failed goldens of a test report, each with the fix it gets or why it gets none. */
@@ -57,7 +57,8 @@ export function planFixes(report) {
     .map((r) => {
       if (r.failure !== 'check') return { result: r, skip: NOT_FIXED[r.failure] ?? 'not an outcome check' };
       if (!r.expect) return { result: r, skip: 'its checks are not under "tests" in shadowlap.config.json' };
-      if (inconclusiveOnly(r.checks)) return { result: r, skip: 'its checks are inconclusive (a judge check with no verdict), which no prompt fix changes: let the judge be asked, with its provider\'s key' };
+      const undecided = inconclusiveChecks(r.checks);
+      if (undecided.length) return { result: r, skip: `${undecided.length === 1 ? 'a check is' : `${undecided.length} checks are`} inconclusive (${undecided.map((c) => String(c.label)).join('; ')}), which no prompt fix decides, and no replay passes while ${undecided.length === 1 ? 'it is' : 'they are'}: give ${undecided.length === 1 ? 'it' : 'them'} what decides ${undecided.length === 1 ? 'it' : 'them'} (a verdict for a judge, a value a condition can read)` };
       const unpriced = unpricedOnly(r.checks);
       if (unpriced) return { result: r, skip: `it fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, which no prompt fix changes: add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json` };
       const failing = (r.runs ?? []).filter((x) => !x.ok).map((x) => x.runId);
