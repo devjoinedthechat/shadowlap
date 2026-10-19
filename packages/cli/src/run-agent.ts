@@ -9,7 +9,7 @@ import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
-import { askJudges, unjudged, type Judged } from './judge.js';
+import { askJudges, judgesOf, unjudged, type Judged } from './judge.js';
 import { emitJobEvent } from './job-events.js';
 import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
@@ -243,7 +243,7 @@ export async function testAttempt(
   if (interrupted) output += `\n[shadowlap] interrupted (${interrupted})\n`;
   // Judge checks are asked once the agent has exited, through this sidecar while the run is open, so
   // their calls are the run's: a clean replay's from its recording, a fork's live.
-  const judged = o.spec?.judge?.length ? await judgeAttempt(store, sidecar, run.runId, o.spec, { code, timedOut, interrupted: interrupted !== null, stdout, upstreams: o.upstreams, redact: o.redact ?? [], prices: o.prices, forkFails: !o.spec.fork }) : null;
+  const judged = o.spec && judgesOf(o.spec).length ? await judgeAttempt(store, sidecar, run.runId, o.spec, { code, timedOut, interrupted: interrupted !== null, stdout, upstreams: o.upstreams, redact: o.redact ?? [], prices: o.prices, forkFails: !o.spec.fork }) : null;
   const ended = sidecar.endRun(run.runId, timedOut || interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   await sidecar.close();
   // Nothing waits for this attempt: the process ends as the signal meant it to, with the run ended.
@@ -326,7 +326,7 @@ export function checksFailure(notPassed: readonly CheckResult[]): string {
  * forked), when asking a judge would only cost: each then says why it was not judged.
  */
 export async function judgeAttempt(store: Store, sidecar: Sidecar, runId: string, spec: TestSpec, a: { code: number; timedOut?: boolean; interrupted: boolean; stdout: string; upstreams: Record<string, string>; redact: ReturnType<typeof loadConfig>['redact']; prices: ReturnType<typeof loadConfig>['prices']; forkFails?: boolean }): Promise<Judged> {
-  const judges = spec.judge ?? [];
+  const judges = judgesOf(spec);
   if (a.interrupted) return unjudged(judges, 'the replay was interrupted');
   if (a.timedOut) return unjudged(judges, 'the agent was stopped before it finished');
   if (a.code !== 0) return unjudged(judges, `the agent exited with code ${a.code}`);

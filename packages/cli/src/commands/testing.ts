@@ -13,7 +13,7 @@ import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
-import { judgeEndedRun, type JudgedRun } from '../judge.js';
+import { judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
 import { checkLine, judgeResults } from '../judge-results.js';
 import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
@@ -73,7 +73,7 @@ async function serveRecordings(store: Store, config: ReturnType<typeof loadConfi
  */
 function judgesOfPack(dir: string): JudgeCheck[] {
   try {
-    return specFor(loadTests(process.cwd()), resolve(dir), process.cwd())?.judge ?? [];
+    return judgesOf(specFor(loadTests(process.cwd()), resolve(dir), process.cwd()));
   } catch (err) {
     process.stderr.write(p.yellow(`[shadowlap] the checks for ${dir} could not be read, so no judge was asked: ${(err as Error).message}\n`));
     return [];
@@ -168,10 +168,10 @@ function passedLine(o: GoldenOutcome): string {
  */
 function verdictsToKeep(o: GoldenOutcome, spec: TestSpec | null): JudgeCheck[] {
   const shown = o.result?.shown;
-  if (!spec?.judge?.length || !shown || !o.parent || shown.code !== 0 || shown.interrupted || shown.ended.summary.divergence) return [];
+  if (!judgesOf(spec).length || !shown || !o.parent || shown.code !== 0 || shown.interrupted || shown.ended.summary.divergence) return [];
   if (o.failure && (o.kind !== 'check' || shown.checks?.some((c) => !c.ok && !c.judge))) return [];
   const names = new Set((shown.checks ?? []).filter((c) => c.judge && c.judge.source !== 'recording').map((c) => c.judge!.name));
-  return spec.judge.filter((j) => names.has(j.name));
+  return judgesOf(spec).filter((j) => names.has(j.name));
 }
 
 function printGolden(o: GoldenOutcome, suffix = ''): void {

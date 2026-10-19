@@ -5,6 +5,7 @@ import { normalizeConversation, type Turn, type TurnBlock } from './conversation
 import { messagesOf, type DatasetMessage } from './dataset.js';
 import type { Block } from './deltas.js';
 import { sha256 } from './ids.js';
+import { isJudgeCall } from './judge-scope.js';
 import { loadApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern } from './normalize.js';
 import { normalizeResponse } from './responses.js';
@@ -286,7 +287,7 @@ class Reader {
     if (!calls) {
       calls =
         scope === null
-          ? this.callsOf(runId).filter((c): c is ModelCall => c.kind === 'api' && !!c.requestRef && c.end !== null && c.end.outcome === 'ok' && !!c.end.responseRef && isModelRequest(c.name))
+          ? this.callsOf(runId).filter((c): c is ModelCall => c.kind === 'api' && !!c.requestRef && c.end !== null && c.end.outcome === 'ok' && !!c.end.responseRef && isModelRequest(c.name) && !isJudgeCall(c))
           : this.modelCalls(runId).filter((c) => c.meta.scope === scope);
       this.models.set(id, calls);
     }

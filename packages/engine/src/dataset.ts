@@ -5,6 +5,7 @@
  * the shapes eval tools import.
  */
 import { normalizeConversation, type Turn, type TurnBlock } from './conversation.js';
+import { isJudgeCall } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
 import { compilePattern, parsePath } from './normalize.js';
 import { redactedRequest, redactedResponse } from './redact.js';
@@ -151,7 +152,8 @@ export function datasetRows(store: Store, runs: RunRecord[], opts: DatasetOption
   const rules = redact.filter((r) => r.path === undefined && r.pattern !== undefined).map((r) => ({ re: compilePattern(r.pattern!), replace: r.replace }));
   const rows: unknown[] = [];
   for (const run of runs) {
-    const models = store.getCalls(run.runId).filter((c) => c.kind === 'api' && c.end?.outcome === 'ok');
+    // The agent's model calls: a judge check's verdict is none of its turns.
+    const models = store.getCalls(run.runId).filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && !isJudgeCall(c));
     const chosen = opts.calls === 'final' ? models.slice(-1) : models;
     for (const call of chosen) {
       let e: DatasetExample | null = null;

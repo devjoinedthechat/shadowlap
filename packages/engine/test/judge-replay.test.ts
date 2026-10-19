@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { JUDGE_SCOPE, packRun, Session, sha256, Store, storeApiRequest, summarizeRun, unpackRun, type CallRecord } from '../src/index.js';
+import { datasetRows, JUDGE_SCOPE, packRun, Session, sha256, Store, storeApiRequest, summarizeRun, unpackRun, type CallRecord, type DatasetExample } from '../src/index.js';
 import { RunBuilder, text, user } from './run-fixtures.js';
 
 /**
@@ -115,6 +115,10 @@ describe('what a run says the agent did', () => {
     const plain = RunBuilder.start(store);
     plain.model({ messages: [user('hi')] }, [text('Hello.')]);
     expect(summarizeRun(store.getRun(plain.end())!, store.getCalls(plain.runId))).not.toHaveProperty('judge');
+    // Nor is a judge's verdict ever one of the agent's turns in a dataset.
+    const rows = datasetRows(store, [store.getRun(runId)!], { calls: 'final', format: 'jsonl' }) as DatasetExample[];
+    expect(rows.map((r) => [r.metadata.call_no, r.output.text])).toEqual([[1, 'Hello.']]);
+    expect(datasetRows(store, [store.getRun(runId)!], { calls: 'model', format: 'jsonl' })).toHaveLength(1);
   });
 });
 

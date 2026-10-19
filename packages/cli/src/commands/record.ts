@@ -4,7 +4,7 @@ import { addRules, calibrationTarget, commandIsImported, formatDivergence, forma
 import { type CheckResult, type TestSpec } from '../checks.js';
 import { codeVersion, configPath, loadConfig, upstreamOverrides } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
-import type { Judged } from '../judge.js';
+import { judgesOf, type Judged } from '../judge.js';
 import { checkLine } from '../judge-results.js';
 import { emitJobEvent } from '../job-events.js';
 import { runMcp } from '../mcp.js';
@@ -169,13 +169,13 @@ export function register(program: Command): void {
       if (failures.tools.size) replay.toolFailures = failures.tools;
       if (plants.size) replay.plants = plants;
       // A check on what the agent printed needs its output, and so does a judge check that reads it; nothing else does.
-      const capture = !!checks?.spec.output || !!checks?.spec.judge?.some((j) => j.of === 'output');
+      const capture = !!checks?.spec.output || judgesOf(checks?.spec).some((j) => j.of === 'output');
       const config = checks ? loadConfig(process.cwd()) : null;
       const given = flags.expect ? expectJson(flags.expect) : undefined;
       // Judge checks are asked once each replay's agent has exited, before its run ends: a clean
       // replay's from the recording, a fork's live, and either way the call is the replay's.
       const verdicts = new Map<string, Judged>();
-      const beforeEnd: BeforeEnd | undefined = checks?.spec.judge?.length
+      const beforeEnd: BeforeEnd | undefined = judgesOf(checks?.spec).length
         ? async (sidecar, store, run, agent) => {
             verdicts.set(run.runId, await judgeAttempt(store, sidecar, run.runId, checks!.spec, { code: agent.code, interrupted: agent.interrupted, stdout: agent.stdout, upstreams: upstreamOverrides(process.env), redact: config!.redact, prices: config!.prices }));
           }

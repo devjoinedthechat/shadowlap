@@ -1,5 +1,6 @@
 import { canonicalize, estimateCost, isJudgeCall, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeTarget, loadApiRequest, readVerdict, type CallRecord, type JudgeProvider, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
 import { providers, Sidecar } from '@shadowlap/sidecar';
+import type { TestSpec } from './checks.js';
 import type { ShadowlapConfig } from './config.js';
 import type { JudgeCheck } from './judge-check.js';
 import type { JudgedEntry } from './judge-results.js';
@@ -15,6 +16,14 @@ import type { JudgedEntry } from './judge-results.js';
  * `pack` and `test --update` judge a run that has ended: its judge calls are added to it
  * (Sidecar.openForJudge), so the pack carries them and every replay of it is judged for free.
  */
+
+/**
+ * Every judge check a spec holds: what is asked after the agent exits. The one place the runtime
+ * reads them, so a check nested where `expect` nests checks is asked too.
+ */
+export function judgesOf(spec: TestSpec | null | undefined): JudgeCheck[] {
+  return spec?.judge ?? [];
+}
 
 /** The environment variables a provider's key is read from, in order. */
 export const JUDGE_KEYS: Record<JudgeProvider, readonly string[]> = {

@@ -129,6 +129,9 @@ describe('a golden with a judge check', () => {
     expect(mock.requests.length).toBe(sent);
     // The replay holds its judge call, answered from the recording (the newer session keeps its own).
     expect(storeCalls(second.result.runId).filter((c) => c.meta.scope === JUDGE_SCOPE).map((c) => c.origin)).toEqual(['replayed']);
+    // And it is the agent's run as recorded: a judge's calls are no difference between them.
+    const diff = await shadowlap(['diff', recording, second.result.runId]);
+    expect(diff.code, diff.out).toBe(0);
   }, 60_000);
 
   it('asks the judge live when it forks, and records the judge call in the fork', async () => {
