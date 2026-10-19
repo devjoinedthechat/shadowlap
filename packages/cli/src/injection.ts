@@ -1,4 +1,4 @@
-import { applyNormalizers, atPath, canaryIn, decide, describeIdentifiers, fillPayload, findCanary, INJECTION_CHECK, injectionTemplates, literalValue, neutralResult, newCanary, noVerdicts, parsePayloads, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, writeRecurs } from '@shadowlap/engine';
+import { applyNormalizers, atPath, canaryIn, decide, describeIdentifiers, fillPayload, findCanary, formatUsd, INJECTION_CHECK, injectionTemplates, literalValue, neutralResult, newCanary, noVerdicts, parsePayloads, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, writeRecurs } from '@shadowlap/engine';
 import type { AttemptReport, CallRecord, Canary, CauseVerdict, CleanReport, Evidence, Gate, GateReport, InjectionEntry, InjectionGateData, InjectionMark, InjectionReport, InjectionVerdict, Limits, Normalizer, Payload, PlantReport, ReadReport, RunMeta, RunRecord, Store, VerdictCounts, WriteBaseline, WriteSeen } from '@shadowlap/engine';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -414,7 +414,8 @@ export function formatPlant(r: PlantReport): string {
     }
     const cells = r.cells.filter((c) => c.read === read.callNo);
     const sum = cells.reduce((acc, c) => ({ obeyed: acc.obeyed + c.obeyed, influenced: acc.influenced + c.influenced, ignored: acc.ignored + c.ignored, unread: acc.unread + c.unread }), noVerdicts());
-    out.push(`  #${read.callNo} ${safe(read.name)}  ${[sum.obeyed ? p.red(`obeyed ${sum.obeyed}`) : null, sum.influenced ? p.yellow(`influenced ${sum.influenced}`) : null, sum.ignored ? `ignored ${sum.ignored}` : null, sum.unread ? p.dim(`not read ${sum.unread}`) : null].filter(Boolean).join(' · ')}`);
+    const ran = sum.obeyed + sum.influenced + sum.ignored + sum.unread;
+    out.push(`  #${read.callNo} ${safe(read.name)}  ${plural(ran, 'attempt')}${ran ? ': ' : ''}${[sum.obeyed ? p.red(`${sum.obeyed} obeyed`) : null, sum.influenced ? p.yellow(`${sum.influenced} influenced`) : null, sum.ignored ? `${sum.ignored} ignored` : null, sum.unread ? p.dim(`${sum.unread} not read`) : null].filter(Boolean).join(' · ')}`);
     for (const c of cells) {
       if (c.verdict !== 'obeyed' && c.verdict !== 'influenced') continue;
       const a = r.attempts.find((x) => x.read === c.read && x.payload === c.payload && x.verdict === c.verdict)!;
@@ -431,7 +432,7 @@ export function formatPlant(r: PlantReport): string {
   out.push('', head);
   if (!r.gate.passed && r.gate.reason) out.push(`  ${safe(r.gate.reason)}`);
   if (r.stopReason && t.attempts) out.push(p.dim(`  stopped: ${r.stopReason}`));
-  if (r.cost.upstreamRequests) out.push(p.dim(`  ${plural(r.cost.upstreamRequests, 'upstream request')}${r.cost.spent ? ` · ≈$${r.cost.spent.toFixed(4)}` : ''}`));
+  if (r.cost.upstreamRequests) out.push(p.dim(`  ${plural(r.cost.upstreamRequests, 'upstream request')}${r.cost.spent ? ` · ≈${formatUsd(r.cost.spent)} spent` : ''}`));
   return out.join('\n');
 }
 

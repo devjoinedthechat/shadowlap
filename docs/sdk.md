@@ -38,8 +38,9 @@ const seed = await random();            // [0, 1)
 const requestId = await uuid();
 ```
 
-- `tool(name, { effect, onFork?, source? }, impl)` returns a function with the same signature. Arguments, results and thrown errors must be JSON-serializable. A replayed error is thrown as `ReplayedError` with the recorded `name`, `message` and `code`; the original class is not preserved, but the error reads as it did: `String(err)`, `util.inspect(err)` and the stack's first line are what they were when the call was recorded.
+- `tool(name, { effect, onFork?, source?, trust? }, impl)` returns a function with the same signature. Arguments, results and thrown errors must be JSON-serializable. A replayed error is thrown as `ReplayedError` with the recorded `name`, `message` and `code`; the original class is not preserved, but the error reads as it did: `String(err)`, `util.inspect(err)` and the stack's first line are what they were when the call was recorded.
 - `effect` is required: `pure` (depends only on the arguments), `read` (touches outside state), `write` (changes it). See [effects](./how-it-works.md#effects).
+- `trust: 'untrusted'` marks a read that brings outside text in: see [untrusted reads](#untrusted-reads).
 - An async generator function (`async function*`, like the AI SDK's streaming `async *execute`) stays one: it runs at the pace of whoever reads it, as it does outside Shadowlap, its last value is recorded as the result, and a replay yields that value alone. A reader that stops early (a `break`, an aborted stream) stops the tool there, and the last value it read is the one recorded. A function that returns a stream without being a generator gets its stream back untouched outside Shadowlap; under it, the stream is read to its end and its last value is the result. Write a streaming tool as `async function*` to keep it streaming while recording.
 - A replay warns when a tool's source changed since the recording (`read_policy changed since the recording; pass --live-tool read_policy to run it live`), comparing a hash of `impl`. When `impl` only calls the real code, pass that function as `source`: `tool(name, { effect, source: realFn }, (a) => realFn(a, ctx))`. The [adapters](./frameworks.md) pass the function you gave them.
 - Under `--writes stub` a `write` tool doesn't run: it returns what `onFork` gives, or `null` without one, and a replay of the run returns the same.
@@ -80,7 +81,36 @@ request_id = uuid()
 - An async tool the caller cuts off, as `asyncio.wait_for(search(q), timeout=5)` does at its deadline, is recorded as cancelled, not as the tool's error. Its replay waits until the caller cancels it again, so the deadline fires as it did and the agent's `except asyncio.TimeoutError` runs; a replay where nothing cancels it waits. The same goes for `user_input_async`. Ctrl-C or `sys.exit()` inside a tool is never recorded as its error.
 - `ShadowlapWriteBlocked` has `tool` and `tool_args`. It and `ReplayedError` survive `copy` and `pickle`.
 - A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails raises without running: `ShadowlapInjectedTimeout`, a `TimeoutError`, for a timeout; `ShadowlapInjectedHTTPError`, with `status_code`, `status` and `response.status_code`, for an HTTP status; `ShadowlapInjectedFailure`, their base, with the given message for an error. Each has `tool`, `tool_args`, `kind` and `injected = True`, and survives `copy` and `pickle`.
+- `trust="untrusted"` marks a read that brings outside text in: see [untrusted reads](#untrusted-reads).
 - Python ≥ 3.9. Zero dependencies (`urllib`).
+
+## Untrusted reads
+
+A tool whose result can carry text someone else wrote (a web page, an email, a ticket, a document,
+a search result) is where a prompt injection arrives. Mark it, and
+[`shadowlap injection`](./injection.md) plants payloads in what it returns, to prove whether the
+agent obeys them:
+
+```ts
+export const fetchPage = tool('fetch_page', { effect: 'read', trust: 'untrusted' },
+  async ({ url }: { url: string }) => fetchText(url));
+```
+
+```python
+@tool(effect="read", trust="untrusted")
+def fetch_page(url: str) -> dict:
+    return fetch_text(url)
+```
+
+- The mark is recorded on each call (`meta.trust`), and never enters its fingerprint: marking a
+  tool keeps every recording of it.
+- The default is `trusted`; anything but `trusted` or `untrusted` is refused when the tool is made.
+- The framework adapters pass it on: `{ effect: 'read', trust: 'untrusted' }` in TypeScript, and
+  `trust="untrusted"` to `with_effect` and `function_tool` in Python.
+- Without touching the code, mark it in the config, which wins over what a recording says:
+  `"tools": { "fetch_page": { "trust": "untrusted" } }`. A host under `http` is marked by its name.
+- Behind [`shadowlap mcp`](./mcp.md#effects), a read tool whose server sets `openWorldHint` is
+  untrusted already.
 
 ## What a person types
 

@@ -1,4 +1,4 @@
-import { commandIsImported, fixOfRun, hasRecordedCommand, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { commandIsImported, fixOfRun, hasRecordedCommand, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type InjectionGateData, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -124,7 +124,7 @@ export interface GoldenRow {
   modeHint: string;
   checks: string[];
   history: HistoryCell[];
-  last: { result: 'pass' | 'fail' | null; failure: TestFailure | null; line: string; at: number | null; updated: boolean };
+  last: { result: 'pass' | 'fail' | null; failure: TestFailure | null; line: string; at: number | null; updated: boolean; injection?: InjectionGateData | null };
   /** The run a row opens: its latest replay when the store still has it, else the recording. */
   runId: string | null;
   error: string | null;
@@ -764,7 +764,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
         return { revision: rev, tested: r?.revision ?? null, result: r ? (r.ok ? 'pass' : 'fail') : null, note: r ? cellNote(store, r, g.checks, rules) : null, updated: here.some((x) => !!x.data?.updated), runId: r ? runIfKept(store, r.runId) : null, at: r?.at ?? null };
       }),
       last: latest
-        ? { result: latest.ok ? 'pass' : 'fail', failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated }
+        ? { result: latest.ok ? 'pass' : 'fail', failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, injection: latest.data?.injection ?? null }
         : { result: null, failure: null, line: error ? `can't be read: ${error}` : 'not run yet', at: null, updated: false },
       runId: runIfKept(store, latest?.runId ?? null) ?? sourceRun,
       error,

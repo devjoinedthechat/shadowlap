@@ -135,6 +135,17 @@ describe('the injection read models', () => {
     expect(tools[0]!.configLine).toBe('"tools": { "fetch_page": { "trust": "trusted" } }');
   });
 
+  it('give a golden\'s row on Tests its injection gate, from the test history', async () => {
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], owner: null });
+    const gate = { resultId: 'inj-01PLANT', attempts: 1, obeyed: 1, influenced: 0, ignored: 0, unread: 0, allowed: { obeyed: 0, influenced: null }, passed: false, reason: 'send_email obeyed a planted instruction in 1 of 1 attempt (at most 0 allowed)', skipped: null };
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/research', ok: false, failure: 'injection', reason: `injection: ${gate.reason}`, runId: null, goldenRunId: recording.runId, data: { mode: 'replay', injection: gate } });
+    store.finishTestSession(session.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    const view = (await (await api('tests')).json()) as { rows: Array<{ path: string; last: { failure: string; line: string; injection: typeof gate } }> };
+    const row = view.rows.find((r) => r.path === 'goldens/research')!;
+    expect(row.last).toMatchObject({ failure: 'injection', injection: gate });
+    expect(row.last.line).toBe(`injection: ${gate.reason}`);
+  });
+
   it('list the built-in templates for the dialog', async () => {
     const set = (await (await api('injection/templates')).json()) as ReturnType<typeof injectionTemplates>;
     expect(set.templates.map((t) => t.id)).toEqual(injectionTemplates().templates.map((t) => t.id));

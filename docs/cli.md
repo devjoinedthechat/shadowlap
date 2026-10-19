@@ -608,8 +608,9 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | `clock` | `auto` (default) matches dates near each run's start across days; `exact` requires equality |
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
+| `tools` | `trust` by tool name (or a host under `http`): `untrusted` for a read that brings outside text in, where [`shadowlap injection`](./injection.md) plants payloads; it wins over what the SDK or an MCP server recorded |
 | `prices` | USD per million tokens by model prefix, for cost estimates |
-| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)), and a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)) |
+| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)), an `injection` gate ([details](./injection.md#gate-ci-on-it)), and a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)) |
 | `repair` | `repairer` (`provider:model`) and `baseUrl` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
 | `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
 | `ciPush` | `false` keeps `test --push` from pushing to the team store in CI, and the GitHub Action from pushing the fixes it opens (`shadowlap store push-from-ci on\|off`) |

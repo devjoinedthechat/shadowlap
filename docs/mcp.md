@@ -64,6 +64,12 @@ shadowlap mcp --url https://mcp.example.com/mcp --effect search_issues=read
 
 The tool's input schema is recorded as its implementation hash, so a server whose tool schema changed between recording and replay produces the same warning as a changed SDK tool.
 
+A read tool whose server sets `openWorldHint: true` (it reaches outside entities: a web search, a
+mailbox, an issue tracker) is recorded as untrusted, where [`shadowlap injection`](./injection.md)
+plants payloads. Only a hint the server sets counts: MCP reads a missing one as true, which would
+mark every read of a server that annotates nothing. An open-world write stays a write. Mark any
+other tool, or unmark one, in the config: `"tools": { "search_issues": { "trust": "untrusted" } }`.
+
 ## Finding the run
 
 Every command that starts an agent (`run`, `replay`, `replay --repeat`, `test`, `blame`, `verify`, `calibrate`) sets `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for it, and the proxy uses them when the client passes its environment on (a test runner's host sets `SHADOWLAP_URL` alone, naming the run's slot, and the proxy records into that run, as the SDKs do). But MCP clients usually start servers with a minimal environment: the official SDKs pass on only `PATH`, `HOME` and a few more. So each of those commands also writes a small file for every agent it starts, `~/.shadowlap/agents/<the agent's process id>.json`, naming its sidecar and run, and removes it when the agent exits. The proxy walks up its own process tree and takes the nearest agent's. Attempts running at once never mix: each agent has its own process id. On Windows, where reading the process tree takes PowerShell, the proxy first looks for the file of the process that started it, which is the agent when the agent's own MCP client starts the proxy, and reads the tree only when that one has none.

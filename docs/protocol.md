@@ -89,6 +89,7 @@ Asks the sidecar what to do about a call that is *about to happen*. Send it befo
 | `effect` | yes | `"pure"`, `"read"` or `"write"`. The sidecar rejects anything else with 400. |
 | `args` | yes | The arguments as JSON. `null` if there are none. Part of the call's identity. |
 | `implHash` | no | Any stable hash of the implementation's source. Never part of matching; it only powers the "this tool changed since the recording" warning. |
+| `trust` | no | `"untrusted"` for a read that brings outside text in (a page, an email), where `shadowlap injection` plants payloads; stored as the call's `meta.trust`. `"trusted"` (the default) is stored as nothing. Never part of matching. |
 
 `effect` has no default, by design. The only safe default would be `write`, and making that
 implicit would hide a decision the developer has to make. A client MUST require it and SHOULD
@@ -206,8 +207,9 @@ annotations as its effect, and adds where the call came from:
 
 `transport` is `stdio` or `http`; `server` is the remote server's host, or the local server's
 command (with the package a runner such as `npx` starts), never its arguments or a URL's path.
-`tools` lists the server's tools with their effects, on the first call to that server in a run and
-whenever the list changes. The sidecar checks and bounds the object and stores it as `meta.mcp`.
+`tools` lists the server's tools with their effects, and `"trust": "untrusted"` for a read whose
+server sets `openWorldHint` (the call itself then carries `trust` too), on the first call to that
+server in a run and whenever the list changes. The sidecar checks and bounds the object and stores it as `meta.mcp`.
 
 ### `POST /v1/guard`
 
