@@ -5,8 +5,8 @@ import { message, text, toolUse, type MockMessage, type ScriptContext, type Scri
  * `migrate`): the same conversation asked under another prompt or another model decides differently
  * at known steps, so a test can say which step changes and how.
  *
- * - A system prompt that says not to send email ("Never send email.") ends the turn that would have
- *   emailed with an answer instead: a write removed, rank 1.
+ * - A system prompt that says "Do not email the summary." ends the turn that would have emailed with
+ *   an answer instead: a write removed, rank 1. (Other tests play "Never send email." themselves.)
  * - `claude-haiku-4-5` searches differently at the third turn (a read asked differently, rank 4), skips
  *   the page it fetched at the fifth (a read removed, rank 3) and words the email's body its own way
  *   (a write with other arguments, rank 1).
@@ -18,7 +18,7 @@ import { message, text, toolUse, type MockMessage, type ScriptContext, type Scri
  * Every other request plays the scenario as recorded.
  */
 
-const NO_EMAIL = /\b(never|do not|don't) (send )?e-?mail\b/i;
+const NO_EMAIL = /\bDo not email the summary\b/;
 const DEPRECATED_SAMPLING = /^claude-(opus-4-[78]|opus-5|sonnet-5|haiku-5|fable-5|mythos-5|mythos-preview)/;
 const DEFAULTS: Record<string, unknown> = { temperature: 1 };
 

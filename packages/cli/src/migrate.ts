@@ -170,7 +170,7 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
   for (const n of r.retirements.filter((x) => r.from.includes(x.model))) lines.push('', `> ${n.text} ([source](${n.source}))`);
   lines.push('', '### What changes', '');
   if (!r.changes.steps.length) lines.push('No write and no stop decision changes.');
-  for (const s of r.changes.steps.slice(0, 12)) lines.push(`- ${name(s)} #${s.callNo}: ${s.detail} (\`${s.recorded}\` → \`${s.now}\`)${s.arguments.length ? `: ${s.arguments.map((a) => `\`${a}\``).join(', ')}` : ''}`);
+  for (const s of r.changes.steps.slice(0, 12)) lines.push(`- ${name(s)} #${s.callNo}: ${s.detail}${s.arguments.length ? `: ${s.arguments.map((a) => `\`${a}\``).join(', ')}` : ` (\`${s.recorded}\` → \`${s.now}\`)`}`);
   if (r.changes.steps.length > 12) lines.push(`- and ${r.changes.steps.length - 12} more`);
   const c = r.decisions.counts;
   if (c[3] + c[4] + c[5]) lines.push('', `Besides: ${[c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only`].filter(Boolean).join(', ')}.`);
@@ -223,6 +223,9 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
   const flags = [...Object.entries(given), ...decisions.remedies.filter((r) => !r.leftOut).map((r) => [r.field, r.value] as const)].map(([k, v]) => `--set ${k}=${fieldValue(v)}`);
   const mentions = modelMentions(process.cwd(), from, s.to);
   const notes = [...decisions.notes];
+  const warnings = [...decisions.warnings];
+  const leftOut = decisions.remedies.filter((r) => r.leftOut).map((r) => r.field);
+  if (leftOut.length) warnings.push(`${leftOut.join(' and ')} must leave your agent's requests before ${s.to} takes them: the preview left ${leftOut.length === 1 ? 'it' : 'them'} out, and verify runs your code, which still sends ${leftOut.length === 1 ? 'it' : 'them'}`);
   if (mentions === 'no-git') notes.push('The project is not a git repository, so its files were not searched for the model it switches from.');
   else if (mentions === null && from.length) notes.push(`No file in the project names ${from.join(' or ')}: set ${s.to} where your agent reads its model (an environment variable, a deployment setting).`);
   const base: Omit<MigrateReport, 'pullRequest' | 'files'> = {
@@ -245,7 +248,7 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
     configChange: mentions === 'no-git' ? null : mentions,
     retirements: decisions.retirements,
     notes,
-    warnings: decisions.warnings,
+    warnings,
     stopReason: decisions.stopReason,
   };
   const report: MigrateReport = { ...base, pullRequest: pullRequestBody(base), files: null };

@@ -245,6 +245,67 @@ It trusts nothing it reads from the store: the repair's directory must be `.shad
 
 Blame, repair, verify and apply each log an activity event in the store (`blame.done`, `repair.accepted`, `repair.empty`, `verify.accepted`, `verify.rejected`, `fix.applied`).
 
+## decisions
+
+```sh
+shadowlap decisions <runs|goldens...> (--model <model> | --from-code | --set <key=value>) [options] [-- <command> [args...]]
+```
+
+Previews what a change decides differently, without running the agent. Each recorded model call is asked again: its request exactly as recorded, with only what the change touches swapped in, sent through the same upstreams a live call goes to. The answer's decision (the tools it calls, in order, with their arguments, and whether it stops or hands over) is compared with the recorded one and ranked by consequence, writes first. No tool runs, and a step doesn't depend on the one before, so the steps are asked in parallel. [Decisions](./decisions.md) explains the ranks, the report and the limits.
+
+Runs are ids, unique prefixes or `label:<name>`; a path such as `goldens/*` names packs, which are imported as `test` imports them and named as its history names them. The change is one or more of `--model`, `--set` and `--from-code`. Requests need the provider's credentials on this machine (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AZURE_OPENAI_API_KEY`; AWS credentials for Bedrock, Google credentials for Vertex AI), unless `SHADOWLAP_UPSTREAM_<PROVIDER>` points the provider at a server of your own; without them nothing is sent and the command says which is missing.
+
+| Option | Effect |
+|---|---|
+| `--model <model>` | The change is this model, at every model call: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure |
+| `--from-code` | The change is the system prompt and tool definitions your working tree sends now. They are read by replaying each run offline under your code, its model calls matched without their prompt and tools; nothing is sent to read them, no tool runs, and the replay is not kept. A run whose first model request differs in more than its prompt and tools is refused, with the difference |
+| `--set <key=value>` | The change sets this request field at every model call, where the provider keeps it (`temperature` is `generationConfig.temperature` on Gemini); repeatable |
+| `--samples <n>` | Ask each model call *n* times and say how often its decision changed. Default 1 |
+| `--concurrency <n>` | Requests in flight at once. Default 4 |
+| `--scope <name>` | Ask only the model calls made in this [scope](./sdk.md#scopes) |
+| `--then-verify` | Then run [`verify`](#verify) on the runs with a rank 1 or 2 change, and only on those: a run that passed as recorded must keep passing, one that failed must now pass, each under its golden's checks or `--expect` |
+| `--expect <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify`: as for `verify` |
+| `--budget <usd>` | Send no request, and start no verify attempt, once this much is spent |
+| `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long |
+| `--strict` | Exit 1 when a run has a rank 1 or 2 change, for CI |
+| `-y`, `--yes` | Run the recorded command of an imported run or golden (`--from-code`, `--then-verify`) without asking |
+| `--json` | The report as JSON on stdout (below); progress goes to stderr |
+
+The command after `--` replaces each run's recorded one, for `--from-code` and `--then-verify`.
+
+Exit status 0 when every run was asked; 1 when it stopped early (the budget, Ctrl-C), when a run could not be asked at all, when `--then-verify` did not accept the change, or with `--strict` when a run has a rank 1 or 2 change. Each session is kept in the store, with each run's part as a row of its own for its page in the dashboard, and logs a `decisions.done` activity event.
+
+`--json` prints the report the dashboard reads: `decisionsId` (`dc-…`, the session as the store keeps it), `kind` (`decisions`), `at`, `change` (its `model`, its `fields`, `fromCode`, and `text`, the change in words), `command` (the command that asks the same way again), `samples`, `runs`, `counts` (steps by rank, `1` to `5`, then `same`, `untouched` for a request the change leaves as it was, such as one the working tree sends with the same prompt, and `notAsked`), `flagged` (the runs with a rank 1 or 2 change), `cost` (per run, the mean `before` and `after` in USD; what asking `spent`; `upstreamRequests`; and `unknownModels` with no price), `tokens` (`before` and `after`, each `input`, `output`, `cacheRead` and `cacheWrite`), `retirements` (each model the runs use, or switch to, that its provider retires, as [the retirement table](./decisions.md#model-retirements) has it: `provider`, `model`, `platform`, `matched`, `deprecated`, `retires`, `earliest`, `regions`, `replacement`, `state`, `days`, `source` and `text`), `notes` (what to keep in mind reading it: later steps are judged in the recorded run's state, reasoning left out, cache breakpoints kept), `warnings`, `verify` (with `--then-verify`: the `verdict`, the `verifyIds` kept, each run's `runId`, `role`, `outcome`, `passes` and `attempts`, the `commands` that verify them again, what it `spent`, its `upstreamRequests` and `reasons`; else `null`), `remedies` (empty here; see [`migrate`](#migrate)) and `stopReason`.
+
+Each of `runs` has `runId`, `golden` (or `null`), `steps` (its model calls), `asked`, `rank` (its most consequential change, or `null`), `counts`, `cost` and `tokens` for the steps asked, `thinkingStripped`, `refused` (why none of its calls could be asked, or `null`), `decisions` and `warnings`. Its `decisions` are every model call, the changed ones first, most consequential first: `callNo` in the recording, `step` among its model calls, `scope`, `rank`, `changes` (each with its `rank`, its `kind`, one of `write-added`, `write-removed`, `write-arguments`, `write-order`, `stops`, `handover`, `read-added`, `read-removed`, `read-arguments` and `text`, the `tool` and its `effect`, `before`, `after` and a `detail` sentence), `recorded` and `now` (each decision's `stop`, one of `tools`, `answer`, `limit`, `refused`, `paused` and `other`, the provider's `stopReason`, its `tools` with their arguments and effect, and its `text`; `now` is `null` when no answer came), `samples` (`asked`, `answered`, `changed`, and each sample's rank in `ranks`, 0 for the same), `model` (`recorded` and `asked`), `tokens` and `cost` (`before` and `after`), `thinkingStripped` (reasoning blocks left out of the request) and `error` (why it wasn't asked, or got no answer).
+
+A request that fails is retried twice when the provider says so (408, 409, 429, 5xx), honouring `retry-after`; one the provider refuses keeps its answer's message in `error`.
+
+## migrate
+
+```sh
+shadowlap migrate --to <model> [goldens...] [options] [-- <command> [args...]]
+```
+
+Switches models with the evidence, for a model a provider retires or one you would rather pay for. It runs [`decisions --model`](#decisions) on the goldens (`goldens/*` unless you name packs or runs), with the fields the new model refuses changed to what it takes, then [`verify`](#verify) on the runs with a rank 1 or 2 change, and compares what a run costs. It ends in one report: what changes, what still passes, what it costs, and what to set. [Decisions](./decisions.md#migrate) explains each block.
+
+| Option | Effect |
+|---|---|
+| `--to <model>` | The model to switch to. Required |
+| `--set <key=value>` | A request field the switch sets as well (repeatable) |
+| `--samples <n>`, `--concurrency <n>` | As for `decisions` |
+| `--expect <json\|@file>` | What a passing run must do besides exiting 0. Default: each golden's checks from `shadowlap.config.json` |
+| `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | Verify's, as for `verify`. Default 4 of 5 |
+| `--budget <usd>`, `--timeout <seconds>` | As for `decisions` |
+| `-y`, `--yes` | Run the recorded command of imported goldens without asking |
+| `--json` | The report as JSON on stdout (below) |
+
+The fields it changes come from two places: the [retirement table](./decisions.md#model-retirements)'s notes on what a provider stops accepting (Anthropic's Claude 4.7 and later answer a non-default `temperature`, `top_p` or `top_k` with a 400: `temperature` is set to its default, 1, and the other two are left out), and the new model's own refusal when it names what to change (`max_tokens: 64000 > 32000`, *at most 16384 completion tokens*, *Only the default (1) value is supported*): the step is asked once more with that field changed. Verify runs with the fields it set; a field it left out has to leave your agent's requests first, since verify runs your code, and the report warns of it. A refusal that names nothing to change stays the step's `error`.
+
+It writes the pull request body and the change to the project's files that name the old model (a patch `git apply` takes) under `.shadowlap/migrations/<id>/`, and keeps the report in the store (`mg-…`), logging a `migrate.done` activity event. Exit status 0 when every run verified passes and every step was asked; 1 otherwise.
+
+`--json` prints `migrateId`, `kind` (`migrate`), `at`, `from` (the models the recordings use), `to`, `command`, `decisions` (the [decisions report](#decisions), with its `remedies`: each `field`, its `value`, whether it is `leftOut`, `why`, its `source` page, or `null` when the provider's refusal said it, and the `steps` that needed it), `changes` (`runs`, `flagged`, and each rank 1 or 2 change in `steps`: `runId`, `golden`, `callNo`, `rank`, `detail`, the `recorded` and the `now` action, and how the `arguments` differ), `passes` (the `verdict`, and each run's `outcome`: `kept`, `fixed`, `broken`, `still-failing` or `unsettled` when it was `verified`, `unchanged` when no write or stop decision changed so it was not re-run, `not-asked`), `costs` (`perRun` and `total`, `before` and `after` in USD, `tokensPerRun`, and what `checking` cost: `decisions` and `verify`), `set` (the `flags` verify took, the `fields` changed, and those `given` with `--set`), `configChange` (the `files` that name the old model, with the `places` in each, and the `patch`; `null` when no file does), `pullRequest` (`title` and `body`), `files` (where the `dir`, the `pullRequest` body and the `patch` were written), `retirements`, `notes`, `warnings` and `stopReason`.
+
 ## tasks
 
 ```sh

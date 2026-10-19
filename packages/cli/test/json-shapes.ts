@@ -77,6 +77,17 @@ export const SHAPES = {
   fixApply: { section: 'fix', grows: true, fields: ['fixId', 'status', 'again', 'patch', 'repairId', 'goldens', 'tests'] },
   fixPr: { section: 'fix', grows: true, fields: ['fixId', 'pr'] },
   fixError: { section: 'fix', grows: true, fields: ['fixId', 'status', 'error'] },
+  // Preview a change: decisions' report, which the dashboard reads as it is, and migrate's.
+  decisions: { section: 'decisions', grows: true, fields: ['decisionsId', 'kind', 'at', 'change', 'command', 'samples', 'runs', 'counts', 'flagged', 'cost', 'tokens', 'retirements', 'notes', 'warnings', 'verify', 'remedies', 'stopReason'] },
+  decisionsChange: { section: 'decisions', grows: true, fields: ['model', 'fields', 'fromCode', 'text'] },
+  decisionsRun: { section: 'decisions', grows: true, fields: ['runId', 'golden', 'steps', 'asked', 'rank', 'counts', 'cost', 'tokens', 'thinkingStripped', 'refused', 'decisions', 'warnings'] },
+  decisionsStep: { section: 'decisions', grows: true, fields: ['callNo', 'step', 'scope', 'rank', 'changes', 'recorded', 'now', 'samples', 'model', 'tokens', 'cost', 'thinkingStripped', 'error'] },
+  decisionsDifference: { section: 'decisions', grows: true, fields: ['rank', 'kind', 'tool', 'effect', 'before', 'after', 'detail'] },
+  decisionsView: { section: 'decisions', grows: true, fields: ['stop', 'stopReason', 'tools', 'text'] },
+  migrate: { section: 'migrate', grows: true, fields: ['migrateId', 'kind', 'at', 'from', 'to', 'command', 'decisions', 'changes', 'passes', 'costs', 'set', 'configChange', 'pullRequest', 'files', 'retirements', 'notes', 'warnings', 'stopReason'] },
+  migrateCosts: { section: 'migrate', grows: true, fields: ['perRun', 'total', 'tokensPerRun', 'checking'] },
+  migrateSet: { section: 'migrate', grows: true, fields: ['flags', 'fields', 'given'] },
+  migratePasses: { section: 'migrate', grows: true, fields: ['verdict', 'runs'] },
   // Tests: test's report (the GitHub Action reads it), and bisect's.
   test: { section: 'test', grows: true, fields: ['version', 'session', 'revision', 'passed', 'failed', 'interrupted', 'results'] },
   testResult: { section: 'test', grows: true, fields: ['name', 'dir', 'golden', 'mode', 'ok', 'failure', 'message', 'details', 'output', 'seconds', 'runId', 'runs', 'goldenRunId', 'calls', 'upstreamRequests', 'tokensNotRespent', 'divergence', 'checks', 'attempts', 'expect', 'updated'] },

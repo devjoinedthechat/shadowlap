@@ -122,7 +122,7 @@ describe('shadowlap decisions', () => {
     const emailStep = callOf(runId, 'send_email');
     const runs = runsInStore();
     const before = mock.requests.length;
-    const r = await shadowlap(['decisions', runId, '--from-code', '--json'], { AGENT_SYSTEM_SUFFIX: 'Never send email.', REFERENCE_AGENT_OUTBOX: outbox });
+    const r = await shadowlap(['decisions', runId, '--from-code', '--json'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.', REFERENCE_AGENT_OUTBOX: outbox });
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
     expect(report.flagged).toEqual([runId]);
@@ -132,16 +132,16 @@ describe('shadowlap decisions', () => {
     expect(step.changes.map((c) => c.kind)).toEqual(['write-removed', 'stops', 'text']);
     // The change is the prompt the working tree sends, read offline: nothing ran, nothing was kept but the recording.
     expect(report.change.fromCode).toMatchObject({ calls: 11, tools: { added: [], removed: [], changed: [] } });
-    expect(report.change.fromCode!.instructions!.after).toContain('Never send email.');
+    expect(report.change.fromCode!.instructions!.after).toContain('Do not email the summary.');
     expect(readFileSync(outbox, 'utf8').trim().split('\n')).toHaveLength(1);
     expect(runsInStore().sort()).toEqual(runs.sort());
     const sent = mock.requests.slice(before);
     expect(sent).toHaveLength(11);
-    expect(sent.every((q) => JSON.stringify(q.body.system).includes('Never send email.'))).toBe(true);
+    expect(sent.every((q) => JSON.stringify(q.body.system).includes('Do not email the summary.'))).toBe(true);
 
-    const text = await shadowlap(['decisions', runId.slice(0, 10), '--from-code'], { AGENT_SYSTEM_SUFFIX: 'Never send email.' });
+    const text = await shadowlap(['decisions', runId.slice(0, 10), '--from-code'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' });
     expect(text.code, text.out).toBe(0);
-    expect(text.stdout).toContain('1 of 1 run decide a write or when to stop differently, under the prompt and tools in the working tree');
+    expect(text.stdout).toContain('1 of 1 run decides a write or when to stop differently, under the prompt and tools in the working tree');
     expect(text.stdout).toMatch(new RegExp(`#${emailStep} +step 10 +rank 1 +send_email is no longer called`));
     expect(text.stdout).toContain("Later steps are judged in the recorded run's state");
   }, 120_000);
@@ -180,7 +180,7 @@ describe('shadowlap decisions', () => {
     // A run that crashes after its third model call never reaches the email: the prompt change doesn't touch its decisions.
     const short = await shadowlap(['run', '--', process.execPath, AGENT], { AGENT_FAIL_AFTER_CALL: '3' });
     const shortId = /recording run (\w{26})/.exec(short.out)![1]!;
-    const r = await shadowlap(['decisions', full, shortId, '--from-code', '--then-verify', '--attempts', '2', '--json'], { AGENT_SYSTEM_SUFFIX: 'Never send email.' });
+    const r = await shadowlap(['decisions', full, shortId, '--from-code', '--then-verify', '--attempts', '2', '--json'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' });
     const report = json<DecisionsReport>(r);
     expect(report.flagged).toEqual([full]);
     expect(report.runs.find((x) => x.runId === shortId)).toMatchObject({ rank: null, asked: 3 });

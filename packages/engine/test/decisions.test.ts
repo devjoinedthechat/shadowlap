@@ -188,7 +188,7 @@ describe('formatDecisions', () => {
       stopReason: null,
     };
     const text = formatDecisions(report);
-    expect(text).toContain('1 of 1 run decide a write or when to stop differently, under the prompt and tools in the working tree');
+    expect(text).toContain('1 of 1 run decides a write or when to stop differently, under the prompt and tools in the working tree');
     expect(text).toMatch(/#10 +step 10 +rank 1 +send_email is no longer called/);
     expect(text).toContain('recorded send_email({"to":"team@example.com"})');
     expect(text).toContain('now      answers and stops: "Not emailing."');
