@@ -71,8 +71,9 @@ Three things to expect:
 
 Once a week of traffic is in the store, [`shadowlap coverage`](./coverage.md) groups it by what
 the agent did (the tools it called, the writes among them, how it ended) and names the behaviours
-no golden covers. `--pack` replays one run of each with your agent's command, offline, its tool
-results taken from the capture, and keeps it as a golden.
+no golden covers. `--pack` replays one run of each with your agent's command, its own input filled
+in where `{message}` stands, offline, its tool results taken from the capture, and keeps it as a
+golden.
 
 ## Keeping the volume down
 

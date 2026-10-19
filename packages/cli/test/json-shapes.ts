@@ -111,9 +111,9 @@ export const SHAPES = {
   storePushFromCi: { section: 'store', grows: true, fields: ['ciPush', 'previous', 'config'] },
   // Production coverage: coverage --json, each behaviour, each golden read, and what --pack made.
   coverage: { section: 'coverage', fields: ['scanId', 'at', 'runs', 'uncovered', 'groups', 'goldens', 'pack'] },
-  coverageGroup: { section: 'coverage', list: 'for every behaviour', fields: ['key', 'covered', 'coveredBy', 'path', 'writes', 'unknown', 'outcome', 'runs', 'runIds', 'sources', 'firstSeen', 'lastSeen', 'nearest', 'command', 'packed'] },
+  coverageGroup: { section: 'coverage', list: 'for every behaviour', fields: ['key', 'covered', 'coveredBy', 'path', 'writes', 'unknown', 'outcome', 'runs', 'runIds', 'sources', 'firstSeen', 'lastSeen', 'nearest', 'command', 'packed', 'lastPack'] },
   coverageGolden: { section: 'coverage', list: 'for every golden read', fields: ['golden', 'runId', 'path', 'writes', 'outcome', 'error'] },
-  coveragePack: { section: 'coverage', list: 'what each became', fields: ['key', 'golden', 'runId', 'from', 'command', 'why'] },
+  coveragePack: { section: 'coverage', list: 'what each became', fields: ['key', 'golden', 'runId', 'from', 'command', 'mode', 'reason', 'why'] },
   // Error-path presets: test --chaos --json and replay --chaos --summary-json, each recording, each preset, each attempt.
   chaos: { section: 'Error-path presets', fields: ['version', 'session', 'revision', 'presets', 'passed', 'failed', 'inconclusive', 'notApplicable', 'interrupted', 'results'] },
   chaosRecording: { section: 'Error-path presets', list: 'each recording', fields: ['golden', 'runId', 'outcomes', 'judge', 'error', 'skipped'] },

@@ -1,8 +1,11 @@
-// Sample captures for `shadowlap import`, one per format the CLI reads. The HTTP formats (HAR, nock,
-// VCR, LiteLLM) are made from the requests and responses of runs the demo recorded, exported as a
-// HAR; the traces (OpenTelemetry, Langfuse, LangSmith) are the fixtures the CLI's own tests import.
-// Each is dated a given number of days back, so the runs imported from them spread over the calendar
-// the way captured traffic would. nock and VCR keep no times: their runs are dated by the import.
+// Sample captures for `shadowlap import`, one per format the CLI reads, each made from the requests
+// and responses of runs a demo agent made, exported as a HAR: the HTTP formats (HAR, nock, VCR,
+// LiteLLM) as a proxy or a test library saves them, and the traces (OpenTelemetry, Langfuse,
+// LangSmith) as each one's own instrumentation of the Anthropic client logs a model call, the
+// request and response with it. Each is dated a given number of days back, so the runs imported
+// from them spread over the calendar the way captured traffic would. nock and VCR keep no times:
+// their runs are dated by the import.
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const DAY = 86_400_000;
@@ -112,26 +115,120 @@ export function litellm(entries, start, runKey, files) {
   return out.map((lines) => `${lines.join('\n')}\n`);
 }
 
-const ISO = /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?(Z?)/g;
-const NANOS = /("(?:start|end|observed)?[Tt]ime(?:UnixNano)?"\s*:\s*")(\d{16,})(")/g;
+// ---- traces: what an instrumented Anthropic client logs of each model call ----
+
+const hex = (seed, n) => createHash('sha256').update(seed).digest('hex').slice(0, n);
+const uuid = (seed) => {
+  const h = hex(seed, 32);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-7${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+};
+const iso = (ms) => new Date(ms).toISOString();
+const calls = (entries) =>
+  entries.map((e) => {
+    const request = JSON.parse(e.requestBody || '{}');
+    const response = JSON.parse(e.responseBody || '{}');
+    return { request, response, model: response.model ?? request.model, usage: response.usage ?? {}, time: e.time };
+  });
 
 /**
- * A trace fixture moved in time: every ISO date and every nanosecond timestamp shifted by the
- * same amount, so its first moment lands at `start` and the trace keeps its own pacing.
+ * OTLP JSON as Arize Phoenix's Anthropic instrumentation (OpenInference) exports a trace: an agent
+ * span and an LLM span per model call, whose input.value and output.value are the request the
+ * client sent and the response it got.
  */
-export function redate(text, start) {
-  const firsts = [];
-  for (const m of text.matchAll(ISO)) firsts.push(Date.parse(`${m[1]}${m[2] ?? ''}Z`));
-  for (const m of text.matchAll(NANOS)) firsts.push(Number(BigInt(m[2]) / 1_000_000n));
-  const first = Math.min(...firsts.filter(Number.isFinite));
-  const shift = start - first;
-  return text
-    .replace(ISO, (_all, base, frac = '', z) => {
-      const moved = new Date(Date.parse(`${base}${frac}Z`) + shift).toISOString();
-      const [day, time] = moved.split('T');
-      const whole = time.slice(0, 8);
-      const digits = frac ? `.${moved.slice(20, 23).padEnd(frac.length - 1, '0')}` : '';
-      return `${day}T${whole}${digits}${z}`;
-    })
-    .replace(NANOS, (_all, before, nanos, after) => `${before}${BigInt(nanos) + BigInt(shift) * 1_000_000n}${after}`);
+export function openinference(entries, start, service) {
+  const traceId = hex(`${service}:${start}`, 32);
+  const root = hex(`${traceId}:agent`, 16);
+  const ns = (ms) => String(BigInt(Math.round(ms)) * 1_000_000n);
+  const str = (key, value) => ({ key, value: { stringValue: value } });
+  const int = (key, value) => ({ key, value: { intValue: String(value ?? 0) } });
+  const llm = calls(entries).map((c, i) => ({
+    traceId,
+    spanId: hex(`${traceId}:${i}`, 16),
+    parentSpanId: root,
+    name: 'Messages',
+    kind: 1,
+    startTimeUnixNano: ns(at(start, i)),
+    endTimeUnixNano: ns(at(start, i) + c.time),
+    attributes: [
+      str('openinference.span.kind', 'LLM'),
+      str('llm.provider', 'anthropic'),
+      str('llm.system', 'anthropic'),
+      str('llm.model_name', c.model),
+      str('llm.invocation_parameters', JSON.stringify({ model: c.request.model, max_tokens: c.request.max_tokens })),
+      str('input.value', JSON.stringify(c.request)),
+      str('input.mime_type', 'application/json'),
+      str('output.value', JSON.stringify(c.response)),
+      str('output.mime_type', 'application/json'),
+      int('llm.token_count.prompt', c.usage.input_tokens),
+      int('llm.token_count.completion', c.usage.output_tokens),
+    ],
+    status: { code: 1 },
+  }));
+  const agent = { traceId, spanId: root, name: service, kind: 1, startTimeUnixNano: ns(start), endTimeUnixNano: ns(at(start, entries.length)), attributes: [str('openinference.span.kind', 'AGENT')], status: { code: 1 } };
+  return json({
+    resourceSpans: [
+      {
+        resource: { attributes: [str('service.name', service)] },
+        scopeSpans: [
+          { scope: { name: 'openinference.instrumentation.anthropic', version: '0.1.19' }, spans: llm },
+          { scope: { name: service }, spans: [agent] },
+        ],
+      },
+    ],
+  });
 }
+
+/**
+ * A LangSmith trace of an agent whose Anthropic client is wrapped (`wrap_anthropic`): a root run and
+ * an llm run per model call, its inputs the request and its outputs the response, as
+ * `POST /runs/query` pages them.
+ */
+export function langsmith(entries, start, name) {
+  const traceId = uuid(`langsmith:${name}:${start}`);
+  const end = at(start, entries.length);
+  const root = { id: traceId, name, run_type: 'chain', start_time: iso(start).slice(0, -1), end_time: iso(end).slice(0, -1), inputs: {}, outputs: {}, error: null, extra: {}, parent_run_id: null, trace_id: traceId, status: 'success' };
+  const runs = calls(entries).map((c, i) => ({
+    id: uuid(`${traceId}:${i}`),
+    name: 'ChatAnthropic',
+    run_type: 'llm',
+    start_time: iso(at(start, i)).slice(0, -1),
+    end_time: iso(at(start, i) + c.time).slice(0, -1),
+    inputs: c.request,
+    outputs: c.response,
+    error: null,
+    extra: { invocation_params: { model: c.request.model, max_tokens: c.request.max_tokens }, metadata: { ls_provider: 'anthropic', ls_model_type: 'chat', ls_model_name: c.request.model } },
+    parent_run_id: traceId,
+    trace_id: traceId,
+    status: 'success',
+    prompt_tokens: c.usage.input_tokens ?? 0,
+    completion_tokens: c.usage.output_tokens ?? 0,
+    total_tokens: (c.usage.input_tokens ?? 0) + (c.usage.output_tokens ?? 0),
+  }));
+  return { traceId, pages: [{ runs: [root, ...runs], cursors: { next: null } }] };
+}
+
+/**
+ * A Langfuse trace as `GET /api/public/traces/<id>` answers it, from its Anthropic integration: a
+ * generation per model call, its input the request's messages, system prompt and tools, its model
+ * parameters, and the response as its output.
+ */
+export function langfuse(entries, start, name) {
+  const id = uuid(`langfuse:${name}:${start}`);
+  const observations = calls(entries).map((c, i) => ({
+    id: uuid(`${id}:${i}`),
+    traceId: id,
+    type: 'GENERATION',
+    name: 'anthropic.messages.create',
+    startTime: iso(at(start, i)),
+    endTime: iso(at(start, i) + c.time),
+    model: c.request.model,
+    modelParameters: { max_tokens: c.request.max_tokens },
+    input: { system: c.request.system, messages: c.request.messages, tools: c.request.tools },
+    output: c.response,
+    usageDetails: { input: c.usage.input_tokens ?? 0, output: c.usage.output_tokens ?? 0 },
+    metadata: { provider: 'anthropic' },
+    level: 'DEFAULT',
+  }));
+  return { id, text: json({ id, name, timestamp: iso(start), observations }) };
+}
+

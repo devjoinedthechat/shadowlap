@@ -2,7 +2,7 @@
 
 Global options: `--db <path>` (default `./.shadowlap/shadowlap.db`), `-v` / `--verbose` (sidecar log on stderr), given before the command or after it: `shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Each command's `--help` lists them. Run ids can be abbreviated to any unique prefix.
 
-A store is created by the first command that records into it. Commands that only read it (`ls`, `show`, `search`, `diff`, `pack`, the exports, `fix ls`, `tasks`, `coverage`), or change only what it already holds (`label`, `note`, `rm`, `fix title`), never create one: where there is none they find nothing, and when the project's store is in a folder above (run from `src/`, say) they name it.
+A store is created by the first command that records into it. Commands that only read it (`ls`, `show`, `search`, `diff`, `pack`, the exports, `fix ls`, `tasks`), or change only what it already holds (`label`, `note`, `rm`, `fix title`, and `coverage`, which keeps its scans there), never create one: where there is none they find nothing, and when the project's store is in a folder above (run from `src/`, say) they name it.
 
 ## init
 
@@ -603,29 +603,33 @@ dashboard, the command also reports each run to the job that started it.
 
 ```sh
 shadowlap coverage [--json]
-shadowlap coverage --pack [<behaviour>...] [--json] [--guard <mode>] [-- <command>]
+shadowlap coverage --pack [<behaviour>...] [--not-packed fail|warn] [--json] [-- <command>]
+shadowlap coverage --pack <behaviour>... --fork --expect <checks> [-- <command>]
 ```
 
 [Production coverage](./coverage.md): groups the project's imported runs (the captures and traces
-`import` made, a teammate's from the team store included) by behaviour, and names the behaviours no
-golden covers. A behaviour is the tools the model called, in order (the calls one answer asked for
-together in any order, as [`--repeat`](#repeating-a-fork) reads paths), the writes among them (a tool
-whose effect nothing recorded or configured names counts as one), and how the run ended: `answered`,
-`model-error` (its last model call failed), `token-limit`, `tool-call` (it ended asking for a tool),
-`agent-error` (a recording whose agent failed) or `no-model-calls`. The path is read from the model's
-own answers, so a capture with no tool calls compares with a golden. Arguments are not part of a
-behaviour. The goldens are read from their packs on disk (the goldens folder and the packs `tests`
-names), as `test` reads them; a golden covers a behaviour when its recording behaves the same way. A
-behaviour no golden covers names the golden that shares the most of its path, and where they part.
-Each scan is kept in the store, its groups replacing the last scan's, for the dashboard. Exit status
-0; with `--pack`, 1 when a behaviour asked for could not be packed.
+`import` made, a teammate's from the team store included: runs that came with no command of their
+own) by behaviour, and names the behaviours no golden covers. A behaviour is the tools the model
+called, in order (the calls one answer asked for together in any order, as
+[`--repeat`](#repeating-a-fork) reads paths), the writes among them (a tool whose effect nothing
+recorded or configured names counts as one), and how the run ended: `answered`, `model-error` (its
+last model call failed), `token-limit`, `tool-call` (it ended asking for a tool), `agent-error` (a
+recording whose agent failed) or `no-model-calls`. The path is read from the model's own answers,
+so a capture with no tool calls compares with a golden. Arguments are not part of a behaviour. The
+goldens are read from their packs on disk (the goldens folder and the packs `tests` names), as
+`test` reads them; a golden covers a behaviour when its recording behaves the same way. A behaviour
+no golden covers names the golden that shares the most of its path, and where they part, and why
+the last `--pack` couldn't pack it. Each scan is kept in the store, its groups replacing the last
+scan's, for the dashboard. Exit status 0; with `--pack`, 1 when a behaviour asked for could not be
+packed, unless `--not-packed warn`.
 
 ```
 Coverage of what 3 imported runs did: 2 behaviours, 1 not covered by a golden (1 golden read)
 
   ✗ 2 runs   lookup_order → read_policy → issue_refund
              writes issue_refund · answered · seen 2d ago in refund.har
-             nearest golden: goldens/escalate, the same for 2 steps; then it calls issue_refund where the golden calls escalate
+             nearest golden: goldens/escalate, the same for 2 steps;
+             then it calls issue_refund where the golden calls escalate
              runs: 01K5CQ9C4H 01K5CQ9B7Q · behaviour 3f9a2c1d5e8b7a60
 
   ✓ 1 run    lookup_order → read_policy → escalate
@@ -637,33 +641,48 @@ Coverage of what 3 imported runs did: 2 behaviours, 1 not covered by a golden (1
 |---|---|
 | `--json` | Print the scan as JSON (below) |
 | `--pack [<behaviour>...]` | Make a golden of one run of each behaviour no golden covers, or of the behaviours named by their key (four characters of it or more): see below |
+| `-- <command>` | With `--pack`: the agent's command, for a capture no run here says the command of. `{message}` in it stands for the capture's first message (the text of the first user turn it sent), `{message:/regex/}` for the part of it the regex picks (its first group, else the whole match), so each capture starts as production started it. A placeholder is an argument of the agent's own command, passed as it is: one in a shell's script, or after an interpreter's `-c`, `-e` or `-m`, is refused |
+| `--fork` | With `--pack` and the behaviours named: pack each as a golden that forks, its tests entry written with `"fork": true` and `--expect`, even when the agent no longer does what production did |
+| `--expect <checks>` | With `--fork`: what the agent must do on that input now, as JSON or `@file.json`, in the grammar of a tests entry's `expect` |
+| `--not-packed fail\|warn` | With `--pack`: what a behaviour that could not be packed does to the exit status. Default `fail`; `warn` reports it and exits 0, for a scheduled job |
 | `--guard <mode>` | The [network guard](./how-it-works.md#the-network-guard) for the replays `--pack` makes: `block` (default), `warn` or `off` |
-| `-- <command>` | With `--pack`: the agent's command to reproduce each capture with, when no recording here says it |
 
 `--pack` turns a capture into a golden `test` can replay. A capture holds model calls and no
 command, so its newest runs (up to three) are each replayed with the agent's command until one
-reproduces it: the command given after `--`, else the command of the newest recording here (not one
-from a pack or the team store) whose first model call sent the capture's first request exactly. The
-replay is offline and needs no tool to answer: each tool call the model asked for is served the
-result the next request carried back to the model, a tool some of whose calls got none back runs
-live, and writes are stubbed. A replay that sends every request the capture holds and exits 0 is a
-recording of the agent as it is now doing what production did, and is packed into
-`goldens/<first tool>-<writes>-<key>` (with the project's redaction rules, as `pack` writes one) and
-logged in the activity feed. One that forks is not packed, and says where it left the capture: the
-agent sends something else now (the code changed since the traffic was captured), or a tool's
-arguments are not the model's. The scan after it counts the new goldens.
+reproduces it: the command of the newest run here (not one from a pack or the team store) whose
+first model call sent the capture's first request (its fingerprint under the normalizers, or its
+bytes), then the command given after `--`, its placeholders filled for that capture. The replay is
+offline and needs no tool to answer: each tool call the model asked for is served the result the
+next request carried back to the model (as MCP content for a tool this store has recorded through
+`shadowlap mcp`), a tool the capture holds calls of itself keeps them, a tool some of whose calls got
+no answer back runs live, and writes are stubbed. A replay that sends every request the capture
+holds and exits 0 is a recording of the agent as it is now doing what production did, and is packed
+into `goldens/<first tool>-<writes>-<key>` (with the project's redaction rules, as `pack` writes one)
+and logged in the activity feed. One that doesn't is not packed, and says why: nothing says what
+starts the agent (`no-command`); the command started it with another first message than
+production's (`other-message`: the wrong command, or one that needs `{message}`); the agent sends
+something else now (`not-reproduced`: the code changed since the traffic was captured, or a tool's
+arguments are not the model's); the agent failed on what production got back (`agent-error`); or
+its runs were deleted (`gone`). A behaviour the agent no longer reproduces can still be kept, as
+the test that the change holds: `--fork` packs production's run, with the command that starts the
+agent as production did, as a golden that forks where the agent parts from it and passes on
+`--expect`. What `--pack` made of each behaviour is kept in the store, and the scan after it counts
+the new goldens.
 
-`--json` prints `{ scanId, at, runs, uncovered, groups, goldens, pack }`: the scan in the store, when
-it ran, the imported runs read and the behaviours no golden covers; for every behaviour (`key`, `covered`,
-the goldens it is `coveredBy`, its `path`, `writes`, the tools of `unknown` effect, its `outcome`,
-how many `runs` behaved so and their `runIds`, newest first, the `sources` they came from,
-`firstSeen` and `lastSeen`, the `nearest` golden for one no golden covers (`golden`, the steps
-`shared`, and where it `differs`: the `step`, what the behaviour does there as `seen` and the
-golden's), the `command` that would reproduce its newest run with the recording it came `from`, and
-what `--pack` made of it, `packed`); for every golden read (`golden`, `runId`, its `path`, `writes` and
-`outcome`, or the `error` that kept it from being read); and, with `--pack`, what each became (`key`,
-the `golden` written and the `runId` packed, the imported run it came `from`, the `command` it ran
-with where that came from, and `why` it wasn't packed), else `null`.
+`--json` prints `{ scanId, at, runs, uncovered, groups, goldens, pack }`: the scan in the store,
+when it ran, the imported runs read and the behaviours no golden covers; for every behaviour
+(`key`, `covered`, the goldens it is `coveredBy`, its `path`, `writes`, the tools of `unknown`
+effect, its `outcome`, how many `runs` behaved so and their `runIds`, newest first, the `sources`
+they came from, `firstSeen` and `lastSeen`, the `nearest` golden for one no golden covers
+(`golden`, the steps `shared`, and where it `differs`: the `step`, what the behaviour does there as
+`seen` and the golden's), the `command` that would reproduce its newest run with the run it came
+`from`, the golden this `--pack` made of it, `packed` (`golden`, `runId`, `mode`), and `lastPack`,
+what the last `--pack` made of it, here or before: `at`, the `golden` (or null), its `mode`, and the
+`reason` and `why` it wasn't packed); for every golden read (`golden`, `runId`, its `path`, `writes`
+and `outcome`, or the `error` that kept it from being read); and, with `--pack`, what each became
+(`key`, the `golden` written and the `runId` packed, the imported run it came `from`, the `command`
+it ran with where that came from, the `mode` of the golden, `replay` or `fork`, and the `reason`
+and `why` it wasn't packed), else `null`.
 
 ## calibrate
 

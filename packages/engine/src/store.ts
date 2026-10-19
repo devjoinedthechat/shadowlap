@@ -391,6 +391,22 @@ CREATE TRIGGER IF NOT EXISTS change_counts_coverage_scans_insert AFTER INSERT ON
 CREATE TRIGGER IF NOT EXISTS change_counts_coverage_groups_insert AFTER INSERT ON coverage_groups BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'coverage'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_coverage_groups_update AFTER UPDATE ON coverage_groups BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'coverage'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_coverage_groups_delete AFTER DELETE ON coverage_groups BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'coverage'; END;
+-- What \`coverage --pack\` last made of each behaviour, by its key, kept across scans: the golden it
+-- packed (and whether that golden forks), or why it couldn't (a reason word and a sentence), so the
+-- dashboard can say why before it offers Pack one again.
+CREATE TABLE IF NOT EXISTS coverage_packs (
+  key       TEXT    PRIMARY KEY,
+  at        INTEGER NOT NULL,
+  golden    TEXT,
+  run_id    TEXT,
+  from_run  TEXT,
+  mode      TEXT    CHECK (mode IS NULL OR mode IN ('replay', 'fork')),
+  reason    TEXT,
+  why       TEXT,
+  command   TEXT
+);
+CREATE TRIGGER IF NOT EXISTS change_counts_coverage_packs_insert AFTER INSERT ON coverage_packs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'coverage'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_coverage_packs_update AFTER UPDATE ON coverage_packs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'coverage'; END;
 
 -- v4: error-path presets. Each \`shadowlap test --chaos\` or \`replay --chaos\` session, and how each
 -- preset came out on each recording it forked: the call it hit, the verdict its gate reached
@@ -547,8 +563,38 @@ export interface CoverageScan {
 export interface CoverageScanData {
   goldens?: string[];
   unreadable?: Array<{ golden: string; error: string }>;
-  packed?: Array<{ key: string; golden: string; runId: string }>;
-  notPacked?: Array<{ key: string; why: string }>;
+  /** The goldens the \`--pack\` before this scan made, and the behaviours it couldn't pack, with why. */
+  packed?: Array<{ key: string; golden: string; runId: string; mode?: CoveragePackMode }>;
+  notPacked?: Array<{ key: string; reason: CoverageNotPacked; why: string }>;
+}
+
+/** How \`coverage --pack\` packed a behaviour: a golden that replays its capture, or one that forks (\`--fork\`). */
+export type CoveragePackMode = 'replay' | 'fork';
+
+/**
+ * Why \`coverage --pack\` couldn't pack a behaviour: nothing says what starts the agent (\`no-command\`),
+ * the command started it with another first message than production's (\`other-message\`), the agent
+ * sends something else now (\`not-reproduced\`: \`--fork\` packs it as the test that the change holds),
+ * the agent failed on what production got back (\`agent-error\`), or its runs were deleted (\`gone\`).
+ */
+export type CoverageNotPacked = 'no-command' | 'other-message' | 'not-reproduced' | 'agent-error' | 'gone';
+
+/** What \`coverage --pack\` last made of a behaviour. */
+export interface StoredCoveragePack {
+  key: string;
+  at: number;
+  /** The golden it packed, or null when it couldn't. */
+  golden: string | null;
+  /** The run packed. */
+  runId: string | null;
+  /** The imported run it reproduces. */
+  from: string | null;
+  mode: CoveragePackMode | null;
+  reason: CoverageNotPacked | null;
+  /** Why it wasn't packed, in a sentence. */
+  why: string | null;
+  /** The agent's command it ran, and where that came from (\`--\`, or the run that sent the same first request). */
+  command: { argv: string[]; from: string } | null;
 }
 
 /** A group of imported runs that behave alike, as the last scan left it (coverage.ts `CoverageGroup`, plus what `--pack` made of it). */
@@ -565,8 +611,8 @@ export interface StoredCoverageGroup {
   nearest: { golden: string; shared: number; differs: { step: number; seen: string | null; golden: string | null } | null } | null;
   /** For a group no golden covers: the command that would reproduce its newest run, and the recording that says so; null when none does. */
   command: { argv: string[]; from: string } | null;
-  /** The golden `coverage --pack` made of the group: its name, the run packed, when. */
-  packed: { golden: string; runId: string; at: number } | null;
+  /** The golden `coverage --pack` made of the group: its name, the run packed, when, and whether it forks. */
+  packed: { golden: string; runId: string; at: number; mode?: CoveragePackMode | null } | null;
 }
 
 /** coverage.ts `Behaviour`, as stored. */
@@ -1513,6 +1559,31 @@ export class Store {
         insert.run(g.key, scan.scanId, JSON.stringify(g.behaviour), g.runs, JSON.stringify(g.runIds), JSON.stringify(g.sources), g.firstSeen, g.lastSeen, JSON.stringify(g.coveredBy), g.nearest ? JSON.stringify(g.nearest) : null, g.command ? JSON.stringify(g.command) : null, g.packed ? JSON.stringify(g.packed) : null);
       }
     });
+  }
+
+  /** Keeps what \`coverage --pack\` made of a behaviour, replacing what it made of it before. */
+  saveCoveragePack(p: StoredCoveragePack): void {
+    this.db
+      .prepare(`INSERT OR REPLACE INTO coverage_packs (key, at, golden, run_id, from_run, mode, reason, why, command) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(p.key, p.at, p.golden, p.runId, p.from, p.mode, p.reason, p.why, p.command ? JSON.stringify(p.command) : null);
+  }
+
+  /** What \`coverage --pack\` last made of each behaviour it tried, newest first. */
+  coveragePacks(): StoredCoveragePack[] {
+    return this.db
+      .prepare(`SELECT * FROM coverage_packs ORDER BY at DESC, key ASC`)
+      .all()
+      .map((r) => ({
+        key: String(r.key),
+        at: Number(r.at),
+        golden: r.golden === null ? null : String(r.golden),
+        runId: r.run_id === null ? null : String(r.run_id),
+        from: r.from_run === null ? null : String(r.from_run),
+        mode: r.mode === null ? null : (String(r.mode) as CoveragePackMode),
+        reason: r.reason === null ? null : (String(r.reason) as CoverageNotPacked),
+        why: r.why === null ? null : String(r.why),
+        command: parseJsonColumn<StoredCoveragePack['command']>(r.command, null),
+      }));
   }
 
   /** The newest scans, newest first. */

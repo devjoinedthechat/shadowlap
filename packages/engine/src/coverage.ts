@@ -1,7 +1,10 @@
+import { basename } from 'node:path';
 import { canonicalize } from './canonical.js';
 import { runKind } from './classify.js';
+import { normalizeConversation } from './conversation.js';
 import { responseInfo } from './conversations.js';
 import { sha256 } from './ids.js';
+import { loadApiRequest } from './manifest.js';
 import { commandIsImported, hasRecordedCommand } from './pack.js';
 import { normalizeResponse } from './responses.js';
 import type { Store } from './store.js';
@@ -255,26 +258,154 @@ export function behaviourSlug(b: Behaviour, key: string): string {
 
 // ---- the command that reproduces a capture ----
 
+/** A command that reproduces a capture: the agent's argv, and the recording that says so. */
+export interface InferredCommand {
+  argv: string[];
+  from: string;
+}
+
 /**
- * The command that reproduces a capture, when none is given: the command of this project's newest
- * run whose first model call sent exactly the capture's first request, as its own recording (never a
- * command that came from a pack or the team store, which someone else chose). Null when none did.
+ * What finds the command that reproduces a capture when none is given: the command of this
+ * project's newest run whose first model call sent the capture's first request, by its fingerprint
+ * (the request under the normalizers, so a per-run value a normalizer masks doesn't stand in the
+ * way) or byte for byte, as its own run (never a command that came from a pack or the team store,
+ * which someone else chose, nor a capture's, which has none). The store is read once, on the first
+ * capture asked about: every run's first model call, in one pass.
  */
-export function inferCommand(store: Store, capture: RunRecord): { argv: string[]; from: string } | null {
-  const first = store.getCalls(capture.runId).find((c) => c.kind === 'api' && c.requestRef);
+export function commandFinder(store: Store): (capture: RunRecord) => InferredCommand | null {
+  let index: { byFingerprint: Map<string, string[]>; byRef: Map<string, string[]> } | null = null;
+  const read = () => {
+    // SQLite returns the other columns of the row MIN() picked: each run's first model call.
+    const rows = store.query(
+      `SELECT e.run_id AS run_id, MIN(e.call_no) AS call_no, e.fingerprint AS fp, e.request_ref AS ref, r.started_at AS at
+       FROM call_events e JOIN runs r ON r.run_id = e.run_id
+       WHERE e.phase = 'start' AND e.kind = 'api' AND r.status <> 'running'
+       GROUP BY e.run_id`,
+    );
+    rows.sort((a, b) => Number(b.at) - Number(a.at) || String(b.run_id).localeCompare(String(a.run_id)));
+    const byFingerprint = new Map<string, string[]>();
+    const byRef = new Map<string, string[]>();
+    const add = (map: Map<string, string[]>, key: unknown, id: string) => {
+      if (typeof key !== 'string' || !key) return;
+      const list = map.get(key);
+      if (list) list.push(id);
+      else map.set(key, [id]);
+    };
+    for (const row of rows) {
+      add(byFingerprint, row.fp, String(row.run_id));
+      add(byRef, row.ref, String(row.run_id));
+    }
+    return { byFingerprint, byRef };
+  };
+  return (capture) => {
+    const first = store.getCalls(capture.runId).find((c) => c.kind === 'api');
+    if (!first) return null;
+    index ??= read();
+    const ids = [...(index.byFingerprint.get(first.fingerprint) ?? []), ...(first.requestRef ? (index.byRef.get(first.requestRef) ?? []) : [])];
+    const tried = new Set<string>();
+    for (const id of ids) {
+      if (id === capture.runId || tried.has(id)) continue;
+      tried.add(id);
+      const run = store.getRun(id);
+      if (!run || !hasRecordedCommand(run) || commandIsImported(run) || runKind(run) === 'capture') continue;
+      return { argv: run.command.argv, from: run.runId };
+    }
+    return null;
+  };
+}
+
+/** The command that reproduces one capture ({@link commandFinder}), or null when no run here says it. */
+export function inferCommand(store: Store, capture: RunRecord): InferredCommand | null {
+  return commandFinder(store)(capture);
+}
+
+/**
+ * The first message of a run: the text of the first user turn its first model call sent, which is
+ * where an agent's input shows (the question asked, the order it was given). What a command's
+ * `{message}` stands for when `coverage --pack` starts the agent for a capture. Null when the run's
+ * first model call holds no user text.
+ */
+export function firstMessage(store: Store, runId: string): string | null {
+  const first = store.getCalls(runId).find((c) => c.kind === 'api' && c.requestRef);
   if (!first?.requestRef) return null;
-  const rows = store.query(
-    `SELECT e.run_id AS run_id FROM call_events e JOIN runs r ON r.run_id = e.run_id
-     WHERE e.phase = 'start' AND e.kind = 'api' AND e.request_ref = ? AND e.run_id <> ?
-       AND e.call_no = (SELECT MIN(f.call_no) FROM call_events f WHERE f.run_id = e.run_id AND f.phase = 'start' AND f.kind = 'api')
-     ORDER BY r.started_at DESC, r.run_id DESC LIMIT 50`,
-    first.requestRef,
-    capture.runId,
-  );
-  for (const row of rows) {
-    const run = store.getRun(String(row.run_id));
-    if (!run || run.status === 'running' || !hasRecordedCommand(run) || commandIsImported(run) || runKind(run) === 'capture') continue;
-    return { argv: run.command.argv, from: run.runId };
+  try {
+    return requestMessage(loadApiRequest(store, first.requestRef), typeof first.meta.model === 'string' ? first.meta.model : null);
+  } catch {
+    return null;
+  }
+}
+
+/** The text of a request's first user turn, or null. */
+export function requestMessage(body: unknown, model: string | null = null): string | null {
+  const turn = normalizeConversation(body, model)?.turns.find((t) => t.role === 'user');
+  const text = (turn?.blocks ?? []).filter((b): b is { type: 'text'; text: string } => b.type === 'text').map((b) => b.text).join('\n');
+  return text ? text : null;
+}
+
+// ---- the command, per capture: `{message}` ----
+
+/** `{message}`, or `{message:/<pattern>/<flags>}`: the pattern as a JavaScript regex literal writes it. */
+const PLACEHOLDER = /\{message(?::\/((?:\\.|[^\\/\n])+)\/([imsu]*))?\}/g;
+
+/** Programs that run their arguments as code: a message must never become a script. */
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'csh', 'tcsh', 'cmd', 'cmd.exe', 'powershell', 'powershell.exe', 'pwsh', 'pwsh.exe']);
+/**
+ * The flags after which an interpreter runs, or loads, the next argument as code (`node -e`,
+ * `python -c`, `python -m`, `node --require`): among the flags before the script, they are code.
+ */
+const CODE_FLAGS = new Set(['-c', '-e', '--eval', '-p', '--print', '-command', '/c', '-x', '-r', '-m', '--require', '--import', '--loader', '--experimental-loader']);
+
+export function hasPlaceholder(argv: readonly string[]): boolean {
+  return argv.some((a) => new RegExp(PLACEHOLDER.source).test(a));
+}
+
+/**
+ * Why a command's placeholders can't be used, or null: each regex compiles, and none is where it
+ * would be run as code (a shell's script; an interpreter's `-c`, `-e` or `-m` before its script).
+ * The message comes from production traffic: it is only ever an argument, passed as it is.
+ */
+export function checkCommandTemplate(argv: readonly string[]): string | null {
+  if (!hasPlaceholder(argv)) return null;
+  const program = basename(argv[0] ?? '').toLowerCase();
+  if (SHELLS.has(program)) return `${argv[0]} runs its arguments as a script, and {message} is text from production: give the agent's own command, with {message} as one of its arguments`;
+  // The interpreter's own flags: those before its script (the first argument that isn't a flag).
+  let leading = 1;
+  while (leading < argv.length && argv[leading]!.startsWith('-')) leading++;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    for (const m of arg.matchAll(PLACEHOLDER)) {
+      if (i > 0 && i <= leading && CODE_FLAGS.has(argv[i - 1]!.toLowerCase())) return `{message} after ${argv[i - 1]} would run as code: give the agent's own command, with {message} as one of its arguments`;
+      if (m[1] !== undefined) {
+        try {
+          new RegExp(m[1], m[2]);
+        } catch (err) {
+          return `${m[0]}: ${(err as Error).message}`;
+        }
+      }
+    }
   }
   return null;
+}
+
+/**
+ * The command for one capture: each `{message}` replaced by its first message, each
+ * `{message:/regex/}` by the part of it the regex picks (its first group, else the whole match).
+ * Why not, when the capture has no first message or the regex finds nothing in it.
+ */
+export function fillCommand(argv: readonly string[], message: string | null): { argv: string[] } | { why: string } {
+  if (!hasPlaceholder(argv)) return { argv: [...argv] };
+  if (message === null) return { why: 'its first model call holds no user message for {message} to stand for' };
+  const out: string[] = [];
+  const missing: string[] = [];
+  for (const arg of argv) {
+    out.push(
+      arg.replace(PLACEHOLDER, (all: string, pattern: string | undefined, flags: string | undefined) => {
+        if (pattern === undefined) return message;
+        const m = new RegExp(pattern, flags).exec(message);
+        if (!m) missing.push(all.slice('{message:'.length, -1));
+        return m ? (m[1] ?? m[0]) : all;
+      }),
+    );
+  }
+  return missing.length ? { why: `its first message has no match for ${missing[0]}` } : { argv: out };
 }

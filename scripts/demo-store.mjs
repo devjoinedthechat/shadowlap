@@ -42,11 +42,13 @@
 //     divergence on a per-run UUID; bisect then finds the commit that started it
 //   - normalizers and redaction rules, added with the CLI; an import of each format it reads (HAR,
 //     nock, VCR, LiteLLM, OpenTelemetry, and Langfuse and LangSmith from a stand-in for their APIs
-//     on 127.0.0.1); a teammate's pack, unpacked
+//     on 127.0.0.1), the traces being the FAQ agent's answers to customers in production (a store
+//     of its own), as each instrumentation logs a model call; a teammate's pack, unpacked
 //   - the error-path presets on the in-limit refund golden (a tool timeout, an empty, malformed and
 //     oversized answer, a 429 and a 500), which its agent handles; a coverage scan of what the
 //     imports did that no golden covers; the triage capture packed as a golden by coverage --pack
-//     (left uncommitted), and its presets, which the triage agent, with no error handling, fails
+//     (left uncommitted), and its presets, which the triage agent, with no error handling, fails;
+//     and a --pack of the refund HAR, which the refund agent no longer reproduces since its fix
 //   - a team store in a stand-in bucket on 127.0.0.1: a teammate's runs pulled, ours pushed with
 //     the newest left only here, CI pushing its test runs, a share link; preference pairs exported;
 //     tasks from the goldens' checks (no model is scored); a run exported as HTML, HAR,
@@ -565,6 +567,12 @@ try {
     if (!made?.golden) throw new StepError(`coverage --pack made no golden of the triage capture: ${made?.why}`);
     runs.coverageGolden = made.golden;
     await sl(['test', made.golden, '--chaos'], { who: 'maya', ok: [1] });
+    // The refund HAR is from before the refund fix: the agent no longer does what it did, and the
+    // dashboard can say so (and offer to keep it as a golden that forks) before anyone packs it.
+    const refund = scan.groups.find((g) => !g.covered && g.writes.includes('issue_refund'));
+    if (!refund) throw new StepError(`coverage found no uncovered refund behaviour:\n${JSON.stringify(scan.groups, null, 2)}`);
+    const tried = JSON.parse((await sl(['coverage', '--pack', refund.key, '--json'], { who: 'maya', ok: [1] })).stdout).pack[0];
+    if (tried?.reason !== 'not-reproduced') throw new StepError(`coverage --pack of the refund HAR: expected it not reproduced, got ${JSON.stringify(tried)}`);
   });
 
   // ---- Sep 30, afternoon: what leaves this machine is masked, and runs are shared ----
@@ -645,16 +653,27 @@ function interrupted() {
   });
 }
 
-/** OpenTelemetry from a file; Langfuse and LangSmith from a stand-in for their APIs on this machine. */
+/**
+ * Traces of the FAQ agent in production: customers' questions it answered there (in a store of its
+ * own, on the demo's mock models), each run's model calls written as an instrumentation of its
+ * Anthropic client logs them. OpenTelemetry (OpenInference, as Arize Phoenix exports it) comes as a
+ * file; Langfuse and LangSmith from a stand-in for their APIs on this machine. No run here asked
+ * these questions, so `coverage --pack` starts the agent with each trace's own question:
+ * `-- node faq.mjs '{message}'`.
+ */
 async function importTraces() {
-  const fixture = (name) => readFileSync(join(root, 'packages', 'cli', 'test', 'fixtures', 'traces', name), 'utf8');
-  writeFileSync(join(captures, 'otel-traces.json'), samples.redate(fixture('otel-genai.json'), samples.daysAgo(5, 9, 20)));
-  const langfuse = samples.redate(fixture('langfuse-trace.json'), samples.daysAgo(3, 14, 5));
-  const langsmith = JSON.parse(samples.redate(fixture('langsmith-runs.json'), samples.daysAgo(12, 16, 40))).pages;
-  const traceId = JSON.parse(langfuse).id;
-  const smithId = langsmith[0].runs[0].trace_id;
-  writeFileSync(join(captures, 'langfuse-trace.json'), langfuse);
-  writeFileSync(join(captures, 'langsmith-runs.json'), `${JSON.stringify(langsmith, null, 1)}\n`);
+  const production = join(scratch, 'production.db');
+  const asked = async (question, name) => {
+    const run = await record(['node', 'faq.mjs', question], { who: 'maya', dbPath: production });
+    const path = join(scratch, `${name}.har`);
+    await sl(['export', 'har', run, path, '--no-redact'], { dbPath: production });
+    return samples.harEntries(path);
+  };
+  writeFileSync(join(captures, 'otel-traces.json'), samples.openinference(await asked('Can I send back unused items within 30 days?', 'faq-returns'), samples.daysAgo(5, 9, 20), 'helpdesk-faq'));
+  const smith = samples.langsmith(await asked('My toaster (order A-1103) is broken after two months. Can it be repaired?', 'faq-repair'), samples.daysAgo(12, 16, 40), 'helpdesk-faq');
+  const fuse = samples.langfuse(await asked('Do you deliver to Iceland?', 'faq-delivery'), samples.daysAgo(3, 14, 5), 'helpdesk-faq');
+  writeFileSync(join(captures, 'langfuse-trace.json'), fuse.text);
+  writeFileSync(join(captures, 'langsmith-runs.json'), `${JSON.stringify(smith.pages, null, 1)}\n`);
   const api = createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
@@ -663,8 +682,8 @@ async function importTraces() {
         res.writeHead(status, { 'content-type': 'application/json' });
         res.end(typeof value === 'string' ? value : JSON.stringify(value));
       };
-      if (req.url === `/api/public/traces/${traceId}`) return send(200, langfuse);
-      if (req.url === '/runs/query' && req.method === 'POST') return send(200, JSON.parse(body).cursor ? langsmith[1] : langsmith[0]);
+      if (req.url === `/api/public/traces/${fuse.id}`) return send(200, fuse.text);
+      if (req.url === '/runs/query' && req.method === 'POST') return send(200, smith.pages[0]);
       send(404, { message: 'not found' });
     });
   });
@@ -672,8 +691,8 @@ async function importTraces() {
   const host = `http://127.0.0.1:${api.address().port}`;
   try {
     runs.otel = await imported(['otel', join(captures, 'otel-traces.json')]);
-    runs.langfuse = await imported(['langfuse', traceId, '--host', host]);
-    runs.langsmith = await imported(['langsmith', smithId, '--host', host]);
+    runs.langfuse = await imported(['langfuse', fuse.id, '--host', host]);
+    runs.langsmith = await imported(['langsmith', smith.traceId, '--host', host]);
   } finally {
     await new Promise((r) => api.close(() => r()));
   }

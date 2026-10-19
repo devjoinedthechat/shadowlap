@@ -1,4 +1,4 @@
-import { describeBehaviour, OUTCOME_WORDS, quoteArgv, type Behaviour, type BehaviourOutcome, type CoverageScan, type Store, type StoredCoverageGroup } from '@shadowlap/engine';
+import { checkCommandTemplate, describeBehaviour, NO_COMMAND, OUTCOME_WORDS, quoteArgv, type Behaviour, type BehaviourOutcome, type CoverageScan, type Store, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
 import { splitCommandLine } from './settings.js';
 
 /**
@@ -31,12 +31,17 @@ export interface CoverageGroupView {
   lastSeen: number;
   nearest: StoredCoverageGroup['nearest'];
   packed: StoredCoverageGroup['packed'];
+  /** What `coverage --pack` last made of it: the golden and whether it forks, or why it couldn't pack it. */
+  lastPack: Pick<StoredCoveragePack, 'at' | 'golden' | 'mode' | 'reason' | 'why' | 'command'> | null;
   /**
    * For a behaviour no golden covers: the job Pack one starts (`coverage-pack` with its key), the
-   * command it runs, and the agent's command it would reproduce the capture with: the one a recording
-   * here sent the same first request with, or null when nothing says, and the dialog asks for it.
+   * command it runs, and the agent's command it would reproduce the capture with: the one a run here
+   * sent the same first request with, or null when nothing says, and the dialog asks for it (with
+   * `{message}` where the agent's input goes). `forkable` when the last `--pack` found the agent no
+   * longer does this: Keep it as a test then packs it as a golden that forks, with the checks the
+   * dialog asks for (`fork: true, expect`).
    */
-  pack: { key: string; args: string[]; command: string[] | null; commandFrom: string | null } | null;
+  pack: { key: string; args: string[]; command: string[] | null; commandFrom: string | null; forkable: boolean } | null;
 }
 
 /** The line Needs a look shows while some behaviour has no golden, in its rows' shape. */
@@ -67,11 +72,17 @@ export interface CoverageView {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
-/** Imported runs (captures, traces) that came in after `at`: by when they were imported, not when their traffic ran. */
+/**
+ * Imported runs (captures, traces) that came in after `at`: by when they were imported, not when
+ * their traffic ran. As the scan reads them: with no command of their own (a golden made of a
+ * capture, unpacked by a test, is no traffic).
+ */
 function importedSince(store: Store, at: number): number {
   const row = store.query(
-    `SELECT COUNT(*) AS n FROM runs WHERE mode = 'record' AND json_valid(meta) AND json_type(meta, '$.covers') = 'array' AND json_array_length(meta, '$.covers') > 0 AND json_extract(meta, '$.imported.at') > ?`,
+    `SELECT COUNT(*) AS n FROM runs WHERE mode = 'record' AND json_valid(meta) AND json_type(meta, '$.covers') = 'array' AND json_array_length(meta, '$.covers') > 0 AND json_extract(meta, '$.imported.at') > ?
+       AND json_valid(command) AND json_extract(command, '$.argv[0]') = ?`,
     at,
+    NO_COMMAND,
   )[0];
   return Number(row?.n ?? 0);
 }
@@ -79,12 +90,14 @@ function importedSince(store: Store, at: number): number {
 export function coverageView(store: Store): CoverageView {
   const scan = store.listCoverageScans(1)[0] ?? null;
   const groups = scan ? store.coverageGroups() : [];
+  const packs = new Map(store.coveragePacks().map((p) => [p.key, p]));
   const views = groups.map((g): CoverageGroupView => {
     const behaviour: Behaviour = { path: g.behaviour.path, writes: g.behaviour.writes, unknown: g.behaviour.unknown, outcome: g.behaviour.outcome as BehaviourOutcome };
     const present = g.runIds.map((id) => store.getRun(id)).filter((r) => r !== null);
     const covered = g.coveredBy.length > 0;
     // The command the scan found would reproduce the group's newest run, when a recording here says it.
-    const pack: CoverageGroupView['pack'] = covered ? null : { key: g.key, args: ['coverage', '--pack', g.key], command: g.command?.argv ?? null, commandFrom: g.command?.from ?? null };
+    const last = packs.get(g.key) ?? null;
+    const pack: CoverageGroupView['pack'] = covered ? null : { key: g.key, args: ['coverage', '--pack', g.key], command: g.command?.argv ?? null, commandFrom: g.command?.from ?? null, forkable: last?.reason === 'not-reproduced' };
     return {
       key: g.key,
       covered,
@@ -103,6 +116,7 @@ export function coverageView(store: Store): CoverageView {
       lastSeen: g.lastSeen,
       nearest: g.nearest,
       packed: g.packed,
+      lastPack: last ? { at: last.at, golden: last.golden, mode: last.mode, reason: last.reason, why: last.why, command: last.command } : null,
       pack,
     };
   });
@@ -124,8 +138,24 @@ export function coverageView(store: Store): CoverageView {
   return { scan, newRuns: scan ? importedSince(store, scan.at) : 0, groups: views, uncovered: uncovered.length, needsLook, commands: { scan: ['coverage'], pack: ['coverage', '--pack'] } };
 }
 
-/** `coverage-pack`'s request, checked: the behaviour (a key the last scan has, not covered), and the agent's command as typed. */
-export function coveragePackArgs(store: Store, req: Record<string, unknown>): { args: string[]; title: string } | { error: string } {
+/** The longest check JSON a pack request may carry, as the fix jobs take theirs. */
+const MAX_EXPECT = 20_000;
+
+/** What `coverage-pack` runs, checked, and the command it asks about before it runs it. */
+export interface CoveragePackPlan {
+  args: string[];
+  title: string;
+  /** The agent's command as typed, split: it runs only once confirmed, as a recording's does. */
+  command: string[] | null;
+}
+
+/**
+ * `coverage-pack`'s request, checked: the behaviour (a key the last scan has, not covered), the
+ * agent's command as typed (its `{message}` checked as the CLI checks it), and, to pack it as a
+ * golden that forks, `fork: true` with the checks (`expect`) that say what it must do instead. A
+ * golden that forks is one somebody chose: it needs a key.
+ */
+export function coveragePackArgs(store: Store, req: Record<string, unknown>): CoveragePackPlan | { error: string } {
   const groups = store.coverageGroups();
   let keys: string[] = [];
   if (req.key !== undefined) {
@@ -143,7 +173,28 @@ export function coveragePackArgs(store: Store, req: Record<string, unknown>): { 
     } catch (err) {
       return { error: `command: ${(err as Error).message}` };
     }
+    const template = checkCommandTemplate(command);
+    if (template) return { error: `command: ${template}` };
   }
-  const args = ['coverage', '--pack', ...keys, ...(command.length ? ['--', ...command] : [])];
-  return { args, title: keys.length ? `Packing a golden of ${keys[0]!.slice(0, 8)}${command.length ? ` with ${quoteArgv(command)}` : ''}` : 'Packing goldens of what no golden covers' };
+  const fork: string[] = [];
+  if (req.fork !== undefined && req.fork !== false) {
+    if (req.fork !== true) return { error: 'fork is true, to pack it as a golden that forks' };
+    if (!keys.length) return { error: 'a golden that forks is packed for one behaviour: name it by its key' };
+    const expect = typeof req.expect === 'string' ? safeJson(req.expect) : req.expect;
+    if (typeof expect !== 'object' || expect === null || Array.isArray(expect) || !Object.keys(expect).length) return { error: 'a golden that forks needs the checks that say what the agent must do now, such as {"tools":{"issue_refund":0}}' };
+    const text = JSON.stringify(expect);
+    if (text.length > MAX_EXPECT) return { error: 'those checks are too long' };
+    fork.push('--fork', '--expect', text);
+  } else if (req.expect !== undefined) return { error: 'expect goes with fork: a golden that replays its capture is judged by the replay itself' };
+  const args = ['coverage', '--pack', ...keys, ...fork, ...(command.length ? ['--', ...command] : [])];
+  const title = keys.length ? `Packing ${fork.length ? 'a golden that forks' : 'a golden'} of ${keys[0]!.slice(0, 8)}${command.length ? ` with ${quoteArgv(command)}` : ''}` : 'Packing goldens of what no golden covers';
+  return { args, title, command: command.length ? command : null };
+}
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
 }

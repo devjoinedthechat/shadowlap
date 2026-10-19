@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { behaviourKey, behaviourSlug, describeBehaviour, effectsFor, groupCoverage, inferCommand, nearestGolden, runBehaviour, sharedSteps, storeEffects, Store, type Behaviour, type CoverageMember } from '../src/index.js';
+import { behaviourKey, behaviourSlug, checkCommandTemplate, commandFinder, describeBehaviour, effectsFor, fillCommand, firstMessage, groupCoverage, inferCommand, nearestGolden, requestMessage, runBehaviour, sharedSteps, storeApiRequest, storeEffects, Store, type Behaviour, type CoverageMember } from '../src/index.js';
 import { assistant, messageStream, RunBuilder, text, toolResult, toolUse, user } from './run-fixtures.js';
 
 /**
@@ -149,7 +149,94 @@ describe('the command that reproduces a capture', () => {
   });
 });
 
+describe('finding the command by the first request', () => {
+  /** A run whose first model call sent `body`, under the fingerprint given (the request as the normalizers left it). */
+  const run = (store: Store, o: { argv: string[]; body: unknown; fingerprint: string; startedAt: number; meta?: Record<string, unknown>; status?: 'completed' | 'running' }) => {
+    const r = store.createRun({ mode: 'record', command: { argv: o.argv, cwd: '/work' }, startedAt: o.startedAt, ...(o.meta ? { meta: o.meta } : {}) });
+    store.appendCallStart({ runId: r.runId, callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: o.fingerprint, occurrence: 1, origin: 'live', effect: null, requestRef: storeApiRequest(store, o.body), meta: { provider: 'anthropic' }, at: o.startedAt });
+    if (o.status !== 'running') store.endRun(r.runId, 'completed', o.startedAt + 1);
+    return r.runId;
+  };
+  const capture = (store: Store, body: unknown, fingerprint: string) => run(store, { argv: ['<no-recorded-command>'], body, fingerprint, startedAt: 50, meta: { covers: ['api'], imported: { at: 60, from: 'prod.har' } } });
+
+  it('matches the fingerprint a normalizer left alike, or the bytes, and takes the newest run here', () => {
+    const store = Store.open(':memory:');
+    // Production sent a per-run id a normalizer masks: other bytes, the same fingerprint.
+    const prod = capture(store, { messages: [{ role: 'user', content: 'Order B-7 (request 9f2c).' }] }, 'fp-order-b7');
+    const older = run(store, { argv: ['node', 'agent.mjs', 'B-7', '--old'], body: { messages: [{ role: 'user', content: 'Order B-7 (request 11aa).' }] }, fingerprint: 'fp-order-b7', startedAt: 10 });
+    const newer = run(store, { argv: ['node', 'agent.mjs', 'B-7'], body: { messages: [{ role: 'user', content: 'Order B-7 (request 22bb).' }] }, fingerprint: 'fp-order-b7', startedAt: 20 });
+    // Still recording, a pack's, and another capture: none of them says what starts the agent.
+    run(store, { argv: ['node', 'agent.mjs', 'B-7', '--live'], body: {}, fingerprint: 'fp-order-b7', startedAt: 30, status: 'running' });
+    run(store, { argv: ['node', 'theirs.mjs'], body: {}, fingerprint: 'fp-order-b7', startedAt: 40, meta: { imported: { at: 41, from: 'pack' } } });
+    capture(store, {}, 'fp-order-b7');
+    const find = commandFinder(store);
+    expect(find(store.getRun(prod)!)).toEqual({ argv: ['node', 'agent.mjs', 'B-7'], from: newer });
+    expect(older).not.toBe(newer);
+    // The same bytes under another fingerprint (the normalizers changed between): found by the bytes.
+    const bytes = capture(store, { messages: [{ role: 'user', content: 'Order C-9.' }] }, 'fp-under-old-rules');
+    const same = run(store, { argv: ['node', 'agent.mjs', 'C-9'], body: { messages: [{ role: 'user', content: 'Order C-9.' }] }, fingerprint: 'fp-under-new-rules', startedAt: 25 });
+    expect(commandFinder(store)(store.getRun(bytes)!)).toEqual({ argv: ['node', 'agent.mjs', 'C-9'], from: same });
+    expect(inferCommand(store, store.getRun(capture(store, { messages: [] }, 'fp-nobody'))!)).toBeNull();
+    store.close();
+  });
+
+  it("reads a run's first message, where its input shows, whatever the provider's shape", () => {
+    expect(requestMessage({ messages: [{ role: 'user', content: 'Order B-7: a refund.' }] })).toBe('Order B-7: a refund.');
+    expect(requestMessage({ system: 'Be kind.', messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }, { type: 'text', text: 'B-7' }] }] })).toBe('Hello\nB-7');
+    expect(requestMessage({ model: 'gpt-5-mini', messages: [{ role: 'system', content: 'Triage.' }, { role: 'user', content: 'Triage the unread threads in billing.' }] })).toBe('Triage the unread threads in billing.');
+    expect(requestMessage({ contents: [{ role: 'user', parts: [{ text: 'Post the digest to #leads.' }] }] })).toBe('Post the digest to #leads.');
+    expect(requestMessage({ messages: [{ role: 'assistant', content: 'Hi.' }] })).toBeNull();
+    expect(requestMessage('not a request')).toBeNull();
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    b.model({ messages: [user('Can I return a kettle I never used?')] }, [text('Yes.')]);
+    expect(firstMessage(store, b.end())).toBe('Can I return a kettle I never used?');
+    store.close();
+  });
+});
+
+describe('a command for each capture', () => {
+  it("stands {message} for the capture's first message, and {message:/regex/} for the part the regex picks", () => {
+    expect(fillCommand(['node', 'faq.mjs', '{message}'], 'Can I return it?')).toEqual({ argv: ['node', 'faq.mjs', 'Can I return it?'] });
+    expect(fillCommand(['node', 'agent.mjs', '{message:/[A-Z]-\\d+/}'], 'Order B-7: a refund.')).toEqual({ argv: ['node', 'agent.mjs', 'B-7'] });
+    // A group picks its part; a placeholder can sit inside an argument.
+    expect(fillCommand(['node', 'triage.mjs', '--folder={message:/threads in (\\w+)/}'], 'Triage the unread threads in billing.')).toEqual({ argv: ['node', 'triage.mjs', '--folder=billing'] });
+    expect(fillCommand(['node', 'agent.mjs', '{message:/order (b-\\d+)/i}'], 'Order B-7.')).toEqual({ argv: ['node', 'agent.mjs', 'B-7'] });
+    // A regex with braces of its own.
+    expect(fillCommand(['node', 'a.mjs', '{message:/\\d{4}/}'], 'ticket 8830')).toEqual({ argv: ['node', 'a.mjs', '8830'] });
+    expect(fillCommand(['node', 'agent.mjs', 'B-7'], null)).toEqual({ argv: ['node', 'agent.mjs', 'B-7'] });
+    expect(fillCommand(['node', 'agent.mjs', '{message:/[A-Z]-\\d+/}'], 'Where is my parcel?')).toEqual({ why: 'its first message has no match for /[A-Z]-\\d+/' });
+    expect(fillCommand(['node', 'faq.mjs', '{message}'], null)).toEqual({ why: 'its first model call holds no user message for {message} to stand for' });
+  });
+
+  it('never lets the message be run as code', () => {
+    expect(checkCommandTemplate(['node', 'agent.mjs', '{message}'])).toBeNull();
+    expect(checkCommandTemplate(['python', 'agent.py', '-m', '{message}'])).toBeNull();
+    expect(checkCommandTemplate(['node', 'agent.mjs', 'B-7'])).toBeNull();
+    expect(checkCommandTemplate(['bash', '-c', 'node agent.mjs {message}'])).toMatch(/^bash runs its arguments as a script/);
+    expect(checkCommandTemplate(['/bin/sh', 'run.sh', '{message}'])).toMatch(/^\/bin\/sh runs its arguments as a script/);
+    expect(checkCommandTemplate(['node', '-e', '{message}'])).toBe("{message} after -e would run as code: give the agent's own command, with {message} as one of its arguments");
+    expect(checkCommandTemplate(['python', '-m', '{message}'])).toMatch(/^\{message\} after -m would run as code/);
+    expect(checkCommandTemplate(['node', '--require', '{message}', 'agent.mjs'])).toMatch(/after --require would run as code/);
+    expect(checkCommandTemplate(['node', 'agent.mjs', '{message:/(/}'])).toMatch(/^\{message:\/\(\/\}: Invalid regular expression/);
+  });
+});
+
 describe('the store', () => {
+  it('keeps what --pack last made of each behaviour, across scans', () => {
+    const store = Store.open(':memory:');
+    const before = store.changeCounts().coverage!;
+    store.saveCoveragePack({ key: 'k1', at: 10, golden: null, runId: null, from: 'C1', mode: null, reason: 'not-reproduced', why: 'it forks at call 1', command: { argv: ['node', 'a.mjs'], from: 'R1' } });
+    store.saveCoveragePack({ key: 'k2', at: 20, golden: 'goldens/b', runId: 'P2', from: 'C2', mode: 'fork', reason: null, why: null, command: { argv: ['node', 'b.mjs'], from: '--' } });
+    store.saveCoveragePack({ key: 'k1', at: 30, golden: 'goldens/a', runId: 'P1', from: 'C1', mode: 'replay', reason: null, why: null, command: { argv: ['node', 'a.mjs'], from: 'R1' } });
+    expect(store.coveragePacks().map((p) => [p.key, p.golden, p.mode, p.reason])).toEqual([
+      ['k1', 'goldens/a', 'replay', null],
+      ['k2', 'goldens/b', 'fork', null],
+    ]);
+    expect(store.changeCounts().coverage).toBeGreaterThan(before);
+    store.close();
+  });
+
   it('keeps each scan, and the last scan\'s groups', () => {
     const store = Store.open(':memory:');
     const before = store.changeCounts().coverage;
