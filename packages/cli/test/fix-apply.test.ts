@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -222,6 +222,23 @@ describe('fix apply of a patch from the store that is more than the change its r
       expect(lines.some((l) => l.includes("checking the project's other goldens"))).toBe(false);
       expect(lines).toContain('  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- agent.mjs), then rebuild (node -e "require(\'fs\').writeFileSync(\'BUILT\', \'\')") and check your goldens against it with shadowlap test');
     } finally {
+      store.close();
+    }
+  });
+
+  it('names the file to read from the folder it runs in when that folder is reached through a link', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    // git names the repository by where the link leads, as it names a folder reached by a short name
+    // on Windows (C:\Users\RUNNER~1) by its long one.
+    const link = `${project}-link`;
+    try {
+      const { fix } = teammateFix(store, (own) => own);
+      symlinkSync(project, link, process.platform === 'win32' ? 'junction' : undefined);
+      const lines: string[] = [];
+      expect(await applyFix(store, fix, { ...options(lines), cwd: link })).toMatchObject({ status: 'applied', patch: 'applied' });
+      expect(lines).toContain('  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- agent.mjs), then check your goldens against it with shadowlap test');
+    } finally {
+      rmSync(link, { force: true });
       store.close();
     }
   });

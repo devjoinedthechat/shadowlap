@@ -4,6 +4,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyLeft, fixRecords, markFixApplied, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, type Store, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
+import { physicalPath } from './real-path.js';
 
 /**
  * `shadowlap fix apply <fix>`: hands a verified fix over to the working tree. It `git apply`s the
@@ -117,6 +118,13 @@ const slashes = (p: string) => p.split(/[\\/]+/).join('/');
 const shown = (cwd: string, path: string) => relative(cwd, path).split(sep).join('/');
 
 /**
+ * A file of the repository as apply reports it, from the folder it runs in: both named as the system
+ * names them, since git gives the root with links resolved and, on Windows, its long name, where the
+ * folder may have been reached through a link or by a short name (C:\Users\RUNNER~1).
+ */
+const shownInRepo = (cwd: string, root: string, file: string) => shown(physicalPath(cwd), join(physicalPath(root), file));
+
+/**
  * The repair's directory and goldens, checked: a store can come from elsewhere (a copied file, a
  * shared bucket), and a path in it must not make apply read a patch, or copy a folder, from outside
  * the repair's own directory.
@@ -210,7 +218,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
       o.log(`  ${copied ? 'copied' : 'already there:'} ${shown(o.cwd, to)}`);
     }
     if (elsewhere) o.log(`  ${elsewhere === 1 ? 'the recording' : `the ${elsewhere} recordings`} the fixed code made ${elsewhere === 1 ? 'stays' : 'stay'} on the machine that ran ${repair.repairId}, which came with a pull: commit ${elsewhere === 1 ? 'it' : 'them'} from there`);
-    if (unread) o.log(`  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- ${shown(o.cwd, join(root, file))}), then ${o.build ? `rebuild (${o.build}) and ` : ''}check your goldens against it with shadowlap test`);
+    if (unread) o.log(`  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- ${shownInRepo(o.cwd, root, file)}), then ${o.build ? `rebuild (${o.build}) and ` : ''}check your goldens against it with shadowlap test`);
 
     if (o.build && !unread) {
       const b = spawnSync(o.build, { cwd: o.cwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
