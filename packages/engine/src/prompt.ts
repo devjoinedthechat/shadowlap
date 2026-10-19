@@ -140,15 +140,31 @@ export function promptParts(prompt: RequestPrompt): { instructions: string; tool
 // ---- thinking from earlier turns ----
 
 /**
- * The request without the reasoning its earlier turns carry, for asking it under another prompt or
- * another model: providers tie a turn's reasoning to the model that produced it and to the prompt it
- * was produced under (how-it-works, "Thinking blocks"), so a recorded turn's reasoning would be
- * refused, or read by the new model as its own. Taken out: Anthropic's `thinking` and
- * `redacted_thinking` blocks, Bedrock Converse's `reasoningContent`, a Responses conversation's
- * `reasoning` items, Chat Completions' `reasoning_content`, and Gemini's thought parts
- * (`thought: true`). A Gemini part's `thoughtSignature` stays: Gemini asks for the signatures of its
- * own function calls back. An assistant turn that held nothing but reasoning keeps it, since a turn
- * can't be empty. `removed` counts what was taken out.
+ * A request in manual thinking mode, with a `budget_tokens` budget: Anthropic's Messages API (on any
+ * platform), or Claude through Bedrock Converse, which takes the setting in its model fields.
+ */
+function manualThinking(body: Record<string, unknown>): boolean {
+  const enabled = (v: unknown) => isObject(v) && v.type === 'enabled';
+  const extra = isObject(body.additionalModelRequestFields) ? body.additionalModelRequestFields : {};
+  return enabled(body.thinking) || enabled(extra.thinking) || enabled(extra.reasoning_config);
+}
+
+/**
+ * The request without the reasoning its earlier turns carry, for asking it under another prompt:
+ * providers tie a turn's reasoning to the prompt it was produced under (how-it-works, "Thinking
+ * blocks"), so a recorded turn's reasoning would be refused, or read under a prompt that never
+ * produced it. Anthropic's own remedy for reasoning bound to another conversation is to strip every
+ * thinking block. Taken out: Anthropic's `thinking` and `redacted_thinking` blocks, Bedrock Converse's
+ * `reasoningContent`, a Responses conversation's `reasoning` items, Chat Completions'
+ * `reasoning_content`, and Gemini's thought parts (`thought: true`).
+ *
+ * Kept: a Gemini part's `thoughtSignature`, since Gemini asks for the signatures of its own function
+ * calls back; an assistant turn that held nothing but reasoning, since a turn can't be empty; and in
+ * manual thinking mode (a `budget_tokens` budget) the last assistant turn's, since Anthropic requires
+ * the final assistant turn of such a request to begin with a thinking block. A Responses item that
+ * followed the reasoning taken out (a function call, the assistant's message) loses its `id`, which
+ * names the stored item that came with that reasoning, and is sent as the content it holds. `removed`
+ * counts what was taken out.
  */
 export function withoutEarlierThinking(body: unknown): { body: unknown; removed: number } {
   if (!isObject(body)) return { body, removed: 0 };
@@ -161,8 +177,11 @@ export function withoutEarlierThinking(body: unknown): { body: unknown; removed:
     return kept;
   };
   if (Array.isArray(out.messages)) {
-    out.messages = out.messages.map((m: unknown) => {
-      if (!isObject(m) || m.role !== 'assistant') return m;
+    const messages = out.messages as unknown[];
+    let last = -1;
+    if (manualThinking(body)) for (let i = messages.length - 1; i >= 0 && last < 0; i--) if (isObject(messages[i]) && (messages[i] as Record<string, unknown>).role === 'assistant') last = i;
+    out.messages = messages.map((m: unknown, i) => {
+      if (!isObject(m) || m.role !== 'assistant' || i === last) return m;
       let next: Record<string, unknown> = m;
       if (Array.isArray(m.content)) {
         const content = keep(m.content as unknown[], (b) => isObject(b) && (b.type === 'thinking' || b.type === 'redacted_thinking' || b.reasoningContent !== undefined));
@@ -178,7 +197,14 @@ export function withoutEarlierThinking(body: unknown): { body: unknown; removed:
       return next;
     });
   }
-  if (Array.isArray(out.input)) out.input = keep(out.input as unknown[], (i) => isObject(i) && i.type === 'reasoning');
+  if (Array.isArray(out.input)) {
+    const input = out.input as unknown[];
+    const kept = keep(input, (i) => isObject(i) && i.type === 'reasoning');
+    if (kept !== input) {
+      // An item stored with the reasoning it followed is refused without it: sent by its content, it stands alone.
+      out.input = kept.map((i) => (isObject(i) && typeof i.id === 'string' && (i.type === 'function_call' || (i.type === 'message' && i.role === 'assistant')) ? Object.fromEntries(Object.entries(i).filter(([k]) => k !== 'id')) : i));
+    }
+  }
   if (Array.isArray(out.contents)) {
     out.contents = (out.contents as unknown[]).map((c) => {
       if (!isObject(c) || c.role !== 'model' || !Array.isArray(c.parts)) return c;

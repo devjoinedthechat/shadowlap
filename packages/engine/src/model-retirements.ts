@@ -1,3 +1,5 @@
+import { canonicalize } from './canonical.js';
+
 /**
  * When the models a recording uses stop working: the providers' own deprecation pages, read on the
  * date in `RETIREMENTS_VERSION` and kept here as data, so `shadowlap decisions` and `migrate` can warn
@@ -44,6 +46,8 @@ export interface ModelRetirement {
 export const RETIREMENTS_VERSION = '2026-10-19';
 
 const ANTHROPIC = 'https://platform.claude.com/docs/en/about-claude/model-deprecations';
+/** Anthropic's page on manual thinking budgets: which models refuse them. */
+const ANTHROPIC_THINKING = 'https://platform.claude.com/docs/en/build-with-claude/extended-thinking';
 const OPENAI = 'https://developers.openai.com/api/docs/deprecations';
 const GEMINI = 'https://ai.google.dev/gemini-api/docs/deprecations';
 const VERTEX = 'https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions';
@@ -52,7 +56,7 @@ const BEDROCK = 'https://docs.aws.amazon.com/bedrock/latest/userguide/model-life
 
 /** Each platform's main page, every page its rows cite (`pages`), and how a report names the platform. */
 export const RETIREMENT_SOURCES: Record<RetirementPlatform, { name: string; owner: string; url: string; pages: readonly string[] }> = {
-  anthropic: { name: 'the Claude API', owner: 'Anthropic', url: ANTHROPIC, pages: [ANTHROPIC] },
+  anthropic: { name: 'the Claude API', owner: 'Anthropic', url: ANTHROPIC, pages: [ANTHROPIC, ANTHROPIC_THINKING] },
   openai: { name: 'the OpenAI API', owner: 'OpenAI', url: OPENAI, pages: [OPENAI] },
   gemini: { name: 'the Gemini API', owner: 'Google', url: GEMINI, pages: [GEMINI] },
   vertex: { name: 'Vertex AI', owner: 'Google Cloud', url: VERTEX, pages: [VERTEX, VERTEX_PARTNERS] },
@@ -279,8 +283,10 @@ export const MODEL_RETIREMENTS: readonly ModelRetirement[] = [
 ];
 
 /**
- * Request fields a provider stops accepting on its newer models, from the same pages: what a model
+ * Request fields a provider stops accepting on its newer models, from its own pages: what a model
  * switch may need besides the model's name. `models` are the model ids the page's words cover.
+ * Anthropic's rules are about Claude models wherever they are served: they apply to a Messages API
+ * body on the Claude API, Amazon Bedrock and Vertex AI alike.
  */
 export interface FieldRetirement {
   platform: RetirementPlatform;
@@ -291,25 +297,48 @@ export interface FieldRetirement {
   appliesTo: string;
   /** What the provider does with such a request, in the page's words. */
   behavior: string;
+  /** The same as a clause a report can follow "where" with. */
+  says: string;
   /** What the page recommends instead. */
   instead: string;
-  /** The value the field may still take (its default), when the page allows one. */
+  /** The value the field may still take (its default), when the page allows one: the request gets it in place of its own. */
   allowed?: Record<string, unknown>;
+  /**
+   * The rule covers a field only when its value is an object carrying these entries (`thinking` whose
+   * `type` is `enabled`); without it, any value but the allowed one.
+   */
+  when?: Record<string, Record<string, unknown>>;
   source: string;
 }
+
+/** Claude 4.7 and later, as Anthropic's model status table lists them. */
+const CLAUDE_4_7_AND_LATER = ['claude-opus-4-7', 'claude-opus-4-8', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-5', 'claude-fable-5', 'claude-mythos-5'];
 
 export const FIELD_RETIREMENTS: readonly FieldRetirement[] = [
   {
     platform: 'anthropic',
     fields: ['temperature', 'top_p', 'top_k'],
-    // Claude 4.7 and later, as the page's model status table lists them, and Claude Mythos Preview.
-    models: ['claude-opus-4-7', 'claude-opus-4-8', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-5', 'claude-fable-5', 'claude-mythos-5', 'claude-mythos-preview'],
+    models: [...CLAUDE_4_7_AND_LATER, 'claude-mythos-preview'],
     appliesTo: 'Claude 4.7 and later models, and Claude Mythos Preview',
     behavior: 'Returns a 400 error when set to a non-default value',
+    says: 'a non-default temperature, top_p or top_k returns a 400 error',
     instead: 'Omit and use prompting to guide model behavior',
     // The Messages API's documented default.
     allowed: { temperature: 1 },
     source: ANTHROPIC,
+  },
+  {
+    platform: 'anthropic',
+    fields: ['thinking'],
+    // Claude Mythos Preview supports both thinking modes, the page says.
+    models: CLAUDE_4_7_AND_LATER,
+    appliesTo: 'Claude 4.7 and later models',
+    behavior: 'Claude 4.7 and later models do not support it and reject requests that use it, returning a 400 error',
+    says: 'extended thinking (thinking.type "enabled", with budget_tokens) is not supported and a request that uses it returns a 400 error',
+    instead: 'Remove budget_tokens, set thinking: {type: "adaptive"}, and control reasoning depth with output_config: {effort: ...} instead of a token budget',
+    allowed: { thinking: { type: 'adaptive' } },
+    when: { thinking: { type: 'enabled' } },
+    source: ANTHROPIC_THINKING,
   },
 ];
 
@@ -445,17 +474,37 @@ export function retirementsOf(models: Iterable<{ provider: string | null | undef
   return [...seen.values()].sort((a, b) => order(a) - order(b) || a.model.localeCompare(b.model));
 }
 
+/**
+ * The Claude model a Messages API body is sent to, as Anthropic names it, wherever it is served:
+ * Bedrock's `anthropic.` prefix and version suffix (`anthropic.claude-sonnet-4-5-20250929-v1:0`) and
+ * Vertex AI's `@` version left out. Null for a body that isn't a Messages API request to Claude.
+ */
+function claudeModel(provider: string | null | undefined, model: string, body: Record<string, unknown>): string | null {
+  const platform = retirementPlatform(provider);
+  if (platform === 'anthropic') return tableModel(platform, model).model;
+  // On Bedrock and Vertex AI a Messages API body names its version; Converse and Gemini's don't.
+  if ((platform === 'bedrock' || platform === 'vertex') && body.anthropic_version !== undefined) {
+    const id = tableModel(platform, model).model.replace(/^anthropic\./, '').replace(/-v\d+(?::\d+)?$/, '').replace(/@[^@]+$/, '');
+    return id.startsWith('claude-') ? id : null;
+  }
+  return null;
+}
+
+const holds = (value: unknown, entries: Record<string, unknown>) => typeof value === 'object' && value !== null && Object.entries(entries).every(([k, v]) => (value as Record<string, unknown>)[k] === v);
+
 /** Request fields the target model refuses, by the table: those a request sets, with what the page says. */
 export function retiredFields(provider: string | null | undefined, model: string, body: unknown): Array<{ field: string; value: unknown; rule: FieldRetirement }> {
   const platform = retirementPlatform(provider);
-  if (!platform || typeof body !== 'object' || body === null) return [];
-  const { model: id } = tableModel(platform, model);
+  if (!platform || typeof body !== 'object' || body === null || Array.isArray(body)) return [];
+  const fields = body as Record<string, unknown>;
   const out: Array<{ field: string; value: unknown; rule: FieldRetirement }> = [];
   for (const rule of FIELD_RETIREMENTS) {
-    if (rule.platform !== platform || !rule.models.some((m) => id === m || id.startsWith(`${m}-`))) continue;
+    const id = rule.platform === 'anthropic' ? claudeModel(provider, model, fields) : rule.platform === platform ? tableModel(platform, model).model : null;
+    if (id === null || !rule.models.some((m) => id === m || id.startsWith(`${m}-`))) continue;
     for (const field of rule.fields) {
-      const value = (body as Record<string, unknown>)[field];
-      if (value === undefined || (rule.allowed && field in rule.allowed && rule.allowed[field] === value)) continue;
+      const value = fields[field];
+      if (value === undefined || (rule.allowed && field in rule.allowed && canonicalize(rule.allowed[field]) === canonicalize(value))) continue;
+      if (rule.when?.[field] && !holds(value, rule.when[field]!)) continue;
       out.push({ field, value, rule });
     }
   }

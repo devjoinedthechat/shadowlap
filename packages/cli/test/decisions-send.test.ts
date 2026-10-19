@@ -120,6 +120,8 @@ describe('what a refusal says to change', () => {
   it('reads the fields the providers name, and nothing else', () => {
     expect(refusalRemedy('HTTP 400: max_tokens is too large: 20000. This model supports at most 16384 completion tokens, whereas you provided 20000.')).toEqual({ field: 'max_tokens', value: 16384 });
     expect(refusalRemedy("HTTP 400: Unsupported value: 'temperature' does not support 0.2 with this model. Only the default (1) value is supported.")).toEqual({ field: 'temperature', value: 1 });
+    // Anthropic's extended thinking page: a model that thinks adaptively refuses a manual budget in these words.
+    expect(refusalRemedy('HTTP 400: "thinking.type.enabled" is not supported for this model.')).toEqual({ field: 'thinking', value: { type: 'adaptive' } });
     expect(refusalRemedy('HTTP 400: messages: roles must alternate')).toBeNull();
     expect(errorText(400, Buffer.from('{"message":"ValidationException: bad"}'))).toBe('HTTP 400: ValidationException: bad');
     expect(errorText(500, Buffer.from('upstream died\nstack'))).toBe('HTTP 500: upstream died');

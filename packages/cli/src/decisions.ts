@@ -226,12 +226,14 @@ class Remedies {
 
 /**
  * What a provider's refusal says to change, when it says it plainly: Anthropic's `max_tokens: 64000
- * > 32000`, OpenAI's `supports at most 16384 completion tokens` and `Only the default (1) value is
- * supported`. Null when it says nothing a field can fix.
+ * > 32000` and `"thinking.type.enabled" is not supported` (the model thinks adaptively, its extended
+ * thinking page says), OpenAI's `supports at most 16384 completion tokens` and `Only the default (1)
+ * value is supported`. Null when it says nothing a field can fix.
  */
 export function refusalRemedy(error: string): { field: string; value: unknown } | null {
   const over = /\bmax_tokens:\s*\d+\s*>\s*(\d+)/.exec(error) ?? /at most (\d+) (?:completion|output) tokens/i.exec(error);
   if (over) return { field: 'max_tokens', value: Number(over[1]) };
+  if (/"?thinking\.type\.enabled"? is not supported/.test(error)) return { field: 'thinking', value: { type: 'adaptive' } };
   const only = /'(\w+)' does not support .*?\. Only the default \(([^)]+)\) value is supported/.exec(error);
   if (only) {
     let value: unknown = only[2];
@@ -387,7 +389,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, cap
             const set = setRequestFields(requestShape(provider, at, body), body, { [f.field]: allowed });
             if (!refused(set)) body = set.body;
           } else body = withoutFields(provider, at, body, [f.field]);
-          const why = `${model} is among ${f.rule.appliesTo}, where ${f.rule.fields.join(', ')} ${f.rule.behavior.charAt(0).toLowerCase()}${f.rule.behavior.slice(1)} (${RETIREMENT_SOURCES[f.rule.platform].owner}); the requests send ${f.field}=${JSON.stringify(f.value)}. ${f.rule.instead}`;
+          const why = `${model} is among ${f.rule.appliesTo}, where ${f.rule.says} (${RETIREMENT_SOURCES[f.rule.platform].owner}); the requests send ${f.field}=${JSON.stringify(f.value)}. ${f.rule.instead}`;
           if (note) remedies.note({ field: f.field, value: allowed ?? null, leftOut: allowed === undefined, why, source: f.rule.source });
           fieldsChanged = true;
         }
@@ -396,9 +398,10 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, cap
         const set = setRequestFields(requestShape(provider, at, body), body, plan.fixes);
         if (!refused(set)) body = set.body;
       }
-      // Reasoning from earlier turns is tied to the prompt and the model it was made under.
+      // Reasoning from earlier turns is tied to the prompt it was made under. A new model gets it as the
+      // agent would send it after the switch: Anthropic drops, unbilled, the blocks a model can't read.
       let thinking = 0;
-      if (promptChanged || modelChanged) {
+      if (promptChanged) {
         const stripped = withoutEarlierThinking(body);
         body = stripped.body;
         thinking = stripped.removed;
@@ -684,7 +687,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     const allSteps = runs.flatMap((r) => r.decisions);
     const notes = [JUDGED_IN_RECORDED_STATE];
     const stripped = allSteps.filter((x) => x.thinkingStripped > 0);
-    if (stripped.length) notes.push(`Reasoning from earlier turns was left out of ${stripped.length} request${stripped.length === 1 ? '' : 's'}: providers tie it to the prompt and model it was made under, so it would be refused or read as the new model's own.`);
+    if (stripped.length) notes.push(`Reasoning from earlier turns was left out of ${stripped.length} request${stripped.length === 1 ? '' : 's'}: providers tie it to the prompt it was made under, so it would be refused, or read under a prompt that never produced it.`);
     if (planned.some((x) => !x.skip && !x.untouched && x.cacheControl)) notes.push("Cache breakpoints stay where the agent placed them, and a run's steps are sent in order, so the prompt cache can serve the prefix they share.");
     if (counts[5]) notes.push('Text-only changes are counted, not judged.');
     if (s.samples === 1 && (counts[1] || counts[2] || counts[3] || counts[4])) notes.push('Each step was asked once, and a model varies from one answer to the next: --samples 3 says how often a decision changes.');

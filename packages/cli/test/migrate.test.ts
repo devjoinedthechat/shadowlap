@@ -158,6 +158,25 @@ describe('shadowlap migrate', () => {
     expect(r.code, r.out).toBe(0);
   }, 240_000);
 
+  it("turns a manual thinking budget into adaptive thinking for a Claude 4.7 model, by Anthropic's page", async () => {
+    const rec = await shadowlap(['run', '--', process.execPath, AGENT], { AGENT_THINKING_BUDGET: '1024' });
+    expect(rec.code, rec.out).toBe(0);
+    const thinkingRun = /recording run (\w{26})/.exec(rec.out)![1]!;
+    const before = mock.requests.length;
+    const r = await shadowlap(['migrate', '--to', 'claude-sonnet-5-5', thinkingRun, '-y', '--attempts', '1', '--json'], { AGENT_THINKING_BUDGET: '1024' });
+    expect(r.code, r.out).toBe(0);
+    const report = json<MigrateReport>(r);
+    expect(report.set.fields).toEqual([{ field: 'thinking', value: { type: 'adaptive' }, leftOut: false, why: expect.stringMatching(/^claude-sonnet-5-5 is among Claude 4\.7 and later models, where extended thinking .* returns a 400 error \(Anthropic\); the requests send thinking=\{"type":"enabled","budget_tokens":1024\}\. Remove budget_tokens, set thinking: \{type: "adaptive"\}/), source: 'https://platform.claude.com/docs/en/build-with-claude/extended-thinking', steps: 11 }]);
+    expect(report.set.flags).toEqual(['--set thinking={"type":"adaptive"}']);
+    expect(report.decisions.counts.notAsked).toBe(0);
+    expect(report.pullRequest.body).toContain('- `thinking` = `{"type":"adaptive"}`: claude-sonnet-5-5 is among Claude 4.7 and later models');
+    // Every request asked adaptively, never refused, with the earlier turns' reasoning sent as recorded.
+    const sent = mock.requests.slice(before).map((q) => q.body as unknown as { model: string; thinking?: unknown; messages: Array<{ role: string; content: unknown }> });
+    expect(sent).toHaveLength(11);
+    expect(sent.every((q) => q.model === 'claude-sonnet-5-5' && JSON.stringify(q.thinking) === '{"type":"adaptive"}')).toBe(true);
+    expect(sent.every((q) => q.messages.filter((m) => m.role === 'assistant').every((m) => Array.isArray(m.content) && (m.content[0] as { type?: string }).type === 'thinking'))).toBe(true);
+  }, 240_000);
+
   it('sends every sample of a step with the fix, and counts the step once', async () => {
     const r = await shadowlap(['migrate', '--to', 'mock-small', '--samples', '2', '--concurrency', '3', '-y', '--attempts', '1', '--json']);
     expect(r.code, r.out).toBe(0);

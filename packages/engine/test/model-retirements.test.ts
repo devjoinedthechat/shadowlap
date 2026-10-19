@@ -110,4 +110,23 @@ describe('retiredFields', () => {
     expect(retiredFields('anthropic', 'claude-sonnet-4-6', { temperature: 0.2 })).toEqual([]);
     expect(retiredFields('anthropic', 'claude-opus-4-7', { top_k: 5 })[0]!.rule.behavior).toBe('Returns a 400 error when set to a non-default value');
   });
+
+  it('names a manual thinking budget on Claude 4.7 and later, with what the page says to send instead', () => {
+    const [f] = retiredFields('anthropic', 'claude-sonnet-5-5', { thinking: { type: 'enabled', budget_tokens: 2048 } });
+    expect(f).toMatchObject({ field: 'thinking', value: { type: 'enabled', budget_tokens: 2048 }, rule: { allowed: { thinking: { type: 'adaptive' } }, source: 'https://platform.claude.com/docs/en/build-with-claude/extended-thinking' } });
+    // Adaptive thinking, thinking turned off, and a model that still takes a budget are left as they are.
+    expect(retiredFields('anthropic', 'claude-sonnet-5-5', { thinking: { type: 'adaptive' } })).toEqual([]);
+    expect(retiredFields('anthropic', 'claude-opus-4-8', { thinking: { type: 'disabled' } })).toEqual([]);
+    expect(retiredFields('anthropic', 'claude-sonnet-4-6', { thinking: { type: 'enabled', budget_tokens: 2048 } })).toEqual([]);
+    expect(retiredFields('anthropic', 'claude-mythos-preview', { thinking: { type: 'enabled', budget_tokens: 2048 } })).toEqual([]);
+  });
+
+  it('applies to Claude wherever a Messages API body is sent: Bedrock and Vertex AI, not Converse', () => {
+    const messages = { anthropic_version: 'bedrock-2023-05-31', messages: [], temperature: 0.5 };
+    expect(retiredFields('bedrock', 'us.anthropic.claude-opus-4-7', messages).map((f) => f.field)).toEqual(['temperature']);
+    expect(retiredFields('bedrock', 'anthropic.claude-sonnet-4-5-20250929-v1:0', messages)).toEqual([]);
+    expect(retiredFields('vertex', 'claude-sonnet-5-5', { ...messages, anthropic_version: 'vertex-2023-10-16' }).map((f) => f.field)).toEqual(['temperature']);
+    expect(retiredFields('bedrock', 'anthropic.claude-opus-4-7', { messages: [], inferenceConfig: { temperature: 0.5 } })).toEqual([]);
+    expect(retiredFields('vertex', 'gemini-2.5-pro', { contents: [], temperature: 0.5 })).toEqual([]);
+  });
 });

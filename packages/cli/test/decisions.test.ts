@@ -172,6 +172,42 @@ describe('shadowlap decisions', () => {
     expect(report.flagged).toEqual([runId]);
   }, 120_000);
 
+  it('leaves earlier reasoning out under a new prompt, keeping what manual thinking needs, and sends it as recorded to a new model', async () => {
+    // Claude Sonnet 4.6 still takes a manual thinking budget; the mock thinks before each answer.
+    const thinks = { AGENT_MODEL: 'claude-sonnet-4-6', AGENT_THINKING_BUDGET: '1024' };
+    const runId = await record(thinks);
+    type Sent = { model: string; thinking?: unknown; messages: Array<{ role: string; content: unknown }> };
+    const assistantTurns = (q: Sent) => q.messages.filter((m) => m.role === 'assistant');
+    const opensWithThinking = (m: { content: unknown }) => Array.isArray(m.content) && (m.content[0] as { type?: string } | undefined)?.type === 'thinking';
+    const hasThinking = (m: { content: unknown }) => Array.isArray(m.content) && m.content.some((b) => (b as { type?: string }).type === 'thinking');
+
+    let before = mock.requests.length;
+    const prompt = await shadowlap(['decisions', runId, '--from-code', '--json'], { ...thinks, AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' });
+    expect(prompt.code, prompt.out).toBe(0);
+    const changed = json<DecisionsReport>(prompt);
+    expect(changed.flagged).toEqual([runId]);
+    let sent = mock.requests.slice(before).map((q) => q.body as unknown as Sent);
+    expect(sent).toHaveLength(11);
+    // In manual mode the last assistant turn keeps its thinking, as the API requires; every earlier one loses it.
+    for (const q of sent) {
+      const turns = assistantTurns(q);
+      expect(turns.slice(0, -1).some(hasThinking)).toBe(false);
+      if (turns.length) expect(opensWithThinking(turns.at(-1)!)).toBe(true);
+    }
+    expect(changed.runs[0]!.thinkingStripped).toBe(45);
+    expect(changed.notes.join('\n')).toMatch(/Reasoning from earlier turns was left out of 9 requests: providers tie it to the prompt it was made under/);
+
+    // A new model is sent the reasoning as the agent would send it after a switch.
+    before = mock.requests.length;
+    const model = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5', '--json']);
+    expect(model.code, model.out).toBe(0);
+    const switched = json<DecisionsReport>(model);
+    sent = mock.requests.slice(before).map((q) => q.body as unknown as Sent);
+    expect(sent.every((q) => q.model === 'claude-haiku-4-5' && assistantTurns(q).every(opensWithThinking))).toBe(true);
+    expect(switched.runs[0]!.thinkingStripped).toBe(0);
+    expect(switched.notes.join('\n')).not.toMatch(/Reasoning from earlier turns/);
+  }, 120_000);
+
   it('ranks what another model decides differently, with how often across samples, in rank order', async () => {
     const runId = await record();
     const r = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5', '--samples', '2', '--json']);

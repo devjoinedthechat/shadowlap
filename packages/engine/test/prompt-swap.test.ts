@@ -77,6 +77,25 @@ describe('withoutEarlierThinking', () => {
     expect(withoutEarlierThinking(gemini)).toEqual({ body: { contents: [{ role: 'model', parts: [{ functionCall: { name: 'f', args: {} }, thoughtSignature: 'sig' }] }] }, removed: 1 });
   });
 
+  it('keeps the last assistant turn its thinking in manual mode, which requires that turn to begin with it', () => {
+    const turn = (n: number) => ({ role: 'assistant', content: [{ type: 'thinking', thinking: `t${n}`, signature: `s${n}` }, { type: 'tool_use', id: `${n}`, name: 'a', input: {} }] });
+    const result = (n: number) => ({ role: 'user', content: [{ type: 'tool_result', tool_use_id: `${n}`, content: 'r' }] });
+    const body = { model: 'claude-sonnet-4-5', thinking: { type: 'enabled', budget_tokens: 1024 }, messages: [{ role: 'user', content: 'hi' }, turn(1), result(1), turn(2), result(2)] };
+    const { body: out, removed } = withoutEarlierThinking(body);
+    expect(removed).toBe(1);
+    expect((out as typeof body).messages[1]!.content).toEqual([{ type: 'tool_use', id: '1', name: 'a', input: {} }]);
+    expect((out as typeof body).messages[3]).toEqual(turn(2));
+    // Claude through Converse takes the budget in its model fields; adaptive thinking has no such rule.
+    const converse = { additionalModelRequestFields: { thinking: { type: 'enabled', budget_tokens: 1024 } }, messages: [{ role: 'assistant', content: [{ reasoningContent: { reasoningText: { text: 'r' } } }, { text: 'a' }] }] };
+    expect(withoutEarlierThinking(converse)).toEqual({ body: converse, removed: 0 });
+    expect(withoutEarlierThinking({ ...body, thinking: { type: 'adaptive' } }).removed).toBe(2);
+  });
+
+  it("sends a Responses item that followed the reasoning taken out by its content, not by the stored item's id", () => {
+    const body = { input: [{ role: 'user', content: 'hi' }, { id: 'rs_1', type: 'reasoning', encrypted_content: 'e' }, { id: 'fc_1', type: 'function_call', call_id: 'c1', name: 'f', arguments: '{}' }, { type: 'function_call_output', call_id: 'c1', output: 'ok' }, { id: 'msg_1', type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] }] };
+    expect(withoutEarlierThinking(body).body).toEqual({ input: [{ role: 'user', content: 'hi' }, { type: 'function_call', call_id: 'c1', name: 'f', arguments: '{}' }, { type: 'function_call_output', call_id: 'c1', output: 'ok' }, { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] }] });
+  });
+
   it('leaves a request without reasoning as it is', () => {
     const body = { messages: [{ role: 'user', content: 'hi' }] };
     expect(withoutEarlierThinking(body)).toEqual({ body, removed: 0 });
