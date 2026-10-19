@@ -390,7 +390,8 @@ take. A preset's attempts are gated as they come in: by `chaos.gate` (`{ good, b
 when the entry has one, else by the golden's `repeat` and `passes`. Its verdict is `passed`,
 `failed`, `inconclusive` (the gate ran out of attempts between its bounds, or the replay never
 reached the call, which a golden that no longer replays does) or `not-applicable` (the recording has
-no call the preset can hit, or no result it can change, such as a binary one). `"chaos": false`
+no call the preset can hit, or no result it can change, such as a binary one). An attempt stops
+after `chaos.timeout` seconds (default 300) and fails: an error path can hang. `"chaos": false`
 leaves a golden out. Each attempt is a run bundled under the golden's recording, and the session and
 every result are kept in the store for the dashboard. Exit status: 1 when a preset failed, a golden
 couldn't be run, or (with `--inconclusive fail`) a preset was inconclusive; 130 or 143 on a signal.
@@ -691,7 +692,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
 | `prices` | USD per million tokens by model prefix, for cost estimates |
-| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)), and a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)) |
+| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)), a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)), and a `chaos` object with the golden's [error-path presets](./error-paths.md#configure-a-goldens-presets) (or `false` to leave it out of them) |
 | `repair` | `repairer` (`provider:model`) and `baseUrl` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
 | `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
 | `ciPush` | `false` keeps `test --push` from pushing to the team store in CI, and the GitHub Action from pushing the fixes it opens (`shadowlap store push-from-ci on\|off`) |

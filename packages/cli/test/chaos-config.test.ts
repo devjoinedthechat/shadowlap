@@ -1,0 +1,125 @@
+import { describe, expect, it } from 'vitest';
+import { Store } from '@shadowlap/engine';
+import { CHAOS_TIMEOUT, DEFAULT_CHAOS, parseChaosFields } from '../src/chaos-config.js';
+import { chaosJunit, chaosMarkdown, chaosReport, gateWords, type PresetOutcome } from '../src/chaos.js';
+import { parseExpect, parseTests } from '../src/checks.js';
+import { decide, parseGate } from '../src/gate-standin.js';
+
+/** The presets' settings under a tests entry, the gate that decides them, and what they report. */
+
+const parse = (raw: unknown) => parseChaosFields(raw, 'tests["g"].chaos', parseExpect);
+
+describe('a golden\'s chaos settings', () => {
+  it('default to all six presets, judged on the exit status, gated by the golden', () => {
+    expect(parse(undefined)).toEqual(DEFAULT_CHAOS);
+    expect(DEFAULT_CHAOS).toMatchObject({ presets: ['timeout', 'empty', 'malformed', 'oversized', '429', '500'], expect: null, tool: null, gate: null, oversize: 1_000_000, timeout: CHAOS_TIMEOUT });
+    expect(parse(false)).toBe(false);
+  });
+
+  it('read the presets, the checks, the tool, the gate, the size and the time limit', () => {
+    const spec = parse({ presets: ['429', 'timeout'], expect: { tools: { issue_refund: '<= 1' } }, tool: ' lookup_order ', gate: { good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, oversize: 20_000, timeout: 60 });
+    expect(spec).toMatchObject({ presets: ['timeout', '429'], tool: 'lookup_order', gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, oversize: 20_000, timeout: 60, expectRaw: { tools: { issue_refund: '<= 1' } } });
+    expect(spec && spec.expect?.tools).toEqual([{ name: 'issue_refund', count: { min: 0, max: 1 } }]);
+  });
+
+  it('refuse what they don\'t know, as every tests entry does', () => {
+    expect(() => parse({ preset: ['timeout'] })).toThrow('tests["g"].chaos has an unknown key "preset"');
+    expect(() => parse({ presets: ['flood'] })).toThrow('unknown preset "flood"');
+    expect(() => parse({ presets: 'timeout' })).toThrow('presets must be a list of presets');
+    expect(() => parse({ expect: { tools: { x: 'often' } } })).toThrow('tests["g"].chaos.expect.tools["x"] must be a count');
+    expect(() => parse({ gate: { good: 0.7, bad: 0.9, risk: 0.05, max: 20 } })).toThrow('bad (0.9) must be below good (0.7)');
+    expect(() => parse({ gate: { baseline: 'history', drop: 0.15, risk: 0.05 } })).toThrow('a baseline gate compares a golden with its own history');
+    expect(() => parse({ oversize: 10 })).toThrow('oversize must be a whole number of characters from 1000');
+    expect(() => parse({ timeout: 0 })).toThrow('timeout must be a whole number of seconds');
+    expect(() => parse('on')).toThrow('must be false, or an object');
+    // Through the tests entry itself, as shadowlap test and doctor read it.
+    expect(() => parseTests({ 'goldens/a': { chaos: { tool: 3 } } })).toThrow('tests["goldens/a"].chaos.tool must be the name of a tool');
+    expect(parseTests({ 'goldens/a': { chaos: { presets: ['timeout'] } } })).toHaveLength(1);
+  });
+});
+
+describe('the gate', () => {
+  const gate = parseGate({ good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, 'gate');
+
+  it('is Wald\'s sequential test: an agent that always passes is accepted after 12 attempts', () => {
+    // ln(0.9/0.7) per pass against ln(0.95/0.05): 11 passes are not enough, 12 are.
+    expect(decide(11, 11, gate)).toBe('continue');
+    expect(decide(12, 12, gate)).toBe('pass');
+    // Each failure costs ln(0.1/0.3); three in a row cross the lower bound.
+    expect(decide(0, 2, gate)).toBe('continue');
+    expect(decide(0, 3, gate)).toBe('fail');
+    // Between the bounds when max runs out: inconclusive.
+    expect(decide(16, 20, gate)).toBe('inconclusive');
+    expect(decide(16, 19, gate)).toBe('continue');
+  });
+
+  it('is described in words, as the report and the docs say it', () => {
+    expect(gateWords({ good: 0.9, bad: 0.7, risk: 0.05, max: 20 })).toBe('pass at 90% or more, fail at 70% or less, at most 5% risk, up to 20 attempts');
+    expect(gateWords({ repeat: 1, passes: 1 })).toBe('1 of 1 attempt must pass');
+    expect(gateWords({ repeat: 5, passes: 4 })).toBe('4 of 5 attempts must pass');
+  });
+
+  it('refuses one it can\'t decide', () => {
+    expect(() => parseGate({ good: 1.2, bad: 0.5, risk: 0.05, max: 5 }, 'g')).toThrow('g.good must be a number between 0 and 1');
+    expect(() => parseGate({ good: 0.9, bad: 0.5, risk: 0.6, max: 5 }, 'g')).toThrow('g.risk must be below 0.5');
+    expect(() => parseGate({ good: 0.9, bad: 0.5, risk: 0.05, max: 0 }, 'g')).toThrow('g.max must be a whole number from 1 to 1000');
+    expect(() => parseGate({ good: 0.9, bad: 0.5, risk: 0.05, max: 5, min: 1 }, 'g')).toThrow('unknown key "min"');
+    expect(parseGate({ baseline: 'history', drop: 0.15, risk: 0.05 }, 'g')).toEqual({ kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 1 });
+  });
+});
+
+describe('what a session reports', () => {
+  const outcome = (o: Partial<PresetOutcome>): PresetOutcome => ({ preset: 'timeout', label: 'tool timeout', verdict: 'passed', callNo: 3, target: { kind: 'tool', name: 'get_forecast' }, passes: 1, attempts: 1, detail: 'get_forecast (#3) timed out: the agent exited 0', summary: 'timed out: the agent exited 0', reason: null, runs: [{ runId: 'R1', passed: true, exitCode: 0, checks: [], reason: null, lastLine: null }], gate: { repeat: 1, passes: 1 }, upstreamRequests: 1, spent: 0, ...o });
+  const results = [
+    { golden: 'goldens/forecast', runId: 'G', error: null, skipped: null, outcomes: [outcome({}), outcome({ preset: 'malformed', label: 'malformed JSON', verdict: 'failed', passes: 0, detail: 'get_forecast (#3) answered malformed JSON: the agent exited with code 1', reason: 'the agent exited with code 1', runs: [{ runId: 'R2', passed: false, exitCode: 1, checks: null, reason: 'the agent exited with code 1', lastLine: 'SyntaxError: x' }] }), outcome({ preset: '429', label: 'provider 429', verdict: 'inconclusive', detail: 'model call #4 failed with HTTP 429: 3 of 5 passed' }), outcome({ preset: 'empty', label: 'empty result', verdict: 'not-applicable', runs: [], attempts: 0, detail: 'the recording makes no tool call' })] },
+    { golden: 'goldens/broken', runId: null, outcomes: [], error: 'the pack contains no runs', skipped: null },
+  ];
+
+  it('counts each verdict', () => {
+    expect(chaosReport(results, { session: 'S', revision: 'abc', presets: ['timeout'], interrupted: false })).toMatchObject({ version: 1, passed: 1, failed: 1, inconclusive: 1, notApplicable: 1 });
+  });
+
+  it('makes a JUnit case of each preset, failing an inconclusive one only when CI counts it', () => {
+    const fail = chaosJunit(results, { inconclusive: 'fail' });
+    expect(fail.map((c) => [c.classname, c.name, !!c.failure])).toEqual([
+      ['goldens/forecast', 'tool timeout', false],
+      ['goldens/forecast', 'malformed JSON', true],
+      ['goldens/forecast', 'provider 429', true],
+      ['goldens/forecast', 'empty result', false],
+      ['goldens/broken', 'error-path presets', true],
+    ]);
+    expect(fail[1]!.failure).toEqual({ message: 'failed: get_forecast (#3) answered malformed JSON: the agent exited with code 1', details: 'attempt 1 (run R2): failed: the agent exited with code 1' });
+    expect(chaosJunit(results, { inconclusive: 'warn' })[2]!.failure).toBeUndefined();
+  });
+
+  it('writes a Markdown table for a job summary', () => {
+    const md = chaosMarkdown(chaosReport(results, { session: 'S', revision: null, presets: [], interrupted: false }));
+    expect(md).toContain('| goldens/forecast | malformed JSON | failed | get_forecast (#3) answered malformed JSON: the agent exited with code 1 |');
+    expect(md).toContain('| goldens/forecast | empty result | not applicable | the recording makes no tool call |');
+    expect(md).toContain('| goldens/broken | | error | the pack contains no runs |');
+  });
+});
+
+describe('the store', () => {
+  it('keeps each session, and the newest result of each preset on each recording', () => {
+    const store = Store.open(':memory:');
+    const a = store.startChaosSession({ sessionId: 'S1', startedAt: 10, command: ['shadowlap', 'test', 'goldens/*', '--chaos'], presets: ['timeout', '429'], revision: 'abc', actor: 'dana' });
+    store.addChaosResult({ sessionId: 'S1', runId: 'G', golden: 'goldens/a', preset: 'timeout', verdict: 'failed', callNo: 3, passes: 0, attempts: 1, at: 11, data: { detail: 'first' } });
+    store.addChaosResult({ sessionId: 'S1', runId: 'G', golden: 'goldens/a', preset: '429', verdict: 'passed', callNo: 4, passes: 1, attempts: 1, at: 12 });
+    store.finishChaosSession('S1', { passed: 1, failed: 1, inconclusive: 0, upstreamRequests: 7, endedAt: 13 });
+    store.startChaosSession({ sessionId: 'S2', startedAt: 20, command: ['shadowlap', 'test', 'goldens/a', '--chaos'], presets: ['timeout'] });
+    store.addChaosResult({ sessionId: 'S2', runId: 'G', golden: 'goldens/a', preset: 'timeout', verdict: 'passed', callNo: 3, passes: 1, attempts: 1, at: 21, data: { detail: 'again' } });
+    expect(a.endedAt).toBeNull();
+    expect(store.getChaosSession('S1')).toMatchObject({ endedAt: 13, passed: 1, failed: 1, upstreamRequests: 7, presets: ['timeout', '429'], interrupted: false });
+    expect(store.listChaosSessions().map((s) => s.sessionId)).toEqual(['S2', 'S1']);
+    expect(store.latestChaosResults().map((r) => [r.preset, r.sessionId, r.verdict])).toEqual([
+      ['timeout', 'S2', 'passed'],
+      ['429', 'S1', 'passed'],
+    ]);
+    expect(store.listChaosResults({ golden: 'goldens/a' })).toHaveLength(3);
+    expect(store.listChaosResults({ sessionId: 'S1', runId: 'G' }).map((r) => r.data?.detail ?? null)).toEqual([null, 'first']);
+    // Every write moves the dashboard's counter for them.
+    expect(store.changeCounts().chaos).toBeGreaterThan(0);
+    store.close();
+  });
+});

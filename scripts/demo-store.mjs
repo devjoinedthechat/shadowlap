@@ -43,6 +43,10 @@
 //   - normalizers and redaction rules, added with the CLI; an import of each format it reads (HAR,
 //     nock, VCR, LiteLLM, OpenTelemetry, and Langfuse and LangSmith from a stand-in for their APIs
 //     on 127.0.0.1); a teammate's pack, unpacked
+//   - the error-path presets on the in-limit refund golden (a tool timeout, an empty, malformed and
+//     oversized answer, a 429 and a 500), which its agent handles; a coverage scan of what the
+//     imports did that no golden covers; the triage capture packed as a golden by coverage --pack
+//     (left uncommitted), and its presets, which the triage agent, with no error handling, fails
 //   - a team store in a stand-in bucket on 127.0.0.1: a teammate's runs pulled, ours pushed with
 //     the newest left only here, CI pushing its test runs, a share link; preference pairs exported;
 //     tasks from the goldens' checks (no model is scored); a run exported as HTML, HAR,
@@ -465,6 +469,12 @@ try {
     if (!fast) await sl(['test', 'goldens/*'], { who: 'ci' });
   });
 
+  await step('error-path presets', async () => {
+    // Each preset forks the in-limit refund where a tool or the model fails: the ticket agent hands a
+    // failed tool to the model, and escalates with a note when the model can't be reached.
+    await sl(['test', 'goldens/refund-in-limit', '--chaos'], { who: 'dana', ok: [0, 1] });
+  });
+
   if (!fast) {
     await step('the team store', async () => {
       await sl(['store', 'set', `s3://northwind-agent-runs/support-agent?endpoint=${bucket.endpoint}`]);
@@ -542,6 +552,19 @@ try {
     runs.litellm = await imported(['litellm', join(captures, 'litellm', 'shadowlap-4121.jsonl'), join(captures, 'litellm', 'shadowlap-4122.jsonl')]);
     await label(runs.litellm, 'incident-42');
     if (!fast) await importTraces();
+  });
+
+  await step('coverage', async () => {
+    // What production did that no golden covers, kept in the store for Tests and Needs a look. The
+    // triage capture becomes a golden (left in the working tree, to review), and its presets run: the
+    // triage agent has no error handling of its own.
+    const scan = JSON.parse((await sl(['coverage', '--json'], { who: 'maya' })).stdout);
+    const triage = scan.groups.find((g) => g.path[0] === 'list_inbox');
+    if (!triage || triage.covered) throw new StepError(`coverage found no uncovered triage behaviour:\n${JSON.stringify(scan.groups, null, 2)}`);
+    const made = JSON.parse((await sl(['coverage', '--pack', triage.key, '--json'], { who: 'maya' })).stdout).pack[0];
+    if (!made?.golden) throw new StepError(`coverage --pack made no golden of the triage capture: ${made?.why}`);
+    runs.coverageGolden = made.golden;
+    await sl(['test', made.golden, '--chaos'], { who: 'maya', ok: [1] });
   });
 
   // ---- Sep 30, afternoon: what leaves this machine is masked, and runs are shared ----

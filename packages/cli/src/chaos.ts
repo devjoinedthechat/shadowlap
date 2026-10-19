@@ -85,7 +85,6 @@ export interface ChaosContext {
   onRun?: (runId: string, preset: ChaosPreset, attempt: number) => void;
   /** True once a signal arrived: the attempt it cut short returns, and nothing after it starts. */
   stopped?: () => boolean;
-  timeoutMs?: number | null;
 }
 
 type FixedGate = { repeat: number; passes: number };
@@ -213,7 +212,7 @@ export async function runPresets(parent: RunRecord, counts: Pick<TestSpec, 'repe
         replay,
         meta: { chaos: { preset, callNo: target.callNo, session: ctx.session, attempt: runs.length + 1, ...(ctx.golden ? { golden: ctx.golden } : {}) } },
         ...(ctx.argv ? { argv: ctx.argv } : {}),
-        ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}),
+        timeoutMs: chaos.timeout * 1000,
         onRun: (runId) => {
           emitJobEvent({ type: 'run', runId, role: 'attempt' });
           ctx.onRun?.(runId, preset, runs.length + 1);

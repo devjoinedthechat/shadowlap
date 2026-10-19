@@ -9,7 +9,7 @@ import { parseGate, type Gate } from './gate-standin.js';
  * one that reads the world), what an error path must do besides the agent exiting 0 (`expect`, the
  * grammar of the entry's own: its checks describe the path the recording took, which an error path
  * needn't take), the gate each preset is decided by (default the golden's `repeat` and `passes`),
- * and how long an oversized result grows. `"chaos": false` leaves the golden out of every
+ * how long an oversized result grows, and how long an attempt may run. `"chaos": false` leaves the golden out of every
  * `test --chaos`. Read beside `tests` as `task` is: the golden's checks don't need it.
  */
 
@@ -25,9 +25,14 @@ export interface ChaosSpec {
   gate: Gate | null;
   /** Characters an oversized result grows to. */
   oversize: number;
+  /** Seconds an attempt may run before it is stopped and fails: an error path can hang (an agent that retries a 429 for ever). */
+  timeout: number;
 }
 
-export const DEFAULT_CHAOS: ChaosSpec = { presets: [...CHAOS_PRESETS], expect: null, expectRaw: null, tool: null, gate: null, oversize: OVERSIZE_CHARS };
+/** How long an attempt may run by default, in seconds. */
+export const CHAOS_TIMEOUT = 300;
+
+export const DEFAULT_CHAOS: ChaosSpec = { presets: [...CHAOS_PRESETS], expect: null, expectRaw: null, tool: null, gate: null, oversize: OVERSIZE_CHARS, timeout: CHAOS_TIMEOUT };
 
 /** checks.ts `parseExpect`, passed in: the checks module reads this one to check a tests entry. */
 export type ExpectParser = (raw: unknown, where: string) => TestSpec;
@@ -39,7 +44,7 @@ export function parseChaosFields(raw: unknown, where: string, parseExpect: Expec
   if (raw === undefined) return DEFAULT_CHAOS;
   if (raw === false) return false;
   if (!isObject(raw)) throw new Error(`${where} must be false, or an object such as { "presets": ["timeout", "429"] }`);
-  for (const k of Object.keys(raw)) if (!['presets', 'expect', 'tool', 'gate', 'oversize'].includes(k)) throw new Error(`${where} has an unknown key "${k}" (expected "presets", "expect", "tool", "gate", "oversize")`);
+  for (const k of Object.keys(raw)) if (!['presets', 'expect', 'tool', 'gate', 'oversize', 'timeout'].includes(k)) throw new Error(`${where} has an unknown key "${k}" (expected "presets", "expect", "tool", "gate", "oversize", "timeout")`);
   let expect: TestSpec | null = null;
   if (raw.expect !== undefined) {
     if (!isObject(raw.expect)) throw new Error(`${where}.expect must be an object of checks, as a tests entry's expect is`);
@@ -61,7 +66,12 @@ export function parseChaosFields(raw: unknown, where: string, parseExpect: Expec
     if (typeof raw.oversize !== 'number' || !Number.isInteger(raw.oversize) || raw.oversize < 1_000 || raw.oversize > 50_000_000) throw new Error(`${where}.oversize must be a whole number of characters from 1000 to 50000000`);
     oversize = raw.oversize;
   }
-  return { presets, expect, expectRaw: expect ? (raw.expect as Record<string, unknown>) : null, tool: typeof raw.tool === 'string' ? raw.tool.trim() : null, gate, oversize };
+  let timeout = CHAOS_TIMEOUT;
+  if (raw.timeout !== undefined) {
+    if (typeof raw.timeout !== 'number' || !Number.isInteger(raw.timeout) || raw.timeout < 1 || raw.timeout > 86_400) throw new Error(`${where}.timeout must be a whole number of seconds from 1 to 86400`);
+    timeout = raw.timeout;
+  }
+  return { presets, expect, expectRaw: expect ? (raw.expect as Record<string, unknown>) : null, tool: typeof raw.tool === 'string' ? raw.tool.trim() : null, gate, oversize, timeout };
 }
 
 /** The `chaos` of the config's tests entry `key` (as `testsKeyFor` picks it), read from the file: the defaults without one. */

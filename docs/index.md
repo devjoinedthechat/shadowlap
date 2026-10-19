@@ -30,6 +30,8 @@ Shadowlap records every model API call and tool call an agent makes, then re-run
 - [Why did my replay diverge?](./troubleshooting.md): the page you'll visit most.
 - Fixes: [blame](./blame.md) finds the model call that lost a run, [repair](./repair.md) rewrites the prompt, and [verify](./verify.md) proves the fix on failing, held-out and good runs.
 - [CI mode](./ci.md): a run kept as a golden, replayed offline on every pull request.
+- [Production coverage](./coverage.md): the behaviours your imported production traffic shows that no golden covers, and a golden made of one run of each.
+- [Error-path presets](./error-paths.md): a golden forked where a tool times out or answers malformed JSON, or the provider fails, to check the agent's error path.
 - [Training](./training.md): the preference pairs your blames and verifies already left in the store, exported for fine-tuning, and goldens as tasks a model is scored on, in the CLI or on the dashboard's Training page.
 - [Compared with other tools](./compare.md): cassettes, tracing platforms, framework time travel, durable execution.
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.

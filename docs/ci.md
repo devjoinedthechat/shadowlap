@@ -145,6 +145,13 @@ A recording normally fails as soon as the agent sends a different request. Mark 
 
 Checks work the same on recordings that don't fork: they then describe the recording itself and cost nothing.
 
+### Error paths
+
+A golden records a healthy run, so it never holds a tool timeout or a rate limit. `shadowlap test
+goldens/* --chaos` forks each golden where the first tool that reads the world times out, answers
+nothing, answers malformed or oversized JSON, and where the model call after it gets a 429 or a
+500, and judges each fork as a recording that forks is. See [Error-path presets](./error-paths.md).
+
 ## Update a golden after an intended change
 
 A prompt you changed on purpose makes its goldens diverge, which is the test doing its job. Once you mean the change, update them (`shadowlap test` prints this command after its totals when a golden diverged on more than a value that changes every run):

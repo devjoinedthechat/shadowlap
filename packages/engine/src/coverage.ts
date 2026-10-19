@@ -3,6 +3,7 @@ import { runKind } from './classify.js';
 import { responseInfo } from './conversations.js';
 import { sha256 } from './ids.js';
 import { commandIsImported, hasRecordedCommand } from './pack.js';
+import { normalizeResponse } from './responses.js';
 import type { Store } from './store.js';
 import type { CallRecord, Effect, RunRecord } from './types.js';
 
@@ -87,9 +88,21 @@ function outcomeOf(store: Store, run: Pick<RunRecord, 'status'>, api: readonly C
   const last = api.at(-1);
   if (!last) return 'no-model-calls';
   if (!last.end || last.end.outcome !== 'ok') return 'model-error';
-  const stop = last.end.meta.stopReason;
-  if (typeof stop === 'string' && TOKEN_LIMIT.has(stop)) return 'token-limit';
+  const stop = typeof last.end.meta.stopReason === 'string' ? last.end.meta.stopReason : stopReasonOf(store, last);
+  if (stop !== null && TOKEN_LIMIT.has(stop)) return 'token-limit';
   return responseInfo(store, last).tools.length ? 'tool-call' : 'answered';
+}
+
+/** A model call's stop reason as its response says it, for a call recorded without one in its metadata. */
+function stopReasonOf(store: Store, call: CallRecord): string | null {
+  const end = call.end;
+  if (!end?.responseRef) return null;
+  try {
+    const provider = end.meta.provider ?? call.meta.provider;
+    return normalizeResponse(store.getBlob(end.responseRef), end.meta.headers?.['content-type'], end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined).stopReason;
+  } catch {
+    return null;
+  }
 }
 
 /** What groups runs: the path, the writes and the outcome. `unknown` follows from the effects known when it was read. */

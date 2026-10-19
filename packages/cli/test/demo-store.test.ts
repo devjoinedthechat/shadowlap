@@ -71,7 +71,7 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
   });
 
   it('forks with each intervention, and has an interrupted and a failed recording', () => {
-    const made = runs.filter((r) => r.mode === 'replay' && !r.meta?.probe && !r.meta?.verify && !r.meta?.test).flatMap((r) => (r.meta?.interventions ?? []).map((i) => ({ ...i, parent: r.parentRunId })));
+    const made = runs.filter((r) => r.mode === 'replay' && !r.meta?.probe && !r.meta?.verify && !r.meta?.test && !r.meta?.chaos).flatMap((r) => (r.meta?.interventions ?? []).map((i) => ({ ...i, parent: r.parentRunId })));
     expect(new Set(made.map((i) => i.kind))).toEqual(new Set(['override', 'fail', 'writes', 'plant', 'live-tool']));
     // --fail-at on a model call and on a tool call.
     const failed = made.filter((i) => i.kind === 'fail').map((i) => store.getCalls(i.parent!).find((c) => c.callNo === i.at)?.kind);
@@ -123,6 +123,45 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
     const promised = JSON.parse(readFileSync(join(folder, 'runs.json'), 'utf8')) as { attempts: Record<string, number> };
     expect(promised.attempts.test).toBe(4 * sessions.length);
   });
+
+  // Production coverage and error-path presets, on what the build left: the scan, the golden it
+  // packed of the triage capture, and the presets of two goldens; then --pack on the rest.
+  it('lists the imported behaviours no golden covers, packs one of each the agents still do, and runs presets on goldens', async () => {
+    const ids = (JSON.parse(readFileSync(join(folder, 'runs.json'), 'utf8')) as { runs: { coverageGolden: string } }).runs;
+    const [scan] = store.listCoverageScans();
+    expect(scan).toMatchObject({ runs: 4, groups: 4, uncovered: 2 });
+    const groups = store.coverageGroups();
+    const starting = (tool: string) => groups.find((g) => g.behaviour.path[0] === tool)!;
+    expect(starting('list_inbox')).toMatchObject({ coveredBy: [ids.coverageGolden], packed: { golden: ids.coverageGolden } });
+    expect(starting('get_ticket').coveredBy).toEqual(['goldens/refund-flow-budget', 'goldens/refund-in-limit']);
+    expect(starting('list_tickets')).toMatchObject({ coveredBy: [], behaviour: { writes: ['post_digest'] }, command: { argv: ['node', 'digest.mjs'] } });
+    expect(starting('lookup_order')).toMatchObject({ coveredBy: [], behaviour: { path: ['lookup_order', 'get_policy', 'issue_refund', 'send_email'] }, command: { argv: ['node', 'agent.mjs', 'A-1077'] } });
+    expect(starting('lookup_order').nearest?.differs).toEqual({ step: 3, seen: 'issue_refund', golden: 'escalate' });
+
+    // Each preset's outcome: the ticket agent copes with every failure, the triage agent with none that fails a call.
+    const verdicts = (golden: string) => Object.fromEntries(store.latestChaosResults().filter((r) => r.golden === golden).map((r) => [r.preset, r.verdict]));
+    expect(verdicts('goldens/refund-in-limit')).toEqual({ timeout: 'passed', empty: 'passed', malformed: 'passed', oversized: 'passed', '429': 'passed', '500': 'passed' });
+    expect(verdicts(ids.coverageGolden)).toEqual({ timeout: 'failed', empty: 'passed', malformed: 'passed', oversized: 'passed', '429': 'failed', '500': 'failed' });
+    const attempts = runs.filter((r) => r.meta?.chaos);
+    expect(attempts).toHaveLength(12);
+    for (const a of attempts) expect(classifyRun(a).attemptKind).toBe('chaos');
+
+    // Packing the rest: the digest agent still does what its capture did; the refund agent was fixed since.
+    const packed = await new Promise<{ code: number | null; out: string }>((resolve) => {
+      const child = spawn(process.execPath, [join(ROOT, 'packages', 'cli', 'bin', 'shadowlap.js'), 'coverage', '--pack', '--json'], {
+        cwd: join(folder, 'support-agent'),
+        env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: join(folder, 'home'), SHADOWLAP_AUTHOR: 'dana@example.com', GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let out = '';
+      child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+      child.on('close', (code) => resolve({ code, out }));
+    });
+    expect(packed.code).toBe(1);
+    const pack = (JSON.parse(packed.out) as { pack: Array<{ golden: string | null; command: { argv: string[] } | null; why: string | null }> }).pack;
+    expect(pack.find((p) => p.command?.argv[1] === 'digest.mjs')).toMatchObject({ golden: expect.stringMatching(/^goldens\/list-tickets-post-digest-[0-9a-f]{6}$/), why: null });
+    expect(pack.find((p) => p.command?.argv[1] === 'agent.mjs')).toMatchObject({ golden: null, why: expect.stringMatching(/doesn't reproduce \w{10}: diverged at call 1 \(api POST \/v1\/messages\)/) });
+  }, 120_000);
 
   // Last: it applies both fixes and re-records goldens. The email fix changes send_email's
   // description, which every request of the refund agent carries, so the refund fix's goldens,

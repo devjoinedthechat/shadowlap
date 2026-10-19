@@ -142,7 +142,8 @@ export function cutJson(text: string): string {
 /** Text repeated, a line at a time, until it is at least `chars` long. */
 function grownText(text: string, chars: number): string {
   const unit = text.length ? text : 'x';
-  return Array.from({ length: Math.ceil(chars / (unit.length + 1)) }, () => unit).join('\n');
+  // n copies and the n − 1 line breaks between them.
+  return Array.from({ length: Math.max(1, Math.ceil((chars + 1) / (unit.length + 1))) }, () => unit).join('\n');
 }
 
 /** The longest text in a value, by its path of keys. */
