@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { emptyCounts, Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
-import type { MigrateReport } from '../src/migrate.js';
+import { formatMigrate, type MigrateReport, type MigrateRunPass } from '../src/migrate.js';
 import { departures } from './json-shapes.js';
 
 /**
@@ -222,4 +222,44 @@ describe('shadowlap migrate', () => {
     expect(problems.flatMap((x) => [...x.missing, ...x.extra])).toEqual([]);
     expect(existsSync(join(cwd, '.shadowlap', 'migrations'))).toBe(true);
   }, 240_000);
+});
+
+describe("migrate's first line", () => {
+  // A report with what the first line reads: the switch, its runs and what still passes.
+  const report = (runs: Array<Pick<MigrateRunPass, 'verdict' | 'outcome' | 'verified'>>, o: { verdict?: MigrateReport['passes']['verdict']; flagged?: number; notAsked?: number } = {}): MigrateReport =>
+    ({
+      from: ['claude-old'],
+      to: 'claude-new',
+      decisions: { runs: runs.map((_, i) => ({ runId: `R${i}` })), counts: { ...emptyCounts(), notAsked: o.notAsked ?? 0 }, verify: null, cost: { unknownModels: [] } },
+      changes: { runs: runs.length, flagged: o.flagged ?? 0, steps: [] },
+      passes: { verdict: o.verdict ?? 'not-run', runs: runs.map((x, i) => ({ runId: `R${i}`, golden: `goldens/g${i}`, tally: null, ...x })) },
+      costs: { perRun: { before: 0.01, after: 0.01 }, total: { before: null, after: null }, tokensPerRun: { before: 1, after: 1 }, checking: { decisions: 0, verify: 0 } },
+      set: { flags: [], fields: [], given: {} },
+      configChange: null,
+      retirements: [],
+      notes: [],
+      warnings: [],
+      files: null,
+    }) as unknown as MigrateReport;
+  const first = (r: MigrateReport) => formatMigrate(r).split('\n')[0];
+  const kept = { verdict: 'passed', outcome: 'kept', verified: true } as const;
+
+  it('claims no run passing, and no decision unchanged, while What still passes has one inconclusive', () => {
+    // Verify kept the run it took, but a step of another got no answer: that run is not settled.
+    expect(first(report([kept, { verdict: 'inconclusive', outcome: 'not-asked', verified: false }], { verdict: 'accepted', flagged: 1, notAsked: 2 }))).toBe('! Not settled: claude-old → claude-new, 2 runs, 1 inconclusive');
+    // Nothing flagged in the steps asked, but one run was never asked.
+    const unasked = report([{ verdict: 'passed', outcome: 'unchanged', verified: false }, { verdict: 'inconclusive', outcome: 'not-asked', verified: false }], { notAsked: 3 });
+    expect(first(unasked)).toBe('! Not settled: claude-old → claude-new, 2 runs, 1 inconclusive');
+    expect(formatMigrate(unasked)).toContain('\n  no write and no stop decision changes in the steps asked\n');
+    // A run its verify left inconclusive.
+    expect(first(report([{ verdict: 'inconclusive', outcome: 'inconclusive', verified: true }], { verdict: 'incomplete', flagged: 1 }))).toBe('! Not settled: claude-old → claude-new, 1 run, 1 inconclusive');
+  });
+
+  it('says what holds once every run is settled', () => {
+    expect(first(report([kept], { verdict: 'accepted', flagged: 1 }))).toBe('✓ claude-new keeps every run passing: claude-old → claude-new, 1 run');
+    // A run that failed as recorded is not one the switch keeps passing.
+    expect(first(report([kept, { verdict: 'failed', outcome: 'unchanged', verified: false }], { verdict: 'accepted', flagged: 1 }))).toBe('✓ claude-new keeps every run that passed passing: claude-old → claude-new, 2 runs');
+    expect(first(report([{ verdict: 'passed', outcome: 'unchanged', verified: false }]))).toBe('✓ No write or stop decision changes under claude-new: claude-old → claude-new, 1 run');
+    expect(first(report([{ verdict: 'failed', outcome: 'broken', verified: true }, { verdict: 'inconclusive', outcome: 'not-asked', verified: false }], { verdict: 'rejected', flagged: 1 }))).toBe('✗ claude-new breaks runs: claude-old → claude-new, 2 runs, 1 inconclusive');
+  });
 });

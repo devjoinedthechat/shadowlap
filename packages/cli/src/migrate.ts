@@ -51,7 +51,7 @@ export interface MigrateRunPass {
   golden: string | null;
   /** passed, failed or inconclusive: what the run's outcome comes to. */
   verdict: Verdict;
-  /** kept, broken, fixed, not-fixed, unsettled (verified, in verify's own words); unchanged (no write or stop decision changed, so not re-run); not-asked. */
+  /** kept, broken, fixed, not-fixed, inconclusive, unsettled (verified, in verify's own words); unchanged (no write or stop decision changed, so not re-run); not-asked. */
   outcome: string;
   verified: boolean;
   /** A run verify took: its passes of its attempts and, under a gate, the Wilson bound of its pass rate (null for a clean replay or a fixed count). Null for a run it didn't. */
@@ -270,7 +270,7 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
   const lines: string[] = [`## ${title}`, '', `Checked with \`${r.command}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and the ${r.changes.flagged} with a changed write or stop verified end to end.`];
   for (const n of r.retirements.filter((x) => r.from.includes(x.model))) lines.push('', `> ${n.text} ([source](${n.source}))`);
   lines.push('', '### What changes', '');
-  if (!r.changes.steps.length) lines.push('No write and no stop decision changes.');
+  if (!r.changes.steps.length) lines.push(`No write and no stop decision changes${r.decisions.counts.notAsked ? ' in the steps asked' : ''}.`);
   for (const s of r.changes.steps.slice(0, 12)) lines.push(`- ${name(s)} #${s.callNo}: ${s.detail}${s.arguments.length ? `: ${s.arguments.map(tick).join(', ')}` : ` (${tick(s.recorded)} → ${tick(s.now)})`}`);
   if (r.changes.steps.length > 12) lines.push(`- and ${r.changes.steps.length - 12} more`);
   const c = r.decisions.counts;
@@ -424,12 +424,25 @@ function writeMigrateFiles(r: MigrateReport, id: string): MigrateReport['files']
 export function formatMigrate(r: MigrateReport): string {
   const lines: string[] = [];
   const v = r.passes.verdict;
+  // The head claims nothing What still passes doesn't: a run that is inconclusive there (a step not
+  // answered, a flagged run not verified, a recording its checks can't settle) leaves it not settled,
+  // and a run that failed as recorded is not one the switch keeps passing.
+  const unsure = r.passes.runs.filter((x) => x.verdict === 'inconclusive').length;
+  const failing = r.passes.runs.some((x) => x.verdict === 'failed');
   const head =
-    r.changes.flagged === 0 ? `${p.green('✓')} ${p.bold(`No write or stop decision changes under ${r.to}`)}` : v === 'accepted' ? `${p.green('✓')} ${p.bold(`${r.to} keeps every run passing`)}` : v === 'rejected' ? `${p.red('✗')} ${p.bold(`${r.to} breaks runs`)}` : `${p.yellow('!')} ${p.bold('Not settled')}`;
-  lines.push(`${head}: ${r.from.length ? `${r.from.join(', ')} → ` : ''}${r.to}, ${r.decisions.runs.length} run${r.decisions.runs.length === 1 ? '' : 's'}`);
+    v === 'rejected'
+      ? `${p.red('✗')} ${p.bold(`${r.to} breaks runs`)}`
+      : unsure
+        ? `${p.yellow('!')} ${p.bold('Not settled')}`
+        : r.changes.flagged === 0
+          ? `${p.green('✓')} ${p.bold(`No write or stop decision changes under ${r.to}`)}`
+          : v === 'accepted'
+            ? `${p.green('✓')} ${p.bold(`${r.to} keeps every run${failing ? ' that passed' : ''} passing`)}`
+            : `${p.yellow('!')} ${p.bold('Not settled')}`;
+  lines.push(`${head}: ${r.from.length ? `${r.from.join(', ')} → ` : ''}${r.to}, ${r.decisions.runs.length} run${r.decisions.runs.length === 1 ? '' : 's'}${unsure ? `, ${unsure} inconclusive` : ''}`);
   for (const n of r.retirements) lines.push(p.dim(`  ${safeLine(n.text)}`));
   lines.push('', p.bold('What changes'));
-  if (!r.changes.steps.length) lines.push('  no write and no stop decision changes');
+  if (!r.changes.steps.length) lines.push(`  no write and no stop decision changes${r.decisions.counts.notAsked ? ' in the steps asked' : ''}`);
   for (const s of r.changes.steps) lines.push(`  ${s.rank === 1 ? p.red(`rank ${s.rank}`) : p.yellow(`rank ${s.rank}`)}  ${safeLine(name(s))} #${s.callNo}  ${safeLine(s.detail)}`, ...(s.arguments.length ? s.arguments.map((a) => p.dim(`          ${a}`)) : [p.dim(`          ${s.recorded} → ${s.now}`)]));
   const c = r.decisions.counts;
   if (c[3] + c[4] + c[5]) lines.push(p.dim(`  besides: ${[c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only`].filter(Boolean).join(', ')}`));
