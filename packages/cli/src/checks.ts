@@ -373,7 +373,8 @@ export function parseCallRule(raw: unknown, where: string): CallRule {
     if (!Array.isArray(list) || !list.length) throw new Error(`${where}.after must be a tool name or a list of them`);
     after = list.map((t, i) => toolName(t, Array.isArray(raw.after) ? `${where}.after[${i}]` : `${where}.after`));
   }
-  const args = raw.args === undefined ? null : parseArgs(raw.args, `${where}.args`);
+  // Arguments with nothing to match check nothing, as no arguments do.
+  const args = raw.args === undefined || (isObject(raw.args) && !Object.keys(raw.args).length) ? null : parseArgs(raw.args, `${where}.args`);
   if (!after.length && !args) throw new Error(`${where} checks nothing: give it "after", "args" or both (to require a call of ${tool}, use "tools")`);
   return { tool, after, args, at: where };
 }
@@ -395,7 +396,7 @@ export function parseWhen(raw: unknown, where: string, judges = new Map<string, 
   onlyKeys(cond, ['tool', 'args', 'result'], at);
   const condition: CallCondition = {
     tool: toolName(cond.tool, `${at}.tool`),
-    args: cond.args === undefined ? null : parseArgs(cond.args, `${at}.args`),
+    args: cond.args === undefined || (isObject(cond.args) && !Object.keys(cond.args).length) ? null : parseArgs(cond.args, `${at}.args`),
     result: cond.result === undefined ? null : parsePredicate(cond.result, `${at}.result`),
     at,
   };
@@ -756,7 +757,9 @@ function valuesAt(value: unknown, path: Reference['path']): unknown[] {
 
 /** What a reference reads, and the call it read it from. */
 function resolveReference(ref: Reference, ctx: MatchContext): { values: unknown[]; callNo: number } | Match {
-  const prior = ctx.scope.calls.filter((c) => c.kind === 'tool' && c.name === ref.tool && c.callNo < ctx.at.callNo).at(-1);
+  // The most recent by call number, whatever order the calls came in.
+  let prior: CallRecord | undefined;
+  for (const c of ctx.scope.calls) if (c.kind === 'tool' && c.name === ref.tool && c.callNo < ctx.at.callNo && (!prior || c.callNo > prior.callNo)) prior = c;
   if (!prior) return undecided(ctx.quiet?.has(ref.tool) ? '' : `no ${ref.tool} call before it`);
   let base: unknown;
   if (ref.part === 'args') {

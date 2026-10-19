@@ -71,6 +71,8 @@ describe('calls: a rule every call of a tool meets', () => {
   it('reads the most recent call of the tool before the call checked, never one after it', () => {
     const calls = [tool(2, 'lookup_order', { order_id: 'A' }, { total: 500 }), tool(4, 'lookup_order', { order_id: 'B' }, { total: 40 }), tool(6, 'issue_refund', { amount: 100 }), tool(8, 'lookup_order', { order_id: 'C' }, { total: 900 })];
     expect(one(REFUND_RULE, calls).detail).toBe('issue_refund #6: amount 100 > lookup_order.result.total 40 (#4)');
+    // By call number, in whatever order the calls are handed over.
+    expect(one(REFUND_RULE, [...calls].reverse()).detail).toBe('issue_refund #6: amount 100 > lookup_order.result.total 40 (#4)');
   });
 
   it('fails and names the missing call when there is nothing to read, and never passes on a missing value', () => {
@@ -327,6 +329,7 @@ describe('the grammar\'s errors, in the existing style', () => {
     [{ calls: [{ tool: 'x', args: {}, when: 1 }] }, 'tests["g"].expect.calls[0] has an unknown key "when" (expected "tool", "after", "args")'],
     [{ calls: [{ args: { a: 1 } }] }, 'tests["g"].expect.calls[0].tool must name a tool'],
     [{ calls: [{ tool: 'x' }] }, 'tests["g"].expect.calls[0] checks nothing: give it "after", "args" or both (to require a call of x, use "tools")'],
+    [{ calls: [{ tool: 'x', args: {} }] }, 'tests["g"].expect.calls[0] checks nothing'],
     [{ calls: [{ tool: 'x', after: [] }] }, 'tests["g"].expect.calls[0].after must be a tool name or a list of them'],
     [{ calls: [{ tool: 'x', after: ['a', 3] }] }, 'tests["g"].expect.calls[0].after[1] must name a tool'],
     [{ calls: [{ tool: 'x', args: 'amount' }] }, 'tests["g"].expect.calls[0].args must be an object of argument names'],
