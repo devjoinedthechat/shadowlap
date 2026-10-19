@@ -84,16 +84,25 @@ def _scope():
     return None
 
 
+def _scope_header(scope):
+    """The scope as x-shadowlap-scope carries it: % and anything outside printable ASCII percent-encoded
+    (UTF-8), as the SDK sends it, so a name of any language fits a header."""
+    from urllib.parse import quote
+
+    return "".join(c if " " <= c <= "~" and c != "%" else quote(c.encode("utf-8", "replace"), safe="") for c in scope)
+
+
 def _post(path, body):
     headers = {"content-type": "application/json", "user-agent": "shadowlap-input-python"}
     if _run:
         headers["x-shadowlap-run"] = _run
     scope = _scope()
     if scope:
-        headers["x-shadowlap-scope"] = scope
+        headers["x-shadowlap-scope"] = _scope_header(scope)
     req = urllib.request.Request(_url.rstrip("/") + path, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=30) as res:
+        # Never through a proxy (HTTP_PROXY): the sidecar is on this machine's loopback.
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=30) as res:
             return json.loads(res.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         text = e.read().decode("utf-8", "replace")

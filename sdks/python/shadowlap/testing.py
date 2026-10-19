@@ -13,8 +13,11 @@ The pytest plugin (``@pytest.mark.shadowlap``) is built on this module; any othe
         self.assertEqual(len(result.tickets), 3)
 
 On first use, a ``shadowlap serve --recordings`` process starts for this Python process (the
-``shadowlap`` CLI from npm, or ``SHADOWLAP_CLI``). Model calls reach it through in-process capture,
-so clients created before that, at import time, are recorded too.
+``shadowlap`` CLI from npm, or ``SHADOWLAP_CLI``). While a recording runs, model calls reach it
+through in-process capture, so clients created before it started, at import time, are recorded
+too, and the base-URL variables point at it for clients created inside. Outside a recording the
+environment is what it was and capture is off: code that runs between recorded tests, such as a
+test without the marker, calls its model and tools directly.
 
 ``SHADOWLAP_RECORD`` picks the mode: ``missing`` (the default) replays a test that has a recording
 and records one that doesn't; ``all`` records every test again; ``none`` only replays, and is the
@@ -75,19 +78,59 @@ class _Host:
             raise ShadowlapTestError("%s exited before it was ready (exit code %s)" % (" ".join(command), code))
         info = json.loads(line)
         self.url = info["url"]
-        # Base URLs for this process's slot, set before capture so both read the same values.
-        for key, value in info["env"].items():
-            os.environ[key] = value.replace("__SLOT__", self.slot)
+        # This process's slot: the base URLs, SHADOWLAP_URL for the SDK, and capture's configuration.
+        # They hold only while a recording runs (enter() to leave()), so code outside one is left alone.
+        self.env = {key: value.replace("__SLOT__", self.slot) for key, value in info["env"].items()}
+        self._saved: Dict[str, Optional[str]] = {}
+        self._depth = 0
         if info["capture"]["python"] not in sys.path:
             sys.path.insert(0, info["capture"]["python"])
-        import _shadowlap_capture  # noqa: F401  (patches httpx, httpx2 and botocore)
+        # Capture reads its configuration when it is imported, so it is imported under the slot's.
+        self.enter()
+        try:
+            import _shadowlap_capture  # noqa: F401  (patches httpx, httpx2, requests, urllib3 and botocore)
+        finally:
+            self.leave()
 
         atexit.register(self.close)
+
+    def _capture(self, on: bool) -> None:
+        capture = sys.modules.get("_shadowlap_capture")
+        if capture is not None:
+            capture.active = on
+
+    def enter(self) -> None:
+        """Points this process at the slot: base URLs, the SDK and in-process capture."""
+        self._depth += 1
+        if self._depth > 1:
+            return
+        self._saved = {key: os.environ.get(key) for key in self.env}
+        os.environ.update(self.env)
+        self._capture(True)
+
+    def leave(self) -> None:
+        """Puts the environment back as it was before enter(), and turns capture off. A variable the
+        code changed meanwhile keeps its new value."""
+        if self._depth == 0:
+            return
+        self._depth -= 1
+        if self._depth > 0:
+            return
+        self._capture(False)
+        for key, value in self._saved.items():
+            if os.environ.get(key) != self.env[key]:
+                continue
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        self._saved = {}
 
     def post(self, path: str, body: dict) -> dict:
         req = urllib.request.Request(self.url + path, data=json.dumps(body).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=120) as res:
+            # Never through a proxy: the host is on this machine's loopback.
+            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=120) as res:
                 return json.loads(res.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             text = e.read().decode("utf-8", "replace")
@@ -192,6 +235,8 @@ class Recording:
         #: ``record`` or ``replay``, once started.
         self.action: Optional[str] = None
         self.result: Optional[dict] = None
+        # Whether this recording has pointed the process at its slot (see _Host.enter).
+        self._entered = False
 
     def start(self) -> "Recording":
         if under_shadowlap_run():
@@ -204,6 +249,9 @@ class Recording:
         self.result = None
         self.run_id = started["runId"]
         self.action = started["mode"]
+        if not self._entered:
+            host.enter()
+            self._entered = True
         return self
 
     def _read(self) -> Dict[str, Any]:
@@ -238,6 +286,10 @@ class Recording:
         """Ends the recording. Raises :class:`ShadowlapReplayDiverged` when the replay diverged."""
         if self.run_id is None:
             return
+        if self._entered:
+            self._entered = False
+            if _host is not None:
+                _host.leave()
         self.result = _host.post("/v1/recordings/end", {"runId": self.run_id, "passed": passed})
         if not self.result["ok"]:
             message = self.result["message"]

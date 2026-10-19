@@ -22,6 +22,8 @@ import { toOptions, type EffectSpec } from './core.js';
 interface LangChainToolInternals {
   name: string;
   _call: (input: unknown, ...rest: unknown[]) => Promise<unknown>;
+  /** The function a tool made with `tool()` or `DynamicStructuredTool` calls from its `_call`. */
+  func?: (...args: never[]) => unknown;
 }
 
 export function withEffect<T extends { name: string }>(instance: T, spec: EffectSpec): T {
@@ -29,7 +31,8 @@ export function withEffect<T extends { name: string }>(instance: T, spec: Effect
   if (typeof target._call !== 'function') {
     throw new TypeError(`withEffect: "${instance.name}" is not a LangChain tool (no _call); wrap the result of tool() or a StructuredTool instance`);
   }
-  const options = toOptions(spec, instance.name);
+  // Hashed by the person's function: `func` for tool() and DynamicStructuredTool, a subclass's own _call.
+  const options = toOptions(spec, instance.name, typeof target.func === 'function' ? target.func : target._call);
   const original = target._call.bind(instance);
   target._call = (input: unknown, ...rest: unknown[]) => tool(instance.name, options, () => original(input, ...rest))(input);
   return instance;

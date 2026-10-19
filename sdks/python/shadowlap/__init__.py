@@ -14,6 +14,7 @@ import functools
 import hashlib
 import inspect
 import json
+import math
 import os
 import random as _random
 import re
@@ -65,19 +66,62 @@ class ShadowlapWriteBlocked(RuntimeError):
 
 
 class ReplayedError(Exception):
-    """A recorded error, replayed. The original class is not preserved; name, message and code are."""
+    """A recorded error, replayed. The original class is not preserved; name, message and code are.
+
+    It reads as the recorded error: ``ReplayedError({"name": "KeyError", ...})`` is an instance of a
+    subclass named ``KeyError`` in the recorded module, holding the recorded arguments, so ``str()``,
+    ``repr()``, ``type(e).__name__``, ``e.args`` and a traceback's last line are what they were when
+    the call was recorded. An agent that hands a tool's error to the model hands it the same text on
+    replay, and ``except ReplayedError`` still catches it."""
+
+    def __new__(cls, error: Optional[dict] = None, *args: Any, **kwargs: Any):
+        if cls is ReplayedError and isinstance(error, dict):
+            module = error.get("module")
+            cls = _replayed_class(str(error.get("name") or "Error"), module if isinstance(module, str) else None)
+        return super().__new__(cls)
 
     def __init__(self, error: dict):
-        super().__init__(error.get("message", "recorded error"))
+        message = error.get("message", "recorded error")
+        args = error.get("args")
+        # A recording made before arguments were kept, or of an error whose arguments aren't JSON,
+        # has the message alone, which is what an error made from one string holds.
+        super().__init__(*(args if isinstance(args, list) else [message]))
+        self._message = message if isinstance(message, str) else str(message)
         self.name = error.get("name", "Error")
         self.code = error.get("code")
         self.data = error.get("data")
 
-    def __reduce__(self):
-        return (type(self), ({"name": self.name, "message": super().__str__(), "code": self.code, "data": self.data},))
+    def __str__(self) -> str:
+        # The recorded str(), which the arguments alone don't give back: str(KeyError("A-17")) is
+        # "'A-17'", and an OSError's names its errno and file.
+        return self._message
 
-    def __str__(self) -> str:  # pragma: no cover - cosmetic
-        return f"{self.name}: {super().__str__()}"
+    def __reduce__(self):
+        # Rebuilt through ReplayedError, which picks the class for the name again: the class itself is
+        # made at run time, and pickle would look it up by its name (ValueError) and find another.
+        error = {"name": self.name, "message": self._message, "code": self.code, "data": self.data, "args": list(self.args)}
+        module = type(self).__module__
+        if module != __name__:
+            error["module"] = module
+        return (ReplayedError, (error,))
+
+
+_REPLAYED_CLASSES: dict = {}
+
+
+def _replayed_class(name: str, module: Optional[str] = None) -> type:
+    """The ReplayedError subclass for a recorded error's name and module, one per pair. Its module is
+    the recorded one, so a traceback names it as it named the original (``myapp.errors.OrderMissing``,
+    and ``OrderMissing`` alone for ``__main__`` and builtins). A recording without a module shows a
+    builtin's name (ValueError, KeyError) without one, as the builtin is."""
+    if module is None:
+        builtin = getattr(builtins, name, None)
+        module = "builtins" if isinstance(builtin, type) and issubclass(builtin, BaseException) else __name__
+    cls = _REPLAYED_CLASSES.get((name, module))
+    if cls is None:
+        cls = type(name, (ReplayedError,), {"__module__": module, "__qualname__": name, "__doc__": ReplayedError.__doc__})
+        _REPLAYED_CLASSES[(name, module)] = cls
+    return cls
 
 
 class ShadowlapInjectedFailure(Exception):
@@ -212,18 +256,34 @@ def current_scope() -> Optional[str]:
     return _SCOPE.get() or _base_scope()
 
 
+def _scope_header(scope: str) -> str:
+    """A scope as ``x-shadowlap-scope`` carries it. A header holds Latin-1 at most, and a scope can
+    have any name, so ``%`` and every character outside printable ASCII is percent-encoded (UTF-8);
+    ``/`` stays the separator, and an ASCII name without ``%`` is sent as it is. The sidecar decodes it."""
+    from urllib.parse import quote
+
+    return "".join(c if " " <= c <= "~" and c != "%" else quote(c.encode("utf-8", "replace"), safe="") for c in scope)
+
+
+# The sidecar is on this machine's loopback: never reached through a proxy (HTTP_PROXY), which would
+# see the call in clear text, its session token in the URL, and can't reach the loopback anyway.
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _post(cfg: tuple, path: str, body: dict) -> dict:
     url, run_id = cfg
-    data = json.dumps(body).encode("utf-8")
+    # JSON has no NaN or Infinity, and the sidecar refuses a body with them: what reaches here has been
+    # made JSON already (see _json_form), and anything else fails here rather than at the sidecar.
+    data = json.dumps(body, allow_nan=False).encode("utf-8")
     headers = {"content-type": "application/json"}
     if run_id:
         headers["x-shadowlap-run"] = run_id
     scope_now = current_scope()
     if scope_now:
-        headers["x-shadowlap-scope"] = scope_now
+        headers["x-shadowlap-scope"] = _scope_header(scope_now)
     req = urllib.request.Request(url + path, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=30) as res:
+        with _DIRECT.open(req, timeout=30) as res:
             return json.loads(res.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         text = e.read().decode("utf-8", "replace")
@@ -235,11 +295,77 @@ def _post(cfg: tuple, path: str, body: dict) -> dict:
 
 
 def serialize_error(err: BaseException) -> dict:
-    out = {"name": type(err).__name__, "message": str(err)}
+    """An error as it is recorded: its class's name, ``str()`` as the message, a string ``code``, and,
+    so a replay prints as it did (``repr()``, a traceback), the class's module unless it is a builtin,
+    and its arguments when they aren't the message alone and survive JSON as they are."""
+    message = str(err)
+    out: dict = {"name": type(err).__name__, "message": message}
     code = getattr(err, "code", None)
     if isinstance(code, str):
         out["code"] = code
+    module = getattr(type(err), "__module__", None)
+    if isinstance(module, str) and module != "builtins":
+        out["module"] = module
+    args = getattr(err, "args", ())
+    if isinstance(args, tuple) and list(args) != [message]:
+        try:
+            kept = json.loads(json.dumps(list(args), allow_nan=False))
+        except (TypeError, ValueError, RecursionError):
+            kept = None
+        # Only what JSON gives back unchanged: a tuple would come back a list, and print as one.
+        if kept == list(args) and _same_types(kept, list(args)):
+            out["args"] = kept
     return out
+
+
+def _same_types(a: Any, b: Any) -> bool:
+    """Whether JSON gave ``b`` back as ``a`` with the same types all through (1 == 1.0 == True)."""
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, list):
+        return len(a) == len(b) and all(_same_types(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict):
+        return a.keys() == b.keys() and all(_same_types(a[k], b[k]) for k in a)
+    return True
+
+
+# The process is stopping (Ctrl-C, sys.exit()): that is not the tool's answer, so the call is left
+# as the run left it rather than recorded as the tool's error.
+_STOPPING = (KeyboardInterrupt, SystemExit)
+
+
+def _cancelled_error(err: BaseException) -> dict:
+    """A cancelled call as it is recorded: ``data.cancelled`` is true when the caller cancelled it (a
+    deadline in ``asyncio.wait_for``, a task cancelled), false when the tool raised CancelledError
+    from an awaitable of its own. Before Python 3.11 a task can't tell, and the caller is assumed."""
+    out = serialize_error(err)
+    task = asyncio.current_task()
+    cancelling = getattr(task, "cancelling", None)
+    out["data"] = {"cancelled": bool(cancelling()) if callable(cancelling) else True}
+    return out
+
+
+def _cancellation(error: dict) -> Optional[bool]:
+    """Whether a recorded error is a cancellation: True when the caller cancelled the call, False when
+    the tool raised CancelledError itself, None when it is an ordinary error. A CancelledError
+    recorded before cancellations were marked is taken as the caller's."""
+    data = error.get("data")
+    flag = data.get("cancelled") if isinstance(data, dict) else None
+    if isinstance(flag, bool):
+        return flag
+    return True if error.get("name") == "CancelledError" else None
+
+
+async def _replay_cancellation(error: dict) -> None:
+    """A replayed cancellation. The caller cancelled the call while it was recorded, so the replay
+    waits until the caller cancels it again, as its deadline or cancel did then: the agent takes the
+    path it took. A CancelledError the tool raised itself is raised again as one."""
+    cancelled = _cancellation(error)
+    if cancelled:
+        await asyncio.get_running_loop().create_future()  # never resolves; the caller's cancel ends it
+    if cancelled is False:
+        message = error.get("message")
+        raise asyncio.CancelledError(*([message] if message else []))
 
 
 def _impl_hash(fn: Callable[..., Any]) -> str:
@@ -254,11 +380,54 @@ def _impl_hash(fn: Callable[..., Any]) -> str:
 
 # Parameters frameworks fill in themselves: run contexts, configs, injected graph state, callback
 # managers. They are neither JSON nor part of what the tool was asked to do, so they are never
-# recorded. Matched by the annotation's text, so no framework needs to be importable here.
-_CONTEXT_ANNOTATION = re.compile(
-    r"\b(RunContext|RunContextWrapper|ToolContext|RunnableConfig|ToolRuntime|Injected[A-Za-z]*|"
-    r"(Async)?CallbackManagerForToolRun)\b"
+# recorded. Matched by the names of the annotation's types, so no framework needs to be importable
+# here; never by its text, which for Annotated includes descriptions that may name these types.
+_CONTEXT_TYPE = re.compile(
+    r"^(RunContext|RunContextWrapper|ToolContext|RunnableConfig|ToolRuntime|Injected[A-Za-z]*|"
+    r"(Async)?CallbackManagerForToolRun)$"
 )
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_QUOTED = re.compile(r"(['\"]).*?\1")
+
+
+def _type_names(annotation: Any, depth: int = 0) -> Iterator[str]:
+    """The names of the types an annotation is made of: the class, a generic's origin and its type
+    arguments, and the classes of Annotated's metadata. Annotated's strings are descriptions, a
+    Literal's arguments are values, and a string annotation's quoted literals are left out with them."""
+    import typing
+
+    if depth > 10:
+        return
+    if isinstance(annotation, typing.ForwardRef):
+        annotation = annotation.__forward_arg__
+    if isinstance(annotation, str):
+        for name in _IDENTIFIER.findall(_QUOTED.sub("", annotation)):
+            yield name
+        return
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin is typing.Annotated:
+        yield from _type_names(args[0], depth + 1)
+        for meta in args[1:]:
+            if isinstance(meta, str):
+                continue
+            yield meta.__name__ if isinstance(meta, type) else type(meta).__name__
+        return
+    if _is_literal(origin):
+        return  # Literal["InjectedFile", "Upload"]: values the argument takes, not types
+    if isinstance(annotation, type):
+        yield annotation.__name__
+    elif origin is not None:
+        yield from _type_names(origin, depth + 1)
+    for arg in args:
+        yield from _type_names(arg, depth + 1)
+
+
+def _is_literal(origin: Any) -> bool:
+    """typing.Literal, or typing_extensions' own where it is another object."""
+    import typing
+
+    return origin is not None and (origin is typing.Literal or getattr(origin, "_name", None) == "Literal" or repr(origin).endswith(".Literal"))
 
 
 def context_params(fn: Callable[..., Any]) -> tuple:
@@ -273,9 +442,11 @@ def context_params(fn: Callable[..., Any]) -> tuple:
     for p in params:
         if p.annotation is inspect.Parameter.empty:
             continue
-        text = p.annotation if isinstance(p.annotation, str) else repr(p.annotation)
-        if _CONTEXT_ANNOTATION.search(text):
-            out.append(p.name)
+        try:
+            if any(_CONTEXT_TYPE.match(name) for name in _type_names(p.annotation)):
+                out.append(p.name)
+        except Exception:  # an annotation no typing helper understands is no framework's context
+            continue
     return tuple(out)
 
 
@@ -290,21 +461,95 @@ def _bind_args(fn: Callable[..., Any], args: tuple, kwargs: dict, exclude: tuple
         return {"args": list(args), "kwargs": {k: v for k, v in kwargs.items() if k not in exclude}}
 
 
-def _check_args(tool_name: str, args: dict) -> None:
-    """Fails before the tool runs, naming the argument, when something can't be recorded."""
+def _is_json(value: Any) -> bool:
     try:
-        json.dumps(args)
-        return
+        json.dumps(value, allow_nan=False)
+        return True
     except (TypeError, ValueError):
-        pass
+        return False
+
+
+def _jsonable(value: Any, path: set) -> Any:
+    """``value`` converted, recursively, by the rules in ``_json_form``; whatever has no rule is
+    left as it is, for the caller's check to refuse."""
+    import dataclasses
+    import datetime
+    import decimal
+    import enum
+
+    if value is None or isinstance(value, str) and not isinstance(value, enum.Enum):
+        return value
+    if isinstance(value, enum.Enum):
+        return _jsonable(value.value, path)
+    if isinstance(value, (bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, (datetime.date, datetime.time)):  # datetime is a date
+        return value.isoformat()
+    if isinstance(value, (_uuid.UUID, decimal.Decimal)):
+        return str(value)
+    if id(value) in path:
+        return value  # inside itself: json refuses it
+    path.add(id(value))
+    try:
+        if isinstance(value, dict):
+            return {k: _jsonable(v, path) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [_jsonable(v, path) for v in value]
+        if isinstance(value, (set, frozenset)):
+            items = [_jsonable(v, path) for v in value]
+            try:
+                return sorted(items)  # a set's order changes from one process to the next
+            except TypeError:
+                return items
+        dump = getattr(value, "model_dump", None)
+        if callable(dump) and not isinstance(value, type):
+            return _jsonable(dump(mode="json"), path)
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            return _jsonable(dataclasses.asdict(value), path)
+        try:
+            from pydantic_core import to_jsonable_python
+        except ImportError:
+            return value
+        try:
+            return _jsonable(to_jsonable_python(value), path)
+        except Exception:
+            return value
+    finally:
+        path.discard(id(value))
+
+
+def _json_form(value: Any) -> Any:
+    """``value`` as it is recorded, for arguments and results alike: JSON as it is, a NaN or Infinity
+    as None, a Pydantic model as ``model_dump(mode="json")``, a dataclass as ``dataclasses.asdict``,
+    a date, time or datetime as its ISO 8601 text, a UUID or Decimal as its text, an Enum as its
+    value, a set as a sorted list, and whatever else pydantic_core turns into JSON when it is
+    installed. Raises TypeError for anything else."""
+    if _is_json(value):
+        return value
+    converted = _jsonable(value, set())
+    if not _is_json(converted):
+        raise TypeError(type(value).__name__)
+    return converted
+
+
+def _check_args(tool_name: str, args: dict) -> dict:
+    """The arguments as they are recorded, by the rules results follow (``_json_form``). Fails before
+    the tool runs, naming the argument, when something can't be recorded."""
+    if _is_json(args):
+        return args
+    out = {}
     for key, value in args.items():
         try:
-            json.dumps(value)
-        except (TypeError, ValueError):
+            out[key] = _json_form(value)
+        except TypeError:
             raise TypeError(
-                f"tool {tool_name}: argument {key!r} ({type(value).__name__}) can't be recorded because it isn't JSON. "
-                f"If a framework passes it in, leave it out with @tool(..., exclude=({key!r},))."
+                f"tool {tool_name}: argument {key!r} ({type(value).__name__}) can't be recorded: it isn't JSON, "
+                f"a Pydantic model, a dataclass or a date. If it is a framework's context object, not part of what "
+                f"the tool was asked to do, leave it out with @tool(..., exclude=({key!r},)); otherwise pass it as one of those."
             ) from None
+    return out
 
 
 def _string_keys(tool_name: str, value: Any, path: str = "result") -> None:
@@ -325,29 +570,27 @@ def _string_keys(tool_name: str, value: Any, path: str = "result") -> None:
 
 
 def _recordable(tool_name: str, value: Any) -> Any:
-    """A result as JSON: Pydantic models and dataclasses are converted, anything else must already be JSON.
-    A replay returns this JSON form. A dict key that isn't a string is refused, since JSON would turn
-    it into one and the replay would return something else."""
+    """A result as JSON: Pydantic models and dataclasses are converted, a NaN or Infinity is None, and
+    anything else must already be JSON. A replay returns this JSON form. A dict key that isn't a string
+    is refused, since JSON would turn it into one and the replay would return something else."""
     try:
-        json.dumps(value)
-        _string_keys(tool_name, value)
-        return value
-    except (TypeError, ValueError) as err:
-        if isinstance(err, TypeError) and str(err).startswith(f"tool {tool_name}: "):
-            raise
-    dump = getattr(value, "model_dump", None)
-    if callable(dump):
-        return dump(mode="json")
-    import dataclasses
+        converted = _json_form(value)
+    except TypeError:
+        raise TypeError(f"tool {tool_name}: its result ({type(value).__name__}) can't be recorded because it isn't JSON; return a str, number, list or dict") from None
+    _string_keys(tool_name, converted)
+    return converted
 
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        converted = dataclasses.asdict(value)
-        json.dumps(converted)
-        _string_keys(tool_name, converted)
-        return converted
-    if isinstance(value, tuple):
-        return [_recordable(tool_name, v) for v in value]
-    raise TypeError(f"tool {tool_name}: its result ({type(value).__name__}) can't be recorded because it isn't JSON; return a str, number, list or dict")
+
+def _complete_ok(complete: Callable[..., None], cfg: tuple, call_no: int, tool_name: str, result: Any, latency: int) -> None:
+    """Completes a call that returned. When its result can't be recorded, or the sidecar refuses it, the
+    call is completed as an error before that is raised: a call left pending is a hole in the
+    recording, a tool that ran with no answer for the replay."""
+    try:
+        complete(cfg, call_no, {"outcome": "ok", "result": _recordable(tool_name, result), "latencyMs": latency})
+    except Exception as err:
+        with contextlib.suppress(Exception):
+            complete(cfg, call_no, {"outcome": "error", "error": serialize_error(err), "latencyMs": latency})
+        raise
 
 
 def tool(
@@ -394,14 +637,14 @@ def tool(
                 if cfg is None:
                     return await fn(*args, **kwargs)
                 bound = _bind_args(fn, args, kwargs, exclude)
-                _check_args(tool_name, bound)
-                r = await asyncio.to_thread(resolve, cfg, bound)
+                r = await asyncio.to_thread(resolve, cfg, _check_args(tool_name, bound))
                 origin = r["origin"]
                 if origin == "replayed":
                     if r["outcome"] == "ok":
                         return r.get("result")
                     if r.get("injected"):
                         raise _injected(tool_name, bound, r["injected"], r["error"])
+                    await _replay_cancellation(r["error"])
                     raise ReplayedError(r["error"])
                 if origin == "blocked":
                     raise ShadowlapWriteBlocked(tool_name, bound, r["error"]["message"])
@@ -411,21 +654,22 @@ def tool(
                     stub = on_fork(**bound) if on_fork else None
                     if inspect.isawaitable(stub):
                         stub = await stub
-                    await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "ok", "result": _recordable(tool_name, stub), "latencyMs": 0})
+                    await asyncio.to_thread(_complete_ok, complete, cfg, r["callNo"], tool_name, stub, 0)
                     return stub
                 started = time.time()
                 try:
                     result = await fn(*args, **kwargs)
+                except _STOPPING:
+                    raise
+                except asyncio.CancelledError as err:
+                    # Not the tool's failure: the caller cut the call off. A thread can't be cancelled,
+                    # so this completion is sent even if the caller cancels again while it is.
+                    await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "error", "error": _cancelled_error(err), "latencyMs": int((time.time() - started) * 1000)})
+                    raise
                 except BaseException as err:
                     await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
                     raise
-                latency = int((time.time() - started) * 1000)
-                try:
-                    recorded = _recordable(tool_name, result)
-                except TypeError as err:
-                    await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": latency})
-                    raise
-                await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "ok", "result": recorded, "latencyMs": latency})
+                await asyncio.to_thread(_complete_ok, complete, cfg, r["callNo"], tool_name, result, int((time.time() - started) * 1000))
                 return result
 
             return async_wrapper  # type: ignore[return-value]
@@ -436,8 +680,7 @@ def tool(
             if cfg is None:
                 return fn(*args, **kwargs)
             bound = _bind_args(fn, args, kwargs, exclude)
-            _check_args(tool_name, bound)
-            r = resolve(cfg, bound)
+            r = resolve(cfg, _check_args(tool_name, bound))
             origin = r["origin"]
             if origin == "replayed":
                 if r["outcome"] == "ok":
@@ -451,21 +694,17 @@ def tool(
                 raise _unknown_origin(tool_name, origin)
             if origin == "stubbed":
                 stub = on_fork(**bound) if on_fork else None
-                complete(cfg, r["callNo"], {"outcome": "ok", "result": _recordable(tool_name, stub), "latencyMs": 0})
+                _complete_ok(complete, cfg, r["callNo"], tool_name, stub, 0)
                 return stub
             started = time.time()
             try:
                 result = fn(*args, **kwargs)
+            except _STOPPING:
+                raise
             except BaseException as err:
                 complete(cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
                 raise
-            latency = int((time.time() - started) * 1000)
-            try:
-                recorded = _recordable(tool_name, result)
-            except TypeError as err:
-                complete(cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": latency})
-                raise
-            complete(cfg, r["callNo"], {"outcome": "ok", "result": recorded, "latencyMs": latency})
+            _complete_ok(complete, cfg, r["callNo"], tool_name, result, int((time.time() - started) * 1000))
             return result
 
         return wrapper  # type: ignore[return-value]
@@ -552,6 +791,8 @@ def user_input(prompt: str = "", read: Optional[Callable[[str], str]] = None) ->
         # A read through input() inside is not recorded a second time.
         with preload.passthrough() if preload else contextlib.nullcontext():
             text = reader(prompt)
+    except _STOPPING:
+        raise
     except BaseException as err:
         _post(cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
         raise
@@ -569,6 +810,8 @@ async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
         return await answer if inspect.isawaitable(answer) else answer
     r = await asyncio.to_thread(_resolve_input, cfg, prompt)
     if r["origin"] == "replayed":
+        if r["outcome"] != "ok":
+            await _replay_cancellation(r.get("error") or {})
         return _replayed_answer(r)
     if r["origin"] != "live":
         raise RuntimeError(f"unexpected origin {r['origin']} for user input")
@@ -580,6 +823,11 @@ async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
         with preload.passthrough() if preload else contextlib.nullcontext():
             answer = read(prompt)
             text = await answer if inspect.isawaitable(answer) else answer
+    except _STOPPING:
+        raise
+    except asyncio.CancelledError as err:
+        await asyncio.to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": _cancelled_error(err), "latencyMs": int((time.time() - started) * 1000)})
+        raise
     except BaseException as err:
         await asyncio.to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
         raise

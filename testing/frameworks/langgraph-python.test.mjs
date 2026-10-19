@@ -36,6 +36,28 @@ describe('LangGraph (Python) with shadowlap.adapters.langchain', { skip: PYTHON 
     assert.equal(replay.value.email, 'sent to team@example.com');
   });
 
+  // LangGraph's documented way for a tool to update graph state: return a Command. It is recorded in a
+  // tagged form and rebuilt on replay, messages and all, so the state update happens again.
+  const commandAgent = PYTHON ? pythonAgent(PYTHON, './langgraph_command_agent.py') : null;
+
+  it('records a tool that returns a Command or a ToolMessage, and replays them so the state updates', async () => {
+    const rec = await h.record(commandAgent('jane@example.com'));
+    assert.equal(rec.error, undefined, rec.error?.stack);
+    assert.deepEqual(toolTrace(rec.calls).sort(), ['find_customer:read:live:ok', 'whoami:pure:live:ok']);
+    assert.deepEqual(rec.value.executed.sort(), ['find_customer', 'whoami']);
+    assert.equal(rec.value.answer, 'Hello cust-for-jane@example.com');
+    const replay = await h.replay(rec, commandAgent('jane@example.com'));
+    assert.equal(replay.error, undefined, replay.error?.stack);
+    assert.equal(replay.summary.divergence, null);
+    assert.deepEqual(replay.value.executed, []);
+    assert.deepEqual(
+      { answer: replay.value.answer, customer: replay.value.customer, tool_message: replay.value.tool_message, whoami: replay.value.whoami },
+      { answer: rec.value.answer, customer: 'cust-for-jane@example.com', tool_message: { type: 'ToolMessage', content: 'found cust-for-jane@example.com', artifact: { source: 'crm' } }, whoami: { type: 'ToolMessage', content: 'an agent', name: 'whoami' } },
+    );
+    const fork = await h.replay(rec, commandAgent('john@example.com'));
+    assert.equal(fork.value.answer, 'Hello cust-for-john@example.com');
+  });
+
   it('forks on a changed query and blocks the email', async () => {
     const fork = await h.replay(recorded, agent('replay'));
     assert.equal(fork.error, undefined, fork.error?.stack);

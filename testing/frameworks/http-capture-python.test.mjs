@@ -27,7 +27,7 @@ describe('HTTP hosts recorded as tools, from Python (requests, urllib3 and httpx
         let body = '';
         req.on('data', (c) => (body += c));
         req.on('end', () => {
-          hits[name]++;
+          if (name in hits) hits[name]++;
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(JSON.stringify(reply(JSON.parse(body || '{}'))));
         });
@@ -92,5 +92,45 @@ print(json.dumps({"hits": hits, "notify": status}))
     assert.equal(fork.code, 0, fork.out);
     assert.deepEqual(line(fork.stdout), { hits: ['about shipping', 'about shipping (pool manager)', 'about shipping (pool)'], notify: 409 });
     assert.deepEqual(hits, { search: 6, webhook: 1 });
+  });
+
+  // Behind a proxy, requests and httpx pick the proxy by the host the agent asked for (api.openai.com),
+  // before the call is sent to the sidecar. The sidecar is on this machine's loopback: the call, its
+  // key and the session token must never reach the proxy.
+  it('sends captured calls to the sidecar directly when the agent is behind a proxy', async () => {
+    const proxied = [];
+    const proxy = createServer((req, res) => {
+      proxied.push(`${req.method} ${req.url} ${req.headers.authorization ?? ''}`);
+      req.resume();
+      res.writeHead(502).end('proxy: cannot reach upstream');
+    });
+    proxy.on('connect', (req, socket) => {
+      proxied.push(`CONNECT ${req.url}`);
+      socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+    });
+    servers.push(proxy);
+    await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+    let n = 0;
+    const openai = await serve('openai', () => ({ id: `chatcmpl-${++n}`, object: 'chat.completion', created: 1, model: 'gpt-5', choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 } }));
+    writeFileSync(
+      join(cwd, 'proxied.py'),
+      `import asyncio, httpx, requests
+url = "https://api.openai.com/v1/chat/completions"
+body = {"model": "gpt-5", "messages": [{"role": "user", "content": "PRIVATE"}]}
+auth = {"authorization": "Bearer sk-proj-SECRET"}
+codes = [requests.post(url, json=body, headers=auth).status_code, httpx.post(url, json=body, headers=auth).status_code]
+async def main():
+    async with httpx.AsyncClient() as client:
+        return (await client.post(url, json=body, headers=auth)).status_code
+codes.append(asyncio.run(main()))
+print(codes)
+`,
+    );
+    const at = `http://127.0.0.1:${proxy.address().port}`;
+    const recorded = await shadowlap(['run', '--', PYTHON, 'proxied.py'], { SHADOWLAP_UPSTREAM_OPENAI: openai, HTTP_PROXY: at, HTTPS_PROXY: at, http_proxy: at, https_proxy: at });
+    assert.equal(recorded.code, 0, recorded.out);
+    assert.match(recorded.stdout, /\[200, 200, 200\]/, recorded.out);
+    assert.match(recorded.out, /Recorded \w+: 3 calls \(3 api, 0 tool\)/);
+    assert.deepEqual(proxied, []);
   });
 });

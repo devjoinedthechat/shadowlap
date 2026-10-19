@@ -65,6 +65,32 @@ export const SCENARIOS = [
     },
   },
   {
+    name: 'replay-error-text',
+    why: 'a replayed error reads as the recorded one, so an agent that hands it to the model sends the same request',
+    record: 'live-error',
+    replay: 'live-error',
+    check({ recordOut, replayOut }) {
+      assert.equal(replayOut.caught?.replayed, true);
+      assert.equal(replayOut.caught?.text, recordOut.caught?.text, 'the error as a string must be what it was when recorded');
+      assert.equal(replayOut.caught?.repr, recordOut.caught?.repr, 'the error as the language prints it must be what it was when recorded');
+    },
+  },
+  {
+    name: 'replay-error-shapes',
+    why: 'errors of every shape the language has (no message, several arguments, a class of the program\'s own) replay reading as they were recorded',
+    record: 'error-shapes',
+    replay: 'error-shapes',
+    check({ recordOut, replayOut }) {
+      assert.ok(recordOut.caught?.length > 0, 'the step must raise its errors');
+      assert.equal(replayOut.implRuns, 0, 'the implementation MUST NOT run on a replayed call');
+      recordOut.caught.forEach((recorded, i) => {
+        const replayed = replayOut.caught[i];
+        assert.equal(replayed?.replayed, true, `error ${i} must be replayed`);
+        for (const key of ['text', 'repr', 'last']) assert.equal(replayed[key], recorded[key], `error ${i} (${recorded.repr}) must read as recorded: ${key}`);
+      });
+    },
+  },
+  {
     name: 'unserializable-result',
     why: 'a result that cannot become JSON still completes the call, so the recording has no hole',
     record: 'unserializable',
@@ -74,6 +100,22 @@ export const SCENARIOS = [
       assert.ok(call, 'the call must reach the sidecar');
       assert.ok(call.end, 'the call was left pending: a replay would have no answer for it');
       assert.equal(call.end.outcome, 'error', 'an unserializable result is an error outcome');
+    },
+  },
+  {
+    name: 'non-finite-result',
+    why: 'a NaN or Infinity in a result is recorded as null, as JSON has it: the call completes and the caller gets its result',
+    record: 'non-finite',
+    replay: 'non-finite',
+    check({ recordOut, replayOut, recordCalls, store }) {
+      assert.equal(recordOut.raised, false, 'a result with a NaN in it must reach the caller: ' + recordOut.error);
+      assert.equal(recordOut.std, 'NaN', 'the live caller gets the value the tool returned');
+      assert.equal(recordOut.implRuns, 1);
+      const call = one(recordCalls, 'stats');
+      assert.ok(call.end, 'the call was left pending after the tool ran: a replay would have no answer for it');
+      assert.equal(call.end.outcome, 'ok');
+      assert.deepEqual(resultOf(store, call).result, { mean: 4, std: null }, 'a NaN is recorded as null');
+      assert.deepEqual([replayOut.raised, replayOut.mean, replayOut.std, replayOut.implRuns], [false, 4, null, 0], 'the replay serves the recorded null');
     },
   },
   {
@@ -104,6 +146,21 @@ export const SCENARIOS = [
       assert.deepEqual(scopes, ['a', 'b'], 'each call must carry x-shadowlap-scope; got ' + JSON.stringify(scopes));
       // The replay asks for b first, then a. Without scopes the two swap answers.
       assert.deepEqual(replayOut, { a: 'a', b: 'b' }, 'branches swapped answers on replay: scopes are not being sent');
+    },
+  },
+  {
+    name: 'scope-names',
+    why: 'a scope can have any name: one beyond Latin-1, or with a percent sign, is sent so it fits a header and recorded as it was given',
+    record: 'scope-names-record',
+    replay: 'scope-names-replay',
+    check({ recordOut, replayOut, recordCalls }) {
+      const names = ['東京の天気', 'Kraków-łódź', '50% off'];
+      const expected = Object.fromEntries(names.map((n) => [n, n]));
+      assert.deepEqual(recordOut.got, expected, 'every call in a scope must work, whatever its name: ' + JSON.stringify(recordOut));
+      const scopes = tools(recordCalls).map((c) => c.meta.scope);
+      assert.deepEqual(scopes, names.map((n) => `${n}/notes`), 'the sidecar must record the names as given (percent-encode each segment, and %); got ' + JSON.stringify(scopes));
+      assert.deepEqual(replayOut.got, expected, 'each branch must replay its own answer');
+      assert.equal(replayOut.implRuns, 0);
     },
   },
   {

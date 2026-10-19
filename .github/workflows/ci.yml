@@ -95,10 +95,18 @@ jobs:
       fail-fast: false
       matrix:
         python: ['3.9', '3.10', '3.13']
+        include:
+          # Installing shadowlap loads its pytest plugin into every pytest run, so it must load on the
+          # oldest pytest it supports with the oldest pluggy that allows, and on pytest 7.4 with pluggy
+          # 1.1 (before new-style hook wrappers).
+          - python: '3.9'
+            pytest: pytest==6.2.5 pluggy==0.13.1
+          - python: '3.10'
+            pytest: pytest==7.4.4 pluggy==1.1.0
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install --quiet pytest -e sdks/python
+      - run: python -m pip install --quiet ${{ matrix.pytest || 'pytest' }} -e sdks/python
       - run: python -m pytest -q sdks/python/tests

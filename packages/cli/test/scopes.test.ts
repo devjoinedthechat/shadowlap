@@ -107,4 +107,18 @@ describe('scopes for branches that run at once', () => {
   it('inside scope(), a model call made through http.request carries the scope', async () => {
     await replaysEachBranch([process.execPath, PROCESSES], { VIA: 'http-request' });
   });
+
+  it('takes any name: one beyond Latin-1, or with a percent sign, records and replays as it was given', async () => {
+    const names = { USE_SCOPE: '1', NAMES: '東京の天気/Kraków-łódź,50% off' };
+    const recorded = await shadowlap(['run', '--', process.execPath, AGENT], names);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const replay = await shadowlap(['replay', runId, '--strict'], { ...names, ORDER: 'reverse' });
+    expect(replay.code, replay.out).toBe(0);
+    expect(replay.out).toMatch(/Replay clean: 4\/4 calls replayed/);
+    const store = Store.open(join(cwd, 'store.db'));
+    const scopes = store.getCalls(runId).map((c) => c.meta.scope);
+    store.close();
+    expect(scopes.sort()).toEqual(['50% off', '50% off', '東京の天気/Kraków-łódź', '東京の天気/Kraków-łódź']);
+  });
 });

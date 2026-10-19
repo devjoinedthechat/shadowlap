@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { inspect } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ReplayedError, ShadowlapInjectedFailure, tool } from '../src/index.js';
 
@@ -75,6 +76,17 @@ describe('a tool --fail-at fails', () => {
     answer = { origin: 'replayed', callNo: 7, outcome: 'error', error: { name: 'ValueError', message: 'bad query' } };
     const { error } = await call();
     expect(error).toBeInstanceOf(ReplayedError);
+  });
+
+  it('replays an error that reads as the recorded one, wherever the agent prints it', async () => {
+    const original = new TypeError('order A-17 not found');
+    answer = { origin: 'replayed', callNo: 7, outcome: 'error', error: { name: original.name, message: original.message } };
+    const { error } = await call();
+    expect(error).toBeInstanceOf(ReplayedError);
+    const firstLine = (e: unknown) => inspect(e).split('\n')[0];
+    expect([String(error), firstLine(error), (error as Error).stack?.split('\n')[0]]).toEqual([String(original), firstLine(original), original.stack?.split('\n')[0]]);
+    const again = await call();
+    expect((again.error as object).constructor).toBe((error as object).constructor);
   });
 
   it('refuses an origin it does not know rather than running the tool', async () => {

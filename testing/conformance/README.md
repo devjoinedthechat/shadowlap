@@ -1,6 +1,6 @@
 # SDK conformance suite
 
-Seventeen scenarios every Shadowlap SDK must pass, run against a real sidecar on an in-memory store.
+Twenty-one scenarios every Shadowlap SDK must pass, run against a real sidecar on an in-memory store.
 No API keys, no network, no model calls: only tools, the clock and randomness.
 
 The protocol being tested is specified in [docs/protocol.md](../../docs/protocol.md).
@@ -21,6 +21,9 @@ That runs the TypeScript and Python SDKs. A Python 3 on the path is enough for t
 | `live-error` | A throwing tool is still completed, with `outcome: "error"`, and the error reaches the caller. |
 | `replay-ok` | A replayed call returns the recorded result **and never runs the implementation**. |
 | `replay-error` | A recorded error is raised again as a distinct replayed-error type. |
+| `replay-error-text` | A replayed error reads as the recorded one (`str()` and `repr()` in Python, `String()` and `util.inspect()` in TypeScript), so an agent that hands a tool's error to the model sends the same request on replay. |
+| `replay-error-shapes` | Errors of every shape replay reading as recorded: no message, several arguments, a key error, an OS error, a class of the program's own (its `repr()` and traceback line in Python; `String()`, `util.inspect()` and the stack's first line in TypeScript). |
+| `non-finite-result` | A NaN or Infinity in a result is recorded as `null`, as JSON has it: the call completes, the caller gets the tool's own value, and a replay serves the `null`. |
 | `clock-random` | Clock and randomness resolve in one round trip and replay to the same values. |
 | `scope` | Parallel branches keep their own answers. Failing here means a client that silently swaps recorded results between sub-agents. |
 | `blocked` | A write tool after a fork raises write-blocked and never runs. |
@@ -30,6 +33,7 @@ That runs the TypeScript and Python SDKs. A Python 3 on the path is enough for t
 | `unserializable-result` | A result that cannot become JSON still completes the call, so the recording has no hole. |
 | `impl-hash` | A changed implementation is reported but never changes what a call matches. |
 | `reads-after-fork` | With `--reads replay` a read tool is still served from the recording after a fork. |
+| `scope-names` | A scope can have any name. One beyond Latin-1, or with `%` in it, is percent-encoded so it fits a header, and the sidecar records it as it was given. |
 | `base-scope` | `SHADOWLAP_SCOPE` names the branch of a process, so separate processes keep their own answers. |
 | `injected-timeout` | A tool that `--fail-at` times out never runs, and raises the language's timeout error, marked injected. |
 | `injected-status` | A tool that `--fail-at` answers with an HTTP status raises an error carrying that status. |
@@ -48,13 +52,17 @@ diagnostic output, and a non-zero exit is fine as long as the JSON object was pr
 | Step | What the program does | JSON it prints |
 |---|---|---|
 | `live-ok` | Call a `read` tool `echo(n=1)` whose implementation returns `{"got": 1}` and counts its runs. | `{ result, implRuns, active }` |
-| `live-error` | Call a `read` tool `boom()` whose implementation raises `boom`. Catch it. | `{ caught: { name, message, replayed }, implRuns }` |
+| `live-error` | Call a `read` tool `boom()` whose implementation raises `boom`. Catch it. `text` is the error as a string and `repr` as the language prints it (its first line). | `{ caught: { name, message, replayed, text, repr }, implRuns }` |
 | `clock-random` | Read the clock, a random float and a uuid. | `{ now, random, uuid }` |
 | `scope-record` | In scope `a` call `pick()`, then in scope `b` call `pick()`. The implementation returns the branch it ran in. | `{ a, b }` |
 | `scope-replay` | The same two calls **in the opposite order**: `b` first. | `{ a, b }` |
+| `scope-names-record` | In scope `東京の天気`, then `Kraków-łódź`, then `50% off`, each with a scope `notes` inside it, call `pick()`; it returns the outer scope's name. | `{ got: { <name>: <result> }, implRuns }` |
+| `scope-names-replay` | The same three, in the opposite order. | `{ got, implRuns }` |
 | `write` | Call a `pure` tool `ping()`, then a `write` tool `send(to="ops")` whose implementation returns `"sent"` and whose stub is `"stub"`. Catch write-blocked. | `{ result, implRuns, blocked, tool }` |
 | `bad-effect` | Try to declare a tool with effect `"nope"`. | `{ rejected }` |
+| `error-shapes` | Call a `read` tool `fail(kind=i)` once for each of several errors, each caught: one made from a string, one with no message, the language's key or type error, one with a code or several arguments, an OS error, one of a class the program defines. `last` is the line a stack trace or traceback names the error with. | `{ caught: [{ replayed, text, repr, last }], implRuns }` |
 | `unserializable` | Call a `read` tool `weird()` whose implementation returns something JSON cannot represent (a circular object, an opaque value). Catch it. | `{ raised, implRuns }` |
+| `non-finite` | Call a `read` tool `stats()` returning `{ mean: 4, std: NaN }`. Catch any error. `std` is the string `"NaN"` when the caller got a NaN. | `{ raised, mean, std, implRuns }` |
 | `impl-hash-a` | Call a `read` tool `stable(k=1)` returning `"value"`. | `{ result, implRuns }` |
 | `impl-hash-b` | The same, with the implementation's **source rewritten** but its behaviour unchanged. | `{ result, implRuns }` |
 | `reads` | Call the `pure` tool `ping()`, then a `read` tool `fetchit(q="x")` returning `"from-impl"`. | `{ result, implRuns }` |

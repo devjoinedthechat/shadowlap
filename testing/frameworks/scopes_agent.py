@@ -1,5 +1,6 @@
 """Two sub-agents as asyncio tasks that start with the same request, each in shadowlap.scope().
-ORDER=reverse swaps which one asks first."""
+ORDER=reverse swaps which one asks first. NAMES names the two (comma-separated), alpha and beta by
+default."""
 
 import asyncio
 import json
@@ -26,7 +27,8 @@ async def worker(name, wait):
 
 async def main():
     a, b = (0.08, 0) if os.environ.get("ORDER") == "reverse" else (0, 0.08)
-    print(json.dumps(await asyncio.gather(worker("alpha", a), worker("beta", b))))
+    first, second = os.environ.get("NAMES", "alpha,beta").split(",")
+    print(json.dumps(await asyncio.gather(worker(first, a), worker(second, b))))
 
 
 asyncio.run(main())

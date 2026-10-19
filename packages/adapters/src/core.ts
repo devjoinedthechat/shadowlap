@@ -10,19 +10,34 @@ import { tool, type Effect, type ToolOptions } from '@shadowlap/sdk';
 
 export type EffectSpec<A = unknown, R = unknown> = Effect | ToolOptions<A, R>;
 
-export function toOptions<A, R>(spec: EffectSpec<A, R>, name: string): ToolOptions<A, R> {
-  if (spec === 'pure' || spec === 'read' || spec === 'write') return { effect: spec };
-  if (spec && typeof spec === 'object' && 'effect' in spec) return spec;
+/**
+ * The tool's options, its implementation hash taken from `source`: the function the person wrote,
+ * not the adapter's wrapper around it, which reads the same for every tool. A `source` given in
+ * the spec wins.
+ */
+export function toOptions<A, R>(spec: EffectSpec<A, R>, name: string, source?: ToolOptions<A, R>['source']): ToolOptions<A, R> {
+  const withSource = (options: ToolOptions<A, R>): ToolOptions<A, R> => (source === undefined || options.source !== undefined ? options : { ...options, source });
+  if (spec === 'pure' || spec === 'read' || spec === 'write') return withSource({ effect: spec });
+  if (spec && typeof spec === 'object' && 'effect' in spec) return withSource(spec);
   throw new TypeError(`tool ${name}: effect must be "pure", "read", "write" or { effect, onFork }`);
 }
+
+const isAsyncGeneratorFunction = (fn: unknown): boolean => Object.prototype.toString.call(fn) === '[object AsyncGeneratorFunction]';
 
 /**
  * Wraps a multi-argument implementation. The first argument is the recorded input; the rest are
  * passed through untouched. A fresh Shadowlap wrapper is created per call so trailing arguments
- * stay bound to that call under concurrency; its implementation hash is stable because the inner
- * closure's source text is.
+ * stay bound to that call under concurrency; its implementation hash is the user's function's.
+ * An async generator function (a streaming tool) stays one: see `tool()`.
  */
 export function wrapFirstArg<A, Rest extends unknown[], R>(name: string, spec: EffectSpec<A, R>, impl: (input: A, ...rest: Rest) => R | Promise<R>): (input: A, ...rest: Rest) => Promise<R> {
-  const options = toOptions(spec, name);
+  const options = toOptions(spec, name, impl);
+  if (isAsyncGeneratorFunction(impl)) {
+    const stream = impl as unknown as (input: A, ...rest: Rest) => AsyncGenerator<R, unknown, undefined>;
+    return ((input: A, ...rest: Rest) =>
+      tool<A, R>(name, options, async function* (i: A) {
+        return yield* stream(i, ...rest);
+      })(input)) as unknown as (input: A, ...rest: Rest) => Promise<R>;
+  }
   return (input: A, ...rest: Rest) => tool<A, R>(name, options, (i) => impl(i, ...rest))(input);
 }

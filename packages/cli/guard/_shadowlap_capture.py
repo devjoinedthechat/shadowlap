@@ -37,6 +37,10 @@ _routes = []
 _hosts = {}
 _http = []
 
+# shadowlap.testing turns capture off between recorded tests, so a test without a recording reaches
+# its hosts directly; under shadowlap run it is always on.
+active = True
+
 # The SDK's scope() variable, shared through sys so either side can create it first.
 _SCOPE = getattr(sys, "_shadowlap_scope_var", None)
 if _SCOPE is None:
@@ -54,6 +58,16 @@ def _current_scope():
     if not raw or len(raw) > 200 or any(ord(c) < 32 or ord(c) == 127 for c in raw):
         return None
     return raw
+
+
+def _scope_header():
+    """The current scope (_current_scope) as x-shadowlap-scope carries it, or None: % and anything
+    outside printable ASCII percent-encoded (UTF-8), as the SDK sends it, so a name of any language
+    fits a header."""
+    scope = _current_scope()
+    if not scope:
+        return None
+    return "".join(c if " " <= c <= "~" and c != "%" else quote(c.encode("utf-8", "replace"), safe="") for c in scope)
 
 
 def _to_sidecar(url):
@@ -85,6 +99,8 @@ def _provider_for(url):
 
 def _rewrite(url):
     """(sidecar URL, upstream origin, provider), or None when the URL is not a host Shadowlap captures."""
+    if not active:
+        return None
     provider = _provider_for(url)
     if provider is None:
         return None
@@ -126,7 +142,7 @@ def _patch_httpx(module):
     module._shadowlap_capture = True
 
     def redirect(request):
-        scoped = _current_scope()
+        scoped = _scope_header()
         rewritten = _rewrite(str(request.url))
         if rewritten is not None:
             target, origin, provider = rewritten
@@ -146,10 +162,27 @@ def _patch_httpx(module):
             return module.ReadTimeout(message or "timed out", request=request)
         return module.ReadError(message or "Connection reset by peer", request=request)
 
+    # A client behind a proxy picks its proxy's transport by the URL it asked for, before the request
+    # is sent to the sidecar here. The sidecar is on this machine's loopback: a proxy would see the
+    # call, its key and the session token in clear text, and can't reach it anyway. So a request for
+    # the sidecar on a proxy's transport goes on a direct one instead.
+    direct = {}
+
+    def proxied(transport):
+        return type(getattr(transport, "_pool", None)).__name__ in ("HTTPProxy", "AsyncHTTPProxy", "SOCKSProxy", "AsyncSOCKSProxy")
+
+    def direct_transport(cls, key):
+        transport = direct.get(key)
+        if transport is None:
+            transport = direct[key] = cls()
+        return transport
+
     sync_handle = module.HTTPTransport.handle_request
 
     def handle_request(self, request):
         redirect(request)
+        if proxied(self) and _to_sidecar(str(request.url)):
+            self = direct_transport(module.HTTPTransport, "sync")
         response = sync_handle(self, request)
         injected = _injected(request.headers, response.headers)
         if injected is None:
@@ -163,6 +196,11 @@ def _patch_httpx(module):
 
     async def handle_async_request(self, request):
         redirect(request)
+        if proxied(self) and _to_sidecar(str(request.url)):
+            # One per event loop: an async connection pool belongs to the loop it was made on.
+            import asyncio
+
+            self = direct_transport(module.AsyncHTTPTransport, id(asyncio.get_running_loop()))
         response = await async_handle(self, request)
         injected = _injected(request.headers, response.headers)
         if injected is None:
@@ -186,7 +224,7 @@ def _patch_botocore(module):
             target, origin, provider = rewritten
             request.headers["x-shadowlap-upstream"] = origin
             request.url = target
-            scoped = _current_scope()
+            scoped = _scope_header()
             if scoped:
                 request.headers["x-shadowlap-scope"] = scoped
             if provider == "http":
@@ -241,13 +279,22 @@ def _patch_urllib3(module):
         else:
             host = self.host if ":" not in self.host or self.host.startswith("[") else "[%s]" % self.host
             full = "%s://%s%s%s" % (self.scheme, host, ":%s" % self.port if self.port else "", url)
-        scoped = _current_scope()
+        scoped = _scope_header()
         rewritten = _rewrite(full)
         if rewritten is None:
             # Already pointed at the sidecar (a base URL, or a request another patch rewrote): only the scope.
             if scoped and _to_sidecar(full):
                 headers = dict(self.headers if headers is None else headers)
                 headers["x-shadowlap-scope"] = scoped
+            if _to_sidecar(full) and (getattr(self, "proxy", None) is not None or "_socks_options" in (getattr(self, "conn_kw", None) or {})):
+                # A pool through a proxy (requests behind HTTP_PROXY): the sidecar is on this machine's
+                # loopback, so the request goes to it directly, never through the proxy, which would
+                # see it in clear text. What the proxy needed stays behind.
+                headers = {k: v for k, v in (headers or {}).items() if k.lower() != "proxy-authorization"}
+                parts = urlsplit(full)
+                path = parts.path + ("?" + parts.query if parts.query else "")
+                sidecar_pool = _pool_to_sidecar(module)
+                return fail(sidecar_pool, path, headers, urlopen(sidecar_pool, method, path, body, headers, *args, **kwargs))
             return fail(self, url, headers, urlopen(self, method, url, body, headers, *args, **kwargs))
         target, origin, provider = rewritten
         headers = dict(self.headers if headers is None else headers)
@@ -273,7 +320,7 @@ def _patch_requests(module):
 
     def captured_send(self, request, *args, **kwargs):
         rewritten = _rewrite(request.url)
-        scoped = _current_scope()
+        scoped = _scope_header()
         if rewritten is not None:
             target, origin, provider = rewritten
             request.headers["x-shadowlap-upstream"] = origin

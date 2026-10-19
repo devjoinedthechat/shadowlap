@@ -38,14 +38,16 @@ const seed = await random();            // [0, 1)
 const requestId = await uuid();
 ```
 
-- `tool(name, { effect, onFork? }, impl)` returns a function with the same signature. Arguments, results and thrown errors must be JSON-serializable. A replayed error is thrown as `ReplayedError` with the recorded `name`, `message` and `code`; the original class is not preserved.
+- `tool(name, { effect, onFork?, source? }, impl)` returns a function with the same signature. Arguments, results and thrown errors must be JSON-serializable. A replayed error is thrown as `ReplayedError` with the recorded `name`, `message` and `code`; the original class is not preserved, but the error reads as it did: `String(err)`, `util.inspect(err)` and the stack's first line are what they were when the call was recorded.
 - `effect` is required: `pure` (depends only on the arguments), `read` (touches outside state), `write` (changes it). See [effects](./how-it-works.md#effects).
+- An async generator function (`async function*`, like the AI SDK's streaming `async *execute`) stays one: it runs at the pace of whoever reads it, as it does outside Shadowlap, its last value is recorded as the result, and a replay yields that value alone. A reader that stops early (a `break`, an aborted stream) stops the tool there, and the last value it read is the one recorded. A function that returns a stream without being a generator gets its stream back untouched outside Shadowlap; under it, the stream is read to its end and its last value is the result. Write a streaming tool as `async function*` to keep it streaming while recording.
+- A replay warns when a tool's source changed since the recording (`read_policy changed since the recording; pass --live-tool read_policy to run it live`), comparing a hash of `impl`. When `impl` only calls the real code, pass that function as `source`: `tool(name, { effect, source: realFn }, (a) => realFn(a, ctx))`. The [adapters](./frameworks.md) pass the function you gave them.
 - Under `--writes stub` a `write` tool doesn't run: it returns what `onFork` gives, or `null` without one, and a replay of the run returns the same.
 - After a fork, a `write` tool under the default `--writes block` throws `ShadowlapWriteBlocked`. A well-behaved agent catches tool errors and returns them to the model as an error result; the run then completes and the timeline shows the blocked call.
 - A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails throws `ShadowlapInjectedFailure` without running: named `TimeoutError` with code `ETIMEDOUT` for a timeout, with `status` and `statusCode` for an HTTP status, with the given message for an error. `injected` is always `true`.
 - `now()`, `random()` and `uuid()` are asynchronous, because Node has no synchronous HTTP. Give concurrent reads a label to disambiguate them: `now('deadline')`.
 
-Node ≥ 18. Zero dependencies.
+Node ≥ 18. Zero dependencies. `@shadowlap/sdk` and `@shadowlap/adapters` are ES modules: load them with `import`, or from CommonJS with `await import('@shadowlap/sdk')`; `require()` loads them on Node 20.19, 22.12 and later.
 
 ## Python
 
@@ -72,8 +74,10 @@ request_id = uuid()
 ```
 
 - Arguments are recorded by name whether the tool was called positionally or with keywords, with defaults applied.
-- Parameters a framework injects (a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper`, a LangChain config, injected graph state) are left out of the recording by their annotation. `exclude=("name",)` drops any other. An argument that can't be recorded as JSON raises `TypeError` before the tool runs, naming the argument. See [Frameworks](./frameworks.md#python).
-- A result that is a Pydantic model or a dataclass is recorded as its JSON form, which is what a replay returns. Numbers come back as the tool returned them, an int past 2^53 and a float such as `20.0` included. A dict key that isn't a string (`{2026: 5}`) raises `TypeError` naming it, since JSON keeps it only as `"2026"` and a replay would return that.
+- Parameters a framework injects (a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper`, a LangChain config, injected graph state) are left out of the recording by the types in their annotation (an `Annotated` description or a `Literal` value that names one doesn't count). `exclude=("name",)` drops any other framework object; never use it for the tool's real input, which a replay matches the call by. An argument that can't be recorded raises `TypeError` before the tool runs, naming the argument. See [Frameworks](./frameworks.md#python).
+- Arguments and results that aren't JSON are recorded in their JSON form, by the same rules: a Pydantic model as `model_dump(mode="json")`, a dataclass as `dataclasses.asdict()`, a date, time or datetime as its ISO 8601 text, a UUID or `Decimal` as its text, an `Enum` as its value, a set as a sorted list, and anything else `pydantic_core` can turn into JSON when it is installed. The tool still gets the objects themselves; a replay returns a result's JSON form. Numbers come back as the tool returned them, an int past 2^53 and a float such as `20.0` included. A dict key that isn't a string (`{2026: 5}`) raises `TypeError` naming it, since JSON keeps it only as `"2026"` and a replay would return that. A NaN or Infinity, which JSON has no form for, is recorded as `None`, as `JSON.stringify` records it in TypeScript: the caller gets the tool's own value while recording, and `None` on replay. The same goes for arguments.
+- A replayed error is raised as `ReplayedError` with the recorded `name`, `message` and `code`. It reads as the recorded error did: the SDK records an error's module and its arguments too, so `str(err)`, `repr(err)`, `err.args`, `type(err).__name__` and a traceback's last line are what they were (`KeyError('A-17')`, `FileNotFoundError(2, 'No such file or directory')`), and an agent that hands a tool's error to the model sends it the same text on replay. Arguments that JSON can't hold as they are (an object, a tuple) are left out, and `repr()` then shows the message instead.
+- An async tool the caller cuts off, as `asyncio.wait_for(search(q), timeout=5)` does at its deadline, is recorded as cancelled, not as the tool's error. Its replay waits until the caller cancels it again, so the deadline fires as it did and the agent's `except asyncio.TimeoutError` runs; a replay where nothing cancels it waits. The same goes for `user_input_async`. Ctrl-C or `sys.exit()` inside a tool is never recorded as its error.
 - `ShadowlapWriteBlocked` has `tool` and `tool_args`. It and `ReplayedError` survive `copy` and `pickle`.
 - A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails raises without running: `ShadowlapInjectedTimeout`, a `TimeoutError`, for a timeout; `ShadowlapInjectedHTTPError`, with `status_code`, `status` and `response.status_code`, for an HTTP status; `ShadowlapInjectedFailure`, their base, with the given message for an error. Each has `tool`, `tool_args`, `kind` and `injected = True`, and survives `copy` and `pickle`.
 - Python ≥ 3.9. Zero dependencies (`urllib`).
@@ -133,7 +137,8 @@ once — so that identical requests sent at the same time each keep their own re
 Enter one in code with `scope()`, or, when the branches are separate **processes**, set
 `SHADOWLAP_SCOPE` when spawning each child: a worker pool or a subprocess per sub-agent has no
 in-process place to call `scope()`, and without one those branches can be served each other's
-answers. Scopes entered in code nest underneath it (`worker-2/search`).
+answers. Scopes entered in code nest underneath it (`worker-2/search`). A scope can be named in any
+language: `scope('東京の天気', ...)` works as `scope('weather', ...)` does.
 
 When branches of an agent run at once, such as sub-agents fanned out by an orchestrator, name them:
 

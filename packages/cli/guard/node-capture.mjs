@@ -65,8 +65,13 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     });
   }
 
+  // On unless a test runner turns it off between recorded tests (@shadowlap/test sets `active`), so
+  // a test without a recording calls its model where it was going, as the Python module's `active`.
+  const state = (globalThis[Symbol.for('shadowlap.capture')] ??= { active: true });
+
   /** The provider a URL belongs to, or null to leave the request alone. */
   function providerFor(url) {
+    if (!state.active) return null;
     const port = url.port || (url.protocol === 'https:' ? '443' : '80');
     const key = `${url.hostname}:${port}`;
     if (key === sidecarKey) return null;
@@ -79,12 +84,24 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   const runSegment = runId ? `/r/${encodeURIComponent(runId)}` : '';
   // The SDK's scope() (see @shadowlap/sdk): the store is shared through a global symbol. Outside one,
   // the scope the process starts in, from SHADOWLAP_SCOPE (a sub-agent run as its own process), with
-  // the limits the sidecar accepts.
+  // the limits the sidecar accepts. Returned as x-shadowlap-scope carries it, with % and anything
+  // outside printable ASCII percent-encoded, as the SDK sends it: a header holds Latin-1 at most, and
+  // a scope can have any name.
   const baseScope = () => {
     const raw = process.env.SHADOWLAP_SCOPE?.trim();
     return !raw || raw.length > 200 || /[\u0000-\u001f\u007f]/.test(raw) ? undefined : raw;
   };
-  const currentScope = () => globalThis[Symbol.for('shadowlap.scope')]?.getStore?.() ?? baseScope();
+  const currentScope = () => {
+    const scope = globalThis[Symbol.for('shadowlap.scope')]?.getStore?.() ?? baseScope();
+    if (!scope) return undefined;
+    return scope.replace(/[^\x20-\x24\x26-\x7e]/gu, (c) => {
+      try {
+        return encodeURIComponent(c);
+      } catch {
+        return '%EF%BF%BD';
+      }
+    });
+  };
   const toSidecar = (url) => `${url.hostname}:${url.port || (url.protocol === 'https:' ? '443' : '80')}` === sidecarKey;
 
   function sidecarPath(provider, url) {
@@ -215,6 +232,10 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     return out;
   }
 
+  // The sidecar is reached directly: the client's own agent (dropped above) was for the host it
+  // named, and http.globalAgent may be a proxy package's, which would send the request to its proxy.
+  const sidecarAgent = new http.Agent({ keepAlive: true });
+
   function wrap(original, defaultProtocol) {
     return function capturedRequest(...args) {
       let parsed;
@@ -237,7 +258,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       if (provider === 'http') headers['x-shadowlap-failures'] = 'raise';
       const { agent: _agent, protocol: _protocol, host: _host, hostname: _hostname, port: _port, path: _path, servername: _servername, ...rest } = options;
       const req = http.request(
-        { ...rest, protocol: sidecar.protocol, hostname: sidecar.hostname, port: sidecar.port, path: sidecarPath(provider, url), headers },
+        { ...rest, protocol: sidecar.protocol, hostname: sidecar.hostname, port: sidecar.port, path: sidecarPath(provider, url), headers, agent: sidecarAgent },
         callback,
       );
       return provider === 'http' ? failOnInjected(req) : req;

@@ -12,6 +12,8 @@
 // the very pipe or file `shadowlap` itself was given (SHADOWLAP_STDIN names it). A child process that
 // talks to its parent over a pipe, an MCP server for one, is left alone.
 import { fstatSync } from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import { syncBuiltinESMExports } from 'node:module';
 import readline from 'node:readline';
 import readlinePromises from 'node:readline/promises';
@@ -46,7 +48,28 @@ const origin = sidecarUrl && !globalThis.__shadowlapInput ? stdinOrigin() : null
 if (origin) {
   globalThis.__shadowlapInput = true;
   const base = sidecarUrl.replace(/\/$/, '');
-  const send = globalThis.fetch;
+  // The sidecar is reached directly, never through a proxy: not with fetch, whose dispatcher the
+  // agent may route through one that ignores NO_PROXY, nor with an http.globalAgent a proxy package
+  // replaced. The request functions are taken now, before the agent's own code runs.
+  const sidecarClients = { 'http:': [http.request, new http.Agent({ keepAlive: true })], 'https:': [https.request, new https.Agent({ keepAlive: true })] };
+  function send(url, headers, body, retried = false) {
+    return new Promise((resolve, reject) => {
+      const target = new URL(url);
+      const [request, agent] = sidecarClients[target.protocol] ?? sidecarClients['http:'];
+      const req = request(target, { method: 'POST', headers: { ...headers, 'content-length': String(Buffer.byteLength(body)) }, agent }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
+        res.on('error', reject);
+      });
+      req.on('error', (err) => {
+        // A kept-alive socket the sidecar closed while it was idle: once more, on a new one.
+        if (req.reusedSocket && !retried && (err.code === 'ECONNRESET' || err.code === 'EPIPE')) send(url, headers, body, true).then(resolve, reject);
+        else reject(err);
+      });
+      req.end(body);
+    });
+  }
   const baseScope = (() => {
     const raw = process.env.SHADOWLAP_SCOPE?.trim();
     return raw && raw.length <= 200 && !/[\u0000-\u001f\u007f]/.test(raw) ? raw : undefined;
@@ -56,10 +79,17 @@ if (origin) {
     const headers = { 'content-type': 'application/json', 'user-agent': 'shadowlap-input-node' };
     if (runId) headers['x-shadowlap-run'] = runId;
     const scope = globalThis[Symbol.for('shadowlap.scope')]?.getStore?.() ?? baseScope;
-    if (scope) headers['x-shadowlap-scope'] = scope;
-    const res = await send(`${base}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
-    const text = await res.text();
-    if (!res.ok) {
+    // % and anything outside printable ASCII percent-encoded, as the SDK sends it: a header holds Latin-1 at most.
+    if (scope) headers['x-shadowlap-scope'] = scope.replace(/[^\x20-\x24\x26-\x7e]/gu, (c) => {
+      try {
+        return encodeURIComponent(c);
+      } catch {
+        return '%EF%BF%BD';
+      }
+    });
+    const res = await send(`${base}${path}`, headers, JSON.stringify(body));
+    const text = res.text;
+    if (res.status < 200 || res.status >= 300) {
       let message = text;
       try {
         message = JSON.parse(text).error?.message ?? text;

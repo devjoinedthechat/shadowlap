@@ -23,7 +23,7 @@ const tools = withEffects(
 await generateText({ model, tools, prompt });
 ```
 
-Every executable tool needs an effect; `withEffects` throws listing the ones you forgot. Client-side tools (no `execute`) pass through.
+Every executable tool needs an effect; `withEffects` throws listing the ones you forgot. Client-side tools (no `execute`) pass through. A streaming tool (`async *execute`) still streams: its progress values reach the UI as they come, its last value is recorded as the result the model is shown, and a replay yields that value alone. An aborted stream stops the tool, as it does without Shadowlap, and records the last value it had passed on.
 
 ## OpenAI Agents SDK
 
@@ -74,7 +74,7 @@ The runner's API calls are recorded through `ANTHROPIC_BASE_URL`; nothing else i
 
 ## Python
 
-Parameters a framework injects are never recorded, in any Python framework: a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper` or `ToolContext`, a LangChain `RunnableConfig`, callback manager or `Injected…` argument. The SDK recognizes them by their annotation. Name any other with `exclude=(...)`; an argument that isn't JSON fails before the tool runs, with a message naming it.
+Parameters a framework injects are never recorded, in any Python framework: a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper` or `ToolContext`, a LangChain `RunnableConfig`, callback manager or `Injected…` argument. The SDK recognizes them by the types in their annotation: the class, a generic's arguments (`Optional[...]`, `RunContext[Deps]`) and `Annotated`'s markers (`Annotated[str, InjectedToolArg]`), never by its descriptions or values, so `Annotated[str, "Injected document text"]` and `Literal["InjectedFile", "Upload"]` are still recorded. Name any other with `exclude=(...)`. Typed arguments, as Pydantic AI documents them (a Pydantic model, a dataclass, a `datetime.date`, a UUID, an `Enum`), are the tool's real input and are recorded in their JSON form, as results are; an argument that can't be recorded fails before the tool runs, with a message naming it.
 
 ### Pydantic AI
 
@@ -110,7 +110,7 @@ def email(to: str, body: str) -> str: ...
 
 ### LangChain and LangGraph (Python)
 
-Wrap tool instances; `ToolNode` and agents use them as usual. It works on `@tool` functions, `StructuredTool.from_function` and `BaseTool` subclasses. The recording holds the arguments after LangChain validated them, a replay returns a real `ToolMessage`, and a `content_and_artifact` tool gets its pair back as a tuple.
+Wrap tool instances; `ToolNode` and agents use them as usual. It works on `@tool` functions, `StructuredTool.from_function` and `BaseTool` subclasses. The recording holds the arguments after LangChain validated them, a replay returns a real `ToolMessage`, and a `content_and_artifact` tool gets its pair back as a tuple. A tool that returns a LangGraph `Command` (to update the graph's state) or a message such as a `ToolMessage` is recorded in a tagged JSON form, its messages as `messages_to_dict` writes them, and gets a real `Command` or message back on replay, so the state update happens again.
 
 ```python
 from langchain_core.tools import tool
@@ -141,7 +141,7 @@ def search_web(query: str) -> str:
 researcher = Agent(role="Researcher", tools=[with_effect(search_web, "read"), with_effect(SendEmail(), "write")], ...)
 ```
 
-Results are recorded as JSON. A tool that returns a Pydantic model or a dataclass gets its JSON form back on replay, so frameworks that print a tool's result see the same text only if they print it the same way; return strings or dicts when that matters.
+Results are recorded as JSON. A tool that returns a Pydantic model, a dataclass or a date gets its JSON form back on replay, so frameworks that print a tool's result see the same text only if they print it the same way; return strings or dicts when that matters.
 
 ## Tested against
 

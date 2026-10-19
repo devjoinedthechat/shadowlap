@@ -43,10 +43,20 @@ Every request is `POST` with a JSON body and `content-type: application/json`. R
 |---|---|
 | `content-type: application/json` | Always. |
 | `x-shadowlap-run: <run id>` | Whenever `SHADOWLAP_RUN_ID` is set. |
-| `x-shadowlap-scope: <scope>` | When the calling context is inside a scope. See [Scopes](#scopes). |
+| `x-shadowlap-scope: <scope>` | When the calling context is inside a scope, `%` and anything outside printable ASCII percent-encoded. See [Scopes](#scopes). |
 | `user-agent` | SHOULD name the language, e.g. `shadowlap-go/0.1`. The sidecar buckets clients by this for telemetry only; it never affects behavior. |
 
 There is no authentication header. The token in the path is the whole of it.
+
+**Never through a proxy.** The sidecar is on the machine's loopback. A client MUST reach it
+directly, whatever proxy the environment names (`HTTP_PROXY`, a system proxy): through a proxy, the
+call would cross the network in clear text with the session token in its URL, and the proxy can't
+reach the loopback anyway. Both SDKs open the sidecar with proxies turned off, whatever the agent
+sets up for its own traffic: the Python SDK with a urllib opener that has no proxy handler, the
+TypeScript SDK with `node:http` and an agent of its own rather than `fetch`, whose dispatcher an
+agent may route through a proxy (undici's `ProxyAgent` ignores `NO_PROXY`). `shadowlap run` adds
+`127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy` for the agent, for the clients
+that read them.
 
 **Timeouts.** A client SHOULD apply a request timeout of about 30 seconds. The sidecar answers
 `resolve` and `complete` locally and does not wait on the network, so a slow response means it is
@@ -138,6 +148,20 @@ The sidecar answers `409` if the call was already completed and `404` if `callNo
 left pending is a hole in the recording: the replay has no answer for it. If the result cannot be
 turned into JSON, the client MUST complete the call with `outcome: "error"` describing that, and
 then raise. Both shipped SDKs do this, and the `unserializable-result` conformance scenario checks it.
+A completion the sidecar refuses (a `400`) is the same hole, so a client that fails to send the `ok`
+completion SHOULD complete the call with an error before raising.
+
+A call the caller cuts off (Python's `asyncio.wait_for` deadline, a cancelled task) has not
+failed: the tool was stopped. The Python SDK completes it with `outcome: "error"`, the error named
+`CancelledError` and `data: { "cancelled": true }` (`false` when the tool raised `CancelledError`
+from an awaitable of its own). Replaying it, a client MUST NOT raise a replayed error: it waits
+until the caller cancels the call again, as its deadline or cancel did when it was recorded, so the
+agent takes the same path. An interrupt or an exit inside a tool (`KeyboardInterrupt`,
+`SystemExit`) is not the tool's answer either, and leaves the call as the run left it.
+
+JSON has no NaN or Infinity, and the sidecar refuses a body that has them. Both shipped SDKs record
+them as `null`, in arguments and results, as `JSON.stringify` does; the caller still gets the
+tool's own value while recording, and the `null` on replay (the `non-finite-result` scenario).
 
 ### User input
 
@@ -208,9 +232,20 @@ A serialized error is:
 preserved across a replay — only these fields — so a client SHOULD raise a dedicated
 "replayed error" type carrying them, rather than trying to reconstruct the original.
 
+Two more optional fields let a replayed error print as the original did, where the language prints
+more than the message. `module` is the module that defined the error's class, left out for a
+builtin: a traceback names a class by it (`myapp.errors.OrderMissing`). `args` is the list of
+arguments the error was made with, left out when it is the message alone or isn't JSON as it is
+(a tuple, say): Python's `repr()` prints them (`KeyError('A-17')`, `RuntimeError()`). The Python
+SDK records and replays both; a client that doesn't use them ignores them.
+
+```json
+{ "name": "FileNotFoundError", "message": "[Errno 2] No such file or directory: 'orders/A-17'", "args": [2, "No such file or directory"] }
+```
+
 Two error types every client SHOULD expose, because agent code catches them by name:
 
-- **replayed error** — raised for `replayed` with `outcome: "error"`. Carries `name`, `message`, `code`, `data`.
+- **replayed error** — raised for `replayed` with `outcome: "error"`. Carries `name`, `message`, `code`, `data`. It SHOULD read as the recorded error did: the same text when turned into a string or printed (Python's `str()` and `repr()`, TypeScript's `String()` and `util.inspect()`). Agents hand a tool's error to the model as text, so a replayed error that reads differently changes the next request, and a replay of unchanged code forks. Both SDKs raise an instance of a subclass of their replayed-error type named after the recorded error.
 - **write-blocked error** — raised for `blocked`. Carries the tool name and the arguments it was called with, so a handler can report what was prevented.
 
 ### Injected failures
@@ -256,6 +291,7 @@ in Node, `contextvars` in Python, a `context.Context` in Go — and sends the cu
 alike.
 
 - Scopes nest by joining with `/`: `researcher` inside `team` is `team/researcher`.
+- A scope can have any name, and a header holds Latin-1 at most, so a client MUST percent-encode `%` and every character outside printable ASCII (as UTF-8 bytes) before sending it: `東京` is sent as `%E6%9D%B1%E4%BA%AC`, `50% off` as `50%25 off`. `/` and the rest of printable ASCII are sent as they are, so an ASCII name without `%` is unchanged. The sidecar decodes the header, and records the name as it was given; a value that doesn't decode is taken as it was sent. The `scope-names` conformance scenario checks it.
 - The sidecar ignores a scope that is empty, longer than 200 characters, or contains control characters. A client SHOULD apply the same limits rather than relying on that.
 - Outside Shadowlap, entering a scope MUST still work — it just sets the variable.
 

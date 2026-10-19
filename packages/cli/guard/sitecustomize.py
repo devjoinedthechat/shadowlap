@@ -51,9 +51,12 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         if _item.strip():
             _allowed.add(_item.strip())
     _seen = {}
+    # Set on the thread that reports: the guard's own connections are never reported.
+    _reporting = threading.local()
 
     def _report(key, action):
         def send():
+            _reporting.active = True
             try:
                 import urllib.request
 
@@ -62,7 +65,9 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
                 run_id = os.environ.get("SHADOWLAP_RUN_ID")
                 if run_id:
                     headers["x-shadowlap-run"] = run_id
-                urllib.request.urlopen(urllib.request.Request(_url + "/v1/guard", data=data, headers=headers, method="POST"), timeout=2).read()
+                # Never through a proxy (HTTP_PROXY): the sidecar is on this machine's loopback.
+                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                opener.open(urllib.request.Request(_url + "/v1/guard", data=data, headers=headers, method="POST"), timeout=2).read()
             except Exception:
                 pass
 
@@ -100,6 +105,8 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         return "%s:%s" % (address[0], address[1])
 
     def _check(sock, address):
+        if getattr(_reporting, "active", False):
+            return
         key = _target(sock, address)
         if key is None or key in _allowed:
             return

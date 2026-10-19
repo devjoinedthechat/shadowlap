@@ -62,11 +62,46 @@ elif step == "live-error":
         out({
             "caught": {
                 "name": getattr(err, "name", type(err).__name__),
-                "message": str(err).split(": ", 1)[-1] if isinstance(err, shadowlap.ReplayedError) else str(err),
+                "message": str(err),
                 "replayed": isinstance(err, shadowlap.ReplayedError),
+                "text": str(err),
+                "repr": repr(err),
             },
             "implRuns": state["impl_runs"],
         })
+
+elif step == "error-shapes":
+
+    class OrderMissing(Exception):
+        pass
+
+    def not_found():
+        open("/nonexistent/orders/A-17")
+
+    shapes = [
+        lambda: (_ for _ in ()).throw(ValueError("order A-17 not found")),
+        lambda: (_ for _ in ()).throw(KeyError("A-17")),
+        not_found,
+        lambda: (_ for _ in ()).throw(RuntimeError()),
+        lambda: (_ for _ in ()).throw(ValueError("a", "b")),
+        lambda: (_ for _ in ()).throw(OrderMissing("gone")),
+    ]
+
+    @shadowlap.tool(effect="read")
+    def fail(kind):
+        state["impl_runs"] += 1
+        shapes[kind]()
+
+    caught = []
+    for kind in range(len(shapes)):
+        try:
+            fail(kind=kind)
+            caught.append(None)
+        except BaseException as err:
+            import traceback
+
+            caught.append({"replayed": isinstance(err, shadowlap.ReplayedError), "text": str(err), "repr": repr(err), "last": traceback.format_exception_only(type(err), err)[-1].rstrip("\n")})
+    out({"caught": caught, "implRuns": state["impl_runs"]})
 
 elif step == "unserializable":
 
@@ -81,6 +116,20 @@ elif step == "unserializable":
     except BaseException:
         out({"raised": True, "implRuns": state["impl_runs"]})
 
+elif step == "non-finite":
+
+    @shadowlap.tool(name="stats", effect="read")
+    def stats():
+        state["impl_runs"] += 1
+        return {"mean": 4.0, "std": float("nan")}
+
+    try:
+        got = stats()
+        std = got.get("std")
+        out({"raised": False, "mean": got.get("mean"), "std": "NaN" if isinstance(std, float) and std != std else std, "implRuns": state["impl_runs"]})
+    except BaseException as err:
+        out({"raised": True, "error": str(err), "implRuns": state["impl_runs"]})
+
 elif step == "clock-random":
     out({"now": shadowlap.now(), "random": shadowlap.random(), "uuid": shadowlap.uuid()})
 
@@ -90,6 +139,15 @@ elif step == "scope-record":
     with shadowlap.scope("b"):
         b = branch("b")
     out({"a": a, "b": b})
+
+elif step in ("scope-names-record", "scope-names-replay"):
+    # Any name a scope can have outside Shadowlap: letters beyond Latin-1, a percent sign, a nested scope.
+    names = ["東京の天気", "Kraków-łódź", "50% off"]
+    got = {}
+    for name in reversed(names) if step == "scope-names-replay" else names:
+        with shadowlap.scope(name), shadowlap.scope("notes"):
+            got[name] = branch(name)
+    out({"got": got, "implRuns": state["impl_runs"]})
 
 elif step == "scope-replay":
     # Reverse order on purpose: without scopes the two branches swap answers.

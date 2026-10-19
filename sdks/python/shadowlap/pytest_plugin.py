@@ -11,15 +11,21 @@ nothing for tests without the marker.
         assert shadowlap_recording.called("send_email") == 0
 
 The ``shadowlap_recording`` fixture is the test's :class:`shadowlap.testing.Recording`, to assert on the
-calls the agent made. A recording lives next to the test, in ``__recordings__/<test file>/<test name>``;
-commit it. Pass
+calls the agent made. A recording lives next to the test, in ``__recordings__/<test file>/<test name>``
+(``<test file>/<Class>/<test name>`` for a test in a class); commit it. Pass
 ``@pytest.mark.shadowlap(recording="path")`` to put it elsewhere. ``--shadowlap-record`` (or
 ``SHADOWLAP_RECORD``) picks the mode: ``missing``, ``all`` or ``none``; see :mod:`shadowlap.testing`.
+
+It loads into every pytest run once shadowlap is installed, so it uses only what every pytest from 6.2
+on has, with the pluggy each one allows: old-style hook wrappers, and the recording kept on the item.
 """
 
+import hashlib
+import json
 import os
 import re
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -44,19 +50,21 @@ def pytest_unconfigure(config):
     testing.close()
 
 
-_RECORDING = pytest.StashKey()
+# Kept on the item: pytest.StashKey and item.stash only exist from pytest 7.0.
+_RECORDING = "_shadowlap_recording"
+_FAILURE = "_shadowlap_failure"
 
 
 def _recording_for(item):
     """The marked test's recording, created once: by the fixture during setup or when the test body runs."""
-    rec = item.stash.get(_RECORDING, None)
+    rec = getattr(item, _RECORDING, None)
     if rec is None:
         marker = item.get_closest_marker("shadowlap")
         path = marker.kwargs.get("recording") or _recording_path(item)
         if not os.path.isabs(path):
             path = str(Path(str(item.config.rootpath)) / path)
         rec = testing.Recording(path, name=item.nodeid, mode=item.config.getoption("shadowlap_record"), command=["pytest", item.nodeid], root=str(item.config.rootpath))
-        item.stash[_RECORDING] = rec
+        setattr(item, _RECORDING, rec)
     return rec
 
 
@@ -68,38 +76,98 @@ def shadowlap_recording(request):
     return _recording_for(request.node)
 
 
+_NAME_LIMIT = 120
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^\w.-]+", "-", name).strip("-") or "test"
+
+
+def _in_file(nodeid: str) -> str:
+    """The test's identity within its file: ``Class::test_name[case]``, its node id without the file,
+    which doesn't change with the directory pytest runs from."""
+    return nodeid.split("::", 1)[1] if "::" in nodeid else nodeid
+
+
+def _recorded_by(directory: Path) -> Optional[str]:
+    """Which test made the recording in ``directory`` (its identity within its file), from the
+    command its run.json holds; None when there is no recording or it doesn't say."""
+    try:
+        with open(directory / "run.json", encoding="utf-8") as f:
+            argv = json.load(f)["runs"][-1]["command"]["argv"]
+    except Exception:
+        return None
+    if isinstance(argv, list) and len(argv) == 2 and argv[0] == "pytest" and isinstance(argv[1], str):
+        return _in_file(argv[1])
+    return None
+
+
 def _recording_path(item) -> str:
-    path = Path(str(item.fspath))
-    name = re.sub(r"[^\w.-]+", "-", item.name).strip("-")[:120] or "test"
-    return str(path.parent / "__recordings__" / path.stem / name)
+    """``__recordings__/<file>/<Class>/<name>`` beside the test file. A name is cut at 120 characters,
+    and one that was cut, or that would land on another test's recording (two cases that differ only
+    in punctuation), gets the first 8 hex digits of the sha256 of the test's identity. A recording
+    made where an earlier version put it (no class folder, no hash) is used by the test that made it."""
+    path = Path(str(getattr(item, "path", None) or item.fspath))
+    folder = path.parent / "__recordings__" / path.stem
+    identity = _in_file(item.nodeid)
+    classes = [_slug(part)[:_NAME_LIMIT] for part in identity.split("::")[:-1]]
+    full = _slug(item.name)
+    plain = full[:_NAME_LIMIT]
+    hashed = "%s-%s" % (plain, hashlib.sha256(identity.encode("utf-8")).hexdigest()[:8])
+    here = folder.joinpath(*classes)
+    if len(full) <= _NAME_LIMIT:
+        owner = _recorded_by(here / plain)
+        chosen = here / (hashed if owner is not None and owner != identity else plain)
+    elif not (here / hashed / "run.json").exists() and _recorded_by(here / plain) == identity:
+        chosen = here / plain
+    else:
+        chosen = here / hashed
+    if classes and not (chosen / "run.json").exists() and _recorded_by(folder / plain) == identity:
+        chosen = folder / plain
+    return str(chosen)
 
 
-@pytest.hookimpl(wrapper=True)
+# Old-style wrappers (hookwrapper=True), which every pluggy has: wrapper=True needs pluggy 1.2, and
+# pytest 7.4 allows 1.1. An old-style wrapper doesn't raise after its yield (pluggy warns about that,
+# and older ones don't route it), so a divergence found when the test ends is made the test's
+# failure in its report.
+@pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_call(item):
+    # A test run again (pytest-rerunfailures, --count) is judged by its own attempt, not the one before.
+    item.__dict__.pop(_FAILURE, None)
     marker = item.get_closest_marker("shadowlap")
     if marker is None or testing.under_shadowlap_run():
-        return (yield)
+        yield
+        return
     rec = _recording_for(item)
     try:
         rec.start()
     except testing.ShadowlapTestError as err:
         raise pytest.fail.Exception("shadowlap: %s" % err, pytrace=False) from None
-    diverged = None
+    outcome = yield
+    excinfo = outcome.excinfo
     try:
-        result = yield
-    except BaseException as exc:
-        try:
-            rec.finish(False, exc)
-        except testing.ShadowlapReplayDiverged as err:
-            diverged = err
-        if diverged is None:
-            raise
-    else:
-        try:
+        if excinfo is None:
             rec.finish(True)
-        except testing.ShadowlapReplayDiverged as err:
-            diverged = err
-    if diverged is not None:
-        # The divergence explains whatever the test then did, so it is the failure pytest shows.
-        raise pytest.fail.Exception(str(diverged), pytrace=False) from None
-    return result
+        else:
+            rec.finish(False, excinfo[1])
+    except testing.ShadowlapReplayDiverged as err:
+        setattr(item, _FAILURE, str(err))
+    except testing.ShadowlapTestError as err:
+        setattr(item, _FAILURE, "shadowlap: %s" % err)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    if call.when != "call":
+        return
+    failure = item.__dict__.pop(_FAILURE, None)
+    if failure is None:
+        return
+    # The divergence explains whatever the test then did, so it is the failure pytest shows.
+    report = outcome.get_result()
+    report.outcome = "failed"
+    report.longrepr = failure
+    if hasattr(report, "wasxfail"):
+        del report.wasxfail

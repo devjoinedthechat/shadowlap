@@ -1457,10 +1457,21 @@ function capturedHttp(rec: Pick<CallRecord, 'kind' | 'meta'>): boolean {
   return rec.kind === 'tool' && typeof rec.meta.http === 'string';
 }
 
-/** The SDKs' `scope()`, from x-shadowlap-scope: printable, at most 200 characters, or none. */
+/**
+ * The SDKs' `scope()`, from x-shadowlap-scope: printable, at most 200 characters, or none. Clients
+ * percent-encode `%` and what isn't printable ASCII, so a name in any language fits a header; a value
+ * that doesn't decode is taken as it was sent.
+ */
 function scopeOf(req: IncomingMessage): string | undefined {
   const raw = req.headers['x-shadowlap-scope'];
-  const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
+  let value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
+  if (value?.includes('%')) {
+    try {
+      value = decodeURIComponent(value).trim();
+    } catch {
+      // not percent-encoded: a client from before scopes were encoded
+    }
+  }
   if (!value || value.length > 200 || /[\u0000-\u001f\u007f]/.test(value)) return undefined;
   return value;
 }

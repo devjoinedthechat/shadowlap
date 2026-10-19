@@ -1,5 +1,6 @@
 // The TypeScript SDK as a client under test. One step per invocation, named by argv[2]; the result
 // is one JSON object on stdout. See ../../README.md for the contract a new client implements.
+import { inspect } from 'node:util';
 import { currentScope, ShadowlapWriteBlocked, isActive, now, random, ReplayedError, scope, tool, uuid } from '../../../../packages/sdk/dist/index.js';
 
 const step = process.argv[2];
@@ -40,8 +41,38 @@ switch (step) {
       await boom({});
       out({ caught: null, implRuns });
     } catch (err) {
-      out({ caught: { name: err.name, message: err.message, replayed: err instanceof ReplayedError }, implRuns });
+      out({ caught: { name: err.name, message: err.message, replayed: err instanceof ReplayedError, text: String(err), repr: inspect(err).split('\n')[0] }, implRuns });
     }
+    break;
+  }
+  case 'error-shapes': {
+    class OrderMissing extends Error {
+      constructor(message) {
+        super(message);
+        this.name = 'OrderMissing';
+      }
+    }
+    const shapes = [
+      () => new Error('order A-17 not found'),
+      () => new TypeError('A-17'),
+      () => new Error(),
+      () => Object.assign(new Error('no such order'), { code: 'ENOENT' }),
+      () => new OrderMissing('gone'),
+    ];
+    const fail = tool('fail', { effect: 'read' }, ({ kind }) => {
+      implRuns++;
+      throw shapes[kind]();
+    });
+    const caught = [];
+    for (let kind = 0; kind < shapes.length; kind++) {
+      try {
+        await fail({ kind });
+        caught.push(null);
+      } catch (err) {
+        caught.push({ replayed: err instanceof ReplayedError, text: String(err), repr: inspect(err).split('\n')[0], last: String(err.stack).split('\n')[0] });
+      }
+    }
+    out({ caught, implRuns });
     break;
   }
   case 'unserializable': {
@@ -59,6 +90,19 @@ switch (step) {
     }
     break;
   }
+  case 'non-finite': {
+    const stats = tool('stats', { effect: 'read' }, () => {
+      implRuns++;
+      return { mean: 4, std: NaN };
+    });
+    try {
+      const got = await stats({});
+      out({ raised: false, mean: got.mean, std: Number.isNaN(got.std) ? 'NaN' : got.std, implRuns });
+    } catch (err) {
+      out({ raised: true, error: String(err), implRuns });
+    }
+    break;
+  }
   case 'clock-random': {
     out({ now: await now(), random: await random(), uuid: await uuid() });
     break;
@@ -67,6 +111,16 @@ switch (step) {
     const a = await scope('a', () => ((currentBranch = 'a'), pick({})));
     const b = await scope('b', () => ((currentBranch = 'b'), pick({})));
     out({ a, b });
+    break;
+  }
+  case 'scope-names-record':
+  case 'scope-names-replay': {
+    // Any name a scope can have outside Shadowlap: letters beyond Latin-1, a percent sign, a nested scope.
+    const names = ['東京の天気', 'Kraków-łódź', '50% off'];
+    const order = step === 'scope-names-replay' ? [...names].reverse() : names;
+    const got = {};
+    for (const name of order) got[name] = await scope(name, () => scope('notes', () => ((currentBranch = name), pick({}))));
+    out({ got, implRuns });
     break;
   }
   case 'scope-replay': {
