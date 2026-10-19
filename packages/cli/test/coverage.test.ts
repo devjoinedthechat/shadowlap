@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { quoteArgv, Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
 import { departures, docsOf, names, SHAPES } from './json-shapes.js';
 
@@ -15,6 +15,9 @@ import { departures, docsOf, names, SHAPES } from './json-shapes.js';
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
+
+/** The agent's command as the CLI prints one (quoteArgv): on Windows its paths, which hold backslashes, in quotes. */
+const shownCommand = (input: string) => quoteArgv([process.execPath, AGENT, input]);
 
 /**
  * The model: looks up the order the prompt names, reads the policy, then escalates a $240 refund and
@@ -181,7 +184,8 @@ describe('shadowlap coverage', () => {
   it('--pack reproduces a capture offline with the agent\'s command and packs a golden that test replays', async () => {
     const r = await shadowlap(['coverage', '--pack', '--json']);
     expect(r.code, r.out).toBe(0);
-    expect(r.out).toMatch(/reproducing \w{26} with .*support-agent\.mjs B-7: offline, 3 tool results from its conversation, writes stubbed/);
+    expect(r.out).toMatch(/reproducing \w{26} with /);
+    expect(r.out).toContain(`with ${shownCommand('B-7')}: offline, 3 tool results from its conversation, writes stubbed`);
     const out = json<CoverageOut>(r);
     expect(out.pack).toHaveLength(1);
     const made = out.pack![0]!;
@@ -356,7 +360,7 @@ describe('coverage --pack on production traffic', () => {
     // Started as production started it, it reproduces offline and is packed.
     const packed = await sl(['coverage', '--pack', '--json', '--', process.execPath, AGENT, ORDER]);
     expect(packed.code, packed.out).toBe(0);
-    expect(packed.out).toContain(`with ${process.execPath} ${AGENT} B-7: offline`);
+    expect(packed.out).toContain(`with ${shownCommand('B-7')}: offline`);
     const made = json<CoverageOut>(packed).pack![0]!;
     expect(made).toMatchObject({ mode: 'replay', reason: null, command: { argv: [process.execPath, AGENT, 'B-7'], from: '--' } });
     const tested = await sl(['test', made.golden!]);
@@ -374,7 +378,7 @@ describe('coverage --pack on production traffic', () => {
     // The first message is production's, the system prompt isn't: the agent no longer does this.
     const tried = await sl(['coverage', '--pack', '--', process.execPath, AGENT, ORDER]);
     expect(tried.code, tried.out).toBe(1);
-    expect(tried.stdout).toContain(`not packed: ${process.execPath} ${AGENT} A-1042 doesn't reproduce`);
+    expect(tried.stdout).toContain(`not packed: ${shownCommand('A-1042')} doesn't reproduce`);
     expect(tried.stdout).toContain(`to keep it as the test that the change holds: shadowlap coverage --pack ${key} --fork --expect '<what it must do now>' -- <the same command>`);
     // A scheduled job reports what it couldn't pack and carries on.
     const warned = await sl(['coverage', '--pack', '--not-packed', 'warn', '--', process.execPath, AGENT, ORDER]);
