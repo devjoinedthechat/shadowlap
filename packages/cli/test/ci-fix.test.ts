@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type ScriptContext, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { branchName, branchNote, cannotPush, fixSummary, forkPullRequest, goldenNote, groupFixes, planFixes, pushFix, pushLine, refreshGoldens, repairArgs, type ReportResult } from '../../../action/fix.mjs';
+import { branchName, branchNote, cannotPush, fixSummary, forkPullRequest, goldenNote, groupFixes, otherOnBranch, planFixes, pushFix, pushLine, refreshGoldens, repairArgs, type ReportResult } from '../../../action/fix.mjs';
 import { startFakeS3 } from '../../remote/test/fakes/s3.js';
 
 /**
@@ -666,6 +666,36 @@ describe('planning fixes from a test report', () => {
     expect(unfixed).not.toContain('replays clean on this branch');
     const forking = goldenNote({ state: 'unfixed', golden: 'goldens/h', why: null, fork: true });
     expect(forking).toBe('`goldens/h` fails the same check, but this fix is not verified for it. It may fork, so on this branch it runs live from where it diverges, and its checks say whether the fix repairs it too.\n');
+  });
+
+  it('never says another golden failed, or diverges, on a fix\'s branch when it was inconclusive', () => {
+    const r = (verdict: 'passed' | 'failed' | 'inconclusive', ok = verdict === 'passed'): ReportResult => ({ name: 'x', dir: 'goldens/x', mode: 'replay', ok, verdict });
+    // Before the fix (the session's result), then on the branch.
+    expect(otherOnBranch(r('passed'), r('passed'))).toBeNull();
+    expect(otherOnBranch(r('passed'), r('failed'))).toBe('diverging');
+    expect(otherOnBranch(r('failed'), r('failed'))).toBe('failing');
+    // Inconclusive on the branch says nothing of the fix, whatever it was before.
+    expect(otherOnBranch(r('passed'), r('inconclusive'))).toBe('inconclusive');
+    expect(otherOnBranch(r('failed'), r('inconclusive'))).toBe('inconclusive');
+    // Inconclusive before, which --inconclusive warn let through (ok), and failing on the branch: it never passed before it.
+    expect(otherOnBranch(r('inconclusive', true), r('failed'))).toBe('unsettled');
+    expect(otherOnBranch(r('inconclusive'), r('failed'))).toBe('unsettled');
+    // A report from before results had a verdict reads as ok says; a golden the branch's report leaves out fails there.
+    expect(otherOnBranch({ name: 'x', ok: true }, { name: 'x', ok: false })).toBe('diverging');
+    expect(otherOnBranch(r('passed'), undefined)).toBe('diverging');
+
+    const recorded = { state: 'recorded' as const, golden: 'goldens/a', why: null };
+    const none = { diverging: [], failing: [], unreplayed: [], replayed: 0 };
+    const note = branchNote({ goldens: [recorded], others: { ...none, inconclusive: ['goldens/b'], unsettled: ['goldens/c', 'goldens/d'], replayed: 3 }, checked: true });
+    expect(note).toContain('`goldens/b` is inconclusive on this branch, neither passed nor failed, so whether the fix changes it is not known: run `shadowlap test goldens/b` on it to see why.');
+    expect(note).toContain('`goldens/c` and `goldens/d` were inconclusive before the fix, and fail on this branch.');
+    expect(note).not.toContain('failed before the fix');
+    expect(note).not.toContain('diverge');
+    expect(note).not.toContain('replays clean on this branch');
+    // The fix's own golden: a recording that is inconclusive on the branch is no recording that fails to replay.
+    expect(goldenNote({ state: 'stale', golden: 'goldens/a', why: 'the recording verify accepted is inconclusive on the branch, neither passed nor failed (a: injection inconclusive: no attempt showed anything)' })).toContain('It was not re-recorded automatically: the recording verify accepted is inconclusive on the branch, neither passed nor failed');
+    // The job summary counts them apart from the goldens that diverge.
+    expect(fixSummary([{ name: 'a', golden: 'goldens/a', outcome: 'opened', why: null, pr: 'https://github.com/example/agent/pull/7', title: 'fix', spent: 1, goldenStates: [recorded], others: { ...none, inconclusive: ['goldens/b'], replayed: 1 } }], 2)).toContain(' · 1 other golden inconclusive under the fix');
   });
 
   it('tells the pull request how to update a golden it could not re-record', () => {

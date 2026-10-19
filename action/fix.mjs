@@ -326,7 +326,7 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
   const own = new Set([...members, ...unfixed].map((m) => dirOf(m.result)));
   const others = results.filter((r) => dirOf(r) && !own.has(dirOf(r)));
   const replayed = others.filter((r) => r.mode !== 'fork');
-  const out = { goldens, others: { diverging: [], failing: [], unreplayed: others.filter((r) => r.mode === 'fork').map(dirOf), unchecked: [], replayed: 0 }, checked: false, why: null };
+  const out = { goldens, others: { diverging: [], failing: [], inconclusive: [], unsettled: [], unreplayed: others.filter((r) => r.mode === 'fork').map(dirOf), unchecked: [], replayed: 0 }, checked: false, why: null };
   if (!usable || (!candidates.length && !replayed.length)) {
     out.checked = usable;
     return out;
@@ -356,12 +356,13 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
     const clean = [];
     for (const c of swaps) {
       const t = tried.results.get(c.golden);
-      if (t?.ok) clean.push(c);
-      else c.state.why = `the recording verify accepted does not replay clean on the branch${t?.message ? ` (${t.name}: ${t.message})` : ''}`;
+      const said = t?.message ? ` (${t.name}: ${t.message})` : '';
+      if (t && verdictOf(t) === 'passed') clean.push(c);
+      else c.state.why = t && verdictOf(t) === 'inconclusive' ? `the recording verify accepted is inconclusive on the branch, neither passed nor failed${said}` : `the recording verify accepted does not replay clean on the branch${said}`;
     }
     for (const r of replayed) {
-      if (tried.results.get(dirOf(r))?.ok) continue;
-      (r.ok ? out.others.diverging : out.others.failing).push(dirOf(r));
+      const where = otherOnBranch(r, tried.results.get(dirOf(r)));
+      if (where) out.others[where].push(dirOf(r));
     }
     out.others.replayed = replayed.length;
     out.checked = true;
@@ -373,6 +374,23 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
     cannot(err.message.split('\n')[0]);
   }
   return out;
+}
+
+/** How a test report's result came out, whatever CI made of it; a result from before results had a verdict reads as `ok` says. */
+const verdictOf = (r) => r.verdict ?? (r.ok ? 'passed' : 'failed');
+
+/**
+ * How another golden the session tested fares on a fix's branch, from its result in the session
+ * (`before`) and on the branch (`now`): null when it passes there; `inconclusive` when it is neither
+ * passed nor failed there, which says nothing of the fix; else, failing there, `diverging` when it
+ * passed before, `failing` when it failed before too, and `unsettled` when it was inconclusive before.
+ */
+export function otherOnBranch(before, now) {
+  const is = now ? verdictOf(now) : 'failed';
+  if (is === 'passed') return null;
+  if (is === 'inconclusive') return 'inconclusive';
+  const was = verdictOf(before);
+  return was === 'passed' ? 'diverging' : was === 'failed' ? 'failing' : 'unsettled';
 }
 
 /** What the pull request says about one of the fix's goldens. */
@@ -392,17 +410,22 @@ export function goldenNote(g) {
  * fix's own, the other goldens the fix leaves diverging (with the command that re-records them), and
  * that its own checks pass only when every golden replayed there replays clean.
  */
-export function branchNote({ goldens, others = { diverging: [], failing: [], unreplayed: [], unchecked: [], replayed: 0 }, checked = false, why = null }) {
+export function branchNote({ goldens, others = { diverging: [], failing: [], inconclusive: [], unsettled: [], unreplayed: [], unchecked: [], replayed: 0 }, checked = false, why = null }) {
   const code = (dirs) => listed(dirs.map((d) => `\`${d}\``));
   const parts = [`### The golden${goldens.length === 1 ? '' : 's'}\n`, ...goldens.map(goldenNote)];
   const d = others.diverging;
   if (d.length) parts.push(`The fix changes what the agent sends, so ${d.length === 1 ? 'another golden, which passed before it, diverges' : `${d.length} other goldens, which passed before it, diverge`} on this branch: ${code(d)}. Re-record ${d.length === 1 ? 'it' : 'them'} here once the change is what you meant, and commit the change:\n\n\`\`\`sh\nshadowlap test ${d.join(' ')} --update\n\`\`\`\n`);
   if (others.failing.length) parts.push(`${code(others.failing)} failed before the fix too, and ${others.failing.length === 1 ? 'fails' : 'fail'} on this branch as well.\n`);
+  // Neither passed nor failed: never counted as a golden the fix broke, nor as one that replays clean.
+  const unsettled = others.unsettled ?? [];
+  if (unsettled.length) parts.push(`${code(unsettled)} ${unsettled.length === 1 ? 'was' : 'were'} inconclusive before the fix, and ${unsettled.length === 1 ? 'fails' : 'fail'} on this branch.\n`);
+  const inconclusive = others.inconclusive ?? [];
+  if (inconclusive.length) parts.push(`${code(inconclusive)} ${inconclusive.length === 1 ? 'is' : 'are'} inconclusive on this branch, neither passed nor failed, so whether the fix changes ${inconclusive.length === 1 ? 'it' : 'them'} is not known: run \`shadowlap test ${inconclusive.join(' ')}\` on it to see why.\n`);
   const unchecked = others.unchecked ?? [];
   if (unchecked.length) parts.push(`${code(unchecked)} could not be replayed under the fix here${why ? ` (${why})` : ''}, so whether ${unchecked.length === 1 ? 'it diverges' : 'they diverge'} on this branch is not known: run \`shadowlap test ${unchecked.join(' ')}\` on it to see.\n`);
   if (others.unreplayed.length) parts.push(`${code(others.unreplayed)} may fork, so ${others.unreplayed.length === 1 ? 'it was' : 'they were'} not replayed here: ${others.unreplayed.length === 1 ? 'it runs' : 'they run'} live from where ${others.unreplayed.length === 1 ? 'it diverges' : 'they diverge'}, and ${others.unreplayed.length === 1 ? 'its' : 'their'} checks decide.\n`);
   const replayed = goldens.filter((g) => g.state === 'recorded').length + (checked ? others.replayed : 0);
-  const clean = checked && !goldens.some((g) => g.state === 'stale' || g.state === 'unfixed') && !d.length && !others.failing.length && !unchecked.length;
+  const clean = checked && !goldens.some((g) => g.state === 'stale' || g.state === 'unfixed') && !d.length && !others.failing.length && !unsettled.length && !inconclusive.length && !unchecked.length;
   const forks = others.unreplayed.length || goldens.some((g) => g.state === 'fork');
   if (clean && replayed) parts.push(forks ? 'Every golden this job replayed exactly replays clean on this branch.\n' : "Every golden this job tested replays clean on this branch, so this pull request's own checks pass.\n");
   return parts.join('\n');
@@ -698,6 +721,8 @@ function goldenCell(f) {
   if (d.length) parts.push(`${d.length} other golden${d.length === 1 ? ' diverges' : 's diverge'}: ${update(d)}`);
   const u = f.others?.unchecked ?? [];
   if (u.length) parts.push(`${u.length} other golden${u.length === 1 ? '' : 's'} not replayed under the fix`);
+  const i = f.others?.inconclusive ?? [];
+  if (i.length) parts.push(`${i.length} other golden${i.length === 1 ? '' : 's'} inconclusive under the fix`);
   return parts.map((x) => ` · ${x}`).join('');
 }
 
