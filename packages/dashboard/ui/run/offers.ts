@@ -206,7 +206,7 @@ export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
   const target = b.target.kind === 'golden' ? b.target.golden : shortId(b.target.runId);
   const upTo = b.bad ?? 'HEAD';
   const cost = b.live ? 'Each replay runs live from where its requests differ, so this costs tokens.' : 'Replays are free, so this costs no tokens.';
-  const choices = b.revisions.map((r) => ({ value: r.rev, label: `${r.rev} · ${r.subject ? r.subject : `${r.runs === 1 ? '1 run' : `${num(r.runs)} runs`}${r.failed ? `, ${num(r.failed)} failed` : ''}`}` }));
+  const choices = b.revisions.map((r) => ({ value: r.rev, label: `${r.rev} · ${r.subject ? r.subject : `${r.runs === 1 ? '1 run' : `${num(r.runs)} runs`}${r.failed ? `, ${num(r.failed)} failed` : ''}${r.inconclusive ? `, ${num(r.inconclusive)} inconclusive` : ''}`}` }));
   const expect = b.expect && Object.keys(b.expect).length ? ` --expect ${quote(JSON.stringify(b.expect))}` : '';
   if (b.good && !choices.some((c) => c.value === b.good)) choices.unshift({ value: b.good, label: b.failed ? `${b.good} · where it last passed` : `${b.good} · this run` });
   return {

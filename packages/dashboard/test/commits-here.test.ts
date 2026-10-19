@@ -138,7 +138,7 @@ describe('Find the commit in this checkout', () => {
     // Its dialog offers the commits it was tested at that are here, each with its subject.
     const revisions = Object.fromEntries(view.failures.map((f) => [f.golden, f.revisions]));
     expect(revisions['goldens/refund-flow']).toEqual([]);
-    expect(revisions['goldens/refund-limit']).toEqual([{ rev: first, at: T0 - 3 * DAY + 1, result: 'pass', sameChecks: true, subject: 'Start' }]);
+    expect(revisions['goldens/refund-limit']).toEqual([{ rev: first, at: T0 - 3 * DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true, subject: 'Start' }]);
   });
 
   it('names each commit a run’s Find the commit offers by its subject', async () => {

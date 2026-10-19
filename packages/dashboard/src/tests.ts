@@ -234,7 +234,10 @@ export interface BisectMiss {
 export interface BisectRevision {
   rev: string;
   at: number;
+  /** An inconclusive result reads as `fail`: it didn't pass. */
   result: 'pass' | 'fail';
+  /** How it did there, inconclusive told apart: the dialog never says it failed where it was inconclusive. */
+  verdict: GoldenVerdict;
   /** Tested under the checks the golden has now: a pass under other checks may be a commit where it already fails them. */
   sameChecks: boolean;
   /** The commit's subject, when the project's git has the commit (added by the route). */
@@ -793,7 +796,7 @@ function bisectRevisions(history: readonly TestResult[], failed: TestResult, che
   return [...out.values()]
     .sort((a, b) => b.r.at - a.r.at)
     .slice(0, DIALOG_REVISIONS)
-    .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', sameChecks: underChecks(r, checks) }));
+    .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', verdict: verdictOfResult(r), sameChecks: underChecks(r, checks) }));
 }
 
 /** What Find the commit said about a golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
@@ -1294,9 +1297,11 @@ export interface BisectChoices {
   bad: string | null;
   /**
    * Revisions to choose a good one from, newest first: where its golden or its command ran before it,
-   * and how those runs went; `subject` is the commit's, once the project's git was asked (commits-here.ts).
+   * and how those runs went: `failed`, and for a golden's results `inconclusive`, counted apart, an
+   * inconclusive result being neither passed nor failed; `subject` is the commit's, once the
+   * project's git was asked (commits-here.ts).
    */
-  revisions: Array<{ rev: string; at: number; runs: number; failed: number; subject?: string | null }>;
+  revisions: Array<{ rev: string; at: number; runs: number; failed: number; inconclusive?: number; subject?: string | null }>;
   /**
    * The check bisect judges each replay by (`--expect`), for a run blame found failing it: the check
    * of the fix it fails in. A run that exited 0 and kept no failed check of its own failed only that
@@ -1343,15 +1348,17 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   const own = committed(run.codeVersion);
   // A test replay failed when its golden did in that session (a golden that may fork diverges by design).
   const result = ofGolden ? store.listTestResults({ sessionId: run.meta!.test!.session, golden: golden!, limit: 1 })[0] : undefined;
+  // Its golden came out inconclusive there: neither passed nor failed, so no failure to find.
+  const unsure = result !== undefined && verdictOfResult(result) === 'inconclusive';
   // A run in a fix as failing its check (blame found it so, or a repair or verify did), though it
   // exited 0 with no check of its own failed: that check is the one it failed.
   const blamed = !ofGolden && !runFailed(run) ? blamedCheck(store, run) : null;
-  const failed = result ? !result.ok : runFailed(run) || (ofGolden && !!run.divergence) || blamed !== null;
+  const failed = result ? verdictOfResult(result) === 'failed' : runFailed(run) || (ofGolden && !!run.divergence) || blamed !== null;
   let revisions: BisectChoices['revisions'];
   let sameRecording: string | null = null;
   let passedHere: string | null = null;
   if (ofGolden) {
-    const at = new Map<string, { rev: string; at: number; runs: number; failed: number }>();
+    const at = new Map<string, { rev: string; at: number; runs: number; failed: number; inconclusive: number }>();
     for (const r of store.listTestResults({ golden: golden!, limit: 10_000 })) {
       if (r.at >= before || !clean(r.revision) || r.revision === own) continue;
       // Newest first: the first pass of the recording this replay failed on, under the checks the
@@ -1360,9 +1367,11 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
       const counts = r.ok && underChecks(r, source!.checks);
       if (!sameRecording && counts && result?.goldenRunId && r.goldenRunId === result.goldenRunId) sameRecording = r.revision;
       if (!passedHere && counts) passedHere = r.revision;
-      const row = at.get(r.revision) ?? { rev: r.revision, at: r.at, runs: 0, failed: 0 };
+      const row = at.get(r.revision) ?? { rev: r.revision, at: r.at, runs: 0, failed: 0, inconclusive: 0 };
       row.runs++;
-      if (!r.ok) row.failed++;
+      const verdict = verdictOfResult(r);
+      if (verdict === 'failed') row.failed++;
+      else if (verdict === 'inconclusive') row.inconclusive++;
       row.at = Math.max(row.at, r.at);
       at.set(r.revision, row);
     }
@@ -1386,6 +1395,7 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   if (run.status === 'running') unavailable = 'this run is still recording';
   // A test replay a signal cut short has no result: it says nothing about its golden either way.
   else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden}: find the commit from the golden on Tests`;
+  else if (unsure) unavailable = `${golden} came out inconclusive in this replay's session, neither passed nor failed, so there is no failure to find the commit of: Tests says what settles it`;
   else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run ${withoutCommand(run)}, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
   // Someone else chose its command, and bisect would run it at every commit: the CLI asks first, which a job can't.
   else if (!ofGolden && commandIsImported(run)) unavailable = `this run came from ${importedCommandSource(run)}: bisect would run its command at every commit. Replay it with your own command first (shadowlap replay ${run.runId} -- <command>), and find the commit from that run`;
