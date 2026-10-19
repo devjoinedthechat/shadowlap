@@ -1,4 +1,4 @@
-import { commandIsImported, importedCommandSource, isReservedScope, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
+import { commandIsImported, importedCommandSource, isReservedScope, judgedOutcome, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import type { GoldenSource } from './tests.js';
@@ -26,7 +26,8 @@ export interface DecisionSessionView {
 /**
  * One model call in a run's row of the matrix: its rank (the most consequential change any sample
  * showed; 0 the same, null not asked), the rank most of its samples show (`majority`, which flags
- * the run), and how often it changed, for a cell drawn split.
+ * the run), how often it changed, for a cell drawn split, and how the judge checks that read a
+ * text-only change came out (`judge`).
  */
 export interface DecisionCell {
   callNo: number;
@@ -35,6 +36,12 @@ export interface DecisionCell {
   majority: number | null;
   changed: number;
   answered: number;
+  /**
+   * For a text-only change a judge check reads: `changed` when a check comes out otherwise for the
+   * new words (the cell ranks 2), `inconclusive` when one could not be judged, `unchanged` when every
+   * one came out as recorded; null when no check read it.
+   */
+  judge: 'changed' | 'inconclusive' | 'unchanged' | null;
 }
 
 /** A run's row of the matrix, its cells in call order. */
@@ -69,7 +76,7 @@ export function decisionSessions(store: Store, o: { limit?: number; kind?: 'deci
 export function decisionRow(run: DecisionRun): DecisionRow {
   const cells = [...run.decisions]
     .sort((a, b) => a.callNo - b.callNo)
-    .map((s: DecisionStep): DecisionCell => ({ callNo: s.callNo, step: s.step, rank: s.rank ?? (s.samples.answered ? 0 : null), majority: s.majority ?? (s.samples.answered === 1 ? s.rank : null) ?? (s.samples.answered ? 0 : null), changed: s.samples.changed, answered: s.samples.answered }));
+    .map((s: DecisionStep): DecisionCell => ({ callNo: s.callNo, step: s.step, rank: s.rank ?? (s.samples.answered ? 0 : null), majority: s.majority ?? (s.samples.answered === 1 ? s.rank : null) ?? (s.samples.answered ? 0 : null), changed: s.samples.changed, answered: s.samples.answered, judge: judgedOutcome(s) }));
   return { runId: run.runId, golden: run.golden, title: run.golden ?? run.runId.slice(0, 10), rank: run.rank, cells };
 }
 
@@ -258,9 +265,9 @@ export function verifyFlaggedJob(req: JobRequest, store: Store): JobBuildResult 
   let flagged = (Array.isArray(report.flagged) ? report.flagged : []).filter((id): id is string => typeof id === 'string');
   if (req.runId !== undefined) {
     flagged = flagged.filter((id) => id === req.runId || (typeof req.runId === 'string' && req.runId.length >= 6 && id.startsWith(req.runId)));
-    if (!flagged.length) return { error: 'that run has no write or stop change in this session', status: 404 };
+    if (!flagged.length) return { error: 'that run has no write, stop or judged change in this session', status: 404 };
   }
-  if (!flagged.length) return { error: 'no run in this session decides a write or when to stop differently: there is nothing to verify', status: 409 };
+  if (!flagged.length) return { error: 'no run in this session has a write, stop or judged change: there is nothing to verify', status: 409 };
   const runs = flagged.map((id) => store.getRun(id)).filter((r): r is NonNullable<typeof r> => r !== null);
   if (runs.length < flagged.length) return { error: 'a run this session flagged is no longer in the store', status: 409 };
   // A run from the store whose command came from someone's pack runs only with a yes; a golden runs its pack's command, as test runs it.
@@ -268,7 +275,7 @@ export function verifyFlaggedJob(req: JobRequest, store: Store): JobBuildResult 
   const consent = importedConsent(store, flagged.filter((id) => !goldenRuns.has(id)), req.yes);
   if (consent) return consent;
   const args = ['decisions', '--verify', req.sessionId, ...(req.runId !== undefined ? [flagged[0]!] : []), ...(req.yes === true ? ['--yes'] : [])];
-  return { args, title: `Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} with a write or stop change`, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
+  return { args, title: `Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} with a write, stop or judged change`, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
 }
 
 /** The command a job runs, as its dialog shows it. */
