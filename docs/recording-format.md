@@ -1,10 +1,10 @@
 # The recording format
 
-Version 1. Shadowlap is the reference implementation.
+A recording is everything an agent run said to the world and heard back: each model call's request and response, each tool call's arguments and result, each clock read and random value, numbered in the order the run made them. This page specifies recordings as Shadowlap writes and reads them: on disk as a *pack*, a folder of plain files that can be committed as a [golden](./ci.md), attached to an issue or shared, and over HTTP as [the recordings protocol](#the-recordings-protocol), through which a test runner records a test and replays it. A framework, a tracing tool or a test runner that writes packs gets recordings Shadowlap replays, and one that reads them gets every run Shadowlap records.
 
-A recording is everything an agent run said to the world and heard back: each model call's request and response, each tool call's arguments and result, each clock read and random value, numbered in the order the run made them. Shadowlap replays an agent's real code against one, serving every call that hasn't changed from it. This page specifies the form a recording takes outside a store, a *pack*: a folder of plain files that can be committed as a [golden](./ci.md), attached to an issue or shared. A framework, a tracing tool or a test runner that writes packs gets recordings Shadowlap replays, and one that reads them gets every run Shadowlap records.
+Version 1. Packs and the protocol are versioned together ([Versions](#versions)), and Shadowlap is the reference implementation: it replays an agent's real code against a recording, serving every call that hasn't changed from it.
 
-> **Normative language.** MUST, SHOULD and MAY carry their usual weight. The reference implementation is `@shadowlap/engine`: `packRun` writes a pack, `unpackRun` reads one, `validateRun` and `validateCall` check its records, and `fingerprintApi`, `fingerprintTool` and `fingerprintMisc` compute identities ([the engine as a library](./engine.md)). Where this page and the engine disagree, the engine is what replays: [open an issue](https://github.com/devjoinedthechat/shadowlap/issues).
+> **Normative language.** MUST, SHOULD and MAY carry their usual weight. The reference implementation of packs is `@shadowlap/engine`: `packRun` writes a pack, `unpackRun` reads one, `validateRun` and `validateCall` check its records, and `fingerprintApi`, `fingerprintTool` and `fingerprintMisc` compute identities ([the engine as a library](./engine.md)); the protocol's is `shadowlap serve --recordings`. Where this page and Shadowlap disagree, Shadowlap is what replays: [open an issue](https://github.com/devjoinedthechat/shadowlap/issues).
 
 ## A pack
 
@@ -47,7 +47,7 @@ refund-flow/
 | `parentRunId` | no | The run it replayed, or `null` for a recording. It may name a run the pack doesn't hold |
 | `mode` | yes | `record` or `replay` |
 | `status` | yes | `running`, `completed`, `failed` or `crashed`. A reader takes `running` as `crashed`: nothing records the run any more |
-| `command` | yes | `{ "argv": […], "cwd": "…" }`: the command that started the agent, 1 to 256 arguments, and where it ran |
+| `command` | yes | `{ "argv": […], "cwd": "…" }`: the command that started the agent, 1 to 256 arguments, and the folder it ran in. `cwd` is for people to read: a reader runs `argv` in its own project folder, never in `cwd`, so a producer SHOULD write `.` or a path relative to the project, not an absolute path on its machine (Shadowlap writes the folder `shadowlap run` ran in) |
 | `codeVersion` | no | The git revision the run was made at, up to 128 characters, or `null` |
 | `startedAt` | yes | When the run started |
 | `endedAt` | no | When it ended, or `null` |
@@ -436,10 +436,150 @@ A producer can leave the files to Shadowlap too:
 
 - `shadowlap run -- <command>` records any agent, and `shadowlap pack <run> <dir>` writes its pack with the project's redaction rules applied ([CI](./ci.md#make-a-golden)).
 - An SDK for a language Shadowlap doesn't ship records tool calls, clock reads and random values through [the wire protocol](./protocol.md); model calls need nothing, as the provider's own SDK is pointed at Shadowlap.
-- A test runner records each test through [the recordings protocol](./recordings-protocol.md), which writes the test's pack when it passes.
+- A test runner records each test through the recordings protocol, below, which writes the test's pack when it passes and replays it offline after.
+
+## The recordings protocol
+
+Shadowlap's pytest, Vitest and node:test integrations are clients of one small HTTP API on `shadowlap serve --recordings`, specified here so that an integration can be written for a test runner Shadowlap doesn't ship: JUnit, Go's `testing`, RSpec, Playwright, anything that can spawn a process and make an HTTP request. A [recorded test](./testing.md) records its agent's calls the first time it runs, as a pack beside the test, and replays them offline afterwards: fast, free and deterministic, failing with a diff when a code change alters a request.
+
+It is a different API from [the SDK wire protocol](./protocol.md), and a full integration needs both: this one decides *which recording a test uses and what happens to it*, while the wire protocol carries the individual tool, clock and randomness calls.
+
+### The handshake
+
+The host is started by the plugin, once per test-runner **worker process**, and lives as long as that process does.
+
+1. Spawn `shadowlap serve --recordings` with the project root as its working directory, and with **stdout and stdin both piped**.
+2. Read **one line** of JSON from its stdout:
+
+   ```json
+   {
+     "shadowlap": "0.1.0",
+     "url": "http://127.0.0.1:53211/t/9f2c…",
+     "root": "/path/to/project",
+     "env": {
+       "ANTHROPIC_BASE_URL": "http://127.0.0.1:53211/t/9f2c…/s/__SLOT__/anthropic",
+       "SHADOWLAP_CAPTURE": "…"
+     },
+     "capture": { "node": "/…/guard/node-capture.mjs", "python": "/…/guard" }
+   }
+   ```
+
+3. In every value of `env`, replace the literal `__SLOT__` with this worker's [slot](#slots), then set those variables in the test process **before** any model SDK or capture module loads. These are what point the provider SDKs at the host.
+4. Load the capture module for your language from `capture`: `capture.node` is a file to `--import`, `capture.python` a directory to put on `sys.path` before importing `_shadowlap_capture`. It patches clients that can't be redirected by a base URL. Skip this and `fetch`/`httpx`-level calls and signed clients (Bedrock, Vertex, Azure) go unrecorded.
+
+   A call that reaches a slot no recording holds is refused with `409`. So a runner whose tests don't all have a recording sets the variables only from `start` to `end` and then puts back what they were, and turns capture off in between (the Python module's `active = False`; in Node, `globalThis[Symbol.for('shadowlap.capture')].active = false`), as the pytest and Vitest plugins do. Capture reads its configuration when it loads, so load it with the variables set.
+5. **Keep stdin open.** The host runs until its stdin closes, which is how it shuts down when the runner exits. Closing stdin (or `SIGINT`/`SIGTERM`) is the only stop signal; there is no endpoint for it.
+
+Treat `url` as opaque: it carries a session token as a path segment, and it is a credential, so don't log it.
+
+### Slots
+
+A slot is a short name for one parallel worker, so that several workers share one host without taking each other's runs. Derive it from the runner's worker id (pytest-xdist's `PYTEST_XDIST_WORKER`, a Vitest worker index), falling back to `main` when the runner is single-process. Keep it to letters, digits, `_`, `.` and `-`, at most 64 characters.
+
+The same slot goes in the `__SLOT__` substitution and in the `slot` field of `start`.
+
+### Endpoints
+
+Every request is `POST` with a JSON body and `content-type: application/json`, to `url` followed by the endpoint's path. On a response that isn't a 2xx, the body is `{"type": "error", "error": {"type": "shadowlap_error", "message": "…"}}`, and `error.message` is the one to show.
+
+#### `POST /v1/recordings/start`
+
+Call it when a test starts, before the agent runs.
+
+```json
+{ "recording": "tests/recordings/refund-flow", "slot": "gw0", "mode": "missing", "name": "test_refund_flow", "command": ["pytest", "-k", "refund"] }
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `recording` | yes | The recording's directory, a pack. Absolute, or relative to the project root. It MUST resolve inside the root; anything else is a 400. |
+| `slot` | yes | This worker's slot. |
+| `mode` | no | `missing` (default): replay when a recording exists, record when it doesn't. `all`: always record. `none`: only replay, and fail when there is nothing to replay. |
+| `name` | no | The test's name, used in the run's command line when none is given. |
+| `command` | no | The command to record as the run's own, for `shadowlap replay` later. Without one the run records `<test>` and the test's name, and has no command to run again: replaying it, finding its commit or forking it needs yours after `--`, as for a capture. |
+
+It answers `201`:
+
+```json
+{ "runId": "01K5CQ4N7G…", "mode": "record", "recording": "tests/recordings/refund-flow" }
+```
+
+`mode` in the response is what actually happened, which is what the test should report. A `none` mode with no recording on disk is a 404 whose message says how to record it; a recording that holds no runs is a 422, and one whose run the local store already holds as another recording, with other calls, is a 409 that says how to replay this one.
+
+Starting a run in a slot ends whatever was still running in that slot, so a crashed test doesn't wedge the worker.
+
+#### `POST /v1/recordings/calls`
+
+Optional, and what makes assertions possible. Call it any time while the run is in progress, as often as you like.
+
+```json
+{ "runId": "01K5CQ4N7G…" }
+```
+
+```json
+{
+  "answer": "Refunded order 1182.",
+  "calls": [
+    { "callNo": 1, "kind": "api", "name": "POST /v1/messages", "origin": "replayed", "outcome": "ok", "model": "claude-haiku-4-5" },
+    { "callNo": 2, "kind": "tool", "name": "send_email", "origin": "blocked", "outcome": "error", "args": { "to": "x@y" }, "error": { "name": "ShadowlapWriteBlocked", "message": "…" } }
+  ]
+}
+```
+
+`answer` is the text of the last model response, or `null` before there is one. `outcome` is `null` while a call is still in flight. `args`, `result` and `error` appear for tool calls only, exactly as the agent saw them; `scope` appears when the call was made inside one. Expose these to the test: "`send_email` was never called" is the assertion people actually want.
+
+#### `POST /v1/recordings/end`
+
+Call it exactly once per `start`, whatever the test's outcome.
+
+```json
+{ "runId": "01K5CQ4N7G…", "passed": true }
+```
+
+`passed` is the test's own result, and it decides what happens next:
+
+| Mode | `passed` | What the host does |
+|---|---|---|
+| record | `true` | Packs the run into the recording directory, atomically (written beside it and swapped in, so an interrupted write never leaves half a pack). Redaction rules from `shadowlap.config.json` are applied. |
+| record | `false` | Saves nothing: a failing test shouldn't become the golden. |
+| record | `true`, no calls | Saves nothing, and says so: usually a base URL that was never redirected. |
+| replay | either | A clean replay is deleted, since it adds nothing. A divergence is kept in the local store to inspect. So is a replay that ended early: every request the test sent matched, but it stopped before making every recorded model or tool call, so it fails with `ended early at call 13 (api POST /v1/messages): 12 of 30 recorded calls replayed`. |
+
+```json
+{
+  "ok": false,
+  "mode": "replay",
+  "runId": "01K5CQ4N7G…",
+  "recording": "tests/recordings/refund-flow",
+  "calls": 30,
+  "replayed": 12,
+  "message": "diverged from its recording at call 13 (api POST /v1/messages)",
+  "report": "…the divergence report and run summary, ready to print…"
+}
+```
+
+**`ok` is the verdict the test should fail on.** `message` is one line for a test-runner summary; `report` is the multi-line diff and summary to print in full. On a record that saved, `saved` is `true` and both are `null`.
+
+### Choosing the mode
+
+The default that makes recorded tests pleasant: read an explicit setting from the environment (`SHADOWLAP_RECORD`), and otherwise use `none` when `CI` is set and `missing` when it isn't. So a developer's first run records, later runs replay, and CI never records: a missing recording fails the build instead of quietly making one.
+
+### Checklist for a new integration
+
+1. Spawn the host once per worker; read its JSON line; substitute `__SLOT__`; set the env before anything else loads.
+2. Load the capture module for your language.
+3. Keep stdin open for the life of the worker.
+4. `start` per test, with the recording directory and the slot.
+5. `end` per test with the real `passed`, exactly once, even when the test errored.
+6. Fail the test when `ok` is false, printing `report`.
+7. Expose `calls` and `answer` to the test for assertions.
+8. Pick the mode from the environment, defaulting to `none` under CI.
 
 ## Versions
 
-- `version` is 1. A change that would make a pack mean something else to a reader that doesn't know it, or keep a reader from reading it, comes with a new version, and a reader refuses a version it doesn't know.
-- What a reader can ignore comes without one: a new key under a run's or a call's `meta`, or a new provider, whose calls keep the fingerprints they were written with in a reader that doesn't know it.
+This page is version 1, for packs and the protocol alike.
+
+- A pack says its version in `run.json`'s `version`, and a reader refuses a version it doesn't know. A change that would make a pack mean something else to a reader that doesn't know it, or keep a reader from reading it, comes with a new version.
+- The protocol says its version in its routes, `/v1/recordings/…`. A change that would break an integration written to this page comes with routes under a new version. `shadowlap` in the handshake is the CLI's version, for an integration to report alongside its own.
+- What a reader or an integration can ignore comes without a new version: a new key under a run's or a call's `meta`, a new provider, whose calls keep the fingerprints they were written with in a reader that doesn't know it, or a new field in a response.
 - Shadowlap is pre-1.0, and of everything it has, the format is what changes least: build on it where you have the choice.

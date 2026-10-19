@@ -1,11 +1,13 @@
-// docs/recording-format.md specifies packs for producers that write them without Shadowlap. Nothing
-// generates the page from the engine, so these checks hold it to the engine: the version and the
-// limits it states, the values it lists for each field (each accepted, and nothing else), the
-// fingerprint headers per provider, and its worked example, which has to be exactly the pack a
-// producer following the page writes, fingerprints included, and has to pass `shadowlap test`.
+// docs/recording-format.md specifies packs for producers that write them without Shadowlap, and the
+// recordings protocol a test runner records through. Nothing generates the page from the code, so
+// these checks hold it to the code: the version and the limits it states, the values it lists for
+// each field (each accepted, and nothing else), the fingerprint headers per provider, its worked
+// example, which has to be exactly the pack a producer following the page writes, fingerprints
+// included, and has to pass `shadowlap test`, and the protocol, spoken to a real
+// `shadowlap serve --recordings` with the page's own examples.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -148,8 +150,83 @@ describe('its worked example', () => {
   });
 });
 
+/** The JSON block the page shows inside a list item after `words`, its indent taken off. */
+function listBlock(words: string): unknown {
+  const m = /^( *)```json\n([\s\S]*?)^ *```/m.exec(spec.slice(spec.indexOf(words)));
+  if (!m) throw new Error(`no JSON block after ${words}`);
+  return JSON.parse(m[2]!.split('\n').map((l) => l.slice(m[1]!.length)).join('\n'));
+}
+/** The page's top-level JSON block that starts with `start`, parsed. */
+const shown = (start: string): Record<string, unknown> => JSON.parse(blocks.find((b) => b.startsWith(start))!) as Record<string, unknown>;
+const keysOf = (o: unknown) => Object.keys(o as object).sort();
+
+describe('its recordings protocol', () => {
+  it('is what shadowlap serve --recordings speaks: the handshake, the routes, and what each answers', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-recordings-protocol-'));
+    dirs.push(dir);
+    const host = spawn(process.execPath, [CLI, 'serve', '--recordings'], { cwd: dir, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const exited = new Promise((r) => host.once('exit', r));
+    try {
+      const line = await new Promise<string>((resolve, reject) => {
+        let out = '';
+        const timer = setTimeout(() => reject(new Error(`no handshake: ${out}`)), 20_000);
+        host.stdout.on('data', (d: Buffer) => {
+          out += d.toString();
+          if (out.includes('\n')) {
+            clearTimeout(timer);
+            resolve(out.slice(0, out.indexOf('\n')));
+          }
+        });
+      });
+      const handshake = JSON.parse(line) as { shadowlap: string; url: string; env: Record<string, string>; capture: object };
+      const example = listBlock('Read **one line** of JSON') as { env: object; capture: object };
+      expect(keysOf(handshake)).toEqual(keysOf(example));
+      expect(keysOf(handshake.capture)).toEqual(keysOf(example.capture));
+      expect(handshake.shadowlap).toBe((JSON.parse(read('packages/cli/package.json')) as { version: string }).version);
+      expect(handshake.env.ANTHROPIC_BASE_URL).toMatch(/\/s\/__SLOT__\/anthropic$/);
+      expect(handshake.env).toHaveProperty('SHADOWLAP_CAPTURE');
+
+      expect([...spec.matchAll(/^#### `POST (\/v1\/recordings\/\w+)`$/gm)].map((m) => m[1])).toEqual(['/v1/recordings/start', '/v1/recordings/calls', '/v1/recordings/end']);
+      const post = (path: string, body: unknown) => fetch(`${handshake.url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      // A recording outside the root, and one to replay that isn't there: the statuses the page gives, the error as it shows it.
+      const outside = await post('/v1/recordings/start', { recording: '../elsewhere', slot: 'gw0' });
+      expect(outside.status).toBe(400);
+      expect(await outside.json()).toEqual({ type: 'error', error: { type: 'shadowlap_error', message: expect.any(String) } });
+      expect((await post('/v1/recordings/start', { recording: 'tests/recordings/refund-flow', slot: 'gw0', mode: 'none' })).status).toBe(404);
+
+      // The page's own start request: 201, and the response it shows.
+      const res = await post('/v1/recordings/start', shown('{ "recording":'));
+      expect(res.status).toBe(201);
+      const started = (await res.json()) as { runId: string };
+      expect(keysOf(started)).toEqual(keysOf(shown('{ "runId": "01K5CQ4N7G…", "mode"')));
+      expect(started).toMatchObject({ mode: 'record', recording: 'tests/recordings/refund-flow' });
+      const calls = await (await post('/v1/recordings/calls', { runId: started.runId })).json();
+      expect(keysOf(calls)).toEqual(keysOf(shown('{\n  "answer"')));
+      expect(calls).toEqual({ answer: null, calls: [] });
+      // A test that passed without a call reaching the host: nothing saved, and the fields the page names.
+      const ended = (await (await post('/v1/recordings/end', { runId: started.runId, passed: true })).json()) as Record<string, unknown>;
+      expect(keysOf(ended)).toEqual([...keysOf(shown('{\n  "ok": false')), 'saved'].sort());
+      expect(ended).toMatchObject({ ok: true, mode: 'record', saved: false, report: null });
+      expect(existsSync(join(dir, 'tests', 'recordings', 'refund-flow'))).toBe(false);
+      expect((await post('/v1/recordings/calls', { runId: started.runId })).status).toBe(404);
+    } finally {
+      // Closing stdin is how the host is told to stop.
+      host.stdin.end();
+      await exited;
+    }
+  }, 60_000);
+});
+
 describe('the page', () => {
-  it('is linked where a reader of recordings looks', () => {
-    for (const page of ['docs/index.md', 'docs/engine.md', 'docs/recordings-protocol.md', 'docs/protocol.md', 'docs/ci.md']) expect(read(page), page).toContain('(./recording-format.md');
+  it('is linked where a reader of recordings looks, and is the one page for the protocol too', () => {
+    for (const page of ['docs/index.md', 'docs/engine.md', 'docs/protocol.md', 'docs/ci.md', 'docs/testing.md']) expect(read(page), page).toContain('(./recording-format.md');
+    expect(read('docs/testing.md')).toContain('(./recording-format.md#the-recordings-protocol)');
+    expect(existsSync(join(ROOT, 'docs', 'recordings-protocol.md'))).toBe(false);
+    for (const page of [...readdirSync(join(ROOT, 'docs')).filter((f) => f.endsWith('.md')).map((f) => `docs/${f}`), 'README.md']) expect(read(page), page).not.toContain('recordings-protocol.md');
+  });
+
+  it('opens with what a recording is, so that is what a page about it is described by', () => {
+    const lede = spec.split('\n\n')[1]!;
+    expect(lede).toMatch(/^A recording is everything an agent run said to the world and heard back/);
   });
 });

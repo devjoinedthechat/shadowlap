@@ -36,6 +36,6 @@ Shadowlap is change safety for agents: every change to an agent (its code, its p
 - [Agents across services](./downstream-services.md): a service the agent calls over HTTP, recorded as a tool, so its answers replay without it.
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.
 - [Team store](./team.md): your team's runs in a bucket you own, pushed and pulled with your own credentials, with pull requests kept to their own folders, and share links.
-- [The wire protocol](./protocol.md), [the recordings protocol](./recordings-protocol.md), [the recording format](./recording-format.md) and [the engine as a library](./engine.md): building on Shadowlap, writing an SDK for another language, integrating another test runner, or writing recordings Shadowlap replays.
+- [The wire protocol](./protocol.md), [the recording format](./recording-format.md) with the recordings protocol, and [the engine as a library](./engine.md): building on Shadowlap, writing an SDK for another language, integrating another test runner, or writing recordings Shadowlap replays.
 
 Shadowlap is pre-release and open source under Apache-2.0: [github.com/devjoinedthechat/shadowlap](https://github.com/devjoinedthechat/shadowlap).

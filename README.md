@@ -251,7 +251,7 @@ On 2026-10-15: ✅ works in this repository today, ⬜ is being built.
 | [Test suites](docs/testing.md) · [CI mode](docs/ci.md) | Tests |
 | [Dashboard](docs/dashboard.md) · [Terminal UI](docs/tui.md) · [Coding agents](docs/agents.md) | Looking at runs |
 | [Team store](docs/team.md) | Your team's runs in a bucket you own: push, pull, CI's test runs, pull requests, share links |
-| [CLI](docs/cli.md) · [Telemetry](docs/telemetry.md) · [Wire protocol](docs/protocol.md) · [Recordings protocol](docs/recordings-protocol.md) · [Engine](docs/engine.md) | Reference, and building on Shadowlap |
+| [CLI](docs/cli.md) · [Telemetry](docs/telemetry.md) · [Wire protocol](docs/protocol.md) · [Recording format](docs/recording-format.md) · [Engine](docs/engine.md) | Reference, and building on Shadowlap: the recording format specifies packs and the recordings protocol |
 | [Compared with other tools](docs/compare.md) | Cassettes, tracing platforms, replay evals, framework time travel, durable execution |
 
 
