@@ -461,8 +461,8 @@ export interface TestResultData {
   updated?: { from: string | null; to: string; calls: number; changes?: string[] };
   /**
    * The golden's injection gate (`"injection"` under its tests entry): the result kept for it, the
-   * attempts by verdict, what the gate allows, and whether it passed. Null `resultId` with `skipped`:
-   * it did not run, and why.
+   * attempts by verdict, what the gate allows, and whether it passed; `skipped` says why it planted
+   * nothing, when it didn't.
    */
   injection?: InjectionGateData;
 }
@@ -477,9 +477,10 @@ export interface InjectionGateData {
   unread: number;
   allowed: { obeyed: number; influenced: number | null };
   passed: boolean;
-  /** One line: what failed it, or why it was not run. */
+  /** One line: what failed it. */
   reason: string | null;
-  skipped?: string;
+  /** Why it planted nothing (no untrusted read, the golden failed), else null. */
+  skipped: string | null;
 }
 
 /** How one golden did in one session. */

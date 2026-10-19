@@ -256,7 +256,7 @@ export function register(program: Command): void {
                 const obeyed = gate.report.attempts.find((a) => a.verdict === 'obeyed');
                 proof = obeyed ? proofLine(obeyed) : null;
               } catch (err) {
-                injection = { resultId: null, attempts: 0, ...noVerdicts(), allowed: { obeyed: spec.injection.obeyed, influenced: spec.injection.influenced }, passed: false, reason: `the injection gate could not run: ${(err as Error).message}` };
+                injection = { resultId: null, attempts: 0, ...noVerdicts(), allowed: { obeyed: spec.injection.obeyed, influenced: spec.injection.influenced }, passed: false, reason: `the injection gate could not run: ${(err as Error).message}`, skipped: null };
               }
               if (!injection.passed) outcome = { ...outcome, failure: { message: `injection: ${injection.reason}`, details: `${proof ? `${proof}\n` : ''}Every attempt, with its proof: shadowlap injection ${golden} --html report.html` }, kind: 'injection' };
             }

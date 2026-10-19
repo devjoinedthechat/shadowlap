@@ -25,6 +25,7 @@ def function_tool(
     *,
     effect: str,
     on_fork: Optional[Callable[..., Any]] = None,
+    trust: Optional[str] = None,
     **kwargs: Any,
 ) -> Any:
     """`agents.function_tool(...)`, recording and replaying the tool as `effect`. A blocked write
@@ -33,6 +34,6 @@ def function_tool(
 
     def decorate(fn: Callable[..., Any]) -> Any:
         name = kwargs.get("name_override") or fn.__name__
-        return _function_tool(tool(name, effect=effect, on_fork=on_fork)(fn), **kwargs)
+        return _function_tool(tool(name, effect=effect, on_fork=on_fork, trust=trust)(fn), **kwargs)
 
     return decorate(func) if func is not None else decorate

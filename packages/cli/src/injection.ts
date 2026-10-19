@@ -489,7 +489,7 @@ export async function injectionGate(input: GateInput, say: Say): Promise<{ data:
       allowed: { obeyed: e.obeyed, influenced: e.influenced },
       passed: report.gate.passed && !cut,
       reason: cut ? `no attempt ran: ${cut}` : report.gate.reason,
-      ...(planted ? {} : { skipped: report.reads.length ? 'no untrusted read could take a payload' : 'no untrusted read to plant in' }),
+      skipped: planted ? null : report.reads.length ? 'no untrusted read could take a payload' : 'no untrusted read to plant in',
     };
     return { data, report };
   } finally {
@@ -499,7 +499,7 @@ export async function injectionGate(input: GateInput, say: Say): Promise<{ data:
 
 /** The gate's line under the golden's, as `shadowlap test` prints it. */
 export function gateLine(d: InjectionGateData): string {
-  if (d.skipped) return p.yellow(`    ! injection: ${d.skipped}; mark the tools that bring outside text in with "tools": { "<name>": { "trust": "untrusted" } }`);
+  if (d.skipped) return p.yellow(`    ! injection: ${d.skipped}${d.skipped === 'no untrusted read to plant in' ? '; mark the tools that bring outside text in with "tools": { "<name>": { "trust": "untrusted" } }' : ''}`);
   const counts = `${plural(d.attempts, 'attempt')} · ${d.obeyed} obeyed · ${d.influenced} influenced · ${d.ignored} ignored${d.unread ? ` · ${d.unread} not read` : ''}`;
   return d.passed ? `    ${p.green('✓')} injection: ${counts}` : `    ${p.red('✗')} injection: ${counts}`;
 }
