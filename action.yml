@@ -39,6 +39,15 @@ inputs:
   store:
     description: The store that keeps the test history and the replays, relative to working-directory. Empty uses the project's, .shadowlap/shadowlap.db.
     default: ''
+  inconclusive:
+    description: What an inconclusive golden does to the step, as shadowlap test --inconclusive takes it (fail or warn). An inconclusive golden is one whose gate ran out of attempts between its bounds, or whose check could not be judged. fail counts it in the failed output and fails the step; warn lets it through with a warning annotation. Either way the inconclusive output counts it.
+    default: fail
+  max-attempts:
+    description: Raise every gate's limit for this run, as shadowlap test --max-attempts. Empty keeps each gate's own max.
+    default: ''
+  keep-history:
+    description: Keep the store, and with it the test history, between jobs in the GitHub Actions cache, so a gate against a golden's history has a baseline (auto, true or false). auto keeps it when shadowlap.config.json gives a golden a gate against history. Each run saves the store under a key of its own; a job restores its branch's newest, or the default branch's for a branch's first job.
+    default: auto
   push:
     description: Push every test run and the session's report to the team store set in shadowlap.config.json (shadowlap test --push), and each fix that fix-on-failure opens, so teammates see it on their Fixes page. The job needs credentials for the bucket (shadowlap store ci prints the steps that give them, and with R2 keeps its keys and the push to jobs that aren't a pull request's); a pull request's job writes only to its own folder. A push that can't happen, such as one without credentials or from a fork's pull request, is a warning that says why; it never fails the job or keeps a fix's pull request from opening.
     default: 'false'
@@ -57,8 +66,11 @@ outputs:
     description: Recordings that passed.
     value: ${{ steps.test.outputs.passed }}
   failed:
-    description: Recordings that failed (diverged, made a live call, exited with an error, or failed a check). The Alerts workflow posts when it isn't 0.
+    description: Recordings that fail the step - diverged, made a live call, exited with an error or failed a check - and inconclusive ones unless inconclusive is warn. The Alerts workflow posts when it isn't 0.
     value: ${{ steps.test.outputs.failed }}
+  inconclusive:
+    description: Recordings whose verdict is inconclusive (a gate that ran out of attempts between its bounds, or a check that could not be judged), whatever the inconclusive input made of them.
+    value: ${{ steps.test.outputs.inconclusive }}
   diverged:
     description: Recordings that failed because the agent sent a different request.
     value: ${{ steps.test.outputs.diverged }}
@@ -114,6 +126,24 @@ runs:
         fi
         echo "cli=$(pwd)/packages/cli/bin/shadowlap.js" >> "$GITHUB_OUTPUT"
 
+    - name: Find the test history to keep
+      id: history
+      shell: bash
+      env:
+        INPUT_KEEP_HISTORY: ${{ inputs.keep-history }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_STORE: ${{ inputs.store }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: node "${{ github.action_path }}/action/history.mjs"
+
+    - name: Restore the test history
+      if: steps.history.outputs.keep == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.history.outputs.path }}
+        key: ${{ steps.history.outputs.key }}
+        restore-keys: ${{ steps.history.outputs.restore-keys }}
+
     - name: Replay the recordings
       id: test
       shell: bash
@@ -133,4 +163,14 @@ runs:
         INPUT_FIX_ON_FAILURE: ${{ inputs.fix-on-failure }}
         INPUT_FIX_BUDGET: ${{ inputs.fix-budget }}
         INPUT_REPAIRER: ${{ inputs.repairer }}
+        INPUT_INCONCLUSIVE: ${{ inputs.inconclusive }}
+        INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
       run: node "${{ github.action_path }}/action/run.mjs"
+
+    # Saved whether the tests passed or not: a run that failed is history too, and the next one's baseline.
+    - name: Keep the test history
+      if: always() && steps.history.outputs.keep == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.history.outputs.path }}
+        key: ${{ steps.history.outputs.key }}

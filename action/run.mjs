@@ -36,6 +36,11 @@ if (repairer && !/^(anthropic|openai|claude-code)(:.+)?$/.test(repairer)) fail(`
 const store = input('STORE') ? resolve(workdir, input('STORE')) : null;
 // The team store: the test runs and the session's report (test --push), then any fix opened.
 const push = bool('PUSH', false);
+// What an inconclusive golden does to the step, and each gate's limit for this run.
+const inconclusive = input('INCONCLUSIVE', 'fail').toLowerCase() || 'fail';
+if (!['fail', 'warn'].includes(inconclusive)) fail(`input inconclusive must be fail or warn, not "${inconclusive}"`);
+const maxAttempts = input('MAX_ATTEMPTS');
+if (maxAttempts && !/^[1-9]\d{0,3}$/.test(maxAttempts)) fail(`input max-attempts must be a whole number of attempts, such as 160, not "${maxAttempts}"`);
 
 /**
  * The recordings a path or pattern names, as `shadowlap test` reads them. A path as given (or one
@@ -68,6 +73,8 @@ const markdown = join(out, 'shadowlap-report.md');
 const junit = input('JUNIT') ? resolve(workdir, input('JUNIT')) : join(out, 'shadowlap-junit.xml');
 const args = [cli, ...(store ? ['--db', store] : []), 'test', ...packs, '--json', json, '--markdown', markdown, '--junit', junit, '--writes', writes, '--guard', guard];
 if (bool('ONLINE', false)) args.push('--online');
+args.push('--inconclusive', inconclusive);
+if (maxAttempts) args.push('--max-attempts', maxAttempts);
 if (bool('ANNOTATIONS', true)) args.push('--annotations');
 if (push) args.push('--push');
 const cliEnv = { ...env, SHADOWLAP_TELEMETRY: env.SHADOWLAP_TELEMETRY ?? '0' };
@@ -92,6 +99,7 @@ const opened = fixes.filter((f) => f.outcome === 'opened');
 const outputs = {
   passed: report.passed,
   failed: report.failed,
+  inconclusive: report.inconclusive ?? 0,
   diverged: count('diverged'),
   'checks-failed': count('check'),
   session: report.session ?? '',

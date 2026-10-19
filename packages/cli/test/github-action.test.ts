@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../src/test-report.js';
 import { gateResult } from '@shadowlap/engine';
+import { hasHistoryGate, historyPlan, keyPart } from '../../../action/history.mjs';
 
 /**
  * The GitHub Action's script (action/run.mjs) run the way action.yml runs it, against the committed
@@ -111,6 +112,115 @@ describe('the GitHub Action', () => {
     expect(r.outputs).toMatchObject({ failed: '1', diverged: '1', fixes: '0' });
     expect(r.out).toContain('reference-agent: no fix pull request: diverged: never fixed automatically, because most divergences are intended');
     expect(r.summary).toContain('### Shadowlap: no fix pull request opened');
+  });
+});
+
+describe('the GitHub Action and inconclusive goldens', () => {
+  // A stand-in for the CLI that keeps the arguments it was given and reports one golden as
+  // inconclusive, failing or passing the run as --inconclusive says, as shadowlap test does.
+  const fake = (() => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-cli-'));
+    dirs.push(dir);
+    const cli = join(dir, 'fake-cli.mjs');
+    writeFileSync(
+      cli,
+      [
+        "import { appendFileSync, writeFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        'writeFileSync(process.env.FAKE_ARGS, JSON.stringify(args));',
+        "const at = (flag) => args[args.indexOf(flag) + 1];",
+        "const warn = at('--inconclusive') === 'warn';",
+        "const result = { name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'fork', ok: warn, verdict: 'inconclusive', failure: 'inconclusive', message: 'inconclusive: neither at least 90% nor at most 70% with 95% confidence after 80 attempts, the most the gate runs', details: null, output: null, checks: null };",
+        "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: '01K5CQ4N7G8M2XWQH6V3T9RB1D', revision: null, passed: warn ? 1 : 0, failed: warn ? 0 : 1, inconclusive: 1, interrupted: false, results: [result] }));",
+        "appendFileSync(at('--markdown'), '### Shadowlap: 1 of 1 recording is inconclusive\\n');",
+        'process.exit(warn ? 0 : 1);',
+      ].join('\n'),
+    );
+    return { cli, args: join(dir, 'args.json') };
+  })();
+  const run = (inputs: Record<string, string>) => action({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, ...inputs }, { SHADOWLAP_CLI: fake.cli, FAKE_ARGS: fake.args });
+  const given = () => JSON.parse(readFileSync(fake.args, 'utf8')) as string[];
+
+  it('fails the step on an inconclusive golden by default, and counts it in both outputs', () => {
+    const r = run({});
+    expect(r.code).toBe(1);
+    expect(given()).toEqual(expect.arrayContaining(['--inconclusive', 'fail']));
+    expect(given()).not.toContain('--max-attempts');
+    expect(r.outputs).toMatchObject({ passed: '0', failed: '1', inconclusive: '1', diverged: '0', 'checks-failed': '0' });
+  });
+
+  it('lets it through with inconclusive: warn, still counting it, and passes max-attempts on', () => {
+    const r = run({ INCONCLUSIVE: 'warn', MAX_ATTEMPTS: '160' });
+    expect(r.code).toBe(0);
+    const args = given();
+    expect(args.slice(args.indexOf('--inconclusive'), args.indexOf('--inconclusive') + 2)).toEqual(['--inconclusive', 'warn']);
+    expect(args.slice(args.indexOf('--max-attempts'), args.indexOf('--max-attempts') + 2)).toEqual(['--max-attempts', '160']);
+    expect(r.outputs).toMatchObject({ passed: '1', failed: '0', inconclusive: '1' });
+  });
+
+  it('says what is wrong with those inputs', () => {
+    expect(run({ INCONCLUSIVE: 'maybe' }).out).toContain('input inconclusive must be fail or warn, not "maybe"');
+    expect(run({ MAX_ATTEMPTS: 'lots' }).out).toContain('input max-attempts must be a whole number of attempts');
+    expect(run({ MAX_ATTEMPTS: '0' }).code).toBe(1);
+  });
+
+  it('declares the inputs and the output in action.yml, and keeps the test history in the cache around the test step', () => {
+    const yml = readFileSync(join(ROOT, 'action.yml'), 'utf8');
+    for (const input of ['inconclusive:', 'max-attempts:', 'keep-history:']) expect(yml).toContain(`\n  ${input}\n    description:`);
+    expect(yml).toContain('\n  inconclusive:\n    description: Recordings whose verdict is inconclusive');
+    expect(yml).toContain('INPUT_INCONCLUSIVE: ${{ inputs.inconclusive }}');
+    expect(yml).toContain('INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}');
+    // Restored before the tests, saved after them whether they passed or not.
+    const restore = yml.indexOf('uses: actions/cache/restore@v4');
+    const test = yml.indexOf('id: test');
+    const save = yml.indexOf('uses: actions/cache/save@v4');
+    expect(restore).toBeGreaterThan(0);
+    expect(test).toBeGreaterThan(restore);
+    expect(save).toBeGreaterThan(test);
+    expect(yml.slice(test, save)).toContain("if: always() && steps.history.outputs.keep == 'true'");
+  });
+});
+
+describe('the test history the GitHub Action keeps', () => {
+  const plan = (o: Partial<Parameters<typeof historyPlan>[0]> = {}) => historyPlan({ keep: 'auto', workdir: '/work', store: '', config: null, branch: 'main', defaultBranch: 'main', runId: '42', attempt: '1', ...o });
+  const historyGate = { tests: { 'goldens/refund-*': { fork: true, gate: { baseline: 'history' } } } };
+
+  it('keeps it, with auto, when a golden has a gate against history', () => {
+    expect(hasHistoryGate(historyGate)).toBe(true);
+    expect(hasHistoryGate({ tests: { 'goldens/a': { fork: true, gate: { good: 0.9 } } } })).toBe(false);
+    expect(hasHistoryGate(null)).toBe(false);
+    expect(plan({ config: historyGate }).keep).toBe(true);
+    expect(plan().keep).toBe(false);
+    expect(plan({ keep: 'true' }).keep).toBe(true);
+    expect(plan({ keep: 'false', config: historyGate }).keep).toBe(false);
+    expect(() => plan({ keep: 'sometimes' })).toThrow('input keep-history must be auto, true or false, not "sometimes"');
+  });
+
+  it('saves the store under a key per run, and restores the branch\'s newest, then the default branch\'s', () => {
+    expect(plan({ branch: 'fix/refunds', defaultBranch: 'main' })).toEqual({
+      keep: false,
+      path: [join('/work', '.shadowlap', 'shadowlap.db'), `${join('/work', '.shadowlap', 'shadowlap.db')}-wal`, `${join('/work', '.shadowlap', 'shadowlap.db')}-shm`],
+      key: 'shadowlap-history-fix-refunds-42-1',
+      restoreKeys: ['shadowlap-history-fix-refunds-', 'shadowlap-history-main-'],
+    });
+    expect(plan({ store: 'ci/history.db' }).path[0]).toBe(resolve('/work', 'ci/history.db'));
+    expect(plan().restoreKeys).toEqual(['shadowlap-history-main-']);
+    expect(keyPart('feature/a b')).toBe('feature-a-b');
+  });
+
+  it('writes its outputs as GitHub reads them, the paths over several lines', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-history-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify(historyGate));
+    const output = join(dir, 'output');
+    writeFileSync(output, '');
+    const r = spawnSync(process.execPath, [join(ROOT, 'action', 'history.mjs')], { env: { ...process.env, INPUT_WORKING_DIRECTORY: dir, INPUT_KEEP_HISTORY: 'auto', INPUT_STORE: '', GITHUB_OUTPUT: output, GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '7', GITHUB_RUN_ATTEMPT: '2', DEFAULT_BRANCH: 'main' }, encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(0);
+    const text = readFileSync(output, 'utf8');
+    expect(text).toContain('keep=true\n');
+    expect(text).toContain(`path<<SHADOWLAP_EOF\n${join(dir, '.shadowlap', 'shadowlap.db')}\n`);
+    expect(text).toContain('key=shadowlap-history-main-7-2\n');
+    expect(text).toContain('restore-keys<<SHADOWLAP_EOF\nshadowlap-history-main-\nSHADOWLAP_EOF\n');
   });
 });
 
