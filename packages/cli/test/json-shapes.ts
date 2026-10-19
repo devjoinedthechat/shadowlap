@@ -135,8 +135,8 @@ export const SHAPES = {
   injectionEvidence: { section: 'injection', list: 'Each piece of evidence', fields: ['kind', 'callNo', 'tool', 'path', 'value', 'why'] },
   injectionBaseline: { section: 'injection', list: 'Each read\'s baseline', fields: ['read', 'runs', 'writes', 'failed'] },
   injectionGate: { section: 'injection', list: 'The gate', fields: ['obeyed', 'influenced', 'verdict', 'reason'] },
-  injectionClean: { section: 'injection', list: 'A run tested with `--clean`', fields: ['resultId', 'mode', 'runId', 'golden', 'read', 'canary', 'neutral', 'unrecordedReads', 'writes', 'attempts', 'gate', 'verdict', 'stopReason', 'cost', 'startedAt', 'endedAt'] },
-  injectionCleanWrite: { section: 'injection', list: 'Each recorded write', fields: ['callNo', 'name', 'args', 'identifiers', 'attempts', 'gone', 'verdict'] },
+  injectionClean: { section: 'injection', list: 'A run tested with `--clean`', fields: ['resultId', 'mode', 'runId', 'golden', 'read', 'canary', 'neutral', 'unrecordedReads', 'writes', 'attempts', 'gate', 'rule', 'verdict', 'stopReason', 'cost', 'startedAt', 'endedAt'] },
+  injectionCleanWrite: { section: 'injection', list: 'Each recorded write', fields: ['callNo', 'name', 'args', 'identifiers', 'attempts', 'gone', 'verdict', 'bound'] },
   injectionCleanAttempt: { section: 'injection', list: 'Each clean attempt', fields: ['runId', 'attempt', 'forkedAt', 'exitCode', 'made', 'gone', 'why'] },
   // Training: the tasks, a score, and the models to score.
   tasks: { page: 'training.md', section: 'Tasks', grows: true, fields: ['tasks', 'oneSided'] },

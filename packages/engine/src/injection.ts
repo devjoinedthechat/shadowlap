@@ -906,6 +906,8 @@ export interface CleanWriteReport {
   /** Clean attempts it was not made again in. */
   gone: number;
   verdict: CauseVerdict;
+  /** The Wilson bound on the share of clean attempts it was gone in, as its line shows it beside the tally (cleanBound): `rate >= 0.44 (95%)`; null before an attempt decided anything. */
+  bound: string | null;
 }
 
 export interface CleanAttemptReport {
@@ -935,6 +937,8 @@ export interface CleanReport {
   writes: CleanWriteReport[];
   attempts: CleanAttemptReport[];
   gate: Gate;
+  /** The gate's rule, as the report states it once under the writes (cleanRule); null for a gate that is not a sequential test. */
+  rule: string | null;
   /** `caused` when the read's content caused a write; `not caused` when every write comes back without it; else `inconclusive`. */
   verdict: CauseVerdict;
   stopReason: string | null;

@@ -498,9 +498,10 @@ export async function cleanInjection(runner: AttemptRunner, target: AttemptTarge
     canary,
     neutral,
     unrecordedReads: s.liveReads ? 'live' : 'fence',
-    writes: targets.map(({ call: w, seen }) => ({ callNo: w.callNo, name: w.name, args: argsOf(store, w), identifiers: describeIdentifiers(seen.args), attempts: 0, gone: 0, verdict: 'inconclusive' })),
+    writes: targets.map(({ call: w, seen }) => ({ callNo: w.callNo, name: w.name, args: argsOf(store, w), identifiers: describeIdentifiers(seen.args), attempts: 0, gone: 0, verdict: 'inconclusive', bound: null })),
     attempts: [],
     gate: s.gate,
+    rule: cleanRule(s.gate),
     verdict: 'inconclusive',
     stopReason: null,
     cost: { spent: 0, upstreamRequests: 0, unknownModels: [] },
@@ -536,9 +537,12 @@ export async function cleanInjection(runner: AttemptRunner, target: AttemptTarge
         w.attempts++;
         if (gone.includes(w.callNo)) w.gone++;
         const d = decide(w.gone, w.attempts, s.gate);
-        if (d === 'continue') continue;
-        w.verdict = d === 'pass' ? 'caused' : d === 'fail' ? 'not caused' : 'inconclusive';
-        decided.set(w.callNo, w.verdict);
+        if (d !== 'continue') {
+          w.verdict = d === 'pass' ? 'caused' : d === 'fail' ? 'not caused' : 'inconclusive';
+          decided.set(w.callNo, w.verdict);
+        }
+        // The bound its verdict rests on, beside the tally; both ends while it is undecided.
+        w.bound = cleanBound(w, s.gate);
       }
       say(`  ${p.dim(`clean attempt ${i + 1}`)}  ${forkedAt === null ? p.dim('replayed clean: the neutral result changed no request') : `forked at #${forkedAt}`} · ${gone.length ? `${gone.map((x) => `#${x}`).join(', ')} gone` : 'every write made again'}${p.dim(` · ${shortId(a.run.runId)}`)}`);
     }
@@ -623,8 +627,7 @@ export function formatClean(r: CleanReport): string {
   const out: string[] = [];
   const unusable = r.attempts.filter((a) => a.why);
   for (const w of r.writes) {
-    const bound = cleanBound(w, r.gate);
-    const tally = `gone in ${w.gone} of ${plural(w.attempts, 'clean attempt')}${bound ? ` · ${bound}` : ''}`;
+    const tally = `gone in ${w.gone} of ${plural(w.attempts, 'clean attempt')}${w.bound ? ` · ${w.bound}` : ''}`;
     const line =
       w.verdict === 'caused'
         ? `caused by #${r.read.callNo} ${r.read.name} · ${tally}`
@@ -635,8 +638,7 @@ export function formatClean(r: CleanReport): string {
             : 'inconclusive: no clean attempt decided it';
     out.push(`${w.verdict === 'caused' ? p.red('✗') : w.verdict === 'not caused' ? p.green('✓') : p.yellow('?')} #${w.callNo} ${safe(w.name)}(${safe(w.identifiers)})  ${safe(line)}`);
   }
-  const rule = cleanRule(r.gate);
-  if (rule && r.writes.some((w) => w.attempts)) out.push(p.dim(`  ${rule}`));
+  if (r.rule && r.writes.some((w) => w.attempts)) out.push(p.dim(`  ${r.rule}`));
   // The streak that stopped the test says it already.
   if (unusable.length && !r.stopReason?.includes('decided nothing')) out.push(p.yellow(`  ${plural(unusable.length, 'clean attempt')} decided nothing: ${safe(unusable[0]!.why!)}`));
   if (r.read.trust !== 'untrusted') out.push(p.dim(`  #${r.read.callNo} ${r.read.name} is not marked untrusted; mark it so shadowlap injection plants there: "tools": { "${r.read.name}": { "trust": "untrusted" } }`));
