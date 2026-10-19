@@ -4,6 +4,8 @@ If your tools are defined through a framework, declare the effect once with an a
 
 The TypeScript adapters live in `@shadowlap/adapters` and the Python ones in `shadowlap.adapters` (part of the `shadowlap` package); until they are published, [install them from a clone](./sdk.md#install). Both type the shapes they touch structurally and carry no framework dependencies.
 
+A tool that brings outside text in (a page, an email, a ticket) can be marked untrusted where its effect is declared, so [`shadowlap injection`](./injection.md) plants payloads in what it returns: `{ effect: 'read', trust: 'untrusted' }` in TypeScript, `trust="untrusted"` to `with_effect` and `function_tool` in Python. Or mark it in the config without touching the code: `"tools": { "search_web": { "trust": "untrusted" } }` (see [untrusted reads](./sdk.md#untrusted-reads)).
+
 ## Vercel AI SDK
 
 Tools are a record keyed by name; `withEffects` wraps each tool's `execute`.

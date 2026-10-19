@@ -65,6 +65,23 @@ class Trust(unittest.TestCase):
             tool(effect="read", trust="maybe")
         self.assertIn('trust must be "trusted" or "untrusted"', str(caught.exception))
 
+    def test_the_adapters_pass_it_on(self):
+        from shadowlap.adapters.crewai import with_effect as crew_effect
+
+        sidecar = Sidecar()
+        shadowlap._post = sidecar
+
+        class CrewTool:
+            name = "read_inbox"
+
+            def __init__(self):
+                self.func = lambda folder: {"mail": [folder]}
+
+        wrapped = crew_effect(CrewTool(), "read", trust="untrusted")
+        wrapped.func(folder="inbox")
+        resolves = [body for path, body in sidecar.sent if path.endswith("/resolve")]
+        self.assertEqual([(b["name"], b.get("trust")) for b in resolves], [("read_inbox", "untrusted")])
+
     def test_outside_shadowlap_the_tool_runs_as_it_is(self):
         os.environ.pop("SHADOWLAP_URL", None)
 
