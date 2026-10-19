@@ -325,9 +325,14 @@ export interface DecisionStep {
   error: string | null;
 }
 
-export type DecisionCounts = Record<'1' | '2' | '3' | '4' | '5' | 'same' | 'notAsked', number>;
+/**
+ * Steps by what came of them: by rank; `same` (asked, and decided as recorded); `untouched` (the change
+ * leaves the request as it was, as a prompt the working tree sends unchanged, so it isn't asked);
+ * `notAsked` (skipped, or no answer came).
+ */
+export type DecisionCounts = Record<'1' | '2' | '3' | '4' | '5' | 'same' | 'untouched' | 'notAsked', number>;
 
-export const emptyCounts = (): DecisionCounts => ({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, notAsked: 0 });
+export const emptyCounts = (): DecisionCounts => ({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0 });
 
 /** One run's model calls asked again. */
 export interface DecisionRun {
@@ -343,6 +348,8 @@ export interface DecisionRun {
   cost: { before: number | null; after: number | null };
   tokens: { before: TokenCount; after: TokenCount };
   thinkingStripped: number;
+  /** Why none of its model calls could be asked (`--from-code` on a change that is more than a prompt), or null. */
+  refused: string | null;
   /** Every model call: the changed ones first, most consequential first, then the same, then those not asked. */
   decisions: DecisionStep[];
   warnings: string[];
@@ -382,6 +389,22 @@ export interface DecisionsVerify {
   reasons: string[];
 }
 
+/**
+ * A field `migrate` changed so the new model takes the recorded requests: set to a value it accepts,
+ * or left out (`leftOut`), with why and where that comes from (a provider page, or its own answer).
+ */
+export interface DecisionRemedy {
+  field: string;
+  /** The value it is set to; null when it is left out. */
+  value: unknown;
+  leftOut: boolean;
+  why: string;
+  /** The provider page that says so, or null when the provider's own refusal did. */
+  source: string | null;
+  /** Steps the change was needed for. */
+  steps: number;
+}
+
 export interface DecisionsReport {
   /** The session's id in the store, `dc-…`; null when it could not be kept. */
   decisionsId: string | null;
@@ -403,6 +426,8 @@ export interface DecisionsReport {
   notes: string[];
   warnings: string[];
   verify: DecisionsVerify | null;
+  /** What `migrate` changed so the new model takes the requests; empty for `decisions`, which sends the change as given. */
+  remedies: DecisionRemedy[];
   /** Why it stopped before every step was asked (the budget, Ctrl-C), or null. */
   stopReason: string | null;
 }
@@ -423,6 +448,21 @@ export function callLine(name: string, args: unknown, width = 72): string {
   return safeLine(`${name}(${shown === '{}' ? '' : shown})`);
 }
 
+/**
+ * What differs between two tool calls' arguments, field by field: `body: "Replay works." → "Replay
+ * works; forks fence writes."`, each side cut short. Empty when they are not both objects.
+ */
+export function argsDelta(before: unknown, after: unknown, width = 60): string[] {
+  const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!isObject(before) || !isObject(after)) return [];
+  const clip = (v: unknown) => {
+    const t = v === undefined ? '—' : JSON.stringify(v);
+    return t.length > width ? `${t.slice(0, width - 1)}…` : t;
+  };
+  const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
+  return keys.filter((k) => canonicalize(before[k] ?? null) !== canonicalize(after[k] ?? null) || (k in before) !== (k in after)).map((k) => safeLine(`${k}: ${clip(before[k])} → ${clip(after[k])}`));
+}
+
 /** A decision in one line: its tool calls, or how it ended. */
 export function decisionLine(d: DecisionView | null, width = 72): string {
   if (!d) return 'no answer';
@@ -431,7 +471,11 @@ export function decisionLine(d: DecisionView | null, width = 72): string {
   return `${STOP_WORDS[d.stop]}${said}`;
 }
 
-const pct = (a: number, b: number) => (a === 0 ? (b === 0 ? '0%' : 'new') : `${b >= a ? '+' : '−'}${Math.round((Math.abs(b - a) / a) * 100)}%`);
+const pct = (a: number, b: number) => {
+  if (a === 0) return b === 0 ? 'the same' : 'new';
+  const n = Math.round((Math.abs(b - a) / a) * 100);
+  return n === 0 ? 'about the same' : `${b >= a ? '+' : '−'}${n}%`;
+};
 const tokenTotal = (t: TokenCount | null) => (t ? t.input + t.cacheRead + t.cacheWrite : 0);
 const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
 
@@ -457,11 +501,15 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
   const head = r.flagged.length ? `${p.red('✗')} ${p.bold(`${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`)} decide a write or when to stop differently` : changed ? `${p.yellow('!')} ${p.bold('No write and no stop changes')}: ${changed} decision${changed === 1 ? '' : 's'} differ in reads or text` : `${p.green('✓')} ${p.bold('The same decisions')} at every step asked`;
   lines.push(`${head}, under ${safeLine(r.change.text)}`);
   const ranks = ([1, 2, 3, 4, 5] as const).filter((k) => r.counts[k]).map((k) => `${r.counts[k]} rank ${k}`);
-  lines.push(p.dim(`  ${asked} step${asked === 1 ? '' : 's'} asked${r.samples > 1 ? `, ${r.samples} samples each` : ''}: ${ranks.length ? `${ranks.join(', ')}, ` : ''}${r.counts.same} the same${r.counts.notAsked ? `, ${r.counts.notAsked} not asked` : ''} · no tool ran`));
+  lines.push(p.dim(`  ${asked} step${asked === 1 ? '' : 's'} asked${r.samples > 1 ? `, ${r.samples} samples each` : ''}: ${ranks.length ? `${ranks.join(', ')}, ` : ''}${r.counts.same} the same${r.counts.untouched ? `, ${r.counts.untouched} the change leaves as recorded` : ''}${r.counts.notAsked ? `, ${r.counts.notAsked} not asked` : ''} · no tool ran`));
   for (const run of r.runs) {
     lines.push('');
     const name = run.golden ? `${safeLine(run.golden)} ${p.dim(run.runId.slice(0, 10))}` : run.runId.slice(0, 10);
     const summary = run.rank === null ? (run.asked ? 'the same decisions' : 'nothing asked') : `${run.decisions.filter((s) => s.rank !== null).length} changed, most: rank ${run.rank} (${RANK_LABELS[run.rank]})`;
+    if (run.refused) {
+      lines.push(`${p.bold(name)}  ${p.yellow('not asked')}: ${safeLine(run.refused)}`);
+      continue;
+    }
     lines.push(`${p.bold(name)}  ${p.dim(`${run.asked} of ${run.steps} model call${run.steps === 1 ? '' : 's'} asked`)} · ${run.rank !== null && run.rank <= 2 ? p.red(summary) : run.rank !== null ? p.yellow(summary) : summary}`);
     for (const s of run.decisions) {
       if (s.rank === null && !s.error) continue;
@@ -474,6 +522,7 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
       lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${colour(`rank ${s.rank}`)}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.rank])}${often}`);
       lines.push(`         ${p.dim('recorded')} ${decisionLine(s.recorded)}`);
       lines.push(`         ${p.dim('now     ')} ${decisionLine(s.now)}${stepDelta(s) ? p.dim(`  ${stepDelta(s)}`) : ''}`);
+      for (const c of s.changes.filter((x) => x.kind === 'write-arguments' || x.kind === 'read-arguments')) for (const d of argsDelta(c.before, c.after)) lines.push(`         ${p.dim(`${c.tool}.`)}${d}`);
     }
     if (run.cost.before !== null || run.cost.after !== null) {
       const tokens = `${thousands(tokenTotal(run.tokens.before))} → ${thousands(tokenTotal(run.tokens.after))} input tokens`;

@@ -417,7 +417,7 @@ export interface DecisionRunRow {
   data: Record<string, unknown>;
 }
 
-export interface NewDecisionSession extends Omit<DecisionSessionRow, 'runs'> {
+export interface NewDecisionSession extends Omit<DecisionSessionRow, 'runs' | 'flagged'> {
   /** The report without its runs. */
   data: Record<string, unknown>;
   runs: Array<Pick<DecisionRunRow, 'runId' | 'golden' | 'rank' | 'changed' | 'data'>>;

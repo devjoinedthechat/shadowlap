@@ -175,8 +175,8 @@ describe('formatDecisions', () => {
       change: { model: null, fields: {}, fromCode: null, text: 'the prompt and tools in the working tree' },
       command: 'shadowlap decisions 01K1 --from-code',
       samples: 1,
-      runs: [{ runId: '01K1AAAAAAAAAAAAAAAAAAAAAA', golden: null, steps: 2, asked: 2, rank: 1, counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 1, notAsked: 0 }, cost: { before: 0.002, after: 0.0018 }, tokens: { before: { input: 200, output: 20, cacheRead: 0, cacheWrite: 0 }, after: { input: 180, output: 20, cacheRead: 0, cacheWrite: 0 } }, thinkingStripped: 0, decisions: [step(10, 1, 'send_email is no longer called'), step(3, null, '')], warnings: [] }],
-      counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 1, notAsked: 0 },
+      runs: [{ runId: '01K1AAAAAAAAAAAAAAAAAAAAAA', golden: null, steps: 2, asked: 2, rank: 1, counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 1, untouched: 0, notAsked: 0 }, cost: { before: 0.002, after: 0.0018 }, tokens: { before: { input: 200, output: 20, cacheRead: 0, cacheWrite: 0 }, after: { input: 180, output: 20, cacheRead: 0, cacheWrite: 0 } }, thinkingStripped: 0, refused: null, decisions: [step(10, 1, 'send_email is no longer called'), step(3, null, '')], warnings: [] }],
+      counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 1, untouched: 0, notAsked: 0 },
       flagged: ['01K1AAAAAAAAAAAAAAAAAAAAAA'],
       cost: { before: 0.002, after: 0.0018, spent: 0.0018, upstreamRequests: 2, unknownModels: [] },
       tokens: { before: { input: 200, output: 20, cacheRead: 0, cacheWrite: 0 }, after: { input: 180, output: 20, cacheRead: 0, cacheWrite: 0 } },
@@ -184,6 +184,7 @@ describe('formatDecisions', () => {
       notes: ["Later steps are judged in the recorded run's state."],
       warnings: [],
       verify: null,
+      remedies: [],
       stopReason: null,
     };
     const text = formatDecisions(report);

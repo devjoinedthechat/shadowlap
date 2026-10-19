@@ -12,10 +12,12 @@ import { runAgent } from './agent.js';
  *   REFERENCE_AGENT_OUTBOX=path    file the write tool appends to
  *   AGENT_FAIL_AFTER_CALL=5        crash after the 5th model call
  *   AGENT_PAUSE_MS=300             wait before every model call
+ *   AGENT_MODEL=claude-sonnet-4-6  the model to ask (default claude-opus-5)
  */
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? 'shadowlap-placeholder-key' });
 const result = await runAgent({
   client,
+  ...(process.env.AGENT_MODEL ? { model: process.env.AGENT_MODEL } : {}),
   ...(process.env.AGENT_DATE ? { date: process.env.AGENT_DATE } : {}),
   ...(process.env.AGENT_SYSTEM_SUFFIX ? { systemSuffix: process.env.AGENT_SYSTEM_SUFFIX } : {}),
   ...(process.env.AGENT_LATE_CHANGE ? { lateChange: true } : {}),
