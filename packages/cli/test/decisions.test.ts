@@ -157,6 +157,21 @@ describe('shadowlap decisions', () => {
     expect(mock.requests.length).toBe(before);
   }, 120_000);
 
+  it('asks the steps after a change that is more than a prompt with the prompt the code sends, and says so', async () => {
+    const runId = await record();
+    // The code adds a user message before the sixth model call, besides the prompt change.
+    const r = await shadowlap(['decisions', runId, '--from-code', '--json'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.', AGENT_LATE_CHANGE: '1' });
+    expect(r.code, r.out).toBe(0);
+    const report = json<DecisionsReport>(r);
+    const run = report.runs[0]!;
+    expect(run.refused).toBeNull();
+    expect(run.warnings.join('\n')).toMatch(/From model call #\d+ on, the working tree sends more than a new prompt \(\$\.messages\[\d+\] added\)/);
+    expect(run.warnings.join('\n')).toMatch(/The offline replay reached 6 of the run's 11 model calls/);
+    // Every step is still asked with the new prompt, and the email step still changes.
+    expect(run.asked).toBe(11);
+    expect(report.flagged).toEqual([runId]);
+  }, 120_000);
+
   it('ranks what another model decides differently, with how often across samples, in rank order', async () => {
     const runId = await record();
     const r = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5', '--samples', '2', '--json']);

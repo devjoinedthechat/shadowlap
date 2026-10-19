@@ -86,7 +86,7 @@ AGENT_SYSTEM_SUFFIX="Do not email the summary." shadowlap decisions 01M58VT1J5 -
          now      answers and stops: "Summary: recorded runs replay deterministically, and forks fence writes…"
 ```
 
-It refuses a run, saying why, when its first model request differs in more than its prompt and tools: a changed model or setting, another message. That is another change, and `verify` tests it. When a later request differs in more (the code changed what step 6 sends), the steps from there are asked with the prompt it sends them, and the run's warnings say so. A request whose prompt the working tree doesn't change is left out: asking it again would only measure noise.
+It refuses a run, saying why, when its first model request differs in more than its prompt and tools: a changed model or setting, another message. That is another change, and `verify` tests it. When a later request differs in more (the code changed what step 6 sends), the offline replay stops there: that step and the ones after it are asked with the last prompt it captured in their scope, and the run's warnings say so. A request whose prompt the working tree doesn't change is left out: asking it again would only measure noise.
 
 ## Costs, caching and thinking
 
@@ -142,7 +142,7 @@ The config change
 It runs `decisions --model` on your goldens (`goldens/*`, or the packs and runs you name), then `verify` on the runs with a rank 1 or 2 change, and compares what a run costs. The report has four blocks, in order:
 
 - **What changes:** each write and stop change, with the recorded and the new action; the rest counted.
-- **What still passes:** each run verified, *kept*, *fixed* or *broken*; a run whose writes and stops didn't change is *unchanged* and not re-run.
+- **What still passes:** each run verified, *kept*, *fixed* or *broken* (or *not fixed*, or *unsettled* when its attempts didn't settle it); a run whose writes and stops didn't change is *unchanged* and not re-run.
 - **What it costs:** per run, before and after, from the recorded calls and the new answers, and what checking cost.
 - **What to set:** the fields the switch needs, each with why.
 
@@ -177,7 +177,7 @@ A call is judged by the platform that served it: a Claude model called through B
 shadowlap decisions goldens/* --from-code --strict
 ```
 
-On a pull request, this previews the prompt and tools the branch sends against the goldens, sends only the requests the change touches, and exits 1 when a golden's writes or stops change. `--json` prints the report the dashboard reads, with the same fields for a coding agent ([the reference](./cli.md#decisions)).
+On a pull request, this previews the prompt and tools the branch sends against the goldens, sends only the requests the change touches, and exits 1 when a golden's writes or stops change. It asks the model, so the job needs the provider's key as a secret, as a live `verify` does; `--budget` caps what it spends. `--json` prints the report the dashboard reads, with the same fields for a coding agent ([the reference](./cli.md#decisions)).
 
 ## Limits
 
