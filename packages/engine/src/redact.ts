@@ -4,6 +4,7 @@ import { reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from
 import { loadApiRequest, storeApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern, countMatches, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
 import { inEvent, maskJsonChunks, maskSseStream, maskStreamed } from './redact-stream.js';
+import { isJudgeCall, reachesJudgeRequest } from './judge-scope.js';
 import { redactRunFacts } from './run-facts.js';
 import type { Store } from './store.js';
 import { quoteArgv } from './text.js';
@@ -33,7 +34,8 @@ type RunCheck = NonNullable<RunMeta['checks']>[number];
  *
  * What the run record itself repeats of that content is masked too: the flags that made a fork
  * (an `--override` carries a whole tool result), the divergence report's diff and reason, the
- * checks' details, and each call's error, injected failure and response headers. The run's command
+ * checks' labels, details and judges' reasons, and each call's error, injected failure and response
+ * headers. A judge's own request takes only the rules without a path (requestRules). The run's command
  * line, labels and notes are copied as they are: a replay of the copy runs that command. A copy that
  * is only ever read (`export html`) masks them too: redactRunWithDetails.
  */
@@ -64,7 +66,29 @@ function readingOnce(store: Store): Store {
 
 /** What `pack` writes for a call's request: the rules applied to a copy of it. `export dataset` reads requests through this too. */
 export function redactedRequest(src: Store, call: CallRecord, rules: Normalizer[], observer?: RewriteObserver): unknown {
-  return applyNormalizers(storedRequest(src, call), rules, call.kind, call.name, observer);
+  const r = requestRules(call, rules, observer);
+  return applyNormalizers(storedRequest(src, call), r.rules, call.kind, call.name, r.observer);
+}
+
+/**
+ * The rules that apply to a call's request, and the observer that hears them by their places in
+ * `rules`. A judge's request (scope `shadowlap:judge`) is Shadowlap's own: what it reads had the
+ * project's rules applied when it was made, path rules included, and a rule with a path names a
+ * place in the agent's requests, never in the judge's (reachesJudgeRequest). Only the rules without
+ * a path reach it, so a value it read before a rule was added is still masked.
+ */
+function requestRules(call: Pick<CallRecord, 'meta'>, rules: Normalizer[], observer?: RewriteObserver): { rules: Normalizer[]; observer: RewriteObserver | undefined } {
+  if (!isJudgeCall(call) || rules.every(reachesJudgeRequest)) return { rules, observer };
+  const kept = rules.flatMap((r, i) => (reachesJudgeRequest(r) ? [i] : []));
+  const at = (i: number) => kept[i]!;
+  return {
+    rules: kept.map((i) => rules[i]!),
+    observer: observer && {
+      ...(observer.reached ? { reached: (i: number, value: unknown) => observer.reached!(at(i), value) } : {}),
+      ...(observer.changed ? { changed: (i: number, before: unknown, after: unknown, count: number) => observer.changed!(at(i), before, after, count) } : {}),
+      ...(observer.unmasked ? { unmasked: (i: number, text: string, where: UnmaskedAt, count: number) => observer.unmasked!(at(i), text, where, count) } : {}),
+    },
+  };
 }
 
 /**
@@ -369,7 +393,7 @@ function redactDivergence(d: DivergenceReport, rules: Normalizer[], observer?: R
  * can carry a whole `--override` result, and a copy is never made again from its record anyway, so
  * the `--expect` it was judged by goes too. Each flag is rebuilt from the fields a flag has, so a
  * record from someone else's pack carries nothing else along. Checks keep their verdicts, with their
- * details masked, and so does the last blame: the labels of the checks it judged its attempts by
+ * labels, details and a judge's reason masked, and so does the last blame: the labels of the checks it judged its attempts by
  * (the same labels as the checks', `output includes "…"`) and the request fields its probes changed,
  * their strings wherever they are. Another record that isn't a list is left for the read side,
  * which skips it. The hosts the guard named are masked as well (redactRunFacts). `observer` hears
@@ -380,7 +404,9 @@ function redactMeta(meta: RunMeta | undefined, rules: Normalizer[], observer?: R
   const out: RunMeta = { ...rest, redactions: [...(meta?.redactions ?? []), ...rules] };
   const text = (v: unknown): string => (typeof v === 'string' ? rewriteText(v, rules, observer) : '');
   if (Array.isArray(meta?.interventions)) out.interventions = meta.interventions.filter(isObject).map((i) => ({ kind: i.kind, at: i.at, flag: text(i.flag) }));
-  if (Array.isArray(meta?.checks)) out.checks = meta.checks.filter(isObject).map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail) }));
+  // A judge's reason is a model's words about what it read, and its check's name is the label's:
+  // masked as the detail and the label are.
+  if (Array.isArray(meta?.checks)) out.checks = meta.checks.filter(isObject).map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail), ...(typeof c.reason === 'string' ? { reason: text(c.reason) } : {}), ...(isObject(c.judge) && typeof c.judge.name === 'string' ? { judge: { ...c.judge, name: text(c.judge.name) } } : {}) }));
   if (isObject(meta?.blame)) {
     const b = meta.blame;
     out.blame = { ...b, ...('oracle' in b ? { oracle: rewriteDeep(b.oracle, rules, observer) as string[] } : {}), ...('fields' in b ? { fields: rewriteDeep(b.fields, rules, observer) as Record<string, unknown> } : {}) };
@@ -525,7 +551,7 @@ export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord
     const m: RunMeta = { ...meta };
     if (meta.labels !== undefined) m.labels = deep(meta.labels) as string[];
     if (Array.isArray(meta.notes)) m.notes = meta.notes.map((n) => (isRecord(n) ? { ...n, text: deep(n.text) as string } : (deep(n) as RunNote)));
-    if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isRecord(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null } : (deep(c) as RunCheck)));
+    if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isRecord(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null, ...('reason' in c ? { reason: deep(c.reason) as string } : {}), ...(isRecord(c.judge) ? { judge: { ...c.judge, name: deep(c.judge.name) as string } } : {}) } : (deep(c) as RunCheck)));
     if (isRecord(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from) };
     if (isRecord(meta.test) && typeof meta.test.golden === 'string') m.test = { ...meta.test, golden: text(meta.test.golden) };
     if (typeof meta.author === 'string') m.author = text(meta.author);
@@ -986,7 +1012,9 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       redactedCallName(call, rules, observer);
       if (call.requestRef) {
         const request = call.kind === 'api' && skipSeen ? unseenParts(reader, call, seen) : storedRequest(reader, call);
-        applyNormalizers(request, rules, call.kind, call.name, observer);
+        // A judge's request takes the rules a copy applies to it (requestRules), and no other.
+        const r = requestRules(call, rules, observer);
+        applyNormalizers(request, r.rules, call.kind, call.name, r.observer);
       }
       for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
         const response = end.responseRef ? counting.getBlob(end.responseRef) : null;
@@ -1008,8 +1036,9 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
     }
   }
   // What the run's own record repeats of its content, as a copy masks it (redactRun): a fork's
-  // flags, the checks' labels and details, the last blame's oracle and fields, the hosts the guard
-  // named, the divergence report. Masked in a pack as in every copy, so counted with the rest.
+  // flags, the checks' labels and details and judges' reasons, the last blame's oracle and fields,
+  // the hosts the guard named, the divergence report. Masked in a pack as in every copy, so counted
+  // with the rest.
   const record: RewriteObserver = { changed: observer.changed! };
   redactMeta(run.meta, rules, record);
   if (run.divergence) redactDivergence(run.divergence, rules, record);
