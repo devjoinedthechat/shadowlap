@@ -334,7 +334,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       session(NOW - 9 * DAY, true);
       session(NOW - HOUR, false);
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, goldens });
-      expect(s.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, lastWeek: 2, regressions: 1, lastRunAt: NOW - HOUR + 10 });
+      expect(s.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, inconclusive: 0, lastWeek: 2, regressions: 1, lastRunAt: NOW - HOUR + 10 });
       expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', action: 'Fix', runId: failed, href: `#/run/${failed}` });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toBeNull();
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).needsLook.items.some((i) => i.kind === 'test')).toBe(false);

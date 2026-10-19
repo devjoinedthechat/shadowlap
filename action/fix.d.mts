@@ -8,7 +8,7 @@ export interface ReportResult {
   /** `fork` goldens pass on their checks from wherever they diverge; `replay` ones must replay exactly. */
   mode?: 'replay' | 'fork';
   ok: boolean;
-  failure?: 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | null;
+  failure?: 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'inconclusive' | null;
   runId?: string | null;
   runs?: Array<{ runId: string; ok: boolean }>;
   expect?: Record<string, unknown> | null;

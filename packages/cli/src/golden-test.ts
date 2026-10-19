@@ -1,6 +1,7 @@
 import { basename, resolve } from 'node:path';
-import { formatDivergence, hasRecordedCommand, heldFrom, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { decide, formatDivergence, formatTally, gateHistory, gateResult, hasRecordedCommand, heldFrom, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
+import { oracleLabels } from './attempts.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
 import { type JunitCase } from './junit.js';
@@ -36,6 +37,10 @@ export interface RecordingTestContext {
    * process once the replay it cut short has ended.
    */
   stopped?: () => boolean;
+  /** A golden whose gate compares with its history: the attempts of its last sessions, pooled (testGolden reads them). */
+  history?: GateHistory | null;
+  /** Raises the gate's limit for this session only: an SPRT gate's max, or the attempts a history gate decides after. */
+  maxAttempts?: number | null;
 }
 
 /** A signal stopped the replays of a recording before the first one could start. */
@@ -49,15 +54,43 @@ export class ReplayInterrupted extends Error {
 export interface RecordingOutcome {
   spec: TestSpec | null;
   attempts: TestAttempt[];
-  /** The attempt the result shows: the last that passed when enough did, else the first that failed. */
+  /** The attempt the result shows: the last that passed when it passed, else the first that failed (or couldn't be judged). */
   shown: TestAttempt;
   passed: number;
-  required: number;
-  /** Why it failed, or undefined when it passed. */
+  /** Attempts that had to pass, out of `repeat`; null when a gate decided. */
+  required: number | null;
+  /** Why it failed or is inconclusive, or undefined when it passed. */
   failure: JunitCase['failure'];
   kind: TestFailure | null;
+  /** How it came out. Inconclusive: its gate ran out of attempts between its bounds, or a check couldn't be judged. */
+  verdict: 'passed' | 'failed' | 'inconclusive';
+  /** A golden with a gate: what the gate decided, and why. */
+  gate: GateResult | null;
+  /** Attempts a check couldn't judge: no evidence either way. */
+  inconclusive: number;
   /** A signal cut an attempt short, or kept the rest from starting: the outcome says nothing about the recording. */
   interrupted: boolean;
+}
+
+/**
+ * How one attempt came out. Inconclusive when every check it failed is one that couldn't be judged
+ * (a judge with no recorded verdict and no way to ask live reads `inconclusive`): that says nothing
+ * about the agent, and no other attempt in this environment would say more.
+ */
+export function attemptVerdict(a: Pick<TestAttempt, 'failure' | 'kind' | 'checks'>): 'passed' | 'failed' | 'inconclusive' {
+  if (!a.failure) return 'passed';
+  if (a.kind !== 'check') return 'failed';
+  const notOk = (a.checks ?? []).filter((c) => !c.ok);
+  return notOk.length > 0 && notOk.every((c) => (c as { status?: string }).status === 'inconclusive') ? 'inconclusive' : 'failed';
+}
+
+/** A replay that forked nowhere and ran nothing live: every attempt would come out the same, so one settles it. */
+const replayedClean = (a: TestAttempt) => !a.ended.summary.divergence && a.ended.summary.byOrigin.live === 0;
+
+/** The gate with this session's limit, when one was given (`test --max-attempts`). */
+function withLimit(gate: Gate, limit: number | null | undefined): Gate {
+  if (!limit) return gate;
+  return gate.kind === 'sprt' ? { ...gate, max: Math.max(gate.max, limit) } : { ...gate, min: Math.max(gate.min, limit) };
 }
 
 /** Replays a recording that is already in the store, as a test does, and judges it. */
@@ -72,12 +105,17 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   const upstreams = live ? upstreamOverrides(process.env) : Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
   const extraEnv = live ? {} : placeholderAwsCredentials(process.env, ctx.store.getCalls(parent.runId));
   const attempts: TestAttempt[] = [];
-  const repeat = spec?.repeat ?? 1;
+  // A gate decides as attempts come in, up to its limit; without one, `repeat` attempts run.
+  const gate = spec?.gate ? withLimit(spec.gate, ctx.maxAttempts) : null;
+  const repeat = gate ? (gate.kind === 'sprt' ? gate.max : gate.min) : (spec?.repeat ?? 1);
   // A golden replayed more than once in a session is one test run with its attempts (`meta.test`
   // `attempt` and `of`): while they run, each attempt after the first is filed under the first, and
   // once they have all ended, under the attempt the result shows, so the Runs page, the sidebar and
   // the Tests screen all open the run that says how the golden came out.
   const testMeta = (i: number, of: string | null): Partial<RunMeta> | null => (ctx.test ? { test: { ...ctx.test, ...(repeat > 1 ? { attempt: i + 1 } : {}), ...(of ? { of } : {}) } } : null);
+  let decision: GateDecision = 'continue';
+  let clean = false;
+  let unjudged = 0;
   for (let i = 0; i < repeat; i++) {
     if (ctx.stopped?.()) break;
     const meta = testMeta(i, i > 0 ? (attempts[0]?.ended.summary.runId ?? null) : null);
@@ -100,25 +138,55 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
     });
     attempts.push(attempt);
     if (attempt.interrupted) break;
+    // A check that couldn't be judged here won't be on the next attempt either.
+    if (attemptVerdict(attempt) === 'inconclusive') {
+      unjudged++;
+      break;
+    }
+    if (!gate) continue;
+    // A clean replay comes out the same every time: its one attempt settles the gate.
+    if (i === 0 && replayedClean(attempt)) {
+      clean = true;
+      decision = attempt.failure ? 'fail' : 'pass';
+      break;
+    }
+    decision = decide(attempts.filter((a) => !a.failure).length, attempts.length, gate, ctx.history ?? null);
+    if (decision !== 'continue') break;
   }
   if (!attempts.length) throw new ReplayInterrupted();
-  const interrupted = attempts.length < repeat || attempts.some((a) => a.interrupted !== null);
+  const interrupted = attempts.some((a) => a.interrupted !== null) || (gate ? decision === 'continue' && !unjudged : attempts.length < repeat && !unjudged);
   const passed = attempts.filter((a) => !a.failure).length;
-  const required = spec?.passes ?? 1;
-  const shown = passed >= required ? attempts.filter((a) => !a.failure).at(-1)! : attempts.find((a) => a.failure)!;
+  const required = gate ? null : (spec?.passes ?? 1);
+  const judged = attempts.filter((a) => attemptVerdict(a) !== 'inconclusive');
+  const result = gate ? gateResult(gate, judged.map((a) => !a.failure), { history: ctx.history ?? null, clean, decision: unjudged ? 'continue' : decision }) : null;
+  const verdict: RecordingOutcome['verdict'] = unjudged ? 'inconclusive' : gate ? (decision === 'pass' ? 'passed' : decision === 'fail' ? 'failed' : 'inconclusive') : passed >= required! ? 'passed' : 'failed';
+  const unjudgedAttempt = attempts.find((a) => attemptVerdict(a) === 'inconclusive');
+  const shown = verdict === 'passed' ? attempts.filter((a) => !a.failure).at(-1)! : (unjudgedAttempt ?? attempts.find((a) => a.failure) ?? attempts.at(-1)!);
   if (attempts.length > 1 && !interrupted) fileUnder(ctx.store, attempts, shown, testMeta);
   let failure: JunitCase['failure'];
-  if (passed < required) {
+  const each = () => attempts.map((a, i) => `attempt ${i + 1}  ${a.failure ? `${attemptVerdict(a) === 'inconclusive' ? '?' : '✗'} ${a.failure.message}` : '✓ passed'}`).join('\n');
+  if (unjudgedAttempt) {
+    const f = unjudgedAttempt.failure!;
+    failure = { message: `inconclusive: ${f.message.replace(/^check failed: /, 'a check could not be judged: ')}`, details: attempts.length === 1 ? f.details : `${each()}\n\n${f.details}` };
+  } else if (result && verdict !== 'passed') {
+    const f = shown.failure;
+    const tally = formatTally(result);
+    failure = {
+      message: `${result.sentence}${f && verdict === 'failed' ? `. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}` : ''}`,
+      details: `${tally}\n${each()}${f ? `\n\n${f.details}` : ''}`,
+    };
+  } else if (!gate && verdict === 'failed') {
     const f = shown.failure!;
     failure =
       attempts.length === 1
         ? f
         : {
             message: `${passed} of ${attempts.length} attempts passed, ${required} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
-            details: `${attempts.map((a, i) => `attempt ${i + 1}  ${a.failure ? `✗ ${a.failure.message}` : '✓ passed'}`).join('\n')}\n\n${f.details}`,
+            details: `${each()}\n\n${f.details}`,
           };
   }
-  return { spec, attempts, shown, passed, required, failure, kind: failure ? (shown.kind ?? 'error') : null, interrupted };
+  const kind: TestFailure | null = verdict === 'passed' ? null : verdict === 'inconclusive' ? 'inconclusive' : (shown.kind ?? 'error');
+  return { spec, attempts, shown, passed, required, failure, kind, verdict, gate: result, inconclusive: unjudged, interrupted };
 }
 
 /**
@@ -204,7 +272,12 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     const packed = 'error' in head || JSON.stringify(parent.meta?.redactions ?? []) === JSON.stringify(head.redactions) ? [] : head.redactions;
     // A replay of a redacted run applies the rules it carries as well.
     normalizers = [...ctx.config.normalize, ...packed, ...(parent.meta?.redactions ?? [])];
-    const result = await testRecording(parent, spec, packed.length ? { ...ctx, config: { ...ctx.config, normalize: [...ctx.config.normalize, ...packed] } } : ctx);
+    // A gate against history compares with this golden's last sessions: under the same recording
+    // and checks, this session's own result left out.
+    const gate = spec?.gate;
+    const history = gate?.kind === 'baseline' ? gateHistory(ctx.store, golden, { window: gate.window, goldenRunId: parent.runId, checks: oracleLabels(spec).slice(1), mode: 'fork', excludeSession: ctx.test?.session ?? null }) : null;
+    const tested: RecordingTestContext = { ...ctx, ...(packed.length ? { config: { ...ctx.config, normalize: [...ctx.config.normalize, ...packed] } } : {}), ...(history ? { history } : {}) };
+    const result = await testRecording(parent, spec, tested);
     return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000, normalizers, interrupted: result.interrupted };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -231,6 +304,8 @@ type Summary = TestAttempt['ended']['summary'];
 const callsOf = (s: Summary) => ({ total: s.total, replayed: s.byOrigin.replayed + s.byOrigin.overridden, live: s.byOrigin.live, blocked: s.byOrigin.blocked, stubbed: s.byOrigin.stubbed });
 const notRespentOf = (s: Summary) => s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
 const upstreamOf = (attempts: readonly TestAttempt[]) => attempts.reduce((n, a) => n + a.ended.summary.upstreamRequests, 0);
+/** USD the attempts spent on live calls. */
+const spentOf = (attempts: readonly TestAttempt[]) => attempts.reduce((n, a) => n + a.ended.summary.cost.spent, 0);
 
 /** A changed value as the history keeps it: long strings and large objects cut to 2,000 characters. */
 function clipValue(v: unknown): unknown {
@@ -272,7 +347,11 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
   data.tokensNotRespent = notRespentOf(s);
   data.inputTokens = tokensOf(store.getCalls(s.runId));
   if (r.shown.checks) data.checks = r.shown.checks;
-  if (r.attempts.length > 1) data.attempts = { total: r.attempts.length, passed: r.passed, required: r.required, runs: r.attempts.map((a) => a.ended.summary.runId) };
+  // Every result keeps its attempts, one included: a gate against history pools them.
+  data.attempts = { total: r.attempts.length, passed: r.passed, required: r.required, runs: r.attempts.map((a) => a.ended.summary.runId), ...(r.inconclusive ? { inconclusive: r.inconclusive } : {}) };
+  data.verdict = r.verdict;
+  if (r.gate) data.gate = r.gate;
+  data.spent = spentOf(r.attempts);
   if (s.divergence) {
     const d = s.divergence;
     data.divergence = {
@@ -297,8 +376,20 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
   return data;
 }
 
+/** What CI does with an inconclusive verdict, a gate's or a check's: fail the run (the default), or warn and let it through. */
+export type InconclusiveMode = 'fail' | 'warn';
+
+/** How a golden came out: one that couldn't be replayed at all failed. */
+export const verdictOf = (o: Pick<GoldenOutcome, 'result' | 'failure'>): RecordingOutcome['verdict'] => o.result?.verdict ?? (o.failure ? 'failed' : 'passed');
+
+/** Whether CI lets a golden through: it passed, or it is inconclusive and inconclusive verdicts warn. */
+export const letThrough = (o: Pick<GoldenOutcome, 'result' | 'failure'>, mode: InconclusiveMode): boolean => {
+  const v = verdictOf(o);
+  return v === 'passed' || (v === 'inconclusive' && mode === 'warn');
+};
+
 /** The golden's entry in the JSON report (`--json`), which the GitHub Action reads. */
-export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated'] }): PackResult {
+export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated']; inconclusive?: InconclusiveMode }): PackResult {
   const r = o.result;
   const s = r?.shown.ended.summary ?? null;
   return {
@@ -306,7 +397,8 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     dir: o.dir,
     golden: o.golden,
     mode: o.spec?.fork ? 'fork' : 'replay',
-    ok: !o.failure,
+    ok: letThrough(o, extra.inconclusive ?? 'fail'),
+    verdict: verdictOf(o),
     failure: o.kind,
     message: o.failure?.message ?? null,
     details: o.failure?.details ?? null,
@@ -320,7 +412,8 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     tokensNotRespent: s ? notRespentOf(s) : null,
     divergence: s?.divergence ? { type: s.divergence.type, callNo: s.divergence.callNo, kind: s.divergence.kind, name: s.divergence.name, ...(s.divergence.recorded !== undefined ? { recorded: s.divergence.recorded } : {}) } : null,
     checks: r?.shown.checks ?? null,
-    attempts: r && r.attempts.length > 1 ? { total: r.attempts.length, passed: r.passed, required: r.required } : null,
+    attempts: r && (r.attempts.length > 1 || r.gate) ? { total: r.attempts.length, passed: r.passed, required: r.required } : null,
+    gate: r?.gate ?? null,
     expect: extra.expect,
     updated: extra.updated ?? null,
   };
@@ -331,12 +424,18 @@ export function formatChecks(checks: CheckResult[]): string {
   return checks.map((c) => (c.ok ? `✓ ${c.label}` : `✗ ${c.label}: ${c.detail}`)).join('\n');
 }
 
-/** The golden as a JUnit test case. */
-export function junitCase(o: GoldenOutcome): JunitCase {
+/**
+ * The golden as a JUnit test case. An inconclusive one is a failure, or, when inconclusive verdicts
+ * warn, skipped: neither passed nor failed. A gated golden's output starts with its gate's sentence
+ * and tally, which CI dashboards show beside the case.
+ */
+export function junitCase(o: GoldenOutcome, mode: InconclusiveMode = 'fail'): JunitCase {
   const checks = o.result?.shown.checks;
   const failure = o.failure && checks?.length ? { ...o.failure, details: `${formatChecks(checks)}\n\n${o.failure.details}` } : o.failure;
-  const output = o.result?.shown.output ?? '';
-  return { name: o.name, classname: 'shadowlap.replay', timeSeconds: o.seconds, ...(failure ? { failure } : {}), ...(output ? { systemOut: output } : {}) };
+  const gate = o.result?.gate;
+  const output = `${gate ? `[shadowlap] ${gate.sentence}\n[shadowlap] ${formatTally(gate)}\n` : ''}${o.result?.shown.output ?? ''}`;
+  const skipped = verdictOf(o) === 'inconclusive' && mode === 'warn' && failure ? { message: failure.message } : null;
+  return { name: o.name, classname: 'shadowlap.replay', timeSeconds: o.seconds, ...(skipped ? { skipped } : failure ? { failure } : {}), ...(output ? { systemOut: output } : {}) };
 }
 
 /** A session that never ended this long before another started had its process killed: it is over. */

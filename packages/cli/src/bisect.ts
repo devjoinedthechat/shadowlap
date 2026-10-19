@@ -383,6 +383,8 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
       }
       // A replay a signal cut short says nothing about the commit.
       if (outcome.interrupted) return done(false, true, 'interrupted');
+      // Nor does a verdict that is neither passed nor failed (a gate that ran out of attempts): the commit is untested.
+      if (outcome.verdict === 'inconclusive') return done(false, true, outcome.failure?.message ?? 'inconclusive');
       return done(!outcome.failure, false, describeResult(outcome, [...config.normalize, ...(target.run.meta?.redactions ?? [])]));
     } finally {
       if (!gitOk(root, ['worktree', 'remove', '--force', worktree])) {

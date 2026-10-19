@@ -128,6 +128,8 @@ export interface RunGrid {
 export interface TestsTile {
   goldens: number;
   passing: number;
+  /** Goldens whose last result is inconclusive, counted apart from passing and the regressions. */
+  inconclusive: number;
   /** Passing as the tests stood when this week started; null without results that old. */
   lastWeek: number | null;
   regressions: number;
@@ -504,7 +506,7 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
   const of = (kind: string) => fixes.filter((f) => f.kind === kind);
   const fixRow = (f: (typeof fixes)[number]): NeedsLookRow => ({ kind: f.kind, icon: f.icon, title: f.title, detail: f.detail, action: f.action, href: f.href, runId: f.runId, fixId: f.fixId, at: f.at });
   const tests: NeedsLookRow[] = goldens.length
-    ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: 'fail', title: t.title, detail: t.line, action: 'Fix', href: t.href, runId: t.runId, fixId: null, at: t.at }))
+    ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: 'fail', title: t.title, detail: t.line, action: t.verdict === 'inconclusive' ? 'Open' : 'Fix', href: t.href, runId: t.runId, fixId: null, at: t.at }))
     : [];
   // On Runs, as the design has it: the runs only here carry the local tag, and Push in the bulk bar
   // sends the ones picked (Settings → Store's Push local runs sends them all).

@@ -37,8 +37,8 @@ describe('the Overview’s words', () => {
     expect(blameWords({ outcome: null, lostAt: null })).toBe('not placed yet');
     expect(testsKpi(null, 0)).toEqual({ value: '—', note: 'no goldens yet', failing: false });
     const now = new Date(2026, 9, 1, 12, 0).getTime();
-    expect(testsKpi({ goldens: 4, passing: 3, lastWeek: 4, regressions: 1, lastRunAt: new Date(2026, 9, 1, 10, 2).getTime() }, now)).toEqual({ value: '3 / 4', note: '1 regression caught · last run 10:02', failing: true });
-    expect(testsKpi({ goldens: 2, passing: 2, lastWeek: null, regressions: 0, lastRunAt: null }, now).note).toBe('no regressions · not run yet');
+    expect(testsKpi({ goldens: 4, passing: 3, inconclusive: 0, lastWeek: 4, regressions: 1, lastRunAt: new Date(2026, 9, 1, 10, 2).getTime() }, now)).toEqual({ value: '3 / 4', note: '1 regression caught · last run 10:02', failing: true });
+    expect(testsKpi({ goldens: 2, passing: 2, inconclusive: 0, lastWeek: null, regressions: 0, lastRunAt: null }, now).note).toBe('no regressions · not run yet');
     expect(spentNote({ value: 1.29, lastWeek: 1.69, notRespent: 2.81, notWaitedMs: 28 * 60_000 })).toBe('$2.81 not re-spent · 28m not waited');
   });
 

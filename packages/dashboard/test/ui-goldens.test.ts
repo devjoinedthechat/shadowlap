@@ -18,9 +18,10 @@ const row = (name: string, over: Partial<GoldenRow> = {}): GoldenRow => ({
   mode: 'replay',
   modeLabel: 'replay',
   modeHint: 'must send exactly the requests it recorded',
+  gate: null,
   checks: ['issue_refund called 1 time', 'send_email called 1 time'],
   history: [],
-  last: { result: 'pass', failure: null, line: '8/8 replayed · checks passed', at: T, updated: false },
+  last: { result: 'pass', verdict: 'passed', failure: null, line: '8/8 replayed · checks passed', at: T, updated: false, gate: null },
   runId: null,
   error: null,
   ...over,
@@ -56,6 +57,7 @@ function view(over: Partial<TestsView> = {}): TestsView {
     verdict: {
       state: 'failing',
       failing: 1,
+      inconclusive: 0,
       passing: 3,
       untested: 0,
       title: 'refund-in-limit diverged at call 1',
@@ -64,9 +66,10 @@ function view(over: Partial<TestsView> = {}): TestsView {
       since: [],
     },
     revisions: ['c91d0f4', 'd2e8a1f'],
-    rows: [row('refund-over-limit'), row('refund-in-limit', { last: { result: 'fail', failure: 'diverged', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', at: T, updated: false } }), row('escalate-over-limit', { checks: [] })],
+    rows: [row('refund-over-limit'), row('refund-in-limit', { last: { result: 'fail', verdict: 'failed', failure: 'diverged', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', at: T, updated: false, gate: null } }), row('escalate-over-limit', { checks: [] })],
     divergences: [divergence('refund-in-limit')],
     failures: [],
+    inconclusive: [],
     diverged: ['goldens/refund-in-limit'],
     running: null,
     commands: { ci: 'shadowlap test goldens/* --junit report.xml', inCi: '', pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] },
@@ -122,19 +125,19 @@ describe('the goldens table', () => {
   });
 
   it('says on hover a golden run again on its own with changes on top of that commit', () => {
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f+dirty', result: 'pass', note: null, updated: false, runId: null, at: T }, 'x').value).toBe('run again at d2e8a1f+dirty');
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f+dirty', result: 'fail', note: 'diverged at call 3', updated: false, runId: null, at: T }, 'x').value).toBe('run again at d2e8a1f+dirty · diverged at call 3');
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f+dirty', result: 'pass', verdict: 'passed', rate: null, dropped: false, note: null, updated: false, runId: null, at: T }, 'x').value).toBe('run again at d2e8a1f+dirty');
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f+dirty', result: 'fail', verdict: 'failed', rate: null, dropped: false, note: 'diverged at call 3', updated: false, runId: null, at: T }, 'x').value).toBe('run again at d2e8a1f+dirty · diverged at call 3');
   });
 
   it('says on hover how a golden did at each revision, and why it failed', () => {
-    expect(historyTip({ revision: 'b7e40c2', tested: 'b7e40c2', result: 'fail', note: 'input tokens 71,940, over the 60,000 budget', updated: false, runId: null, at: T }, 'refund-flow-budget')).toEqual({ title: 'b7e40c2 · refund-flow-budget', label: 'failed', value: 'input tokens 71,940, over the 60,000 budget', color: 'var(--err)' });
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', note: null, updated: true, runId: null, at: T }, 'x')).toMatchObject({ label: 'passed', value: 'updated here: re-recorded, its checks passed', color: 'var(--o-rep)' });
-    expect(historyTip({ revision: null, tested: null, result: null, note: null, updated: false, runId: null, at: null }, 'x')).toMatchObject({ title: 'no revision · x', label: 'not tested here' });
+    expect(historyTip({ revision: 'b7e40c2', tested: 'b7e40c2', result: 'fail', verdict: 'failed', rate: null, dropped: false, note: 'input tokens 71,940, over the 60,000 budget', updated: false, runId: null, at: T }, 'refund-flow-budget')).toEqual({ title: 'b7e40c2 · refund-flow-budget', label: 'failed', value: 'input tokens 71,940, over the 60,000 budget', color: 'var(--err)' });
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', verdict: 'passed', rate: null, dropped: false, note: null, updated: true, runId: null, at: T }, 'x')).toMatchObject({ label: 'passed', value: 'updated here: re-recorded, its checks passed', color: 'var(--o-rep)' });
+    expect(historyTip({ revision: null, tested: null, result: null, verdict: null, rate: null, dropped: false, note: null, updated: false, runId: null, at: null }, 'x')).toMatchObject({ title: 'no revision · x', label: 'not tested here' });
     // Updated, and its new recording failed the replay after it: both are said.
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'fail', note: 'diverged at call 8', updated: true, runId: null, at: T }, 'x').value).toBe('updated here, then diverged at call 8');
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'fail', verdict: 'failed', rate: null, dropped: false, note: 'diverged at call 8', updated: true, runId: null, at: T }, 'x').value).toBe('updated here, then diverged at call 8');
     // A pass whose replay had a connection blocked says so, after the update when there was one.
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', note: 'blocked connection to hooks.example.com:443', updated: false, runId: null, at: T }, 'x').value).toBe('blocked connection to hooks.example.com:443');
-    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', note: 'blocked connection to hooks.example.com:443', updated: true, runId: null, at: T }, 'x').value).toBe('updated here: re-recorded, its checks passed · blocked connection to hooks.example.com:443');
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', verdict: 'passed', rate: null, dropped: false, note: 'blocked connection to hooks.example.com:443', updated: false, runId: null, at: T }, 'x').value).toBe('blocked connection to hooks.example.com:443');
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', verdict: 'passed', rate: null, dropped: false, note: 'blocked connection to hooks.example.com:443', updated: true, runId: null, at: T }, 'x').value).toBe('updated here: re-recorded, its checks passed · blocked connection to hooks.example.com:443');
   });
 
   it('says where each golden came from: a run here, or a pack made elsewhere', () => {
@@ -422,7 +425,7 @@ describe('the Update golden dialog', () => {
 
 describe('the palette', () => {
   it('lists each golden by how it did last, from any page, and Update goldens… when any diverged', () => {
-    const entries = testsPalette(view({ rows: [...view().rows, row('broken', { last: { result: null, failure: null, line: "can't be read: no run.json", at: null, updated: false }, error: 'no run.json' }), row('new-one', { last: { result: null, failure: null, line: 'not run yet', at: null, updated: false } })] }), { update: true });
+    const entries = testsPalette(view({ rows: [...view().rows, row('broken', { last: { result: null, verdict: null, failure: null, line: "can't be read: no run.json", at: null, updated: false, gate: null }, error: 'no run.json' }), row('new-one', { last: { result: null, verdict: null, failure: null, line: 'not run yet', at: null, updated: false, gate: null } })] }), { update: true });
     expect(entries.map((e) => [e.group, e.label, e.hint, e.to])).toEqual([
       ['Actions', 'Update goldens…', 'shadowlap test --update', '#/tests?update'],
       ['Tests', 'refund-over-limit', 'passing', '#/tests'],

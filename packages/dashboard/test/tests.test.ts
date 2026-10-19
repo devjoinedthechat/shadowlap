@@ -1,6 +1,6 @@
 import { hostname } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { EXTERNAL_COMMAND, NO_COMMAND, recordBlame, recordEvent, Store, TEST_COMMAND, type TestResultData } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, gateResult, NO_COMMAND, recordBlame, recordEvent, Store, TEST_COMMAND, type TestResultData } from '@shadowlap/engine';
 import { blameReport, EXPECT } from '../../engine/test/fix-fixtures.js';
 import { asksForAll, bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, underChecks, updateGoldensJob, type GoldenSource } from '../src/tests.js';
 
@@ -432,7 +432,7 @@ describe('the Tests screen', () => {
     // Results of goldens that are gone say nothing about the ones on disk, which have not run.
     const other = testsView(store, goldens.slice(0, 1));
     expect(other.verdict).toBeNull();
-    expect(other.rows[0]!.last).toEqual({ result: null, failure: null, line: 'not run yet', at: null, updated: false });
+    expect(other.rows[0]!.last).toEqual({ result: null, verdict: null, failure: null, line: 'not run yet', at: null, updated: false, gate: null });
     store.close();
   });
 
@@ -645,11 +645,11 @@ describe('the Tests screen', () => {
 describe('tests on the Overview and in Needs a look', () => {
   it('counts goldens passing, the regressions caught, when they last ran, and the same a week before', () => {
     const store = sampleStore();
-    expect(testsSummary(store, { goldens, now: T0 + DAY })).toEqual({ empty: false, total: 3, passing: 2, failing: 1, untested: 0, line: '1 regression caught', lastRunAt: T0 + 100, lastWeek: { passing: 1, total: 1 } });
+    expect(testsSummary(store, { goldens, now: T0 + DAY })).toEqual({ empty: false, total: 3, passing: 2, failing: 1, inconclusive: 0, untested: 0, line: '1 regression caught', lastRunAt: T0 + 100, lastWeek: { passing: 1, total: 1 } });
     expect(testsSummary(store, { goldens: ['goldens/refund-flow', 'goldens/new'], now: T0 + DAY })).toMatchObject({ total: 2, passing: 1, failing: 0, untested: 1, line: 'no regressions' });
     expect(testsSummary(Store.open(':memory:'), { goldens: [] })).toMatchObject({ empty: true, total: 0, line: 'no goldens yet', lastRunAt: null, lastWeek: null });
     // The Overview's outcome strip compares with when its week started.
-    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY }, { goldens })).toEqual({ goldens: 3, passing: 2, lastWeek: 2, regressions: 1, lastRunAt: T0 + 100 });
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY }, { goldens })).toEqual({ goldens: 3, passing: 2, inconclusive: 0, lastWeek: 2, regressions: 1, lastRunAt: T0 + 100 });
     expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - 3 * DAY }, { goldens })).toMatchObject({ lastWeek: 1 });
     expect(overviewTests(Store.open(':memory:'), { now: T0, weekStart: T0 - DAY }, { goldens: [] })).toBeNull();
     store.close();
@@ -667,7 +667,7 @@ describe('tests on the Overview and in Needs a look', () => {
 
   it('lists failing tests with why, linking to the failing run', () => {
     const store = sampleStore();
-    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', at: T0 + 2 }]);
+    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', verdict: 'failed', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', at: T0 + 2 }]);
     store.deleteRun('R_C_LIMIT');
     expect(failingTests(store, { goldens: goldens.map((g) => g.path) })[0]).toMatchObject({ runId: null, href: '#/tests' });
     store.close();
@@ -909,5 +909,86 @@ describe('jobs for the Tests actions', () => {
     expect(bisectJob(store, goldens, { runId: failed.runId, good: 'fff6666' })).toEqual({ error: 'fff6666 is where it fails: choose an earlier commit where it still worked' });
     expect(bisectJob(store, goldens, { runId: 'not-a-run', good: 'c91d0f4' })).toEqual({ error: 'no such run' });
     store.close();
+  });
+});
+
+describe('goldens with a gate', () => {
+  const sprt = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 20 };
+  const history = { kind: 'baseline' as const, drop: 0.15, risk: 0.05, window: 10, min: 3 };
+  const gated: GoldenSource[] = [
+    { path: 'goldens/escalates', runId: null, packedAt: T0, mode: 'fork', repeat: 1, passes: 1, gate: sprt, checks: ['issue_refund called 0 times'] },
+    { path: 'goldens/flaky', runId: null, packedAt: T0, mode: 'fork', repeat: 1, passes: 1, gate: sprt, checks: ['issue_refund called 0 times'] },
+    { path: 'goldens/drops', runId: null, packedAt: T0, mode: 'fork', repeat: 1, passes: 1, gate: history, checks: [] },
+  ];
+  const result = (gate: typeof sprt | typeof history, outcomes: boolean[], o: { history?: { passes: number; attempts: number; sessions: number }; spent?: number } = {}): TestResultData => {
+    const g = gateResult(gate, outcomes, { history: o.history ?? null });
+    const verdict = g.decision === 'pass' ? 'passed' : g.decision === 'fail' ? 'failed' : 'inconclusive';
+    return { mode: 'fork', attempts: { total: outcomes.length, passed: g.passes, required: null, runs: [] }, verdict, gate: g, ...(o.spent !== undefined ? { spent: o.spent } : {}) };
+  };
+
+  function gatedStore(): Store {
+    const store = Store.open(':memory:');
+    session(store, 'a1b2c3d', T0 - DAY, [
+      { golden: 'goldens/escalates', ok: true, runId: 'R1', data: result(sprt, Array(12).fill(true)) },
+      { golden: 'goldens/flaky', ok: true, runId: 'R2', data: result(sprt, Array(12).fill(true)) },
+      { golden: 'goldens/drops', ok: true, runId: 'R3', data: result(history, [true, true, true]) },
+    ]);
+    const unsure = [...Array(16).fill(true), false, false, false, false];
+    session(store, 'e4f5a6b', T0, [
+      { golden: 'goldens/escalates', ok: true, runId: 'R4', data: result(sprt, Array(12).fill(true), { spent: 0.24 }) },
+      { golden: 'goldens/flaky', ok: false, failure: 'inconclusive' as never, reason: 'inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs', runId: 'R5', data: result(sprt, unsure, { spent: 0.4 }) },
+      { golden: 'goldens/drops', ok: false, failure: 'check', reason: 'failed: its pass rate dropped', runId: 'R6', data: result(history, [false, false, false], { history: { passes: 30, attempts: 30, sessions: 10 } }) },
+    ]);
+    return store;
+  }
+
+  it('carries each gate, its decision, interval, attempts and evidence path, for the interval bar and the evidence line', () => {
+    const store = gatedStore();
+    const view = testsView(store, gated);
+    const [escalates, flaky, drops] = view.rows;
+    expect(escalates!.gate).toEqual({ gate: sprt, description: 'pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 20 attempts', toPass: 12, toFail: 3 });
+    expect(escalates!.modeLabel).toBe('fork · gate');
+    expect(drops!.modeLabel).toBe('fork · history');
+    expect(escalates!.last).toMatchObject({ result: 'pass', verdict: 'passed', line: 'passed: at least 90% with 95% confidence after 12 attempts · 12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00' });
+    const g = escalates!.last.gate!;
+    expect(g).toMatchObject({ kind: 'sprt', decision: 'pass', passes: 12, attempts: 12, tally: '12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00', perAttempt: 0.02, more: null });
+    expect(g.interval.lo).toBeCloseTo(0.7575, 4);
+    if (g.evidence.kind !== 'sprt') throw new Error('an SPRT gate keeps its scores');
+    expect(g.evidence.scores).toHaveLength(12);
+    expect(g.evidence.scores.at(-1)).toBeGreaterThanOrEqual(g.evidence.upper);
+    // Inconclusive: told apart from failing, with Run more attempts at twice the limit, and what an attempt cost.
+    expect(flaky!.last).toMatchObject({ result: 'fail', verdict: 'inconclusive', failure: 'inconclusive' });
+    expect(flaky!.last.gate).toMatchObject({ decision: 'inconclusive', perAttempt: 0.02, more: { args: ['test', 'goldens/flaky', '--max-attempts', '40'], attempts: 40 } });
+    // History cells: shaded by their pass rate, ringed where a gate against history found a drop.
+    expect(drops!.history.map((c) => [c.verdict, c.rate, c.dropped])).toEqual([
+      ['passed', { passes: 3, attempts: 3 }, false],
+      ['failed', { passes: 0, attempts: 3 }, true],
+    ]);
+    expect(flaky!.history[1]).toMatchObject({ result: 'fail', verdict: 'inconclusive', rate: { passes: 16, attempts: 20 } });
+    store.close();
+  });
+
+  it('counts inconclusive goldens apart, on the screen, the Overview and in Needs a look', () => {
+    const store = gatedStore();
+    const view = testsView(store, gated);
+    expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, inconclusive: 1, passing: 1, untested: 0 });
+    expect(view.inconclusive).toEqual([expect.objectContaining({ golden: 'goldens/flaky', reason: expect.stringContaining('inconclusive: neither at least 90%'), gate: expect.objectContaining({ decision: 'inconclusive' }) })]);
+    // Nothing to bisect or fix there: only the golden that failed is a failure.
+    expect(view.failures.map((f) => f.golden)).toEqual(['goldens/drops']);
+    expect(testsView(store, gated.slice(0, 2)).verdict).toMatchObject({ state: 'inconclusive', failing: 0, inconclusive: 1, passing: 1, title: 'flaky inconclusive after 20 attempts' });
+    expect(testsSummary(store, { goldens: gated })).toMatchObject({ passing: 1, failing: 1, inconclusive: 1, line: '1 regression caught' });
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - 3 * DAY }, { goldens: gated })).toMatchObject({ passing: 1, inconclusive: 1, regressions: 1 });
+    expect(failingTests(store, { goldens: gated }).map((t) => [t.title, t.verdict, t.href])).toEqual([
+      ['A test failed: drops', 'failed', '#/tests'],
+      ['A test is inconclusive: flaky', 'inconclusive', '#/tests'],
+    ]);
+    store.close();
+  });
+
+  it('runs more attempts for one golden: its gate\'s limit raised for that session only', () => {
+    expect(runTestsJob(gated, { golden: 'goldens/flaky', maxAttempts: 40 })).toEqual({ title: 'Running more attempts', args: ['test', 'goldens/flaky', '--max-attempts', '40'] });
+    expect(runTestsJob(gated, { golden: 'goldens/flaky', maxAttempts: 0 })).toEqual({ error: 'maxAttempts is a whole number from 1 to 1000' });
+    expect(runTestsJob(gated, { golden: 'goldens/flaky', maxAttempts: '40; rm -rf /' })).toMatchObject({ error: expect.any(String) });
+    expect(runTestsJob(gated, {})).toEqual({ title: 'Running the tests', args: ['test', 'goldens/*'] });
   });
 });

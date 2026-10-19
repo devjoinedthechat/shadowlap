@@ -15,6 +15,7 @@ import {
   dropProbability,
   formatTally,
   gateOdds,
+  gateOf,
   gateResult,
   gateSentence,
   lnGamma,
@@ -378,8 +379,8 @@ describe('what the reports say', () => {
   it('for the history gate, with its baseline', () => {
     const history = { passes: 47, attempts: 50, sessions: 10 };
     const g = baseline({ min: 3 });
-    expect(gateResult(g, [true, true, true], { history }).sentence).toBe('passed: no drop of 15 points or more from its baseline, 0.92 over the last 10 sessions (47 of 50 attempts), with 95% confidence after 3 attempts');
-    expect(gateResult(g, [false, true, false], { history }).sentence).toBe('failed: its pass rate dropped 15 points or more from its baseline, 0.92 over the last 10 sessions (47 of 50 attempts), with 95% confidence after 3 attempts');
+    expect(gateResult(g, [true, true, true], { history }).sentence).toBe('passed: no drop of 15 points or more from its baseline, 0.94 over the last 10 sessions (47 of 50 attempts), with 95% confidence after 3 attempts');
+    expect(gateResult(g, [false, true, false], { history }).sentence).toBe('failed: its pass rate dropped 15 points or more from its baseline, 0.94 over the last 10 sessions (47 of 50 attempts), with 95% confidence after 3 attempts');
     expect(gateResult(g, [true, true, true]).sentence).toBe('passed: no drop of 15 points or more from its baseline, a golden that always passes, since it has no history yet, with 95% confidence after 3 attempts');
   });
 
@@ -402,15 +403,23 @@ describe('what the reports say', () => {
     expect(r.decision).toBe('continue');
   });
 
+  it('carries the gate\'s own figures, so a result reads as the gate it was decided by', () => {
+    const r = gateResult(SPEC, [true, true, true]);
+    expect(r).toMatchObject({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20, decision: 'continue', passes: 3, attempts: 3, clean: false });
+    expect(gateOf(r)).toEqual(SPEC);
+    expect(decide(r.passes, r.attempts, r)).toBe('continue');
+    expect(gateOf(gateResult(baseline(), [true]))).toEqual(baseline());
+  });
+
   it('keeps what the history gate compared', () => {
     const r = gateResult(baseline({ min: 3 }), [true, true, true], { history: { passes: 47, attempts: 50, sessions: 10 } });
-    expect(r.evidence).toEqual({ kind: 'baseline', history: { passes: 47, attempts: 50, sessions: 10 }, baseline: 48 / 52, probability: expect.any(Number), threshold: 0.95 });
+    expect(r.evidence).toEqual({ kind: 'baseline', history: { passes: 47, attempts: 50, sessions: 10 }, baseline: 0.94, probability: expect.any(Number), threshold: 0.95 });
     expect(gateResult(baseline(), [true]).evidence).toMatchObject({ history: null, baseline: 1, probability: null });
   });
 
   it('describes a gate in the words Settings will preview it in', () => {
     expect(describeGate(SPEC)).toBe('pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 20 attempts');
     expect(describeGate(baseline())).toBe('fail on a drop of 15 points or more from the pass rate of the last 10 sessions, at 95% confidence, after 5 attempts');
-    expect(gateSentence({ gate: SPEC, decision: 'pass', attempts: 1, clean: false, evidence: gateResult(SPEC, [true]).evidence })).toBe('passed: at least 90% with 95% confidence after 1 attempt');
+    expect(gateSentence(SPEC, { decision: 'pass', attempts: 1, clean: false, evidence: gateResult(SPEC, [true]).evidence })).toBe('passed: at least 90% with 95% confidence after 1 attempt');
   });
 });

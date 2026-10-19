@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../src/test-report.js';
+import { gateResult } from '@shadowlap/engine';
 
 /**
  * The GitHub Action's script (action/run.mjs) run the way action.yml runs it, against the committed
@@ -114,8 +115,8 @@ describe('the GitHub Action', () => {
 });
 
 describe('test reports', () => {
-  const failed: PackResult = { name: 'summarize|thread', dir: 'goldens\\summarize', golden: 'goldens/summarize', mode: 'replay', ok: false, failure: 'diverged', runId: null, runs: [], goldenRunId: null, expect: null, updated: null, message: 'diverged at call 3 (api POST /v1/messages)', details: 'a ``` fence\n50% of it: here, there', output: 'Error: boom', seconds: 1, calls: { total: 5, replayed: 2, live: 3, blocked: 0, stubbed: 0 }, upstreamRequests: 0, tokensNotRespent: 1200, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages' }, checks: null, attempts: null };
-  const clean: PackResult = { ...failed, name: 'triage', dir: 'goldens/triage', golden: 'goldens/triage', ok: true, failure: null, message: null, details: null, output: null, calls: { total: 30, replayed: 30, live: 0, blocked: 0, stubbed: 0 }, divergence: null };
+  const failed: PackResult = { name: 'summarize|thread', dir: 'goldens\\summarize', golden: 'goldens/summarize', mode: 'replay', ok: false, verdict: 'failed', gate: null, failure: 'diverged', runId: null, runs: [], goldenRunId: null, expect: null, updated: null, message: 'diverged at call 3 (api POST /v1/messages)', details: 'a ``` fence\n50% of it: here, there', output: 'Error: boom', seconds: 1, calls: { total: 5, replayed: 2, live: 3, blocked: 0, stubbed: 0 }, upstreamRequests: 0, tokensNotRespent: 1200, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages' }, checks: null, attempts: null };
+  const clean: PackResult = { ...failed, name: 'triage', dir: 'goldens/triage', golden: 'goldens/triage', ok: true, verdict: 'passed', failure: null, message: null, details: null, output: null, calls: { total: 30, replayed: 30, live: 0, blocked: 0, stubbed: 0 }, divergence: null };
 
   it('writes Markdown that survives pipes and backticks in its content', () => {
     const md = markdownReport(testReport([clean, failed]));
@@ -126,6 +127,31 @@ describe('test reports', () => {
     expect(md).toContain('Once you mean it, update the golden: `shadowlap test goldens/summarize --update` re-records it live with writes stubbed');
     expect(md).not.toContain('interrupted');
     expect(markdownReport(testReport([clean], { id: 'S', revision: null, interrupted: true }))).toContain('The session was interrupted: only the recordings above finished, and the rest did not run.');
+  });
+
+  // A golden with a gate: its sentence and evidence in the reports; inconclusive in amber, counted apart.
+  const gated = (verdict: PackResult['verdict'], ok: boolean, passes: number, attempts: number): PackResult => {
+    const outcomes = Array.from({ length: attempts }, (_, i) => i < passes);
+    const gate = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, outcomes);
+    return { ...failed, name: `refund-${verdict}`, dir: `goldens/refund-${verdict}`, golden: `goldens/refund-${verdict}`, mode: 'fork', ok, verdict, gate, failure: verdict === 'passed' ? null : verdict === 'inconclusive' ? 'inconclusive' : 'check', message: verdict === 'passed' ? null : gate.sentence, details: null, output: null, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages' }, attempts: { total: attempts, passed: passes, required: null } };
+  };
+
+  it('says a gate\'s sentence and its evidence, and counts inconclusive ones apart', () => {
+    const passed = gated('passed', true, 12, 12);
+    const unsure = gated('inconclusive', false, 16, 20);
+    const md = markdownReport(testReport([passed, unsure, failed]));
+    expect(md).toContain('### Shadowlap: 1 of 3 recordings failed, 1 inconclusive');
+    expect(md).toContain('| ✅ | `refund-passed` | passed: at least 90% with 95% confidence after 12 attempts · 12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00 · forked at call 3 | 2/5 | 1k |');
+    expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs · 16 of 20 passed · pass rate ≥ 0.58 (95%, Wilson) · pass^5 0.28 | 2/5 | 1k |');
+    expect(md).toContain('It fails the run unless `--inconclusive warn` is given.');
+    // Under --inconclusive warn it is let through, and says so; the heading still counts it.
+    const warned = markdownReport(testReport([passed, { ...unsure, ok: true }]));
+    expect(warned).toContain('### Shadowlap: 1 of 2 recordings is inconclusive');
+    expect(warned).toContain('This run lets inconclusive recordings through (`--inconclusive warn`).');
+    expect(testReport([passed, { ...unsure, ok: true }])).toMatchObject({ passed: 2, failed: 0, inconclusive: 1 });
+    expect(githubAnnotations(testReport([passed, { ...unsure, ok: true }]))).toBe(
+      '::warning file=goldens/refund-inconclusive/run.json,title=Shadowlap%3A refund-inconclusive::inconclusive: neither at least 90%25 nor at most 70%25 with 95%25 confidence after 20 attempts, the most the gate runs%0A%0A16 of 20 passed · pass rate ≥ 0.58 (95%25, Wilson) · pass^5 0.28',
+    );
   });
 
   it('escapes GitHub annotation properties and data', () => {

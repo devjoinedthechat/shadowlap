@@ -40,7 +40,7 @@ describe('goldens', () => {
   it('lists the goldens folder and the packs the config names, with how each is tested', () => {
     const goldens = listGoldens(project, parseTests(config.tests));
     expect(goldens.map((g) => g.path)).toEqual(['goldens/refund-in-limit', 'goldens/refund-over-limit', 'goldens/triage', 'elsewhere/budget']);
-    expect(goldens[1]).toEqual({ path: 'goldens/refund-over-limit', runId: 'R_OVER', packedAt: 2000, mode: 'fork', repeat: 5, passes: 5, checks: ['issue_refund called 0 times', 'escalate called 1 time'], error: null });
+    expect(goldens[1]).toEqual({ path: 'goldens/refund-over-limit', runId: 'R_OVER', packedAt: 2000, mode: 'fork', repeat: 5, passes: 5, gate: null, checks: ['issue_refund called 0 times', 'escalate called 1 time'], error: null });
     expect(goldens[0]).toMatchObject({ mode: 'replay', repeat: 1, checks: ['send_email called 0 times'] });
     expect(goldens[2]).toMatchObject({ mode: 'replay', checks: [] });
     expect(goldens[3]!.checks).toEqual(['at most 60000 input tokens', 'cost at most $0.05']);

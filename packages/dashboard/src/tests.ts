@@ -1,4 +1,4 @@
-import { commandIsImported, fixOfRun, hasRecordedCommand, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, hasRecordedCommand, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type Normalizer, type RunRecord, type Store, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -19,11 +19,46 @@ export interface GoldenSource {
   mode: 'replay' | 'fork';
   repeat: number;
   passes: number;
+  /** Its gate under `tests`, when it has one: then the gate decides how many attempts run, not `repeat` and `passes`. */
+  gate?: Gate | null;
   /** Its checks, as the CLI labels them. */
   checks: string[];
   /** Why the pack can't be read, when it can't. */
   error?: string | null;
 }
+
+/** How a golden came out: passed, failed, or inconclusive (its gate ran out of attempts between its bounds, or a check couldn't be judged). */
+export type GoldenVerdict = 'passed' | 'failed' | 'inconclusive';
+
+/** A result's verdict: as kept, or for one kept before verdicts were, as its `ok` says. */
+export const verdictOfResult = (r: Pick<TestResult, 'ok' | 'failure' | 'data'>): GoldenVerdict => r.data?.verdict ?? (r.ok ? 'passed' : r.failure === 'inconclusive' ? 'inconclusive' : 'failed');
+
+/** A golden's gate as the config gives it, in the words Settings previews it in. */
+export interface GateView {
+  gate: Gate;
+  /** `pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 40 attempts`. */
+  description: string;
+  /** An SPRT gate: the attempts an agent that always passes needs (12 at 0.9, 0.7, 0.05), and one that always fails (3). Null for history. */
+  toPass: number | null;
+  toFail: number | null;
+}
+
+/**
+ * What a gate decided about a golden's last result, for the interval bar (the Wilson range against
+ * `bad` and `good`), the evidence line (`evidence.scores` after each attempt, between `upper` and
+ * `lower`) and Run more attempts.
+ */
+export type GateResultView = GateResult & {
+  /** `18 of 20 passed · pass rate ≥ 0.70 (95%, Wilson) · pass^5 0.55`. */
+  tally: string;
+  /** USD an attempt cost on average, to estimate what more attempts would; null when nothing was spent or it wasn't kept. */
+  perAttempt: number | null;
+  /**
+   * Run more attempts, for an inconclusive verdict: the `test` job's arguments (after `shadowlap`) that
+   * raise the gate's limit for one session, twice what it was, and how many attempts that allows. Null otherwise.
+   */
+  more: { args: string[]; attempts: number } | null;
+};
 
 export interface TestsOptions {
   /** How many recent revisions the history shows (default 6). */
@@ -71,9 +106,12 @@ export interface SinceResult {
  * counts and upstream requests. What ran since in sessions that ran only some goldens is `since`.
  */
 export interface TestsVerdict {
-  state: 'failing' | 'passing';
+  /** `failing` when a golden failed; else `inconclusive` when one is; else `passing`. */
+  state: 'failing' | 'inconclusive' | 'passing';
   /** Goldens whose last result failed. */
   failing: number;
+  /** Goldens whose last result is inconclusive: counted apart, neither passing nor failing. */
+  inconclusive: number;
   /** Goldens whose last result passed. */
   passing: number;
   /** Goldens that have not run yet. */
@@ -98,8 +136,14 @@ export interface HistoryCell {
    * (Add normalizer and re-run, Run tests on it) with changes on top, `<revision>+dirty`.
    */
   tested: string | null;
-  /** Null: it wasn't a golden yet, or wasn't tested at that revision. */
+  /** Null: it wasn't a golden yet, or wasn't tested at that revision. An inconclusive result reads as `fail`: it didn't pass. */
   result: 'pass' | 'fail' | null;
+  /** How it came out there, inconclusive told apart; null as for `result`. */
+  verdict: GoldenVerdict | null;
+  /** Its attempts there, passes of attempts: the pass rate a cell is shaded by. Null as for `result`, or when it couldn't run. */
+  rate: Tally | null;
+  /** Its gate against history failed there: a drop from its baseline (a ring). */
+  dropped: boolean;
   /** Why it failed, for the hover. */
   note: string | null;
   /** `test --update` re-recorded it there (the ring). */
@@ -118,13 +162,16 @@ export interface GoldenRow {
    */
   source: { kind: 'run'; runId: string } | { kind: 'pack'; packedAt: number | null };
   mode: 'replay' | 'fork';
-  /** `replay`, or `fork ×5`. */
+  /** `replay`, `fork ×5`, or with a gate `fork · gate` or `fork · history`. */
   modeLabel: string;
   /** What the mode means, for the hover. */
   modeHint: string;
+  /** Its gate under `tests`, or null. */
+  gate: GateView | null;
   checks: string[];
   history: HistoryCell[];
-  last: { result: 'pass' | 'fail' | null; failure: TestFailure | null; line: string; at: number | null; updated: boolean };
+  /** `verdict` tells inconclusive apart (`result` reads it as `fail`); `gate`, what its gate decided, for a golden with one. */
+  last: { result: 'pass' | 'fail' | null; verdict: GoldenVerdict | null; failure: TestFailure | null; line: string; at: number | null; updated: boolean; gate: GateResultView | null };
   /** The run a row opens: its latest replay when the store still has it, else the recording. */
   runId: string | null;
   error: string | null;
@@ -262,6 +309,18 @@ export interface FailureView {
   unreadable: string | null;
 }
 
+/** A golden whose last result is inconclusive: why, what its gate saw, and how to settle it. */
+export interface InconclusiveView {
+  golden: string;
+  name: string;
+  runId: string | null;
+  reason: string;
+  checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
+  details: string | null;
+  /** What its gate decided; null when a check couldn't be judged instead. */
+  gate: GateResultView | null;
+}
+
 export interface TestsView {
   /** No goldens: the empty state, with the pack command. */
   empty: boolean;
@@ -273,6 +332,8 @@ export interface TestsView {
   rows: GoldenRow[];
   divergences: DivergenceView[];
   failures: FailureView[];
+  /** Goldens whose last result is inconclusive, apart from the failures: Run more attempts settles a gate's. */
+  inconclusive: InconclusiveView[];
   /** Goldens whose last result diverged: Update goldens… lists them. */
   diverged: string[];
   /**
@@ -398,9 +459,10 @@ function divergenceOf(r: TestResult): DivergenceReport | null {
   return report;
 }
 
-/** Why a result failed, in a few words: `diverged at call 1`, `check failed: send_email called 0 times`. */
+/** Why a result failed, in a few words: `diverged at call 1`, `check failed: send_email called 0 times`, `inconclusive after 40 attempts`. */
 export function shortReason(r: TestResult): string {
   if (r.ok) return 'passed';
+  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate ? `inconclusive after ${r.data.gate.attempts} attempts` : 'inconclusive: a check could not be judged';
   const reason = r.reason ?? 'failed';
   if (r.failure === 'diverged') {
     const d = r.data?.divergence;
@@ -426,6 +488,8 @@ function causeOf(r: TestResult, d: DivergenceReport, normalizers: readonly Norma
 /** The line under a golden's last result: what it did, or why it failed; `normalizers` are the config's now. */
 export function resultLine(r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
   const data = r.data ?? {};
+  // A gate's verdict is its sentence, passed, failed or inconclusive, with the tally beside it.
+  if (data.gate && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit')) return `${data.gate.sentence} · ${formatTally(data.gate)}`;
   if (!r.ok) {
     if (r.failure === 'diverged') {
       const d = divergenceOf(r);
@@ -447,7 +511,8 @@ export function resultLine(r: TestResult, checks: readonly string[], normalizers
     parts.push(n ? `${n === 1 ? 'check' : 'checks'} passed` : data.calls ? `${data.calls.replayed}/${data.calls.total} replayed` : 'exited 0');
     return parts.join(' · ');
   }
-  if (data.attempts) {
+  // Every result keeps its attempts now; one attempt reads as the replay it was.
+  if (data.attempts && data.attempts.total > 1) {
     parts.push(`${data.attempts.passed} of ${data.attempts.total} attempts passed ${n === 1 ? 'the check' : n === 2 ? 'both checks' : n ? `all ${n} checks` : ''}`.trim());
   } else if (data.divergence) {
     parts.push(`${data.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${data.divergence.callNo}`);
@@ -462,9 +527,32 @@ export function resultLine(r: TestResult, checks: readonly string[], normalizers
 }
 
 const modeOf = (g: GoldenSource) =>
-  g.mode === 'fork'
-    ? { label: g.repeat > 1 ? `fork ×${g.repeat}` : 'fork', hint: `allowed to fork; passes on its checks${g.repeat > 1 ? `, ${g.passes} of ${g.repeat} attempts` : ''}` }
-    : { label: 'replay', hint: 'must send exactly the requests it recorded' };
+  g.mode === 'fork' && g.gate
+    ? { label: g.gate.kind === 'sprt' ? 'fork · gate' : 'fork · history', hint: `allowed to fork; passes on its checks, decided by its gate: ${describeGate(g.gate)}` }
+    : g.mode === 'fork'
+      ? { label: g.repeat > 1 ? `fork ×${g.repeat}` : 'fork', hint: `allowed to fork; passes on its checks${g.repeat > 1 ? `, ${g.passes} of ${g.repeat} attempts` : ''}` }
+      : { label: 'replay', hint: 'must send exactly the requests it recorded' };
+
+/** A golden's gate in the words Settings previews it in, with what it costs at the extremes. */
+function gateView(gate: Gate | null | undefined): GateView | null {
+  if (!gate) return null;
+  return { gate, description: describeGate(gate), toPass: gate.kind === 'sprt' ? attemptsToPass(gate) : null, toFail: gate.kind === 'sprt' ? attemptsToFail(gate) : null };
+}
+
+/**
+ * What a result's gate decided, as the screen shows it: the tally, what an attempt cost, and for an
+ * inconclusive one, Run more attempts with twice the limit.
+ */
+export function gateResultView(r: TestResult, golden: string): GateResultView | null {
+  const g = r.data?.gate;
+  if (!g) return null;
+  const spent = r.data?.spent;
+  const perAttempt = typeof spent === 'number' && spent > 0 && g.attempts > 0 ? spent / g.attempts : null;
+  const limit = g.kind === 'sprt' ? g.max : g.min;
+  const raised = Math.min(GATE_MAX_ATTEMPTS, limit * 2);
+  const more = g.decision === 'inconclusive' && raised > limit && !optionLike(golden) ? { args: ['test', golden, '--max-attempts', String(raised)], attempts: raised } : null;
+  return { ...g, tally: formatTally(g), perAttempt, more };
+}
 
 const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun(runId) ? runId : null);
 
@@ -752,6 +840,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       mode: g.mode,
       modeLabel: mode.label,
       modeHint: mode.hint,
+      gate: gateView(g.gate),
       checks: g.checks,
       history: revisions.map((rev) => {
         // Its own column's sessions, and a session that ran only some goldens there, or on that
@@ -759,11 +848,22 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
         const here = list.filter((x) => (sessionsView.columnOf.has(x.sessionId) ? sessionsView.columnOf.get(x.sessionId) : columnOfRevision(x.revision, columns)) === rev);
         // The newest result there, ringed when any session there updated it: a run after the update keeps the ring.
         const r = here[0] ?? null;
-        return { revision: rev, tested: r?.revision ?? null, result: r ? (r.ok ? 'pass' : 'fail') : null, note: r ? cellNote(store, r, g.checks, rules) : null, updated: here.some((x) => !!x.data?.updated), runId: r ? runIfKept(store, r.runId) : null, at: r?.at ?? null };
+        return {
+          revision: rev,
+          tested: r?.revision ?? null,
+          result: r ? (r.ok ? 'pass' : 'fail') : null,
+          verdict: r ? verdictOfResult(r) : null,
+          rate: r ? attemptsOf(r) : null,
+          dropped: !!r && r.data?.gate?.kind === 'baseline' && r.data.gate.decision === 'fail',
+          note: r ? cellNote(store, r, g.checks, rules) : null,
+          updated: here.some((x) => !!x.data?.updated),
+          runId: r ? runIfKept(store, r.runId) : null,
+          at: r?.at ?? null,
+        };
       }),
       last: latest
-        ? { result: latest.ok ? 'pass' : 'fail', failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated }
-        : { result: null, failure: null, line: error ? `can't be read: ${error}` : 'not run yet', at: null, updated: false },
+        ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path) }
+        : { result: null, verdict: null, failure: null, line: error ? `can't be read: ${error}` : 'not run yet', at: null, updated: false, gate: null },
       runId: runIfKept(store, latest?.runId ?? null) ?? sourceRun,
       error,
     };
@@ -771,10 +871,16 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
 
   const divergences: DivergenceView[] = [];
   const failures: FailureView[] = [];
+  const inconclusive: InconclusiveView[] = [];
   const answers = bisectAnswers(store);
   for (const row of rows) {
     const latest = latestOf.get(row.path);
     if (!latest || latest.ok) continue;
+    // Neither passed nor failed: nothing to bisect or fix, only attempts to add.
+    if (verdictOfResult(latest) === 'inconclusive') {
+      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: latest.reason ?? 'inconclusive', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: row.last.gate });
+      continue;
+    }
     const past = store.listTestResults({ golden: row.path, limit: 1000 });
     // A pack that can't be read can't be bisected either.
     const bisect = row.error ? null : bisectFor(row.path, past, latest, row.mode === 'fork', row.checks);
@@ -819,14 +925,17 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
   const lastResults = goldens.map((g) => latestOf.get(g.path)).filter((r): r is TestResult => r !== undefined);
   const shown = sessionsView.shown;
   if (shown && lastResults.length) {
-    const failed = lastResults.filter((r) => !r.ok);
-    const first = failed[0] ?? null;
+    const failed = lastResults.filter((r) => verdictOfResult(r) === 'failed');
+    const unsure = lastResults.filter((r) => verdictOfResult(r) === 'inconclusive');
+    // The title names the first failure, else the first inconclusive one.
+    const first = failed[0] ?? unsure[0] ?? null;
     const total = goldens.length;
-    const passing = lastResults.length - failed.length;
+    const passing = lastResults.length - failed.length - unsure.length;
     const untested = total - lastResults.length;
     verdict = {
-      state: failed.length ? 'failing' : 'passing',
+      state: failed.length ? 'failing' : unsure.length ? 'inconclusive' : 'passing',
       failing: failed.length,
+      inconclusive: unsure.length,
       passing,
       untested,
       // One golden: "All 1 goldens pass" isn't English.
@@ -848,6 +957,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     rows,
     divergences,
     failures,
+    inconclusive,
     diverged,
     running: live ? sessionView(store, live) : null,
     commands: {
@@ -883,6 +993,8 @@ export interface TestsSummary {
   passing: number;
   /** Goldens whose last result failed: the regressions caught. */
   failing: number;
+  /** Goldens whose last result is inconclusive, counted apart from both. */
+  inconclusive: number;
   /** Goldens never tested yet. */
   untested: number;
   /** `2 regressions caught`, `no regressions`, or `no goldens yet`. */
@@ -902,7 +1014,8 @@ export function testsSummary(store: Store, options: { goldens: GoldenList; now?:
   const latest = latestResults(store, options.goldens);
   const total = new Set(options.goldens.map(pathOf)).size;
   const passing = [...latest.values()].filter((r) => r.ok).length;
-  const failing = latest.size - passing;
+  const inconclusive = [...latest.values()].filter((r) => verdictOfResult(r) === 'inconclusive').length;
+  const failing = latest.size - passing - inconclusive;
   const session = store.listTestSessions({ limit: 1, withResults: true })[0] ?? null;
   const weekAgo = latestResults(store, options.goldens, options.weekStart ?? now - 7 * 24 * 60 * 60 * 1000);
   return {
@@ -910,6 +1023,7 @@ export function testsSummary(store: Store, options: { goldens: GoldenList; now?:
     total,
     passing,
     failing,
+    inconclusive,
     untested: Math.max(0, total - latest.size),
     line: total === 0 ? 'no goldens yet' : failing ? `${plural(failing, 'regression')} caught` : 'no regressions',
     lastRunAt: session ? lastActive(store, session) : null,
@@ -922,16 +1036,18 @@ export function testsSummary(store: Store, options: { goldens: GoldenList; now?:
  * goldens with a result, how many pass, how many passed when this week started, the regressions
  * caught, and when the tests last ran. Null when there are no goldens yet.
  */
-export function overviewTests(store: Store, asOf: { now: number; weekStart: number }, options: { goldens: GoldenList }): { goldens: number; passing: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
+export function overviewTests(store: Store, asOf: { now: number; weekStart: number }, options: { goldens: GoldenList }): { goldens: number; passing: number; inconclusive: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
   const s = testsSummary(store, { goldens: options.goldens, now: asOf.now, weekStart: asOf.weekStart });
   if (s.empty) return null;
-  return { goldens: s.total, passing: s.passing, lastWeek: s.lastWeek ? s.lastWeek.passing : null, regressions: s.failing, lastRunAt: s.lastRunAt };
+  return { goldens: s.total, passing: s.passing, inconclusive: s.inconclusive, lastWeek: s.lastWeek ? s.lastWeek.passing : null, regressions: s.failing, lastRunAt: s.lastRunAt };
 }
 
 export interface FailingTest {
   golden: string;
-  /** For Needs a look: `A test failed: refund-in-limit`. */
+  /** For Needs a look: `A test failed: refund-in-limit`, or `A test is inconclusive: refund-over-limit`. */
   title: string;
+  /** Failed, or inconclusive: Needs a look lists both, told apart. */
+  verdict: 'failed' | 'inconclusive';
   /** Why: `diverged at call 1 · $.metadata.user_id looks like a UUID`. */
   line: string;
   failure: TestFailure;
@@ -950,7 +1066,8 @@ export function failingTests(store: Store, options: { goldens: GoldenList; folde
     .sort((a, b) => b.at - a.at)
     .map((r) => {
       const runId = runIfKept(store, r.runId);
-      return { golden: r.golden, title: `A test failed: ${nameOf(r.golden, folder)}`, line: lineOf(store, r, checksOf.get(r.golden) ?? [], options.normalizers ?? []), failure: r.failure ?? 'error', runId, href: runId ? `#/run/${runId}` : '#/tests', at: r.at };
+      const verdict = verdictOfResult(r) === 'inconclusive' ? 'inconclusive' : 'failed';
+      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line: lineOf(store, r, checksOf.get(r.golden) ?? [], options.normalizers ?? []), failure: r.failure ?? 'error', runId, href: verdict === 'inconclusive' ? '#/tests' : runId ? `#/run/${runId}` : '#/tests', at: r.at };
     });
 }
 
@@ -1190,14 +1307,23 @@ export function checkedRevision(raw: unknown): string | null {
   return REVISION.test(rev) && !rev.includes('..') ? rev : null;
 }
 
-/** Run tests: every golden (`test goldens/*` and any kept elsewhere), or the one `golden` names. */
+/**
+ * Run tests: every golden (`test goldens/*` and any kept elsewhere), or the one `golden` names.
+ * `maxAttempts` is Run more attempts: each gate's limit raised for this session only (`--max-attempts`).
+ */
 export function runTestsJob(goldens: readonly GoldenSource[], req: Record<string, unknown>, options: TestsOptions = {}): TestsJob {
+  let more: string[] = [];
+  if (req.maxAttempts !== undefined) {
+    const n = req.maxAttempts;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > GATE_MAX_ATTEMPTS) return { error: `maxAttempts is a whole number from 1 to ${GATE_MAX_ATTEMPTS}` };
+    more = ['--max-attempts', String(n)];
+  }
   if (req.golden !== undefined) {
     const golden = knownGolden(goldens, req.golden);
-    return golden ? { title: 'Running the tests', args: ['test', golden] } : { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };
+    return golden ? { title: more.length ? 'Running more attempts' : 'Running the tests', args: ['test', golden, ...more] } : { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };
   }
   if (!goldens.length) return { error: `no goldens yet: pack a run you consider correct into ${options.folder ?? 'goldens'}/ first` };
-  return { title: 'Running the tests', args: ['test', ...testPatterns(goldens, options.folder)] };
+  return { title: 'Running the tests', args: ['test', ...testPatterns(goldens, options.folder), ...more] };
 }
 
 /** Update golden, or Update goldens… for several: each re-recorded live with writes stubbed, and replaced only when its checks pass. */

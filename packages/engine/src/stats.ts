@@ -501,7 +501,7 @@ export interface BaselineEvidence {
   kind: 'baseline';
   /** The history pooled, or null when there is none and the baseline is a golden that always passes. */
   history: GateHistory | null;
-  /** The baseline's pass rate: its posterior mean, or 1 without history. */
+  /** The baseline's pass rate as pooled (passes over attempts), or 1 without history. The decision weighs its whole posterior. */
   baseline: number;
   /** P(now < baseline − drop) once it decided, or null before `min` attempts. */
   probability: number | null;
@@ -509,9 +509,8 @@ export interface BaselineEvidence {
   threshold: number;
 }
 
-/** A gate's verdict as every report keeps it: the CLI's, the JSON's, the store's and the dashboard's. */
-export interface GateResult {
-  gate: Gate;
+/** What a gate made of its attempts. */
+export interface GateOutcome {
   decision: GateDecision;
   passes: number;
   attempts: number;
@@ -524,6 +523,17 @@ export interface GateResult {
   clean: boolean;
   /** The one sentence: `passed: at least 90% with 95% confidence after 12 attempts`. */
   sentence: string;
+}
+
+/**
+ * A gate's verdict as every report keeps it (the CLI's, the JSON's, the store's and the
+ * dashboard's): the gate's own figures, then what it made of its attempts.
+ */
+export type GateResult = Gate & GateOutcome;
+
+/** The gate a result was decided by, without what it made of the attempts. */
+export function gateOf(r: Gate): Gate {
+  return r.kind === 'sprt' ? { kind: 'sprt', good: r.good, bad: r.bad, risk: r.risk, max: r.max } : { kind: 'baseline', drop: r.drop, risk: r.risk, window: r.window, min: r.min };
 }
 
 /** The largest k a report lists pass^k for. */
@@ -555,14 +565,12 @@ export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { histor
     evidence = {
       kind: 'baseline',
       history: history ? { passes: history.passes, attempts: history.attempts, sessions: 'sessions' in history ? history.sessions : 0 } : null,
-      baseline: history ? (1 + history.passes) / (2 + history.attempts) : 1,
+      baseline: history ? history.passes / history.attempts : 1,
       probability: attempts >= gate.min || clean ? dropProbability({ passes, attempts }, history, gate.drop) : null,
       threshold: 1 - gate.risk,
     };
   }
-  const result: GateResult = { gate, decision, passes, attempts, interval: { ...w, confidence }, passK, evidence, clean, sentence: '' };
-  result.sentence = gateSentence(result);
-  return result;
+  return { ...gateOf(gate), decision, passes, attempts, interval: { ...w, confidence }, passK, evidence, clean, sentence: gateSentence(gate, { decision, attempts, clean, evidence }) };
 }
 
 /** The verdict word a decision reads as: passed, failed, inconclusive; one still going reads as undecided. */
@@ -580,11 +588,10 @@ function baselineWords(e: BaselineEvidence): string {
  * The one sentence every report says: `passed: at least 90% with 95% confidence after 12 attempts`,
  * `failed: at most 70% with 95% confidence after 3 attempts`, `inconclusive: …`.
  */
-export function gateSentence(r: Pick<GateResult, 'gate' | 'decision' | 'attempts' | 'clean' | 'evidence'>): string {
+export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'attempts' | 'clean' | 'evidence'>): string {
   const word = decisionWord(r.decision);
   const after = `after ${plural(r.attempts, 'attempt')}`;
   if (r.clean) return `${word}: a clean replay comes out the same every time, so its one attempt settles it`;
-  const g = r.gate;
   const confidence = percent(1 - g.risk);
   if (g.kind === 'sprt') {
     if (r.decision === 'pass') return `passed: at least ${percent(g.good)} with ${confidence} confidence ${after}`;

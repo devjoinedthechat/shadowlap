@@ -282,9 +282,11 @@ function Verdict({ view, running }: { view: TestsView; running: boolean }) {
   }
   const line = sessionLine(view, running)!;
   const failing = v.state === 'failing';
+  // Inconclusive goldens, and none failing: amber, neither passing nor failing.
+  const unsure = v.state === 'inconclusive';
   return (
-    <div className={`verdict tv ${failing ? 'no' : 'ok'}`}>
-      <Badge tone={failing ? 'no' : 'ok'}>{failing ? `${v.failing} failing` : 'passing'}</Badge>
+    <div className={`verdict tv ${failing ? 'no' : unsure ? 'warn' : 'ok'}`}>
+      <Badge tone={failing ? 'no' : unsure ? 'y' : 'ok'}>{failing ? `${v.failing} failing` : unsure ? `${v.inconclusive} inconclusive` : 'passing'}</Badge>
       <div>
         <h2>{v.title}</h2>
         <p>
