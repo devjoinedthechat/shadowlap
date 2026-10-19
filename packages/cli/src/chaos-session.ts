@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { hasRecordedCommand, parsePresets, resolveAuthor, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
+import { hasRecordedCommand, parsePresets, recordEvent, resolveAuthor, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
 import { chaosFor, DEFAULT_CHAOS, type ChaosSpec } from './chaos-config.js';
 import { chaosJunit, chaosMarkdown, chaosReport, chaosTotals, formatPresets, runPresets, type ChaosRecordingResult, type PresetOutcome } from './chaos.js';
 import { parseExpect, specFor, type TestSpec } from './checks.js';
@@ -40,6 +40,7 @@ function withFlags(chaos: ChaosSpec, flags: ChaosFlags): ChaosSpec {
 interface Session {
   store: Store;
   id: string;
+  actor: string | null;
   revision: string | null;
   presets: ChaosPreset[];
   stopped: () => boolean;
@@ -50,7 +51,8 @@ interface Session {
 /** Starts a session in the store, and listens for Ctrl-C: the attempt running then is cut short, and nothing after it runs. */
 function startSession(store: Store, command: string[], presets: ChaosPreset[], cwd: string): Session {
   const revision = codeVersion(cwd);
-  const session = store.startChaosSession({ command, presets, revision, actor: resolveAuthor({ cwd: process.cwd() }) });
+  const actor = resolveAuthor({ cwd: process.cwd() });
+  const session = store.startChaosSession({ command, presets, revision, actor });
   let signal = null as NodeJS.Signals | null;
   const onSignal = (sig: NodeJS.Signals) => {
     if (signal) return;
@@ -62,6 +64,7 @@ function startSession(store: Store, command: string[], presets: ChaosPreset[], c
   return {
     store,
     id: session.sessionId,
+    actor,
     revision,
     presets,
     stopped: () => signal !== null,
@@ -86,6 +89,10 @@ async function endSession(s: Session, results: ChaosRecordingResult[], flags: Ch
   } catch (err) {
     process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept: ${(err as Error).message}\n`));
   }
+  // The activity feed's line: on one run, that run; on goldens, how many.
+  const ran = results.filter((r) => r.runId);
+  const one = ran.length === 1 && !ran[0]!.golden ? ran[0]!.runId : null;
+  recordEvent(s.store, { kind: 'chaos.session', actor: s.actor, ref: s.id, ...(one ? { runId: one } : {}), data: { passed: report.passed, failed: report.failed, inconclusive: report.inconclusive, notApplicable: report.notApplicable, goldens: results.filter((r) => r.golden).length, revision: s.revision, ...(interrupted ? { interrupted: true } : {}) } });
   try {
     s.store.close();
   } catch {

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store, type StoredCoverageGroup } from '@shadowlap/engine';
+import { recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
 import { coveragePackArgs, coverageView, type CoverageView } from '../src/coverage.js';
@@ -72,6 +72,10 @@ beforeAll(async () => {
   store.addChaosResult({ sessionId: 'X1', runId: golden, golden: 'goldens/forecast', preset: 'malformed', verdict: 'failed', callNo: 3, passes: 0, attempts: 1, at: T0 + 4, data: { target: { kind: 'tool', name: 'get_forecast' }, detail: 'get_forecast (#3) answered malformed JSON: the agent exited with code 1', reason: 'the agent exited with code 1', runs: [{ runId: attempt, passed: false, exitCode: 1, lastLine: 'SyntaxError: x' }] } });
   store.addChaosResult({ sessionId: 'X1', runId: golden, golden: 'goldens/forecast', preset: 'timeout', verdict: 'not-applicable', callNo: null, at: T0 + 3, data: { detail: 'the recording makes no tool call' } });
   store.finishChaosSession('X1', { passed: 1, failed: 1, inconclusive: 0, upstreamRequests: 3, endedAt: T0 + 6 });
+
+  recordEvent(store, { kind: 'coverage.scanned', ref: 'S1', at: T0, data: { runs: 3, groups: 2, uncovered: 1, goldens: 1, packed: 1 } });
+  recordEvent(store, { kind: 'chaos.session', ref: 'X1', at: T0 + 6, data: { passed: 1, failed: 1, inconclusive: 0, notApplicable: 1, goldens: 1 } });
+  recordEvent(store, { kind: 'chaos.session', ref: 'X2', runId: golden, at: T0 + 7, data: { passed: 2, failed: 0, inconclusive: 1, notApplicable: 0, goldens: 0, interrupted: true } });
 
   const goldens: GoldenSource[] = [{ path: 'goldens/forecast', runId: golden, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
   const spawnCli = (args: string[]) => {
@@ -143,6 +147,16 @@ describe('production coverage', () => {
   it('counts coverage --pack as running the agent from the working tree, and a scan as not', () => {
     expect(treeUse([['coverage', '--pack', 'aaaa']])).toMatchObject({ use: 'reads', verb: 'pack' });
     expect(treeUse([['coverage']])).toBeNull();
+  });
+});
+
+describe('the activity feed', () => {
+  it('words a coverage scan and a presets session', async () => {
+    const page = await getJson<{ items: Array<{ kind: string; text: string; href?: string }> }>('activity?limit=10');
+    expect(page.items.find((i) => i.text.startsWith('Coverage read'))).toMatchObject({ kind: 'test', text: 'Coverage read · 1 behaviour without a golden · 1 golden packed', href: '#/tests' });
+    expect(page.items.find((i) => i.text === 'Error-path presets ran · 1 passed, 1 failed')).toMatchObject({ kind: 'fail', href: '#/tests' });
+    // A session on one run, stopped part way: it opens the run.
+    expect(page.items.find((i) => i.text === 'Error-path presets stopped · 2 passed, 0 failed, 1 inconclusive')).toMatchObject({ kind: 'test', href: `#/run/${golden}` });
   });
 });
 

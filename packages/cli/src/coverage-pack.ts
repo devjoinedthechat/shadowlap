@@ -19,6 +19,7 @@ import {
   type SerializedError,
 } from '@shadowlap/engine';
 import { logActivity } from './activity.js';
+import { lastLine } from './chaos.js';
 import { type ShadowlapConfig } from './config.js';
 import { type PackJson } from './coverage.js';
 import { GOLDENS_FOLDER } from './goldens.js';
@@ -206,14 +207,12 @@ export interface PackContext {
 export async function packGroup(group: CoverageGroup, members: ReadonlyMap<string, RunRecord>, o: PackContext): Promise<PackJson> {
   const folder = o.folder ?? GOLDENS_FOLDER;
   const offline = Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
-  const tried: string[] = [];
   const candidates = group.runIds.map((id) => members.get(id) ?? o.store.getRun(id)).filter((r): r is RunRecord => !!r).slice(0, CANDIDATES);
   if (!candidates.length) return { key: group.key, golden: null, runId: null, from: null, command: null, why: 'its runs are no longer in the store' };
   let last: PackJson | null = null;
   for (const capture of candidates) {
     const command = o.argv?.length ? { argv: o.argv, from: '--' } : inferCommand(o.store, capture);
     if (!command) {
-      tried.push(capture.runId);
       last = { key: group.key, golden: null, runId: null, from: capture.runId, command: null, why: `no command: no recording in this store sent ${capture.runId.slice(0, 10)}'s first request, so nothing says what starts the agent; give its command after --` };
       continue;
     }
@@ -240,8 +239,8 @@ export async function packGroup(group: CoverageGroup, members: ReadonlyMap<strin
       const s = attempt.ended.summary;
       if (s.divergence || attempt.code !== 0) {
         const where = s.divergence ? divergenceLine(s.divergence) : `the agent exited with code ${attempt.code}`;
-        const tail = attempt.output.trim().split('\n').slice(-1)[0];
-        last = { key: group.key, golden: null, runId: null, from: capture.runId, command, why: `${safeLine(quoteArgv(command.argv))} doesn't reproduce ${capture.runId.slice(0, 10)}: ${where}${!s.divergence && tail ? ` (${safeLine(tail).slice(0, 160)})` : ''}` };
+        const said = s.divergence ? null : lastLine(attempt.output);
+        last = { key: group.key, golden: null, runId: null, from: capture.runId, command, why: `${safeLine(quoteArgv(command.argv))} doesn't reproduce ${capture.runId.slice(0, 10)}: ${where}${said ? ` (${said})` : ''}` };
         continue;
       }
       const rel = goldenDir(o.projectDir, folder, group);

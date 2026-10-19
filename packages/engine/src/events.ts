@@ -42,6 +42,10 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  *   pullRequest? }, or { pushed, updated, refused, queued: true } for runs pushed when they ended;
  *   `store.pulled`: ref the bucket; data { pulled, merged, failed, byAuthor, pullRequests? }
  * - `run.shared`: runId, ref the report's key in the bucket; data { runs, redacted, expiresAt, pullRequest? }
+ * - `coverage.scanned`: ref the scan; data { runs, groups, uncovered, goldens, packed? }: `shadowlap coverage`
+ *   read the imported runs, and with `--pack` made `packed` goldens
+ * - `chaos.session`: ref the session (runId the run, for `replay --chaos`); data { passed, failed,
+ *   inconclusive, notApplicable, goldens, revision, interrupted? }: the error-path presets ran
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

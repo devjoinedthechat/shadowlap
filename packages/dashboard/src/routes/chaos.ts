@@ -1,4 +1,5 @@
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from '@shadowlap/engine';
+import { describeEvent } from '../activity.js';
 import { lookupRun } from '../api.js';
 import { chaosFlags, chaosOfRun, chaosView } from '../chaos.js';
 import type { RouteContext } from '../context.js';
@@ -15,6 +16,15 @@ import type { Router } from '../router.js';
  *                                                   from a pack or the team store runs only confirmed
  */
 export const CHAOS_JOB_KIND = 'chaos';
+
+const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+// The activity feed: a session of presets, by how they came out; on one run, it opens that run.
+describeEvent('chaos.session', (e, d) => {
+  const failed = count(d.failed);
+  const parts = [`${count(d.passed)} passed`, `${failed} failed`, ...(count(d.inconclusive) ? [`${count(d.inconclusive)} inconclusive`] : [])];
+  return { kind: failed ? 'fail' : 'test', text: `Error-path presets ${d.interrupted === true ? 'stopped' : 'ran'} · ${parts.join(', ')}`, href: e.runId ? `#/run/${e.runId}` : '#/tests' };
+});
 
 export function register(router: Router, ctx: RouteContext): void {
   router.get('/chaos', (r) => r.tagged(chaosView(ctx.store)));

@@ -58,9 +58,16 @@ export interface CoverageScanResult {
   commands: Map<string, { argv: string[]; from: string } | null>;
 }
 
-/** The runs coverage reads: captures and traces, as the run list calls them (`capture`), that have ended. */
+/**
+ * The runs coverage reads: captures and traces, as the run list calls them (`capture`: a recording
+ * that declares what it covers), that have ended. Picked out in SQL, so a store of many runs reads
+ * only these.
+ */
 export function importedRuns(store: Store): RunRecord[] {
-  return store.allRuns().filter((r) => r.status !== 'running' && runKind(r) === 'capture');
+  const rows = store.query(
+    `SELECT run_id FROM runs WHERE mode = 'record' AND status <> 'running' AND json_valid(meta) AND json_type(meta, '$.covers') = 'array' AND json_array_length(meta, '$.covers') > 0 ORDER BY started_at ASC, run_id ASC`,
+  );
+  return rows.map((r) => store.getRun(String(r.run_id))).filter((r): r is RunRecord => r !== null && runKind(r) === 'capture');
 }
 
 /** Reads a golden's pack into a store of its own, in memory, as `test` would import it, and says what its recording did. */

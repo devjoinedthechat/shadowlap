@@ -8,6 +8,7 @@
 //
 //   AGENT_OUTBOX=…   file the write tool appends to, so a test can see what really executed
 //   AGENT_SAFE=1     parse the forecast in a try, so malformed JSON doesn't crash it either
+//   AGENT_SLEEP_MS=… wait this long before answering, for a test that stops it part way
 import { appendFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { tool } from '@shadowlap/sdk';
@@ -43,6 +44,7 @@ function readForecast(text) {
 }
 
 const client = new Anthropic({ apiKey: 'k', maxRetries: 0 });
+if (process.env.AGENT_SLEEP_MS) await new Promise((r) => setTimeout(r, Number(process.env.AGENT_SLEEP_MS)));
 const city = process.argv[2] ?? 'Lisbon';
 const messages = [{ role: 'user', content: `What is the weather in ${city}? Alert the subscribers if it is above 20°.` }];
 try {

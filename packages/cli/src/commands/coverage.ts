@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { resolveAuthor, type CoverageGroup } from '@shadowlap/engine';
+import { recordEvent, resolveAuthor, type CoverageGroup } from '@shadowlap/engine';
 import { loadConfig, loadTests } from '../config.js';
 import { coverageJson, findGroup, formatCoverage, scanCoverage, shortPath, type PackJson } from '../coverage.js';
 import { packGroup } from '../coverage-pack.js';
@@ -65,6 +65,8 @@ export function register(program: Command): void {
           if (packed.size) result = scanCoverage(store, { projectDir, tests, config, actor, packed });
           if (!flags.json && targets.length) process.stdout.write('\n');
         }
+        // The activity feed's line: what the last scan found, and the goldens it packed.
+        recordEvent(store, { kind: 'coverage.scanned', actor, ref: result.scan.scanId, data: { runs: result.scan.runs, groups: result.scan.groups, uncovered: result.scan.uncovered, goldens: result.scan.goldens, ...(pack ? { packed: pack.filter((x) => x.golden).length } : {}) } });
         const json = coverageJson(result, pack);
         if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
         else process.stdout.write(formatCoverage(result, p) + '\n');

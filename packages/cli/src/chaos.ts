@@ -197,7 +197,10 @@ export async function runPresets(parent: RunRecord, counts: Pick<TestSpec, 'repe
     let decision: GateDecision = 'continue';
     let unreached: string | null = null;
     while (decision === 'continue') {
-      if (ctx.stopped?.()) break;
+      if (ctx.stopped?.()) {
+        interrupted = true;
+        break;
+      }
       const attempt: TestAttempt = await testAttempt(ctx.store, parent, {
         cwd: ctx.cwd,
         upstreams: upstreamOverrides(process.env),

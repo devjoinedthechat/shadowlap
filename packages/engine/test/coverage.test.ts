@@ -112,7 +112,8 @@ describe('coverage groups', () => {
   });
 
   it('keys a behaviour by its path, writes and ending, not by what the effects left unknown', () => {
-    expect(behaviourKey(refundPath)).toBe(behaviourKey({ ...refundPath, unknown: ['issue_refund'] }));
+    const unknownEffect: Behaviour = { ...refundPath, unknown: ['issue_refund'] };
+    expect(behaviourKey(refundPath)).toBe(behaviourKey(unknownEffect));
     expect(behaviourKey(refundPath)).not.toBe(behaviourKey({ ...refundPath, outcome: 'model-error' }));
     expect(behaviourKey(refundPath)).toMatch(/^[0-9a-f]{16}$/);
   });

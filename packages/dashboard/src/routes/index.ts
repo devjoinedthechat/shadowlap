@@ -2,9 +2,6 @@ import type { RouteContext } from '../context.js';
 import type { Router } from '../router.js';
 import * as activity from './activity.js';
 import * as changes from './changes.js';
-// Error-path presets and production coverage: their results, read models and jobs.
-import * as chaos from './chaos.js';
-import * as coverage from './coverage.js';
 import * as compare from './compare.js';
 import * as files from './files.js';
 import * as fixes from './fixes.js';
@@ -24,6 +21,9 @@ import * as imports from './imports.js';
 import * as overview from './overview.js';
 import * as runsList from './runs-list.js';
 import * as teamStore from './store.js';
+// Error-path presets and production coverage: their results, read models and jobs.
+import * as chaos from './chaos.js';
+import * as coverage from './coverage.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
 export interface RouteModule {

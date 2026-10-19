@@ -2,7 +2,7 @@
 
 Global options: `--db <path>` (default `./.shadowlap/shadowlap.db`), `-v` / `--verbose` (sidecar log on stderr), given before the command or after it: `shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Each command's `--help` lists them. Run ids can be abbreviated to any unique prefix.
 
-A store is created by the first command that records into it. Commands that only read it (`ls`, `show`, `search`, `diff`, `pack`, the exports, `fix ls`, `tasks`), or change only what it already holds (`label`, `note`, `rm`, `fix title`), never create one: where there is none they find nothing, and when the project's store is in a folder above (run from `src/`, say) they name it.
+A store is created by the first command that records into it. Commands that only read it (`ls`, `show`, `search`, `diff`, `pack`, the exports, `fix ls`, `tasks`, `coverage`), or change only what it already holds (`label`, `note`, `rm`, `fix title`), never create one: where there is none they find nothing, and when the project's store is in a folder above (run from `src/`, say) they name it.
 
 ## init
 

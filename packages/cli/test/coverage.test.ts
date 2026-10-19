@@ -160,6 +160,8 @@ describe('shadowlap coverage', () => {
         [true, ['goldens/escalate'], 1],
       ]);
       expect(groups[0]!.command).toEqual({ argv: [process.execPath, AGENT, 'B-7'], from: refundRun });
+      // The activity feed has a line for each scan.
+      expect(store.listEvents({ kinds: ['coverage.scanned'] })[0]).toMatchObject({ ref: scans[0]!.scanId, actor: 'dana@example.com', data: { runs: 3, groups: 2, uncovered: 1, goldens: 1 } });
     } finally {
       store.close();
     }

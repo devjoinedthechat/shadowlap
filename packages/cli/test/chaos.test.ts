@@ -132,6 +132,8 @@ describe('test --chaos', () => {
       expect(attempts).toHaveLength(6);
       for (const a of attempts) expect(classifyRun(a)).toMatchObject({ attemptKind: 'chaos', attemptOf: recording });
       expect(store.runCounts().attempts).toBeGreaterThanOrEqual(6);
+      // And the activity feed has its line.
+      expect(store.listEvents({ kinds: ['chaos.session'] })[0]).toMatchObject({ ref: out.session, data: { passed: 5, failed: 1, inconclusive: 0, notApplicable: 0, goldens: 1 } });
     } finally {
       store.close();
     }
@@ -189,6 +191,45 @@ describe('test --chaos', () => {
     expect(p.malformed).toMatchObject({ verdict: 'failed', passes: 0, attempts: 2 });
     expect(r.stdout).toContain('gate: pass at 90% or more, fail at 50% or less, at most 10% risk, up to 6 attempts');
   }, 180_000);
+});
+
+describe('a session stopped part way', () => {
+  it('keeps what finished, says it was interrupted, and exits as a shell reports the signal', async () => {
+    config({});
+    const result = await new Promise<{ code: number | null; out: string }>((resolve) => {
+      const child = spawn(process.execPath, [CLI, '--db', db(), 'test', 'goldens/forecast', '--chaos'], {
+        cwd: work,
+        env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(work, 'home'), AGENT_SLEEP_MS: '400' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let out = '';
+      let sent = false;
+      const listen = (d: Buffer) => {
+        out += d.toString();
+        // Once the second preset's replay has started, the first one has a result.
+        if (!sent && (out.match(/replaying run \w{26}/g) ?? []).length >= 2) {
+          sent = true;
+          child.kill('SIGINT');
+        }
+      };
+      child.stdout.on('data', listen);
+      child.stderr.on('data', listen);
+      child.on('exit', (code) => resolve({ code, out }));
+    });
+    expect(result.code, result.out).toBe(130);
+    expect(result.out).toContain('interrupted: the attempt running now stops, no preset after it runs');
+    const store = Store.open(db());
+    try {
+      const [session] = store.listChaosSessions();
+      expect(session).toMatchObject({ interrupted: true });
+      expect(session!.endedAt).not.toBeNull();
+      const kept = store.listChaosResults({ sessionId: session!.sessionId });
+      expect(kept.length).toBeGreaterThanOrEqual(1);
+      expect(kept.length).toBeLessThan(6);
+    } finally {
+      store.close();
+    }
+  }, 60_000);
 });
 
 describe('replay --chaos', () => {
