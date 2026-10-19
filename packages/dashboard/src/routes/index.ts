@@ -2,6 +2,9 @@ import type { RouteContext } from '../context.js';
 import type { Router } from '../router.js';
 import * as activity from './activity.js';
 import * as changes from './changes.js';
+// Error-path presets and production coverage: their results, read models and jobs.
+import * as chaos from './chaos.js';
+import * as coverage from './coverage.js';
 import * as compare from './compare.js';
 import * as files from './files.js';
 import * as fixes from './fixes.js';
@@ -54,6 +57,9 @@ export const ROUTE_MODULES: RouteModule[] = [
   projects,
   // Training: pairs, tasks, scores and the models to score (#/training).
   training,
+  // Error-path presets (a run's presets matrix) and production coverage (Tests' Not covered panel).
+  chaos,
+  coverage,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

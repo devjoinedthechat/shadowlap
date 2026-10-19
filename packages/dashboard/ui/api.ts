@@ -12,6 +12,7 @@ import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
+import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import { copyRunId } from './runs.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -65,6 +66,10 @@ export const JOB_KINDS = {
   pairs: 'pairs',
   score: 'score',
   taskUpdate: 'task-update',
+  // Error-path presets on a golden or a run, and production coverage: scan again, pack goldens.
+  chaos: 'chaos',
+  coverage: 'coverage',
+  coveragePack: 'coverage-pack',
 } as const;
 
 export class ApiError extends Error {
@@ -209,6 +214,14 @@ export interface Client {
   training(): Promise<TrainingView>;
   /** The models Score a model offers, each priced (`/api/models`). It asks providers, so it can take a second. */
   models(): Promise<ModelsView>;
+
+  // ---- Error-path presets and production coverage
+  /** The last coverage scan: what imported runs did, and which behaviours no golden covers (`/api/coverage`); null on a server without it. */
+  coverage(): Promise<CoverageView | null>;
+  /** Every recording's error-path presets, and the newest sessions (`/api/chaos`); null on a server without it. */
+  chaos(): Promise<ChaosView | null>;
+  /** One run's presets matrix, its recording's for a preset's attempt (`/api/chaos/runs/:id`); null when none ran. */
+  runChaos(id: string): Promise<ChaosMatrix | null>;
 }
 
 
@@ -422,6 +435,10 @@ export function createClient(token: string): Client {
     projects: projectsApi(request),
     training: () => request<TrainingView>('training'),
     models: () => request<ModelsView>('models'),
+    // A server without the routes answers 404: nothing to show, rather than an error.
+    coverage: () => request<CoverageView>('coverage').catch((err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
+    chaos: () => request<ChaosView>('chaos').catch((err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
+    runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, (err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
   };
 }
 
@@ -497,5 +514,8 @@ export function createExportedClient(data: StaticPayload): Client {
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
     models: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
+    coverage: () => Promise.resolve(null),
+    chaos: () => Promise.resolve(null),
+    runChaos: () => Promise.resolve(null),
   };
 }

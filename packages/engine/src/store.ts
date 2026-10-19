@@ -358,8 +358,9 @@ CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_update AFTER UPDATE ON team
 -- v4: coverage. What \`shadowlap coverage\` found when it last looked: the imported runs (captures
 -- and traces) grouped by behaviour (the tools the model called in order, the writes among them, how
 -- the run ended), each group with the goldens whose recordings behave the same way, as of that scan.
--- A scan replaces the groups of the one before; coverage_scans keeps every scan's totals. A group
--- \`--pack\` made a golden of says which. No foreign key on run ids: gc may delete a group's runs.
+-- A scan replaces the groups of the one before; coverage_scans keeps every scan's totals. A group no
+-- golden covers keeps the agent's command that would reproduce its newest run, when a recording here
+-- says it, and one \`--pack\` made a golden of says which. No foreign key on run ids: gc may delete them.
 CREATE TABLE IF NOT EXISTS coverage_scans (
   scan_id    TEXT    PRIMARY KEY,
   at         INTEGER NOT NULL,
@@ -382,6 +383,7 @@ CREATE TABLE IF NOT EXISTS coverage_groups (
   last_seen   INTEGER NOT NULL,
   covered_by  TEXT    NOT NULL,
   nearest     TEXT,
+  command     TEXT,
   packed      TEXT
 );
 INSERT OR IGNORE INTO change_counts (name, n) VALUES ('coverage', 0);
@@ -559,6 +561,8 @@ export interface StoredCoverageGroup {
   lastSeen: number;
   coveredBy: string[];
   nearest: { golden: string; shared: number; differs: { step: number; seen: string | null; golden: string | null } | null } | null;
+  /** For a group no golden covers: the command that would reproduce its newest run, and the recording that says so; null when none does. */
+  command: { argv: string[]; from: string } | null;
   /** The golden `coverage --pack` made of the group: its name, the run packed, when. */
   packed: { golden: string; runId: string; at: number } | null;
 }
@@ -620,8 +624,8 @@ export interface ChaosResultData {
   detail?: string;
   /** For a failure: the first failing attempt's reason. */
   reason?: string | null;
-  /** Each attempt: its run, whether it passed, the agent's exit code, and its checks. */
-  runs?: Array<{ runId: string; passed: boolean; exitCode: number; checks?: Array<{ ok: boolean; label: string; detail: string | null }>; reason?: string | null }>;
+  /** Each attempt: its run, whether it passed, the agent's exit code, its checks, why it failed and the error the agent died of. */
+  runs?: Array<{ runId: string; passed: boolean; exitCode: number; checks?: Array<{ ok: boolean; label: string; detail: string | null }>; reason?: string | null; lastLine?: string }>;
   /** The gate the attempts were decided by, as configured. */
   gate?: Record<string, unknown> | null;
   revision?: string | null;
@@ -1501,10 +1505,10 @@ export class Store {
         .run(scan.scanId, scan.at, scan.runs, scan.groups, scan.uncovered, scan.goldens, scan.actor, scan.data === null ? null : JSON.stringify(scan.data));
       this.db.prepare(`DELETE FROM coverage_groups`).run();
       const insert = this.db.prepare(
-        `INSERT INTO coverage_groups (key, scan_id, behaviour, runs, run_ids, sources, first_seen, last_seen, covered_by, nearest, packed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO coverage_groups (key, scan_id, behaviour, runs, run_ids, sources, first_seen, last_seen, covered_by, nearest, command, packed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const g of groups) {
-        insert.run(g.key, scan.scanId, JSON.stringify(g.behaviour), g.runs, JSON.stringify(g.runIds), JSON.stringify(g.sources), g.firstSeen, g.lastSeen, JSON.stringify(g.coveredBy), g.nearest ? JSON.stringify(g.nearest) : null, g.packed ? JSON.stringify(g.packed) : null);
+        insert.run(g.key, scan.scanId, JSON.stringify(g.behaviour), g.runs, JSON.stringify(g.runIds), JSON.stringify(g.sources), g.firstSeen, g.lastSeen, JSON.stringify(g.coveredBy), g.nearest ? JSON.stringify(g.nearest) : null, g.command ? JSON.stringify(g.command) : null, g.packed ? JSON.stringify(g.packed) : null);
       }
     });
   }
@@ -1543,6 +1547,7 @@ export class Store {
         lastSeen: Number(r.last_seen),
         coveredBy: parse<string[]>(r.covered_by, []),
         nearest: parse<StoredCoverageGroup['nearest']>(r.nearest, null),
+        command: parse<StoredCoverageGroup['command']>(r.command, null),
         packed: parse<StoredCoverageGroup['packed']>(r.packed, null),
       }));
   }

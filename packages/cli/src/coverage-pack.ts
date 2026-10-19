@@ -2,15 +2,13 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import {
   behaviourSlug,
-  commandIsImported,
   divergenceLine,
   fingerprintTool,
-  hasRecordedCommand,
+  inferCommand,
   loadApiRequest,
   normalizeConversation,
   packRun,
   responseInfo,
-  runKind,
   safeLine,
   Store,
   type CallRecord,
@@ -178,30 +176,6 @@ export function rebuildCapture(source: Store, target: Store, capture: RunRecord,
     target.endRun(run.runId, 'completed', endedAt);
   });
   return { run: target.getRun(run.runId)!, tools, live };
-}
-
-/**
- * The command that reproduces a capture, when none is given: the command of this project's newest
- * run whose first model call sent exactly the capture's first request, as its own recording (never a
- * command that came from a pack or the team store, which someone else chose). Null when none did.
- */
-export function inferCommand(store: Store, capture: RunRecord): { argv: string[]; from: string } | null {
-  const first = store.getCalls(capture.runId).find((c) => c.kind === 'api' && c.requestRef);
-  if (!first?.requestRef) return null;
-  const rows = store.query(
-    `SELECT e.run_id AS run_id FROM call_events e JOIN runs r ON r.run_id = e.run_id
-     WHERE e.phase = 'start' AND e.kind = 'api' AND e.request_ref = ? AND e.run_id <> ?
-       AND e.call_no = (SELECT MIN(f.call_no) FROM call_events f WHERE f.run_id = e.run_id AND f.phase = 'start' AND f.kind = 'api')
-     ORDER BY r.started_at DESC, r.run_id DESC LIMIT 50`,
-    first.requestRef,
-    capture.runId,
-  );
-  for (const row of rows) {
-    const run = store.getRun(String(row.run_id));
-    if (!run || run.status === 'running' || !hasRecordedCommand(run) || commandIsImported(run) || runKind(run) === 'capture') continue;
-    return { argv: run.command.argv, from: run.runId };
-  }
-  return null;
 }
 
 /** A folder for the new golden under `folder`, named after its behaviour: `-2`, `-3`… when that is taken. */

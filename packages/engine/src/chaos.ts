@@ -196,6 +196,18 @@ function grownValue(v: unknown, chars: number): unknown | null {
   return null;
 }
 
+/** Text grown to `chars`: JSON text stays JSON, its document grown; other text is repeated. */
+function grownJsonText(text: string, chars: number): string {
+  if (parses(text)) {
+    const parsed = JSON.parse(text) as unknown;
+    if (typeof parsed === 'object' && parsed !== null) {
+      const grown = grownValue(parsed, chars);
+      if (grown !== null) return JSON.stringify(grown);
+    }
+  }
+  return grownText(text, chars);
+}
+
 interface HttpLike {
   status: number;
   headers?: Record<string, string>;
@@ -227,7 +239,7 @@ export function presetResult(preset: Exclude<ChaosPreset, 'timeout' | '429' | '5
       const grown = grownValue(body, chars);
       return grown === null ? refuse('its recorded response has no text or list to grow') : { result: { ...recorded, body: grown, encoding: 'json' } };
     }
-    return { result: { ...recorded, body: grownText(String(body ?? ''), chars), encoding: 'text' } };
+    return { result: { ...recorded, body: grownJsonText(String(body ?? ''), chars), encoding: 'text' } };
   }
   if (shape === 'mcp' && isObject(recorded) && Array.isArray(recorded.content)) {
     const texts = mcpTexts(recorded);
@@ -241,9 +253,7 @@ export function presetResult(preset: Exclude<ChaosPreset, 'timeout' | '429' | '5
     }
     const longest = texts.sort((a, b) => b.b.text.length - a.b.text.length)[0];
     if (!longest) return refuse('its recorded result holds no text to grow');
-    const parsed = parses(longest.b.text) ? (JSON.parse(longest.b.text) as unknown) : undefined;
-    const grown = parsed !== undefined && typeof parsed === 'object' && parsed !== null ? grownValue(parsed, chars) : null;
-    content[longest.i] = { ...longest.b, text: grown !== null ? JSON.stringify(grown) : grownText(longest.b.text, chars) };
+    content[longest.i] = { ...longest.b, text: grownJsonText(longest.b.text, chars) };
     return { result: { ...recorded, content } };
   }
   if (preset === 'empty') return { result: emptyOf(recorded) };
@@ -253,7 +263,7 @@ export function presetResult(preset: Exclude<ChaosPreset, 'timeout' | '429' | '5
     if (typeof recorded === 'string' && !parses(text)) return refuse('it returned text, not JSON');
     return { result: cutJson(text) };
   }
-  if (typeof recorded === 'string') return { result: grownText(recorded, chars) };
+  if (typeof recorded === 'string') return { result: grownJsonText(recorded, chars) };
   const grown = grownValue(recorded, chars);
   return grown === null ? refuse('its recorded result has no text or list to grow') : { result: grown };
 }

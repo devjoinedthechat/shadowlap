@@ -4,6 +4,7 @@ import {
   describeBehaviour,
   effectsFor,
   groupCoverage,
+  inferCommand,
   OUTCOME_WORDS,
   runBehaviour,
   runKind,
@@ -53,6 +54,8 @@ export interface CoverageScanResult {
   members: Map<string, RunRecord>;
   /** Every tool's effect, as the store, the goldens and the config name it. */
   effects: Map<string, Effect>;
+  /** For each group no golden covers, by key: the command that would reproduce its newest run, when a recording here says it. */
+  commands: Map<string, { argv: string[]; from: string } | null>;
 }
 
 /** The runs coverage reads: captures and traces, as the run list calls them (`capture`), that have ended. */
@@ -133,12 +136,15 @@ export function scanCoverage(
         ...(o.packed?.size ? { packed: [...o.packed].map(([key, p]) => ({ key, golden: p.golden, runId: p.runId })) } : {}),
       },
     };
+    const byId = new Map(runs.map((r) => [r.runId, r]));
     const stored: StoredCoverageGroup[] = groups.map((g) => {
       const p = o.packed?.get(g.key);
-      return { ...g, scanId: scan.scanId, packed: p ? { golden: p.golden, runId: p.runId, at } : null };
+      // What Pack one would reproduce the newest run with, when a recording here says it.
+      const newest = g.coveredBy.length ? undefined : byId.get(g.runIds[0]!);
+      return { ...g, scanId: scan.scanId, command: newest ? inferCommand(store, newest) : null, packed: p ? { golden: p.golden, runId: p.runId, at } : null };
     });
     store.saveCoverageScan(scan, stored);
-    return { scan, groups, goldens, members: new Map(runs.map((r) => [r.runId, r])), effects };
+    return { scan, groups, goldens, members: byId, effects, commands: new Map(stored.map((g) => [g.key, g.command])) };
   } finally {
     for (const g of opened) g.read?.store.close();
   }
@@ -161,6 +167,8 @@ export interface CoverageGroupJson {
   firstSeen: number;
   lastSeen: number;
   nearest: CoverageGroup['nearest'];
+  /** For a behaviour no golden covers: the command `--pack` would reproduce its newest run with, and the recording that says so; null when none does. */
+  command: { argv: string[]; from: string } | null;
   packed: { golden: string; runId: string } | null;
 }
 
@@ -210,6 +218,7 @@ export function coverageJson(result: CoverageScanResult, pack: PackJson[] | null
       firstSeen: g.firstSeen,
       lastSeen: g.lastSeen,
       nearest: g.nearest,
+      command: result.commands.get(g.key) ?? null,
       packed: packed.get(g.key) ?? null,
     })),
     goldens: result.goldens.map((g) => ({ golden: g.golden, runId: g.runId, path: g.behaviour?.path ?? null, writes: g.behaviour?.writes ?? null, outcome: g.behaviour?.outcome ?? null, error: g.error })),

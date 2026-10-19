@@ -1,0 +1,77 @@
+import { readFileSync } from 'node:fs';
+import { CHAOS_PRESETS, OVERSIZE_CHARS, parsePresets, type ChaosPreset } from '@shadowlap/engine';
+import type { TestSpec } from './checks.js';
+import { parseGate, type Gate } from './gate-standin.js';
+
+/**
+ * A golden's error-path presets, as `"chaos"` in its `tests` entry says them: which presets
+ * `test --chaos` runs on it (default all six), the tool the tool presets hit (default the first
+ * one that reads the world), what an error path must do besides the agent exiting 0 (`expect`, the
+ * grammar of the entry's own: its checks describe the path the recording took, which an error path
+ * needn't take), the gate each preset is decided by (default the golden's `repeat` and `passes`),
+ * and how long an oversized result grows. `"chaos": false` leaves the golden out of every
+ * `test --chaos`. Read beside `tests` as `task` is: the golden's checks don't need it.
+ */
+
+export interface ChaosSpec {
+  presets: ChaosPreset[];
+  /** What every attempt must do besides exiting 0, parsed; null for nothing more. */
+  expect: TestSpec | null;
+  /** That `expect` as written, for the report. */
+  expectRaw: Record<string, unknown> | null;
+  /** The tool whose first call the tool presets hit; null for the first that reads the world. */
+  tool: string | null;
+  /** The gate each preset's attempts are decided by; null for the golden's repeat and passes. */
+  gate: Gate | null;
+  /** Characters an oversized result grows to. */
+  oversize: number;
+}
+
+export const DEFAULT_CHAOS: ChaosSpec = { presets: [...CHAOS_PRESETS], expect: null, expectRaw: null, tool: null, gate: null, oversize: OVERSIZE_CHARS };
+
+/** checks.ts `parseExpect`, passed in: the checks module reads this one to check a tests entry. */
+export type ExpectParser = (raw: unknown, where: string) => TestSpec;
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** `"chaos"` in a tests entry, checked: false, or the presets' settings. Undefined is the defaults. */
+export function parseChaosFields(raw: unknown, where: string, parseExpect: ExpectParser): ChaosSpec | false {
+  if (raw === undefined) return DEFAULT_CHAOS;
+  if (raw === false) return false;
+  if (!isObject(raw)) throw new Error(`${where} must be false, or an object such as { "presets": ["timeout", "429"] }`);
+  for (const k of Object.keys(raw)) if (!['presets', 'expect', 'tool', 'gate', 'oversize'].includes(k)) throw new Error(`${where} has an unknown key "${k}" (expected "presets", "expect", "tool", "gate", "oversize")`);
+  let expect: TestSpec | null = null;
+  if (raw.expect !== undefined) {
+    if (!isObject(raw.expect)) throw new Error(`${where}.expect must be an object of checks, as a tests entry's expect is`);
+    expect = parseExpect(raw.expect, `${where}.expect`);
+  }
+  let presets = DEFAULT_CHAOS.presets;
+  if (raw.presets !== undefined) {
+    if (!Array.isArray(raw.presets) || !raw.presets.every((p) => typeof p === 'string')) throw new Error(`${where}.presets must be a list of presets: ${CHAOS_PRESETS.join(', ')}`);
+    presets = parsePresets(raw.presets as string[], `${where}.presets`);
+  }
+  if (raw.tool !== undefined && (typeof raw.tool !== 'string' || !raw.tool.trim())) throw new Error(`${where}.tool must be the name of a tool`);
+  let gate: Gate | null = null;
+  if (raw.gate !== undefined) {
+    gate = parseGate(raw.gate, `${where}.gate`);
+    if (gate.kind !== 'sprt') throw new Error(`${where}.gate: a baseline gate compares a golden with its own history, which an error-path preset doesn't have; give { "good", "bad", "risk", "max" }`);
+  }
+  let oversize = OVERSIZE_CHARS;
+  if (raw.oversize !== undefined) {
+    if (typeof raw.oversize !== 'number' || !Number.isInteger(raw.oversize) || raw.oversize < 1_000 || raw.oversize > 50_000_000) throw new Error(`${where}.oversize must be a whole number of characters from 1000 to 50000000`);
+    oversize = raw.oversize;
+  }
+  return { presets, expect, expectRaw: expect ? (raw.expect as Record<string, unknown>) : null, tool: typeof raw.tool === 'string' ? raw.tool.trim() : null, gate, oversize };
+}
+
+/** The `chaos` of the config's tests entry `key` (as `testsKeyFor` picks it), read from the file: the defaults without one. */
+export function chaosFor(configFile: string, key: string | null, parseExpect: ExpectParser): ChaosSpec | false {
+  if (key === null) return DEFAULT_CHAOS;
+  let raw: { tests?: Record<string, { chaos?: unknown }> };
+  try {
+    raw = JSON.parse(readFileSync(configFile, 'utf8')) as typeof raw;
+  } catch {
+    return DEFAULT_CHAOS;
+  }
+  return parseChaosFields(raw.tests?.[key]?.chaos, `tests["${key}"].chaos`, parseExpect);
+}
