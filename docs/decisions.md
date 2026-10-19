@@ -56,7 +56,7 @@ A decision is what the agent does next because of an answer: the tools it calls,
 | 4 | Other arguments to a read | a search phrased differently |
 | 5 | Text only | the same actions, other words |
 
-A step takes the rank of its most consequential change, and a run that of its most consequential step. Which tools write comes from the run's own effects, the `effect` each tool declares where it is wrapped (see [How it works](./how-it-works.md#effects)), then from the other runs asked with it, then from `mcp.effects` in the config. **A tool no recording gives an effect ranks as a write**: nothing says it doesn't act on the world. Pure tools rank as reads. A tool named for a handover, as the OpenAI Agents SDK names its handoffs (`transfer_to_<agent>`), is a handover, rank 2.
+A step takes the rank of its most consequential change, and a run that of its most consequential step. Which tools write comes from the run's own effects, the `effect` each tool declares where it is wrapped (see [How it works](./how-it-works.md#effects)), then from the other runs asked with it, then from every run in the store (a tool the recorded run never called, such as the one the new answer asks for, is found there), then from `mcp.effects` in the config. **A tool no recording gives an effect ranks as a write**: nothing says it doesn't act on the world. Pure tools rank as reads. A tool named for a handover, as the OpenAI Agents SDK names its handoffs (`transfer_to_<agent>`), is a handover, rank 2.
 
 Arguments and text are compared after the project's [normalizers](./normalizers-and-redaction.md) (and a redacted recording's rules), with dates near the run's start masked as a replay masks them, so an id or a timestamp made anew is no change. Reads asked in another order within a turn are the same decision. Text-only changes are counted, not judged.
 
@@ -184,4 +184,5 @@ On a pull request, this previews the prompt and tools the branch sends against t
 - Later steps are judged in the recorded state, as above.
 - A step whose recorded call failed, or that isn't a conversation (an embeddings call), is not asked, and the report says why.
 - `--from-code` sees the prompt and tools; a change to anything else the requests carry is verify's.
+- An agent that thinks between its tool calls (Anthropic's extended thinking with tool use) has its earlier reasoning left out under a new prompt or model, and a provider that wants the current turn's reasoning back refuses such a step: it is listed with the provider's words, not ranked.
 - Each session is kept in the store with each run's decisions, for the dashboard; `gc` leaves sessions, which outlive the runs they name.

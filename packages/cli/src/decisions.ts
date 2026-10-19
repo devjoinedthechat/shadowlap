@@ -597,8 +597,12 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
         if (cap.refused) refusedRuns.set(t.run.runId, cap.refused);
       }
     }
+    // What each tool does: the run's own calls say first, then the other runs asked with it, then every
+    // run in the store (a tool's effect is declared in code, the same in every run), then the config.
     const batchEffects = new Map<string, Effect>();
     for (const t of input.targets) effectsOf(store.getCalls(t.run.runId), batchEffects);
+    const storeEffects = effectsOf(store.toolUsage().map((u) => ({ kind: 'tool' as const, name: u.name, effect: u.effect })));
+    for (const [name, effect] of storeEffects) if (!batchEffects.has(name)) batchEffects.set(name, effect);
     const remedies = new Remedies();
     const planned = input.targets.flatMap((t) => (refusedRuns.has(t.run.runId) ? [] : planRun(store, t, s, captures.get(t.run.runId) ?? null, batchEffects, config, remedies)));
 
@@ -700,7 +704,10 @@ export function keepDecisions(store: Store, report: DecisionsReport | (Record<st
       data,
       runs: runs.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.rank, changed: r.decisions.filter((x) => x.rank !== null).length, data: r as unknown as Record<string, unknown> })),
     });
-    recordEvent(store, { kind: `${kind}.done`, actor, ref: sessionId, data: { change: report.change.text, runs: runs.length, flagged: report.flagged.length, spent: (report as DecisionsReport).cost?.spent ?? null } });
+    // What asking (and, for migrate, verifying) cost.
+    const r = report as Partial<DecisionsReport> & { costs?: { checking?: { decisions: number; verify: number } } };
+    const spent = r.costs?.checking ? r.costs.checking.decisions + r.costs.checking.verify : (r.cost?.spent ?? 0) + (r.verify?.spent ?? 0);
+    recordEvent(store, { kind: `${kind}.done`, actor, ref: sessionId, data: { change: report.change.text, runs: runs.length, flagged: report.flagged.length, spent } });
     return sessionId;
   } catch (err) {
     (report as DecisionsReport).warnings?.push(`the result could not be kept in the store: ${(err as Error).message}`);

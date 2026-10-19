@@ -97,6 +97,18 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
     ]);
   });
 
+  it('previews a model switch on the ticket run: the $240 refund is a write removed', () => {
+    const [session] = store.listDecisionSessions({ kind: 'decisions' });
+    expect(session).toMatchObject({ change: 'the model claude-haiku-4-5', runs: 1, flagged: 1 });
+    const run = store.getDecisionSession(session!.sessionId)!.runRows[0]!.data as { rank: number; decisions: Array<{ callNo: number; rank: number | null; changes: Array<{ kind: string; tool: string | null }> }> };
+    expect(run.rank).toBe(1);
+    // It checks the tier-2 queue instead, a read: its effect comes from the runs that called it.
+    expect(run.decisions[0]!.changes.map((c) => [c.kind, c.tool]).slice(0, 2)).toEqual([
+      ['write-removed', 'issue_refund'],
+      ['read-added', 'queue_status'],
+    ]);
+  });
+
   it('tested its goldens at several commits: they passed, failed a check and diverged', () => {
     const sessions = store.listTestSessions();
     expect(new Set(sessions.map((s) => s.revision)).size).toBeGreaterThanOrEqual(3);

@@ -40,6 +40,9 @@
 //   - Tests: goldens of four kinds (a token budget, a fork replayed five times, a plain replay, the
 //     recordings repair made) run as CI at five commits, with passes, a failed budget check and a
 //     divergence on a per-run UUID; bisect then finds the commit that started it
+//   - the decision diff: what claude-haiku-4-5 decides at each of the ticket run's model calls, the
+//     prompt in the working tree asked against the goldens (--from-code), and a migration of the
+//     goldens to it, the runs whose writes change verified
 //   - normalizers and redaction rules, added with the CLI; an import of each format it reads (HAR,
 //     nock, VCR, LiteLLM, OpenTelemetry, and Langfuse and LangSmith from a stand-in for their APIs
 //     on 127.0.0.1); a teammate's pack, unpacked
@@ -52,7 +55,8 @@
 // that checks them (packages/cli/test/demo-store.test.ts), and leaves out what only adds more: the
 // batch and its fork, --repeat, the --model, --set, --inject and --prompt-from forks, the rejected
 // verify, two of the five test sessions, bisect, the MCP agent, the team store, the teammate's pack,
-// the exports, the trace imports and the second project. Its repair is given the runs and fewer
+// the exports, the trace imports, the --from-code preview and the migration, and the second project.
+// Its repair is given the runs and fewer
 // attempts, and its recordings aren't paced like a stream.
 //
 // The calendar: every run a command makes is dated when it is made, today. Imports keep the dates
@@ -463,6 +467,21 @@ try {
     });
     revs.goldens = commit('Keep the refund decisions as tests', '2026-09-29T11:00:00+02:00', 'dana', ['goldens', 'shadowlap.config.json']);
     if (!fast) await sl(['test', 'goldens/*'], { who: 'ci' });
+  });
+
+  await step('a change previewed', async () => {
+    // What claude-haiku-4-5 decides at each of the ticket run's model calls, asked again with nothing
+    // run: the $240 refund at #17 becomes an escalation, a write changed.
+    await sl(['decisions', runs.ticket, '--model', 'claude-haiku-4-5'], { who: 'maya' });
+    if (!fast) {
+      // The prompt in the working tree, read offline and asked at every model call of the goldens.
+      edit('refund_agent.mjs', "never guess an order's state.", "never guess an order's state. Escalate every refund above the regional limit.");
+      await sl(['decisions', 'goldens/*', '--from-code', '--yes'], { who: 'ravi' });
+      git(['checkout', '--', 'refund_agent.mjs']);
+      // The switch on every golden: the budget golden's $240 refund becomes an escalation, which
+      // verify runs end to end; the cost per run compared; what to set.
+      await sl(['migrate', '--to', 'claude-haiku-4-5', '--attempts', '2', '--yes'], { who: 'dana', ok: [0, 1] });
+    }
   });
 
   if (!fast) {

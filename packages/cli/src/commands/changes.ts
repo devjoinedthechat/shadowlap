@@ -83,8 +83,10 @@ export function register(program: Command): void {
       const opts = program.opts<GlobalOpts>();
       const { specs, argv } = splitCommand(program, given);
       if (!specs.length) throw new InvalidArgumentError('name the runs or goldens to ask again: shadowlap decisions goldens/* --model <model>');
-      const fields = parseFields(flags.set, undefined);
-      if (!flags.model && !flags.fromCode && !Object.keys(fields).length) throw new InvalidArgumentError('give the change: --model <model>, --set <key=value>, or --from-code for the prompt and tools in your working tree');
+      // `--set model=…` is the model, as verify and blame read it; both at once is refused there.
+      const { model: setModel, ...fields } = parseFields(flags.set, flags.model);
+      const model = typeof setModel === 'string' ? setModel : null;
+      if (!model && !flags.fromCode && !Object.keys(fields).length) throw new InvalidArgumentError('give the change: --model <model>, --set <key=value>, or --from-code for the prompt and tools in your working tree');
       if (flags.samples > 20) throw new InvalidArgumentError('--samples is at most 20');
       if (flags.attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
       const passes = flags.passes ?? Math.ceil(0.8 * flags.attempts);
@@ -107,7 +109,7 @@ export function register(program: Command): void {
           return;
         }
         const settings: DecisionsSettings = {
-          model: flags.model ?? null,
+          model,
           fields,
           fromCode: !!flags.fromCode,
           samples: flags.samples,
@@ -121,7 +123,7 @@ export function register(program: Command): void {
           thenVerify: flags.thenVerify ? { attempts: flags.attempts, needed: passes, writes: flags.writes, expect } : null,
         };
         const command = decisionsCommand(specs, settings);
-        log(`${p.yellow('⑂')} Asking the model calls of ${targets.length} run${targets.length === 1 ? '' : 's'} again under ${[flags.fromCode ? 'the prompt and tools in your working tree' : '', flags.model ? `the model ${flags.model}` : '', Object.keys(fields).length ? Object.entries(fields).map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ') : ''].filter(Boolean).join(' and ')}`);
+        log(`${p.yellow('⑂')} Asking the model calls of ${targets.length} run${targets.length === 1 ? '' : 's'} again under ${[flags.fromCode ? 'the prompt and tools in your working tree' : '', model ? `the model ${model}` : '', Object.keys(fields).length ? Object.entries(fields).map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ') : ''].filter(Boolean).join(' and ')}`);
         log(p.dim(`  ${flags.samples} sample${flags.samples === 1 ? '' : 's'} per call, ${flags.concurrency} at once · no tool runs${flags.budget ? ` · budget $${flags.budget.toFixed(2)}` : ''}`));
         const report = await runDecisions({ opts, targets, settings, command, log });
         if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
@@ -158,6 +160,7 @@ export function register(program: Command): void {
       const split = splitCommand(program, given);
       const specs = split.specs.length ? split.specs : ['goldens/*'];
       const fields = parseFields(flags.set, undefined);
+      if ('model' in fields) throw new InvalidArgumentError('--to is the model to switch to; --set model=… would set it twice');
       if (flags.samples > 20) throw new InvalidArgumentError('--samples is at most 20');
       if (flags.attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
       const passes = flags.passes ?? Math.ceil(0.8 * flags.attempts);
