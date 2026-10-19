@@ -49,7 +49,7 @@ It reads: pass if the agent passes at least 90% of the time, fail if 70% or less
 - **A clean replay settles it in one attempt.** A replay that forks nowhere and runs nothing live served every call from the recording, so every attempt would come out the same: its one attempt decides, and costs nothing.
 - **It can say *inconclusive*.** When `max` runs out between the bounds, neither verdict holds at the stated risk. That is an honest outcome of its own, shown in amber, not a coin toss: `inconclusive: neither at least 90% nor at most 70% with 95% confidence after 40 attempts, the most the gate runs`. A golden whose only failed checks couldn't be judged is inconclusive too.
 - **`--inconclusive fail|warn`** decides what CI does with an inconclusive verdict, a gate's or a check's. `fail`, the default, fails the run. `warn` lets it through: the exit status passes, the JUnit report marks the case skipped, `--annotations` gives it a warning instead of an error, and every report still says it is inconclusive.
-- **`--max-attempts <n>`** raises every gate's limit for one session (an SPRT gate's `max`, a history gate's `min`), to settle an inconclusive golden without changing the config. The dashboard's Run more attempts runs it, at twice the limit.
+- **`--max-attempts <n>`** raises every gate's limit for one session (an SPRT gate's `max`, a history gate's `min`), to settle an inconclusive golden without changing the config. The dashboard's `test` job takes it as `maxAttempts`, and its Tests data offers twice the limit for each inconclusive golden.
 - **`passes` keeps its meaning.** A golden with `repeat` and `passes` and no gate runs exactly as before; give one or the other.
 
 ## The sequential test

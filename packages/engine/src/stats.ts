@@ -10,9 +10,9 @@
  *   - `sprt`, Wald's sequential probability ratio test between a pass rate of `good` and one of
  *     `bad`: each pass adds ln(good/bad) to a score and each failure ln((1−good)/(1−bad)); the gate
  *     passes once the score reaches ln((1−risk)/risk) and fails once it falls to minus that, so an
- *     agent at `bad` or below is passed at most `risk` of the time, and one at `good` or above
- *     failed at most `risk` of the time. When `max` attempts run out between the bounds, it is
- *     inconclusive: an honest answer, not a coin toss.
+ *     agent at `bad` or below is passed, and one at `good` or above failed, at most about `risk` of
+ *     the time (Wald's bound is risk / (1 − risk)). When `max` attempts run out between the bounds,
+ *     it is inconclusive: an honest answer, not a coin toss.
  *   - `baseline`, against the golden's own history: the pass rates now and in the last `window`
  *     sessions, each a Beta posterior under a uniform prior (a beta-binomial comparison), fail when
  *     P(now < baseline − drop) > 1 − risk. It decides once, after `min` attempts. Without history
@@ -31,9 +31,9 @@
 
 export interface SprtGate {
   kind: 'sprt';
-  /** A pass rate the gate should pass: at or above it, it fails at most `risk` of the time. */
+  /** A pass rate the gate should pass: at or above it, it fails at most about `risk` of the time. */
   good: number;
-  /** A pass rate the gate should fail: at or below it, it passes at most `risk` of the time. */
+  /** A pass rate the gate should fail: at or below it, it passes at most about `risk` of the time. */
   bad: number;
   /** The most a verdict may be wrong at `good` or `bad`, each way. */
   risk: number;
