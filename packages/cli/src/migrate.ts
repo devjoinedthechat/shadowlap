@@ -103,6 +103,9 @@ const fieldValue = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v
 /** A verified run's tally after its outcome: ` · 12 of 12 · rate >= 0.76 (95%)`; nothing for a run verify didn't take, or one kept before tallies were. */
 const tallyWords = (x: Pick<MigrateRunPass, 'tally'>): string => (x.tally ? ` · ${x.tally.passes} of ${x.tally.attempts}${x.tally.bound ? ` · ${x.tally.bound}` : ''}` : '');
 
+/** How verify found a run, after its verdict: `kept, verified · 12 of 12 · rate >= 0.76 (95%)`; an outcome that is the verdict word (inconclusive) is said once. */
+const verifiedWords = (x: Pick<MigrateRunPass, 'verdict' | 'outcome' | 'tally'>): string => `${x.outcome === x.verdict ? '' : `${x.outcome}, `}verified${tallyWords(x)}`;
+
 /** Files the project tracks or would (not ignored), with text, outside recordings and the store. */
 function projectTextFiles(cwd: string): Array<{ path: string; content: string }> | null {
   let listed: string;
@@ -276,7 +279,7 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
   const c = r.decisions.counts;
   if (c[3] + c[4] + c[5]) lines.push('', `Besides: ${[c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only`].filter(Boolean).join(', ')}.`);
   lines.push('', '### What still passes', '');
-  for (const x of r.passes.runs) lines.push(`- ${name(x)}: ${x.verdict}${x.verified ? ` (${x.outcome}, verified${tallyWords(x)})` : x.outcome === 'unchanged' ? ' (no write or stop decision changed, so not re-run)' : ` (${x.outcome})`}`);
+  for (const x of r.passes.runs) lines.push(`- ${name(x)}: ${x.verdict}${x.verified ? ` (${verifiedWords(x)})` : x.outcome === 'unchanged' ? ' (no write or stop decision changed, so not re-run)' : ` (${x.outcome})`}`);
   // The rule verify decided them by, said once.
   if (r.passes.runs.some((x) => x.verified) && r.decisions.verify?.rule) lines.push('', `Verified by ${tick('shadowlap verify')}, ${r.decisions.verify.rule}.`);
   if (r.decisions.verify?.verdict === 'not-run' && r.decisions.verify.reasons.length) lines.push('', `Not verified yet: ${r.decisions.verify.reasons.join('; ')}.`);
@@ -436,7 +439,7 @@ export function formatMigrate(r: MigrateReport): string {
   lines.push('', p.bold('What still passes'));
   for (const x of r.passes.runs) {
     const word = x.verdict === 'passed' ? p.green(x.verdict) : x.verdict === 'failed' ? p.red(x.verdict) : p.yellow(x.verdict);
-    lines.push(`  ${safeLine(name(x)).padEnd(28)} ${word}${p.dim(x.verified ? ` · ${x.outcome}, verified${tallyWords(x)}` : x.outcome === 'unchanged' ? ' · no write or stop decision changed, not re-run' : ` · ${x.outcome}`)}`);
+    lines.push(`  ${safeLine(name(x)).padEnd(28)} ${word}${p.dim(x.verified ? ` · ${verifiedWords(x)}` : x.outcome === 'unchanged' ? ' · no write or stop decision changed, not re-run' : ` · ${x.outcome}`)}`);
   }
   // The rule the verified runs were decided by, said once under them.
   if (r.passes.runs.some((x) => x.verified) && r.decisions.verify?.rule) lines.push(p.dim(`  ${safeLine(r.decisions.verify.rule)}`));

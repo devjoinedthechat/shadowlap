@@ -17,6 +17,10 @@ import { departures } from './json-shapes.js';
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
+/** Runs the agent, failing every third time (flaky-agent.mjs). */
+const FLAKY = fileURLToPath(new URL('./flaky-agent.mjs', import.meta.url));
+/** The Wilson bound of 5 passes in 7 attempts, at the gate's 95%. */
+const BOUND_5_OF_7 = 'rate 0.36 to 0.92 (95%)';
 
 let mock: MockServer;
 let cwd: string;
@@ -270,7 +274,8 @@ describe('shadowlap decisions', () => {
     const r = await shadowlap(['decisions', runId, '--from-code', '--then-verify', '--json'], noEmail);
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
-    expect(report.verify).toMatchObject({ verdict: 'accepted', runs: [{ runId, role: 'good', outcome: 'kept', passes: 12, attempts: 12 }] });
+    // Its verdict as the gate states one: the tally, the Wilson bound, and the rule, once.
+    expect(report.verify).toMatchObject({ verdict: 'accepted', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', runs: [{ runId, role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' }] });
     expect(report.verify!.commands).toEqual([`shadowlap verify --keeps ${runId.slice(0, 10)}`]);
     expect(report.command).toBe(`shadowlap decisions ${runId} --from-code --then-verify`);
     // Other figures, for the session kept: two straight passes settle it, and the command says how.
@@ -286,6 +291,47 @@ describe('shadowlap decisions', () => {
     const alone = await shadowlap(['decisions', runId, '--from-code', '--attempts', '3'], noEmail);
     expect(alone.code).toBe(1);
     expect(alone.out).toContain('--expect, --gate, --attempts and --passes are for --then-verify');
+  }, 180_000);
+
+  it('leaves a run its gate could not settle inconclusive, for --inconclusive to decide, in the report and in the session it keeps', async () => {
+    const [one, two] = [await record(), await record()];
+    const asked = await shadowlap(['decisions', one, two, '--model', 'claude-haiku-4-5', '--json']);
+    expect(asked.code, asked.out).toBe(0);
+    const session = json<DecisionsReport>(asked);
+    expect(session.flagged).toEqual([one, two]);
+    // The command verify runs fails every third time: a run passing about two times in three, which seven
+    // attempts can't tell from one passing half the time or one passing 90%. The gate runs out between its bounds.
+    const flaky = ['--', process.execPath, FLAKY, join(cwd, `flaky-${one}.count`), process.execPath, AGENT];
+    const gate = '{"bad":0.5,"max":7}';
+    const rule = 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts';
+    const r = await shadowlap(['decisions', '--verify', session.decisionsId!, one, '--gate', gate, '--json', ...flaky]);
+    expect(r.code, r.out).toBe(1);
+    const first = json<{ verify: NonNullable<DecisionsReport['verify']> }>(r).verify;
+    expect(first).toMatchObject({ verdict: 'incomplete', rule, runs: [{ runId: one, role: 'good', outcome: 'inconclusive', passes: 5, attempts: 7, bound: BOUND_5_OF_7 }] });
+    expect(first.reasons).toEqual([`good run ${one.slice(0, 10)} inconclusive: 5 of 7 passed · ${BOUND_5_OF_7}, between the gate's bounds when its attempts ran out`]);
+
+    // The other run settles under other figures; the session stays incomplete while the first is inconclusive, and names both rules.
+    const other = await shadowlap(['decisions', '--verify', session.decisionsId!, two, '--gate', '{"bad":0.1,"max":4}']);
+    expect(other.code, other.out).toBe(0);
+    expect(other.stdout).toContain('gate: tells 90%+ from 10%- at <= 5% risk, up to 4 attempts');
+    expect(other.stdout).toMatch(new RegExp(`${two.slice(0, 10)}  kept  2 of 2 passed · rate >= 0\\.34 \\(95%\\)`));
+    const store = Store.open(db);
+    try {
+      const kept = store.getDecisionSession(session.decisionsId!)!.data.verify as NonNullable<DecisionsReport['verify']>;
+      expect(kept).toMatchObject({ verdict: 'incomplete', rule: `${rule}; gate: tells 90%+ from 10%- at <= 5% risk, up to 4 attempts` });
+      expect(kept.runs.map((x) => [x.runId, x.outcome])).toEqual([
+        [one, 'inconclusive'],
+        [two, 'kept'],
+      ]);
+    } finally {
+      store.close();
+    }
+
+    // --then-verify the same way: inconclusive, which --inconclusive warn lets through with a warning.
+    const warned = await shadowlap(['decisions', one, '--model', 'claude-haiku-4-5', '--then-verify', '--gate', gate, '--inconclusive', 'warn', ...flaky]);
+    expect(warned.code, warned.out).toBe(0);
+    expect(warned.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
+    expect(warned.stdout).toContain(`  ${rule}\n  ${one.slice(0, 10)}  inconclusive  5 of 7 passed · ${BOUND_5_OF_7}\n`);
   }, 180_000);
 
   it('asks the goldens a pack holds, named as test names them, and warns about a model that retires', async () => {

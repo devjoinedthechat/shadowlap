@@ -120,7 +120,9 @@ shadowlap decisions goldens/* --from-code --then-verify
 
 After asking, `--then-verify` runs [`verify`](./verify.md) on the runs with a rank 1 or 2 change, and only on those. Each run is judged by its golden's checks from `shadowlap.config.json` (or `--expect`), one verify per set of checks, in the role its recording plays under them: a run that passes them as recorded must keep passing, one that fails them must now pass. The model and fields of the change go to verify as `--model` and `--set`, with `--from` naming the models they change at, so verify changes the same calls the preview did; a `--from-code` change is your working tree, which verify replays. Each run is replayed until verify's [gate](./gating.md) decides, as `verify` decides by default: `--gate` changes its figures, and `--attempts` and `--passes` give a fixed count instead. The verdict is kept like any other, and the report ends with the commands that verify the runs again. Runs whose writes and stops didn't change are not replayed.
 
-A session kept earlier can be verified later, or one run of it: `shadowlap decisions --verify dc-01M58W8A0Z… [run]` verifies the runs it flagged the same way, without asking anything again, and keeps what verify finds in the session. That is what the dashboard's *Verify the changed runs* runs.
+A session kept earlier can be verified later, or one run of it: `shadowlap decisions --verify dc-01M58W8A0Z… [run]` verifies the runs it flagged the same way, without asking anything again, and keeps what verify finds in the session, over what an earlier verify found for the others. A run whose gate ran out of attempts between its bounds is *inconclusive*, and the session stays incomplete until a verify settles it; a session verified again under another gate states each rule once. That is what the dashboard's *Verify the changed runs* runs.
+
+An inconclusive verify settles nothing: `decisions` and `migrate` then exit 1 unless `--inconclusive warn`, as `test` does with an inconclusive gate.
 
 ## Migrate
 
@@ -157,7 +159,7 @@ The config change
 It runs `decisions --model` on your goldens (`goldens/*`, or the packs and runs you name), then `verify` on the runs with a rank 1 or 2 change, each decided by verify's gate as `--then-verify` decides it, and compares what a run costs. It switches the agent's calls: those made with the models `--from` names, else those made with a model that retires, by the [retirement table](#model-retirements), else those made with the model the runs use most; a simulated user or a sub-agent on another model keeps its own, in the preview and in verify. The report has four blocks, in order:
 
 - **What changes:** each write and stop change, with the recorded and the new action; the rest counted.
-- **What still passes:** each run's verdict, *passed*, *failed* or *inconclusive*. A run verified says how verify found it: *kept*, *fixed*, *broken*, *not fixed*, or *unsettled* when its attempts didn't settle it, with its tally and the Wilson bound of its pass rate, under the gate's rule, stated once. A run whose writes and stops didn't change is *unchanged*: it is not re-run, and its recording's own verdict under its checks stands.
+- **What still passes:** each run's verdict, *passed*, *failed* or *inconclusive*. A run verified says how verify found it: *kept*, *fixed*, *broken*, *not fixed*, *unsettled* when its attempts stopped before they settled it (the budget, Ctrl-C), or *inconclusive* when its gate ran out of attempts between its bounds, with its tally and the Wilson bound of its pass rate, under the gate's rule, stated once. A run whose writes and stops didn't change is *unchanged*: it is not re-run, and its recording's own verdict under its checks stands.
 - **What it costs:** per run, before and after, from the recorded calls and the new answers, and what checking cost.
 - **What to set:** the fields the switch needs, each with why.
 

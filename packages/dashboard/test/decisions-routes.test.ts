@@ -203,6 +203,19 @@ describe('the decision routes', () => {
     }
   });
 
+  it("leaves each run it verifies to verify's own gate: no job gives a count or a gate of its own", async () => {
+    const jobs = [
+      { kind: 'decisions', goldens: 'all', model: 'claude-sonnet-5-5', thenVerify: true },
+      { kind: 'migrate', to: 'claude-haiku-4-5' },
+      { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A' },
+      { kind: 'decisions-verify', sessionId: 'mg-01M5000000000000000000000B' },
+    ];
+    for (const body of jobs) {
+      expect((await startJob(dash, body)).status, JSON.stringify(body)).toBe(202);
+      expect(spawned.at(-1)!.filter((a) => ['--attempts', '--passes', '--gate', '--inconclusive'].includes(a)), JSON.stringify(body)).toEqual([]);
+    }
+  });
+
   it('refuses every job on a read-only dashboard', async () => {
     const res = await startJob(readOnly, { kind: 'decisions', goldens: 'all', model: 'claude-haiku-4-5' });
     expect(res.status).toBe(403);

@@ -39,14 +39,23 @@ function findSession(store: Store, id: string): ReturnType<Store['getDecisionSes
   return matches[0] ? store.getDecisionSession(matches[0].sessionId) : null;
 }
 
-/** Verify's findings for the runs verified now, over what an earlier verify of the session found for the others. */
+/**
+ * Verify's findings for the runs verified now, over what an earlier verify of the session found for
+ * the others. A run verify didn't settle, whichever verify took it, leaves the session incomplete: one
+ * whose attempts stopped early (unsettled), and one whose gate ran out of attempts between its bounds
+ * (inconclusive). The rule is said once for each verify whose runs it keeps: a session verified
+ * again under another gate names both.
+ */
 export function mergeVerify(previous: DecisionsVerify | null, now: DecisionsVerify): DecisionsVerify {
   if (!previous || previous.verdict === 'not-run') return now;
   if (now.verdict === 'not-run' && !now.runs.length) return { ...previous, reasons: [...previous.reasons, ...now.reasons] };
   const fresh = new Set(now.runs.map((r) => r.runId));
-  const runs = [...previous.runs.filter((r) => !fresh.has(r.runId)), ...now.runs];
-  const verdict: DecisionsVerify['verdict'] = runs.some((r) => r.outcome === 'broken' || r.outcome === 'not-fixed') ? 'rejected' : runs.some((r) => r.outcome === 'unsettled') || now.verdict === 'incomplete' ? 'incomplete' : 'accepted';
-  return { verdict, verifyIds: [...previous.verifyIds, ...now.verifyIds], runs, rule: now.rule ?? previous.rule ?? null, commands: [...previous.commands, ...now.commands], spent: previous.spent + now.spent, upstreamRequests: previous.upstreamRequests + now.upstreamRequests, reasons: [...previous.reasons, ...now.reasons] };
+  const kept = previous.runs.filter((r) => !fresh.has(r.runId));
+  const runs = [...kept, ...now.runs];
+  const verdict: DecisionsVerify['verdict'] = runs.some((r) => r.outcome === 'broken' || r.outcome === 'not-fixed') ? 'rejected' : runs.some((r) => r.outcome === 'unsettled' || r.outcome === 'inconclusive') || now.verdict === 'incomplete' ? 'incomplete' : 'accepted';
+  const each = (rule: string | null | undefined) => (rule ? rule.split('; ') : []);
+  const rules = [...new Set([...(kept.length ? each(previous.rule) : []), ...each(now.rule)])];
+  return { verdict, verifyIds: [...previous.verifyIds, ...now.verifyIds], runs, rule: rules.length ? rules.join('; ') : null, commands: [...previous.commands, ...now.commands], spent: previous.spent + now.spent, upstreamRequests: previous.upstreamRequests + now.upstreamRequests, reasons: [...previous.reasons, ...now.reasons] };
 }
 
 export async function verifySession(input: { opts: GlobalOpts; sessionId: string; runs: readonly string[]; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; budget: number | null; yes: boolean; log: (line: string) => void }): Promise<SessionVerify> {

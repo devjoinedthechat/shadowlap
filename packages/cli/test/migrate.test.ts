@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
-import type { MigrateReport } from '../src/migrate.js';
+import { formatMigrate, type MigrateReport } from '../src/migrate.js';
 import { departures } from './json-shapes.js';
 
 /**
@@ -18,6 +18,8 @@ import { departures } from './json-shapes.js';
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
+/** Runs the agent, failing every third time (flaky-agent.mjs). */
+const FLAKY = fileURLToPath(new URL('./flaky-agent.mjs', import.meta.url));
 const FROM = 'claude-sonnet-4-5-20250929';
 
 let mock: MockServer;
@@ -133,6 +135,37 @@ describe('shadowlap migrate', () => {
     expect(text.code, text.out).toBe(0);
     const blocks = ['What changes', 'What still passes', 'What it costs', 'What to set', 'The config change'].map((b) => text.stdout.indexOf(`\n${b}\n`));
     expect(blocks.every((at, i) => at > 0 && (i === 0 || at > blocks[i - 1]!))).toBe(true);
+  }, 240_000);
+
+  it("verifies through verify's own gate unless a fixed count is given, and states its verdict as the tally, the bound and the rule", async () => {
+    const gate = 'gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts';
+    const r = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = json<MigrateReport>(r);
+    // No count given: a run that always passes is kept after the 12 attempts the gate needs, not 4 of 5.
+    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' } }] });
+    expect(report.decisions.verify).toMatchObject({ verdict: 'accepted', rule: gate });
+    expect(report.decisions.verify!.commands[0]).not.toMatch(/--attempts|--passes|--gate/);
+    expect(report.command).not.toMatch(/--attempts|--passes|--gate/);
+    expect(report.pullRequest.body).toContain('- goldens/research: passed (kept, verified · 12 of 12 · rate >= 0.76 (95%))');
+    expect(report.pullRequest.body).toContain(`Verified by \`shadowlap verify\`, ${gate}.`);
+    const text = formatMigrate(report).replace(/\x1b\[[0-9;]*m/g, '');
+    expect(text).toMatch(/goldens\/research +passed · kept, verified · 12 of 12 · rate >= 0\.76 \(95%\)\n  gate: tells 90%\+ from 70%- at <= 5% risk, up to 80 attempts\n/);
+
+    // A gate that runs out between its bounds leaves the run inconclusive, and the report, unless --inconclusive warn
+    // lets it pass. The command verify runs fails every third time: seven attempts can't tell that run from one
+    // passing half the time or one passing 90%.
+    const flaky = ['--', process.execPath, FLAKY, join(cwd, 'flaky.count'), process.execPath, AGENT];
+    const short = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--json', ...flaky]);
+    expect(short.code, short.out).toBe(1);
+    const unsettled = json<MigrateReport>(short);
+    expect(unsettled.passes).toEqual({ verdict: 'incomplete', runs: [{ runId, golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 5, attempts: 7, bound: 'rate 0.36 to 0.92 (95%)' } }] });
+    expect(unsettled.decisions.verify?.rule).toBe('gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts');
+    expect(unsettled.command).toContain(`--gate '{"bad":0.5,"max":7}'`);
+    const warned = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--inconclusive', 'warn', ...flaky]);
+    expect(warned.code, warned.out).toBe(0);
+    expect(warned.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
+    expect(warned.stdout).toMatch(/goldens\/research +inconclusive · verified · 5 of 7 · rate 0\.36 to 0\.92 \(95%\)\n  gate: tells 90%\+ from 50%- at <= 5% risk, up to 7 attempts\n/);
   }, 240_000);
 
   it('sets what the new model refuses to what it takes, by the provider page, and says why', async () => {
