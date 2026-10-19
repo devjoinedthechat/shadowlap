@@ -136,7 +136,7 @@ describe('shadowlap test with a gate', () => {
       const tests = { 'goldens/reference-agent': { fork: true, gate: { good: 0.6, bad: 0.4, risk: 0.2, max: 4 }, expect: CHECKS } };
       const failing = await shadowlapTest(tests, FIX);
       expect(failing.code).toBe(1);
-      expect(failing.out).toContain('! reference-agent: inconclusive: neither at least 60% nor at most 40% with 80% confidence after 4 attempts, the most the gate runs');
+      expect(failing.out).toContain('? reference-agent: inconclusive: neither at least 60% nor at most 40% with 80% confidence after 4 attempts, the most the gate runs');
       expect(failing.out).toContain('0 passed, 0 failed, 1 inconclusive (failing the run: --inconclusive warn lets them through)');
       expect(failing.report).toMatchObject({ passed: 0, failed: 1, inconclusive: 1 });
       expect(failing.report.results[0]).toMatchObject({ ok: false, verdict: 'inconclusive', failure: 'inconclusive', gate: { decision: 'inconclusive', passes: 2, attempts: 4 } });

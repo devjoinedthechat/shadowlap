@@ -191,17 +191,36 @@ export function reportLines(text: string): ReportLine[] {
  */
 export function failureLines(f: FailureView): ReportLine[] {
   const lines: ReportLine[] = [{ text: `✗ ${f.name}: ${f.reason}`, tone: 'no' }];
-  for (const c of f.checks ?? []) lines.push({ text: `    ${c.ok ? `✓ ${c.label}` : `✗ ${c.label}: ${c.detail ?? 'failed'}`}`, tone: c.ok ? '' : 'no' });
+  for (const c of f.checks ?? []) lines.push(checkReportLine(c));
   if (f.details) for (const l of f.details.replace(/\s+$/, '').split('\n')) lines.push({ text: `    ${l}`, tone: '' });
   if (f.output) for (const l of f.output.split('\n')) lines.push({ text: `    │ ${l}`, tone: 'dim' });
   return lines;
 }
 
+/**
+ * A check under a golden's line, as the CLI prints it: `✓ label`, `✗ label: detail`, `? label:
+ * inconclusive · detail` or `– label: not applicable · detail`, with a judge's reason after it. A
+ * result kept before checks had a status reads as its `ok` says.
+ */
+export function checkReportLine(c: NonNullable<FailureView['checks']>[number]): ReportLine {
+  const status = c.status ?? (c.ok ? 'passed' : 'failed');
+  const reason = c.reason ? ` · ${c.reason}` : '';
+  const text =
+    status === 'passed'
+      ? `✓ ${c.label}${reason}`
+      : status === 'failed'
+        ? `✗ ${c.label}: ${c.detail ?? 'failed'}${reason}`
+        : status === 'inconclusive'
+          ? `? ${c.label}: inconclusive · ${c.detail ?? ''}${reason}`
+          : `– ${c.label}: not applicable · ${c.detail ?? ''}${reason}`;
+  return { text: `    ${text}`, tone: status === 'failed' ? 'no' : '' };
+}
+
 /** An inconclusive golden's report, as the CLI prints it: the line, its gate's evidence, its checks and the attempts. */
 export function inconclusiveLines(v: InconclusiveView): ReportLine[] {
-  const lines: ReportLine[] = [{ text: `! ${v.name}: ${v.reason}`, tone: '' }];
+  const lines: ReportLine[] = [{ text: `? ${v.name}: ${v.reason}`, tone: '' }];
   if (v.gate) lines.push({ text: `    ${v.gate.tally}`, tone: '' });
-  for (const c of v.checks ?? []) lines.push({ text: `    ${c.ok ? `✓ ${c.label}` : `✗ ${c.label}: ${c.detail ?? 'failed'}`}`, tone: c.ok ? '' : 'no' });
+  for (const c of v.checks ?? []) lines.push(checkReportLine(c));
   // The details repeat the tally first when a gate wrote them.
   const details = (v.details ?? '').replace(/\s+$/, '').split('\n').filter((l, i) => !(i === 0 && v.gate && l === v.gate.tally));
   for (const l of details) if (l) lines.push({ text: `    ${l}`, tone: 'dim' });

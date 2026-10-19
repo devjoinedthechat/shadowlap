@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type Normalizer, type RunRecord, type Store, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -313,7 +313,8 @@ export interface FailureView {
   runId: string | null;
   failure: TestFailure;
   reason: string;
-  checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
+  /** Its checks as the result kept them, each with its status (passed, failed, inconclusive, not-applicable) since results had one. */
+  checks: StoredCheck[] | null;
   details: string | null;
   /** The last lines the agent printed, as `test --markdown` shows them; null when none were kept. */
   output: string | null;
@@ -335,7 +336,8 @@ export interface InconclusiveView {
   name: string;
   runId: string | null;
   reason: string;
-  checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
+  /** Its checks as the result kept them, each with its status (passed, failed, inconclusive, not-applicable) since results had one. */
+  checks: StoredCheck[] | null;
   details: string | null;
   /** What its gate decided; null when a check couldn't be judged instead. */
   gate: GateResultView | null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksUpdate, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH, updatePlan } from '../ui/goldens.js';
+import { asksUpdate, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH, updatePlan } from '../ui/goldens.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { DivergenceView, FailureView, GoldenRow, InconclusiveView, TestsView } from '../ui/types.js';
 
@@ -158,7 +158,7 @@ describe('the goldens table', () => {
     const gate = { tally: '16 of 20 passed · pass rate 0.58 to 0.92 (95%, Wilson) · pass^5 0.28', more: { args: ['test', 'goldens/flaky', '--max-attempts', '40', '--continue'], job: { golden: 'goldens/flaky', maxAttempts: 40, continue: true as const }, attempts: 40, most: 20, expected: 17.17, settles: 0.378, cost: 0.34 } };
     const v = { golden: 'goldens/flaky', name: 'flaky', runId: null, reason: 'inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: `${gate.tally}\nattempt 1  ✓ passed`, gate } as unknown as InconclusiveView;
     expect(inconclusiveLines(v).map((l) => l.text)).toEqual([
-      '! flaky: inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs',
+      '? flaky: inconclusive: neither at least 90% nor at most 70% with 95% confidence after 20 attempts, the most the gate runs',
       `    ${gate.tally}`,
       '    ✗ send_email called 0 times: called 1 time',
       '    attempt 1  ✓ passed',
@@ -210,6 +210,15 @@ describe('the reports', () => {
       { text: '    │ Done.', tone: 'dim' },
     ]);
     expect(failureHint(f)).toBe('A failed check means the agent did something its checks in shadowlap.config.json rule out. Fix the agent; the golden is right.');
+  });
+
+  it('says each check under a golden as the CLI does: passed, failed, inconclusive or not applicable', () => {
+    expect(checkReportLine({ status: 'not-applicable', ok: true, label: 'when lookup_order has result.total > 200: escalate called at least 1 time', detail: 'the condition never held' })).toEqual({ text: '    – when lookup_order has result.total > 200: escalate called at least 1 time: not applicable · the condition never held', tone: '' });
+    expect(checkReportLine({ status: 'inconclusive', ok: false, label: 'judge "explains" answers yes', detail: 'not judged: no recorded verdict' })).toEqual({ text: '    ? judge "explains" answers yes: inconclusive · not judged: no recorded verdict', tone: '' });
+    expect(checkReportLine({ status: 'failed', ok: false, label: 'judge "explains" answers yes', detail: 'it answered no', reason: 'the reply never says why' })).toEqual({ text: '    ✗ judge "explains" answers yes: it answered no · the reply never says why', tone: 'no' });
+    // A result kept before checks had a status reads as its ok says.
+    expect(checkReportLine({ ok: true, label: 'exits 0', detail: null })).toEqual({ text: '    ✓ exits 0', tone: '' });
+    expect(checkReportLine({ ok: false, label: 'exits 0', detail: 'exited 1' })).toEqual({ text: '    ✗ exits 0: exited 1', tone: 'no' });
   });
 
   it('says a connection the network guard blocked is what the agent tripped on', () => {

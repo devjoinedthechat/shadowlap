@@ -97,7 +97,7 @@ export function attemptVerdict(a: Pick<TestAttempt, 'failure' | 'kind' | 'checks
   if (!a.failure) return 'passed';
   if (a.kind !== 'check') return 'failed';
   const notOk = (a.checks ?? []).filter((c) => !c.ok);
-  return notOk.length > 0 && notOk.every((c) => (c as { status?: string }).status === 'inconclusive') ? 'inconclusive' : 'failed';
+  return notOk.length > 0 && notOk.every((c) => c.status === 'inconclusive') ? 'inconclusive' : 'failed';
 }
 
 /** A replay that forked nowhere and ran nothing live: every attempt would come out the same, so one settles it. */
@@ -194,7 +194,9 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
     ].join('\n');
   if (unjudgedAttempt) {
     const f = unjudgedAttempt.failure!;
-    failure = { message: `inconclusive: ${f.message.replace(/^check failed: /, 'a check could not be judged: ')}`, details: attempts.length === 1 ? f.details : `${each()}\n\n${f.details}` };
+    // The attempt's own line already says a check was inconclusive, and which.
+    const message = /^check inconclusive: /.test(f.message) ? f.message : `inconclusive: ${f.message.replace(/^check failed: /, 'a check could not be judged: ')}`;
+    failure = { message, details: attempts.length === 1 ? f.details : `${each()}\n\n${f.details}` };
   } else if (result && verdict !== 'passed') {
     const f = shown.failure;
     const tally = formatTally(result);
