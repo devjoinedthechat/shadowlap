@@ -515,7 +515,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     output: o.failure && r ? outputTail(r.shown.output) : null,
     seconds: o.seconds,
     runId: s?.runId ?? null,
-    runs: r ? r.attempts.map((a) => ({ runId: a.ended.summary.runId, ok: !a.failure })) : [],
+    runs: r ? r.attempts.map((a) => ({ runId: a.ended.summary.runId, ok: !a.failure, verdict: attemptVerdict(a) })) : [],
     goldenRunId: o.parent?.runId ?? null,
     calls: s ? callsOf(s) : null,
     upstreamRequests: r ? upstreamOf(r.attempts) : null,

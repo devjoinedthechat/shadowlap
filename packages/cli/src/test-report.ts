@@ -34,9 +34,13 @@ export interface PackResult {
   /** The last lines the agent printed, for a failure. */
   output: string | null;
   seconds: number;
-  /** The replay shown (the passing attempt, or the one that failed), and every attempt's run. */
+  /**
+   * The replay shown (the passing attempt, or the one that failed), and every attempt's run: `ok` for
+   * one that passed, and its `verdict`, inconclusive when all it fell short on is a check that could
+   * not be decided (the attempt test stops at, as no attempt after it would decide it either).
+   */
   runId: string | null;
-  runs: Array<{ runId: string; ok: boolean }>;
+  runs: Array<{ runId: string; ok: boolean; verdict: 'passed' | 'failed' | 'inconclusive' }>;
   /** The recording that was replayed. */
   goldenRunId: string | null;
   calls: { total: number; replayed: number; live: number; blocked: number; stubbed: number } | null;

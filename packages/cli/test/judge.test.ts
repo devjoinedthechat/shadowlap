@@ -67,7 +67,7 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code:
   });
 }
 
-type Result = { ok: boolean; failure: string | null; message: string | null; runId: string; upstreamRequests: number; judge: Record<string, unknown> | null; checks: Array<{ status?: string; reason?: string; detail: string | null; judge?: { source: string | null; verdict: string | null; cost: number | null; callNo?: number } }> };
+type Result = { ok: boolean; failure: string | null; message: string | null; runId: string; runs: Array<{ runId: string; ok: boolean; verdict: string }>; upstreamRequests: number; judge: Record<string, unknown> | null; checks: Array<{ status?: string; reason?: string; detail: string | null; judge?: { source: string | null; verdict: string | null; cost: number | null; callNo?: number } }> };
 
 async function test(golden: string, extra: string[] = [], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; result: Result; report: Record<string, unknown> }> {
   const report = join(work, `report-${Math.random().toString(36).slice(2)}.json`);
@@ -163,6 +163,8 @@ describe('a golden with a judge check', () => {
     expect(r.out).toContain('    ? judge "polite" answers yes: inconclusive · not judged: no recorded verdict and the test runs offline');
     expect(r.out).toContain('0 passed, 0 failed, 1 inconclusive (failing the run: --inconclusive warn lets them through) · 0 upstream requests');
     expect(r.result).toMatchObject({ ok: false, verdict: 'inconclusive', failure: 'inconclusive', upstreamRequests: 0, judge: null });
+    // Its one attempt is inconclusive too, never failed: it didn't pass (ok), and its verdict says why.
+    expect(r.result.runs).toEqual([{ runId: r.result.runId, ok: false, verdict: 'inconclusive' }]);
     expect(r.result.checks[0]).toMatchObject({ status: 'inconclusive', detail: 'not judged: no recorded verdict and the test runs offline', judge: { verdict: null, source: null } });
     // Nothing was sent, and nothing of a call no one answered is kept in the replay.
     expect(mock.requests.length).toBe(sent);
