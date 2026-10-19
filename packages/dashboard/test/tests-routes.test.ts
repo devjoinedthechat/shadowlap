@@ -143,6 +143,18 @@ describe('GET /api/tests', () => {
   });
 });
 
+describe('GET /api/tests/gate', () => {
+  it('previews what a gate\'s figures would do, before they are saved, and refuses what the config would', async () => {
+    const preview = await getJson<{ gate: unknown; description: string; toPass: number; toFail: number; odds: Array<{ rate: number; pass: number; attempts: number }>; defaults: { sprt: unknown } }>(dash, 'tests/gate?good=0.9&bad=0.7&risk=0.05&max=20');
+    expect(preview).toMatchObject({ gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, description: 'pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 20 attempts', toPass: 12, toFail: 3, defaults: { sprt: { good: 0.9, bad: 0.7, risk: 0.05, max: 40 } } });
+    expect(preview.odds.find((o) => o.rate === 0.7)!.pass).toBeCloseTo(0.0222, 4);
+    expect(await getJson(dash, 'tests/gate?baseline=history')).toMatchObject({ gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5 }, toPass: null, odds: [] });
+    const refused = await api(dash, 'tests/gate?good=0.9&max=4');
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain('max (4) is fewer than the 12 attempts an agent that always passes needs');
+  });
+});
+
 describe('GET /api/tests/runs/:id', () => {
   it('gives a run\'s page Find the commit\'s choices, and the banner of a test replay that diverged', async () => {
     // R2_LIMIT is a replay `shadowlap test` made of refund-in-limit in the failing session.
@@ -391,6 +403,14 @@ describe('the Tests jobs', () => {
     } finally {
       await d.close();
     }
+  });
+
+  it('runs more attempts for one golden: its gate\'s limit raised for that session only', async () => {
+    spawned.length = 0;
+    const view = await job({ kind: 'test', golden: 'goldens/refund-flow', maxAttempts: 80 });
+    expect(spawned).toEqual([['test', 'goldens/refund-flow', '--max-attempts', '80']]);
+    expect(view).toMatchObject({ title: 'Running more attempts', code: 0 });
+    for (const maxAttempts of [0, 1001, 2.5, '80']) expect((await post({ kind: 'test', golden: 'goldens/refund-flow', maxAttempts })).status, String(maxAttempts)).toBe(400);
   });
 
   it('adds the normalizer, then tests the golden, and links to the replay that passes', async () => {

@@ -7,15 +7,17 @@ import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import type { Router } from '../router.js';
 import { readTeamStoreInput } from '../team-store.js';
-import { bisectChoices, bisectJob, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
+import { bisectChoices, bisectJob, gatePreview, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
- * replay and Find the commit (`GET /api/tests/runs/:id`), the workflow steps Settings → CI shows
- * (`GET /api/ci/workflows`), and the jobs the Tests screen starts:
+ * replay and Find the commit (`GET /api/tests/runs/:id`), what a gate's figures would do
+ * (`GET /api/tests/gate?good=&bad=&risk=&max=`, or `?baseline=history&drop=&window=&min=`), the
+ * workflow steps Settings → CI shows (`GET /api/ci/workflows`), and the jobs the Tests screen starts:
  *
- *   test                 { golden? }                    every golden on disk (the goldens folder's pattern, which the CLI
- *                                                       expands without a shell, and each pack named elsewhere), or one
+ *   test                 { golden?, maxAttempts? }      every golden on disk (the goldens folder's pattern, which the CLI
+ *                                                       expands without a shell, and each pack named elsewhere), or one;
+ *                                                       `maxAttempts` raises each gate's limit for that session (Run more attempts)
  *   test-update          { goldens: [...] } | { golden } re-record each live with writes stubbed; replaced when its checks pass
  *   bisect               { golden | runId, good, bad? }  Find the commit: replays at each commit, halving the range;
  *                                                       for a run, as `GET /api/tests/runs/:id` offers it
@@ -136,6 +138,17 @@ export function register(router: Router, ctx: RouteContext): void {
     if (before !== undefined && !Number.isFinite(before)) throw new HttpError(400, 'before is a time in milliseconds');
     const bisect = bisectChoices(ctx.store, run.runId, { goldens: goldens(), ...(before !== undefined ? { before } : {}) });
     r.tagged({ banner: testRunBanner(ctx.store, run.runId, { normalizers: normalizers() }), bisect: bisect && choicesInCheckout(ctx.project?.path, bisect) });
+  });
+
+  // A gate's figures, previewed before they are saved: what it means, what it costs, and its odds.
+  router.get('/tests/gate', (r) => {
+    let preview;
+    try {
+      preview = gatePreview(r.query);
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
+    r.tagged(preview);
   });
 
   router.get('/ci/workflows', (r) => {

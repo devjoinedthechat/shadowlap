@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, hasRecordedCommand, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type Normalizer, type RunRecord, type Store, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateOdds, hasRecordedCommand, parseGate, passesPerFailure, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type Normalizer, type RunRecord, type Store, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -537,6 +537,47 @@ const modeOf = (g: GoldenSource) =>
 function gateView(gate: Gate | null | undefined): GateView | null {
   if (!gate) return null;
   return { gate, description: describeGate(gate), toPass: gate.kind === 'sprt' ? attemptsToPass(gate) : null, toFail: gate.kind === 'sprt' ? attemptsToFail(gate) : null };
+}
+
+/** What a gate would do, before it is saved: Settings → CI's preview of the gate's figures. */
+export interface GatePreview {
+  gate: Gate;
+  /** `pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 40 attempts`. */
+  description: string;
+  /** An SPRT gate: the attempts an agent that always passes needs (12 at 0.9, 0.7, 0.05), one that always fails (3), and the passes that make up for a failure (about 4.4). Null for history. */
+  toPass: number | null;
+  toFail: number | null;
+  passesPerFailure: number | null;
+  /** An SPRT gate's exact odds of each verdict, and attempts on average, for agents that pass at these rates; empty for history, whose odds depend on the history. */
+  odds: Array<{ rate: number; pass: number; fail: number; inconclusive: number; attempts: number }>;
+  /** What `{}` and `{ "baseline": "history" }` stand for in a golden's gate, and blame's own figures. */
+  defaults: { sprt: Omit<Gate & { kind: 'sprt' }, 'kind'>; baseline: Omit<Gate & { kind: 'baseline' }, 'kind'>; blame: Omit<Gate & { kind: 'sprt' }, 'kind'> };
+}
+
+const PREVIEW_RATES = [0.99, 0.95, 0.9, 0.8, 0.7, 0.5];
+
+/**
+ * A gate's preview from its figures as a page sends them (query values, all optional): `good`,
+ * `bad`, `risk`, `max`, or `baseline=history` with `drop`, `risk`, `window`, `min`. Throws with the
+ * config's own message for a gate it would refuse.
+ */
+export function gatePreview(query: { get(name: string): string | null }): GatePreview {
+  const json: Record<string, unknown> = {};
+  for (const key of ['baseline', 'good', 'bad', 'risk', 'max', 'drop', 'window', 'min']) {
+    const raw = query.get(key);
+    if (raw === null || raw === '') continue;
+    json[key] = key === 'baseline' ? raw : Number(raw);
+  }
+  const gate = parseGate(json, 'gate');
+  return {
+    gate,
+    description: describeGate(gate),
+    toPass: gate.kind === 'sprt' ? attemptsToPass(gate) : null,
+    toFail: gate.kind === 'sprt' ? attemptsToFail(gate) : null,
+    passesPerFailure: gate.kind === 'sprt' ? passesPerFailure(gate) : null,
+    odds: gate.kind === 'sprt' ? PREVIEW_RATES.map((rate) => ({ rate, ...gateOdds(gate, rate) })) : [],
+    defaults: { sprt: { ...SPRT_DEFAULTS }, baseline: { ...BASELINE_DEFAULTS }, blame: { ...BLAME_DEFAULTS } },
+  };
 }
 
 /**
