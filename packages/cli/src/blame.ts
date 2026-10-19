@@ -1,4 +1,4 @@
-import { canonicalize, endedEarlyCount, formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
+import { canonicalize, endedEarlyCount, formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type RunRecord, type Store , type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -237,7 +237,7 @@ const NO_PRICE = /^no price for (.+?); add it under "prices"/;
  * The models with no price, when they are the only reason an attempt failed: every failure is a
  * cost check that could not be judged for want of a price. Null when anything else failed too.
  */
-export function unpricedOnly(a: Pick<Attempt, 'checks' | 'failures'>): string[] | null {
+export function unpricedOnly(a: { checks: readonly StoredCheck[]; failures: readonly string[] }): string[] | null {
   const failed = a.checks.filter((c) => !c.ok);
   if (!failed.length || failed.length !== a.failures.length) return null;
   const models = failed.map((c) => NO_PRICE.exec(c.detail ?? '')?.[1]);
