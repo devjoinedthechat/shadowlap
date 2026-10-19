@@ -544,7 +544,8 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
     const runs = g.targets.map((t) => {
       const judged = judgeRecording(input.store, t.run, input.store.getCalls(t.run.runId), g.spec, input.prices);
       const role: VerifyRole = judged.passed === false ? 'target' : 'good';
-      return { parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && commandIsImported(t.run), role };
+      // A golden runs its pack's command as test runs it; a run unpacked from someone's pack is marked so later replays ask.
+      return { parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && t.golden === null && commandIsImported(t.run), role };
     });
     const remaining = input.budget === null ? null : Math.max(0, input.budget - out.spent);
     log(`${p.yellow('⑂')} Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} with a write or stop change: ${runs.map((r) => shortId(r.parent.runId)).join(', ')}`);
@@ -599,7 +600,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     if (s.fromCode) {
       for (const t of input.targets) {
         log(p.dim(`  reading the prompt the working tree sends ${t.golden ?? shortId(t.run.runId)}, offline`));
-        const cap = await captureFromCode({ store, config, parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && commandIsImported(t.run), guard: 'block', timeoutMs: s.timeoutMs ?? 120_000, cwd });
+        const cap = await captureFromCode({ store, config, parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && t.golden === null && commandIsImported(t.run), guard: 'block', timeoutMs: s.timeoutMs ?? 120_000, cwd });
         captures.set(t.run.runId, cap);
         if (cap.refused) refusedRuns.set(t.run.runId, cap.refused);
       }
@@ -614,7 +615,8 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     const planned = input.targets.flatMap((t) => (refusedRuns.has(t.run.runId) ? [] : planRun(store, t, s, captures.get(t.run.runId) ?? null, batchEffects, config, remedies)));
 
     // Refused before anything is spent: a provider this machine has no credentials or upstream for.
-    const sender = new ModelSender({ upstreams: upstreamOverrides(input.env ?? process.env), env: input.env ?? process.env, timeoutMs: s.timeoutMs, ...(input.env?.SHADOWLAP_DECISIONS_NO_WAIT ? { wait: () => 0 } : {}) });
+    // A model request waits as long as the official SDKs do (ten minutes) unless --timeout says less.
+    const sender = new ModelSender({ upstreams: upstreamOverrides(input.env ?? process.env), env: input.env ?? process.env, timeoutMs: s.timeoutMs ?? 600_000 });
     const problems = new Set<string>();
     for (const plan of planned) {
       if (plan.skip || plan.untouched) continue;

@@ -148,9 +148,11 @@ function setArgs(raw: unknown): string[] | { error: string } {
 }
 
 /** The runs and goldens a request names: run ids from the store, goldens from the project's list. */
-function targetArgs(store: Store, req: JobRequest, goldens: readonly GoldenSource[]): { args: string[]; runIds: string[] } | { error: string; status?: number } {
+function targetArgs(store: Store, req: JobRequest, goldens: readonly GoldenSource[]): { args: string[]; runIds: string[]; byId: string[] } | { error: string; status?: number } {
   const args: string[] = [];
   const runIds: string[] = [];
+  // Runs named by id: a golden runs its pack's command as a test does, without asking.
+  const byId: string[] = [];
   if (req.runs !== undefined) {
     if (!Array.isArray(req.runs) || req.runs.length > 500) return { error: 'runs must be a list of run ids' };
     for (const id of req.runs) {
@@ -158,6 +160,7 @@ function targetArgs(store: Store, req: JobRequest, goldens: readonly GoldenSourc
       if (!run) return { error: `no run ${String(id).slice(0, 40)}`, status: 404 };
       args.push(run.runId);
       runIds.push(run.runId);
+      byId.push(run.runId);
     }
   }
   if (req.goldens !== undefined) {
@@ -172,7 +175,7 @@ function targetArgs(store: Store, req: JobRequest, goldens: readonly GoldenSourc
     }
   }
   if (!args.length) return { error: 'name the runs or goldens to ask again: runs, goldens, or goldens "all"' };
-  return { args, runIds };
+  return { args, runIds, byId };
 }
 
 /** `shadowlap decisions` as a job: `{ runs?, goldens?, model?, set?, fromCode?, samples?, thenVerify?, yes? }`. */
@@ -191,7 +194,7 @@ export function decisionsJob(req: JobRequest, store: Store, goldens: readonly Go
   }
   const runsAgent = fromCode || req.thenVerify === true;
   if (runsAgent) {
-    const consent = importedConsent(store, targets.runIds, req.yes);
+    const consent = importedConsent(store, targets.byId, req.yes);
     if (consent) return consent;
   }
   const args = ['decisions', ...targets.args, ...(typeof req.model === 'string' ? ['--model', req.model] : []), ...set, ...(fromCode ? ['--from-code'] : []), ...samples, ...(req.thenVerify === true ? ['--then-verify'] : []), ...(runsAgent && req.yes === true ? ['--yes'] : [])];
@@ -207,7 +210,7 @@ export function migrateJob(req: JobRequest, store: Store, goldens: readonly Gold
   if ('error' in targets) return named ? targets : { error: 'the project has no goldens to migrate: keep a run as a golden first', status: 409 };
   const set = setArgs(req.set);
   if ('error' in set) return set;
-  const consent = importedConsent(store, targets.runIds, req.yes);
+  const consent = importedConsent(store, targets.byId, req.yes);
   if (consent) return consent;
   return { args: ['migrate', '--to', req.to, ...targets.args, ...set, ...(req.yes === true ? ['--yes'] : [])], title: `Migrating to ${req.to}` };
 }
@@ -231,7 +234,7 @@ export function verifyFlaggedJob(req: JobRequest, store: Store, configDir: strin
   if (!flagged.length) return { error: 'no run in this session decides a write or when to stop differently: there is nothing to verify', status: 409 };
   const runs = flagged.map((r) => store.getRun(r.runId)).filter((r): r is NonNullable<typeof r> => r !== null);
   if (runs.length < flagged.length) return { error: 'a run this session flagged is no longer in the store', status: 409 };
-  const consent = importedConsent(store, runs.map((r) => r.runId), req.yes);
+  const consent = importedConsent(store, runs.filter((r) => !flagged.find((f) => f.runId === r.runId)?.golden).map((r) => r.runId), req.yes);
   if (consent) return consent;
   // The checks the goldens share, from the config, when they share one.
   let tests: unknown;

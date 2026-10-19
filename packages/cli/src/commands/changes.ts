@@ -31,13 +31,17 @@ function splitCommand(program: Command, given: string[]): { specs: string[]; arg
   return { specs: given.slice(0, given.length - after), argv: given.slice(given.length - after) };
 }
 
-/** Consent for every imported command the change may run (the offline replay of --from-code, verify), asked before anything is spent. */
+/**
+ * Consent for every imported command the change may run (the offline replay of --from-code, verify),
+ * asked before anything is spent. A golden named by its pack folder runs its command as `shadowlap
+ * test` runs it, without asking: it is the project's own.
+ */
 async function consent(targets: DecisionTarget[], argv: string[] | null, yes: boolean | undefined, runs: boolean): Promise<boolean> {
   if (!runs) return true;
   for (const t of targets) {
     const problem = commandProblem(t, argv);
     if (problem) throw new DecisionsError(problem);
-    if (!argv && commandIsImported(t.run) && hasRecordedCommand(t.run) && !yes && !(await confirmImportedCommand(t.run, t.run.command.argv, `shadowlap decisions ${shortId(t.run.runId)} … -- <command>`))) return false;
+    if (!argv && t.golden === null && commandIsImported(t.run) && hasRecordedCommand(t.run) && !yes && !(await confirmImportedCommand(t.run, t.run.command.argv, `shadowlap decisions ${shortId(t.run.runId)} … -- <command>`))) return false;
   }
   return true;
 }
@@ -77,7 +81,7 @@ export function register(program: Command): void {
     .option('--timeout <seconds>', 'stop a model request, or a verify attempt, after this long', parseIntArg)
     .option('--strict', 'exit 1 when a run has a rank 1 or 2 change (for CI)')
     .option('--guard <mode>', 'with --then-verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option('-y, --yes', 'run the recorded command of imported runs and goldens without asking')
+    .option('-y, --yes', "run the recorded command of runs imported from someone's pack without asking (a golden's runs as test runs it)")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
     .action(async (given: string[], flags: { model?: string; fromCode?: boolean; set: string[]; samples: number; concurrency: number; scope?: string; thenVerify?: boolean; expect?: string; attempts: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; strict?: boolean; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
@@ -153,7 +157,7 @@ export function register(program: Command): void {
     .option('--budget <usd>', 'send no request and start no attempt once this much is spent', parseUsd)
     .option('--timeout <seconds>', 'stop a model request, or a verify attempt, after this long', parseIntArg)
     .option('--guard <mode>', 'verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option('-y, --yes', 'run the recorded command of imported goldens without asking')
+    .option('-y, --yes', "run the recorded command of runs imported from someone's pack without asking (a golden's runs as test runs it)")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
     .action(async (given: string[], flags: { to: string; set: string[]; samples: number; concurrency: number; expect?: string; attempts: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();

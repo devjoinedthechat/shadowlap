@@ -166,6 +166,20 @@ describe('shadowlap migrate', () => {
     expect(report.passes).toEqual({ verdict: 'rejected', runs: [{ runId, golden: 'goldens/research', outcome: 'broken', verified: true }] });
   }, 240_000);
 
+  it('migrates the goldens from a fresh store, as CI has one, running their commands as test runs them', async () => {
+    const fresh = join(cwd, 'fresh.db');
+    const r = await new Promise<{ code: number | null; stdout: string; out: string }>((resolve) => {
+      const child = spawn(process.execPath, [CLI, '--db', fresh, 'migrate', '--to', 'claude-haiku-4-5', '--attempts', '1', '--json'], { cwd, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(cwd, 'home'), AGENT_MODEL: FROM }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdout = '';
+      let out = '';
+      child.stdout.on('data', (d: Buffer) => ((stdout += d.toString()), (out += d.toString())));
+      child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+      child.on('exit', (code) => resolve({ code, stdout, out }));
+    });
+    expect(r.code, r.out).toBe(0);
+    expect(json<MigrateReport>(r).passes).toMatchObject({ verdict: 'accepted', runs: [{ golden: 'goldens/research', outcome: 'kept', verified: true }] });
+  }, 240_000);
+
   it('prints the JSON its docs describe', async () => {
     const report = json<MigrateReport>(await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--attempts', '1', '--json']));
     const problems = [departures('migrate', report), departures('migrateCosts', report.costs), departures('migrateSet', report.set), departures('migratePasses', report.passes), departures('decisions', report.decisions)];

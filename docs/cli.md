@@ -266,9 +266,9 @@ Runs are ids, unique prefixes or `label:<name>`; a path such as `goldens/*` name
 | `--then-verify` | Then run [`verify`](#verify) on the runs with a rank 1 or 2 change, and only on those: a run that passed as recorded must keep passing, one that failed must now pass, each under its golden's checks or `--expect` |
 | `--expect <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify`: as for `verify` |
 | `--budget <usd>` | Send no request, and start no verify attempt, once this much is spent |
-| `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long |
+| `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long. A model request waits ten minutes by default, as the official SDKs do |
 | `--strict` | Exit 1 when a run has a rank 1 or 2 change, for CI |
-| `-y`, `--yes` | Run the recorded command of an imported run or golden (`--from-code`, `--then-verify`) without asking |
+| `-y`, `--yes` | Run the recorded command of a run imported from someone's pack (`--from-code`, `--then-verify`) without asking. A golden named by its pack folder runs its command as `test` runs it |
 | `--json` | The report as JSON on stdout (below); progress goes to stderr |
 
 The command after `--` replaces each run's recorded one, for `--from-code` and `--then-verify`.
@@ -297,7 +297,7 @@ Switches models with the evidence, for a model a provider retires or one you wou
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0. Default: each golden's checks from `shadowlap.config.json` |
 | `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | Verify's, as for `verify`. Default 4 of 5 |
 | `--budget <usd>`, `--timeout <seconds>` | As for `decisions` |
-| `-y`, `--yes` | Run the recorded command of imported goldens without asking |
+| `-y`, `--yes` | Run the recorded command of a run imported from someone's pack without asking; a golden runs its command as `test` runs it |
 | `--json` | The report as JSON on stdout (below) |
 
 The fields it changes come from two places: the [retirement table](./decisions.md#model-retirements)'s notes on what a provider stops accepting (Anthropic's Claude 4.7 and later answer a non-default `temperature`, `top_p` or `top_k` with a 400: `temperature` is set to its default, 1, and the other two are left out), and the new model's own refusal when it names what to change (`max_tokens: 64000 > 32000`, *at most 16384 completion tokens*, *Only the default (1) value is supported*): the step is asked once more with that field changed. Verify runs with the fields it set; a field it left out has to leave your agent's requests first, since verify runs your code, and the report warns of it. A refusal that names nothing to change stays the step's `error`.
