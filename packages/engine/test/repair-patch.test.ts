@@ -143,14 +143,19 @@ describe('repairPatchProblem', () => {
   });
 });
 
-/** Each file's text after `git apply` of its patch, all in one call: what the patches really do to the files. */
+/**
+ * Each file's text after `git apply` of its patch, all in one call: what the patches really do to the
+ * files. Applied as `fix apply` first applies one, with no line-ending conversion: under
+ * core.autocrlf=true, which Git for Windows sets, git apply writes a file whose lines end with LF
+ * back with CRLF.
+ */
 function gitApplied(cases: Array<{ before: string; patch: string }>): string[] {
   const dir = mkdtempSync(join(tmpdir(), 'shadowlap-patch-'));
   try {
     execFileSync('git', ['init', '-q'], { cwd: dir });
     cases.forEach((c, i) => writeFileSync(join(dir, `f${i}.md`), c.before));
     writeFileSync(join(dir, 'all.patch'), cases.map((c, i) => c.patch.replaceAll('policy.md', `f${i}.md`)).join(''));
-    execFileSync('git', ['apply', '--whitespace=nowarn', 'all.patch'], { cwd: dir, stdio: 'pipe' });
+    execFileSync('git', ['-c', 'core.autocrlf=false', 'apply', '--whitespace=nowarn', 'all.patch'], { cwd: dir, stdio: 'pipe' });
     return cases.map((_, i) => readFileSync(join(dir, `f${i}.md`), 'utf8'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
