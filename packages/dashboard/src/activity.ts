@@ -368,8 +368,10 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   if (result && repeated) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${repeated.passed} of ${repeated.total} attempts passed${typeof repeated.required === 'number' ? `, ${repeated.required} needed` : ''}` };
   const diverged = d && d.type !== 'forced' ? `diverged at call ${d.callNo}${drifted ? `, ${drifted}` : ''}` : null;
   if (result) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${result.failure === 'diverged' && diverged ? diverged : shortReason(result)}` };
-  const reason = diverged ?? (checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : checks?.inconclusive ? `check inconclusive: ${checks.inconclusive}` : null);
+  const reason = diverged ?? (checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : null);
   if (reason) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${reason}` };
+  // All it fell short on is a check that could not be decided: neither passed nor failed, as test says it.
+  if (checks?.inconclusive) return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · check inconclusive: ${checks.inconclusive}` };
   const detail = checks ? checks.text : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
   return { ...item, kind: 'test', text: `Test passed · ${golden} · ${detail}` };
 }

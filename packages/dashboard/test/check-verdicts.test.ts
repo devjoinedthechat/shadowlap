@@ -60,7 +60,9 @@ describe('verdicts in the activity feed', () => {
     const { items } = activity(store);
     const text = (runId: string) => items.find((i) => i.id === `r:${runId}:end`)?.text;
     expect(text(id.applied!)).toBe('Test passed · in-limit · 1 of 1 checks passed, 2 not applicable');
-    expect(text(id.undecided!)).toBe('Test failed · escalated check inconclusive: judge "explains" answers yes');
+    // Before its result is kept, a replay whose only shortfall is a check that could not be decided is
+    // neither passed nor failed, as the result will say: inconclusive, marked as a warning.
+    expect(items.find((i) => i.id === `r:${id.undecided!}:end`)).toMatchObject({ kind: 'warn', text: 'Test inconclusive · escalated · check inconclusive: judge "explains" answers yes' });
     expect(text(id.judged!)).toMatch(/^Replay clean · 4\/4 · 0 upstream · 1 of 1 checks passed, 1 not applicable$/);
   });
 });
