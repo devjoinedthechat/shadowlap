@@ -84,7 +84,7 @@ describe('a store that refuses to keep what a command found', () => {
       const run = makeRun(store);
       refuse('blames');
       const report = blameReport(run);
-      const kept = recordBlameFix(store, { runId: run, report, settings: { spec: null, expect: null, fields: {}, attempts: 5, needed: 2 }, recording: { checks: [], failures: ['the agent exited with code 1'] } });
+      const kept = recordBlameFix(store, { runId: run, report, settings: { spec: null, expect: null, fields: {}, attempts: 5, needed: 2, gate: null }, recording: { checks: [], failures: ['the agent exited with code 1'] } });
       expect(kept).toBeNull();
       expect(report.warnings).toEqual(['the blame could not be kept with its fix: the store refuses']);
       expect(store.listFixes()).toEqual([]);

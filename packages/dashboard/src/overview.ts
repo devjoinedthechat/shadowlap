@@ -4,7 +4,7 @@ import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import { cacheTotalsOf, cacheUseOf, callTotals, runStats, sumStats, type RunStats, type StatsOptions } from './run-stats.js';
-import { failingTests, overviewTests, type GoldenList } from './tests.js';
+import { failingTests, overviewTests, verdictOfResult, type GoldenList } from './tests.js';
 
 /**
  * The Overview, worked out on the server: this week against last week, the last seven days, what
@@ -67,7 +67,8 @@ export interface TodayPanel {
   /** Forks today (the one blame rescued a run with among them), the calls that went live in them, and the writes they blocked. */
   forks: { count: number; live: number; blocked: number };
   /** Test runs today, the failures among them, and the newest failure. */
-  tests: { count: number; failed: number; latestFailure: { runId: string; outcome: RunOutcome } | null };
+  /** Test replays today: how many, how many failed, how many belong to a golden whose result is inconclusive (counted apart), and the newest failure. */
+  tests: { count: number; failed: number; inconclusive: number; latestFailure: { runId: string; outcome: RunOutcome } | null };
   /**
    * Blame today: the model calls it probed, its attempts (bundled under the run they probed), and
    * the runs it probed, each with how its blame came out (null while it is still probing), where
@@ -128,6 +129,8 @@ export interface RunGrid {
 export interface TestsTile {
   goldens: number;
   passing: number;
+  /** Goldens whose last result is inconclusive, counted apart from passing and the regressions. */
+  inconclusive: number;
   /** Passing as the tests stood when this week started; null without results that old. */
   lastWeek: number | null;
   regressions: number;
@@ -194,8 +197,8 @@ export interface FixesFunnel {
  */
 export interface NeedsLookRow {
   kind: 'store-setup' | 'broken' | 'test' | 'open' | 'unblamed' | 'ready' | 'local';
-  /** The icon: a setting, a failure, a blame, a fix that holds, or a recording. */
-  icon: 'setting' | 'fail' | 'blame' | 'fixok' | 'rec';
+  /** The icon: a setting, a failure, an inconclusive test, a blame, a fix that holds, or a recording. */
+  icon: 'setting' | 'fail' | 'warn' | 'blame' | 'fixok' | 'rec';
   title: string;
   detail: string;
   /** The word before the arrow: Open, Fix, Fix it, Run blame, Apply, Push. */
@@ -342,7 +345,16 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
   const sum = (list: IndexedRun[], f: (s: RunStats) => number) => list.reduce((t, r) => t + (stats.has(r.runId) ? f(stats.get(r.runId)!) : 0), 0);
   const forks = of('fork');
   const tests = of('test');
-  const failedTests = tests.filter((r) => r.failed);
+  // A replay of a golden whose result is inconclusive failed an attempt, but the golden is neither
+  // passed nor failed: it counts apart, as Tests counts it.
+  const unsure = (r: IndexedRun): boolean => {
+    const t = r.meta.test;
+    if (!t?.golden || !t.session) return false;
+    const result = store.listTestResults({ sessionId: t.session, golden: t.golden, limit: 1 })[0];
+    return !!result && verdictOfResult(result) === 'inconclusive';
+  };
+  const inconclusiveTests = tests.filter((r) => r.failed && unsure(r));
+  const failedTests = tests.filter((r) => r.failed && !inconclusiveTests.includes(r));
   // Blame's runs today: the attempts bundled under the run they probed, and the fork it rescued a run with.
   const probes = runs.filter((r) => r.meta.probe && ((r.bundled && r.attemptKind === 'probe') || r.rescues));
   const probedRun = (r: IndexedRun) => r.rescues ?? r.attemptOf!;
@@ -353,7 +365,7 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
     recording: index.runs.filter((r) => recordingNow.has(r.runId) && r.mode === 'record' && !r.bundled).map((r) => ({ runId: r.runId, command: r.argv.join(' '), calls: r.calls, startedAt: r.startedAt })),
     replays: of('clean').length,
     forks: { count: forks.length, live: sum(forks, (s) => s.origins.l), blocked: sum(forks, (s) => s.origins.b) },
-    tests: { count: tests.length, failed: failedTests.length, latestFailure: failedTests[0] ? { runId: failedTests[0].runId, outcome: failedTests[0].outcome } : null },
+    tests: { count: tests.length, failed: failedTests.length, inconclusive: inconclusiveTests.length, latestFailure: failedTests[0] ? { runId: failedTests[0].runId, outcome: failedTests[0].outcome } : null },
     blame: {
       probes: new Set(probes.map((r) => `${probedRun(r)}#${r.meta.probe!.callNo}`)).size,
       attempts: probes.filter((r) => r.bundled).length,
@@ -504,7 +516,7 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
   const of = (kind: string) => fixes.filter((f) => f.kind === kind);
   const fixRow = (f: (typeof fixes)[number]): NeedsLookRow => ({ kind: f.kind, icon: f.icon, title: f.title, detail: f.detail, action: f.action, href: f.href, runId: f.runId, fixId: f.fixId, at: f.at });
   const tests: NeedsLookRow[] = goldens.length
-    ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: 'fail', title: t.title, detail: t.line, action: 'Fix', href: t.href, runId: t.runId, fixId: null, at: t.at }))
+    ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: t.verdict === 'inconclusive' ? ('warn' as const) : ('fail' as const), title: t.title, detail: t.line, action: t.verdict === 'inconclusive' ? 'Open' : 'Fix', href: t.href, runId: t.runId, fixId: null, at: t.at }))
     : [];
   // On Runs, as the design has it: the runs only here carry the local tag, and Push in the bulk bar
   // sends the ones picked (Settings → Store's Push local runs sends them all).
@@ -539,7 +551,7 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
   const all = [
     ...setup,
     ...capped(of('broken').map(fixRow), (n) => ({ icon: 'fail', title: `${plural(n, 'more applied fix', 'more applied fixes')} ${n === 1 ? "doesn't" : "don't"} hold`, detail: 'each on Fixes', href: '#/fixes' })),
-    ...capped(tests, (n) => ({ icon: 'fail', title: `${plural(n, 'more test')} failed`, detail: 'each on Tests', href: '#/tests' })),
+    ...capped(tests, (n) => ({ icon: 'fail', title: `${plural(n, 'more test')} failed or inconclusive`, detail: 'each on Tests', href: '#/tests' })),
     ...capped(of('open').map(fixRow), (n) => ({ icon: 'blame', title: `${plural(n, 'more failure')} with no fix yet`, detail: 'each on Fixes', href: '#/fixes' })),
     ...capped(of('unblamed').map(fixRow), (n) => ({ icon: 'fail', title: `${plural(n, 'more failed run')} not blamed yet`, detail: 'the failed runs on Runs', href: '#/runs?type=failed' })),
     ...capped(of('ready').map(fixRow), (n) => ({ icon: 'fixok', title: `${plural(n, 'more verified fix', 'more verified fixes')} ${n === 1 ? 'is' : 'are'} ready`, detail: 'each on Fixes', href: '#/fixes' })),

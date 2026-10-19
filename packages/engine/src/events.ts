@@ -22,7 +22,7 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  * - `capture.imported`: runId, ref the source's name; data { format, from, key, modelCalls, toolCalls }.
  *   One event per run an import keeps; the feed tells the events of one import (same actor and
  *   source, moments apart) as one entry. An event may instead list its runs in `runIds`.
- * - `test.session`: ref the session; data { passed, failed, goldens, interrupted?, notRun? }
+ * - `test.session`: ref the session; data { passed, failed, inconclusive?, goldens, interrupted?, notRun? }
  * - `bisect.found`: ref the golden or run bisected (runId too, for a run); data { commit, subject, first,
  *   why, untested, answered?, … }; `bisect.none`: ref as for found; data { outcome, why, good, bad,
  *   answered? }: no first bad commit between them. `answered` is the golden's newest result as the

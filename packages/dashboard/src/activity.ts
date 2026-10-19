@@ -1,8 +1,8 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, formatTally, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoredEvent } from '@shadowlap/engine';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
-import { shortReason } from './tests.js';
+import { shortReason, verdictOfResult } from './tests.js';
 import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
 
 /**
@@ -88,8 +88,11 @@ const EVENT_TEXT = new Map<string, Describe>([
     (_e, d) => {
       const failed = num(d.failed) ?? 0;
       const notRun = num(d.notRun);
-      if (d.interrupted === true) return { kind: 'fail', text: `Tests stopped · ${num(d.passed) ?? 0} passed, ${failed} failed${notRun ? `, ${notRun} not run` : ''}`, href: '#/tests' };
-      return { kind: failed ? 'fail' : 'test', text: `Tests ran · ${num(d.passed) ?? 0} passed, ${failed} failed`, href: '#/tests' };
+      // Inconclusive goldens are counted apart: neither passed nor failed.
+      const inconclusive = num(d.inconclusive) ?? 0;
+      const counts = `${num(d.passed) ?? 0} passed, ${failed} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
+      if (d.interrupted === true) return { kind: 'fail', text: `Tests stopped · ${counts}${notRun ? `, ${notRun} not run` : ''}`, href: '#/tests' };
+      return { kind: failed ? 'fail' : inconclusive ? 'warn' : 'test', text: `Tests ran · ${counts}`, href: '#/tests' };
     },
   ],
   // A golden's answer opens Tests, where it shows above the golden's buttons; a run's, the run.
@@ -101,6 +104,8 @@ const EVENT_TEXT = new Map<string, Describe>([
       const title = str(d.title);
       const callNo = num(d.callNo);
       if (d.outcome === 'stopped') return { kind: 'blame', text: parts('Blame stopped', title), href };
+      // Its first probe couldn't tell: nothing is settled, which is no finding that no call rescues it.
+      if (d.outcome === 'unrescuable' && d.unsettled === true) return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}not settled from the first model call`, href };
       if (callNo === null || d.outcome === 'unrescuable') return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}no single call rescued the run`, href };
       // The mock's two lines: with the failure's title when the fix has one, else with the confidence.
       if (title) return { kind: 'blame', text: `Blamed · ${title}, lost at model call #${callNo}`, href };
@@ -315,6 +320,15 @@ function testEntry(store: Store, attempts: RunRecord[]): ActivityItem {
   return { ...testEnd(store, shown, test, result), id: `r:${newest.runId}:end`, at: newest.endedAt ?? newest.startedAt };
 }
 
+/** A gate's evidence as the feed says it, `12 of 12 passed · pass rate ≥ 0.76 (95%, Wilson) · pass^5 1.00`; its tally alone when the result kept less. */
+function gateTally(g: GateResult): string {
+  try {
+    return formatTally(g);
+  } catch {
+    return `${g.passes} of ${g.attempts} passed`;
+  }
+}
+
 function testEnd(store: Store, run: RunRecord, test: { golden: string; session: string }, result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0]): ActivityItem {
   const f = facts(store, run);
   const golden = basename(test.golden.replace(/[\\/]+$/, '')) || test.golden;
@@ -322,16 +336,22 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   const d = run.divergence;
   const item = { ...base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt) };
   const drifted = d ? drift(d) : null;
-  // Tests: the golden's result in its session says how it did, once it has one: its attempts, or
-  // its checks. A golden that may fork diverges by design, and passes on its checks; without the
-  // result, the run says it.
+  // Tests: the golden's result in its session says how it did, once it has one: its gate's
+  // evidence, its attempts (every result keeps them, so only more than one says anything), or its
+  // checks. A golden that may fork diverges by design, and passes on its checks; without the result,
+  // the run says it.
+  const gate = result?.data?.gate ?? null;
   const attempts = result?.data?.attempts;
+  const repeated = !gate && attempts && attempts.total > 1 ? attempts : null;
   const judged = result?.data?.checks ?? null;
+  // Neither passed nor failed: its gate ran out of attempts between its bounds, or a check couldn't be judged.
+  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · ${gate ? gateTally(gate) : 'a check could not be judged'}` };
   if (result?.ok) {
-    const how = attempts ? `${attempts.passed} of ${attempts.total} attempts passed` : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
+    const how = gate ? gateTally(gate) : repeated ? `${repeated.passed} of ${repeated.total} attempts passed` : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
     return { ...item, kind: 'test', text: `Test passed · ${golden} · ${how}` };
   }
-  if (attempts && result) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${attempts.passed} of ${attempts.total} attempts passed, ${attempts.required} needed` };
+  if (result && gate) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${gateTally(gate)}` };
+  if (result && repeated) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${repeated.passed} of ${repeated.total} attempts passed${typeof repeated.required === 'number' ? `, ${repeated.required} needed` : ''}` };
   const diverged = d && d.type !== 'forced' ? `diverged at call ${d.callNo}${drifted ? `, ${drifted}` : ''}` : null;
   if (result) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${result.failure === 'diverged' && diverged ? diverged : shortReason(result)}` };
   const reason = diverged ?? (checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : checks?.inconclusive ? `check inconclusive: ${checks.inconclusive}` : null);

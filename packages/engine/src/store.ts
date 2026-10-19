@@ -6,6 +6,7 @@ import { manifestRefs } from './manifest.js';
 import { sha256, ulid } from './ids.js';
 import type { BlameReport } from './blame.js';
 import type { RepairOutcome, RepairReport } from './repair.js';
+import type { GateResult } from './stats.js';
 import type { VerifyOutcome, VerifyReport } from './verify.js';
 import { currentOwner, recorderGone, type RunOwner } from './liveness.js';
 import type {
@@ -369,7 +370,10 @@ export interface TestSession {
   command: string[];
   /** The code version it tested (`codeVersion`): a short sha, with `+dirty` for uncommitted changes. */
   revision: string | null;
-  /** Set when it ends: the goldens that finished, by how they came out. */
+  /**
+   * Set when it ends: the goldens that finished, by how they came out. An inconclusive one is
+   * neither (its result's `data.verdict` says so); sessions before verdicts counted it by CI's call.
+   */
   passed: number;
   failed: number;
   /** Requests that reached a provider: 0 for goldens that replay offline. */
@@ -386,8 +390,12 @@ export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt'
     owner?: RunOwner | null;
   };
 
-/** Why a golden failed: its replay sent a request the recording doesn't have, a check failed, the agent exited non-zero, it made no calls, or it couldn't run at all. */
-export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error';
+/**
+ * Why a golden failed: its replay sent a request the recording doesn't have, a check failed, the
+ * agent exited non-zero, it made no calls, or it couldn't run at all; or why it didn't pass:
+ * `inconclusive`, its gate ran out of attempts between its bounds, or a check couldn't be judged.
+ */
+export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'inconclusive';
 
 /** What a result keeps besides its verdict, for the Tests screen. Every field is optional to readers. */
 export interface TestResultData {
@@ -399,8 +407,24 @@ export interface TestResultData {
   /** Input tokens of the run's model requests, cache reads included: what it costs to run live. */
   inputTokens?: number;
   checks?: StoredCheck[];
-  /** A recording that repeats: attempts run, passed and needed, and each attempt's run. */
-  attempts?: { total: number; passed: number; required: number; runs: string[] };
+  /**
+   * Attempts run, passed and needed, and each attempt's run: kept for every result since gates
+   * pool them, one attempt included (a result kept before has it only for a recording that
+   * repeats). `inconclusive`: attempts a check couldn't judge, which count neither way.
+   */
+  attempts?: { total: number; passed: number; required: number | null; runs: string[]; inconclusive?: number };
+  /** How the golden came out: passed, failed, or inconclusive (its gate ran out between its bounds, or a check couldn't be judged). Absent before results said. */
+  verdict?: 'passed' | 'failed' | 'inconclusive';
+  /** A golden with a gate: its decision, interval, pass^k, evidence path and sentence (stats.ts), as the reports show it. */
+  gate?: GateResult;
+  /** USD its attempts spent on live calls, so a dashboard can say what more attempts would cost. */
+  spent?: number;
+  /**
+   * `test --continue` carried an inconclusive gate's attempts over: the sessions they came from,
+   * oldest first, and how many. `gate` counts them; `attempts` is this session's own, so a baseline
+   * pools each attempt once.
+   */
+  continued?: { sessions: string[]; attempts: number };
   /**
    * Where the replay diverged; `text` is the report as the CLI prints it. `diff` keeps the first
    * changes, cut short; `entries` is how many there were, and `volatile` what volatileValues() made

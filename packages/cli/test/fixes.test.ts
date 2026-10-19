@@ -164,7 +164,8 @@ function modelCalls(runId: string): number[] {
   }
 }
 
-describe('shadowlap fix', () => {
+// Verify and repair decide each run by their gate, a dozen attempts each where they used to take four: more time on a busy machine.
+describe('shadowlap fix', { timeout: 120_000 }, () => {
   it('opens a fix from a blame, joins the next failing run with its label, and keeps every verdict on it', async () => {
     const { failed, good } = await runs('refund-over-limit');
     const decision = modelCalls(failed[0])[2]!;
@@ -229,7 +230,9 @@ describe('shadowlap fix', () => {
     expect(shown.steps[2]).toMatchObject({ short: '3 of 3 held', title: '3 of 3 runs held', meta: '1 earlier change rejected' });
     expect(shown.verify.map((v: { verdict: string }) => v.verdict)).toEqual(['accepted', 'rejected']);
     expect(shown.defaultVerify).toBe(shown.verify[0].verifyId);
-    expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: 'a run passes when 4 of 5 attempts meet the check: the agent exits 0; issue_refund with {"amount":240} called 0 times' });
+    expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: "a run's attempts must meet the check: the agent exits 0; issue_refund with {\"amount\":240} called 0 times; its gate decides after each one: pass at 90% or more, fail at 70% or less, at most 5% risk of the wrong verdict, up to 80 attempts" });
+    // Each run shows its rate, at the risk it was decided at.
+    expect(shown.verify[0].rows[0].rate).toMatchObject({ decision: 'pass', confidence: 0.95, sentence: 'passed: at least 90% with 95% confidence after 12 attempts' });
     expect(shown.verify[0].rows.map((r: { role: string; outcome: string }) => [r.role, r.outcome])).toEqual([
       ['target', 'fixed'],
       ['target', 'fixed'],
@@ -239,8 +242,8 @@ describe('shadowlap fix', () => {
     expect(shown.verify[1].rows[0]).toMatchObject({ outcome: 'not fixed', deterministic: true, note: 'issue_refund called' });
     // The Blame step shows the latest blame that found the call; both are kept.
     expect(shown.blames).toHaveLength(2);
-    expect(shown.blame).toMatchObject({ runId: failed[1], outcome: 'blamed', lostAt: decision, step: 3, steps: 4, confidence: 'high', needed: 2, attemptsPerProbe: 5 });
-    expect(shown.blame.boundary).toMatch(new RegExp(`^Resampling #${decision} rescued \\d of \\d attempts; resampling #\\d+, the next model call, rescued 0 of 4\\.$`));
+    expect(shown.blame).toMatchObject({ runId: failed[1], outcome: 'blamed', lostAt: decision, step: 3, steps: 4, confidence: 'high', needed: 2, attemptsPerProbe: 20, rule: 'a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 20 attempts' });
+    expect(shown.blame.boundary).toMatch(new RegExp(`^The re-asked call #${decision} passes at least 60% of the time \\(\\d+ of \\d+ attempts\\); #\\d+, the next model call, passes at most 10% of the time \\(0 of 4 attempts\\)\\.$`));
     expect(shown.blame.answers).toMatchObject({ callNo: decision, recorded: 'issue_refund({"order_id":"A-1042","amount":240})', rescued: '"Above the limit.", escalate({"reason":"above the refund limit"})' });
     expect(shown.blame.probes.find((x: { blamed: boolean }) => x.blamed)).toMatchObject({ callNo: decision, verdict: 'rescued · blamed', href: `#/run/${failed[1]}/${decision}` });
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
@@ -305,8 +308,9 @@ describe('shadowlap fix', () => {
       title: 'Escalate refunds above the policy limit',
       repairer: 'anthropic:claude-opus-5-5',
       change: { file: 'agent.mjs', anchor: 'system prompt', before: ORIGINAL, after: FIX, added: { text: ': escalate every refund above the limit it sets' }, removed: '' },
-      needed: 4,
-      attemptsPerRun: 5,
+      needed: 12,
+      attemptsPerRun: 80,
+      rule: 'each passing at 90% or more, at 5% risk',
       verify: { verifyId: report.verifyId },
     });
     expect(shown.repair.roles).toEqual([

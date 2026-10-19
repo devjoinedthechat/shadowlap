@@ -1,4 +1,4 @@
-import { checkStatus, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { checkStatus, formatTally, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type StoredCheck, type TestFailure } from '@shadowlap/engine';
 
 /**
  * `shadowlap test` results for machines and for pull requests: a JSON report other tools read (the
@@ -15,14 +15,15 @@ export interface PackResult {
   golden: string;
   /** `replay` must send the requests it recorded; `fork` may diverge and passes on its checks. */
   mode: 'replay' | 'fork';
-  /** Whether CI lets it through: it passed. */
+  /** Whether CI lets it through: it passed, or it is inconclusive and `--inconclusive warn` was given. */
   ok: boolean;
   /**
-   * How it came out: `passed`, `failed`, or `inconclusive` when all it fell short on is checks that
-   * could not be decided. Every report this version writes has it; one made before reads as `ok` says.
+   * How it came out, whatever CI does with it: `passed`, `failed` or `inconclusive` (its gate ran out
+   * of attempts between its bounds, or all it fell short on is checks that could not be decided).
+   * Every report this version writes has it; one made before reads as `ok` says.
    */
-  verdict?: 'passed' | 'failed' | 'inconclusive';
-  /** Why it failed: `diverged`, `check` (an outcome check), `exit`, `no-calls` or `error`. Null when it passed. */
+  verdict: 'passed' | 'failed' | 'inconclusive';
+  /** Why it failed: `diverged`, `check` (an outcome check), `exit`, `no-calls`, `error`, or `inconclusive`. Null when it passed. */
   failure: TestFailure | null;
   /** One line: why the pack failed. */
   message: string | null;
@@ -43,8 +44,10 @@ export interface PackResult {
   divergence: { type: DivergenceType; callNo: number; kind: string; name: string; recorded?: number } | null;
   /** Outcome checks from shadowlap.config.json for the attempt shown: the first failure, or the last pass. Each has its `status` (passed, failed, inconclusive, not-applicable). Null without checks. */
   checks: StoredCheck[] | null;
-  /** For a recording that repeats: how many attempts ran, passed and had to pass. */
-  attempts: { total: number; passed: number; required: number } | null;
+  /** For a recording that repeats, or one with a gate: how many attempts ran, passed and had to pass (null with a gate). */
+  attempts: { total: number; passed: number; required: number | null } | null;
+  /** A golden with a gate: its figures, its decision and sentence, the interval, pass^k and the evidence path (stats.ts). */
+  gate: GateResult | null;
   /** Its checks as written under `tests` in the config (`expect`), for tools that act on a failed check, such as the GitHub Action's fix on failure. */
   expect: Record<string, unknown> | null;
   /** `--update` re-recorded it: the run it replaced, the new one, its calls, and what the agent sends differently. */
@@ -56,10 +59,10 @@ export interface TestReport {
   /** The test session in the store's history, and the revision it tested. */
   session: string | null;
   revision: string | null;
-  /** Packs by what CI does with them: an inconclusive one counts as failed. */
+  /** Packs by what CI does with them: an inconclusive one counts as failed, or as passed under `--inconclusive warn`. */
   passed: number;
   failed: number;
-  /** Packs whose verdict is inconclusive, counted among `failed` too. */
+  /** Packs whose verdict is inconclusive, whatever CI does with them. */
   inconclusive: number;
   /** A signal stopped the session: `results` has the goldens that finished before it. */
   interrupted: boolean;
@@ -72,10 +75,10 @@ export function testReport(results: PackResult[], session: { id: string; revisio
   return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, inconclusive, interrupted: !!session?.interrupted, results };
 }
 
-/** A pack's verdict, as `ok` says for a result made before results had one. */
+/** A pack's verdict, as CI's `ok` says for a result made before results had one. */
 const verdictOf = (r: Pick<PackResult, 'verdict' | 'ok'>): NonNullable<PackResult['verdict']> => r.verdict ?? (r.ok ? 'passed' : 'failed');
 
-/** A pack's mark in a report: passed, failed, or inconclusive (amber). */
+/** A pack's mark in a report: passed, failed, or inconclusive (amber), whatever CI does with it. */
 const mark = (r: Pick<PackResult, 'verdict' | 'ok'>) => ({ inconclusive: '🟡', passed: '✅', failed: '❌' })[verdictOf(r)];
 
 /** Text safe to put in a Markdown table cell: no control characters, pipes or line breaks. */
@@ -90,31 +93,40 @@ function fence(text: string, lang = 'text'): string {
   return `${f}${lang}\n${safeText(text).replace(/\s+$/, '')}\n${f}`;
 }
 
-/** The result cell for a passing recording. */
+/** The result cell for a passing recording; one with a gate leads with its sentence and its evidence. */
 function passedLabel(r: PackResult): string {
   const parts = [r.updated ? 'updated' : r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${r.divergence.callNo}` : 'clean'];
   if (r.checks?.length) parts.push(statusTally(r.checks));
+  if (r.gate) return `${r.gate.sentence} · ${formatTally(r.gate)} · ${parts.join(', ')}`;
   if (r.attempts) parts.push(`${r.attempts.passed}/${r.attempts.total} attempts`);
   return parts.join(', ');
 }
+
+/** The result cell for a recording that didn't pass: why, and for a gate, its evidence. */
+const notPassedLabel = (r: PackResult): string => (r.gate ? `${r.message ?? r.gate.sentence} · ${formatTally(r.gate)}` : (r.message ?? 'failed'));
 
 export function markdownReport(report: TestReport): string {
   const lines: string[] = [];
   const total = report.results.length;
   const recordings = `recording${total === 1 ? '' : 's'}`;
-  // Inconclusive ones are counted apart: they fail the run, but nothing failed in them.
+  // Inconclusive ones are counted apart, whether they fail the run or only warn.
   const failed = report.results.filter((r) => verdictOf(r) === 'failed').length;
   const inconclusive = report.results.filter((r) => verdictOf(r) === 'inconclusive').length;
-  const head = !failed && !inconclusive ? `${total} ${recordings} passed` : !failed ? `${inconclusive} of ${total} ${recordings} ${inconclusive === 1 ? 'is' : 'are'} inconclusive` : `${failed} of ${total} ${recordings} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
+  const head =
+    !failed && !inconclusive
+      ? `${total} ${recordings} passed`
+      : !failed
+        ? `${inconclusive} of ${total} ${recordings} ${inconclusive === 1 ? 'is' : 'are'} inconclusive`
+        : `${failed} of ${total} ${recordings} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
   lines.push(`### Shadowlap: ${head}`, '', '| | Recording | Result | Replayed | Input tokens not re-spent |', '|---|---|---|---:|---:|');
   for (const r of report.results) {
     // Out of the recording for one that stopped short of it, so it never reads as whole.
     const of = r.divergence?.type === 'ended_early' && r.divergence.recorded !== undefined ? r.divergence.recorded : r.calls?.total;
     const replayed = r.calls ? `${r.calls.replayed}/${of}` : '';
     const tokens = r.tokensNotRespent !== null ? formatTokens(r.tokensNotRespent) : '';
-    lines.push(`| ${mark(r)} | \`${cell(r.name)}\` | ${r.ok ? cell(passedLabel(r)) : cell(r.message ?? 'failed')} | ${replayed} | ${tokens} |`);
+    lines.push(`| ${mark(r)} | \`${cell(r.name)}\` | ${verdictOf(r) === 'passed' ? cell(passedLabel(r)) : cell(notPassedLabel(r))} | ${replayed} | ${tokens} |`);
   }
-  for (const r of report.results.filter((x) => !x.ok)) {
+  for (const r of report.results.filter((x) => verdictOf(x) !== 'passed')) {
     lines.push('', `<details open><summary><b>${cell(r.name)}</b>: ${cell(r.message ?? 'failed')}</summary>`, '');
     if (r.checks?.length) lines.push(...r.checks.map(markdownCheck), '');
     const details = moreThanMessage(r);
@@ -134,8 +146,20 @@ export function markdownReport(report: TestReport): string {
   if (failures.some((r) => r.checks?.some((c) => checkStatus(c) === 'failed'))) {
     lines.push('', 'A failed check means the agent did something its recording\'s checks in `shadowlap.config.json` rule out.');
   }
-  if (failures.some((r) => r.checks?.some((c) => checkStatus(c) === 'inconclusive'))) {
-    lines.push('', 'An inconclusive check could not be decided, such as a judge check with no recorded verdict and no key to ask for one, or a condition whose value the run does not have: it never passes, and it fails the run.');
+  if (inconclusive) {
+    // Why each is inconclusive: a check that could not be decided, or a gate that ran out of attempts between its bounds.
+    const unsure = report.results.filter((r) => verdictOf(r) === 'inconclusive');
+    const unjudged = unsure.some((r) => r.checks?.some((c) => checkStatus(c) === 'inconclusive'));
+    const gated = unsure.some((r) => r.gate) || !unjudged;
+    const causes = [
+      ...(unjudged ? ['a check could not be decided, such as a judge check with no recorded verdict and no key to ask for one, or a condition whose value the run does not have: it never passes'] : []),
+      ...(gated ? ["neither verdict holds at the gate's stated risk after the most attempts it runs"] : []),
+    ];
+    const warned = unsure.some((r) => r.ok);
+    lines.push(
+      '',
+      `Inconclusive means ${causes.join('; or ')}. ${warned ? 'This run lets inconclusive recordings through (`--inconclusive warn`).' : 'It fails the run unless `--inconclusive warn` is given.'}${gated ? ' More attempts settle a gate: raise its `max`, or run `shadowlap test <recording> --max-attempts <n> --continue` once, which carries its attempts over.' : ''}`,
+    );
   }
   if (report.interrupted) lines.push('', 'The session was interrupted: only the recordings above finished, and the rest did not run.');
   const updated = report.results.filter((r) => r.updated);
@@ -172,16 +196,20 @@ function moreThanMessage(r: PackResult): string | null {
   return r.details && r.details.trim() !== (r.message ?? '').trim() ? r.details : null;
 }
 
-/** One `::error` per failed pack, pointing at its run.json. */
+/** One `::error` per failed pack, pointing at its run.json; an inconclusive one let through is a `::warning`. */
 export function githubAnnotations(report: TestReport): string {
   return report.results
-    .filter((r) => !r.ok)
+    .filter((r) => verdictOf(r) !== 'passed')
     .map((r) => {
       const file = `${r.dir.replace(/\\/g, '/').replace(/\/+$/, '')}/run.json`;
       const failedChecks = (r.checks ?? []).filter((c) => !c.ok).map((c) => (checkStatus(c) === 'inconclusive' ? `? ${safeText(c.label)}: inconclusive · ${safeText(c.detail ?? '')}` : `✗ ${safeText(c.label)}: ${safeText(c.detail ?? '')}`));
       const details = moreThanMessage(r);
       const body = [r.message ?? 'failed', ...(failedChecks.length ? ['', ...failedChecks] : []), ...(details ? ['', ...safeText(details).split('\n').slice(0, 30)] : [])].join('\n');
-      return `::error file=${escapeProperty(file)},title=${escapeProperty(`Shadowlap: ${safeText(r.name)}`)}::${escapeData(body)}`;
+      // The gate's evidence, unless the details already carry it.
+      const tally = r.gate ? formatTally(r.gate) : null;
+      const evidence = tally && !details?.includes(tally) ? ['', tally] : [];
+      const text = [body, ...evidence].join('\n');
+      return `::${r.ok ? 'warning' : 'error'} file=${escapeProperty(file)},title=${escapeProperty(`Shadowlap: ${safeText(r.name)}`)}::${escapeData(text)}`;
     })
     .join('\n');
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { JOB_KINDS, type BisectMiss, type BisectRevision, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type TestsView } from '../api.js';
+import { JOB_KINDS, type BisectMiss, type BisectRevision, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type InconclusiveView, type TestsView } from '../api.js';
 import { Badge, CmdLine, EmptyState, PageHeader } from '../components/bits.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
@@ -8,7 +8,7 @@ import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
 import { treeBusy } from '../fixes/model.js';
 import { useServerJobs } from '../fixes/tree.js';
-import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, missedLine, reportLines, revLabel, sessionLine, sessionWait, sourceText, testsBusy, type ReportLine } from '../goldens.js';
+import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, sessionLine, sessionWait, sourceText, testsBusy, type ReportLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
@@ -208,6 +208,9 @@ export function TestsPage() {
       {view.failures.map((f) => (
         <FailurePanel key={f.golden} f={f} off={findWait ?? undefined} button={findCommitButton(f, hasKind)} onBisect={() => guard(() => findCommit(f))} />
       ))}
+      {view.inconclusive.map((v) => (
+        <InconclusivePanel key={v.golden} v={v} off={runWait ?? undefined} canRun={hasKind(JOB_KINDS.tests)} onMore={(job) => start(JOB_KINDS.tests, job)} />
+      ))}
       <div className="grid2 gpanel">
         <section className="panel">
           <header>
@@ -282,9 +285,11 @@ function Verdict({ view, running }: { view: TestsView; running: boolean }) {
   }
   const line = sessionLine(view, running)!;
   const failing = v.state === 'failing';
+  // Inconclusive goldens, and none failing: amber, neither passing nor failing.
+  const unsure = v.state === 'inconclusive';
   return (
-    <div className={`verdict tv ${failing ? 'no' : 'ok'}`}>
-      <Badge tone={failing ? 'no' : 'ok'}>{failing ? `${v.failing} failing` : 'passing'}</Badge>
+    <div className={`verdict tv ${failing ? 'no' : unsure ? 'warn' : 'ok'}`}>
+      <Badge tone={failing ? 'no' : unsure ? 'y' : 'ok'}>{failing ? `${v.failing} failing` : unsure ? `${v.inconclusive} inconclusive` : 'passing'}</Badge>
       <div>
         <h2>{v.title}</h2>
         <p>
@@ -353,7 +358,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
             return (
               <i
                 key={`${h.revision}:${i}`}
-                className={`${h.result ?? 'none'}${h.updated ? ' upd' : ''}${h.runId ? ' go' : ''}`}
+                className={`${h.verdict === 'inconclusive' ? 'inc' : (h.result ?? 'none')}${h.updated ? ' upd' : ''}${h.runId ? ' go' : ''}`}
                 data-tip={tipCard(t.title, [{ label: t.label, value: t.value, color: t.color }])}
                 onClick={
                   h.runId
@@ -369,7 +374,12 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
         </td>
       ) : null}
       <td>
-        {last.result === 'pass' ? (
+        {last.verdict === 'inconclusive' ? (
+          <span className="st warn">
+            <i />
+            inconclusive
+          </span>
+        ) : last.result === 'pass' ? (
           <span className="st ok">
             <i />
             passed
@@ -450,6 +460,27 @@ function ReportPanel({ name, runId, lines, found, missed, children }: { name: st
         {children}
       </div>
     </section>
+  );
+}
+
+/**
+ * A golden neither passed nor failed: its gate ran out of attempts between its bounds, or a check
+ * couldn't be judged. Its report, and for a gate, Run more attempts, which continues it to twice its
+ * limit with the attempts it has.
+ */
+function InconclusivePanel({ v, off, canRun, onMore }: { v: InconclusiveView; off: string | undefined; canRun: boolean; onMore: (job: { golden: string; maxAttempts: number; continue: true }) => void }) {
+  const more = v.gate?.more ?? null;
+  return (
+    <ReportPanel name={v.name} runId={v.runId} lines={inconclusiveLines(v)} found={null} missed={null}>
+      {more && canRun ? (
+        <div className="actions">
+          <button className="btn lime" type="button" disabled={!!off} title={off ?? commandText(more.args)} onClick={() => onMore(more.job)}>
+            Run more attempts
+          </button>
+        </div>
+      ) : null}
+      <p className="hintx">{inconclusiveHint(v)}</p>
+    </ReportPanel>
   );
 }
 

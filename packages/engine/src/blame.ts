@@ -1,5 +1,6 @@
 import type { Block } from './deltas.js';
 import { formatUsd } from './prices.js';
+import { percent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
@@ -11,7 +12,11 @@ import { safeLine } from './text.js';
  *
  * A probe answers it: replay the calls before k from the recording, which costs nothing, force k
  * live, let the rest of the run go live with writes fenced, and judge the outcome. Several attempts,
- * because one lucky sample proves nothing. A probe *rescues* the run when enough attempts pass.
+ * because one lucky sample proves nothing. A probe *rescues* the run when the re-asked call passes
+ * at least `good` of the time (60% by default), and the run is lost there when it passes at most
+ * `bad` (10%), each verdict wrong at most `risk` of the time (stats.ts); a probe between the two
+ * after its last attempt is inconclusive, which the search takes as not rescued. A fixed count
+ * (`needed` of `attempts`) still decides when one is given.
  *
  * Rescue gets harder the later it starts: resampling from call 1 re-runs almost the whole agent,
  * resampling the last call can only change the ending. So probes rescue up to some model call and
@@ -43,10 +48,40 @@ export interface BlameProbe {
   step: number;
   attempts: BlameAttempt[];
   passes: number;
+  /** The re-asked call passes often enough: the gate passed, or the fixed count was met. */
   rescued: boolean;
+  /** A gate decided the probe: what it said, inconclusive included (`rescued` is false then). Absent for a fixed count. */
+  decision?: GateDecision;
+  /** A gate decided the probe: its result, with the pass rate's interval and the risk (stats.ts). */
+  gate?: GateResult | null;
 }
 
 export type ProbeVerdict = 'rescued' | 'lost' | 'open';
+
+/** A probe's verdict in a word: rescued, lost, or inconclusive. */
+export const probeWord = (x: Pick<BlameProbe, 'rescued' | 'decision'>): 'rescued' | 'lost' | 'inconclusive' => (x.rescued ? 'rescued' : x.decision === 'inconclusive' ? 'inconclusive' : 'lost');
+
+/**
+ * What a probe found, in words a person reads: `passes at least 60% of the time (2 of 2 attempts)`,
+ * `passes at most 10% of the time (0 of 4 attempts)`, `is inconclusive: between 10% and 60% after 10
+ * attempts (4 of 10)`. A probe a fixed count decided says its tally.
+ */
+export function probeFinding(x: Pick<BlameProbe, 'rescued' | 'decision' | 'passes' | 'attempts'> & { gate?: Pick<GateResult, 'passes' | 'attempts'> | null | undefined }, gate: Pick<SprtGate, 'good' | 'bad'> | null | undefined): string {
+  if (!gate || !x.decision) return `${x.rescued ? 'rescued' : 'lost'} ${x.passes} of ${x.attempts.length}`;
+  // What it decided on: with attempts running at once, some may have ended after it decided.
+  const on = x.gate && Number.isInteger(x.gate.attempts) && x.gate.attempts < x.attempts.length ? x.gate : null;
+  const tally = on ? `${on.passes} of ${on.attempts}` : `${x.passes} of ${x.attempts.length}`;
+  const late = on ? `, and ${x.attempts.length - on.attempts} more that ended after it decided` : '';
+  if (x.decision === 'pass') return `passes at least ${percent(gate.good)} of the time (${tally} attempts${late})`;
+  if (x.decision === 'fail') return `passes at most ${percent(gate.bad)} of the time (${tally} attempts${late})`;
+  return `is inconclusive: between ${percent(gate.bad)} and ${percent(gate.good)} after ${on ? on.attempts : x.attempts.length} attempts (${tally}${late})`;
+}
+
+/** How a probe decides, in a sentence: `a rescue: the re-asked call passes at least 60% of the time, lost at 10% or less, at most 5% risk each, up to 10 attempts`. */
+export function rescueRule(r: Pick<BlameReport, 'needed' | 'attemptsPerProbe'> & { gate?: SprtGate | null | undefined }): string {
+  if (!r.gate) return `a rescue needs ${r.needed} of ${r.attemptsPerProbe} attempts to pass`;
+  return `a rescue: the re-asked call passes at least ${percent(r.gate.good)} of the time, lost at ${percent(r.gate.bad)} or less, at most ${percent(r.gate.risk)} risk each, up to ${r.gate.max} attempts`;
+}
 
 /**
  * A probe's verdict after `done` of `attempts` attempts, `passes` of which passed. It is settled as
@@ -143,8 +178,10 @@ export async function searchBlame(o: BlameSearchOptions): Promise<BlameSearchRes
 
 function confidenceOf(outcome: BlameOutcome, lost: BlameProbe | null, nonMonotone: BlameSearchResult['nonMonotone']): Confidence {
   if (outcome === 'stopped' || nonMonotone.length) return 'low';
-  // Below the bar, but not zero: the run was not reliably lost there.
-  if (lost && lost.passes > 0) return 'medium';
+  // Not rescued, because the first probe couldn't tell: it may still be an answer the model gets right some of the time.
+  if (outcome === 'unrescuable' && lost?.decision === 'inconclusive') return 'low';
+  // Not reliably lost there: under a gate, it couldn't say; under a fixed count, it passed some, below the bar.
+  if (lost && (lost.decision ? lost.decision === 'inconclusive' : lost.passes > 0)) return 'medium';
   return 'high';
 }
 
@@ -172,9 +209,12 @@ export interface BlameReport extends BlameSearchResult {
   runId: string;
   /** Model calls in the run. */
   steps: number;
+  /** The most attempts a probe takes: the gate's `max`, or the fixed count. */
   attemptsPerProbe: number;
-  /** Passing attempts that make a probe a rescue. */
+  /** Passing attempts that make a probe a rescue: the fixed count's, or with a gate the fewest that can (2 at 0.6, 0.1, 0.05). */
   needed: number;
+  /** The gate each probe was decided by; null when a fixed count decided. Absent in reports made before gates. */
+  gate?: SprtGate | null;
   /** How a probe re-asked the model: resampled as it was, or with request fields changed from that call on. */
   rescue: { fields: Record<string, unknown> };
   /** The oracle, as the labels of what a passing run must do. */
@@ -216,17 +256,40 @@ export function describeRescue(fields: Record<string, unknown>): string {
 }
 
 /**
+ * A blame that placed the failure on no call only because its first probe couldn't tell: resampled
+ * from the first model call, the run passed some of the time, between the gate's two rates. That is
+ * no finding that the failure isn't one unlucky answer, so it reads apart, with low confidence.
+ */
+export function unsettledFirst(r: Pick<BlameReport, 'outcome' | 'probes' | 'sameAnswer' | 'failedWrite'>): boolean {
+  return r.outcome === 'unrescuable' && !r.sameAnswer && !r.failedWrite && r.probes[0]?.decision === 'inconclusive';
+}
+
+/**
  * Why a blame placed the failure on no call (`unrescuable`), as its report and the dashboard's Blame
  * step say it: the evidence, then where to look. Passing attempts that answered as the recording did,
- * or a write's recorded error every attempt met again, mean no answer of the model's lost the run.
+ * or a write's recorded error every attempt met again, mean no answer of the model's lost the run. A
+ * first probe that couldn't tell says so, and how to settle it.
  */
-export function unrescuedWhy(r: Pick<BlameReport, 'probes' | 'needed' | 'sameAnswer' | 'failedWrite'>): { evidence: string | null; look: string } {
+export function unrescuedWhy(r: Pick<BlameReport, 'probes' | 'needed' | 'sameAnswer' | 'failedWrite'> & { gate?: SprtGate | null | undefined }): { evidence: string | null; look: string } {
   const notTheAnswer = "No answer of the model's lost this run: look at the tools, the harness or the command.";
   if (r.sameAnswer) return { evidence: r.sameAnswer.why, look: notTheAnswer };
   const first = r.probes[0];
   if (r.failedWrite) return { evidence: `Every attempt from the first model call, #${r.failedWrite.callNo}, made ${r.failedWrite.name}'s recorded call again and failed on its error, as the recording did: ${r.failedWrite.message}.`, look: notTheAnswer };
+  const gated = !!first?.decision && !!r.gate;
+  if (gated && first.decision === 'inconclusive') {
+    const g = r.gate!;
+    const lower = Math.max(0.05, +(g.good - 0.2).toFixed(2));
+    return {
+      evidence: `Resampled from the first model call, #${first.callNo}, the run ${probeFinding(first, g)}.`,
+      look: `Not settled: resampled from #${first.callNo}, the run passes some of the time, too often to call it lost and too rarely to call it rescued, so it may still be an answer the model gets right only sometimes. More attempts or a lower bar settle it: --gate '{"good":${lower > g.bad ? lower : g.good},"max":${Math.min(1000, g.max * 2)}}'.`,
+    };
+  }
   return {
-    evidence: first ? `Resampling from the first model call, #${first.callNo}, passed ${first.passes} of ${first.attempts.length} attempts, fewer than the ${r.needed} a rescue needs.` : null,
+    evidence: !first
+      ? null
+      : gated
+        ? `Resampled from the first model call, #${first.callNo}, the run ${probeFinding(first, r.gate)}.`
+        : `Resampling from the first model call, #${first.callNo}, passed ${first.passes} of ${first.attempts.length} attempts, fewer than the ${r.needed} a rescue needs.`,
     look: 'The failure is not one unlucky answer: look at the prompt, the tools or the harness, or rescue with a stronger model (--model).',
   };
 }
@@ -251,15 +314,21 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
   if (r.outcome === 'blamed' && r.blamed) {
     const b = r.blamed;
     lines.push(`${p.yellow('⑂')} ${p.bold(`The run was lost at ${where(b)}`)}`);
-    const after = r.lost
-      ? `resampling ${call(r.lost)}, the next model call, rescued ${rate(r.lost)}.`
-      : `it is the last model call, and the recording, which kept its answer, fails.`;
-    lines.push(`  Resampling ${call(b)} rescued ${rate(b)} attempts; ${after}`);
+    if (r.gate && b.decision) {
+      // Decided by a gate: what each side's re-asked call does, at the gate's stated risk.
+      const after = r.lost ? `${call(r.lost)}, the next model call, ${probeFinding(r.lost, r.gate)}.` : `it is the last model call, and the recording, which kept its answer, fails.`;
+      lines.push(`  The re-asked call ${call(b)} ${probeFinding(b, r.gate)}; ${after}`);
+    } else {
+      const after = r.lost ? `resampling ${call(r.lost)}, the next model call, rescued ${rate(r.lost)}.` : `it is the last model call, and the recording, which kept its answer, fails.`;
+      lines.push(`  Resampling ${call(b)} rescued ${rate(b)} attempts; ${after}`);
+    }
   } else if (r.outcome === 'unrescuable') {
     const why = unrescuedWhy(r);
-    lines.push(`${p.red('✗')} ${p.bold('Not rescued from any model call')}`);
+    const unsettled = unsettledFirst(r);
+    lines.push(unsettled ? `${p.yellow('?')} ${p.bold('Not settled from the first model call')}` : `${p.red('✗')} ${p.bold('Not rescued from any model call')}`);
     if (why.evidence) lines.push(`  ${safeLine(why.evidence)}`);
     lines.push(`  ${why.look}`);
+    if (unsettled) lines.push(`  Confidence: ${p.red('low')} ${p.dim(`(#${r.probes[0]!.callNo} was inconclusive)`)}`);
   } else {
     lines.push(`${p.yellow('!')} ${p.bold('Stopped before the search finished')}${r.stopReason ? `: ${r.stopReason}` : ''}`);
     lines.push(r.blamed ? `  So far: rescued up to ${call(r.blamed)}${r.lost ? `, lost from ${call(r.lost)}` : ''}.` : '  So far no probe had settled.');
@@ -272,7 +341,9 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
           ? `rescue worked again at ${r.nonMonotone.map((x) => `#${x.rescued} after failing at #${x.lost}`).join(', ')}, so the boundary is not clean`
           : 'the search did not finish'
         : r.confidence === 'medium' && r.lost
-          ? `${call(r.lost)} still passed ${rate(r.lost)}, below the bar: the run was not reliably lost there`
+          ? r.lost.decision === 'inconclusive'
+            ? `${call(r.lost)} was inconclusive: the run was not reliably lost there`
+            : `${call(r.lost)} still passed ${rate(r.lost)}, below the bar: the run was not reliably lost there`
           : 'rescue stops cleanly at the boundary';
     lines.push(`  Confidence: ${r.confidence === 'high' ? p.green('high') : r.confidence === 'medium' ? p.yellow('medium') : p.red('low')} ${p.dim(`(${why})`)}`);
   }
@@ -285,11 +356,12 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
   }
 
   if (r.probes.length) {
-    lines.push('', `  ${p.bold('Probes')} ${p.dim(`(a rescue needs ${r.needed} of ${r.attemptsPerProbe} attempts to pass; ${describeRescue(r.rescue.fields)})`)}`);
+    lines.push('', `  ${p.bold('Probes')} ${p.dim(`(${rescueRule(r)}; ${describeRescue(r.rescue.fields)})`)}`);
     const w = Math.max(...r.probes.map((x) => String(x.callNo).length)) + 1;
     for (const x of r.probes) {
       const blamed = r.blamed?.callNo === x.callNo;
-      const verdict = x.rescued ? p.green('rescued') : p.red('lost');
+      const word = probeWord(x);
+      const verdict = word === 'rescued' ? p.green(word) : word === 'inconclusive' ? p.yellow(word) : p.red(word);
       const mark = blamed ? p.yellow('  ◂ blamed') : '';
       lines.push(`    ${`#${x.callNo}`.padEnd(w)}  ${`${x.step} of ${r.steps}`.padEnd(String(r.steps).length * 2 + 4)}  ${`${rate(x)} passed`.padEnd(14)}  ${verdict}${mark}`);
     }

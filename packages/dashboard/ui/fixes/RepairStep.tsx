@@ -79,11 +79,7 @@ function Accepted({ r }: { r: RepairStep }) {
                     {b.text}
                   </Badge>
                 ))}
-                {r.needed !== null ? (
-                  <span className="vn">
-                    each on {r.needed} of {r.attemptsPerRun} attempts
-                  </span>
-                ) : null}
+                {r.rule !== null ? <span className="vn">{r.rule}</span> : null}
               </div>
             ) : null}
           </div>

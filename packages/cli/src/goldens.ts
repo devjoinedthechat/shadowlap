@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { PACK_FORMAT, PACK_LIMITS, type Normalizer } from '@shadowlap/engine';
+import { PACK_FORMAT, PACK_LIMITS, type Gate, type Normalizer } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
 import { specFor, type TestEntry, type TestSpec } from './checks.js';
 import { configPath, loadTests } from './config.js';
@@ -156,11 +156,13 @@ export function rawExpectFor(entries: readonly TestEntry[], recordingDir: string
 }
 
 /** How a golden is tested, in the words the Tests screen uses. */
-export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; checks: string[] } {
+export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[] } {
   return {
     mode: spec?.fork ? 'fork' : 'replay',
     repeat: spec?.repeat ?? 1,
     passes: spec?.passes ?? 1,
+    // With a gate, it decides how many attempts run: repeat and passes are 1.
+    gate: spec?.gate ?? null,
     // The exit status is part of every golden's oracle; the screen lists the checks someone wrote.
     checks: spec ? oracleLabels(spec).slice(1) : [],
   };
@@ -174,6 +176,8 @@ export interface GoldenInfo {
   mode: 'replay' | 'fork';
   repeat: number;
   passes: number;
+  /** Its gate under `tests`, or null: then `repeat` and `passes` decide. */
+  gate: Gate | null;
   checks: string[];
   error: string | null;
 }

@@ -61,7 +61,7 @@ Its failure kind is `diverged`, and the JSON report's `divergence` has `type` `e
 
 ## Test history
 
-Each `shadowlap test` is a session, kept in the project's store (`.shadowlap/shadowlap.db`, created if needed): the command as you gave it, the revision it tested, when, how many goldens passed and failed, and the upstream requests it made (0 for goldens that replay offline). For each golden the session keeps its result and why it failed: a divergence, with the report as printed; a failed check, with every check; a non-zero exit; or a replay that made no calls. Over time that is each golden's result at each revision. A golden is named by its pack directory relative to the project, so its history follows it as long as it stays there.
+Each `shadowlap test` is a session, kept in the project's store (`.shadowlap/shadowlap.db`, created if needed): the command as you gave it, the revision it tested, when, how many goldens passed and failed, and the upstream requests it made (0 for goldens that replay offline). For each golden the session keeps its result and why it failed: a divergence, with the report as printed; a failed check, with every check; a non-zero exit; or a replay that made no calls. It keeps how many attempts passed of how many, one attempt included, and for a golden with a [gate](./gating.md) what the gate decided, so a gate against history has its baseline. Over time that is each golden's result at each revision. A golden is named by its pack directory relative to the project, so its history follows it as long as it stays there.
 
 The replays a session makes are runs like any other, marked as made by `shadowlap test` for that golden, so you can open one: each prints `replaying run <id>` as it starts, and the JSON report (`--json`) names the session, each golden's replays and the recording it replayed. So the store doesn't fill with clean replays, only the newest one of each golden is kept; every replay that failed stays, with the last clean one before it, as does any replay you labelled, noted or forked. What a removed replay alone held, such as the live answers of a recording that may fork, goes with the next `shadowlap gc`, which is safe to run when nothing is recording. Global `--db :memory:` (given before `test`) keeps nothing.
 
@@ -69,7 +69,7 @@ Ctrl-C, or a dashboard job being stopped, cuts short the replay running at that 
 
 The dashboard's **Tests** page shows this history: each golden's result at each recent revision, the verdict with the newest session that ran every golden (and any golden run again on its own since), and each failure as printed, with buttons that add the normalizer, update the golden or find the commit ([dashboard](./dashboard.md#actions)). A session's process is kept in the store while it runs, so a session started in a terminal reads as running there.
 
-A CI job's store usually goes with the job. To keep CI's runs, `shadowlap test --push` sends every test run, with the golden it replayed, and the session's report to your [team store](./team.md#push-from-ci), a bucket you own, before any replay is pruned; teammates bring the runs to their machines with `shadowlap pull`. A pull request's job writes only to [its own folder](./team.md#pull-requests) in the store.
+A CI job's store usually goes with the job. To keep CI's runs, `shadowlap test --push` sends every test run, with the golden it replayed, and the session's report to your [team store](./team.md#push-from-ci), a bucket you own, before any replay is pruned; teammates bring the runs to their machines with `shadowlap pull`. A pull request's job writes only to [its own folder](./team.md#pull-requests) in the store. A [gate against a golden's history](./gating.md#a-gate-against-history) needs the history itself from one job to the next: the GitHub Action keeps the store in the Actions cache for one ([`keep-history`](#github-actions)), and on another CI system you cache `.shadowlap/shadowlap.db` between runs.
 
 ## Outcome checks
 
@@ -141,7 +141,7 @@ A recording normally fails as soon as the agent sends a different request. Mark 
 
 - **It needs the providers.** Calls after the fork are live, so the job needs the provider credentials, and each attempt spends tokens from the fork on. `shadowlap test` uses the same upstreams as `shadowlap run`, and the network guard still applies.
 - **Writes stay fenced.** Write tools after the fork are blocked unless `--writes` says otherwise. A blocked call still counts as a call, so `"send_email": 0` means the agent never tried.
-- **Models vary.** `repeat` runs the recording that many times, and `passes` (default: all of them) is how many must pass. The report shows how each attempt did.
+- **Models vary.** `repeat` runs the recording that many times, and `passes` (default: all of them) is how many must pass. The report shows how each attempt did. A fixed count can't tell agents apart (4 of 5 lets one that passes 70% of the time through about half the time), so a `gate` can decide instead, as attempts come in, with the error rates it states: `"gate": { "good": 0.9, "bad": 0.7, "risk": 0.05 }` between two pass rates, or `"gate": { "baseline": "history" }` against the golden's own test history, which needs no figures of your own and fails a large drop in a few attempts. [Gating](./gating.md) explains both, what each catches and what it costs.
 - **Without the change** a `fork` recording replays clean, and its checks apply to the recording as it is. Adding the checks before the fix is a quick way to see them fail.
 
 Checks work the same on recordings that don't fork: they then describe the recording itself and cost nothing.
@@ -244,12 +244,15 @@ Pin the action to a release tag once there is one. Until `shadowlap` is on npm, 
 | `annotations` | `true` | Annotate failed recordings |
 | `junit` | empty | Also write JUnit XML to this path |
 | `store` | empty | The store for the test history and the replays; empty uses the project's, `.shadowlap/shadowlap.db` |
+| `inconclusive` | `fail` | What an [inconclusive](./gating.md) golden does to the step, as `shadowlap test --inconclusive`: `fail` counts it in `failed` and fails the step; `warn` lets it through with a warning annotation. The `inconclusive` output counts it either way |
+| `max-attempts` | empty | Raise every gate's limit for this run, as `shadowlap test --max-attempts`; empty keeps each gate's own `max` |
+| `keep-history` | `auto` | Keep the store, and with it the [test history](#test-history), between jobs in the Actions cache, so a [gate against history](./gating.md#a-gate-against-history) has a baseline: `true`, `false`, or `auto`, which keeps it when `shadowlap.config.json` gives a golden one. Each run restores its branch's newest copy (a branch's first run, the default branch's) and saves its own under a key of its own, whether the tests passed or not |
 | `push` | `false` | Push every test run and the session's report to the [team store](./team.md#push-from-ci) set in `shadowlap.config.json` (`shadowlap test --push`), and each fix that `fix-on-failure` opens ([below](#fixes-in-the-team-store)); the job needs credentials for the bucket, and a push that can't happen is a warning, never a failure |
 | `fix-on-failure` | `false` | Open a fix pull request when a golden fails an outcome check ([below](#fix-on-failure)) |
 | `fix-budget` | `2.00` | Dollars that may be spent per failing golden on finding and proving a fix |
 | `repairer` | empty | The model that proposes fixes, as for `shadowlap repair --repairer`; empty uses `repair.repairer` in the config |
 
-Outputs: `passed`, `failed` (every failure), `diverged`, `checks-failed`, `inconclusive` (recordings that fell short only on a check that could not be decided, counted among `failed` too), `session` (the test session's id), `fixes` and `fix-prs` (the fix pull requests opened, and their URLs), and the paths `report-json`, `report-markdown` and `junit`.
+Outputs: `passed`, `failed` (every recording that fails the step: each failure, and each inconclusive one unless `inconclusive` is `warn`), `inconclusive` (the recordings whose verdict is inconclusive, a gate that ran out of attempts between its bounds or a check that could not be decided, whatever the input made of them), `diverged`, `checks-failed` (definite check failures only), `session` (the test session's id), `fixes` and `fix-prs` (the fix pull requests opened, and their URLs), and the paths `report-json`, `report-markdown` and `junit`.
 
 The action reads `tests` from `shadowlap.config.json` in the working directory. A recording marked `fork` calls the providers after the fork, so pass their keys to the step as environment variables (`env: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}`).
 
@@ -393,7 +396,7 @@ To hear about failures in Slack, let the action count them without failing, post
   run: exit 1
 ```
 
-They need an incoming webhook from your Slack workspace, its URL as a repository secret (`SLACK_WEBHOOK_URL` here), and the test step's `id`. The `github.ref` condition keeps pull requests quiet, since their checks already show a failure; drop it to post for every branch. The dashboard's Settings → CI writes your repository's default branch there, and as the base of a fix pull request: the branch origin's HEAD names, else `main` or `master`, whichever the repository has. A golden counts as failed when its replay diverges, it tries a live call, the agent exits with an error, or a check fails (token and cost budgets included).
+They need an incoming webhook from your Slack workspace, its URL as a repository secret (`SLACK_WEBHOOK_URL` here), and the test step's `id`. The `github.ref` condition keeps pull requests quiet, since their checks already show a failure; drop it to post for every branch. The dashboard's Settings → CI writes your repository's default branch there, and as the base of a fix pull request: the branch origin's HEAD names, else `main` or `master`, whichever the repository has. A golden counts as failed when its replay diverges, it tries a live call, the agent exits with an error, or a check fails (token and cost budgets included), and when its gate is inconclusive, unless the step says `inconclusive: warn`.
 
 ## Keeping goldens honest
 

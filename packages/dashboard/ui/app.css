@@ -107,6 +107,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .glyph.fork, .glyph.blame { color: var(--warn); }
 .glyph.cap { color: var(--o-over); }
 .glyph.fail, .glyph.fixbad { color: var(--err); }
+.glyph.warn { color: var(--warn); }
 .run .r1 { grid-column: 2; display: flex; align-items: center; gap: 7px; min-width: 0; }
 .run .id { font: 500 12px var(--mono); color: var(--ink); }
 .run .when { margin-left: auto; font-size: 11px; color: var(--faint); white-space: nowrap; }
@@ -272,6 +273,7 @@ table.runst .rsub { padding-left: 22px; }
 /* only a failure colours its words; a healthy outcome keeps a lime dot beside plain text */
 .st.ok { color: var(--dim); } .st.ok i { background: var(--o-rep); }
 .st.err { color: var(--err); } .st.err i { background: var(--err); }
+.st.warn { color: var(--warn); } .st.warn i { background: var(--warn); }
 .st.n { color: var(--faint); padding-left: 13px; } .st.n i { background: var(--line2); }
 .st.warn { color: var(--warn); } .st.warn i { background: var(--warn); }
 .nil { color: var(--faint); }
@@ -544,6 +546,8 @@ table.ctab tr.miss td { color: var(--warn); }
 .callrow .cl { font: 11px var(--mono); color: var(--faint); }
 .callrow .hot .cl, .callrow .hot .pl { color: var(--warn); }
 .callrow .lost .pl { color: var(--err); }
+.callrow .unsure .cn { border-color: var(--warn); }
+.callrow .unsure .pl { color: var(--warn); }
 .callrow .ok .pl { color: var(--accent); }
 .ans { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .ans div { border-top: 2px solid var(--o-block); padding-top: 10px; }
@@ -792,6 +796,7 @@ td.hist i { display: inline-block; width: 52px; height: 12px; position: relative
 td.hist i::before { content: ""; position: absolute; left: 50%; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; }
 td.hist i.pass::before { background: var(--o-rep); }
 td.hist i.fail::before { background: var(--err); }
+td.hist i.inc::before { background: var(--warn); }
 td.hist i.none::before { width: 10px; height: 2px; margin: -1px 0 0 -5px; border-radius: 1px; background: var(--line2); }
 pre.report { margin: 0; padding: 14px 16px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--dim); white-space: pre-wrap; overflow-x: auto; }
 pre.report .no, pre.report .del { color: var(--err); } pre.report .add { color: var(--accent); }

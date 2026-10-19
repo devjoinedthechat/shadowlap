@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { applyLeft, commandIsImported, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, prNumber, resolveFix, setFixTitle, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { applyLeft, BLAME_DEFAULTS, commandIsImported, describeGate, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fixDetail, fixHref, fixList, ghReader, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
@@ -76,6 +76,54 @@ export function readExpectJson(raw: string): { spec: ReturnType<typeof parseExpe
   return { spec: parseExpect(parsed, '--expect'), json: parsed };
 }
 
+/** `--gate`: a gate between two pass rates, as JSON or @file.json; the figures left out are `defaults`. */
+export function readGate(raw: string, defaults: Omit<SprtGate, 'kind'>): SprtGate {
+  let text = raw;
+  if (raw.startsWith('@')) {
+    try {
+      text = readFileSync(raw.slice(1), 'utf8');
+    } catch (err) {
+      throw new InvalidArgumentError(`--gate: cannot read ${raw.slice(1)}: ${(err as Error).message}`);
+    }
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new InvalidArgumentError(`--gate takes JSON or @file.json, such as '{"good":${defaults.good},"bad":${defaults.bad},"risk":${defaults.risk},"max":${defaults.max}}'`);
+  }
+  let gate;
+  try {
+    gate = parseGate(parsed, '--gate', defaults);
+  } catch (err) {
+    throw new InvalidArgumentError((err as Error).message);
+  }
+  if (gate.kind !== 'sprt') throw new InvalidArgumentError('--gate takes a gate between two pass rates here ({ "good", "bad", "risk", "max" }); a gate against history belongs to a golden, under "tests" in shadowlap.config.json');
+  return gate;
+}
+
+/**
+ * What decides a run's or a probe's attempts: the gate (`--gate`, else the command's defaults), or a
+ * fixed count when `--attempts` or `--passes` is given, as it was before gates (`passes` defaulting
+ * from the attempts).
+ */
+export function attemptRule(flags: { attempts?: number | undefined; passes?: number | undefined; gate?: string | undefined }, o: { defaults: Omit<SprtGate, 'kind'>; passes: (attempts: number) => number }): { gate: SprtGate | null; attempts: number; needed: number } {
+  const counted = flags.attempts !== undefined || flags.passes !== undefined;
+  if (counted && flags.gate !== undefined) throw new InvalidArgumentError('give a gate (--gate) or a fixed count (--attempts, --passes), not both');
+  if (!counted) {
+    const gate = flags.gate !== undefined ? readGate(flags.gate, o.defaults) : ({ kind: 'sprt', ...o.defaults } as SprtGate);
+    return { gate, attempts: gate.max, needed: 0 };
+  }
+  const attempts = flags.attempts ?? 5;
+  if (attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
+  const needed = flags.passes ?? o.passes(attempts);
+  if (needed > attempts) throw new InvalidArgumentError(`--passes (${needed}) can't be more than --attempts (${attempts})`);
+  return { gate: null, attempts, needed };
+}
+
+/** A gate's result as `--json` prints it beside a run or a probe: its decision, the pass rate's interval and its sentence. */
+const gateJson = (g: { decision: string; interval: unknown; sentence: string } | null | undefined) => (g ? { decision: g.decision, interval: g.interval, sentence: g.sentence } : null);
+
 /** The report as `--json` prints it: stable field names for scripts and coding agents. */
 export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Record<string, unknown> {
   const probe = (x: NonNullable<BlameReport['blamed']>) => ({ callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length });
@@ -89,13 +137,14 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
     modelCalls: r.steps,
     attemptsPerProbe: r.attemptsPerProbe,
     passesNeeded: r.needed,
+    gate: r.gate ?? null,
     rescue: r.rescue,
     oracle: r.oracle,
     recordedFailures: r.recordedFailures,
     contrast: r.contrast,
     sameAnswer: r.sameAnswer ?? null,
     failedWrite: r.failedWrite ?? null,
-    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, runs: x.attempts })),
+    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: gateJson(x.gate), runs: x.attempts })),
     nonMonotone: r.nonMonotone,
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
     stopReason: r.stopReason,
@@ -138,9 +187,10 @@ export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Ar
     oracle: r.oracle,
     attemptsPerRun: r.attemptsPerRun,
     passesNeeded: r.needed,
+    gate: r.gate ?? null,
     change: { fields: r.fields },
     summary: { targets: count('target'), holdout: count('holdout'), good: count('good') },
-    runs: r.runs.map((x) => ({ runId: x.runId, role: x.role, outcome: outcomeOf(x).replace(' ', '-'), passes: x.passes, attempts: x.attempts.length, deterministic: x.deterministic, recorded: x.recorded, runs: x.attempts })),
+    runs: r.runs.map((x) => ({ runId: x.runId, role: x.role, outcome: outcomeOf(x).replace(' ', '-'), passes: x.passes, attempts: x.attempts.length, decision: x.decision ?? null, rate: gateJson(x.gate), deterministic: x.deterministic, recorded: x.recorded, runs: x.attempts })),
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
     stopReason: r.stopReason,
   };
@@ -192,8 +242,9 @@ export function register(program: Command): void {
     .argument('<run>', 'the failed run: id or unique prefix')
     .argument('[command...]', 'override the recorded command (after "--")')
     .option('--expect <json|@file>', 'what a passing run must do besides exiting 0, as under "expect" in shadowlap.config.json tests: \'{"tools":{"send_email":0}}\'')
-    .option('--attempts <n>', 'attempts per probed model call', parseIntArg, 5)
-    .option('--passes <n>', 'passing attempts that make a probe a rescue (default: 2, or 1 with one attempt)', parseIntArg)
+    .option('--gate <json|@file>', `how a probe decides, after each attempt: a rescue when the re-asked call passes at least "good" of the time, lost at "bad" or less, each at "risk", up to "max" attempts (default '{"good":${BLAME_DEFAULTS.good},"bad":${BLAME_DEFAULTS.bad},"risk":${BLAME_DEFAULTS.risk},"max":${BLAME_DEFAULTS.max}}'; give any of them)`)
+    .option('--attempts <n>', 'a fixed count instead of the gate: attempts per probed model call (5 with --passes alone)', parseIntArg)
+    .option('--passes <n>', 'with a fixed count: passing attempts that make a probe a rescue (default: 2, or 1 with one attempt)', parseIntArg)
     .option('--model <model>', 'rescue with this model from the probed call on, instead of asking the recorded one again')
     .option('--set <key=value>', 'set a request field from the probed call on, e.g. temperature=1 (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--scope <name>', 'probe only model calls made in this scope, such as the agent\'s and not a simulated user\'s (see scope() in the SDKs)')
@@ -206,11 +257,9 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (runArg: string, command: string[], flags: { expect?: string; attempts: number; passes?: number; model?: string; set: string[]; scope?: string; scan: number; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (runArg: string, command: string[], flags: { expect?: string; gate?: string; attempts?: number; passes?: number; model?: string; set: string[]; scope?: string; scan: number; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
-      if (flags.attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
-      const passes = flags.passes ?? Math.min(2, flags.attempts);
-      if (passes > flags.attempts) throw new InvalidArgumentError(`--passes (${passes}) can't be more than --attempts (${flags.attempts})`);
+      const rule = attemptRule(flags, { defaults: BLAME_DEFAULTS, passes: (n) => Math.min(2, n) });
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
       const spec = expect?.spec ?? null;
       const undecidable = undecidableRefusal(spec, 'blame');
@@ -234,14 +283,15 @@ export function register(program: Command): void {
       const log = (line: string) => process.stderr.write(`${line}\n`);
       const most = maxProbes(steps, flags.scan);
       log(`${p.yellow('⑂')} Blaming ${shortId(parent.runId)} ${p.dim(`(${safe(quoteArgv(argv))})`)}: ${steps} model call${steps === 1 ? '' : 's'}${flags.scope ? ` in scope ${safe(flags.scope)}` : ''}`);
+      const each = rule.gate ? rescueRule({ gate: rule.gate, needed: 0, attemptsPerProbe: rule.gate.max }) : `${rule.attempts} attempts, a rescue at ${rule.needed} passing`;
       log(
         p.dim(
-          `  each probe: ${describeRescue(fields)}, ${flags.attempts} attempts, a rescue at ${passes} passing · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}\n  at most ${most} probe${most === 1 ? '' : 's'} and ${most * flags.attempts} attempts; every call before a probe replays from the recording for free`,
+          `  each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}\n  at most ${most} probe${most === 1 ? '' : 's'} and ${most * rule.attempts} attempts; every call before a probe replays from the recording for free`,
         ),
       );
 
       try {
-        const settings = { attempts: flags.attempts, needed: passes, concurrency: flags.concurrency, scan: flags.scan, scope: flags.scope ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], fields, spec, expect: expect?.json ?? null, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard };
+        const settings = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, scan: flags.scan, scope: flags.scope ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], fields, spec, expect: expect?.json ?? null, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard };
         const report = await runBlame({
           opts,
           parent,
@@ -273,8 +323,9 @@ export function register(program: Command): void {
     .option('--holdout <run...>', 'failing runs of the same kind that the change was not written against')
     .option('--keeps <run...>', 'passing runs the change must not break, e.g. label:good')
     .option('--expect <json|@file>', 'what a passing run must do besides exiting 0, as under "expect" in shadowlap.config.json tests')
-    .option('--attempts <n>', 'attempts per run, where the replay forks', parseIntArg, 5)
-    .option('--passes <n>', 'attempts that must pass for a run to pass (default: 80%, rounded up: 4 of 5)', parseIntArg)
+    .option('--gate <json|@file>', `how a run decides, after each attempt where the replay forks: pass at "good" or more, fail at "bad" or less, each at "risk", up to "max" attempts (default '{"good":${SPRT_DEFAULTS.good},"bad":${SPRT_DEFAULTS.bad},"risk":${SPRT_DEFAULTS.risk},"max":${SPRT_DEFAULTS.max}}'; give any of them)`)
+    .option('--attempts <n>', 'a fixed count instead of the gate: attempts per run, where the replay forks (5 with --passes alone)', parseIntArg)
+    .option('--passes <n>', 'with a fixed count: attempts that must pass for a run to pass (default: 80%, rounded up: 4 of 5)', parseIntArg)
     .option('--model <model>', 'the change is this model, from each run\'s first model call')
     .option('--set <key=value>', 'the change sets this request field from each run\'s first model call (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--live-tool <name>', 'the change is in this tool: run it live, its first call and every call of it after a fork (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
@@ -287,11 +338,9 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', 'run the recorded command of imported runs without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; attempts: number; passes?: number; model?: string; set: string[]; liveTool: string[]; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; failFast?: boolean; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; gate?: string; attempts?: number; passes?: number; model?: string; set: string[]; liveTool: string[]; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; failFast?: boolean; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
-      if (flags.attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
-      const passes = flags.passes ?? Math.ceil(0.8 * flags.attempts);
-      if (passes > flags.attempts) throw new InvalidArgumentError(`--passes (${passes}) can't be more than --attempts (${flags.attempts})`);
+      const rule = attemptRule(flags, { defaults: SPRT_DEFAULTS, passes: (n) => Math.ceil(0.8 * n) });
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
       const spec = expect?.spec ?? null;
       const undecidable = undecidableRefusal(spec, 'verify');
@@ -329,19 +378,20 @@ export function register(program: Command): void {
       const n = (role: VerifyRole) => runs.filter((r) => r.role === role).length;
       const counts = [n('target') ? `${n('target')} to fix` : '', n('holdout') ? `${n('holdout')} held out` : '', n('good') ? `${n('good')} to keep` : ''].filter(Boolean).join(', ');
       log(`${p.yellow('⑂')} Verifying the code as it is now against ${runs.length} run${runs.length === 1 ? '' : 's'} (${counts})`);
-      log(p.dim(`  a run passes at ${passes} of ${flags.attempts} attempts; one that replays clean is settled by its first · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`));
+      const decides = rule.gate ? `each run's gate: ${describeGate(rule.gate)}` : `a run passes at ${rule.needed} of ${rule.attempts} attempts`;
+      log(p.dim(`  ${decides}; one that replays clean is settled by its first · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`));
 
       const report = await runVerify({
         opts,
         runs,
-        settings: { attempts: flags.attempts, needed: passes, concurrency: flags.concurrency, fields, failFast: !!flags.failFast, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard },
+        settings: { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, fields, failFast: !!flags.failFast, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard },
         log,
       });
       // The verdict is kept whatever it is. It turns the fix of its failing runs verified when it accepts
       // and counts there: it checked the fix's own check, on a run that failed it as recorded.
       const line = verifyCommand(
         { fixes: flags.fixes, holdout: flags.holdout, keeps: flags.keeps },
-        { expect: expect?.json ?? null, attempts: flags.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), fields, liveTools: flags.liveTool, failFast: !!flags.failFast, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null },
+        { expect: expect?.json ?? null, attempts: rule.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), gate: rule.gate, fields, liveTools: flags.liveTool, failFast: !!flags.failFast, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null },
       );
       const kept = recordVerifyFix(opts, report, { expect: expect?.json ?? null, command: line });
       const json = verifyJson(report, kept ? { verifyId: kept.verdict.verifyId, fixes: kept.fixes } : null);
@@ -365,8 +415,9 @@ export function register(program: Command): void {
     .option('--stronger <model>', 'when asking the recorded model again rescues nothing, rescue with this one, and try switching to it')
     .option('--scope <name>', 'blame only model calls made in this scope, such as the agent\'s and not a simulated user\'s')
     .option('--set <key=value>', 'blame\'s probes set this request field from the probed call on, e.g. temperature=1 for an agent recorded at 0 (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
-    .option('--attempts <n>', 'the gate: attempts per run, where the replay forks', parseIntArg, 5)
-    .option('--passes <n>', 'the gate: attempts that must pass (default: 80%, rounded up)', parseIntArg)
+    .option('--gate <json|@file>', `how verify decides each run, as for shadowlap verify (default '{"good":${SPRT_DEFAULTS.good},"bad":${SPRT_DEFAULTS.bad},"risk":${SPRT_DEFAULTS.risk},"max":${SPRT_DEFAULTS.max}}'; give any of them)`)
+    .option('--attempts <n>', 'a fixed count instead of the gate: attempts per run, where the replay forks (5 with --passes alone)', parseIntArg)
+    .option('--passes <n>', 'with a fixed count: attempts that must pass (default: 80%, rounded up)', parseIntArg)
     // Read in percent, kept as a share: the help shows the default as it is typed.
     .addOption(new Option('--max-growth <percent>', 'reject a fix that grows the input tokens per run by more than this').argParser(parsePercent).default(0.25, '25'))
     .option('--build <command>', 'rebuild the agent after its source changes, e.g. "npm run build"')
@@ -382,14 +433,12 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', 'run the recorded command of imported runs without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; repairer?: string; candidates: number; stronger?: string; scope?: string; set: string[]; attempts: number; passes?: number; maxGrowth: number; build?: string; apply?: boolean; branch?: string; pr?: boolean; goldens?: string; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; repairer?: string; candidates: number; stronger?: string; scope?: string; set: string[]; gate?: string; attempts?: number; passes?: number; maxGrowth: number; build?: string; apply?: boolean; branch?: string; pr?: boolean; goldens?: string; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       if (!flags.fixes?.length) throw new InvalidArgumentError('give the failing runs to repair: --fixes <runs>');
       if (flags.pr && !flags.branch) throw new InvalidArgumentError('--pr opens a pull request from the branch --branch <name> makes; give both');
       if (flags.goldens && !flags.apply && !flags.branch) throw new InvalidArgumentError('--goldens puts recordings into the project, which happens with --apply or --branch');
-      if (flags.attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
-      const passes = flags.passes ?? Math.ceil(0.8 * flags.attempts);
-      if (passes > flags.attempts) throw new InvalidArgumentError(`--passes (${passes}) can't be more than --attempts (${flags.attempts})`);
+      const rule = attemptRule(flags, { defaults: SPRT_DEFAULTS, passes: (n) => Math.ceil(0.8 * n) });
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
       const spec = expect?.spec ?? null;
       const undecidable = undecidableRefusal(spec, 'repair');
@@ -437,9 +486,9 @@ export function register(program: Command): void {
 
       const log = (line: string) => process.stderr.write(`${line}\n`);
       log(`${p.yellow('⑂')} Repairing ${targets.length} failing run${targets.length === 1 ? '' : 's'}${held.length ? `, with ${held.length} held out from the repairer${heldOutAutomatically ? ' (every other one)' : ''}` : ''}${good.length ? `, keeping ${good.length} good run${good.length === 1 ? '' : 's'}` : ''}`);
-      log(p.dim(`  repairer: ${repairer ? (repairer.model ? `${repairer.provider}:${repairer.model}` : `${repairer.provider}, with its own default model`) : 'none (--repairer)'} · the gate: ${passes} of ${flags.attempts} attempts per run · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`));
+      log(p.dim(`  repairer: ${repairer ? (repairer.model ? `${repairer.provider}:${repairer.model}` : `${repairer.provider}, with its own default model`) : 'none (--repairer)'} · the gate: ${rule.gate ? describeGate(rule.gate) : `${rule.needed} of ${rule.attempts} attempts per run`} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`));
 
-      const settings = { attempts: flags.attempts, needed: passes, concurrency: flags.concurrency, candidates: flags.candidates, stronger: flags.stronger ?? null, scope: flags.scope ?? null, rescueFields: parseFields(flags.set, undefined), maxGrowth: flags.maxGrowth, build: flags.build ?? null, repairer: repairer ?? { provider: 'anthropic' as const, model: '' }, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard };
+      const settings = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, candidates: flags.candidates, stronger: flags.stronger ?? null, scope: flags.scope ?? null, rescueFields: parseFields(flags.set, undefined), maxGrowth: flags.maxGrowth, build: flags.build ?? null, repairer: repairer ?? { provider: 'anthropic' as const, model: '' }, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard };
       const outputs = { apply: !!flags.apply, branch: flags.branch ?? null, pr: !!flags.pr, goldens: flags.goldens ?? null };
       try {
         let report = await runRepair({ opts, targets, holdout: held, good, heldOutAutomatically, settings: { ...settings, repairerConfigured: repairer !== null }, outputs, log });
@@ -464,8 +513,9 @@ export function register(program: Command): void {
             ...(flags.stronger ? { stronger: flags.stronger } : {}),
             ...(flags.scope ? { scope: flags.scope } : {}),
             set: settings.rescueFields,
-            attempts: flags.attempts,
+            attempts: rule.attempts,
             ...(flags.passes !== undefined ? { passes: flags.passes } : {}),
+            gate: rule.gate,
             maxGrowth: flags.maxGrowth,
             build: flags.build ?? null,
             writes: flags.writes,

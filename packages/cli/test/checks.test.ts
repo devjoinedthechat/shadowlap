@@ -42,6 +42,23 @@ describe('outcome checks', () => {
     });
   });
 
+  it('reads a gate beside fork, in place of repeat and passes', () => {
+    const where = 'shadowlap.config.json: tests["goldens/a"]';
+    expect(parseTests({ 'goldens/a': { fork: true, gate: {}, expect: { tools: { send_email: 0 } } } })[0]!.spec).toEqual({
+      fork: true,
+      repeat: 1,
+      passes: 1,
+      gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 },
+      tools: [{ name: 'send_email', count: { min: 0, max: 0 } }],
+    });
+    expect(parseTests({ 'goldens/a': { fork: true, gate: { baseline: 'history', drop: 0.2 } } })[0]!.spec.gate).toEqual({ kind: 'baseline', drop: 0.2, risk: 0.05, window: 10, min: 5, max: 40 });
+    expect(() => parseTests({ 'goldens/a': { fork: true, repeat: 5, gate: {} } })).toThrow(`${where}: a gate decides how many attempts run and what passes; give the gate, or repeat and passes, not both`);
+    expect(() => parseTests({ 'goldens/a': { fork: true, passes: 1, gate: {} } })).toThrow('give the gate, or repeat and passes, not both');
+    expect(() => parseTests({ 'goldens/a': { gate: {} } })).toThrow(`${where}.gate needs "fork": true`);
+    expect(() => parseTests({ 'goldens/a': { fork: true, gate: { good: 0.9, repeat: 3 } } })).toThrow(`${where}.gate has an unknown key "repeat" (expected "good", "bad", "risk", "max")`);
+    expect(() => parseTests({ 'goldens/a': { fork: true, gate: { max: 4 } } })).toThrow(`${where}.gate: max (4) is fewer than the 12 attempts an agent that always passes needs`);
+  });
+
   it('finds the entry for a recording: an exact path first, then a pattern in the last part', () => {
     const entries = parseTests({ 'goldens/*': { repeat: 2 }, 'goldens/refund': { repeat: 3 }, 'other/*-flow': { repeat: 4 } });
     const root = join(tmpdir(), 'project');

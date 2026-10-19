@@ -13,7 +13,7 @@ shadowlap repair --fixes label:refund-bug --keeps label:good \
   - You are a support agent. Follow the refund policy.
   + You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.
 
-  Verified: fixes 1 of 1 target run, 1 of 1 held-out, keeps 1 of 1 good, each at 4 of 5 attempts
+  Verified: fixes 1 of 1 target run, 1 of 1 held-out, keeps 1 of 1 good, each passing at 90% or more, at 5% risk
 
   Where the failing runs were lost
     01M3RZ4XKN  model call #5 (3 of 4)
@@ -159,7 +159,8 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 | `--stronger <model>` | Rescue with this model when the recorded one can't be, and try switching to it |
 | `--scope <name>` | Blame only the model calls of this scope: the agent's, not a simulated user's |
 | `--set <key=value>` | Blame's probes set this request field, such as `temperature=1` for an agent recorded at 0, whose answers don't vary when asked again |
-| `--attempts <n>`, `--passes <n>` | The gate: a run passes at 4 of 5 attempts by default |
+| `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for [`verify`](./verify.md#how-a-run-is-judged): by default a run passes at 90% or more and fails at 70% or less, each at 5% risk, up to 80 attempts |
+| `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, such as `--attempts 5 --passes 4` |
 | `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this. Default 25 |
 | `--build <command>` | Rebuild the agent after its source changes |
 | `--apply`, `--branch <name>`, `--pr`, `--goldens <dir>` | Hand-over, above |

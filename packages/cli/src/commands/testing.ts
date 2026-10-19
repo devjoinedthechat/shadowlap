@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { EXTERNAL_COMMAND, endedEarlyCount, formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, endedEarlyCount, formatTally, formatTokens, GATE_MAX_ATTEMPTS, packRun, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -10,7 +10,7 @@ import { specFor } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
-import { formatChecks, goldenVerdict, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
+import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
 import { describeChange, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
 import { emitJobEvent } from '../job-events.js';
@@ -123,17 +123,27 @@ function passedLine(o: GoldenOutcome): string {
         : `${replayed}/${replayed + s.notReached.length} replayed`,
     `${formatTokens(s.tokensNotRespent.inputTokens)} input tokens not re-spent`,
     ...(r.shown.checks?.length ? [statusTally(r.shown.checks)] : []),
-    ...(r.attempts.length > 1 ? [`${r.passed}/${r.attempts.length} attempts passed`] : []),
+    ...(r.attempts.length > 1 && !r.gate ? [`${r.passed}/${r.attempts.length} attempts passed`] : []),
   ].join(', ');
 }
 
 function printGolden(o: GoldenOutcome, suffix = ''): void {
+  const gate = o.result?.gate;
+  // What to know about how its gate decided, under its line.
+  const notes = () => {
+    for (const note of o.notes ?? []) process.stdout.write(p.dim(`    ${note}\n`));
+  };
   if (!o.failure) {
-    process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}${suffix}\n`);
+    // A gate's verdict leads, in its one sentence, with the evidence under it.
+    if (gate) process.stdout.write(`${p.green('✓')} ${o.name}: ${gate.sentence}${suffix}\n${p.dim(`    ${formatTally(gate)} · ${passedLine(o)}`)}\n`);
+    else process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}${suffix}\n`);
+    notes();
     return;
   }
-  // One that fell short only on checks that could not be decided is inconclusive: it fails the run, but nothing in it failed.
-  process.stdout.write(`${goldenVerdict(o) === 'inconclusive' ? p.yellow('?') : p.red('✗')} ${o.name}: ${o.failure.message}\n`);
+  // Inconclusive is neither, whatever CI does with it: marked ? in amber, as a check that could not be decided is.
+  const inconclusive = verdictOf(o) === 'inconclusive';
+  process.stdout.write(`${inconclusive ? p.yellow('?') : p.red('✗')} ${o.name}: ${o.failure.message}\n`);
+  notes();
   if (!o.result) return;
   const indent = (text: string, prefix = '    ') => text.split('\n').map((l) => prefix + l).join('\n') + '\n';
   if (o.result.shown.checks?.length) process.stdout.write(indent(formatChecks(o.result.shown.checks)));
@@ -159,13 +169,18 @@ export function register(program: Command): void {
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
     .option('--guard <mode>', 'network guard: block, warn or off (re-recording under --update, warn unless given)', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
-    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean }) {
+    .option('--inconclusive <mode>', "what an inconclusive verdict does, a gate's or a check's: fail the run, or warn and let it through", parseChoice<InconclusiveMode>(['fail', 'warn']), 'fail')
+    .option('--max-attempts <n>', "raise each gate's limit for this session: its max, the most attempts it runs", parseIntArg)
+    .option('--continue', "carry an inconclusive gate's attempts over from the golden's last result, when its recording, checks and gate are unchanged, and run only the attempts still needed (with --max-attempts, the higher limit to run to)")
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; continue?: boolean }) {
       const opts = program.opts<GlobalOpts>();
       const guardGiven = this.getOptionValueSource('guard') === 'cli';
       const projectDir = process.cwd();
       const config = loadConfig(projectDir);
       const tests = loadTests(projectDir);
       const cwd = resolve(flags.cwd ?? projectDir);
+      if (flags.maxAttempts !== undefined && (flags.maxAttempts < 1 || flags.maxAttempts > GATE_MAX_ATTEMPTS)) throw new InvalidArgumentError(`--max-attempts must be a whole number from 1 to ${GATE_MAX_ATTEMPTS}`);
+      if (flags.continue && flags.update) throw new InvalidArgumentError('--continue adds attempts to an inconclusive gate, --update re-records a golden: give one or the other');
       const { dirs: packs, unmatched } = expandRecordings(packArgs, projectDir);
       if (unmatched.length) {
         throw new InvalidArgumentError(`no recordings match ${unmatched.join(' ')}: a recording is a directory written by shadowlap pack, with a run.json inside`);
@@ -220,8 +235,10 @@ export function register(program: Command): void {
             online: !!flags.online,
             test: { golden, session: session.sessionId },
             // The line a dashboard job reads a new run from, and a way to open each replay.
-            onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${of}` : ''}\n`)),
+            onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${spec?.gate ? `up to ${of}` : of}` : ''}\n`)),
             stopped,
+            ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
+            ...(flags.continue ? { continue: true } : {}),
           };
           // Every run this golden makes, for --push: its replays, and a re-recording with --update.
           const made: string[] = [];
@@ -248,7 +265,7 @@ export function register(program: Command): void {
           let updated: PackResult['updated'] = null;
           if (flags.update && (outcome.failure || early) && !signal) {
             if ((outcome.kind !== 'diverged' && !early) || !outcome.parent || !outcome.result) {
-              process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : 'this one failed for another reason'}\n`));
+              process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : outcome.kind === 'inconclusive' ? 'an inconclusive verdict is settled by more attempts (--max-attempts), not a new recording' : 'this one failed for another reason'}\n`));
             } else {
               const before = outcome.parent;
               const divergence = outcome.result.shown.ended.summary.divergence;
@@ -308,8 +325,8 @@ export function register(program: Command): void {
             revision,
             data: { ...resultData(store, outcome), ...(updated ? { updated } : {}) },
           });
-          cases.push(junitCase(outcome));
-          results.push(packResult(outcome, { expect, updated }));
+          cases.push(junitCase(outcome, flags.inconclusive));
+          results.push(packResult(outcome, { expect, updated, inconclusive: flags.inconclusive }));
           tested.set(golden, { ok: !outcome.failure, fork: !!spec?.fork });
           if (!flags.update && early) forkedEarly.push({ packDir, golden, ...early });
           const divergence = outcome.result?.shown.ended.summary.divergence;
@@ -332,15 +349,18 @@ export function register(program: Command): void {
       } finally {
         process.off('SIGINT', onSignal);
         process.off('SIGTERM', onSignal);
-        // Counted from the results recorded, so a session cut short by an error or a signal counts what ran.
-        const passed = results.filter((r) => r.ok).length;
-        const failed = results.length - passed;
+        // Counted from the results recorded, so a session cut short by an error or a signal counts what
+        // ran, each by how it came out: an inconclusive golden is neither passed nor failed, whatever CI
+        // does with it, and the test history keeps how many there were with the event.
+        const passed = results.filter((r) => r.verdict === 'passed').length;
+        const failed = results.filter((r) => r.verdict === 'failed').length;
+        const inconclusive = results.length - passed - failed;
         try {
           store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests, interrupted: signal !== null });
         } catch (err) {
           process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept in the test history: ${(err as Error).message}\n`));
         }
-        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: results.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}), ...(signal ? { interrupted: true, notRun: packs.length - results.length } : {}) } });
+        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, ...(inconclusive ? { inconclusive } : {}), goldens: results.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}), ...(signal ? { interrupted: true, notRun: packs.length - results.length } : {}) } });
         try {
           store.close();
         } catch {
@@ -353,7 +373,7 @@ export function register(program: Command): void {
       const report = testReport(results, { id: session.sessionId, revision, interrupted: signal !== null });
       if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
       if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
-      if (flags.annotations && report.failed) process.stdout.write(githubAnnotations(report) + '\n');
+      if (flags.annotations && (report.failed || report.inconclusive)) process.stdout.write(githubAnnotations(report) + '\n');
       if (pusher) await pusher.finish(report);
       emitJobEvent({ type: 'result', data: report });
       // A dashboard job's links: one golden (as Add normalizer and re-run tests it) to its replay; a
@@ -363,9 +383,11 @@ export function register(program: Command): void {
       if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open the passing run' : 'Open the run', href: `#/run/${only.runId}` });
       else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: `#/run/${r.runId}`, secondary: true });
       emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests', ...(only?.runId ? { secondary: true } : {}) });
-      // Inconclusive ones fail the run, and are counted apart from those that failed.
-      const counts = report.inconclusive ? `${report.failed - report.inconclusive} failed, ${report.inconclusive} inconclusive` : `${report.failed} failed`;
-      process.stdout.write(`\n${report.passed} passed, ${counts}${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
+      // Inconclusive ones are counted apart, and what CI does with them is said.
+      const inconclusive = report.inconclusive ? `, ${report.inconclusive} inconclusive (${flags.inconclusive === 'warn' ? 'let through: --inconclusive warn' : 'failing the run: --inconclusive warn lets them through'})` : '';
+      const passedCount = results.filter((r) => r.verdict === 'passed').length;
+      const failedCount = results.filter((r) => r.verdict === 'failed').length;
+      process.stdout.write(`\n${passedCount} passed, ${failedCount} failed${inconclusive}${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
       for (const fix of settled) process.stdout.write(`${p.green('✓')} ${shortFixId(fix.fixId)} holds again: its goldens passed · ${safe(fix.title)}\n`);
       // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).
       if (updatable.length) process.stdout.write(p.dim(`If the change was intended, update ${updatable.length === 1 ? 'it' : 'them'}: shadowlap test ${safe(quoteArgv(updatable))} --update\n`));

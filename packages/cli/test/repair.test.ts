@@ -140,7 +140,8 @@ interface Report {
 
 const agentText = () => readFileSync(join(project, 'agent.mjs'), 'utf8');
 
-describe('shadowlap repair', () => {
+// Verify decides each candidate's runs by its gate, a dozen attempts each where it used to take four: more time on a busy machine.
+describe('shadowlap repair', { timeout: 120_000 }, () => {
   it('blames, asks the repairer, keeps the fix the gate accepts, and leaves the working tree as it was', async () => {
     const { failed, good } = await runs();
     const before = agentText();
@@ -188,7 +189,8 @@ describe('shadowlap repair', () => {
     expect(md).toContain(`+ ${FIX}`);
     expect(md).toContain('The held-out runs were never shown to the repairer.');
     expect(md).toContain('Writes were stubbed in every replay.');
-    expect(md).toMatch(/\| good \| `\w{10}` \| kept \| 4 of 4 passed \|/);
+    expect(md).toMatch(/\| good \| `\w{10}` \| kept \| 12 of 12 passed · pass rate ≥ 0\.76 \(95%, Wilson\) · pass\^5 1\.00 \|/);
+    expect(md).toContain('each passing at 90% or more, at 5% risk');
     expect(md).toContain(good.slice(0, 10));
   });
 

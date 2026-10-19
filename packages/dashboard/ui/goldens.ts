@@ -1,5 +1,5 @@
 import { href } from './route.js';
-import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, TestsView } from './types.js';
+import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
 
 /**
  * The Tests screen's words and choices, from the tests read model (`GET /api/tests`): the verdict's
@@ -39,13 +39,19 @@ export function sessionLine(view: TestsView, running = false): { command: string
   if (!v) return null;
   const s = v.session;
   const live = s.endedAt === null && !s.interrupted && (s.live || running);
-  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', dayClock(s.endedAt ?? s.startedAt), `${s.passed} passed, ${s.failed} failed${live ? ' so far' : ''}`, n(s.upstreamRequests, 'upstream request')];
+  // Inconclusive goldens count apart, as the verdict's badge counts them.
+  const counts = `${s.passed} passed, ${s.failed} failed${s.inconclusive ? `, ${s.inconclusive} inconclusive` : ''}`;
+  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', dayClock(s.endedAt ?? s.startedAt), `${counts}${live ? ' so far' : ''}`, n(s.upstreamRequests, 'upstream request')];
   if (s.interrupted) parts.push('interrupted');
   else if (s.endedAt === null) parts.push(live ? 'running' : 'did not finish');
   const since = v.since ?? [];
-  const failed = since.filter((x) => !x.ok).length;
-  const sinceText = !since.length ? null : since.length === 1 ? `since: ${since[0]!.name} ${since[0]!.ok ? 'passed' : 'failed'}` : `since: ${since.length} goldens ran again, ${failed ? `${failed} failed` : 'all passed'}`;
-  const sinceTip = since.length ? since.map((x) => `${x.name} ${x.ok ? 'passed' : 'failed'}${x.revision ? ` at ${x.revision}` : ''}, ${dayClock(x.at)}`).join('\n') : null;
+  // Each as it came out: an inconclusive one is neither passed nor failed (a result from before verdicts reads by `ok`).
+  const word = (x: (typeof since)[number]) => x.verdict ?? (x.ok ? 'passed' : 'failed');
+  const failed = since.filter((x) => word(x) === 'failed').length;
+  const unsure = since.filter((x) => word(x) === 'inconclusive').length;
+  const notPassed = [failed ? `${failed} failed` : '', unsure ? `${unsure} inconclusive` : ''].filter(Boolean).join(', ');
+  const sinceText = !since.length ? null : since.length === 1 ? `since: ${since[0]!.name} ${word(since[0]!)}` : `since: ${since.length} goldens ran again, ${notPassed || 'all passed'}`;
+  const sinceTip = since.length ? since.map((x) => `${x.name} ${word(x)}${x.revision ? ` at ${x.revision}` : ''}, ${dayClock(x.at)}`).join('\n') : null;
   return { command: s.command, rest: parts.join(' · '), since: sinceText, sinceTip };
 }
 
@@ -127,6 +133,8 @@ export function historyTip(cell: HistoryCell, name: string): { title: string; la
   const title = `${cell.revision ?? 'no revision'} · ${name}`;
   // Run again on its own with changes on top of this commit (Add normalizer and re-run): said, as it isn't the commit alone.
   const again = cell.tested && cell.tested !== cell.revision ? `run again at ${cell.tested}` : null;
+  // Neither passed nor failed: amber, with the attempts it ran.
+  if (cell.verdict === 'inconclusive') return { title, label: 'inconclusive', value: [again, cell.rate ? `${cell.rate.passes} of ${cell.rate.attempts} attempts passed` : null, cell.note].filter(Boolean).join(' · '), color: 'var(--warn)' };
   if (cell.result === 'pass') return { title, label: 'passed', value: [cell.updated ? 'updated here: re-recorded, its checks passed' : null, again, cell.note].filter(Boolean).join(' · '), color: 'var(--o-rep)' };
   if (cell.result === 'fail') return { title, label: 'failed', value: [again, cell.updated ? `updated here, then ${cell.note ?? 'failed'}` : cell.note].filter(Boolean).join(' · '), color: 'var(--err)' };
   return { title, label: 'not tested here', value: '', color: 'var(--line2)' };
@@ -187,6 +195,26 @@ export function failureLines(f: FailureView): ReportLine[] {
   if (f.details) for (const l of f.details.replace(/\s+$/, '').split('\n')) lines.push({ text: `    ${l}`, tone: '' });
   if (f.output) for (const l of f.output.split('\n')) lines.push({ text: `    │ ${l}`, tone: 'dim' });
   return lines;
+}
+
+/** An inconclusive golden's report, as the CLI prints it: the line, its gate's evidence, its checks and the attempts. */
+export function inconclusiveLines(v: InconclusiveView): ReportLine[] {
+  const lines: ReportLine[] = [{ text: `! ${v.name}: ${v.reason}`, tone: '' }];
+  if (v.gate) lines.push({ text: `    ${v.gate.tally}`, tone: '' });
+  for (const c of v.checks ?? []) lines.push({ text: `    ${c.ok ? `✓ ${c.label}` : `✗ ${c.label}: ${c.detail ?? 'failed'}`}`, tone: c.ok ? '' : 'no' });
+  // The details repeat the tally first when a gate wrote them.
+  const details = (v.details ?? '').replace(/\s+$/, '').split('\n').filter((l, i) => !(i === 0 && v.gate && l === v.gate.tally));
+  for (const l of details) if (l) lines.push({ text: `    ${l}`, tone: 'dim' });
+  return lines;
+}
+
+/** What an inconclusive verdict means, in one line under its report, with what more attempts would take when the gate can say. */
+export function inconclusiveHint(v: InconclusiveView): string {
+  if (!v.gate) return 'A check could not be judged, so the golden is neither passed nor failed: give the judge a recorded verdict or a key to ask.';
+  const more = v.gate.more;
+  const cost = more?.cost !== null && more?.cost !== undefined ? `, about $${more.cost.toFixed(2)}` : '';
+  const estimate = more ? ` Run more attempts continues it to ${more.attempts}: about ${Math.round(more.expected)} more on average${cost}, settling it ${Math.round(more.settles * 100)}% of the time.` : '';
+  return `Neither verdict holds at the gate's stated risk yet: more attempts settle it, not a change to the agent.${estimate}`;
 }
 
 /** What a failure other than a divergence means, in one line under its report. */

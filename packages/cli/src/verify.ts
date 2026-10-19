@@ -1,4 +1,4 @@
-import { decideVerify, footprintOf, outcomeOf, runVerdict, type VerifiedRun, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { attemptsToPass, decideVerify, footprintOf, gateResult, gateVerdict, outcomeOf, runVerdict, type SprtGate, type VerifiedRun, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -14,9 +14,11 @@ import { palette as p, shortId } from './ui.js';
  */
 
 export interface VerifySettings extends AttemptSettings {
-  /** Attempts per run, and how many must pass. */
+  /** A fixed count: attempts per run, and how many must pass. Used when `gate` is null. */
   attempts: number;
   needed: number;
+  /** The gate that decides each run after every attempt (stats.ts); null for the fixed count. */
+  gate: SprtGate | null;
   /** Runs verified at once; a run's own attempts go one after another. */
   concurrency: number;
   /** Request fields the change sets from each run's first model call (`--model`, `--set`). */
@@ -53,8 +55,10 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       const result: VerifiedRun = { runId: parent.runId, role, attempts: [], passes: 0, deterministic: false, verdict: 'open', recorded };
       results[i] = result;
       const label = `${ROLE[role].padEnd(8)}  ${shortId(parent.runId)}`;
-      while (result.verdict === 'open' && result.attempts.length < s.attempts && !(s.failFast && failed) && runner.canStart()) {
-        const marks = { repeat: { group: `${group}-${parent.runId}`, attempt: result.attempts.length + 1, of: s.attempts }, verify: { role, passed: false } };
+      // A gate decides after each attempt, up to its max; a fixed count runs until it is settled.
+      const limit = s.gate ? s.gate.max : s.attempts;
+      while (result.verdict === 'open' && result.decision !== 'inconclusive' && result.attempts.length < limit && !(s.failFast && failed) && runner.canStart()) {
+        const marks = { repeat: { group: `${group}-${parent.runId}`, attempt: result.attempts.length + 1, of: limit }, verify: { role, passed: false } };
         const a = await runner.attempt(target, { ...(interventions ? { interventions } : {}), meta: marks });
         // Stopped by Ctrl-C part way: what it did is no evidence either way.
         if (runner.interrupted) break;
@@ -73,12 +77,16 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           footprint: footprintOf(a.calls, runner.costOf),
         });
         store.updateRunMeta(a.run.runId, { verify: { role, passed: a.passed }, ...(a.checks.length ? { checks: a.checks } : {}) });
-        result.verdict = runVerdict(result.passes, n, s.attempts, s.needed, result.deterministic);
+        if (s.gate) Object.assign(result, gateVerdict(result.passes, n, s.gate, result.deterministic));
+        else result.verdict = runVerdict(result.passes, n, s.attempts, s.needed, result.deterministic);
         log(`  ${label}  ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}${result.deterministic ? p.dim(' · clean replay, so it settles the run') : ''}`);
       }
+      // What the gate made of the attempts: the rate's interval and the risk it decided at.
+      if (s.gate && result.attempts.length) result.gate = gateResult(s.gate, result.attempts.map((x) => x.passed), { clean: result.deterministic, decision: result.decision ?? 'continue' });
       if (result.verdict === 'fail') failed = true;
       const o = outcomeOf(result);
-      log(`  ${label}  ${!result.attempts.length ? p.yellow('not started') : o === 'fixed' || o === 'kept' ? p.green(o) : o === 'unsettled' ? p.yellow(o) : p.red(o)}`);
+      const said = result.gate && !result.deterministic && result.decision !== 'continue' ? p.dim(` · ${result.gate.sentence}`) : '';
+      log(`  ${label}  ${!result.attempts.length ? p.yellow('not started') : o === 'fixed' || o === 'kept' ? p.green(o) : o === 'unsettled' || o === 'inconclusive' ? p.yellow(o) : p.red(o)}${said}`);
     };
 
     let next = 0;
@@ -93,8 +101,9 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
     return {
       ...decideVerify(runs, stopReason),
       runs,
-      attemptsPerRun: s.attempts,
-      needed: s.needed,
+      attemptsPerRun: s.gate ? s.gate.max : s.attempts,
+      needed: s.gate ? attemptsToPass(s.gate) : s.needed,
+      gate: s.gate,
       oracle: runner.oracle(),
       fields: s.fields,
       codeVersion: codeVersion(process.cwd()),

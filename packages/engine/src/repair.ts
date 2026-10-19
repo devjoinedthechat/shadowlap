@@ -1,8 +1,9 @@
 import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
+import { formatTally } from './stats.js';
 import { safeLine } from './text.js';
-import { footprintDelta, outcomeOf, type VerifiedRun, type VerifyReport } from './verify.js';
+import { eachRun, footprintDelta, outcomeOf, type VerifiedRun, type VerifyReport } from './verify.js';
 
 /**
  * The deterministic half of `shadowlap repair`. A model proposes fixes; everything that decides whether
@@ -525,7 +526,7 @@ function verifiedLine(v: VerifyReport): string {
   const h = count('holdout');
   const g = count('good');
   const parts = [t.of ? `fixes ${t.ok} of ${t.of} target run${t.of === 1 ? '' : 's'}` : '', h.of ? `${h.ok} of ${h.of} held-out` : '', g.of ? `keeps ${g.ok} of ${g.of} good` : ''].filter(Boolean);
-  return `${parts.join(', ')}, each at ${v.needed} of ${v.attemptsPerRun} attempts`;
+  return `${parts.join(', ')}, ${eachRun(v)}`;
 }
 
 export function formatRepair(r: RepairReport, p: Palette = plain): string {
@@ -610,7 +611,8 @@ export function repairMarkdown(r: RepairReport): string {
     const v = accepted.verify;
     out.push('### Evidence', '', `\`shadowlap verify\` replayed every run under the change: it ${verifiedLine(v)}.${r.holdout.length ? ' The held-out runs were never shown to the repairer.' : ''}`, '');
     out.push('| Role | Run | Outcome | Attempts |', '|---|---|---|---|');
-    for (const x of v.runs) out.push(`| ${x.role === 'holdout' ? 'held-out' : x.role} | \`${short(x.runId)}\` | ${outcomeOf(x)} | ${x.deterministic ? 'clean replay' : `${x.passes} of ${x.attempts.length} passed`} |`);
+    // A run its gate decided shows the evidence: the tally, the pass rate's interval and pass^k.
+    for (const x of v.runs) out.push(`| ${x.role === 'holdout' ? 'held-out' : x.role} | \`${short(x.runId)}\` | ${outcomeOf(x)} | ${x.deterministic ? 'clean replay' : x.gate ? formatTally(x.gate) : `${x.passes} of ${x.attempts.length} passed`} |`);
     const d = footprintDelta(v.runs);
     if (d) out.push('', `Per run, as it would run live: ${Math.round(d.recorded.inputTokens).toLocaleString('en-US')} → ${Math.round(d.now.inputTokens).toLocaleString('en-US')} input tokens${d.recorded.cost !== null && d.now.cost !== null ? `, ≈${formatUsd(d.recorded.cost)} → ≈${formatUsd(d.now.cost)}` : ''}.`);
     if (r.uncommitted?.length) out.push('', `**${uncommittedNote(r.uncommitted)}**`);

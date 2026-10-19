@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, REPAIR_FILE_LIMIT, repairMarkdown, rewriteText, safeLine, Store, toolDefinitions, unifiedDiff, type Conversation, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { applyEdit, BLAME_DEFAULTS, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, REPAIR_FILE_LIMIT, repairMarkdown, rewriteText, safeLine, Store, toolDefinitions, unifiedDiff, type Conversation, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
@@ -24,9 +24,10 @@ import { runVerify } from './verify.js';
  */
 
 export interface RepairSettings extends AttemptSettings {
-  /** The verify gate's bar: a run passes at `needed` of `attempts`. */
+  /** The verify gate: the gate each run is decided by (stats.ts), or, when it is null, a fixed count: a run passes at `needed` of `attempts`. */
   attempts: number;
   needed: number;
+  gate: SprtGate | null;
   /** Runs verified at once, and attempts of a blame probe at once. */
   concurrency: number;
   /** Candidates to ask the repairer for. */
@@ -524,7 +525,8 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
           parent: t.parent,
           argv: t.argv,
           commandFromImport: t.commandFromImport,
-          settings: { attempts: 5, needed: 2, concurrency: s.concurrency, scan: 2, scope: s.scope ?? null, fields, writes: s.writes, reads: s.reads, liveTools: [], spec: s.spec, expect: s.expect, budget: left, timeoutMs: s.timeoutMs, guard: s.guard },
+          // Blame's own gate decides its probes, as shadowlap blame's does without --gate.
+          settings: { attempts: BLAME_DEFAULTS.max, needed: 0, gate: { kind: 'sprt', ...BLAME_DEFAULTS }, concurrency: s.concurrency, scan: 2, scope: s.scope ?? null, fields, writes: s.writes, reads: s.reads, liveTools: [], spec: s.spec, expect: s.expect, budget: left, timeoutMs: s.timeoutMs, guard: s.guard },
           log: (line) => log(`  ${line}`),
         });
         cost.blame += r.spent;
@@ -593,7 +595,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
       const v = await runVerify({
         opts: input.opts,
         runs: [...role(input.targets, 'target'), ...role(holdout, 'holdout'), ...role(input.good, 'good')],
-        settings: { attempts: s.attempts, needed: s.needed, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard },
+        settings: { attempts: s.attempts, needed: s.needed, gate: s.gate, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard },
         log: (line) => log(`  ${line}`),
       });
       cost.verify += v.spent;
@@ -731,7 +733,7 @@ function commitMessage(r: RepairReport, c: RepairCandidate): string {
   const lines = [commitTitle(c), ''];
   if (c.why.trim()) lines.push(c.why.trim(), '');
   lines.push(`The failing runs were lost at ${r.targets.filter((t) => t.callNo !== null).map((t) => `model call #${t.callNo} of ${shortId(t.runId)}`).join(', ')}.`);
-  if (v) lines.push(`Verified by replaying them under the change: fixes ${pass('target')} of ${count('target').length} target and ${pass('holdout')} of ${count('holdout').length} held-out failing runs, keeps ${pass('good')} of ${count('good').length} good runs, each at ${v.needed} of ${v.attemptsPerRun} attempts.`);
+  if (v) lines.push(`Verified by replaying them under the change: fixes ${pass('target')} of ${count('target').length} target and ${pass('holdout')} of ${count('holdout').length} held-out failing runs, keeps ${pass('good')} of ${count('good').length} good runs, ${eachRun(v)}.`);
   if (r.uncommitted?.length) lines.push('', `The runs were replayed on a working tree with uncommitted changes to ${r.uncommitted.join(', ')}, which this commit does not hold: it is HEAD with the fix alone.`);
   return lines.join('\n') + '\n';
 }

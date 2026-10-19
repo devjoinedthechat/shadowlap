@@ -70,7 +70,17 @@ export function lastRunText(at: number, now: number): string {
 export function testsKpi(t: TestsTile | null, now: number): { value: string; note: string; failing: boolean } {
   if (!t || !t.goldens) return { value: '—', note: 'no goldens yet', failing: false };
   const caught = t.regressions ? `${plural(t.regressions, 'regression')} caught` : 'no regressions';
-  return { value: `${num(t.passing)} / ${num(t.goldens)}`, note: `${caught} · ${t.lastRunAt ? `last run ${lastRunText(t.lastRunAt, now)}` : 'not run yet'}`, failing: t.regressions > 0 };
+  // Inconclusive goldens count apart: neither passing nor a regression.
+  const unsure = t.inconclusive ? ` · ${num(t.inconclusive)} inconclusive` : '';
+  return { value: `${num(t.passing)} / ${num(t.goldens)}`, note: `${caught}${unsure} · ${t.lastRunAt ? `last run ${lastRunText(t.lastRunAt, now)}` : 'not run yet'}`, failing: t.regressions > 0 };
+}
+
+/** The Today tile's Tests line: failures first, inconclusive goldens apart, else how they went. */
+export function todayTestsLine(t: { count: number; failed: number; inconclusive?: number }, failure: string | null): { text: string; icon: 'fail' | 'warn' | 'test' } {
+  const unsure = t.inconclusive ?? 0;
+  if (t.failed) return { text: `${num(t.failed)} failed${failure ? ` · ${failure}` : ''}${unsure ? ` · ${num(unsure)} inconclusive` : ''}`, icon: 'fail' };
+  if (unsure) return { text: `${num(unsure)} inconclusive`, icon: 'warn' };
+  return { text: t.count ? 'all clean' : 'none yet today', icon: 'test' };
 }
 
 /** The line under Spent live: the receipt, what replaying saved. */
@@ -130,7 +140,7 @@ export function kindGlyph(kind: string, o: { failed?: boolean; live?: boolean } 
 
 /** An activity entry's icon among the dashboard's glyphs; a kind it does not know shows as a recording. */
 export function activityGlyph(kind: ActivityIcon | string): GlyphKind {
-  const known: readonly string[] = ['live', 'rec', 'fail', 'clean', 'fork', 'cap', 'test', 'blame', 'fixok', 'fixbad', 'project', 'setting', 'train'];
+  const known: readonly string[] = ['live', 'rec', 'fail', 'warn', 'clean', 'fork', 'cap', 'test', 'blame', 'fixok', 'fixbad', 'project', 'setting', 'train'];
   return known.includes(kind) ? (kind as GlyphKind) : 'rec';
 }
 

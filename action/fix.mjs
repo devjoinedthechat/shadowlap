@@ -28,6 +28,7 @@ const NOT_FIXED = {
   exit: 'the agent exited with an error, which is not an outcome check',
   'no-calls': 'the replay made no calls, which is not an outcome check',
   error: 'it could not be replayed',
+  inconclusive: 'its verdict is inconclusive, neither passed nor failed: more attempts settle it, not a fix',
 };
 
 /**

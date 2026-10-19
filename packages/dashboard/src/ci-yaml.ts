@@ -40,7 +40,12 @@ export interface FixOnFailureSettings {
    * when it is off: the step is the one it always was.
    */
   push?: BucketCredentials | null;
+  /** What an inconclusive golden does to the step (the action's `inconclusive`): `fail`, the default and left out, or `warn`. */
+  inconclusive?: 'fail' | 'warn';
 }
+
+/** The action's `inconclusive` line, only when it lets inconclusive goldens through. */
+const inconclusiveLine = (mode: 'fail' | 'warn' | undefined): string[] => (mode === 'warn' ? ['    inconclusive: warn'] : []);
 
 /**
  * A job that isn't a pull request's: `shadowlap store ci`'s condition for the credentials that write
@@ -113,6 +118,7 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
     '    fix-on-failure: true',
     `    fix-budget: ${dollars(s.budget)}`,
     `    repairer: ${scalar(repairer)}`,
+    ...inconclusiveLine(s.inconclusive),
     ...(push === 'oidc' ? ['    push: true'] : push === 'keys' ? [`    push: \${{ ${NOT_A_PULL_REQUEST} }}`] : []),
     '  env:',
     `    ${key}: \${{ secrets.${key} }}`,
@@ -155,6 +161,8 @@ export interface AlertsSettings {
   recordings?: string;
   /** The main branch (default `main`). */
   branch?: string;
+  /** What an inconclusive golden does: `fail`, the default and left out, counts it in `failed`, so Slack hears of it; `warn` doesn't. */
+  inconclusive?: 'fail' | 'warn';
 }
 
 /** A secret's name as GitHub allows it: letters, digits and `_`. Empty becomes SLACK_WEBHOOK_URL. */
@@ -187,6 +195,7 @@ export function alertsYaml(s: AlertsSettings): string {
     '  with:',
     `    recordings: ${scalar(s.recordings ?? 'goldens/*')}`,
     '    fail-on-divergence: false',
+    ...inconclusiveLine(s.inconclusive),
     '',
     '- name: Tell Slack',
     `  if: ${cond}`,
@@ -218,4 +227,5 @@ export const ALERT_FAILURES: ReadonlyArray<[string, string]> = [
   ['it tries to call a model live; CI replays offline', 'live call'],
   ['the agent exits with an error', 'exit ≠ 0'],
   ['a check fails, token and cost budgets included', 'check failed'],
+  ['its gate can’t decide within its attempts, unless inconclusive is warn', 'inconclusive'],
 ];

@@ -531,6 +531,7 @@ describe('planning fixes from a test report', () => {
         result({ name: 'fine', ok: true }),
         result({ name: 'unpriced', checks: [{ ok: true, label: 'issue_refund called 0 times', detail: null }, unpriced] }),
         result({ name: 'refunds-too', checks: [{ ok: false, label: 'issue_refund called 0 times', detail: 'called 1 time' }, unpriced] }),
+        result({ name: 'unsure', failure: 'inconclusive' }),
       ],
     });
     expect(plans.map((p) => [p.result.name, p.skip])).toEqual([
@@ -541,6 +542,8 @@ describe('planning fixes from a test report', () => {
       // A cost check that fails for want of a price fails whatever the model answers: no prompt fix changes it.
       ['unpriced', 'it fails only because small-model has no price, which no prompt fix changes: add it under "prices" in shadowlap.config.json'],
       ['refunds-too', null],
+      // A gate that ran out of attempts between its bounds: more attempts settle it, not a repair.
+      ['unsure', 'its verdict is inconclusive, neither passed nor failed: more attempts settle it, not a fix'],
     ]);
     expect(plans[0]).toMatchObject({ fixes: ['A', 'C'], keeps: ['B'] });
     expect(branchName(result({}))).toBe('shadowlap/fix-refund-flow-t9rb1d');

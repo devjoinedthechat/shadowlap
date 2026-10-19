@@ -147,6 +147,34 @@ updateSearchIndex(store): number                       // indexes what is new; s
 searchCalls(store, query, opts?): SearchHit[]
 ```
 
+## Gates
+
+Verdicts on attempts that vary, as `test`'s gate, `verify` and `blame` decide them ([gating](./gating.md)). Pure functions:
+
+```ts
+// { kind: 'sprt', good, bad, risk, max } | { kind: 'baseline', drop, risk, window, min, max }
+parseGate(json, where, defaults?): Gate
+// 'pass' | 'fail' | 'continue' | 'inconclusive'; a baseline gate without history
+// compares with the recording (RECORDING_BASELINE, one attempt that passed)
+decide(passes, attempts, gate, history?)
+// the decision, each outcome, the interval, pass^k, the evidence path and the sentence;
+// `decision` freezes one reached before attempts still running ended, `carried` counts
+// attempts a continued session took over
+gateResult(gate, outcomes, { history?, clean?, decision?, carried? }): GateResult
+// the exact odds of each verdict, and the attempts run on average, every look counted;
+// `from` continues from a tally already seen
+gateOdds(gate, p, history?, from?): GateOdds
+gateOddsAt(gate, rates, history?): Array<GateOdds & { rate }>
+// the share of CI runs of n goldens that go red for nothing, under --inconclusive fail or warn
+runsRed(odds, goldens, mode?)
+wilson(passes, n, confidence) / passHatK(c, n, k) / binomialTail(n, k, p)
+sprtBounds(gate) / sprtStep(score, passed, gate) / attemptsToPass(gate)
+// P(now < baseline − drop), each a Beta posterior
+dropProbability(now, baseline, drop)
+// a golden's baseline, pooled from its test history; excludeSession takes one id or several
+gateHistory(store, golden, { window, goldenRunId?, checks?, mode?, excludeSession?, before? })
+```
+
 ## The replay state machine
 
 `Session` is what the sidecar drives; you need it only if you are re-implementing replay itself.

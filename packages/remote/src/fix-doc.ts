@@ -130,7 +130,32 @@ const record =
 const footprint = obj({ inputTokens: amount, outputTokens: amount, cost: nullable(amount) });
 const block = obj({ type: oneOf('text', 'thinking', 'tool_call') });
 const blameAttempt = obj({ runId, passed: bool, exitCode: amount, failures: arr(str), spent: amount, upstreamRequests: amount });
-const blameProbe = obj({ callNo: amount, step: amount, attempts: arr(blameAttempt), passes: amount, rescued: bool });
+/** A gate's decision after an attempt (engine stats.ts). */
+const decision = oneOf('pass', 'fail', 'continue', 'inconclusive');
+/** The gate a blame or a verify decided its probes or runs by: one between two pass rates. */
+const sprtGate = obj({ kind: oneOf('sprt'), good: num, bad: num, risk: num, max: num });
+/**
+ * What a gate made of a probe's or a run's attempts, as the Fixes page and `fix show` read it: its
+ * figures, its decision, the attempts, the pass rate's interval and its sentence.
+ */
+const gateResult: Check = (v, w) => {
+  if (!isObject(v)) fail(w, 'must be an object');
+  oneOf('sprt', 'baseline')(v.kind, `${w}.kind`);
+  for (const k of v.kind === 'sprt' ? ['good', 'bad', 'risk', 'max'] : ['drop', 'risk', 'window', 'min']) num(v[k], `${w}.${k}`);
+  obj({
+    decision,
+    passes: num,
+    attempts: num,
+    interval: obj({ lo: num, hi: num, confidence: num }),
+    passK: optional(arr(obj({ k: num, value: num }), 64)),
+    outcomes: optional(arr(bool)),
+    evidence: optional(obj({ kind: oneOf('sprt', 'baseline') })),
+    clean: optional(bool),
+    carried: optional(num),
+    sentence: line,
+  })(v, w);
+};
+const blameProbe = obj({ callNo: amount, step: amount, attempts: arr(blameAttempt), passes: amount, rescued: bool, decision: optional(decision), gate: optional(nullable(gateResult)) });
 const blameReport = obj({
   outcome: oneOf('blamed', 'unrescuable', 'stopped'),
   blamed: nullable(blameProbe),
@@ -142,6 +167,7 @@ const blameReport = obj({
   steps: amount,
   attemptsPerProbe: amount,
   needed: amount,
+  gate: optional(nullable(sprtGate)),
   rescue: obj({ fields: record(any) }),
   oracle: arr(str),
   recordedFailures: arr(str),
@@ -161,6 +187,8 @@ const verifiedRun = obj({
   passes: amount,
   deterministic: bool,
   verdict: oneOf('pass', 'fail', 'open'),
+  decision: optional(decision),
+  gate: optional(nullable(gateResult)),
   recorded: obj({ passed: nullable(bool), failures: arr(str), footprint }),
 });
 const verifyReport = obj({
@@ -170,6 +198,7 @@ const verifyReport = obj({
   runs: arr(verifiedRun),
   attemptsPerRun: amount,
   needed: amount,
+  gate: optional(nullable(sprtGate)),
   oracle: arr(str),
   fields: record(any),
   codeVersion: nullable(str),

@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { JUDGE_SCOPE, checkStatus, estimateCost, finalAnswer, formatUsd, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
+import { JUDGE_SCOPE, checkStatus, estimateCost, finalAnswer, formatUsd, parseGate, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
 
 /**
  * Outcome checks for `shadowlap test`. A golden normally passes only when the replay is clean, which
@@ -194,6 +194,11 @@ export interface TestSpec extends ExpectSpec {
   repeat: number;
   /** Attempts that must pass, out of `repeat`. */
   passes: number;
+  /**
+   * Decides on the attempts as they come in, with stated error rates, instead of `repeat` and
+   * `passes` (both 1 then): an SPRT gate or one against the golden's history (stats.ts).
+   */
+  gate?: Gate;
 }
 
 export interface TestEntry {
@@ -333,14 +338,21 @@ function parseSpec(raw: unknown, where: string): TestSpec {
   if (!isObject(raw)) throw new Error(`${where} must be an object`);
   // `task` (where a model takes over, why, what it rewards) is read by `shadowlap tasks` (tasks.ts);
   // a mistake in it fails here too, as any other mistake under `tests` does.
-  onlyKeys(raw, ['fork', 'repeat', 'passes', 'expect', 'task'], where);
+  onlyKeys(raw, ['fork', 'repeat', 'passes', 'gate', 'expect', 'task'], where);
   parseTaskFields(raw.task, `${where}.task`);
   if (raw.fork !== undefined && typeof raw.fork !== 'boolean') throw new Error(`${where}.fork must be true or false`);
+  // Statistical gating: the gate decides how many attempts run, so it stands in for repeat and passes.
+  let gate: Gate | undefined;
+  if (raw.gate !== undefined) {
+    if (raw.repeat !== undefined || raw.passes !== undefined) throw new Error(`${where}: a gate decides how many attempts run and what passes; give the gate, or repeat and passes, not both`);
+    if (raw.fork !== true) throw new Error(`${where}.gate needs "fork": true: only a golden that may fork runs live, where its attempts can come out differently`);
+    gate = parseGate(raw.gate, `${where}.gate`);
+  }
   const repeat = raw.repeat ?? 1;
   if (typeof repeat !== 'number' || !Number.isInteger(repeat) || repeat < 1 || repeat > 100) throw new Error(`${where}.repeat must be a whole number from 1 to 100`);
   const passes = raw.passes ?? repeat;
   if (typeof passes !== 'number' || !Number.isInteger(passes) || passes < 1 || passes > repeat) throw new Error(`${where}.passes must be a whole number from 1 to repeat (${repeat})`);
-  const spec: TestSpec = { fork: raw.fork === true, repeat, passes, tools: [] };
+  const spec: TestSpec = { fork: raw.fork === true, repeat, passes, tools: [], ...(gate ? { gate } : {}) };
   if (raw.expect !== undefined) parseExpectInto(spec, raw.expect, `${where}.expect`);
   return spec;
 }

@@ -7,7 +7,7 @@ import { cents, clock, ktok, money, num, plural, shortId, whenShort } from '../f
 import { ORIGIN_CODE, ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
 import { href } from '../route.js';
 import type { ActivityItem, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, LiveRun, NeedsLookRow, OverviewSummary, RunGrid, TodayPanel as Today } from '../types.js';
-import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, verifiedNote } from './model.js';
+import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, todayTestsLine, verifiedNote } from './model.js';
 
 /**
  * The Overview's panels, as the mock draws them: the outcome strip, this week's runs as rows of
@@ -226,10 +226,10 @@ export function TodayCard({ today, live }: { today: Today; live: readonly LiveRu
           <span className="go">{num(today.forks.count)} today</span>
         </a>
         <a href={tests.latestFailure ? href.run(tests.latestFailure.runId) : href.tests()}>
-          <EventIcon kind={tests.failed ? 'fail' : 'test'} />
+          <EventIcon kind={todayTestsLine(tests, tests.latestFailure ? outcomeWords(tests.latestFailure.outcome) : null).icon} />
           <span>
             <span className="t">Tests</span>
-            <span className="d">{tests.failed ? `${num(tests.failed)} failed${tests.latestFailure ? ` · ${outcomeWords(tests.latestFailure.outcome)}` : ''}` : tests.count ? 'all clean' : 'none yet today'}</span>
+            <span className="d">{todayTestsLine(tests, tests.latestFailure ? outcomeWords(tests.latestFailure.outcome) : null).text}</span>
           </span>
           <span className="go">{num(tests.count)} today</span>
         </a>

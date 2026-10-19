@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { ciProvider, commitTitle, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type Store, type VerifyReport } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, ciProvider, commitTitle, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type Store, type VerifyReport } from '@shadowlap/engine';
 import { EXIT_LABEL } from './attempts.js';
 import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, LABEL_INPUT, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -207,8 +207,18 @@ const stepArgs = (f: StepFlags): string[] => [
 /** The command after `--` goes last, as it was typed. */
 const commandArgs = (f: StepFlags): string[] => (f.argv?.length ? ['--', ...f.argv] : []);
 
+/**
+ * `--gate` with the figures that differ from the command's own defaults, as JSON; nothing when none
+ * do. A fixed count is written out in full, since the gate is what runs without one.
+ */
+export function gateFlags(gate: SprtGate | null, defaults: Omit<SprtGate, 'kind'>, count: { attempts: number; passes?: number | undefined }): string[] {
+  if (!gate) return ['--attempts', String(count.attempts), ...(count.passes !== undefined ? ['--passes', String(count.passes)] : [])];
+  const differs = (['good', 'bad', 'risk', 'max'] as const).filter((k) => gate[k] !== defaults[k]);
+  return differs.length ? ['--gate', JSON.stringify(Object.fromEntries(differs.map((k) => [k, gate[k]])))] : [];
+}
+
 /** A blame command that blames the run the same way again. */
-export function blameCommand(runId: string, s: StepFlags & { expect?: unknown; scope?: string | null; fields: Record<string, unknown>; attempts: number; needed: number; scan?: number }): string {
+export function blameCommand(runId: string, s: StepFlags & { expect?: unknown; scope?: string | null; fields: Record<string, unknown>; attempts: number; needed: number; gate: SprtGate | null; scan?: number }): string {
   return quoteArgv([
     'shadowlap',
     'blame',
@@ -216,8 +226,7 @@ export function blameCommand(runId: string, s: StepFlags & { expect?: unknown; s
     ...expectArgs(s.expect),
     ...(s.scope ? ['--scope', s.scope] : []),
     ...fieldArgs(s.fields),
-    ...(s.attempts !== 5 ? ['--attempts', String(s.attempts)] : []),
-    ...(s.needed !== Math.min(2, s.attempts) ? ['--passes', String(s.needed)] : []),
+    ...gateFlags(s.gate, BLAME_DEFAULTS, { attempts: s.attempts, passes: s.needed }),
     ...(s.scan !== undefined && s.scan !== 2 ? ['--scan', String(s.scan)] : []),
     ...stepArgs(s),
     ...commandArgs(s),
@@ -233,9 +242,9 @@ export interface RunSpecs {
 
 const runArgs = (r: RunSpecs): string[] => [...(r.fixes?.length ? ['--fixes', ...r.fixes] : []), ...(r.holdout?.length ? ['--holdout', ...r.holdout] : []), ...(r.keeps?.length ? ['--keeps', ...r.keeps] : [])];
 
-const gateArgs = (attempts: number, passes: number | undefined) => [...(attempts !== 5 ? ['--attempts', String(attempts)] : []), ...(passes !== undefined ? ['--passes', String(passes)] : [])];
+const gateArgs = (gate: SprtGate | null, attempts: number, passes: number | undefined) => gateFlags(gate, SPRT_DEFAULTS, { attempts, passes });
 
-export function verifyCommand(runs: RunSpecs, f: StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; fields: Record<string, unknown>; liveTools: string[]; failFast?: boolean }): string {
+export function verifyCommand(runs: RunSpecs, f: StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; gate: SprtGate | null; fields: Record<string, unknown>; liveTools: string[]; failFast?: boolean }): string {
   return quoteArgv([
     'shadowlap',
     'verify',
@@ -243,7 +252,7 @@ export function verifyCommand(runs: RunSpecs, f: StepFlags & { expect?: unknown;
     ...expectArgs(f.expect),
     ...fieldArgs(f.fields),
     ...f.liveTools.flatMap((t) => ['--live-tool', t]),
-    ...gateArgs(f.attempts, f.passes),
+    ...gateArgs(f.gate, f.attempts, f.passes),
     ...(f.failFast ? ['--fail-fast'] : []),
     ...stepArgs(f),
     ...commandArgs(f),
@@ -253,7 +262,7 @@ export function verifyCommand(runs: RunSpecs, f: StepFlags & { expect?: unknown;
 /** A repair command that repairs the same way again; how it hands over (`--apply`, `--branch`, `--pr`) is left out. */
 export function repairCommand(
   runs: RunSpecs,
-  f: StepFlags & { expect?: unknown; repairer?: string; candidates?: number; stronger?: string; scope?: string; set?: Record<string, unknown>; attempts: number; passes?: number; maxGrowth?: number; build?: string | null },
+  f: StepFlags & { expect?: unknown; repairer?: string; candidates?: number; stronger?: string; scope?: string; set?: Record<string, unknown>; attempts: number; passes?: number; gate: SprtGate | null; maxGrowth?: number; build?: string | null },
 ): string {
   return quoteArgv([
     'shadowlap',
@@ -265,7 +274,7 @@ export function repairCommand(
     ...(f.stronger ? ['--stronger', f.stronger] : []),
     ...(f.scope ? ['--scope', f.scope] : []),
     ...Object.entries(f.set ?? {}).flatMap(([k, v]) => ['--set', `${k}=${fieldValue(v)}`]),
-    ...gateArgs(f.attempts, f.passes),
+    ...gateArgs(f.gate, f.attempts, f.passes),
     ...(f.maxGrowth !== undefined && f.maxGrowth !== 0.25 ? ['--max-growth', String(+(f.maxGrowth * 100).toFixed(4))] : []),
     ...(f.build ? ['--build', f.build] : []),
     ...stepArgs(f),
@@ -287,7 +296,7 @@ export function recordBlameFix(
   input: {
     runId: string;
     report: BlameReport;
-    settings: StepFlags & { spec: TestSpec | null; expect?: unknown; scope?: string | null; fields: Record<string, unknown>; attempts: number; needed: number; scan?: number };
+    settings: StepFlags & { spec: TestSpec | null; expect?: unknown; scope?: string | null; fields: Record<string, unknown>; attempts: number; needed: number; gate: SprtGate | null; scan?: number };
     recording: { checks: readonly CheckResult[]; failures: readonly string[] };
     command?: string | undefined;
   },
@@ -312,7 +321,7 @@ export function recordBlameFix(
       actor: who,
       runId: input.runId,
       ref: recorded.fix.fixId,
-      data: { outcome: input.report.outcome, callNo: input.report.blamed?.callNo ?? null, confidence: input.report.confidence, title: recorded.fix.title, opened: recorded.created },
+      data: { outcome: input.report.outcome, callNo: input.report.blamed?.callNo ?? null, confidence: input.report.confidence, title: recorded.fix.title, opened: recorded.created, ...(unsettledFirst(input.report) ? { unsettled: true } : {}) },
     });
     return recorded;
   } catch (err) {

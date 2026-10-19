@@ -7,6 +7,8 @@ export interface JunitCase {
   classname: string;
   timeSeconds: number;
   failure?: { message: string; details: string };
+  /** Neither passed nor failed: an inconclusive verdict CI lets through. */
+  skipped?: { message: string };
   systemOut?: string;
 }
 
@@ -31,14 +33,16 @@ function cdata(s: string): string {
 
 export function junitXml(suiteName: string, cases: JunitCase[]): string {
   const failures = cases.filter((c) => c.failure).length;
+  const skipped = cases.filter((c) => c.skipped && !c.failure).length;
   const time = cases.reduce((t, c) => t + c.timeSeconds, 0);
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    `<testsuite name="${esc(suiteName)}" tests="${cases.length}" failures="${failures}" errors="0" time="${time.toFixed(3)}">`,
+    `<testsuite name="${esc(suiteName)}" tests="${cases.length}" failures="${failures}" errors="0"${skipped ? ` skipped="${skipped}"` : ''} time="${time.toFixed(3)}">`,
   ];
   for (const c of cases) {
     lines.push(`  <testcase name="${esc(c.name)}" classname="${esc(c.classname)}" time="${c.timeSeconds.toFixed(3)}">`);
     if (c.failure) lines.push(`    <failure message="${esc(c.failure.message)}">${cdata(c.failure.details)}</failure>`);
+    else if (c.skipped) lines.push(`    <skipped message="${esc(c.skipped.message)}"/>`);
     if (c.systemOut) lines.push(`    <system-out>${cdata(c.systemOut)}</system-out>`);
     lines.push('  </testcase>');
   }
