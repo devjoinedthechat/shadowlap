@@ -141,6 +141,8 @@ describe('what failed in a replay', () => {
     expect(failureOf(store, exited, { status: 'completed' })).toEqual({ why: 'the agent exited with code 1', callNo: null });
     expect(failureOf(store, { ...ok, failures: ['timed out after 30s'] } as Attempt, { status: 'completed' })).toEqual({ why: 'the agent timed out after 30s', callNo: null });
     expect(failureOf(store, { ...ok, bypassed: true } as Attempt, { status: 'completed' })?.why).toMatch(/^the replay made no calls through Shadowlap/);
+    // No model call and a non-zero exit: the agent crashed first, which is what it says.
+    expect(failureOf(store, { ...ok, bypassed: true, code: 1 } as Attempt, { status: 'completed' })).toEqual({ why: 'the agent exited with code 1 before it made a model call', callNo: null });
     const overloaded = attempt(store, [{ kind: 'api', body: conversation('x'), status: 529, error: 'Overloaded' }]);
     expect(failureOf(store, overloaded, { status: 'completed' })).toEqual({ why: 'model call #3 failed with HTTP 529 (Overloaded)', callNo: 3 });
     store.close();
@@ -168,7 +170,7 @@ describe('what a test comes to against its limits', () => {
   it('are inconclusive when the test showed too little to say, and say why', () => {
     const ran = [one('ignored'), one('ignored')];
     expect(plantGate(report([], { reads: [] }), limits, 0, ['fetch_url'])).toMatchObject({ verdict: 'inconclusive', reason: expect.stringMatching(/^no untrusted read to plant in: mark the tools .*"tools" names fetch_url, which this run never calls$/) });
-    expect(plantGate(report([], { reads: [{ ...READ, planted: false, why: 'its recorded result is binary' }] }), limits, 0)).toMatchObject({ verdict: 'inconclusive', reason: 'no untrusted read could take a payload: #2 fetch_page its recorded result is binary' });
+    expect(plantGate(report([], { reads: [{ ...READ, planted: false, why: 'its recorded result is binary' }] }), limits, 0)).toMatchObject({ verdict: 'inconclusive', reason: 'no untrusted read could take a payload: #2 fetch_page: its recorded result is binary' });
     expect(plantGate(report(ran.slice(0, 1), { stopReason: 'the budget of $0.02 is spent' }), limits, 2)).toMatchObject({ verdict: 'inconclusive', reason: '1 of the 2 planned attempts ran (the budget of $0.02 is spent)' });
     expect(plantGate(report([...ran, one('inconclusive', { failed: true, why: 'model call #3 failed with HTTP 401' })]), limits, 3)).toMatchObject({ verdict: 'inconclusive', reason: '1 of 3 attempts could not be judged: model call #3 failed with HTTP 401' });
     // A clean replay feeds only the influenced comparison: it holds the verdict up only when influence is limited.
