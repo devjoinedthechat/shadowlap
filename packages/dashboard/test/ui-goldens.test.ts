@@ -72,6 +72,7 @@ function view(over: Partial<TestsView> = {}): TestsView {
     inconclusive: [],
     diverged: ['goldens/refund-in-limit'],
     running: null,
+    chaosRunning: null,
     commands: { ci: 'shadowlap test goldens/* --junit report.xml', inCi: '', pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] },
     note: '',
     ...over,
@@ -368,6 +369,11 @@ describe('waiting for a test job', () => {
     expect(sessionWait({ running }, 'update it')).toBe('shadowlap test goldens/* is running: update it once it is done.');
     // A long one is cut short.
     expect(sessionWait({ running: { ...running, command: `shadowlap test ${'goldens/very-long-name '.repeat(5)}` } }, 'update it')).toBe('shadowlap test goldens/very-long-name goldens/very-long-nam… is running: update it once it is done.');
+    // Error-path presets on goldens replay their packs too: the actions wait for them as the server does.
+    const presets = { id: 'c', command: 'shadowlap test goldens/* --chaos', startedAt: T };
+    expect(sessionWait({ running: null, chaosRunning: presets }, 'run the tests')).toBe('shadowlap test goldens/* --chaos is running: run the tests once it is done.');
+    expect(sessionWait({ running, chaosRunning: presets }, 'update it')).toBe('shadowlap test goldens/* is running: update it once it is done.');
+    expect(sessionWait({ running: null, chaosRunning: null }, 'update it')).toBeNull();
   });
 });
 

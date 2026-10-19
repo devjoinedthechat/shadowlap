@@ -41,14 +41,14 @@ describe('training tables', () => {
   });
 
   it('are part of schema v4, so a store opened again keeps them', () => {
-    expect(SCHEMA_VERSION).toBe(4);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(4);
     const path = join(mkdtempSync(join(tmpdir(), 'sl-train-')), 'shadowlap.db');
     const a = Store.open(path);
     a.addPairsExport({ pairs: 1, file: 'p.jsonl', format: 'trl', minConfidence: 'high' });
     a.close();
     const b = Store.open(path);
     expect(b.listPairsExports()).toHaveLength(1);
-    expect(b.schemaVersion()).toBe(4);
+    expect(b.schemaVersion()).toBe(SCHEMA_VERSION);
     b.close();
   });
 });

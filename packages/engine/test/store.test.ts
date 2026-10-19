@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
@@ -223,5 +223,43 @@ describe('store schema version', () => {
     expect(second.schemaVersion()).toBe(SCHEMA_VERSION);
     expect(second.getRun(run.runId)?.runId).toBe(run.runId);
     second.close();
+  });
+
+  it('upgrades a v4 store to v5, which keeps the process running each session of error-path presets', async () => {
+    expect(SCHEMA_VERSION).toBe(5);
+    const path = join(freshDir(), 's.db');
+    const first = Store.open(path);
+    // A session a v4 build started and never ended (its process was killed), and one that ended.
+    first.startChaosSession({ sessionId: 'LEFT', startedAt: 10, command: ['shadowlap', 'test', 'goldens/*', '--chaos'], presets: ['timeout'], owner: null });
+    first.startChaosSession({ sessionId: 'DONE', startedAt: 20, command: ['shadowlap', 'replay', 'R1', '--chaos'], presets: ['429'], owner: null });
+    first.finishChaosSession('DONE', { passed: 1, failed: 0, inconclusive: 0, upstreamRequests: 2, endedAt: 30 });
+    first.close();
+    // The store as a v4 build left it: no table for the sessions' processes, and its version.
+    const { DatabaseSync } = (await import('node:sqlite')) as unknown as { DatabaseSync: new (p: string) => { exec(sql: string): void; close(): void } };
+    const raw = new DatabaseSync(path);
+    raw.exec(`DROP TABLE chaos_session_owners; UPDATE meta SET value = '4' WHERE key = 'schema_version'`);
+    raw.close();
+
+    const second = Store.open(path);
+    expect(second.schemaVersion()).toBe(5);
+    expect(second.listChaosSessions().map((s) => [s.sessionId, s.endedAt])).toEqual([
+      ['DONE', 30],
+      ['LEFT', null],
+    ]);
+    // The one left open names no process: it reads as one that did not finish, never as running.
+    expect(second.chaosSessionOwner('LEFT')).toBeNull();
+    // A session started now names this process until it ends, and the row goes with it.
+    const now = second.startChaosSession({ command: ['shadowlap', 'test', 'goldens/*', '--chaos'], presets: ['timeout'] });
+    expect(second.chaosSessionOwner(now.sessionId)).toEqual({ pid: process.pid, host: hostname() });
+    second.finishChaosSession(now.sessionId, { passed: 0, failed: 0, inconclusive: 0, upstreamRequests: 0 });
+    expect(second.chaosSessionOwner(now.sessionId)).toBeNull();
+    // One recorded elsewhere names none.
+    expect(second.chaosSessionOwner(second.startChaosSession({ command: ['shadowlap', 'test', 'goldens/a', '--chaos'], presets: ['500'], owner: null }).sessionId)).toBeNull();
+    second.close();
+    // Opened again, nothing is migrated twice.
+    const third = Store.open(path);
+    expect(third.schemaVersion()).toBe(5);
+    expect(third.listChaosSessions()).toHaveLength(4);
+    third.close();
   });
 });

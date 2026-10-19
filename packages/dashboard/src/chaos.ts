@@ -1,4 +1,4 @@
-import { CHAOS_PRESETS, isChaosPreset, parsePresets, PRESET_LABELS, presetHits, type ChaosResult, type ChaosSession, type ChaosVerdict, type Store } from '@shadowlap/engine';
+import { CHAOS_PRESETS, isChaosPreset, parsePresets, PRESET_LABELS, presetHits, recorderGone, type ChaosResult, type ChaosSession, type ChaosVerdict, type Store } from '@shadowlap/engine';
 
 /**
  * Error-path presets as the dashboard shows them: the results `test --chaos` and `replay --chaos`
@@ -57,6 +57,11 @@ export interface ChaosSessionView {
   inconclusive: number;
   upstreamRequests: number;
   interrupted: boolean;
+  /**
+   * It hasn't ended and its process is still there: it is running now, from this dashboard, another
+   * one or a terminal. False for one that ended, or whose process is gone (it did not finish).
+   */
+  live: boolean;
 }
 
 export interface ChaosView {
@@ -117,11 +122,36 @@ function matrices(results: readonly ChaosResult[]): ChaosMatrix[] {
     .sort((a, b) => b.at - a.at || a.runId.localeCompare(b.runId) || (a.golden ?? '').localeCompare(b.golden ?? ''));
 }
 
-const sessionView = (s: ChaosSession): ChaosSessionView => ({ ...s });
+const sessionView = (store: Store, s: ChaosSession): ChaosSessionView => ({ ...s, live: chaosSessionLive(store, s) });
+
+/**
+ * Whether a session of presets that hasn't ended is running now: the process the store names for it
+ * is still there (on this machine; elsewhere, it was heard from lately: its newest result, else its
+ * start), as for a test session. One whose process was killed, or that names none, did not finish.
+ */
+export function chaosSessionLive(store: Store, s: ChaosSession): boolean {
+  if (s.endedAt !== null) return false;
+  const owner = store.chaosSessionOwner(s.sessionId);
+  return owner !== null && !recorderGone(owner, store.listChaosResults({ sessionId: s.sessionId, limit: 1 })[0]?.at ?? s.startedAt);
+}
+
+/**
+ * The newest session of presets on goldens (`test --chaos`) running now, wherever it was started (a
+ * terminal, another dashboard, a job), or null. It replays the goldens' packs, so while it runs the
+ * jobs that replay or rewrite them wait, as they wait for a test session. Presets on a run (`replay
+ * --chaos`) touch no golden.
+ */
+export function liveChaosSession(store: Store): ChaosSession | null {
+  for (const s of store.listChaosSessions({ limit: 20 })) if (s.endedAt === null && onGoldens(s) && chaosSessionLive(store, s)) return s;
+  return null;
+}
+
+/** A session's command as the CLI keeps it: `shadowlap test …` runs the presets on goldens, `shadowlap replay …` on a run. */
+const onGoldens = (s: ChaosSession): boolean => s.command[1] === 'test';
 
 /** Every recording's presets, and the newest sessions. */
 export function chaosView(store: Store, o: { sessions?: number } = {}): ChaosView {
-  return { presets: PRESET_INFO, matrices: matrices(store.latestChaosResults()), sessions: store.listChaosSessions({ limit: o.sessions ?? 20 }).map(sessionView) };
+  return { presets: PRESET_INFO, matrices: matrices(store.latestChaosResults()), sessions: store.listChaosSessions({ limit: o.sessions ?? 20 }).map((s) => sessionView(store, s)) };
 }
 
 /**

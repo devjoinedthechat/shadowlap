@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -257,6 +257,38 @@ describe('one job at a time on the goldens', () => {
     }
     expect((await getJson<TestsView>(dash, 'tests')).running).toBeNull();
     expect((await job({ kind: 'test', golden: 'goldens/refund-flow' })).code).toBe(0);
+  });
+
+  it('refuses them while error-path presets started in a terminal run on goldens, and not once their process is gone', async () => {
+    // `test --chaos` run by this very process, as one started in a terminal: its process is alive.
+    const s = store.startChaosSession({ command: ['shadowlap', 'test', 'goldens/refund-flow', '--chaos'], presets: ['timeout', '429'] });
+    try {
+      await refused([
+        [{ kind: 'test' }, 'shadowlap test goldens/refund-flow --chaos is running: run the tests once it is done'],
+        [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'shadowlap test goldens/refund-flow --chaos is running: update it once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'shadowlap test goldens/refund-flow --chaos is running: find the commit once it is done'],
+        [{ kind: 'chaos', golden: 'goldens/refund-in-limit' }, 'shadowlap test goldens/refund-flow --chaos is running: run its presets once it is done'],
+      ]);
+      // The page shows it, so its buttons wait too, and the presets' sessions read it as running.
+      expect(await getJson<TestsView>(dash, 'tests')).toMatchObject({ running: null, chaosRunning: { id: s.sessionId, command: 'shadowlap test goldens/refund-flow --chaos' } });
+      expect((await getJson<{ sessions: Array<{ sessionId: string; live: boolean }> }>(dash, 'chaos')).sessions.find((x) => x.sessionId === s.sessionId)).toMatchObject({ live: true });
+    } finally {
+      store.finishChaosSession(s.sessionId, { passed: 0, failed: 0, inconclusive: 0, upstreamRequests: 0 });
+    }
+    expect((await getJson<TestsView>(dash, 'tests')).chaosRunning).toBeNull();
+    expect((await getJson<{ sessions: Array<{ sessionId: string; live: boolean }> }>(dash, 'chaos')).sessions.find((x) => x.sessionId === s.sessionId)).toMatchObject({ live: false });
+    // One whose process was killed holds nothing up and did not finish; nor do presets on a run, which touch no golden.
+    const killed = store.startChaosSession({ command: ['shadowlap', 'test', 'goldens/*', '--chaos'], presets: ['timeout'], owner: { pid: 2_147_483_646, host: hostname() } });
+    const onRun = store.startChaosSession({ command: ['shadowlap', 'replay', 'GOLDEN_FLOW', '--chaos'], presets: ['timeout'] });
+    try {
+      expect((await getJson<TestsView>(dash, 'tests')).chaosRunning).toBeNull();
+      const sessions = (await getJson<{ sessions: Array<{ sessionId: string; endedAt: number | null; live: boolean }> }>(dash, 'chaos')).sessions;
+      expect(sessions.find((x) => x.sessionId === killed.sessionId)).toMatchObject({ endedAt: null, live: false });
+      expect(sessions.find((x) => x.sessionId === onRun.sessionId)).toMatchObject({ endedAt: null, live: true });
+      expect((await job({ kind: 'test', golden: 'goldens/refund-flow' })).code).toBe(0);
+    } finally {
+      for (const x of [killed, onRun]) store.finishChaosSession(x.sessionId, { passed: 0, failed: 0, inconclusive: 0, upstreamRequests: 0 });
+    }
   });
 
   it('counts a search of a golden among them, and one of a run not', () => {

@@ -144,4 +144,4 @@ export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageSc
 // Error-path presets: where each hits a recording and what it answers there.
 export { CHAOS_PRESETS, OVERSIZE_CHARS, PRESET_LABELS, chaosTargets, cutJson, isChaosPreset, parsePresets, presetHits, presetReplay, presetResult, resultShape } from './chaos.js';
 export type { ChaosPreset, ChaosTarget, ChaosTargets, ResultShape } from './chaos.js';
-export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult } from './store.js';
+export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult, NewChaosSession } from './store.js';

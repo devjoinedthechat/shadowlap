@@ -4,7 +4,8 @@ import { ciProvider, recordEvent, resolveAuthor, SCHEMA_VERSION, Store } from '.
 describe('activity events', () => {
   it('stores events and lists them newest first, filtered and paged', () => {
     const store = Store.open(':memory:');
-    expect(SCHEMA_VERSION).toBe(4);
+    // The events table came with schema v4, and every later schema keeps it.
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(4);
     recordEvent(store, { kind: 'normalizer.added', actor: 'dana@example.com', data: { path: '$.metadata.user_id' }, at: 1000 });
     recordEvent(store, { kind: 'golden.packed', ref: 'goldens/refund-over-limit', runId: '01K5CQ4N7G0000000000000000', at: 2000 });
     recordEvent(store, { kind: 'normalizer.added', at: 3000 });

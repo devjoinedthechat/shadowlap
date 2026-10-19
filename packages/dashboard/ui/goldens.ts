@@ -84,11 +84,12 @@ export function testsBusy(jobs: ReadonlyArray<FamilyJob>, verb: string, projectI
 }
 
 /**
- * Why a Tests action waits for a test session started outside this dashboard's jobs (a terminal,
- * another dashboard), as the server says it: by its command. Null when none runs.
+ * Why a Tests action waits for a test session, or error-path presets on goldens, started outside
+ * this dashboard's jobs (a terminal, another dashboard), as the server says it: by its command. Null
+ * when none runs.
  */
-export function sessionWait(view: Pick<TestsView, 'running'> | null, verb: string): string | null {
-  const live = view?.running;
+export function sessionWait(view: (Pick<TestsView, 'running'> & Partial<Pick<TestsView, 'chaosRunning'>>) | null, verb: string): string | null {
+  const live = view?.running ?? view?.chaosRunning;
   if (!live) return null;
   return `${live.command.length > 60 ? `${live.command.slice(0, 59)}…` : live.command} is running: ${verb} once it is done.`;
 }

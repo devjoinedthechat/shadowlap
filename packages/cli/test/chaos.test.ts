@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -257,6 +257,8 @@ describe('test --chaos', () => {
 describe('a session stopped part way', () => {
   it('keeps what finished, says it was interrupted, and exits as a shell reports the signal', async () => {
     config({});
+    // While it runs, the store names its process, as the dashboard reads it to wait for the session.
+    let seen: { sessionId: string; owner: { pid: number; host: string } | null; pid: number | undefined } | null = null;
     const result = await new Promise<{ code: number | null; out: string }>((resolve) => {
       const child = spawn(process.execPath, [CLI, '--db', db(), 'test', 'goldens/forecast', '--chaos'], {
         cwd: work,
@@ -270,6 +272,13 @@ describe('a session stopped part way', () => {
         // Once the second preset's replay has started, the first one has a result.
         if (!sent && (out.match(/replaying run \w{26}/g) ?? []).length >= 2) {
           sent = true;
+          const store = Store.open(db());
+          try {
+            const [session] = store.listChaosSessions();
+            seen = { sessionId: session!.sessionId, owner: store.chaosSessionOwner(session!.sessionId), pid: child.pid };
+          } finally {
+            store.close();
+          }
           child.kill('SIGINT');
         }
       };
@@ -279,11 +288,15 @@ describe('a session stopped part way', () => {
     });
     expect(result.code, result.out).toBe(130);
     expect(result.out).toContain('interrupted: the attempt running now stops, no preset after it runs');
+    const running = seen as { sessionId: string; owner: { pid: number; host: string } | null; pid: number | undefined } | null;
+    expect(running?.owner).toEqual({ pid: running?.pid, host: hostname() });
     const store = Store.open(db());
     try {
       const [session] = store.listChaosSessions();
-      expect(session).toMatchObject({ interrupted: true });
+      expect(session).toMatchObject({ sessionId: running!.sessionId, interrupted: true });
       expect(session!.endedAt).not.toBeNull();
+      // Ended, it names no process any more.
+      expect(store.chaosSessionOwner(running!.sessionId)).toBeNull();
       const kept = store.listChaosResults({ sessionId: session!.sessionId });
       expect(kept.length).toBeGreaterThanOrEqual(1);
       expect(kept.length).toBeLessThan(6);
