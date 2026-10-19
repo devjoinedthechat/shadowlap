@@ -93,7 +93,7 @@ describe('shadowlap migrate', () => {
     expect(report).toMatchObject({ kind: 'migrate', from: [FROM], to: 'claude-haiku-4-5' });
     expect(report.changes).toMatchObject({ runs: 1, flagged: 1 });
     expect(report.changes.steps).toEqual([{ runId, golden: 'goldens/research', callNo: callOf('send_email'), rank: 1, detail: 'send_email is called with other arguments', recorded: expect.stringContaining('send_email('), now: expect.stringContaining('send_email('), arguments: ['send_email.body: "Replay works." → "Replay works; forks fence writes."'] }]);
-    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', outcome: 'kept', verified: true }] });
+    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true }] });
     expect(report.costs.perRun.after!).toBeLessThan(report.costs.perRun.before!);
     expect(report.costs.checking.verify).toBeGreaterThan(0);
     expect(report.set).toEqual({ flags: [], fields: [], given: {} });
@@ -102,6 +102,7 @@ describe('shadowlap migrate', () => {
 
     // The change to the project's file that names the old model, as a patch git applies.
     expect(report.configChange!.files).toEqual([{ path: 'agent.config.json', places: 1 }]);
+    expect(report.configChange!.review).toEqual([]);
     expect(report.configChange!.patch).toContain(`-  "model": "${FROM}",\n+  "model": "claude-haiku-4-5",`);
     writeFileSync(join(cwd, 'check.patch'), report.configChange!.patch);
     execFileSync('git', ['apply', '--check', 'check.patch'], { cwd });
@@ -109,7 +110,7 @@ describe('shadowlap migrate', () => {
 
     expect(report.pullRequest.title).toBe(`Switch ${FROM} to claude-haiku-4-5`);
     for (const block of ['### What changes', '### What still passes', '### What it costs', '### What to set']) expect(report.pullRequest.body).toContain(block);
-    expect(report.pullRequest.body).toContain('goldens/research: kept');
+    expect(report.pullRequest.body).toContain('goldens/research: passed (kept, verified)');
     expect(readFileSync(join(cwd, report.files!.pullRequest), 'utf8')).toContain(`# Switch ${FROM} to claude-haiku-4-5`);
     expect(readFileSync(join(cwd, report.files!.patch!), 'utf8')).toBe(report.configChange!.patch);
 
@@ -135,9 +136,11 @@ describe('shadowlap migrate', () => {
     const r = await shadowlap(['migrate', '--to', 'claude-sonnet-5-5', '--set', 'temperature=0.2', '-y', '--attempts', '1', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = json<MigrateReport>(r);
+    // The page says to leave it out: the requests (and verify) are sent its default, 1, meanwhile.
     expect(report.set.flags).toEqual(['--set temperature=1']);
     expect(report.set.given).toEqual({});
-    expect(report.set.fields).toEqual([{ field: 'temperature', value: 1, leftOut: false, why: expect.stringContaining('claude-sonnet-5-5 is among Claude 4.7 and later models'), source: 'https://platform.claude.com/docs/en/about-claude/model-deprecations', steps: 11 }]);
+    expect(report.set.fields).toEqual([{ field: 'temperature', value: 1, leftOut: true, renamedTo: null, why: expect.stringContaining('claude-sonnet-5-5 is among Claude 4.7 and later models'), source: 'https://platform.claude.com/docs/en/about-claude/model-deprecations', steps: 11 }]);
+    expect(report.pullRequest.body).toContain('- leave `temperature` out (the requests were sent `temperature=1`, its default, meanwhile): claude-sonnet-5-5 is among');
     const sent = mock.requests.slice(before).filter((q) => q.body.model === 'claude-sonnet-5-5');
     expect(sent.length).toBeGreaterThanOrEqual(11);
     expect(sent.every((q) => (q.body as { temperature?: unknown }).temperature === 1)).toBe(true);
@@ -146,7 +149,7 @@ describe('shadowlap migrate', () => {
   it("changes what the new model's own refusal names, asks again, and verifies with it", async () => {
     const r = await shadowlap(['migrate', '--to', 'mock-small', '-y', '--attempts', '1', '--json']);
     const report = json<MigrateReport>(r);
-    expect(report.set.fields).toEqual([{ field: 'max_tokens', value: 512, leftOut: false, why: 'mock-small refused the recorded request: HTTP 400: max_tokens: 1024 > 512, which is the maximum allowed number of output tokens for mock-small', source: null, steps: 11 }]);
+    expect(report.set.fields).toEqual([{ field: 'max_tokens', value: 512, leftOut: false, renamedTo: null, why: 'mock-small refused the recorded request: HTTP 400: max_tokens: 1024 > 512, which is the maximum allowed number of output tokens for mock-small', source: null, steps: 11 }]);
     expect(report.set.flags).toEqual(['--set max_tokens=512']);
     expect(report.decisions.counts.notAsked).toBe(0);
     // Once refused, every request after it is sent with the fix: at most the first few are refused.
@@ -166,7 +169,7 @@ describe('shadowlap migrate', () => {
     const r = await shadowlap(['migrate', '--to', 'claude-sonnet-5-5', thinkingRun, '-y', '--attempts', '1', '--json'], { AGENT_THINKING_BUDGET: '1024' });
     expect(r.code, r.out).toBe(0);
     const report = json<MigrateReport>(r);
-    expect(report.set.fields).toEqual([{ field: 'thinking', value: { type: 'adaptive' }, leftOut: false, why: expect.stringMatching(/^claude-sonnet-5-5 is among Claude 4\.7 and later models, where extended thinking .* returns a 400 error \(Anthropic\); the requests send thinking=\{"type":"enabled","budget_tokens":1024\}\. Remove budget_tokens, set thinking: \{type: "adaptive"\}/), source: 'https://platform.claude.com/docs/en/build-with-claude/extended-thinking', steps: 11 }]);
+    expect(report.set.fields).toEqual([{ field: 'thinking', value: { type: 'adaptive' }, leftOut: false, renamedTo: null, why: expect.stringMatching(/^claude-sonnet-5-5 is among Claude 4\.7 and later models, where extended thinking .* returns a 400 error \(Anthropic\); the requests send thinking=\{"type":"enabled","budget_tokens":1024\}\. Remove budget_tokens, set thinking: \{type: "adaptive"\}/), source: 'https://platform.claude.com/docs/en/build-with-claude/extended-thinking', steps: 11 }]);
     expect(report.set.flags).toEqual(['--set thinking={"type":"adaptive"}']);
     expect(report.decisions.counts.notAsked).toBe(0);
     expect(report.pullRequest.body).toContain('- `thinking` = `{"type":"adaptive"}`: claude-sonnet-5-5 is among Claude 4.7 and later models');
@@ -192,7 +195,7 @@ describe('shadowlap migrate', () => {
     const r = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '--expect', expect_, '-y', '--attempts', '2', '--json']);
     expect(r.code, r.out).toBe(1);
     const report = json<MigrateReport>(r);
-    expect(report.passes).toEqual({ verdict: 'rejected', runs: [{ runId, golden: 'goldens/research', outcome: 'broken', verified: true }] });
+    expect(report.passes).toEqual({ verdict: 'rejected', runs: [{ runId, golden: 'goldens/research', verdict: 'failed', outcome: 'broken', verified: true }] });
   }, 240_000);
 
   it('migrates the goldens from a fresh store, as CI has one, running their commands as test runs them', async () => {
@@ -211,7 +214,7 @@ describe('shadowlap migrate', () => {
 
   it('prints the JSON its docs describe', async () => {
     const report = json<MigrateReport>(await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--attempts', '1', '--json']));
-    const problems = [departures('migrate', report), departures('migrateCosts', report.costs), departures('migrateSet', report.set), departures('migratePasses', report.passes), departures('decisions', report.decisions)];
+    const problems = [departures('migrate', report), departures('migrateCosts', report.costs), departures('migrateSet', report.set), departures('migratePasses', report.passes), departures('migratePass', report.passes.runs[0]), departures('migrateConfigChange', report.configChange), departures('decisions', report.decisions)];
     expect(problems.flatMap((x) => [...x.missing, ...x.extra])).toEqual([]);
     expect(existsSync(join(cwd, '.shadowlap', 'migrations'))).toBe(true);
   }, 240_000);

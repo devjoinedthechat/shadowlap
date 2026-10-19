@@ -1,4 +1,4 @@
-import { applyNormalizers, BUILTIN_STRIPPED_KEYS, loadApiRequest, maskClock, multipartView, promptOf, samePrompt, stripKeysDeep, structuralDiff, withoutPrompt, type CallRecord, type Normalizer, type RequestPrompt, type RunRecord, type Store } from '@shadowlap/engine';
+import { applyNormalizers, BUILTIN_STRIPPED_KEYS, isReservedScope, loadApiRequest, maskClock, multipartView, promptOf, samePrompt, stripKeysDeep, structuralDiff, withoutPrompt, type CallRecord, type Normalizer, type RequestPrompt, type RunRecord, type Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { spawnAgent } from './agent-registry.js';
 import { codeVersion, type ShadowlapConfig } from './config.js';
@@ -49,8 +49,8 @@ export interface CaptureInput {
 
 const GROUP = process.platform !== 'win32';
 
-/** Model calls with a request and an answer, in call order. */
-const modelCalls = (calls: readonly CallRecord[]) => calls.filter((c) => c.kind === 'api' && c.requestRef && c.end);
+/** The agent's model calls with a request and an answer, in call order: Shadowlap's own (its judge's, made after the agent exits) are none of them. */
+const modelCalls = (calls: readonly CallRecord[]) => calls.filter((c) => c.kind === 'api' && c.requestRef && c.end && !isReservedScope(c.meta.scope));
 
 /** What the replay's divergence report says, in a line. */
 function diverged(run: RunRecord | null): string | null {

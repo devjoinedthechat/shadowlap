@@ -275,6 +275,7 @@ export function register(program: Command): void {
     .option('--passes <n>', 'attempts that must pass for a run to pass (default: 80%, rounded up: 4 of 5)', parseIntArg)
     .option('--model <model>', 'the change is this model, from each run\'s first model call')
     .option('--set <key=value>', 'the change sets this request field from each run\'s first model call (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--from <model>', 'with --model or --set: change only the model calls made with this model, such as the agent\'s and not a simulated user\'s (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--live-tool <name>', 'the change is in this tool: run it live, its first call and every call of it after a fork (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--writes <policy>', 'what write tools do after a fork: stub (the agent carries on as if the write succeeded) or block', parseChoice(['stub', 'block'] as const), 'stub')
     .option('--reads <policy>', 'what read tools do after a fork: live | replay', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
@@ -285,7 +286,7 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', 'run the recorded command of imported runs without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; attempts: number; passes?: number; model?: string; set: string[]; liveTool: string[]; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; failFast?: boolean; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; attempts: number; passes?: number; model?: string; set: string[]; from: string[]; liveTool: string[]; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; failFast?: boolean; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       if (flags.attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
       const passes = flags.passes ?? Math.ceil(0.8 * flags.attempts);
@@ -293,6 +294,7 @@ export function register(program: Command): void {
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
       const spec = expect?.spec ?? null;
       const fields = parseFields(flags.set, flags.model);
+      if (flags.from.length && !Object.keys(fields).length) throw new InvalidArgumentError('--from names the model calls --model and --set change: give one of them');
 
       const store = readStore(opts);
       const roles: Array<[VerifyRole, string, string[] | undefined]> = [
@@ -330,14 +332,14 @@ export function register(program: Command): void {
       const report = await runVerify({
         opts,
         runs,
-        settings: { attempts: flags.attempts, needed: passes, concurrency: flags.concurrency, fields, failFast: !!flags.failFast, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard },
+        settings: { attempts: flags.attempts, needed: passes, concurrency: flags.concurrency, fields, ...(flags.from.length ? { fromModels: flags.from } : {}), failFast: !!flags.failFast, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard },
         log,
       });
       // The verdict is kept whatever it is. It turns the fix of its failing runs verified when it accepts
       // and counts there: it checked the fix's own check, on a run that failed it as recorded.
       const line = verifyCommand(
         { fixes: flags.fixes, holdout: flags.holdout, keeps: flags.keeps },
-        { expect: expect?.json ?? null, attempts: flags.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), fields, liveTools: flags.liveTool, failFast: !!flags.failFast, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null },
+        { expect: expect?.json ?? null, attempts: flags.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), fields, from: flags.from, liveTools: flags.liveTool, failFast: !!flags.failFast, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null },
       );
       const kept = recordVerifyFix(opts, report, { expect: expect?.json ?? null, command: line });
       const json = verifyJson(report, kept ? { verifyId: kept.verdict.verifyId, fixes: kept.fixes } : null);

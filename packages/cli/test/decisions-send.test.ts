@@ -2,8 +2,8 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { refusalRemedy, withoutFields } from '../src/decisions.js';
-import { errorText, missingCredentials, ModelSender, providerById, upstreamOf } from '../src/decisions-send.js';
+import { applyFix, refusalRemedy, renameField, withoutFields } from '../src/decisions.js';
+import { azureApiVersion, azureDeploymentCall, errorText, missingCredentials, ModelSender, providerById, upstreamOf } from '../src/decisions-send.js';
 
 /**
  * How `shadowlap decisions` sends a recorded request again: to the upstream the sidecar would use,
@@ -48,6 +48,15 @@ describe('where a request goes', () => {
     expect(upstreamOf(p('vertex'), '/v1/projects/p/locations/us-east5/publishers/anthropic/models/claude:rawPredict', { upstreams: {}, env: {} })).toEqual({ base: 'https://us-east5-aiplatform.googleapis.com', official: true });
     expect(upstreamOf(p('vertex'), '/v1/projects/p/locations/global/publishers/google/models/gemini:generateContent', { upstreams: {}, env: {} })).toMatchObject({ base: 'https://aiplatform.googleapis.com' });
     expect(upstreamOf(p('azure'), '/openai/deployments/d/chat/completions', { upstreams: {}, env: { AZURE_OPENAI_ENDPOINT: 'https://acme.openai.azure.com/' } })).toEqual({ base: 'https://acme.openai.azure.com', official: true });
+  });
+
+  it("takes an Azure deployment call's api-version from the environment, as the AzureOpenAI SDKs do, when its recording kept no query", () => {
+    expect(azureDeploymentCall('azure', '/openai/deployments/gpt-4o/chat/completions')).toBe(true);
+    expect(azureDeploymentCall('azure', '/openai/v1/chat/completions')).toBe(false);
+    expect(azureDeploymentCall('openai', '/openai/deployments/gpt-4o/chat/completions')).toBe(false);
+    expect(azureApiVersion({ OPENAI_API_VERSION: '2024-10-21' })).toBe('2024-10-21');
+    expect(azureApiVersion({ AZURE_OPENAI_API_VERSION: '2025-01-01-preview', OPENAI_API_VERSION: '2024-10-21' })).toBe('2025-01-01-preview');
+    expect(azureApiVersion({})).toBeNull();
   });
 
   it('needs credentials only for the provider\'s own host, and names the variable', () => {
@@ -123,8 +132,27 @@ describe('what a refusal says to change', () => {
     // Anthropic's extended thinking page: a model that thinks adaptively refuses a manual budget in these words.
     expect(refusalRemedy('HTTP 400: "thinking.type.enabled" is not supported for this model.')).toEqual({ field: 'thinking', value: { type: 'adaptive' } });
     expect(refusalRemedy('HTTP 400: messages: roles must alternate')).toBeNull();
+    // OpenAI's newer models: max_tokens goes under its new name, with its value.
+    expect(refusalRemedy("HTTP 400: Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.")).toEqual({ field: 'max_tokens', renamedTo: 'max_completion_tokens' });
     expect(errorText(400, Buffer.from('{"message":"ValidationException: bad"}'))).toBe('HTTP 400: ValidationException: bad');
     expect(errorText(500, Buffer.from('upstream died\nstack'))).toBe('HTTP 500: upstream died');
+  });
+
+  it('applies what a refusal named only to a request that needs it, and never under its thinking budget', () => {
+    const limit = { field: 'max_tokens', value: 512 };
+    expect(applyFix('anthropic', '/v1/messages', { model: 'm', max_tokens: 1024, messages: [] }, limit)).toEqual({ body: { model: 'm', max_tokens: 512, messages: [] } });
+    // A request already under the limit is left as it is: the limit only ever lowers.
+    expect(applyFix('anthropic', '/v1/messages', { model: 'm', max_tokens: 256, messages: [] }, limit)).toBeNull();
+    // Lowered under the thinking budget, the request would be refused anew: it keeps its own refusal.
+    expect(applyFix('anthropic', '/v1/messages', { model: 'm', max_tokens: 4096, thinking: { type: 'enabled', budget_tokens: 2048 }, messages: [] }, { field: 'max_tokens', value: 1024 })).toBeNull();
+    // A Chat Completions request that sends max_completion_tokens is lowered there.
+    expect(applyFix('openai', '/v1/chat/completions', { model: 'o3', max_completion_tokens: 4000, messages: [] }, { field: 'max_tokens', value: 1000 })).toEqual({ body: { model: 'o3', max_completion_tokens: 1000, messages: [] } });
+    // Renamed, with its value; any other field set, once.
+    expect(applyFix('openai', '/v1/chat/completions', { model: 'o3', max_tokens: 800, messages: [] }, { field: 'max_tokens', renamedTo: 'max_completion_tokens' })).toEqual({ body: { model: 'o3', messages: [], max_completion_tokens: 800 } });
+    expect(applyFix('openai', '/v1/chat/completions', { model: 'o3', max_completion_tokens: 800, messages: [] }, { field: 'max_tokens', renamedTo: 'max_completion_tokens' })).toBeNull();
+    expect(applyFix('anthropic', '/v1/messages', { model: 'm', temperature: 0.2, messages: [] }, { field: 'temperature', value: 1 })).toEqual({ body: { model: 'm', temperature: 1, messages: [] } });
+    expect(applyFix('anthropic', '/v1/messages', { model: 'm', temperature: 1, messages: [] }, { field: 'temperature', value: 1 })).toBeNull();
+    expect(renameField('gemini', '/v1beta/models/g:generateContent', { contents: [], max_tokens: 1 }, 'max_tokens', 'max_completion_tokens')).toEqual({ contents: [], max_tokens: 1 });
   });
 
   it('leaves a field out wherever the request shape keeps it', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, formatDecisions, isHandover, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
+import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, majorityRank, modelFamily, sameModel, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
 import type { Effect } from '../src/types.js';
 
 /**
@@ -76,6 +76,46 @@ describe('decisionOf, per provider', () => {
     expect(isHandover('escalate')).toBe(false);
     expect(decisionOf({ blocks: [{ type: 'tool_call', name: 'transfer_to_billing', input: {} }], stopReason: 'tool_use' }).handover).toBe('transfer_to_billing');
   });
+
+  it("reads the tools a provider runs itself, with what each does: Anthropic's server tools and MCP connector, the Responses API's built-in tools", () => {
+    const anthropic = { content: [{ type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: { query: 'refund policy' } }, { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [] }, { type: 'mcp_tool_use', id: 'mcptoolu_1', name: 'create_ticket', server_name: 'desk', input: { title: 'x' } }], stop_reason: 'end_turn' };
+    expect(decisionOfResponse(json(anthropic), 'application/json', 'anthropic').tools).toEqual([
+      { name: 'web_search', args: { query: 'refund policy' }, effect: 'read' },
+      // An MCP server's tool says nothing by its name: the runs and the config tell, else it is a write.
+      { name: 'create_ticket', args: { title: 'x' } },
+    ]);
+    const streamed = sse([
+      ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_fetch', input: {} } }],
+      ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"url":"https://example.com"}' } }],
+      ['message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn' } }],
+    ]);
+    expect(decisionOfResponse(streamed, 'text/event-stream', 'anthropic').tools).toEqual([{ name: 'web_fetch', args: { url: 'https://example.com' }, effect: 'read' }]);
+
+    const responses = {
+      status: 'completed',
+      output: [
+        { type: 'web_search_call', id: 'ws_1', status: 'completed', action: { type: 'search', query: 'refunds' } },
+        { type: 'file_search_call', id: 'fs_1', queries: ['policy'], status: 'completed' },
+        { type: 'computer_call', id: 'cu_1', call_id: 'call_1', action: { type: 'click', x: 10, y: 20, button: 'left' }, status: 'completed' },
+        { type: 'computer_call', id: 'cu_2', call_id: 'call_2', action: { type: 'screenshot' }, status: 'completed' },
+        { type: 'image_generation_call', id: 'ig_1', result: 'aGVsbG8=', status: 'completed' },
+        { type: 'mcp_call', id: 'mcp_1', server_label: 'desk', name: 'close_ticket', arguments: '{"id":7}' },
+        { type: 'custom_tool_call', call_id: 'ct_1', name: 'run_sql', input: 'SELECT 1' },
+      ],
+    };
+    expect(decisionOfResponse(json(responses), 'application/json', 'openai').tools).toEqual([
+      { name: 'web_search', args: { type: 'search', query: 'refunds' }, effect: 'read' },
+      { name: 'file_search', args: { queries: ['policy'] }, effect: 'read' },
+      { name: 'computer.click', args: { type: 'click', x: 10, y: 20, button: 'left' }, effect: 'write' },
+      { name: 'computer.screenshot', args: { type: 'screenshot' }, effect: 'read' },
+      { name: 'image_generation', args: {}, effect: 'pure' },
+      { name: 'close_ticket', args: { id: 7 } },
+      { name: 'run_sql', args: 'SELECT 1' },
+    ]);
+    const done = sse([[null, { type: 'response.output_item.done', output_index: 0, item: { type: 'web_search_call', id: 'ws_1', action: { type: 'search', query: 'refunds' } } }], [null, { type: 'response.completed', response: { status: 'completed' } }]]);
+    expect(decisionOfResponse(done, 'text/event-stream', 'openai').tools).toEqual([{ name: 'web_search', args: { type: 'search', query: 'refunds' }, effect: 'read' }]);
+    expect([hostedToolEffect('code_execution'), hostedToolEffect('computer.wait'), hostedToolEffect('computer.type'), hostedToolEffect('local_shell'), hostedToolEffect('close_ticket')]).toEqual(['read', 'read', 'write', 'write', null]);
+  });
 });
 
 const decision = (tools: Array<[string, unknown]>, o: { stop?: ModelDecision['stop']; text?: string } = {}): ModelDecision => ({
@@ -148,6 +188,17 @@ describe('compareDecisions: ranked by consequence', () => {
     expect(decisionView(decision([], { text: long }), effectOf).text).toHaveLength(2000 + '… (3000 more characters)'.length);
   });
 
+  it('ranks a search the provider runs itself as a read, whatever the runs say of a tool of that name', () => {
+    const search = (query: string): ModelDecision => decisionOf({ blocks: [{ type: 'tool_call', name: 'web_search', input: { query }, hosted: true }], stopReason: 'end_turn' });
+    const noEffects: EffectOf = () => null;
+    expect(compareDecisions(search('refunds'), search('refund policy'), noEffects)).toMatchObject({ rank: 4, changes: [{ kind: 'read-arguments', tool: 'web_search', effect: 'read' }] });
+    expect(compareDecisions(search('refunds'), decisionOf({ blocks: [], stopReason: 'end_turn' }), noEffects)).toMatchObject({ rank: 2, changes: [{ kind: 'stops' }, { kind: 'read-removed', tool: 'web_search', effect: 'read' }] });
+    // A click is a write; a screenshot a read.
+    const click = decisionOf({ blocks: [{ type: 'tool_call', name: 'computer.click', input: { x: 1, y: 2 }, hosted: true }], stopReason: 'completed' });
+    const moved = decisionOf({ blocks: [{ type: 'tool_call', name: 'computer.click', input: { x: 9, y: 2 }, hosted: true }], stopReason: 'completed' });
+    expect(compareDecisions(click, moved, noEffects)).toMatchObject({ rank: 1, changes: [{ kind: 'write-arguments', effect: 'write' }] });
+  });
+
   it("takes each tool's effect from a run's calls, the most consequential when they disagree", () => {
     const calls = [
       { kind: 'tool' as const, name: 'fetch', effect: 'read' as const },
@@ -156,6 +207,43 @@ describe('compareDecisions: ranked by consequence', () => {
       { kind: 'api' as const, name: 'POST /v1/messages', effect: null },
     ];
     expect(Object.fromEntries(effectsOf(calls))).toEqual({ fetch: 'write', read_file: 'pure' });
+  });
+});
+
+describe('samples, costs and models', () => {
+  it('flags a change by what most samples show, and keeps the worst for the report', () => {
+    expect(majorityRank([1])).toBe(1);
+    expect(majorityRank([0])).toBeNull();
+    // A write changed in 1 of 3 samples: the model's own variation until most samples show it.
+    expect(majorityRank([1, 0, 0])).toBeNull();
+    expect(majorityRank([1, 3, 0])).toBe(3);
+    expect(majorityRank([1, 1, 0])).toBe(1);
+    expect(majorityRank([2, 0])).toBeNull();
+    expect(majorityRank([2, 1])).toBe(2);
+    expect(majorityRank([])).toBeNull();
+  });
+
+  it("estimates a step's tokens in a run like the recorded one: the new input split as the recorded call's was", () => {
+    // Recorded: most of its input read from the cache the step before wrote.
+    const recorded = { input: 100, cacheRead: 9_000, cacheWrite: 900, output: 50 };
+    expect(estimatedTokens(recorded, 11_000, 80)).toEqual({ input: 110, cacheRead: 9_900, cacheWrite: 990, output: 80 });
+    // Without a recorded split, all of it is plain input.
+    expect(estimatedTokens(null, 500, 10)).toEqual({ input: 500, cacheRead: 0, cacheWrite: 0, output: 10 });
+    expect(estimatedTokens({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }, 500, 10)).toEqual({ input: 500, cacheRead: 0, cacheWrite: 0, output: 10 });
+  });
+
+  it("tells a model's family and its other names, and the scopes that are Shadowlap's own", () => {
+    expect(['claude-sonnet-4-5-20250929', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'claude-3-7-sonnet@20250219', 'gpt-4o', 'o3-mini', 'models/gemini-2.5-pro', 'my-deployment', 'llama-3'].map(modelFamily)).toEqual(['claude', 'claude', 'claude', 'openai', 'openai', 'gemini', null, null]);
+    expect(sameModel('claude-sonnet-4-5-20250929', 'claude-sonnet-4-5')).toBe(true);
+    expect(sameModel('us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'claude-sonnet-4-5-20250929')).toBe(true);
+    expect(sameModel('claude-sonnet-4-20250514', 'claude-sonnet-4-0')).toBe(true);
+    expect(sameModel('gemini-2.0-flash-001', 'gemini-2.0-flash')).toBe(true);
+    expect(sameModel('gpt-4o-2024-08-06', 'gpt-4o')).toBe(true);
+    expect(sameModel('gpt-4o-2024-08-06', 'gpt-4o-2024-05-13')).toBe(false);
+    expect(sameModel('claude-sonnet-4-5-20250929', 'claude-sonnet-4-6')).toBe(false);
+    expect(sameModel('gpt-4.1-mini', 'gpt-4.1')).toBe(false);
+    expect(sameModel(null, 'gpt-4.1')).toBe(false);
+    expect([isReservedScope('shadowlap:judge'), isReservedScope('agent'), isReservedScope(undefined)]).toEqual([true, false, false]);
   });
 });
 
@@ -169,10 +257,11 @@ describe('formatDecisions', () => {
       changes: rank ? [{ rank, kind: 'write-removed' as const, tool: 'send_email', effect: 'write' as const, before: { to: 'team@example.com' }, after: null, detail }] : [],
       recorded: { stop: 'tools' as const, stopReason: 'tool_use', tools: [{ name: 'send_email', args: { to: 'team@example.com' }, effect: 'write' as const }], text: '' },
       now: { stop: 'answer' as const, stopReason: 'end_turn', tools: [], text: 'Not emailing.' },
+      majority: rank,
       samples: { asked: 1, answered: 1, changed: rank ? 1 : 0, ranks: [rank ?? 0] },
       model: { recorded: 'claude-opus-5', asked: 'claude-opus-5' },
       tokens: { before: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0 }, after: { input: 90, output: 10, cacheRead: 0, cacheWrite: 0 } },
-      cost: { before: 0.001, after: 0.0009 },
+      cost: { before: 0.001, after: 0.0009, spent: 0.0009 },
       thinkingStripped: 0,
       error: null,
     });
@@ -180,10 +269,10 @@ describe('formatDecisions', () => {
       decisionsId: 'dc-01K00000000000000000000000',
       kind: 'decisions',
       at: 0,
-      change: { model: null, fields: {}, fromCode: null, text: 'the prompt and tools in the working tree' },
+      change: { model: null, fields: {}, from: null, fromCode: null, text: 'the prompt and tools in the working tree' },
       command: 'shadowlap decisions 01K1 --from-code',
       samples: 1,
-      runs: [{ runId: '01K1AAAAAAAAAAAAAAAAAAAAAA', golden: null, steps: 2, asked: 2, rank: 1, counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 1, untouched: 0, notAsked: 0 }, cost: { before: 0.002, after: 0.0018 }, tokens: { before: { input: 200, output: 20, cacheRead: 0, cacheWrite: 0 }, after: { input: 180, output: 20, cacheRead: 0, cacheWrite: 0 } }, thinkingStripped: 0, refused: null, decisions: [step(10, 1, 'send_email is no longer called'), step(3, null, '')], warnings: [] }],
+      runs: [{ runId: '01K1AAAAAAAAAAAAAAAAAAAAAA', golden: null, steps: 2, asked: 2, rank: 1, majority: 1, counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 1, untouched: 0, notAsked: 0 }, cost: { before: 0.002, after: 0.0018, spent: 0.0018 }, tokens: { before: { input: 200, output: 20, cacheRead: 0, cacheWrite: 0 }, after: { input: 180, output: 20, cacheRead: 0, cacheWrite: 0 } }, thinkingStripped: 0, refused: null, decisions: [step(10, 1, 'send_email is no longer called'), step(3, null, '')], warnings: [] }],
       counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 1, untouched: 0, notAsked: 0 },
       flagged: ['01K1AAAAAAAAAAAAAAAAAAAAAA'],
       cost: { before: 0.002, after: 0.0018, spent: 0.0018, upstreamRequests: 2, unknownModels: [] },

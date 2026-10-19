@@ -1,4 +1,4 @@
-import { commandIsImported, importedCommandSource, quoteArgv, readConfigFile, retirementOf, retirementTable, testsEntryFor, type DecisionRun, type DecisionsReport, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
+import { commandIsImported, importedCommandSource, isReservedScope, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import type { GoldenSource } from './tests.js';
@@ -23,11 +23,16 @@ export interface DecisionSessionView {
   href: string;
 }
 
-/** One model call in a run's row of the matrix: its rank (0 the same, null not asked), and how often it changed. */
+/**
+ * One model call in a run's row of the matrix: its rank (the most consequential change any sample
+ * showed; 0 the same, null not asked), the rank most of its samples show (`majority`, which flags
+ * the run), and how often it changed, for a cell drawn split.
+ */
 export interface DecisionCell {
   callNo: number;
   step: number;
   rank: number | null;
+  majority: number | null;
   changed: number;
   answered: number;
 }
@@ -64,7 +69,7 @@ export function decisionSessions(store: Store, o: { limit?: number; kind?: 'deci
 export function decisionRow(run: DecisionRun): DecisionRow {
   const cells = [...run.decisions]
     .sort((a, b) => a.callNo - b.callNo)
-    .map((s: DecisionStep): DecisionCell => ({ callNo: s.callNo, step: s.step, rank: s.rank ?? (s.samples.answered ? 0 : null), changed: s.samples.changed, answered: s.samples.answered }));
+    .map((s: DecisionStep): DecisionCell => ({ callNo: s.callNo, step: s.step, rank: s.rank ?? (s.samples.answered ? 0 : null), majority: s.majority ?? (s.samples.answered === 1 ? s.rank : null) ?? (s.samples.answered ? 0 : null), changed: s.samples.changed, answered: s.samples.answered }));
   return { runId: run.runId, golden: run.golden, title: run.golden ?? run.runId.slice(0, 10), rank: run.rank, cells };
 }
 
@@ -108,7 +113,8 @@ export function retirementsView(store: Store, goldens: readonly GoldenSource[], 
     if (!g.runId || !store.getRun(g.runId)) continue;
     const seen = new Set<string>();
     for (const c of store.getCalls(g.runId)) {
-      if (c.kind !== 'api') continue;
+      // Shadowlap's own calls (its judge's) are no model the agent uses.
+      if (c.kind !== 'api' || isReservedScope(c.meta.scope)) continue;
       const provider = (c.meta.provider ?? c.end?.meta.provider ?? null) as string | null;
       const model = (c.end?.meta.model ?? c.meta.model ?? null) as string | null;
       const key = `${provider}\u0000${model}`;
@@ -178,15 +184,34 @@ function targetArgs(store: Store, req: JobRequest, goldens: readonly GoldenSourc
   return { args, runIds, byId };
 }
 
-/** `shadowlap decisions` as a job: `{ runs?, goldens?, model?, set?, fromCode?, samples?, thenVerify?, yes? }`. */
+/** `--from` flags from the request's `from`: the recorded models a switch changes. */
+function fromArgs(raw: unknown): string[] | { error: string } {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw) || raw.length > 20 || raw.some((m) => typeof m !== 'string' || !MODEL.test(m))) return { error: 'from is a list of the recorded models to switch from, such as ["claude-sonnet-4-5-20250929"]' };
+  return (raw as string[]).flatMap((m) => ['--from', m]);
+}
+
+/** `--scope` from the request's `scope`: a scope's name, or `none` for the calls made in none. */
+function scopeArgs(raw: unknown): string[] | { error: string } {
+  if (raw === undefined || raw === null) return [];
+  if (typeof raw !== 'string' || !/^[\w.:/-]{1,100}$/.test(raw) || raw.startsWith('shadowlap:')) return { error: 'scope is the name of a scope the agent made calls in, or none' };
+  return ['--scope', raw];
+}
+
+/** `shadowlap decisions` as a job: `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }`. */
 export function decisionsJob(req: JobRequest, store: Store, goldens: readonly GoldenSource[]): JobBuildResult {
   const targets = targetArgs(store, req, goldens);
   if ('error' in targets) return targets;
   if (req.model !== undefined && (typeof req.model !== 'string' || !MODEL.test(req.model))) return { error: 'model is a model name, such as claude-sonnet-5-5' };
   const set = setArgs(req.set);
   if ('error' in set) return set;
+  const from = fromArgs(req.from);
+  if ('error' in from) return from;
+  const scope = scopeArgs(req.scope);
+  if ('error' in scope) return scope;
   const fromCode = req.fromCode === true;
   if (!req.model && !set.length && !fromCode) return { error: 'give the change: a model, fields to set, or fromCode for the prompt and tools in the working tree' };
+  if (from.length && !req.model && !set.length) return { error: 'from names the model calls a model or fields change: give one of them' };
   let samples: string[] = [];
   if (req.samples !== undefined) {
     if (typeof req.samples !== 'number' || !Number.isInteger(req.samples) || req.samples < 1 || req.samples > 20) return { error: 'samples is a whole number from 1 to 20' };
@@ -197,12 +222,12 @@ export function decisionsJob(req: JobRequest, store: Store, goldens: readonly Go
     const consent = importedConsent(store, targets.byId, req.yes);
     if (consent) return consent;
   }
-  const args = ['decisions', ...targets.args, ...(typeof req.model === 'string' ? ['--model', req.model] : []), ...set, ...(fromCode ? ['--from-code'] : []), ...samples, ...(req.thenVerify === true ? ['--then-verify'] : []), ...(runsAgent && req.yes === true ? ['--yes'] : [])];
+  const args = ['decisions', ...targets.args, ...(typeof req.model === 'string' ? ['--model', req.model] : []), ...set, ...from, ...scope, ...(fromCode ? ['--from-code'] : []), ...samples, ...(req.thenVerify === true ? ['--then-verify'] : []), ...(runsAgent && req.yes === true ? ['--yes'] : [])];
   const what = fromCode ? 'the prompt in your working tree' : typeof req.model === 'string' ? req.model : 'the fields set';
   return { args, title: `Previewing ${what}`, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
 }
 
-/** `shadowlap migrate` as a job: `{ to, goldens?, runs?, set?, yes? }`; every golden when none are named. */
+/** `shadowlap migrate` as a job: `{ to, goldens?, runs?, from?, scope?, set?, yes? }`; every golden when none are named. */
 export function migrateJob(req: JobRequest, store: Store, goldens: readonly GoldenSource[]): JobBuildResult {
   if (typeof req.to !== 'string' || !MODEL.test(req.to)) return { error: 'to is the model to switch to, such as claude-sonnet-5-5' };
   const named = req.goldens !== undefined || req.runs !== undefined;
@@ -210,55 +235,39 @@ export function migrateJob(req: JobRequest, store: Store, goldens: readonly Gold
   if ('error' in targets) return named ? targets : { error: 'the project has no goldens to migrate: keep a run as a golden first', status: 409 };
   const set = setArgs(req.set);
   if ('error' in set) return set;
+  const from = fromArgs(req.from);
+  if ('error' in from) return from;
+  const scope = scopeArgs(req.scope);
+  if ('error' in scope) return scope;
   const consent = importedConsent(store, targets.byId, req.yes);
   if (consent) return consent;
-  return { args: ['migrate', '--to', req.to, ...targets.args, ...set, ...(req.yes === true ? ['--yes'] : [])], title: `Migrating to ${req.to}` };
+  return { args: ['migrate', '--to', req.to, ...targets.args, ...from, ...scope, ...set, ...(req.yes === true ? ['--yes'] : [])], title: `Migrating to ${req.to}` };
 }
 
 /**
- * Verify the runs a session flagged, the page's primary action: `shadowlap verify` on its runs with a
- * rank 1 or 2 change (or the one `runId` names), under the session's change. A run that failed as
- * recorded must now pass (`--fixes`), one that passed must keep passing (`--keeps`), each by its
- * golden's checks from the config when the runs share them.
+ * Verify the runs a session flagged, the page's primary action: `shadowlap decisions --verify
+ * <session>` (with the one `runId` names), which verifies each run under its golden's own checks, one
+ * verify per set of checks, in the role its recording plays under them, with the session's change,
+ * and keeps what it finds in the session.
  */
-export function verifyFlaggedJob(req: JobRequest, store: Store, configDir: string | null): JobBuildResult {
+export function verifyFlaggedJob(req: JobRequest, store: Store): JobBuildResult {
   if (typeof req.sessionId !== 'string') return { error: 'sessionId is required' };
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };
-  const report = (session.kind === 'migrate' ? session.decisions : session) as unknown as DecisionsReport;
-  let flagged = report.runs.filter((r) => r.rank !== null && r.rank <= 2);
+  const report = (session.kind === 'migrate' ? session.decisions : session) as { flagged?: unknown };
+  let flagged = (Array.isArray(report.flagged) ? report.flagged : []).filter((id): id is string => typeof id === 'string');
   if (req.runId !== undefined) {
-    flagged = flagged.filter((r) => r.runId === req.runId || (typeof req.runId === 'string' && r.runId.startsWith(req.runId) && req.runId.length >= 6));
+    flagged = flagged.filter((id) => id === req.runId || (typeof req.runId === 'string' && req.runId.length >= 6 && id.startsWith(req.runId)));
     if (!flagged.length) return { error: 'that run has no write or stop change in this session', status: 404 };
   }
   if (!flagged.length) return { error: 'no run in this session decides a write or when to stop differently: there is nothing to verify', status: 409 };
-  const runs = flagged.map((r) => store.getRun(r.runId)).filter((r): r is NonNullable<typeof r> => r !== null);
+  const runs = flagged.map((id) => store.getRun(id)).filter((r): r is NonNullable<typeof r> => r !== null);
   if (runs.length < flagged.length) return { error: 'a run this session flagged is no longer in the store', status: 409 };
-  const consent = importedConsent(store, runs.filter((r) => !flagged.find((f) => f.runId === r.runId)?.golden).map((r) => r.runId), req.yes);
+  // A run from the store whose command came from someone's pack runs only with a yes; a golden runs its pack's command, as test runs it.
+  const goldenRuns = new Set(session.matrix.filter((row) => row.golden).map((row) => row.runId));
+  const consent = importedConsent(store, flagged.filter((id) => !goldenRuns.has(id)), req.yes);
   if (consent) return consent;
-  // The checks the goldens share, from the config, when they share one.
-  let tests: unknown;
-  try {
-    tests = configDir ? (readConfigFile(configDir).data as { tests?: unknown }).tests : undefined;
-  } catch {
-    tests = undefined;
-  }
-  const entries = tests && typeof tests === 'object' ? Object.entries(tests as Record<string, { expect?: unknown }>).map(([recording, v]) => ({ recording, expect: v?.expect })) : [];
-  const expects = new Set(flagged.map((r) => JSON.stringify((r.golden && configDir ? testsEntryFor(entries, r.golden, configDir)?.expect : undefined) ?? null)));
-  const expect = expects.size === 1 ? (JSON.parse([...expects][0]!) as unknown) : null;
-  const failing = runs.filter((r) => r.status === 'failed' || r.status === 'crashed').map((r) => r.runId.slice(0, 10));
-  const passing = runs.filter((r) => r.status !== 'failed' && r.status !== 'crashed').map((r) => r.runId.slice(0, 10));
-  const remedies = ((session.kind === 'migrate' ? (session.decisions as { remedies?: unknown }).remedies : (session as { remedies?: unknown }).remedies) ?? []) as Array<{ field: string; value: unknown; leftOut: boolean }>;
-  const fields = { ...report.change.fields, ...Object.fromEntries(remedies.filter((x) => !x.leftOut).map((x) => [x.field, x.value])) };
-  const args = [
-    'verify',
-    ...(failing.length ? ['--fixes', ...failing] : []),
-    ...(passing.length ? ['--keeps', ...passing] : []),
-    ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : []),
-    ...(report.change.model ? ['--model', report.change.model] : []),
-    ...Object.entries(fields).flatMap(([k, v]) => ['--set', `${k}=${fieldValue(v)}`]),
-    ...(req.yes === true ? ['--yes'] : []),
-  ];
+  const args = ['decisions', '--verify', req.sessionId, ...(req.runId !== undefined ? [flagged[0]!] : []), ...(req.yes === true ? ['--yes'] : [])];
   return { args, title: `Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} with a write or stop change`, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
 }
 

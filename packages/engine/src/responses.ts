@@ -38,6 +38,9 @@ function parseJsonText(s: string): unknown {
 
 // ---- Anthropic ----
 
+/** Tool calls Anthropic makes itself: its server tools (web search, web fetch, code execution) and the MCP connector's. */
+const HOSTED_ANTHROPIC = new Set(['server_tool_use', 'mcp_tool_use']);
+
 function anthropicDeltas(events: Array<{ data: unknown }>, at: (i: number) => number): Delta[] {
   const out: Delta[] = [];
   events.forEach((e, i) => {
@@ -47,8 +50,9 @@ function anthropicDeltas(events: Array<{ data: unknown }>, at: (i: number) => nu
     const index = typeof d.index === 'number' ? d.index : 0;
     if (d.type === 'content_block_start' && isObject(d.content_block)) {
       const cb = d.content_block;
-      const block = cb.type === 'tool_use' || cb.type === 'server_tool_use' ? 'tool_call' : cb.type === 'thinking' || cb.type === 'redacted_thinking' ? 'thinking' : 'text';
-      out.push({ t, op: 'start', index, block, ...(typeof cb.name === 'string' ? { name: cb.name } : {}) });
+      const hosted = HOSTED_ANTHROPIC.has(String(cb.type));
+      const block = cb.type === 'tool_use' || hosted ? 'tool_call' : cb.type === 'thinking' || cb.type === 'redacted_thinking' ? 'thinking' : 'text';
+      out.push({ t, op: 'start', index, block, ...(typeof cb.name === 'string' ? { name: cb.name } : {}), ...(hosted ? { hosted: true as const } : {}) });
       if (typeof cb.text === 'string' && cb.text) out.push({ t, op: 'append', index, text: cb.text });
     } else if (d.type === 'content_block_delta' && isObject(d.delta)) {
       const text = d.delta.text ?? d.delta.partial_json ?? d.delta.thinking;
@@ -67,9 +71,42 @@ function anthropicJson(body: Record<string, unknown>): { blocks: Block[]; stopRe
     if (!isObject(c)) continue;
     if (c.type === 'text' && typeof c.text === 'string') blocks.push({ type: 'text', text: c.text });
     else if (c.type === 'thinking' && typeof c.thinking === 'string') blocks.push({ type: 'thinking', text: c.thinking });
-    else if (c.type === 'tool_use' || c.type === 'server_tool_use') blocks.push({ type: 'tool_call', name: String(c.name ?? 'tool'), input: c.input ?? {}, ...(typeof c.id === 'string' ? { id: c.id } : {}) });
+    else if (c.type === 'tool_use' || HOSTED_ANTHROPIC.has(String(c.type))) blocks.push({ type: 'tool_call', name: String(c.name ?? 'tool'), input: c.input ?? {}, ...(typeof c.id === 'string' ? { id: c.id } : {}), ...(c.type !== 'tool_use' ? { hosted: true as const } : {}) });
   }
   return { blocks, stopReason: typeof body.stop_reason === 'string' ? body.stop_reason : null };
+}
+
+/**
+ * A Responses API item for a tool OpenAI defines and runs itself, or has the client run as it
+ * defines it, as a tool call: named for the tool (`web_search`, `file_search`, `code_interpreter`,
+ * `image_generation`, `local_shell`, `shell`, `apply_patch`), a computer use action by its kind
+ * (`computer.click`, `computer.screenshot`), an MCP server's tool by its own name. Null for any other item.
+ */
+function hostedItem(item: Record<string, unknown>): { name: string; input: unknown } | null {
+  const action: Record<string, unknown> = isObject(item.action) ? item.action : {};
+  switch (item.type) {
+    case 'web_search_call':
+      return { name: 'web_search', input: action };
+    case 'file_search_call':
+      return { name: 'file_search', input: { queries: Array.isArray(item.queries) ? item.queries : [] } };
+    case 'code_interpreter_call':
+      return { name: 'code_interpreter', input: { code: typeof item.code === 'string' ? item.code : '' } };
+    case 'image_generation_call':
+      // Its result is the image itself: what it was asked for is all a decision holds.
+      return { name: 'image_generation', input: typeof item.revised_prompt === 'string' ? { prompt: item.revised_prompt } : {} };
+    case 'computer_call':
+      return { name: `computer.${typeof action.type === 'string' ? action.type : 'action'}`, input: action };
+    case 'local_shell_call':
+      return { name: 'local_shell', input: action };
+    case 'shell_call':
+      return { name: 'shell', input: action };
+    case 'apply_patch_call':
+      return { name: 'apply_patch', input: isObject(item.operation) ? item.operation : {} };
+    case 'mcp_call':
+      return { name: String(item.name ?? 'mcp'), input: typeof item.arguments === 'string' ? parseJsonText(item.arguments) : (item.arguments ?? {}) };
+    default:
+      return null;
+  }
 }
 
 // ---- OpenAI Chat Completions and Responses ----
@@ -78,12 +115,12 @@ function openaiDeltas(events: Array<{ data: unknown }>, at: (i: number) => numbe
   const out: Delta[] = [];
   const started = new Map<string, number>();
   let next = 0;
-  const slot = (key: string, block: 'text' | 'thinking' | 'tool_call', t: number, name?: string) => {
+  const slot = (key: string, block: 'text' | 'thinking' | 'tool_call', t: number, name?: string, hosted?: true) => {
     let i = started.get(key);
     if (i === undefined) {
       i = next++;
       started.set(key, i);
-      out.push({ t, op: 'start', index: i, block, ...(name ? { name } : {}) });
+      out.push({ t, op: 'start', index: i, block, ...(name ? { name } : {}), ...(hosted ? { hosted } : {}) });
     }
     return i;
   };
@@ -113,8 +150,13 @@ function openaiDeltas(events: Array<{ data: unknown }>, at: (i: number) => numbe
     // Responses API events
     if (d.type === 'response.output_text.delta' && typeof d.delta === 'string') out.push({ t, op: 'append', index: slot(`text${String(d.output_index ?? 0)}`, 'text', t), text: d.delta });
     else if (d.type === 'response.reasoning_summary_text.delta' && typeof d.delta === 'string') out.push({ t, op: 'append', index: slot(`reasoning${String(d.output_index ?? 0)}`, 'thinking', t), text: d.delta });
-    else if (d.type === 'response.output_item.added' && isObject(d.item) && d.item.type === 'function_call') slot(`fn${String(d.output_index ?? 0)}`, 'tool_call', t, typeof d.item.name === 'string' ? d.item.name : undefined);
-    else if (d.type === 'response.function_call_arguments.delta' && typeof d.delta === 'string') out.push({ t, op: 'append', index: slot(`fn${String(d.output_index ?? 0)}`, 'tool_call', t), text: d.delta });
+    else if (d.type === 'response.output_item.added' && isObject(d.item) && (d.item.type === 'function_call' || d.item.type === 'custom_tool_call')) slot(`fn${String(d.output_index ?? 0)}`, 'tool_call', t, typeof d.item.name === 'string' ? d.item.name : undefined);
+    else if ((d.type === 'response.function_call_arguments.delta' || d.type === 'response.custom_tool_call_input.delta') && typeof d.delta === 'string') out.push({ t, op: 'append', index: slot(`fn${String(d.output_index ?? 0)}`, 'tool_call', t), text: d.delta });
+    else if (d.type === 'response.output_item.done' && isObject(d.item)) {
+      // A built-in tool's call arrives whole, once it is done.
+      const hosted = hostedItem(d.item);
+      if (hosted) out.push({ t, op: 'append', index: slot(`hosted${String(d.output_index ?? 0)}`, 'tool_call', t, hosted.name, true), text: JSON.stringify(hosted.input) });
+    }
     else if (d.type === 'response.completed' && isObject(d.response)) out.push({ t, op: 'stop', reason: typeof d.response.status === 'string' ? d.response.status : 'completed' });
   });
   return out;
@@ -144,9 +186,15 @@ function openaiJson(body: Record<string, unknown>): { blocks: Block[]; stopReaso
         for (const c of item.content) if (isObject(c) && typeof c.text === 'string') blocks.push({ type: 'text', text: c.text });
       } else if (item.type === 'function_call') {
         blocks.push({ type: 'tool_call', name: String(item.name ?? 'tool'), input: typeof item.arguments === 'string' ? parseJsonText(item.arguments) : item.arguments, ...(typeof item.call_id === 'string' ? { id: item.call_id } : {}) });
+      } else if (item.type === 'custom_tool_call') {
+        // A tool of the agent's own that takes free text rather than JSON arguments.
+        blocks.push({ type: 'tool_call', name: String(item.name ?? 'tool'), input: item.input ?? '', ...(typeof item.call_id === 'string' ? { id: item.call_id } : {}) });
       } else if (item.type === 'reasoning' && Array.isArray(item.summary)) {
         const text = item.summary.map((s) => (isObject(s) && typeof s.text === 'string' ? s.text : '')).join('\n');
         if (text) blocks.push({ type: 'thinking', text });
+      } else {
+        const hosted = hostedItem(item);
+        if (hosted) blocks.push({ type: 'tool_call', name: hosted.name, input: hosted.input, ...(typeof item.call_id === 'string' ? { id: item.call_id } : typeof item.id === 'string' ? { id: item.id } : {}), hosted: true });
       }
     }
     return { blocks, stopReason: typeof body.status === 'string' ? body.status : null };

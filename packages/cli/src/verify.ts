@@ -1,4 +1,4 @@
-import { decideVerify, footprintOf, outcomeOf, runVerdict, type VerifiedRun, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { decideVerify, footprintOf, outcomeOf, runVerdict, sameModel, type VerifiedRun, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -21,6 +21,8 @@ export interface VerifySettings extends AttemptSettings {
   concurrency: number;
   /** Request fields the change sets from each run's first model call (`--model`, `--set`). */
   fields: Record<string, unknown>;
+  /** `--from`: the fields change only at model calls made with one of these models, from the first of them on. */
+  fromModels?: string[];
   /** Start nothing new once any run has failed. */
   failFast: boolean;
 }
@@ -48,8 +50,10 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       const { parent } = target;
       const parentCalls = store.getCalls(parent.runId);
       const recorded = { ...runner.judgeRecorded(parent, parentCalls), footprint: footprintOf(parentCalls, runner.costOf) };
-      const firstModelCall = parentCalls.find((c) => c.kind === 'api')?.callNo;
-      const interventions: Interventions | undefined = Object.keys(s.fields).length && firstModelCall !== undefined ? { set: { fromCall: firstModelCall, fields: s.fields } } : undefined;
+      // With --from, the first model call made with one of those models: a call before it is another model's.
+      const from = s.fromModels?.length ? s.fromModels : null;
+      const firstModelCall = parentCalls.find((c) => c.kind === 'api' && (!from || from.some((m) => sameModel((c.end?.meta.model ?? c.meta.model) as string | null | undefined, m))))?.callNo;
+      const interventions: Interventions | undefined = Object.keys(s.fields).length && firstModelCall !== undefined ? { set: { fromCall: firstModelCall, fields: s.fields, ...(from ? { models: from } : {}) } } : undefined;
       const result: VerifiedRun = { runId: parent.runId, role, attempts: [], passes: 0, deterministic: false, verdict: 'open', recorded };
       results[i] = result;
       const label = `${ROLE[role].padEnd(8)}  ${shortId(parent.runId)}`;

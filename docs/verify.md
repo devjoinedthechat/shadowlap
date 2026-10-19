@@ -47,7 +47,7 @@ It also warns when a recording contradicts its role. A target that already passe
 
 **The change is tested as it will ship.** A changed system prompt changes every request, so every run forks at its first model call and runs live. That is what the change will do in production. [`--prompt-from`](./interventions.md#apply-a-changed-prompt-from-a-later-call) is cheaper, but it answers a different question ("what if the prompt had been this from step *k*"), so verify doesn't use it.
 
-The change can also be a request field instead of code: `--model` and `--set key=value` apply from each run's first model call, to check whether a model switch fixes the failures and what it costs.
+The change can also be a request field instead of code: `--model` and `--set key=value` apply from each run's first model call, to check whether a model switch fixes the failures and what it costs. When the runs hold other models' calls, a simulated user or a sub-agent on a smaller model, `--from <model>` keeps the change to the calls made with that model, from the first of them on: `shadowlap verify --keeps label:good --model claude-sonnet-5-5 --from claude-sonnet-4-5`.
 
 **A fix inside a tool** needs `--live-tool <name>`. A tool call whose arguments didn't change is served from the recording, so without the flag the fixed code never runs. The report says so when it happens: *read_policy changed since the recording; pass --live-tool read_policy to run it live*.
 

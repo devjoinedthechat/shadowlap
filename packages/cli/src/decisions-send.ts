@@ -22,7 +22,7 @@ export interface ModelRequest {
   method: string;
   /** The path under the provider root, as the call is named (`/v1/messages`). */
   path: string;
-  /** The query to send, without `?` (Gemini's `alt=sse`). */
+  /** The query to send, without `?`: the recorded call's (Azure's `api-version=…`, Gemini's `alt=sse`). */
   query?: string;
   /** Headers the call's fingerprint carries (`anthropic-version`, `anthropic-beta`, `openai-beta`). */
   headers: Record<string, string>;
@@ -60,6 +60,18 @@ const RETRYABLE = new Set([408, 409, 429, 500, 502, 503, 504, 529]);
 
 export function providerById(id: string | null | undefined): Provider | null {
   return providers.find((p) => p.id === id) ?? null;
+}
+
+/** An Azure OpenAI call to a deployment (`/openai/deployments/<name>/…`), which needs its `api-version`. */
+export const azureDeploymentCall = (provider: string, path: string): boolean => provider === 'azure' && /^\/openai\/deployments\//.test(path);
+
+/**
+ * The `api-version` to send an Azure OpenAI deployment call with when its recording kept no query
+ * (one made before recordings kept it): as the AzureOpenAI SDKs read it, `OPENAI_API_VERSION`, or
+ * `AZURE_OPENAI_API_VERSION`. Null when neither is set.
+ */
+export function azureApiVersion(env: NodeJS.ProcessEnv): string | null {
+  return env.AZURE_OPENAI_API_VERSION?.trim() || env.OPENAI_API_VERSION?.trim() || null;
 }
 
 /** The Region a Bedrock call names in its model ARN, if it names one. */
@@ -157,8 +169,11 @@ async function credentialHeaders(provider: Provider, url: URL, method: string, b
     case 'bedrock': {
       if (!official && !env.AWS_ACCESS_KEY_ID) return {};
       const credentials = await resolveAwsCredentials({ env });
-      const region = /bedrock-runtime(?:-fips)?\.([a-z0-9-]+)\.amazonaws\.com/.exec(url.hostname)?.[1] ?? configuredRegion({ env }) ?? 'us-east-1';
-      const headers = { host: url.host, 'content-type': 'application/json', 'x-amz-content-sha256': sha256(body) };
+      const region = /bedrock-runtime(?:-fips)?\.([a-z0-9-]+)\.amazonaws\.com/.exec(url.hostname)?.[1] ?? arnRegion(url.pathname) ?? (configuredRegion({ env }) || 'us-east-1');
+      // Signed for the AWS host it is meant for: a gateway or a mock in front of Bedrock gets it signed as
+      // the agent's SDK signs it, which is how the sidecar forwards a captured call there too.
+      const host = /\.amazonaws\.com(\.cn)?$/.test(url.hostname) ? url.host : `bedrock-runtime.${region}.amazonaws.com`;
+      const headers = { host, 'content-type': 'application/json', 'x-amz-content-sha256': sha256(body) };
       // Bedrock, like every AWS service but S3, signs each path segment encoded once more than it is sent.
       const signed = signRequest({ method, path: url.pathname.split('/').map(rfc3986).join('/'), query: url.search.replace(/^\?/, ''), headers, payloadHash: sha256(body) }, { region, service: 'bedrock', date: new Date(), credentials });
       return { 'x-amz-content-sha256': sha256(body), ...signed.add };
@@ -259,7 +274,9 @@ export class ModelSender {
     for (let attempt = 0; ; attempt++) {
       let headers: Record<string, string>;
       try {
-        headers = { 'content-type': 'application/json', accept: stream || req.query?.includes('alt=sse') ? 'text/event-stream' : 'application/json', 'accept-encoding': 'gzip, br, deflate', ...req.headers, ...(await credentialHeaders(provider, url, req.method, body, this.env, up.official)) };
+        // Bedrock's streaming operations answer in AWS event stream frames, Gemini's alt=sse and the rest with `stream` in server-sent events.
+        const accept = /\/(invoke-with-response-stream|converse-stream)$/.test(req.path) ? 'application/vnd.amazon.eventstream' : stream || req.query?.includes('alt=sse') ? 'text/event-stream' : 'application/json';
+        headers = { 'content-type': 'application/json', accept, 'accept-encoding': 'gzip, br, deflate', ...req.headers, ...(await credentialHeaders(provider, url, req.method, body, this.env, up.official)) };
       } catch (err) {
         return { ...none(`${provider.id} credentials: ${(err as Error).message}`), latencyMs: Date.now() - started };
       }

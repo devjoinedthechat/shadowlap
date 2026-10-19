@@ -36,6 +36,8 @@ export interface DecisionCall {
   name: string;
   /** After the project's normalizers. */
   args: unknown;
+  /** What a tool the provider runs or defines itself does, by its kind (hostedToolEffect); left out for the agent's own tools, whose effect the runs say. */
+  effect?: Effect;
 }
 
 /** What the agent does next because of one model answer. */
@@ -148,6 +150,68 @@ export function isHandover(tool: string): boolean {
   return /^(transfer_to_|handoff_to_|hand_off_to_)/i.test(tool) || /^hand_?off$/i.test(tool);
 }
 
+/** Tools a provider runs itself that only read: its web search and fetch, file search, tool search, and code it runs in its own sandbox, where nothing outside the sandbox changes. */
+const HOSTED_READS = new Set(['web_search', 'web_fetch', 'file_search', 'code_execution', 'bash_code_execution', 'text_editor_code_execution', 'code_interpreter', 'tool_search_tool_regex', 'tool_search_tool_bm25']);
+
+/**
+ * What a tool the provider runs or defines itself does, as `normalizeResponse` names its calls
+ * (Anthropic's server tools, the Responses API's built-in tools): its searches, fetches and sandboxed
+ * code read; an image it makes is pure; a computer use action writes, but for a screenshot or a wait,
+ * which read; the shell and a patch write. Null for a name that doesn't say, such as an MCP server's
+ * tool, which the runs and the config's `mcp.effects` tell, or else counts as a write.
+ */
+export function hostedToolEffect(name: string): Effect | null {
+  if (HOSTED_READS.has(name)) return 'read';
+  if (name === 'image_generation') return 'pure';
+  if (name.startsWith('computer.')) return name === 'computer.screenshot' || name === 'computer.wait' ? 'read' : 'write';
+  if (name === 'local_shell' || name === 'shell' || name === 'apply_patch') return 'write';
+  return null;
+}
+
+/** Scopes Shadowlap makes calls in itself, such as its judge's (`shadowlap:judge`): none of their calls is the agent's decision. */
+export const isReservedScope = (scope: unknown): boolean => typeof scope === 'string' && scope.startsWith('shadowlap:');
+
+/** A model id as its own family names it: Bedrock's ARN, Region prefix, `anthropic.` and version suffix, Vertex AI's publisher path and `@version`, Gemini's `models/` left out. */
+export function bareModel(model: string): string {
+  return model
+    .trim()
+    .replace(/^arn:aws[\w-]*:bedrock:[^:]*:[^:]*:[\w-]+\//, '')
+    .replace(/^(?:projects\/[^/]+\/locations\/[^/]+\/)?publishers\/[^/]+\/models\//, '')
+    .replace(/^models\//, '')
+    .replace(/^(us|eu|apac|jp|au|ca|us-gov|global)\./, '')
+    .replace(/^(anthropic|openai|amazon|meta|mistral|cohere|ai21|deepseek|qwen|google)\./, '')
+    .replace(/-v\d+(?::\d+)?$/, '')
+    .replace(/@[^@]*$/, '')
+    .toLowerCase();
+}
+
+/** Whose model a name is: a Claude model, OpenAI's, Gemini's; null when the name doesn't say (a deployment, a local model). */
+export function modelFamily(model: string | null | undefined): 'claude' | 'openai' | 'gemini' | null {
+  if (!model) return null;
+  const m = bareModel(model);
+  if (m.startsWith('claude-')) return 'claude';
+  if (/^(gpt-|chatgpt-|codex-|computer-use-|o\d(-|$))/.test(m)) return 'openai';
+  if (/^(gemini-|gemma-)/.test(m)) return 'gemini';
+  return null;
+}
+
+/**
+ * Whether a recorded model is the one a person names: the same id, the same model on Bedrock or
+ * Vertex AI, or an undated name (an alias) for one of its dated snapshots (`claude-sonnet-4-5` for
+ * `claude-sonnet-4-5-20250929`, `gpt-4o` for `gpt-4o-2024-08-06`). Two snapshots are two models.
+ */
+export function sameModel(recorded: string | null | undefined, given: string): boolean {
+  if (!recorded) return false;
+  if (recorded === given) return true;
+  const a = bareModel(recorded);
+  const b = bareModel(given);
+  if (a === b) return true;
+  // A dated snapshot: Anthropic's `-20250929`, OpenAI's `-2024-08-06`, a Gemini stable version's `-001`.
+  const dated = /-(\d{8}|\d{4}-\d{2}-\d{2}|\d{3})$/;
+  const base = (m: string) => m.replace(/-(latest|0)$/, '').replace(dated, '');
+  return base(a) === base(b) && (!dated.test(a) || !dated.test(b));
+}
+
 export interface DecisionOptions {
   /** The project's normalizers (and a redacted recording's rules): what they mask is no change. */
   normalizers?: readonly Normalizer[];
@@ -169,8 +233,10 @@ export function decisionOf(response: { blocks: readonly Block[]; stopReason: str
   const tools: DecisionCall[] = [];
   const texts: string[] = [];
   for (const b of response.blocks) {
-    if (b.type === 'tool_call') tools.push({ name: b.name, args: normalizedArgs(b.name, b.input, o) });
-    else if (b.type === 'text') texts.push(b.text);
+    if (b.type === 'tool_call') {
+      const effect = b.hosted ? hostedToolEffect(b.name) : null;
+      tools.push({ name: b.name, args: normalizedArgs(b.name, b.input, o), ...(effect ? { effect } : {}) });
+    } else if (b.type === 'text') texts.push(b.text);
   }
   let text = texts.join('');
   if (o.clock !== undefined) text = maskClockText(text, o.clock);
@@ -234,16 +300,20 @@ function pairCalls(before: DecisionCall[], after: DecisionCall[]): { changed: Ar
  */
 export function compareDecisions(recorded: ModelDecision, now: ModelDecision, effectOf: EffectOf): DecisionComparison {
   const changes: DecisionChange[] = [];
-  const effect = (tool: string): Effect | 'unknown' => effectOf(tool) ?? 'unknown';
-  const writes = (d: ModelDecision) => d.tools.filter((t) => !isHandover(t.name) && (effect(t.name) === 'write' || effect(t.name) === 'unknown'));
-  const reads = (d: ModelDecision) => d.tools.filter((t) => !isHandover(t.name) && (effect(t.name) === 'read' || effect(t.name) === 'pure'));
-  const add = (c: Omit<DecisionChange, 'tool' | 'effect'> & { tool?: string | undefined }) => changes.push({ ...c, tool: c.tool ?? null, effect: c.tool ? effect(c.tool) : null });
+  // A tool the provider runs itself is what its kind says; any other, what the runs say.
+  const effect = (c: DecisionCall): Effect | 'unknown' => c.effect ?? effectOf(c.name) ?? 'unknown';
+  const writes = (d: ModelDecision) => d.tools.filter((t) => !isHandover(t.name) && (effect(t) === 'write' || effect(t) === 'unknown'));
+  const reads = (d: ModelDecision) => d.tools.filter((t) => !isHandover(t.name) && (effect(t) === 'read' || effect(t) === 'pure'));
+  const add = (c: Omit<DecisionChange, 'tool' | 'effect'> & { call?: DecisionCall; tool?: string | undefined }) => {
+    const { call, tool, ...rest } = c;
+    changes.push({ ...rest, tool: call?.name ?? tool ?? null, effect: call ? effect(call) : tool ? (effectOf(tool) ?? 'unknown') : null });
+  };
 
   // 1: writes, as calls that act on the world, in the order they are asked for.
   const w = pairCalls(writes(recorded), writes(now));
-  for (const [b, a] of w.changed) add({ rank: 1, kind: 'write-arguments', tool: b.name, before: b.args, after: a.args, detail: `${b.name} is called with other arguments` });
-  for (const b of w.removed) add({ rank: 1, kind: 'write-removed', tool: b.name, before: b.args, after: null, detail: `${b.name} is no longer called` });
-  for (const a of w.added) add({ rank: 1, kind: 'write-added', tool: a.name, before: null, after: a.args, detail: `${a.name} is called${effect(a.name) === 'unknown' ? ', a tool no recording gives an effect, so it counts as a write' : ''}` });
+  for (const [b, a] of w.changed) add({ rank: 1, kind: 'write-arguments', call: b, before: b.args, after: a.args, detail: `${b.name} is called with other arguments` });
+  for (const b of w.removed) add({ rank: 1, kind: 'write-removed', call: b, before: b.args, after: null, detail: `${b.name} is no longer called` });
+  for (const a of w.added) add({ rank: 1, kind: 'write-added', call: a, before: null, after: a.args, detail: `${a.name} is called${effect(a) === 'unknown' ? ', a tool no recording gives an effect, so it counts as a write' : ''}` });
   const order = (d: ModelDecision) => writes(d).map(keyOf).join('\u0001');
   if (!changes.length && order(recorded) !== order(now)) {
     add({ rank: 1, kind: 'write-order', before: writes(recorded).map((t) => t.name), after: writes(now).map((t) => t.name), detail: 'the same writes, in another order' });
@@ -264,9 +334,9 @@ export function compareDecisions(recorded: ModelDecision, now: ModelDecision, ef
 
   // 3 and 4: reads, as a set: asked in another order within a turn is the same decision.
   const r = pairCalls(reads(recorded), reads(now));
-  for (const b of r.removed) add({ rank: 3, kind: 'read-removed', tool: b.name, before: b.args, after: null, detail: `${b.name} is no longer called` });
-  for (const a of r.added) add({ rank: 3, kind: 'read-added', tool: a.name, before: null, after: a.args, detail: `${a.name} is called` });
-  for (const [b, a] of r.changed) add({ rank: 4, kind: 'read-arguments', tool: b.name, before: b.args, after: a.args, detail: `${b.name} is asked differently` });
+  for (const b of r.removed) add({ rank: 3, kind: 'read-removed', call: b, before: b.args, after: null, detail: `${b.name} is no longer called` });
+  for (const a of r.added) add({ rank: 3, kind: 'read-added', call: a, before: null, after: a.args, detail: `${a.name} is called` });
+  for (const [b, a] of r.changed) add({ rank: 4, kind: 'read-arguments', call: b, before: b.args, after: a.args, detail: `${b.name} is asked differently` });
 
   // 5: what it says.
   if (recorded.text !== now.text) add({ rank: 5, kind: 'text', before: clipText(recorded.text), after: clipText(now.text), detail: recorded.text && now.text ? 'it says something else' : now.text ? 'it says something, where the recording said nothing' : 'it says nothing, where the recording did' });
@@ -303,7 +373,34 @@ export interface DecisionView {
 }
 
 export function decisionView(d: ModelDecision, effectOf: EffectOf): DecisionView {
-  return { stop: d.stop, stopReason: d.stopReason, tools: d.tools.map((t) => ({ name: t.name, args: t.args, effect: isHandover(t.name) ? 'handover' : (effectOf(t.name) ?? 'unknown') })), text: clipText(d.text) };
+  return { stop: d.stop, stopReason: d.stopReason, tools: d.tools.map((t) => ({ name: t.name, args: t.args, effect: isHandover(t.name) ? 'handover' : (t.effect ?? effectOf(t.name) ?? 'unknown') })), text: clipText(d.text) };
+}
+
+/**
+ * The rank more than half of a step's samples show, each sample's rank given (0: it decided as
+ * recorded): the most consequential rank that more than half of them reach. Null when half or more
+ * decided as recorded. With one sample, that sample's rank.
+ */
+export function majorityRank(ranks: readonly number[]): DecisionRank | null {
+  if (!ranks.length) return null;
+  const sorted = ranks.map((r) => (r >= 1 && r <= 5 ? r : 6)).sort((a, b) => a - b);
+  const r = sorted[Math.floor(sorted.length / 2)]!;
+  return r <= 5 ? (r as DecisionRank) : null;
+}
+
+/**
+ * What a step's new answer would use in a run like the recorded one: its whole input (`input`,
+ * cache reads and writes included) split between plain input, cache reads and cache writes as the
+ * recorded call split its own, since a run's steps follow one another and each reads what the step
+ * before it cached, and its output. Asking the steps again caches differently (several at once write
+ * the cache, a second sample reads all of it), so what asking spent is no measure of a run.
+ */
+export function estimatedTokens(recorded: TokenCount | null, input: number, output: number): TokenCount {
+  const whole = recorded ? recorded.input + recorded.cacheRead + recorded.cacheWrite : 0;
+  if (!recorded || whole <= 0) return { input, output, cacheRead: 0, cacheWrite: 0 };
+  const cacheRead = Math.round((input * recorded.cacheRead) / whole);
+  const cacheWrite = Math.min(input - cacheRead, Math.round((input * recorded.cacheWrite) / whole));
+  return { input: input - cacheRead - cacheWrite, output, cacheRead, cacheWrite };
 }
 
 /** One recorded model call, asked again. */
@@ -315,6 +412,12 @@ export interface DecisionStep {
   scope: string | null;
   /** The most consequential change any sample showed, or null when none changed (or it wasn't asked). */
   rank: DecisionRank | null;
+  /**
+   * The change more than half of its samples show (majorityRank), or null when half or more decided
+   * as recorded: with one sample, `rank`. A rank 1 or 2 here flags the run; a change fewer samples
+   * show is listed, not flagged, since a model's answers vary.
+   */
+  majority: DecisionRank | null;
   /** The changes of the sample that showed it. */
   changes: DecisionChange[];
   recorded: DecisionView;
@@ -323,10 +426,14 @@ export interface DecisionStep {
   /** How often it changed: samples asked, answered, and how many of those decided differently, with each one's rank (0: the same). */
   samples: { asked: number; answered: number; changed: number; ranks: number[] };
   model: { recorded: string | null; asked: string | null };
-  /** As recorded, and the new answer's (the mean of the samples answered). */
+  /**
+   * As recorded, and the new answer's in a run like the recorded one (estimatedTokens): its input
+   * split between cache reads, cache writes and plain input as the recorded call's was, and its
+   * output, the mean of the samples answered.
+   */
   tokens: { before: TokenCount | null; after: TokenCount | null };
-  /** USD; null without a price for the model. */
-  cost: { before: number | null; after: number | null };
+  /** USD, null without a price for the model: as recorded, and `after` for those tokens; `spent` is what asking it cost, every sample. */
+  cost: { before: number | null; after: number | null; spent: number };
   /** Reasoning blocks from earlier turns left out of this request. */
   thinkingStripped: number;
   /** Why it was not asked, or why no sample was answered; null when one was. */
@@ -350,10 +457,13 @@ export interface DecisionRun {
   /** Model calls the recording holds, and how many were asked again. */
   steps: number;
   asked: number;
+  /** Its most consequential change, in any sample. */
   rank: DecisionRank | null;
+  /** The most consequential change most samples of a step show: a 1 or 2 flags the run (`flagged`). */
+  majority: DecisionRank | null;
   counts: DecisionCounts;
-  /** The run's model calls as recorded, and as asked again: what it costs per run before and after. */
-  cost: { before: number | null; after: number | null };
+  /** The run's model calls as recorded, and under the change: what it costs per run before and after; and what asking them spent. */
+  cost: { before: number | null; after: number | null; spent: number };
   tokens: { before: TokenCount; after: TokenCount };
   thinkingStripped: number;
   /** Why none of its model calls could be asked (`--from-code` on a change that is more than a prompt), or null. */
@@ -367,6 +477,8 @@ export interface DecisionRun {
 export interface DecisionsChange {
   model: string | null;
   fields: Record<string, unknown>;
+  /** The recorded models the model and the fields change at (`--from`, else the one the runs use most); null when they change at every model call. */
+  from: string[] | null;
   /** `--from-code`: what the working tree sends, against the recording. */
   fromCode: FromCodeChange | null;
   /** In words: `the model claude-haiku-4-5`, `the prompt and tools in the working tree`. */
@@ -399,13 +511,17 @@ export interface DecisionsVerify {
 
 /**
  * A field `migrate` changed so the new model takes the recorded requests: set to a value it accepts,
- * or left out (`leftOut`), with why and where that comes from (a provider page, or its own answer).
+ * left out (`leftOut`), or sent under another name (`renamedTo`), with why and where that comes from
+ * (a provider page, or its own answer).
  */
 export interface DecisionRemedy {
   field: string;
-  /** The value it is set to; null when it is left out. */
+  /** The value the requests were sent with in its place, which verify sends too; null when it was left out of them. */
   value: unknown;
+  /** Your agent's requests should leave it out (the page says to omit it), whatever value the requests were sent with meanwhile. */
   leftOut: boolean;
+  /** The name it goes under instead, with the value the request had (`max_completion_tokens` for `max_tokens`); null otherwise. */
+  renamedTo: string | null;
   why: string;
   /** The provider page that says so, or null when the provider's own refusal did. */
   source: string | null;
@@ -524,7 +640,7 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
       lines.push(`${p.bold(name)}  ${p.yellow('not asked')}: ${safeLine(run.refused)}`);
       continue;
     }
-    lines.push(`${p.bold(name)}  ${p.dim(`${run.asked} of ${run.steps} model call${run.steps === 1 ? '' : 's'} asked`)} · ${run.rank !== null && run.rank <= 2 ? p.red(summary) : run.rank !== null ? p.yellow(summary) : summary}`);
+    lines.push(`${p.bold(name)}  ${p.dim(`${run.asked} of ${run.steps} model call${run.steps === 1 ? '' : 's'} asked`)} · ${run.majority !== null && run.majority <= 2 ? p.red(summary) : run.rank !== null ? p.yellow(summary) : summary}`);
     for (const s of run.decisions) {
       if (s.rank === null && !s.error) continue;
       if (s.rank === null) {
@@ -532,7 +648,9 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
         continue;
       }
       const colour = s.rank <= 1 ? p.red : s.rank === 2 ? p.yellow : (x: string) => x;
-      const often = r.samples > 1 ? p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples`) : '';
+      // A write or stop change most samples don't show is the model's own variation until shown otherwise.
+      const minority = s.rank <= 2 && (s.majority === null || s.majority > 2);
+      const often = r.samples > 1 ? p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples${minority ? ', fewer than half: not flagged' : ''}`) : '';
       lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${colour(`rank ${s.rank}`)}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.rank])}${often}`);
       lines.push(`         ${p.dim('recorded')} ${decisionLine(s.recorded)}`);
       lines.push(`         ${p.dim('now     ')} ${decisionLine(s.now)}${stepDelta(s) ? p.dim(`  ${stepDelta(s)}`) : ''}`);

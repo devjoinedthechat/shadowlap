@@ -12,9 +12,9 @@ import type { GoldenSource } from '../tests.js';
  *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, and its matrix
  *   GET /api/runs/:id/decisions                  a run's decisions under each session that asked it again
  *   GET /api/retirements                         the models the goldens use that retire, by the table that ships
- *   POST /api/jobs { kind: "decisions", runs?, goldens?, model?, set?, fromCode?, samples?, thenVerify?, yes? }
- *   POST /api/jobs { kind: "migrate", to, goldens?, runs?, set?, yes? }        every golden when none are named
- *   POST /api/jobs { kind: "decisions-verify", sessionId, runId?, yes? }       verify on the runs a session flagged
+ *   POST /api/jobs { kind: "decisions", runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }
+ *   POST /api/jobs { kind: "migrate", to, goldens?, runs?, from?, scope?, set?, yes? }   every golden when none are named
+ *   POST /api/jobs { kind: "decisions-verify", sessionId, runId?, yes? }   decisions --verify: the runs a session flagged, each under its checks
  *
  * The goldens a job may name are the project's (`DashboardOptions.goldens`); runs are ids in the store.
  */
@@ -56,5 +56,5 @@ export function register(router: Router, ctx: RouteContext): void {
 
   ctx.jobs.registerJobKind('decisions', { title: () => 'Previewing a change', build: (req, b) => decisionsJob(req, b.store, goldens()) });
   ctx.jobs.registerJobKind('migrate', { title: () => 'Migrating', build: (req, b) => migrateJob(req, b.store, goldens()) });
-  ctx.jobs.registerJobKind('decisions-verify', { title: () => 'Verifying the changed runs', build: (req, b) => verifyFlaggedJob(req, b.store, b.project?.path ?? null) });
+  ctx.jobs.registerJobKind('decisions-verify', { title: () => 'Verifying the changed runs', build: (req, b) => verifyFlaggedJob(req, b.store) });
 }

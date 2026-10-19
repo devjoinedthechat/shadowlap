@@ -215,13 +215,14 @@ const runArgs = (r: RunSpecs): string[] => [...(r.fixes?.length ? ['--fixes', ..
 
 const gateArgs = (attempts: number, passes: number | undefined) => [...(attempts !== 5 ? ['--attempts', String(attempts)] : []), ...(passes !== undefined ? ['--passes', String(passes)] : [])];
 
-export function verifyCommand(runs: RunSpecs, f: StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; fields: Record<string, unknown>; liveTools: string[]; failFast?: boolean }): string {
+export function verifyCommand(runs: RunSpecs, f: StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; fields: Record<string, unknown>; from?: readonly string[] | undefined; liveTools: string[]; failFast?: boolean }): string {
   return quoteArgv([
     'shadowlap',
     'verify',
     ...runArgs(runs),
     ...expectArgs(f.expect),
     ...fieldArgs(f.fields),
+    ...(f.from ?? []).flatMap((m) => ['--from', m]),
     ...f.liveTools.flatMap((t) => ['--live-tool', t]),
     ...gateArgs(f.attempts, f.passes),
     ...(f.failFast ? ['--fail-fast'] : []),

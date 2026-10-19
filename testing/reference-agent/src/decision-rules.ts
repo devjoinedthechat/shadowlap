@@ -17,9 +17,14 @@ import { message, text, thinking, toolUse, type MockMessage, type ScriptContext,
  *   extended thinking page says, in the words that page quotes.
  * - A request that asks to think gets a thinking block before each answer, the same one for the same
  *   turn, so a recording carries reasoning in its history.
+ * - `mock-coin` words the email its own way once in every three times it is asked at that turn, and
+ *   plays the rest as recorded: a model's own variation, which `--samples` tells from a change.
  *
  * Every other request plays the scenario as recorded.
  */
+
+/** How many times `mock-coin` was asked at each turn. */
+const coinAsked = new Map<number, number>();
 
 const NO_EMAIL = /\bDo not email the summary\b/;
 const CLAUDE_4_7_AND_LATER = /^claude-(opus-4-[78]|opus-5|sonnet-5|haiku-5|fable-5|mythos-5)/;
@@ -61,6 +66,12 @@ export function decisionRules(ctx: ScriptContext, turns: readonly MockMessage[])
   };
   if (emails && NO_EMAIL.test(systemText(ctx.request.system))) {
     return answer(message([text('Summary: recorded runs replay deterministically, and forks fence writes. Not sent by email, as instructed.')], { stop_reason: 'end_turn', input_tokens: turn.usage.input_tokens, output_tokens: 32 }));
+  }
+  if (model === 'mock-coin') {
+    const n = (coinAsked.get(ctx.assistantTurns) ?? 0) + 1;
+    coinAsked.set(ctx.assistantTurns, n);
+    if (emails && n % 3 === 1) return answer(message([text('Sending the summary.'), toolUse('send_email', { to: 'team@example.com', subject: 'Research summary', body: 'Replay works; forks fence writes.' }, 'toolu_coin_email')], { input_tokens: turn.usage.input_tokens, output_tokens: turn.usage.output_tokens }));
+    return answer({ ...turn });
   }
   if (model === 'claude-haiku-4-5' || model === 'mock-small') {
     const same = { input_tokens: turn.usage.input_tokens, output_tokens: turn.usage.output_tokens };

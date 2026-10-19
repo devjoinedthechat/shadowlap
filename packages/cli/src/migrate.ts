@@ -2,7 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { argsDelta, formatUsd, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type Store } from '@shadowlap/engine';
+import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
+import { loadConfig } from './config.js';
 import { keepDecisions, newSessionId, runDecisions, type DecisionTarget } from './decisions.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -10,15 +12,20 @@ import { palette as p, shortId } from './ui.js';
 
 /**
  * `shadowlap migrate --to <model>`: the decision diff, packaged for a model switch, such as the one
- * a retirement date forces. It asks every model call of the goldens again under the new model, with
- * the fields it refuses changed to what it takes (by the providers' pages and its own refusals);
- * verifies the runs with a write or stop change end to end; compares what a run costs; and ends in
- * one report: what changes, what still passes, what it costs, what to set, with the change to the
- * project's files that names the model and a pull request body to go with it.
+ * a retirement date forces. It asks the agent's model calls of the goldens again under the new model
+ * (those made with the models `--from` names, else the ones that retire, else the one used most),
+ * with the fields it refuses changed to what it takes (by the providers' pages and its own
+ * refusals); verifies the runs with a write or stop change end to end; compares what a run costs;
+ * and ends in one report: what changes, what still passes, what it costs, what to set, with the
+ * change to the project's files that name the model and a pull request body to go with it.
  */
 
 export interface MigrateSettings {
   to: string;
+  /** `--from`: the recorded models to switch from; null takes those that retire, else the one used most. */
+  from: string[] | null;
+  /** Only the model calls made in this scope (`none`: in none). */
+  scope: string | null;
   /** Fields the switch sets besides the model, as given (`--set`). */
   fields: Record<string, unknown>;
   samples: number;
@@ -33,20 +40,32 @@ export interface MigrateSettings {
   argv: string[] | null;
 }
 
+/** The only verdict words a report uses. */
+export type Verdict = 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
+
 /** How each run fares after the switch: verified (kept, fixed, broken…), unchanged decisions, or not asked. */
 export interface MigrateRunPass {
   runId: string;
   golden: string | null;
-  /** kept, broken, fixed, not-fixed, unsettled (verified); unchanged (no write or stop decision changed, so not re-run); not-asked. */
+  /** passed, failed or inconclusive: what the run's outcome comes to. */
+  verdict: Verdict;
+  /** kept, broken, fixed, not-fixed, unsettled (verified, in verify's own words); unchanged (no write or stop decision changed, so not re-run); not-asked. */
   outcome: string;
   verified: boolean;
+}
+
+/** A place a project file names a model the switch changes. */
+export interface ModelMention {
+  path: string;
+  line: number;
+  text: string;
 }
 
 export interface MigrateReport {
   migrateId: string | null;
   kind: 'migrate';
   at: number;
-  /** The models the recordings use, and the one they switch to. */
+  /** The recorded models the switch changes, and the one they switch to. */
   from: string[];
   to: string;
   command: string;
@@ -58,10 +77,14 @@ export interface MigrateReport {
   passes: { verdict: DecisionsVerify['verdict']; runs: MigrateRunPass[] };
   /** What it costs: per run (the mean), and for the goldens all together, before and after; and what checking cost. */
   costs: { perRun: { before: number | null; after: number | null }; total: { before: number | null; after: number | null }; tokensPerRun: { before: number; after: number }; checking: { decisions: number; verify: number } };
-  /** What to set: the `--set` flags the switch needs, why each, and what to leave out of the requests. */
+  /** What to set: the flags verify took, the fields the switch needs and why, and those given with `--set`. */
   set: { flags: string[]; fields: DecisionRemedy[]; given: Record<string, unknown> };
-  /** The change to the project's files that name the model it switches from, or null when none does. */
-  configChange: { files: Array<{ path: string; places: number }>; patch: string } | null;
+  /**
+   * The change to the project's files: where a string value names a model it switches from (in code
+   * and config), the places in each and the patch; and the mentions left for review (prose, history,
+   * tests, an object key, Shadowlap's own config). Null when no file names one.
+   */
+  configChange: { files: Array<{ path: string; places: number }>; patch: string; review: ModelMention[] } | null;
   pullRequest: { title: string; body: string };
   /** Where the pull request body and the patch were written (`.shadowlap/migrations/<id>/`), relative to the project; null when they could not be. */
   files: { dir: string; pullRequest: string; patch: string | null } | null;
@@ -132,57 +155,155 @@ export function inPlaceDiff(path: string, before: string, after: string): string
   return `${lines.join('\n')}\n`;
 }
 
-/** Where the project's files name a model it switches from, and the patch that names the new one there. */
+/** Prose and history: what a model was, never what the agent sends now. */
+const PROSE = /(^|\/)(CHANGELOG|CHANGES|HISTORY|NEWS|RELEASES?)[^/]*$|\.(md|mdx|markdown|rst|adoc|txt)$/i;
+/** Tests and fixtures: what a run once sent, or what a check expects. */
+const TESTS = /(^|\/)(tests?|__tests__|specs?|fixtures?|__fixtures__|__recordings__|goldens|testdata)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)test_[^/]*\.py$|_test\.(py|go)$/i;
+/** Shadowlap's own config: its prices are keyed by model and its judges name theirs; none is the agent's. */
+const SHADOWLAP_CONFIG = /(^|\/)shadowlap\.config\.json$/;
+/** A line that is a comment. */
+const COMMENT = /^\s*(\/\/|#|\*|\/\*|--|;)/;
+
+type FileKind = 'json' | 'yaml' | 'env' | 'toml' | 'code';
+
+function kindOf(path: string): FileKind {
+  if (/\.jsonc?$/i.test(path)) return 'json';
+  if (/\.ya?ml$/i.test(path)) return 'yaml';
+  if (/(^|\/)\.env(\.[\w.-]+)?$|\.env$/i.test(path)) return 'env';
+  if (/\.toml$/i.test(path)) return 'toml';
+  return 'code';
+}
+
+/**
+ * Whether the mention at `at` (of `name`) on `line` is a string value naming the model whole: a JSON
+ * string that is no key, a YAML, TOML or .env value, a string literal in code that is no object key.
+ */
+function isValue(kind: FileKind, line: string, at: number, name: string): boolean {
+  if (COMMENT.test(line)) return false;
+  const before = line.slice(0, at);
+  const after = line.slice(at + name.length);
+  const quote = before.at(-1);
+  const quoted = (quote === '"' || quote === "'" || quote === '`') && after[0] === quote;
+  const rest = quoted ? after.slice(1) : after;
+  switch (kind) {
+    case 'json':
+      return quote === '"' && quoted && !/^\s*:/.test(rest);
+    case 'yaml':
+      return /^(\s*-\s+|\s*[\w.-]+\s*:\s*|\s*-\s+[\w.-]+\s*:\s*)$/.test(quoted ? before.slice(0, -1) : before) && /^\s*(#.*)?$/.test(rest);
+    case 'env':
+      return /^\s*(export\s+)?[A-Za-z_]\w*\s*=\s*$/.test(quoted ? before.slice(0, -1) : before) && /^\s*$/.test(rest);
+    case 'toml':
+      return quoted && /^\s*[\w.-]+\s*=\s*$/.test(before.slice(0, -1)) && /^\s*(#.*)?$/.test(rest);
+    default:
+      return quoted && !/^\s*:(?!:)/.test(rest);
+  }
+}
+
+/**
+ * Where the project's files name a model it switches from, and the patch that names the new one
+ * there: only where a string value in code or config names the model whole. A mention in prose or
+ * history, in a test, as an object key (a price table's), or in Shadowlap's own config is listed for
+ * review and left as it is.
+ */
 export function modelMentions(cwd: string, from: readonly string[], to: string): MigrateReport['configChange'] | 'no-git' {
   const files = projectTextFiles(cwd);
   if (!files) return 'no-git';
   const names = [...new Set(from.filter((m) => m && m !== to))].sort((x, y) => y.length - x.length);
   if (!names.length) return null;
-  const re = new RegExp(`(?<![\\w.-])(${names.map(escape).join('|')})(?![\\w.-])`, 'g');
+  // A name whole: no id character on either side, though a sentence may end on it (`… to claude-sonnet-4-6.`).
+  const re = new RegExp(`(?<![\\w.-])(${names.map(escape).join('|')})(?![\\w-]|\\.\\w)`, 'g');
   const touched: Array<{ path: string; places: number }> = [];
+  const review: ModelMention[] = [];
   let patch = '';
   for (const f of files) {
-    const places = f.content.match(re)?.length ?? 0;
+    if (!re.test(f.content)) continue;
+    re.lastIndex = 0;
+    const reviewOnly = PROSE.test(f.path) || TESTS.test(f.path) || SHADOWLAP_CONFIG.test(f.path);
+    const kind = kindOf(f.path);
+    let places = 0;
+    const lines = f.content.split('\n').map((line, i) => {
+      let changed = '';
+      let last = 0;
+      for (const m of line.matchAll(re)) {
+        const at = m.index!;
+        if (!reviewOnly && isValue(kind, line, at, m[0])) {
+          changed += `${line.slice(last, at)}${to}`;
+          last = at + m[0].length;
+          places++;
+        } else review.push({ path: f.path, line: i + 1, text: safeLine(line.trim().slice(0, 160)) });
+      }
+      return last ? `${changed}${line.slice(last)}` : line;
+    });
     if (!places) continue;
-    const after = f.content.replace(re, to);
     touched.push({ path: f.path, places });
-    patch += inPlaceDiff(f.path, f.content, after);
+    patch += inPlaceDiff(f.path, f.content, lines.join('\n'));
   }
-  return touched.length ? { files: touched, patch } : null;
-}
-
-/** The runs' recorded models, each once, most used first. */
-function recordedModels(runs: readonly DecisionRun[]): string[] {
-  const counts = new Map<string, number>();
-  for (const r of runs) for (const s of r.decisions) if (s.model.recorded) counts.set(s.model.recorded, (counts.get(s.model.recorded) ?? 0) + 1);
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
+  // One entry per line, however many mentions it holds.
+  const seen = new Set<string>();
+  const listed = review.filter((r) => !seen.has(`${r.path}:${r.line}`) && seen.add(`${r.path}:${r.line}`));
+  return touched.length || listed.length ? { files: touched, patch, review: listed } : null;
 }
 
 const pct = (a: number | null, b: number | null) => (a === null || b === null ? '' : a === 0 ? '' : ` (${b >= a ? '+' : '−'}${Math.round((Math.abs(b - a) / a) * 100)}%)`);
 const usd = (n: number | null) => (n === null ? 'unknown' : `≈${formatUsd(n)}`);
 const name = (r: { runId: string; golden: string | null }) => r.golden ?? shortId(r.runId);
 
+/** What to set for one field, in words: `temperature` left out, `thinking` = `{"type":"adaptive"}`, `max_completion_tokens` in place of `max_tokens`. */
+export function remedyText(f: DecisionRemedy, code: (s: string) => string = (s) => s): string {
+  if (f.renamedTo) return `send ${code(f.renamedTo)} in place of ${code(f.field)}, with the value it has`;
+  if (f.leftOut) return `leave ${code(f.field)} out${f.value !== null ? ` (the requests were sent ${code(`${f.field}=${fieldValue(f.value)}`)}, its default, meanwhile)` : ''}`;
+  return `${code(f.field)} = ${code(fieldValue(f.value))}`;
+}
+
 /** The pull request body: the four blocks, short enough to read on the pull request. */
 export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>): { title: string; body: string } {
   const title = r.from.length === 1 ? `Switch ${r.from[0]} to ${r.to}` : `Switch the model to ${r.to}`;
   const runs = r.decisions.runs.length;
-  const lines: string[] = [`## ${title}`, '', `Checked with \`${r.command}\`: every model call of ${runs} recording${runs === 1 ? '' : 's'} asked again under ${r.to}, and the ${r.changes.flagged} with a changed write or stop verified end to end.`];
+  const tick = (s: string) => `\`${s}\``;
+  const lines: string[] = [`## ${title}`, '', `Checked with \`${r.command}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and the ${r.changes.flagged} with a changed write or stop verified end to end.`];
   for (const n of r.retirements.filter((x) => r.from.includes(x.model))) lines.push('', `> ${n.text} ([source](${n.source}))`);
   lines.push('', '### What changes', '');
   if (!r.changes.steps.length) lines.push('No write and no stop decision changes.');
-  for (const s of r.changes.steps.slice(0, 12)) lines.push(`- ${name(s)} #${s.callNo}: ${s.detail}${s.arguments.length ? `: ${s.arguments.map((a) => `\`${a}\``).join(', ')}` : ` (\`${s.recorded}\` → \`${s.now}\`)`}`);
+  for (const s of r.changes.steps.slice(0, 12)) lines.push(`- ${name(s)} #${s.callNo}: ${s.detail}${s.arguments.length ? `: ${s.arguments.map(tick).join(', ')}` : ` (${tick(s.recorded)} → ${tick(s.now)})`}`);
   if (r.changes.steps.length > 12) lines.push(`- and ${r.changes.steps.length - 12} more`);
   const c = r.decisions.counts;
   if (c[3] + c[4] + c[5]) lines.push('', `Besides: ${[c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only`].filter(Boolean).join(', ')}.`);
   lines.push('', '### What still passes', '');
-  for (const x of r.passes.runs) lines.push(`- ${name(x)}: ${x.outcome}${x.verified ? '' : x.outcome === 'unchanged' ? ' (no write or stop decision changed)' : ''}`);
+  for (const x of r.passes.runs) lines.push(`- ${name(x)}: ${x.verdict}${x.verified ? ` (${x.outcome}, verified)` : x.outcome === 'unchanged' ? ' (no write or stop decision changed, so not re-run)' : ` (${x.outcome})`}`);
+  if (r.decisions.verify?.verdict === 'not-run' && r.decisions.verify.reasons.length) lines.push('', `Not verified yet: ${r.decisions.verify.reasons.join('; ')}.`);
   lines.push('', '### What it costs', '', `Per run: ${usd(r.costs.perRun.before)} → ${usd(r.costs.perRun.after)}${pct(r.costs.perRun.before, r.costs.perRun.after)}. Checking it cost ${usd(r.costs.checking.decisions + r.costs.checking.verify)}.`);
   lines.push('', '### What to set', '');
-  if (!r.set.flags.length && !r.set.fields.some((f) => f.leftOut)) lines.push(`Only the model: ${r.to}.`);
-  for (const f of r.set.fields) lines.push(`- ${f.leftOut ? `leave \`${f.field}\` out` : `\`${f.field}\` = \`${fieldValue(f.value)}\``}: ${f.why}`);
-  for (const [k, v] of Object.entries(r.set.given)) lines.push(`- \`${k}\` = \`${fieldValue(v)}\` (given)`);
-  if (r.configChange) lines.push('', `The model is named in ${r.configChange.files.map((f) => `\`${f.path}\``).join(', ')}.`);
+  if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`Only the model: ${r.to}.`);
+  for (const f of r.set.fields) lines.push(`- ${remedyText(f, tick)}: ${f.why}`);
+  for (const [k, v] of Object.entries(r.set.given)) lines.push(`- ${tick(k)} = ${tick(fieldValue(v))} (given)`);
+  if (r.configChange?.files.length) lines.push('', `The model is named in ${r.configChange.files.map((f) => tick(f.path)).join(', ')}.`);
+  if (r.configChange?.review.length) lines.push('', `Left as they are, for review: ${r.configChange.review.length} other mention${r.configChange.review.length === 1 ? '' : 's'} in ${[...new Set(r.configChange.review.map((x) => x.path))].slice(0, 6).map(tick).join(', ')}.`);
   return { title, body: `${lines.join('\n')}\n` };
+}
+
+/**
+ * How each run fares: a run verified by verify's outcome; a run whose writes and stops didn't change
+ * by how its recording fares under its checks (it is not re-run); a run some step of which got no
+ * answer, or that was flagged and not verified, is inconclusive.
+ */
+export function passesOf(runs: readonly DecisionRun[], flagged: readonly string[], verify: DecisionsVerify | null, recorded: (runId: string) => boolean | null): MigrateRunPass[] {
+  const verified = new Map((verify?.runs ?? []).map((r) => [r.runId, r]));
+  return runs.map((r): MigrateRunPass => {
+    const v = verified.get(r.runId);
+    if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true };
+    const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked);
+    if (unanswered) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-asked', verified: false };
+    if (flagged.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false };
+    const passed = recorded(r.runId);
+    return { runId: r.runId, golden: r.golden, verdict: passed === true ? 'passed' : passed === false ? 'failed' : 'inconclusive', outcome: 'unchanged', verified: false };
+  });
+}
+
+/** The `--set` flags verify takes for the switch: the fields given, and those sent with a value in place of what the new model refuses. */
+export function verifyFlags(fields: Record<string, unknown>, remedies: readonly DecisionRemedy[]): string[] {
+  const remedied = new Set(remedies.map((r) => r.field));
+  const sent = [...Object.entries(fields).filter(([k]) => !remedied.has(k)), ...remedies.filter((r) => r.value !== null && r.renamedTo === null).map((r) => [r.field, r.value] as const)];
+  return sent.map(([k, v]) => `--set ${k}=${fieldValue(v)}`);
 }
 
 /** Runs the decision diff under the new model, verifies the runs it flags, and keeps the report. */
@@ -191,24 +312,30 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
   const decisions = await runDecisions({
     opts: input.opts,
     targets: input.targets,
-    settings: { model: s.to, fields: s.fields, fromCode: false, samples: s.samples, concurrency: s.concurrency, budget: s.budget, timeoutMs: s.timeoutMs, scope: null, remedies: true, guard: s.guard, argv: s.argv, thenVerify: { attempts: s.attempts, needed: s.needed, writes: s.writes, expect: s.expect } },
+    settings: { model: s.to, fields: s.fields, from: s.from, fromCode: false, samples: s.samples, concurrency: s.concurrency, budget: s.budget, timeoutMs: s.timeoutMs, scope: s.scope, remedies: true, guard: s.guard, argv: s.argv, thenVerify: { attempts: s.attempts, needed: s.needed, writes: s.writes, expect: s.expect } },
     command: input.command,
     log: input.log,
     kind: 'migrate',
     ...(input.env ? { env: input.env } : {}),
     ...(input.now !== undefined ? { now: input.now } : {}),
   });
-  const from = recordedModels(decisions.runs);
-  const verified = new Map((decisions.verify?.runs ?? []).map((r) => [r.runId, r]));
-  const passes: MigrateRunPass[] = decisions.runs.map((r) => {
-    const v = verified.get(r.runId);
-    if (v) return { runId: r.runId, golden: r.golden, outcome: v.outcome, verified: true };
-    const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked);
-    return { runId: r.runId, golden: r.golden, outcome: unanswered ? 'not-asked' : r.rank !== null && r.rank <= 2 ? 'unsettled' : 'unchanged', verified: false };
-  });
+  // The models the switch changes: the ones whose calls it asked again, not every model a recording holds.
+  const from = decisions.change.from ?? [];
+  const store: Store = openStore(input.opts);
+  let passes: MigrateRunPass[];
+  try {
+    const prices = loadConfig(process.cwd()).prices;
+    const recorded = (runId: string) => {
+      const t = input.targets.find((x) => x.run.runId === runId);
+      return t ? judgeRecording(store, t.run, store.getCalls(runId), s.expect?.spec ?? t.spec, prices).passed : null;
+    };
+    passes = passesOf(decisions.runs, decisions.flagged, decisions.verify, recorded);
+  } finally {
+    store.close();
+  }
   const steps = decisions.runs.flatMap((r) =>
     r.decisions
-      .filter((x) => x.rank !== null && x.rank <= 2)
+      .filter((x) => x.majority !== null && x.majority <= 2)
       .map((x) => ({ runId: r.runId, golden: r.golden, callNo: x.callNo, rank: x.rank!, detail: x.changes[0]?.detail ?? RANK_LABELS[x.rank!], recorded: decisionLine(x.recorded, 60), now: decisionLine(x.now, 60), arguments: x.changes.filter((c) => c.kind === 'write-arguments').flatMap((c) => argsDelta(c.before, c.after).map((d) => `${c.tool}.${d}`)) })),
   );
   const sum = (side: 'before' | 'after') => {
@@ -220,14 +347,14 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
   // What the switch sets: the fields given, with what the new model needs in place of any it refuses.
   const remedied = new Set(decisions.remedies.map((r) => r.field));
   const given = Object.fromEntries(Object.entries(s.fields).filter(([k]) => !remedied.has(k)));
-  const flags = [...Object.entries(given), ...decisions.remedies.filter((r) => !r.leftOut).map((r) => [r.field, r.value] as const)].map(([k, v]) => `--set ${k}=${fieldValue(v)}`);
   const mentions = modelMentions(process.cwd(), from, s.to);
   const notes = [...decisions.notes];
   const warnings = [...decisions.warnings];
-  const leftOut = decisions.remedies.filter((r) => r.leftOut).map((r) => r.field);
-  if (leftOut.length) warnings.push(`${leftOut.join(' and ')} must leave your agent's requests before ${s.to} takes them: the preview left ${leftOut.length === 1 ? 'it' : 'them'} out, and verify runs your code, which still sends ${leftOut.length === 1 ? 'it' : 'them'}`);
+  const blocked = decisions.verify?.verdict === 'not-run' ? decisions.verify.reasons[0] : undefined;
+  if (blocked) warnings.push(`Not verified: ${blocked}`);
   if (mentions === 'no-git') notes.push('The project is not a git repository, so its files were not searched for the model it switches from.');
-  else if (mentions === null && from.length) notes.push(`No file in the project names ${from.join(' or ')}: set ${s.to} where your agent reads its model (an environment variable, a deployment setting).`);
+  else if ((mentions === null || !mentions.files.length) && from.length) notes.push(`No string in the project's code or config names ${from.join(' or ')}: set ${s.to} where your agent reads its model (an environment variable, a deployment setting).`);
+  if (mentions && mentions !== 'no-git' && mentions.review.length) notes.push(`${mentions.review.length} other mention${mentions.review.length === 1 ? '' : 's'} of ${from.join(' or ')} (prose, history, tests, object keys, Shadowlap's config) ${mentions.review.length === 1 ? 'is' : 'are'} left as ${mentions.review.length === 1 ? 'it is' : 'they are'}, for review.`);
   const base: Omit<MigrateReport, 'pullRequest' | 'files'> = {
     migrateId: null,
     kind: 'migrate',
@@ -244,7 +371,7 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
       tokensPerRun: { before: runsAsked.length ? Math.round(runsAsked.reduce((n, r) => n + tokens(r.tokens.before), 0) / runsAsked.length) : 0, after: runsAsked.length ? Math.round(runsAsked.reduce((n, r) => n + tokens(r.tokens.after), 0) / runsAsked.length) : 0 },
       checking: { decisions: decisions.cost.spent, verify: decisions.verify?.spent ?? 0 },
     },
-    set: { flags, fields: decisions.remedies, given },
+    set: { flags: verifyFlags(given, decisions.remedies), fields: decisions.remedies, given },
     configChange: mentions === 'no-git' ? null : mentions,
     retirements: decisions.retirements,
     notes,
@@ -254,12 +381,12 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
   const report: MigrateReport = { ...base, pullRequest: pullRequestBody(base), files: null };
   const id = newSessionId('migrate', report.at);
   report.files = writeMigrateFiles(report, id);
-  const store: Store = openStore(input.opts);
+  const kept: Store = openStore(input.opts);
   try {
     const { decisions: d, ...rest } = report;
-    report.migrateId = keepDecisions(store, { ...rest, decisions: { ...d, runs: [] }, runs: d.runs, flagged: d.flagged, change: d.change, at: d.at }, 'migrate', id);
+    report.migrateId = keepDecisions(kept, { ...rest, decisions: { ...d, runs: [] }, runs: d.runs, flagged: d.flagged, change: d.change, at: d.at }, 'migrate', id);
   } finally {
-    store.close();
+    kept.close();
   }
   return report;
 }
@@ -288,7 +415,8 @@ function writeMigrateFiles(r: MigrateReport, id: string): MigrateReport['files']
 export function formatMigrate(r: MigrateReport): string {
   const lines: string[] = [];
   const v = r.passes.verdict;
-  const head = r.changes.flagged === 0 ? `${p.green('✓')} ${p.bold(`No write or stop decision changes under ${r.to}`)}` : v === 'accepted' ? `${p.green('✓')} ${p.bold(`${r.to} keeps every run passing`)}` : v === 'rejected' ? `${p.red('✗')} ${p.bold(`${r.to} breaks runs`)}` : `${p.yellow('!')} ${p.bold('Not settled')}`;
+  const head =
+    r.changes.flagged === 0 ? `${p.green('✓')} ${p.bold(`No write or stop decision changes under ${r.to}`)}` : v === 'accepted' ? `${p.green('✓')} ${p.bold(`${r.to} keeps every run passing`)}` : v === 'rejected' ? `${p.red('✗')} ${p.bold(`${r.to} breaks runs`)}` : `${p.yellow('!')} ${p.bold('Not settled')}`;
   lines.push(`${head}: ${r.from.length ? `${r.from.join(', ')} → ` : ''}${r.to}, ${r.decisions.runs.length} run${r.decisions.runs.length === 1 ? '' : 's'}`);
   for (const n of r.retirements) lines.push(p.dim(`  ${safeLine(n.text)}`));
   lines.push('', p.bold('What changes'));
@@ -298,20 +426,23 @@ export function formatMigrate(r: MigrateReport): string {
   if (c[3] + c[4] + c[5]) lines.push(p.dim(`  besides: ${[c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only`].filter(Boolean).join(', ')}`));
   lines.push('', p.bold('What still passes'));
   for (const x of r.passes.runs) {
-    const word = x.outcome === 'kept' || x.outcome === 'fixed' || x.outcome === 'unchanged' ? p.green(x.outcome) : x.outcome === 'broken' || x.outcome === 'not-fixed' ? p.red(x.outcome) : p.yellow(x.outcome);
-    lines.push(`  ${safeLine(name(x)).padEnd(28)} ${word}${x.verified ? p.dim(' · verified') : x.outcome === 'unchanged' ? p.dim(' · no write or stop decision changed, not re-run') : ''}`);
+    const word = x.verdict === 'passed' ? p.green(x.verdict) : x.verdict === 'failed' ? p.red(x.verdict) : p.yellow(x.verdict);
+    lines.push(`  ${safeLine(name(x)).padEnd(28)} ${word}${p.dim(x.verified ? ` · ${x.outcome}, verified` : x.outcome === 'unchanged' ? ' · no write or stop decision changed, not re-run' : ` · ${x.outcome}`)}`);
   }
   lines.push('', p.bold('What it costs'));
   lines.push(`  per run      ${usd(r.costs.perRun.before)} → ${usd(r.costs.perRun.after)}${pct(r.costs.perRun.before, r.costs.perRun.after)} · ${r.costs.tokensPerRun.before.toLocaleString('en-US')} → ${r.costs.tokensPerRun.after.toLocaleString('en-US')} tokens`);
   const unpriced = r.decisions.cost.unknownModels.length ? ` (no price for ${r.decisions.cost.unknownModels.join(', ')}: add it under "prices" in shadowlap.config.json)` : '';
   lines.push(p.dim(`  checking it  ${usd(r.costs.checking.decisions)} asking, ${usd(r.costs.checking.verify)} verifying${unpriced}`));
   lines.push('', p.bold('What to set'));
-  if (!r.set.flags.length && !r.set.fields.some((f) => f.leftOut)) lines.push(`  only the model: ${r.to}`);
-  for (const f of r.set.fields) lines.push(`  ${f.leftOut ? `leave ${f.field} out` : `${f.field}=${fieldValue(f.value)}`}  ${p.dim(safeLine(f.why))}`);
+  if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`  only the model: ${r.to}`);
+  for (const f of r.set.fields) lines.push(`  ${remedyText(f)}  ${p.dim(safeLine(f.why))}`);
   for (const [k, v] of Object.entries(r.set.given)) lines.push(`  ${k}=${fieldValue(v)}  ${p.dim('as given')}`);
   if (r.set.flags.length) lines.push(p.dim(`  verify takes them as: ${r.set.flags.join(' ')}`));
-  if (r.configChange) {
+  if (r.configChange?.files.length) {
     lines.push('', p.bold('The config change'), ...r.configChange.files.map((f) => `  ${f.path}  ${p.dim(`${f.places} place${f.places === 1 ? '' : 's'}`)}`));
+  }
+  if (r.configChange?.review.length) {
+    lines.push(p.dim(`  left for review:`), ...r.configChange.review.slice(0, 8).map((m) => p.dim(`    ${m.path}:${m.line}  ${m.text}`)), ...(r.configChange.review.length > 8 ? [p.dim(`    and ${r.configChange.review.length - 8} more`)] : []));
   }
   if (r.warnings.length) lines.push('', ...r.warnings.map((w) => `${p.yellow('!')} ${safeLine(w)}`));
   lines.push('', ...r.notes.map((n) => p.dim(`  ${safeLine(n)}`)));

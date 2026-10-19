@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,10 +32,10 @@ afterAll(async () => {
   rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, dir: string = cwd): Promise<{ code: number | null; out: string; stdout: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, '--db', db, ...args], {
-      cwd,
+      cwd: dir,
       env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(cwd, 'home'), ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -47,8 +47,8 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code:
   });
 }
 
-async function record(env: NodeJS.ProcessEnv = {}): Promise<string> {
-  const r = await shadowlap(['run', '--', process.execPath, AGENT], env);
+async function record(env: NodeJS.ProcessEnv = {}, dir: string = cwd): Promise<string> {
+  const r = await shadowlap(['run', '--', process.execPath, AGENT], env, dir);
   expect(r.code, r.out).toBe(0);
   return /recording run (\w{26})/.exec(r.out)![1]!;
 }
@@ -249,6 +249,8 @@ describe('shadowlap decisions', () => {
     expect(report.verify).toMatchObject({ verdict: 'accepted', runs: [{ runId: full, role: 'good', outcome: 'kept' }] });
     expect(report.verify!.verifyIds).toHaveLength(1);
     expect(report.verify!.commands[0]).toBe(`shadowlap verify --keeps ${full.slice(0, 10)} --attempts 2`);
+    // The command that asks the same way again carries every option given.
+    expect(report.command).toBe(`shadowlap decisions ${full} ${shortId} --from-code --then-verify --attempts 2`);
     expect(r.code, r.out).toBe(0);
     // Verify's attempts replayed the flagged run and nothing else.
     const store = Store.open(db);
@@ -278,8 +280,108 @@ describe('shadowlap decisions', () => {
     const runId = await record();
     const r = await shadowlap(['decisions', runId, '--model', 'claude-opus-5', '--json'], { SHADOWLAP_UPSTREAM_ANTHROPIC: '', ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '', ANTHROPIC_BASE_URL: '' });
     expect(r.code).toBe(1);
-    expect(json<{ outcome: string; error: { message: string } }>(r)).toEqual({ kind: 'decisions', outcome: 'error', error: { message: 'nothing was sent: no Anthropic key: set ANTHROPIC_API_KEY' } });
+    const refusal = json<{ outcome: string; error: { message: string } }>(r);
+    expect(refusal).toEqual({ kind: 'decisions', outcome: 'error', error: { message: 'nothing was sent: no Anthropic key: set ANTHROPIC_API_KEY' } });
+    const shape = departures('decisionsError', refusal);
+    expect([...shape.missing, ...shape.extra]).toEqual([]);
   }, 120_000);
+
+  it('flags a change by what most samples show: a write changed in 1 of 3 is listed, not flagged', async () => {
+    const runId = await record();
+    const emailStep = callOf(runId, 'send_email');
+    // mock-coin words the email its own way the first time it is asked at that turn, and as recorded after.
+    const r = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3', '--strict', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = json<DecisionsReport>(r);
+    const step = report.runs[0]!.decisions.find((s) => s.callNo === emailStep)!;
+    expect(step).toMatchObject({ rank: 1, majority: null, samples: { asked: 3, answered: 3, changed: 1 } });
+    expect(step.samples.ranks.slice().sort()).toEqual([0, 0, 1]);
+    expect(report.runs[0]).toMatchObject({ rank: 1, majority: null });
+    expect(report.flagged).toEqual([]);
+    expect(report.notes).toContain("1 step decided a write or when to stop differently in fewer than half its samples: listed, not flagged, as a model's own variation.");
+    const text = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3']);
+    expect(text.stdout).toMatch(/rank 1 +send_email is called with other arguments · in 1 of 3 samples, fewer than half: not flagged/);
+  }, 120_000);
+
+  it("masks what the project's redaction rules mask in the report, as every copy that leaves the machine is", async () => {
+    const project = join(cwd, 'redacted');
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: '/Replay works/', replace: '<masked>' }] }));
+    const runId = await record({}, project);
+    const r = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5', '--json'], {}, project);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).not.toContain('Replay works');
+    const report = json<DecisionsReport>(r);
+    const email = report.runs[0]!.decisions[0]!;
+    expect(email.changes[0]).toMatchObject({ kind: 'write-arguments', before: { body: '<masked>.' }, after: { body: '<masked>; forks fence writes.' } });
+    expect(email.recorded.tools[0]!.args).toMatchObject({ body: '<masked>.' });
+    expect(report.notes).toContain("The project's redaction rules masked the values this report shows, as they mask every copy of a run that leaves the machine.");
+    // The comparison read the values themselves: the email still changed, rank 1.
+    expect(report.flagged).toEqual([runId]);
+    const text = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5'], {}, project);
+    expect(text.stdout).not.toContain('Replay works');
+    expect(text.stdout).toContain('send_email.body: "<masked>." → "<masked>; forks fence writes."');
+  }, 120_000);
+
+  it("takes a tool's effect from the config first: what you declare today outranks what an old recording said", async () => {
+    const project = join(cwd, 'declared');
+    mkdirSync(project, { recursive: true });
+    // fetch_page was recorded as a read; the config now says it writes.
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ mcp: { effects: { fetch_page: 'write' } } }));
+    const runId = await record({}, project);
+    const r = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5', '--json'], {}, project);
+    expect(r.code, r.out).toBe(0);
+    const report = json<DecisionsReport>(r);
+    const fetch = report.runs[0]!.decisions.find((s) => s.changes.some((c) => c.tool === 'fetch_page'))!;
+    expect(fetch).toMatchObject({ rank: 1, changes: [{ kind: 'write-removed', tool: 'fetch_page', effect: 'write', detail: 'fetch_page is no longer called' }] });
+    expect(fetch.recorded.tools.find((t) => t.name === 'fetch_page')!.effect).toBe('write');
+    // Where the config says nothing, the run's own effects stand: the search is still a read asked differently.
+    expect(report.runs[0]!.decisions.find((s) => s.changes.some((c) => c.tool === 'search_web'))).toMatchObject({ rank: 4 });
+  }, 120_000);
+
+  it("verifies a kept session's flagged runs with --verify, each golden under its own checks", async () => {
+    const project = join(cwd, 'verify-session');
+    mkdirSync(join(project, 'goldens'), { recursive: true });
+    // Two goldens of the same agent, judged by different checks: one must email exactly once, one at most once.
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/exactly': { expect: { tools: { send_email: 1 } } }, 'goldens/at-most': { expect: { tools: { send_email: '<= 1' } } } } }));
+    for (const name of ['exactly', 'at-most']) {
+      const runId = await record({}, project);
+      const packed = await shadowlap(['pack', runId, `goldens/${name}`], {}, project);
+      expect(packed.code, packed.out).toBe(0);
+    }
+    const noEmail = { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' };
+    const asked = await shadowlap(['decisions', 'goldens/*', '--from-code', '--json'], noEmail, project);
+    expect(asked.code, asked.out).toBe(0);
+    const session = json<DecisionsReport>(asked);
+    expect(session.flagged).toHaveLength(2);
+    const before = mock.requests.length;
+
+    const r = await shadowlap(['decisions', '--verify', session.decisionsId!, '--attempts', '1', '--json'], noEmail, project);
+    // The agent no longer emails: the golden that must email once breaks, the other keeps passing.
+    expect(r.code, r.out).toBe(1);
+    const out = json<{ sessionId: string; kind: string; verify: NonNullable<DecisionsReport['verify']>; passes: null }>(r);
+    expect(out).toMatchObject({ sessionId: session.decisionsId, kind: 'decisions', passes: null, verify: { verdict: 'rejected' } });
+    const outcome = Object.fromEntries(out.verify.runs.map((x) => [session.runs.find((y) => y.runId === x.runId)!.golden, [x.role, x.outcome]]));
+    expect(outcome).toEqual({ 'goldens/exactly': ['good', 'broken'], 'goldens/at-most': ['good', 'kept'] });
+    // One verify per set of checks, each with its golden's.
+    expect(out.verify.commands).toHaveLength(2);
+    expect(out.verify.commands.some((c) => c.includes(`--expect '{"tools":{"send_email":1}}'`))).toBe(true);
+    expect(out.verify.commands.some((c) => c.includes(`--expect '{"tools":{"send_email":"<= 1"}}'`))).toBe(true);
+    // Nothing was asked again: the model calls verify made are its attempts' own.
+    expect(mock.requests.length - before).toBeGreaterThan(0);
+    const shape = departures('decisionsSessionVerify', out);
+    expect([...shape.missing, ...shape.extra]).toEqual([]);
+    // Kept in the session, for its page.
+    const store = Store.open(db);
+    try {
+      expect(store.getDecisionSession(session.decisionsId!)!.data).toMatchObject({ verify: { verdict: 'rejected', commands: out.verify.commands } });
+    } finally {
+      store.close();
+    }
+    const unknown = await shadowlap(['decisions', '--verify', 'dc-01ZZZZZZZZZZZZZZZZZZZZZZZZ', '--json'], {}, project);
+    expect(unknown.code).toBe(1);
+    expect(json<{ error: { message: string } }>(unknown).error.message).toMatch(/^no session dc-01Z/);
+  }, 240_000);
 
   it('stops at its budget and says so', async () => {
     const runId = await record();
