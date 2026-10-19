@@ -35,7 +35,7 @@ Thumbs.db
 vitest-junit.xml
 shadowlap-junit.xml
 
-# What scripts/ renders (the demo animation, screenshots, the dashboard tour)
+# What scripts/dashboard-video.mjs renders (the dashboard tour); the README's pictures go to .github/assets/readme/
 scripts/out/
 
 # Scratch projects the framework tests create

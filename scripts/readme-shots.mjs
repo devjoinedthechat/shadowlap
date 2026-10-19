@@ -1,78 +1,196 @@
 #!/usr/bin/env node
-// Renders scripts/out/dashboard-dark.png, and the same picture as dashboard-light.png (the dashboard is
-// dark only; the README's <picture> names both): the dashboard on a real fork of the reference agent
-// (recorded against the scripted mock API, so no key), captured with headless Chrome.
-// Usage: node scripts/readme-shots.mjs   (after `npm run build`; CHROME=/path/to/chrome to choose a browser)
-import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+// The README's dashboard pictures, taken from the real dashboard on the demo project that
+// scripts/demo-store.mjs builds (Northwind's support agents, every run made by the CLI against the
+// mock providers in testing/):
+//
+//   dashboard-fork.png   the ticket agent's refund run forked at #17 by --override (what if
+//                        lookup_policy had returned the EU limit?), with the request that changed
+//   dashboard-fix.png    the refund fix: the call blame found the runs were lost at, the prompt
+//                        repair proposed, and verify's verdict on every failing and good run
+//
+//   npm run build && node scripts/readme-shots.mjs [<demo folder>]
+//
+// Without a folder it builds the demo project in a temporary one first (about a minute) and removes
+// it afterwards; with one, it uses what scripts/demo-store.mjs built there. It starts `shadowlap
+// dashboard` in the project, as anyone would, and takes each picture with headless Chrome at twice
+// the pixels, into .github/assets/readme/ (CHROME=/path/to/chrome chooses the browser). The dashboard
+// runs with the demo folder as its home folder, so the paths it shows are the ones a project in your
+// home folder shows (~/support-agent), never this machine's. The dashboard is dark only. Run ids,
+// commits, dates, times and durations differ from build to build; the rest comes out the same.
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { devNull, tmpdir } from 'node:os';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const cli = join(root, 'packages', 'cli', 'bin', 'shadowlap.js');
+const CLI = join(root, 'packages', 'cli', 'bin', 'shadowlap.js');
+const outDir = join(root, '.github', 'assets', 'readme');
+/** Each picture's largest size: the README's pictures stay light. */
+const MAX_BYTES = 450 * 1024;
 
 const chrome = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find((p) => p && existsSync(p));
 if (!chrome) {
   console.error('readme-shots: no Chrome found; set CHROME=/path/to/chrome');
   process.exit(1);
 }
+if (!existsSync(join(root, 'packages', 'dashboard', 'dist', 'ui', 'index.html'))) {
+  console.error('readme-shots: the dashboard is not built; run npm run build first');
+  process.exit(1);
+}
 
-// A neutral working directory and command, so the pictures show `node agent.js`, not a local path.
-const work = mkdtempSync(join(tmpdir(), 'shadowlap-demo-'));
-writeFileSync(join(work, 'agent.js'), `import ${JSON.stringify(pathToFileURL(join(root, 'testing', 'reference-agent', 'dist', 'main.js')).href)};\n`);
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const given = process.argv[2];
+const scratch = mkdtempSync(join(tmpdir(), 'shadowlap-shots-'));
+const children = [];
 
-const mock = spawn(process.execPath, [join(root, 'testing', 'reference-agent', 'dist', 'mock-server.js')], { stdio: ['ignore', 'pipe', 'ignore'] });
-const mockUrl = await new Promise((ok, fail) => {
-  let buf = '';
-  mock.stdout.on('data', (c) => {
-    buf += c;
-    const m = /http:\/\/[^\s]+/.exec(buf);
-    if (m) ok(m[0]);
+/** Runs a child to its end; its output is shown only when it fails. */
+function run(command, args, options) {
+  return new Promise((done, fail) => {
+    const child = spawn(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.stderr.on('data', (d) => (out += d));
+    child.on('error', fail);
+    child.on('close', (code) => (code === 0 ? done(out) : fail(new Error(`${[command, ...args].join(' ')} exited with ${code}:\n${out}`))));
   });
-  mock.on('exit', () => fail(new Error('mock server exited')));
-});
-const env = { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mockUrl, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', AGENT_DATE: '2026-09-16' };
-const fp = (...args) => {
-  const r = spawnSync(process.execPath, [cli, ...args], { cwd: work, env, encoding: 'utf8' });
-  if (r.status !== 0 && args[0] !== 'replay') throw new Error(`shadowlap ${args.join(' ')} failed:\n${r.stderr}`);
-  return `${r.stdout}${r.stderr}`;
-};
-fp('run', '--', 'node', 'agent.js');
-const recording = /Recorded (\S+):/.exec(fp('ls'))?.[1] ?? fp('ls').split(/\s+/)[0];
-fp('replay', recording);
-fp('replay', recording, '--inject', '17=Prefer sources from 2026.');
-mock.kill();
+}
 
-const { Store } = await import(pathToFileURL(join(root, 'packages', 'engine', 'dist', 'index.js')).href);
-const { startDashboard } = await import(pathToFileURL(join(root, 'packages', 'dashboard', 'dist', 'index.js')).href);
-const dbPath = join(work, '.shadowlap', 'shadowlap.db');
-const store = Store.open(dbPath);
-const fork = store.allRuns().find((r) => r.divergence?.callNo === 17);
-if (!fork) throw new Error('the fork at call 17 was not recorded');
-const version = JSON.parse(readFileSync(join(root, 'packages', 'cli', 'package.json'), 'utf8')).version;
-// Actions enabled, as `shadowlap dashboard` starts it; nothing is run while the pictures are taken.
-const spawnCli = (args) => spawn(process.execPath, [cli, '--db', dbPath, ...args], { cwd: work, env, stdio: ['ignore', 'pipe', 'pipe'] });
-const dash = await startDashboard({ store, dbPath, version, spawnCli });
+try {
+  // ---- the demo project ----
+  let folder;
+  if (given) {
+    folder = realpathSync(resolve(given));
+    if (!existsSync(join(folder, 'runs.json'))) throw new Error(`readme-shots: ${folder} holds no demo project (no runs.json); build one with scripts/demo-store.mjs`);
+  } else {
+    folder = join(realpathSync(scratch), 'demo');
+    console.log('building the demo project (about a minute)…');
+    await run(process.execPath, [join(root, 'scripts', 'demo-store.mjs'), folder], { cwd: root });
+  }
+  const { runs } = JSON.parse(readFileSync(join(folder, 'runs.json'), 'utf8'));
+  for (const key of ['override', 'refundFix']) if (!runs[key]) throw new Error(`readme-shots: the demo project has no ${key} (runs.json); build it again without --fast`);
 
-// Chrome must run asynchronously: the dashboard serving it lives on this event loop.
-const shot = (out) =>
-  new Promise((ok, fail) => {
-    const args = ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=2', '--window-size=1440,900', '--virtual-time-budget=8000', `--screenshot=${out}`, dash.runUrl(fork.runId, 17)];
-    const child = spawn(chrome, args, { stdio: 'ignore' });
-    const timer = setTimeout(() => child.kill(), 60_000);
-    child.on('exit', () => {
-      clearTimeout(timer);
-      if (!existsSync(out)) return fail(new Error(`Chrome wrote no screenshot to ${out}`));
-      console.log(`wrote ${out} (${(statSync(out).size / 1024).toFixed(0)} KB)`);
-      ok();
+  // ---- the dashboard, as `shadowlap dashboard` starts it in the project ----
+  const LEAKS = /^(SHADOWLAP_|ANTHROPIC_|OPENAI_|GOOGLE_|GEMINI_|AWS_|AZURE_|LANGFUSE_|LANGSMITH_|OTEL_|GIT_|GITHUB_|GITLAB_|BITBUCKET_|BUILDKITE|CIRCLECI|JENKINS_URL|TF_BUILD|CI$|NODE_OPTIONS|PYTHONPATH|GH_)/;
+  const env = {
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !LEAKS.test(k))),
+    HOME: folder,
+    NO_COLOR: '1',
+    SHADOWLAP_TELEMETRY: '0',
+    SHADOWLAP_HOME: join(folder, 'home'),
+    SHADOWLAP_PROJECT_ROOTS: folder,
+    SHADOWLAP_AUTHOR: 'dana@example.com',
+    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  const port = 20000 + Math.floor(Math.random() * 10000);
+  const dash = spawn(process.execPath, [CLI, 'dashboard', '--no-open', '--port', String(port)], { cwd: join(folder, 'support-agent'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+  children.push(dash);
+  const link = await new Promise((done, fail) => {
+    let out = '';
+    const timer = setTimeout(() => fail(new Error(`readme-shots: the dashboard printed no link:\n${out}`)), 30_000);
+    const look = (d) => {
+      out += d;
+      const m = /http:\/\/127\.0\.0\.1:\d+\/#token=[\w-]+/.exec(out);
+      if (m) {
+        clearTimeout(timer);
+        done(m[0]);
+      }
+    };
+    dash.stdout.on('data', look);
+    dash.stderr.on('data', look);
+    dash.on('close', () => fail(new Error(`readme-shots: the dashboard stopped:\n${out}`)));
+  });
+
+  // ---- Chrome over the DevTools protocol ----
+  const devtools = 9400 + Math.floor(Math.random() * 400);
+  const browser = spawn(chrome, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--force-color-profile=srgb', `--remote-debugging-port=${devtools}`, `--user-data-dir=${join(scratch, 'chrome')}`, 'about:blank'], { stdio: 'ignore' });
+  children.push(browser);
+  let targets = [];
+  for (let i = 0; i < 150 && !targets.length; i++) {
+    try {
+      targets = (await (await fetch(`http://127.0.0.1:${devtools}/json`)).json()).filter((t) => t.type === 'page');
+    } catch {
+      await wait(100);
+    }
+  }
+  if (!targets.length) throw new Error('readme-shots: Chrome did not start');
+  const ws = new WebSocket(targets[0].webSocketDebuggerUrl);
+  await new Promise((r) => ws.addEventListener('open', r));
+  let seq = 0;
+  const pending = new Map();
+  ws.addEventListener('message', (e) => {
+    const m = JSON.parse(e.data);
+    if (m.id && pending.has(m.id)) {
+      pending.get(m.id)(m);
+      pending.delete(m.id);
+    }
+  });
+  const send = (method, params = {}) =>
+    new Promise((ok, fail) => {
+      const id = ++seq;
+      pending.set(id, (m) => (m.error ? fail(new Error(`${method}: ${m.error.message}`)) : ok(m.result)));
+      ws.send(JSON.stringify({ id, method, params }));
     });
-  });
-mkdirSync(join(root, 'scripts', 'out'), { recursive: true });
-const dark = join(root, 'scripts', 'out', 'dashboard-dark.png');
-await shot(dark);
-copyFileSync(dark, join(root, 'scripts', 'out', 'dashboard-light.png'));
+  const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result?.value;
+  async function until(expression, what, ms = 30_000) {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      if (await evaluate(expression)) return;
+      await wait(100);
+    }
+    throw new Error(`readme-shots: timed out waiting for ${what}`);
+  }
+  await send('Page.enable');
 
-await dash.close();
-store.close();
-rmSync(work, { recursive: true, force: true });
+  // ---- the pictures ----
+  const origin = link.split('/#')[0];
+  const token = /token=([\w-]+)/.exec(link)[1];
+  const text = (s) => `document.body.innerText.includes(${JSON.stringify(s)})`;
+  const shots = [
+    {
+      file: 'dashboard-fork.png',
+      open: `/run/${runs.override}`,
+      async ready() {
+        await until(`!!document.querySelector('.banner.fork') && !!document.querySelector('.cells')`, 'the fork’s banner and calls');
+        // The diff of the request that changed opens from the banner.
+        await evaluate(`[...document.querySelectorAll('.banner.fork button')].find((b) => b.textContent.trim() === 'Show diff')?.click()`);
+        await until(`!!document.querySelector('.diffpanel')`, 'the fork’s diff');
+      },
+    },
+    {
+      file: 'dashboard-fix.png',
+      open: `/fixes/${runs.refundFix}`,
+      async ready() {
+        await until(`${text('Every failing run fixed')} && ${text('Lost at model call')}`, 'the fix’s verdict');
+      },
+    },
+  ];
+  mkdirSync(outDir, { recursive: true });
+  const W = 1280;
+  const H = 800;
+  for (const shot of shots) {
+    await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 2, mobile: false });
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await send('Page.navigate', { url: `${origin}/#token=${token}&open=${shot.open}` });
+    await shot.ready();
+    await evaluate('document.fonts.ready.then(() => true)');
+    await wait(700);
+    const { data } = await send('Page.captureScreenshot', { format: 'png' });
+    const file = join(outDir, shot.file);
+    writeFileSync(file, Buffer.from(data, 'base64'));
+    const bytes = statSync(file).size;
+    console.log(`wrote ${relative(root, file)}: ${W * 2}×${H * 2}, ${(bytes / 1024).toFixed(0)} KB`);
+    if (bytes > MAX_BYTES) throw new Error(`readme-shots: ${shot.file} is ${(bytes / 1024).toFixed(0)} KB, over the ${MAX_BYTES / 1024} KB a README picture may weigh`);
+  }
+  ws.close();
+} finally {
+  for (const child of children.reverse()) {
+    if (child.exitCode !== null || child.signalCode !== null) continue;
+    const gone = new Promise((r) => child.once('close', r));
+    child.kill('SIGTERM');
+    await Promise.race([gone, wait(10_000)]);
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  }
+  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+}
