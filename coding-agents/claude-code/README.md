@@ -10,15 +10,26 @@ It needs the `shadowlap` CLI on the PATH, in a project whose agent runs are reco
 
 ## Install
 
-The repository is its own plugin marketplace:
+Into the project, where Claude Code loads it for everyone working on it once they trust the folder:
 
 ```sh
-claude plugin marketplace add devjoinedthechat/shadowlap
-claude plugin install shadowlap@shadowlap
+shadowlap skill install
 ```
 
-From a clone, add its folder instead (`claude plugin marketplace add ./shadowlap`), or load the plugin
-for one session with `claude --plugin-dir shadowlap/coding-agents/claude-code`.
+That writes the copy that came with the CLI to `.claude/skills/shadowlap/`: commit it. Nothing is
+downloaded, and the skill names the commands your CLI takes. After upgrading Shadowlap,
+`shadowlap skill install --force` brings it to the new version.
+
+For every project on your machine instead, from the repository, which is its own plugin
+marketplace, at your CLI's version (the last command moves an earlier install to it):
+
+```sh
+claude plugin marketplace add devjoinedthechat/shadowlap@v$(shadowlap --version)
+claude plugin install shadowlap@shadowlap
+claude plugin update shadowlap@shadowlap
+```
+
+From a clone, `claude --plugin-dir shadowlap/coding-agents/claude-code` loads it for one session.
 
 ## What it may run without asking
 

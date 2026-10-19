@@ -5,6 +5,7 @@ import { register as registerImport } from './commands/import.js';
 import { register as registerInspect } from './commands/inspect.js';
 import { register as registerRecord } from './commands/record.js';
 import { register as registerSetup } from './commands/setup.js';
+import { register as registerSkill } from './commands/skill.js';
 import { register as registerTeam } from './commands/team.js';
 import { register as registerTesting } from './commands/testing.js';
 import { register as registerTraining } from './commands/training.js';
@@ -32,6 +33,8 @@ export async function main(argv: string[]): Promise<void> {
   registerFix(program);
   registerTesting(program);
   registerSetup(program);
+  // The coding agents' plugin and rule, under "Set up:" too.
+  registerSkill(program);
   program.helpCommand(true); // listed under "Set up:" rather than a group of its own
   registerImport(program);
   registerData(program);

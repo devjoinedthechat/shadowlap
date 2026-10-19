@@ -151,7 +151,7 @@ export interface CodingAgentsSettings {
   /** The section to paste, from docs/agents.md; null when the docs aren't installed with the dashboard. */
   section: string | null;
   source: string;
-  /** The same instructions as a Claude Code plugin and a Cursor rule, with their install once published (agent-skill.ts). */
+  /** The same instructions as a Claude Code plugin and a Cursor rule: what the project has of each, and their install (agent-skill.ts). */
   skill: SkillOffer;
 }
 
@@ -500,8 +500,8 @@ const inside = (path: string, root: string) => {
 
 /**
  * The Coding agents tab: which instruction files the project has and whether each mentions
- * Shadowlap yet, the section to paste, and the plugin and rule that package it, with their install
- * once they are published. Only a yes or no leaves each file, never its text. A
+ * Shadowlap yet, the section to paste, and the plugin and rule that package it: what the project has
+ * of each, and their install. Only a yes or no leaves each file, never its text. A
  * `.cursor/rules` folder that is a link to somewhere outside the project is not looked through.
  */
 export function codingAgentsSettings(ctx: Pick<SettingsContext, 'cwd'>, options: { agentsDoc?: string | null; skill?: SkillOffer } = {}): CodingAgentsSettings {
@@ -525,7 +525,7 @@ export function codingAgentsSettings(ctx: Pick<SettingsContext, 'cwd'>, options:
     return { path, agents, found: st.isFile(), type: st.isFile() ? 'file' : null, mentions: st.isFile() && mentionsIn(full) };
   });
   const doc = options.agentsDoc !== undefined ? options.agentsDoc : readShippedDoc('agents.md');
-  return { files, section: doc === null ? null : agentsSection(doc), source: 'docs/agents.md', skill: options.skill ?? skillOffer() };
+  return { files, section: doc === null ? null : agentsSection(doc), source: 'docs/agents.md', skill: options.skill ?? skillOffer({ cwd: ctx.cwd }) };
 }
 
 /** The fenced block under "Instructions to give it" in docs/agents.md: what to paste into CLAUDE.md. */

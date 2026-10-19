@@ -6,8 +6,9 @@ name: Coding agents
 # JSON fields they say to read are there and that the checks they show parse, so the instructions
 # never drift from the CLI. The same tests hold the skill's frontmatter and the Cursor rule to their
 # formats (testing/coding-agents/test/formats.test.ts). Then Claude Code's own validator checks the
-# plugin's manifest and the repository's marketplace file; it reads a skill only for its description,
-# which is why the format checks are in the tests.
+# plugin's manifest, the repository's marketplace file and the copy `shadowlap skill install` puts in
+# a project; it reads a skill only for its description, which is why the format checks are in the
+# tests.
 on:
   push:
     branches: [main]
@@ -32,13 +33,17 @@ jobs:
       - run: npm run build
       - name: Run every command the skill, the rule and the pasted section name
         run: npx vitest run testing/coding-agents
-      - name: Validate the plugin and the marketplace with Claude Code
+      - name: Validate the plugin, the marketplace and an installed copy with Claude Code
         # The validator reads files only: no sign-in, no model call. Pinned, so a new release of it
         # changes this job only when the version here does.
         env:
           DISABLE_AUTOUPDATER: '1'
           DISABLE_TELEMETRY: '1'
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+          SHADOWLAP_TELEMETRY: '0'
         run: |
           npx --yes @anthropic-ai/claude-code@2.1.292 plugin validate --strict coding-agents/claude-code
           npx --yes @anthropic-ai/claude-code@2.1.292 plugin validate --strict .
+          mkdir "$RUNNER_TEMP/project"
+          (cd "$RUNNER_TEMP/project" && node "$GITHUB_WORKSPACE/packages/cli/bin/shadowlap.js" skill install)
+          npx --yes @anthropic-ai/claude-code@2.1.292 plugin validate --strict "$RUNNER_TEMP/project/.claude/skills/shadowlap"

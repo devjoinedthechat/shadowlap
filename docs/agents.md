@@ -1,6 +1,6 @@
 # Coding agents
 
-Claude Code, Cursor, Codex and other coding agents can debug an agent with Shadowlap the way you would: record a failing run, read where it went wrong, change the code, and replay to check the fix, without paying for the model calls that didn't change. They need no plugin or MCP server: the CLI is the interface, and every command they need reads and writes JSON. What they need to know about it comes packaged, as a [Claude Code plugin](#claude-code) or a [Cursor rule](#cursor), or as a [section to paste](#instructions-to-give-it) into any other agent's instructions.
+Claude Code, Cursor, Codex and other coding agents can debug an agent with Shadowlap the way you would: record a failing run, read where it went wrong, change the code, and replay to check the fix, without paying for the model calls that didn't change. They need no plugin or MCP server: the CLI is the interface, and every command they need reads and writes JSON. What they need to know about it comes packaged, as a [Claude Code plugin](#claude-code) or a [Cursor rule](#cursor) that `shadowlap skill install` puts into the project, or as a [section to paste](#instructions-to-give-it) into any other agent's instructions.
 
 ## What an agent uses
 
@@ -25,24 +25,33 @@ A replay runs the agent's own command, so its output mixes with Shadowlap's on t
 
 ## Claude Code
 
-A plugin with one skill, `debug-agent`, which Claude loads when a task calls for it, or on purpose with `/shadowlap:debug-agent`. The repository is its own plugin marketplace:
+A plugin with one skill, `debug-agent`, which Claude uses when a task calls for it, or on purpose with `/shadowlap:debug-agent`. Put it into the project:
 
 ```sh
-claude plugin marketplace add devjoinedthechat/shadowlap
-claude plugin install shadowlap@shadowlap
+shadowlap skill install
 ```
 
-From a clone, add its folder instead (`claude plugin marketplace add ./shadowlap`), or load the plugin for one session with `claude --plugin-dir shadowlap/coding-agents/claude-code`. While Claude uses the skill, it may run the commands that only read (`shadowlap ls`, `show`, `search`, `diff` and `fix ls`) without asking: the grant lasts for the turn in which it loads the skill, and ends at your next message. Everything that runs the agent asks first, as any other command does. The plugin is in [coding-agents/claude-code](https://github.com/devjoinedthechat/shadowlap/tree/main/coding-agents/claude-code), and its version is the CLI's.
+It writes the plugin to `.claude/skills/shadowlap/` from the copy that comes with the CLI, so nothing is downloaded and the skill names the commands your CLI takes. Claude Code loads a plugin there for everyone working on the project, once they trust the folder: commit it. After upgrading Shadowlap, `shadowlap skill install --force` brings it to the new version; without `--force`, the command leaves alone whatever there isn't this version's copy, and says what differs ([`skill`](./cli.md#skill)).
+
+To have it in every project on your machine instead, install it from the repository, which is its own plugin marketplace, at your CLI's version. The last command moves an earlier install to that version, which installing again doesn't:
+
+```sh
+claude plugin marketplace add devjoinedthechat/shadowlap@v$(shadowlap --version)
+claude plugin install shadowlap@shadowlap
+claude plugin update shadowlap@shadowlap
+```
+
+From a clone, `claude --plugin-dir shadowlap/coding-agents/claude-code` loads it for one session. While Claude uses the skill, it may run the commands that only read (`shadowlap ls`, `show`, `search`, `diff` and `fix ls`) without asking: the grant lasts for the turn in which it loads the skill, and ends at your next message. Everything that runs the agent asks first, as any other command does. The plugin is in [coding-agents/claude-code](https://github.com/devjoinedthechat/shadowlap/tree/main/coding-agents/claude-code), and its version is the CLI's.
 
 ## Cursor
 
-A project rule, which Agent applies when it finds it relevant, holding the skill's instructions word for word. Copy [coding-agents/cursor/shadowlap.mdc](https://github.com/devjoinedthechat/shadowlap/blob/main/coding-agents/cursor/shadowlap.mdc) into the project's `.cursor/rules/` folder; from a clone:
+A project rule, which Agent applies when it finds it relevant, holding the skill's instructions word for word. Put it into the project:
 
 ```sh
-mkdir -p .cursor/rules && cp shadowlap/coding-agents/cursor/shadowlap.mdc .cursor/rules/
+shadowlap skill install cursor
 ```
 
-Settings → Coding agents in the [dashboard](./dashboard.md) shows `.cursor/rules` as mentioning Shadowlap from then on.
+It writes the rule to `.cursor/rules/shadowlap.mdc` from the copy that comes with the CLI, beside the project's own rules; `--force` replaces another version's rule, or one edited here. The rule is also in the repository: [coding-agents/cursor/shadowlap.mdc](https://github.com/devjoinedthechat/shadowlap/blob/main/coding-agents/cursor/shadowlap.mdc). Settings → Coding agents in the [dashboard](./dashboard.md) shows `.cursor/rules` as mentioning Shadowlap from then on.
 
 ## Instructions to give it
 
@@ -71,6 +80,6 @@ Agent runs are recorded with Shadowlap (`shadowlap run -- <command>`). To invest
 
 ## Kept in step with the CLI
 
-The skill, the rule and the section above say which commands to run word for word, so each is tested as an agent would use it: CI runs every command they name against the repository's reference agent, with a scripted fake of the model's API, and checks that the JSON fields they say to read are there ([coding-agents.yml](https://github.com/devjoinedthechat/shadowlap/blob/main/.github/workflows/coding-agents.yml)). A flag renamed, or a field moved, fails that job before a coding agent meets it.
+The skill, the rule and the section above say which commands to run word for word, so each is tested as an agent would use it: CI runs every command they name against the repository's reference agent, with a scripted fake of the model's API, checks that the JSON fields they say to read are there and that the checks they show parse ([coding-agents.yml](https://github.com/devjoinedthechat/shadowlap/blob/main/.github/workflows/coding-agents.yml)). A flag renamed, or a field moved, fails that job before a coding agent meets it. And the copy `shadowlap skill install` puts into a project is the one that came with your CLI, so the two stay in step there too.
 
 Shadowlap never passes credentials to the agent's process beyond what it already had, and a replay reaches a provider only for calls after the fork.

@@ -2,6 +2,7 @@ import type { RouteContext } from '../context.js';
 import type { Router } from '../router.js';
 import * as activity from './activity.js';
 import * as changes from './changes.js';
+import * as codingAgents from './coding-agents.js';
 import * as compare from './compare.js';
 import * as files from './files.js';
 import * as fixes from './fixes.js';
@@ -50,6 +51,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   fixes,
   tests,
   settings,
+  // Settings → Coding agents' install: the skill-install job kind.
+  codingAgents,
   // Several projects behind one dashboard: the switcher, Add a project, the setup, removing one.
   projects,
   // Training: pairs, tasks, scores and the models to score (#/training).

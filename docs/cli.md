@@ -644,6 +644,18 @@ shadowlap doctor [--json]
 
 Checks what support would check: Node and the built-in SQLite, the guard preloads, Python on the PATH (as `python3`, `python` or both, since an agent's command names one), the store (runs, size, schema, runs a killed process left marked running), a stale `.shadowlap/active.json`, the configuration (every rule, price and MCP effect parsed), and agent-process environment that leaked into your shell (`SHADOWLAP_URL`, `NODE_OPTIONS`, `PYTHONPATH`). Each problem comes with the fix. Exit status 1 when something is blocking. `--json` prints the checks as a list, each `{ "name", "verdict", "detail" }` with `verdict` `ok`, `warn` or `fail`, and a `fix` where there is one.
 
+## skill
+
+```sh
+shadowlap skill install [claude-code|cursor] [--force] [--json]
+```
+
+Puts the [coding agents' instructions](./agents.md) into the project you run it in, from the copy that comes with the CLI: nothing is downloaded, and the commands they name are the ones this CLI takes. `claude-code`, the default, writes the Claude Code plugin with its skill, `debug-agent`, to `.claude/skills/shadowlap/`, where Claude Code loads it for everyone working on the project once the folder is trusted; `cursor` writes the Cursor rule to `.cursor/rules/shadowlap.mdc`. A copy that is already this version's is left as it is.
+
+Anything else there (another version's copy, or one edited here) is left as it is too, and the command exits 1 saying which files differ. `--force` replaces them, which is how a project moves to the copy of a newer Shadowlap, and, for `claude-code`, removes the files in the plugin's folder that this version doesn't have, so an older version's skill stops loading. A link on the way that leads out of the project, or a link where the install puts a file, is refused with or without `--force`.
+
+`--json` prints `{ agent, path, version, before, installedVersion, outcome, files, reason }`: `before` is what was there (`missing`, `current`, `other-version` or `changed`), `installedVersion` the version the plugin there says it is, `outcome` is `installed`, `updated`, `unchanged` or `refused`, `files` lists each file's `path` and `action` (`written`, `replaced`, `removed` or `unchanged`, or for a refused install `differs` and `extra`, what it left), and `reason` says why it was refused. Exit status 0 unless it was refused. Settings → Coding agents in the [dashboard](./dashboard.md) runs it as the `skill-install` job.
+
 ## rm, gc
 
 ```sh

@@ -44,7 +44,8 @@ const EMAIL_TURN = TURNS.findIndex((t) => t.content.some((b) => b.type === 'tool
  * email turn again (a blame's probe), with the summary and no email, so a run that must send none is
  * rescued there.
  */
-let answers: 'scripted' | 'no-email' = 'scripted';
+type Answers = 'scripted' | 'no-email';
+let answers: Answers = 'scripted';
 function script(ctx: ScriptContext) {
   if (answers === 'no-email' && ctx.assistantTurns === EMAIL_TURN) return { message: message([text('The summary is ready; nothing was sent.')], { stop_reason: 'end_turn' }) };
   return referenceScript(ctx);
@@ -107,7 +108,7 @@ interface Variant {
   exits?: number[];
   env?: NodeJS.ProcessEnv;
   /** How the fake model answers what is asked live while it runs. */
-  answers?: typeof answers;
+  answers?: Answers;
   /** That what the instructions say comes back is there. */
   check?: (r: Ran) => void | Promise<void>;
 }

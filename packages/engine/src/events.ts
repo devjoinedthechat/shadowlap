@@ -42,6 +42,9 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  *   pullRequest? }, or { pushed, updated, refused, queued: true } for runs pushed when they ended;
  *   `store.pulled`: ref the bucket; data { pulled, merged, failed, byAuthor, pullRequests? }
  * - `run.shared`: runId, ref the report's key in the bucket; data { runs, redacted, expiresAt, pullRequest? }
+ * - `skill.installed`: ref the coding agent (`claude-code` or `cursor`); data { path, version, outcome
+ *   ('installed' or 'updated'), previous (the version replaced, or null) }: `shadowlap skill install`
+ *   put the plugin or the rule into the project
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

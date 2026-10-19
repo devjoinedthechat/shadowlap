@@ -95,10 +95,16 @@ describe('the plugin', () => {
 });
 
 describe('the section docs/agents.md gives to paste', () => {
-  it('is there, as Settings shows it, and tells where the packaged instructions are', () => {
+  it('is there, as Settings shows it, and tells where the packaged instructions are and how each installs', () => {
     const doc = read('docs/agents.md');
     expect(agentsSection(doc)).toMatch(/shadowlap replay/);
-    expect(doc).toContain(`claude plugin install ${SKILL_PLUGIN}`);
     expect(doc).toContain(CURSOR_RULE.source);
+    // Into the project, from the copy that came with the CLI; or everywhere, pinned to the CLI's
+    // version, with the update that moves an earlier install to it (installing again doesn't).
+    const everywhere = [`claude plugin marketplace add ${SKILL_REPOSITORY}@v$(shadowlap --version)\n`, `claude plugin install ${SKILL_PLUGIN}\n`, `claude plugin update ${SKILL_PLUGIN}\n`];
+    for (const line of ['shadowlap skill install\n', 'shadowlap skill install cursor\n', ...everywhere]) expect(doc, line).toContain(line);
+    // The plugin's README, which GitHub shows in its folder, gives the same.
+    const readme = read(`${PLUGIN_DIR}/README.md`);
+    for (const line of ['shadowlap skill install\n', ...everywhere]) expect(readme, line).toContain(line);
   });
 });
