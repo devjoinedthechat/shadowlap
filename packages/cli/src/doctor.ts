@@ -167,8 +167,12 @@ export function runDoctor(options: DoctorOptions): Check[] {
       const parts = [`${c.normalize.length} normalizer${c.normalize.length === 1 ? '' : 's'}`, `${c.redact.length} redaction rule${c.redact.length === 1 ? '' : 's'}`];
       if (c.prices) parts.push(`${Object.keys(c.prices).length} price override${Object.keys(c.prices).length === 1 ? '' : 's'}`);
       if (c.mcp) parts.push(`${Object.keys(c.mcp.effects).length} MCP effect${Object.keys(c.mcp.effects).length === 1 ? '' : 's'}`);
+      // Injection tests: the tools marked untrusted (or trusted again), where shadowlap injection plants.
+      if (c.tools) parts.push(`${Object.keys(c.tools).length} trust mark${Object.keys(c.tools).length === 1 ? '' : 's'}`);
       const tests = loadTests(cwd);
       if (tests.length) parts.push(`checks for ${tests.length} recording${tests.length === 1 ? '' : 's'}`);
+      const gates = tests.filter((t) => t.spec.injection).length;
+      if (gates) parts.push(`${gates} injection gate${gates === 1 ? '' : 's'}`);
       push('config', 'ok', `${configPath}: ${parts.join(', ')}`);
     } catch (err) {
       push('config', 'fail', `${configPath}: ${err instanceof Error ? err.message : String(err)}`, 'Fix the JSON; shadowlap normalize ls / redact ls print what is loaded.');
