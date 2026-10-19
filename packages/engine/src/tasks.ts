@@ -318,8 +318,9 @@ export function answersNothing(callName: string): boolean {
   return !isModelRequest(callName);
 }
 
+/** The agent's model calls: a judge check's call is none a model could take over. */
 function modelCalls(calls: readonly CallRecord[]): CallRecord[] {
-  return calls.filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && isModelRequest(c.name));
+  return calls.filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && isModelRequest(c.name) && !isJudgeCall(c));
 }
 
 const scopeOf = (c: CallRecord): string | null => (typeof c.meta.scope === 'string' ? c.meta.scope : null);
