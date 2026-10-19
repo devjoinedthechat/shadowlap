@@ -252,7 +252,8 @@ process.stdin.on('end', () => {
   process.stdout.write(report.slice(0, 20));
   // The rest arrives after this process has exited, from one that holds its stdout on, as the last
   // of a batch file's output can after cmd.exe has exited: the report is read once stdout closes.
-  require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => process.stdout.write(process.argv[1]), 300)', report.slice(20)], { stdio: ['ignore', 'inherit', 'inherit'] }).unref();
+  // On Windows a child that isn't detached shares this process's job, and dies with it.
+  require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => process.stdout.write(process.argv[1]), 300)', report.slice(20)], { stdio: ['ignore', 'inherit', 'inherit'], detached: process.platform === 'win32', windowsHide: true }).unref();
 });
 `;
       if (process.platform === 'win32') {

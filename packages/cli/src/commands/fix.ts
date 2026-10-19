@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
-import { Command, InvalidArgumentError } from 'commander';
+import { Command, InvalidArgumentError, Option } from 'commander';
 import { applyLeft, commandIsImported, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, prNumber, resolveFix, setFixTitle, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fixDetail, fixHref, fixList, ghReader, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget } from '../attempts.js';
@@ -11,7 +11,7 @@ import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-f
 import { blameCommand, recordRepairFix, recordVerifyFix, repairCommand, verifyCommand } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, openStore, parseChoice, parseIntArg, requireRun, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, missingStoreNote, parseChoice, parseIntArg, readStore, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 import { runVerify } from '../verify.js';
 import { HandOverError, handOver, RepairError, runRepair, splitHoldout } from '../repair.js';
@@ -173,7 +173,7 @@ async function targetsOf(runs: RunRecord[], command: string[], yes: boolean | un
   const out: Array<{ parent: RunRecord; argv: string[]; commandFromImport: boolean }> = [];
   for (const run of runs) {
     if (!command.length && !hasRecordedCommand(run)) {
-      throw new InvalidArgumentError(`${shortId(run.runId)} was imported from a capture and has no command to re-run. Give yours after --:\n  shadowlap ${verb} … -- python agent.py`);
+      throw new InvalidArgumentError(`${shortId(run.runId)} ${withoutCommand(run)} and has no command to re-run. Give yours after --:\n  shadowlap ${verb} … -- python agent.py`);
     }
     const argv = command.length ? command : run.command.argv;
     const commandFromImport = !command.length && commandIsImported(run);
@@ -215,12 +215,12 @@ export function register(program: Command): void {
       const spec = expect?.spec ?? null;
       const fields = parseFields(flags.set, flags.model);
 
-      const store = openStore(opts);
+      const store = readStore(opts);
       const parent = requireRun(store, runArg);
       const steps = store.getCalls(parent.runId).filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, flags.scope)).length;
       store.close();
       if (!command.length && !hasRecordedCommand(parent)) {
-        throw new InvalidArgumentError(`${shortId(parent.runId)} was imported from a capture and has no command to re-run. Give yours after --:\n  shadowlap blame ${shortId(parent.runId)} -- python agent.py`);
+        throw new InvalidArgumentError(`${shortId(parent.runId)} ${withoutCommand(parent)} and has no command to re-run. Give yours after --:\n  shadowlap blame ${shortId(parent.runId)} -- python agent.py`);
       }
       const argv = command.length ? command : parent.command.argv;
       const commandFromImport = !command.length && commandIsImported(parent);
@@ -294,7 +294,7 @@ export function register(program: Command): void {
       const spec = expect?.spec ?? null;
       const fields = parseFields(flags.set, flags.model);
 
-      const store = openStore(opts);
+      const store = readStore(opts);
       const roles: Array<[VerifyRole, string, string[] | undefined]> = [
         ['target', '--fixes', flags.fixes],
         ['holdout', '--holdout', flags.holdout],
@@ -363,7 +363,8 @@ export function register(program: Command): void {
     .option('--set <key=value>', 'blame\'s probes set this request field from the probed call on, e.g. temperature=1 for an agent recorded at 0 (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--attempts <n>', 'the gate: attempts per run, where the replay forks', parseIntArg, 5)
     .option('--passes <n>', 'the gate: attempts that must pass (default: 80%, rounded up)', parseIntArg)
-    .option('--max-growth <percent>', 'reject a fix that grows the input tokens per run by more than this', parsePercent, 0.25)
+    // Read in percent, kept as a share: the help shows the default as it is typed.
+    .addOption(new Option('--max-growth <percent>', 'reject a fix that grows the input tokens per run by more than this').argParser(parsePercent).default(0.25, '25'))
     .option('--build <command>', 'rebuild the agent after its source changes, e.g. "npm run build"')
     .option('--apply', 'leave the accepted fix in the working tree')
     .option('--branch <name>', 'commit the accepted fix to a new branch, without checking it out')
@@ -396,7 +397,7 @@ export function register(program: Command): void {
         throw new InvalidArgumentError((err as Error).message);
       }
 
-      const store = openStore(opts);
+      const store = readStore(opts);
       let fixes: RunRecord[];
       let holdout: RunRecord[];
       let keeps: RunRecord[];
@@ -509,7 +510,10 @@ function configuredRepairer(): string | null {
 /** A fix by its id or a unique prefix, or a FixIdError that says where to find one. */
 function requireFix(store: Store, idOrPrefix: string): StoredFix {
   const fix = resolveFix(store, idOrPrefix);
-  if (!fix) throw new FixIdError(`no fix matches "${idOrPrefix.trim()}" (see: shadowlap fix ls)`, 'unknown');
+  if (!fix) {
+    const note = missingStoreNote(store);
+    throw new FixIdError(`no fix matches "${idOrPrefix.trim()}"${note ? `: ${note}` : ' (see: shadowlap fix ls)'}`, 'unknown');
+  }
   return fix;
 }
 
@@ -533,10 +537,11 @@ function registerFixes(program: Command): void {
     .option('--status <status>', 'only fixes that are open, verified (applied ones too) or applied', parseChoice<FixStatus>(FIX_STATUSES))
     .option('--json', 'print the list as JSON, as the dashboard reads it')
     .action((flags: { status?: FixStatus; json?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const list = fixList(store, flags.status ? { status: flags.status } : {});
-        process.stdout.write((flags.json ? JSON.stringify(list, null, 2) : formatFixList(list, p)) + '\n');
+        const note = missingStoreNote(store);
+        process.stdout.write((flags.json ? JSON.stringify(list, null, 2) : note ? p.dim(`No fixes: ${note}`) : formatFixList(list, p)) + '\n');
       } finally {
         store.close();
       }
@@ -548,7 +553,7 @@ function registerFixes(program: Command): void {
     .argument('<fix>', 'a fix id or a unique prefix of it, such as fx-01K5CQ2E8M')
     .option('--json', 'print the fix as JSON, as the dashboard reads it')
     .action((arg: string, flags: { json?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const repairer = configuredRepairer();
         // The repair it suggests next, and whether its repairer can be asked from here (claude on the PATH).
@@ -567,7 +572,7 @@ function registerFixes(program: Command): void {
     .argument('<fix>', 'a fix id or a unique prefix of it')
     .argument('<title...>', 'the new title')
     .action((arg: string, words: string[]) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const updated = setFixTitle(store, requireFix(store, arg).fixId, words.join(' '));
         process.stdout.write(`${shortFixId(updated.fixId)} · ${safe(updated.title)}\n`);
@@ -583,7 +588,7 @@ function registerFixes(program: Command): void {
     .argument('[url]', 'the pull request opened for it')
     .option('--json', "print the fix's pull request as JSON")
     .action(async (arg: string, url: string | undefined, flags: { json?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const found = requireFix(store, arg);
         let pr = found.data.source?.pr ?? null;
@@ -626,7 +631,7 @@ function registerFixes(program: Command): void {
     .option('--json', 'print what was done as JSON (progress still goes to stderr)')
     .action(async (arg: string, flags: { goldens: string; test: boolean; build?: string; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
-      const store = openStore(opts);
+      const store = readStore(opts);
       const log = (line: string) => process.stderr.write(`${line}\n`);
       try {
         const found = requireFix(store, arg);

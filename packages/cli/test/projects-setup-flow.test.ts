@@ -168,9 +168,12 @@ describe('a project’s setup, step by step through the CLI', () => {
     if (!planned.ok) throw new Error(planned.error);
     const typo = await job(ctx, planned.plan.args, env);
     expect(typo.code).toBe(127);
+    // The job says why, and keeps no run of a command that never started.
+    expect(typo.out).toContain('✗ nod: command not found on PATH');
+    expect(typo.events.filter((e) => e.type === 'run' || e.type === 'link')).toEqual([]);
     const runId = /recording run (\w{26})/.exec(typo.out)![1]!;
     registry.noteRecording(id, runId, planned.plan.argv);
-    expect(host.setup(id)).toMatchObject({ stage: 'inspected', run: null, steps: { recorded: false }, empty: { runId, calls: 0, status: 'failed' } });
+    expect(host.setup(id)).toMatchObject({ stage: 'inspected', run: null, steps: { recorded: false }, empty: null });
     expect(() => host.finishSetup(id)).toThrow(expect.objectContaining({ code: 'setup' }));
     host.close();
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatSummary, summarizeRun } from '../src/report.js';
+import { divergenceLine, formatDivergence, formatSummary, summarizeRun } from '../src/report.js';
 import type { CallRecord, DivergenceReport, Origin, RunRecord } from '../src/types.js';
 
 const run = (divergence: DivergenceReport | null): RunRecord => ({
@@ -55,6 +55,37 @@ describe('formatSummary after a fork', () => {
   it('still says "not reached" when a replay without a fork stops early', () => {
     const text = formatSummary(summarizeRun(run(null), [call(1, 'api', 'POST /v1/messages', 'replayed')], notReached));
     expect(text).toContain('2 recorded calls not reached: #2 POST /v1/messages, #3 open_ticket');
+  });
+});
+
+describe('a replay that stops before its recording ends', () => {
+  const notReached = [
+    { callNo: 3, kind: 'api' as const, name: 'POST /v1/messages' },
+    { callNo: 4, kind: 'tool' as const, name: 'write_report' },
+    { callNo: 5, kind: 'clock' as const, name: 'Date.now' },
+  ];
+  const replayed = [call(1, 'api', 'POST /v1/messages', 'replayed'), call(2, 'tool', 'search', 'replayed')];
+  // As the session ends it, and the store keeps it on the run.
+  const early: DivergenceReport = { type: 'ended_early', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, recorded: 5, reason: 'the agent stopped after 2 of the 5 recorded calls, before making #3', counterpart: { runId: '01K5CQ4N7G0000000000000000', callNo: 3 } };
+
+  it('ended early, not clean: it names the first recorded call it never made, how much of the recording it replayed, and every call it never made', () => {
+    const text = formatSummary(summarizeRun(run(early), replayed, notReached));
+    expect(text).toContain('✗ Ended early at call 3: 2 of 5 recorded calls replayed (1 api, 1 tool)');
+    expect(text).not.toContain('Replay clean');
+    expect(text).not.toContain('Forked');
+    expect(text).toContain('3 recorded calls not reached: #3 POST /v1/messages, #4 write_report, #5 Date.now');
+  });
+
+  it('says so from the stored run alone, as show and the dashboard read it', () => {
+    expect(formatSummary(summarizeRun(run(early), replayed))).toContain('✗ Ended early at call 3: 2 of 5 recorded calls replayed');
+    expect(formatDivergence(early)).toBe('✗ Ended early at call 3 (api POST /v1/messages): 2 of 5 recorded calls replayed\n  every request the agent sent matched, but it stopped before its recording did, without making #3');
+    expect(divergenceLine(early)).toBe('ended early at call 3 (api POST /v1/messages): 2 of 5 recorded calls replayed');
+    expect(divergenceLine({ ...early, type: 'new_call' })).toBe('diverged at call 3 (api POST /v1/messages)');
+  });
+
+  it('is clean when only clock and random reads are left over', () => {
+    const s = summarizeRun(run(null), replayed, [{ callNo: 3, kind: 'clock', name: 'Date.now' }, { callNo: 4, kind: 'random', name: 'Math.random' }]);
+    expect(formatSummary(s)).toContain('✓ Replay clean: 2/2 calls replayed');
   });
 });
 

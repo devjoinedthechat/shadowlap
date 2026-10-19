@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
-import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync, type BigIntStats } from 'node:fs';
+import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, type BigIntStats } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, divergenceLine, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
@@ -15,7 +15,7 @@ import { type JunitCase } from './junit.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { noteUnrecordedTools } from './not-recorded.js';
 import { pushIfQueued, teamEnv } from './team.js';
-import { palette as p } from './ui.js';
+import { palette as p, shortId } from './ui.js';
 
 /** Running an agent command under a sidecar: its environment (base URLs, capture, the network guard), interventions, repeated attempts, and the offline replays of `shadowlap test` and `calibrate`. */
 
@@ -201,8 +201,11 @@ export async function testAttempt(
         setTimeout(() => kill('SIGKILL'), 5_000).unref();
       }, o.timeoutMs)
     : null;
+  // The command never started: why, in plain words (it isn't there, or the folder to run it in isn't).
+  let notStarted: ReturnType<typeof startFailure> | null = null;
   const code = await new Promise<number>((res) => {
     child.on('error', (err) => {
+      notStarted = startFailure(err, argv[0]!, o.cwd);
       output += `failed to start ${argv[0]}: ${err.message}\n`;
       res(127);
     });
@@ -237,27 +240,37 @@ export async function testAttempt(
   // Every value the report lists that changes every run gets its normalizer, not only the dates and
   // UUIDs the engine hints at: a request id too, and an id that may be a real change says so. A
   // value a rule in force masks already gets none: the report lists it, but it didn't diverge.
-  if (summary.divergence) {
+  // A replay that stopped short changed no request: its summary line says all there is.
+  const changed = summary.divergence && summary.divergence.type !== 'ended_early' ? summary.divergence : null;
+  if (changed) {
     const rules = [...o.normalizers, ...(parent.meta?.redactions ?? [])];
-    summary.divergence.hints = [...unmaskedHints(summary.divergence, rules), ...valueHints(summary.divergence, rules)];
+    changed.hints = [...unmaskedHints(changed, rules), ...valueHints(changed, rules)];
   }
-  const divergence = summary.divergence ? formatDivergence(summary.divergence) + '\n' : '';
+  const divergence = changed ? formatDivergence(changed) + '\n' : '';
   let failure: JunitCase['failure'];
   let kind: TestAttempt['kind'] = null;
   if (interrupted) {
     // Never a pass, whatever the agent did with the signal: an update must not keep it.
     kind = 'exit';
     failure = { message: `the replay was interrupted (${interrupted})`, details: divergence + formatSummary(summary) };
-  } else if (summary.divergence && !o.spec?.fork) {
+  } else if (changed && !o.spec?.fork) {
     kind = 'diverged';
-    failure = { message: `diverged at call ${summary.divergence.callNo} (${summary.divergence.kind} ${summary.divergence.name})`, details: divergence + formatSummary(summary) };
+    failure = { message: divergenceLine(changed), details: divergence + formatSummary(summary) };
   } else if (code !== 0 || timedOut) {
     // Stopped at the time limit fails, even when the agent caught the signal and exited 0.
     kind = 'exit';
-    failure = { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
+    // A command that never started did so for its own reason, whatever its empty summary would suggest about the environment.
+    const why = notStarted as ReturnType<typeof startFailure> | null;
+    failure = why ? { message: why.message, details: output.trim() } : { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
   } else if (summary.total === 0) {
     kind = 'no-calls';
     failure = { message: 'no calls were made', details: formatSummary(summary) };
+  } else if (summary.divergence && !o.spec?.fork) {
+    // Every request matched, but the agent stopped before the recording did: what it never sent
+    // (a write, the last model turn) is as much a change as a request sent differently. An exit
+    // code or no call at all, above, says more about why.
+    kind = 'diverged';
+    failure = { message: divergenceLine(summary.divergence), details: formatSummary(summary) };
   } else if (failedChecks.length) {
     kind = 'check';
     const first = failedChecks[0]!;
@@ -405,7 +418,59 @@ function teeOutput(child: ReturnType<typeof spawn>): () => string {
   return () => output;
 }
 
-export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string }> {
+/**
+ * Whether a program by this name is on PATH, as a shell would find it (on Windows with each of
+ * PATHEXT's extensions).
+ */
+export function onPath(name: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
+  const win = platform === 'win32';
+  const path = (win ? (env.Path ?? env.PATH) : env.PATH) ?? '';
+  const exts = win ? ['', ...(env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)] : [''];
+  return path.split(win ? ';' : delimiter).some((dir) => dir && exts.some((ext) => {
+    try {
+      return statSync(join(dir, name + ext)).isFile();
+    } catch {
+      return false;
+    }
+  }));
+}
+
+/**
+ * What to say when the agent's command isn't on PATH: `✗ pythn: command not found on PATH`, and for
+ * `python` where only `python3` is (macOS, most Linux distributions), or the other way round, the
+ * command again with the one that is there. `again` gives the command line to show for an argv.
+ */
+export function notFoundMessage(argv: readonly string[], again: (argv: string[]) => string, has: (name: string) => boolean = (name) => onPath(name)): string {
+  const lines = [`${p.red('✗')} ${argv[0]}: command not found on PATH`];
+  const other = argv[0] === 'python' ? 'python3' : argv[0] === 'python3' ? 'python' : argv[0] === 'pip' ? 'pip3' : null;
+  if (other && has(other)) lines.push(`  ${other} is on PATH: ${again([other, ...argv.slice(1)])}`);
+  return lines.join('\n');
+}
+
+/**
+ * Why the agent's command could not start, from spawn's error. Node says ENOENT both when the
+ * program isn't there and when the working directory isn't, so the two are told apart here: a
+ * missing folder is never blamed on PATH. A program that is there and still can't start (a script
+ * whose interpreter is missing) keeps spawn's own words. `notFound`: the program itself isn't there.
+ */
+export function startFailure(err: NodeJS.ErrnoException, argv0: string, cwd: string, has: (name: string) => boolean = (name) => onPath(name)): { notFound: boolean; message: string } {
+  if (err.code === 'ENOENT') {
+    let folder = false;
+    try {
+      folder = statSync(cwd).isDirectory();
+    } catch {
+      // no such folder
+    }
+    if (!folder) return { notFound: false, message: `${cwd}: working directory does not exist` };
+    // A path names the file itself; a bare name is looked up on PATH.
+    if (/[\\/]/.test(argv0)) {
+      if (!existsSync(resolve(cwd, argv0))) return { notFound: true, message: `${argv0}: no such file` };
+    } else if (!has(argv0)) return { notFound: true, message: `${argv0}: command not found on PATH` };
+  }
+  return { notFound: false, message: `failed to start ${argv0}: ${err.message}` };
+}
+
+export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean }> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
@@ -419,7 +484,6 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const run = start(sidecar);
   stampAuthor(store, run.runId);
   recordsInput(store, run.runId);
-  emitJobEvent({ type: 'run', runId: run.runId, role: 'new' });
   process.stderr.write(p.dim(`[shadowlap] ${run.mode === 'record' ? 'recording' : 'replaying'} run ${run.runId}\n`));
   // MCP clients often start servers with a minimal environment; `shadowlap mcp` finds the sidecar through this file.
   const activeFile = resolve(process.cwd(), '.shadowlap', 'active.json');
@@ -434,6 +498,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   }
 
   const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
+  // A dashboard job links to the run once its agent has started: one whose command isn't found is not kept.
+  child.once('spawn', () => emitJobEvent({ type: 'run', runId: run.runId, role: 'new' }));
   const output = extra.capture ? teeOutput(child) : () => '';
   let interrupted = false;
   // Heard before the run's status is settled: the listener that settles it comes after this one.
@@ -446,9 +512,11 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
+  // A command that never started (it isn't there, or can't be run): nothing ran, so nothing is kept of it.
+  let notStarted: ReturnType<typeof startFailure> | null = null;
   const code = await new Promise<number>((resolve) => {
     child.on('error', (err) => {
-      process.stderr.write(p.red(`failed to start ${argv[0]}: ${err.message}\n`));
+      notStarted = startFailure(err, argv[0]!, process.cwd());
       resolve(127);
     });
     if (extra.capture) onDrained(child, resolve);
@@ -465,6 +533,19 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     // gone already, or not ours to remove
   }
   const result = sidecar.endRun(run.runId, status);
+  const why = notStarted as ReturnType<typeof startFailure> | null;
+  if (why) {
+    // Not a failed recording, or a replay that made no calls: the agent never ran. The run goes, and
+    // so does the paragraph about the environment its empty summary would print.
+    store.deleteRun(run.runId);
+    await sidecar.close();
+    store.close();
+    const again = (a: string[]) => (run.mode === 'replay' && run.parentRunId ? `shadowlap replay ${shortId(run.parentRunId)} -- ${quoteArgv(a)}` : `shadowlap run -- ${quoteArgv(a)}`);
+    const said = why.notFound && !/[\\/]/.test(argv[0]!) ? notFoundMessage(argv, again) : `${p.red('✗')} ${why.message}`;
+    process.stderr.write(`${said}\n${p.dim(`  nothing ran, so run ${shortId(run.runId)} is not kept`)}\n`);
+    emitJobEvent({ type: 'result', data: { exitCode: code, summary: result.summary, started: false } });
+    return { code, run, summary: result.summary, output: output(), started: false };
+  }
   if (run.mode === 'record') noteUnrecordedTools(store, run.runId, process.cwd());
   await sidecar.close();
   store.close();
@@ -474,7 +555,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   await pushIfQueued(teamEnv(opts.db));
   telemetry().record({ type: run.mode === 'record' ? 'run' : 'replay', ...usageOf(result, Date.now() - run.startedAt, code) });
   await telemetry().flush();
-  return { code, run, summary: result.summary, output: output() };
+  return { code, run, summary: result.summary, output: output(), started: true };
 }
 
 export interface AttemptResult {
@@ -553,7 +634,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });
       if (!streaming) process.stderr.write(`${header}\n${output}${output.endsWith('\n') || !output ? '' : '\n'}`);
       const s = ended.summary;
-      const fork = s.divergence ? `fork @${s.divergence.callNo}` : 'clean';
+      const fork = s.divergence ? kindLabel('fork', s.divergence) : 'clean';
       const fenced = s.byOrigin.blocked + s.byOrigin.stubbed;
       process.stderr.write(p.dim(`   attempt ${i + 1}: ${fork} · ${s.byOrigin.live} live${fenced ? ` · ${fenced} writes fenced` : ''} · exit ${code} · ${formatDuration(s.durationMs ?? 0)}\n`));
     }

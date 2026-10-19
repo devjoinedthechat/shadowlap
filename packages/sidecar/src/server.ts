@@ -477,6 +477,9 @@ export class Sidecar {
   endRun(runId: string, status: Exclude<RunStatus, 'running'>): EndRunResult {
     const ctx = this.runs.get(runId);
     if (!ctx) throw new HttpError(404, `unknown run ${runId}`);
+    // A replay that never diverged but stopped before its recording did leaves it there: kept on
+    // the run, so everything that reads the store tells it from a clean replay.
+    if (ctx.session.end()) this.noteDivergence(ctx);
     this.store.endRun(runId, status);
     this.runs.delete(runId);
     if (this.activeRunId === runId) this.activeRunId = null;

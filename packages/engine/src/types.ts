@@ -249,7 +249,11 @@ export interface RunNote {
   at: number;
 }
 
-export type DivergenceType = 'request_changed' | 'new_call' | 'forced' | 'beyond_recording';
+/**
+ * Why a replay left its recording. `ended_early`: it never sent a request the recording doesn't
+ * hold, but stopped before making every recorded model or tool call (`DivergenceReport.recorded`).
+ */
+export type DivergenceType = 'request_changed' | 'new_call' | 'forced' | 'beyond_recording' | 'ended_early';
 
 export interface DiffEntry {
   path: string;
@@ -274,6 +278,12 @@ export interface DivergenceReport {
   diff?: DiffEntry[];
   hints?: Hint[];
   reason?: string;
+  /**
+   * `ended_early`: how many calls the recording holds, clock and random reads included. The replay
+   * made `replayedBefore` of them, every one it made, and `callNo` is the first recorded model or
+   * tool call it never made, numbered as the recording numbers it (`counterpart` names it too).
+   */
+  recorded?: number;
 }
 
 export interface NotReached {

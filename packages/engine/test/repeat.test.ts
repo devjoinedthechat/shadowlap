@@ -100,4 +100,18 @@ describe('repeated forks', () => {
     expect(formatRepeats(r)).toContain('forked at calls 3, 5: the prefix is not deterministic');
     expect(formatRepeats(r)).toContain('No tool was called after the fork in any attempt.');
   });
+
+  it('says which attempts ended early, apart from the forks, without calling them clean', () => {
+    const id = runId();
+    const calls = [call(id, 1, 'api', 'POST /v1/messages', 'replayed'), call(id, 2, 'tool', 'read_logs', 'replayed')];
+    const divergence: DivergenceReport = { type: 'ended_early', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, recorded: 5 };
+    const run: RunRecord = { runId: id, parentRunId: '01K5CQ4N7G0000000000000000', mode: 'replay', status: 'completed', divergence, command: { argv: ['node', 'agent.js'], cwd: '/' }, codeVersion: null, startedAt: 0, endedAt: 1 };
+    const early = { runId: id, exitCode: 0, summary: summarizeRun(run, calls), calls };
+    const r = summarizeRepeats('01K5CQ4N7G0000000000000000', [attempt([], 'a', 0, 3), early]);
+    expect(r.attempts.map((a) => [a.forkedAt, a.endedEarly])).toEqual([
+      [3, null],
+      [null, 3],
+    ]);
+    expect(formatRepeats(r).split('\n')[0]).toBe('⑂ 2 attempts from 01K5CQ4N7G, forked at calls none, 3: the prefix is not deterministic · 1 of 2 ended early, at call 3');
+  });
 });

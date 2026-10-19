@@ -93,6 +93,26 @@ describe('recorded calls for tests', () => {
     expect(same.mode).toBe('replay');
     await api('end', { runId: same.runId, passed: true });
   });
+
+  it('fails a replay that stops before its recording did, though every call it made matched, and keeps it', async () => {
+    const rec = (await api<{ runId: string }>('start', { recording: 'recs/early', slot: 'w' })).body;
+    await tool('lookup_order', 'read', { order_id: 'A-1042' }, { status: 'delivered' });
+    await ask('refund A-1042');
+    await tool('send_refund', 'write', { order_id: 'A-1042' }, { ok: true });
+    await ask('done?');
+    expect((await api<RecordingResult>('end', { runId: rec.runId, passed: true })).body).toMatchObject({ ok: true, saved: true });
+
+    // The test makes only the lookup, and still passes: the refund and the last model turn never happen.
+    const replay = (await api<{ runId: string }>('start', { recording: 'recs/early', slot: 'w', mode: 'none' })).body;
+    expect(await tool('lookup_order', 'read', { order_id: 'A-1042' }, { status: 'delivered' })).toBe('replayed');
+    const result = (await api<RecordingResult>('end', { runId: replay.runId, passed: true })).body;
+    expect(result).toMatchObject({ ok: false, mode: 'replay', calls: 1, replayed: 1, message: 'ended early at call 2 (api POST /v1/messages): 1 of 4 recorded calls replayed' });
+    expect(result.report).toContain('✗ Ended early at call 2: 1 of 4 recorded calls replayed');
+    expect(result.report).toContain('3 recorded calls not reached: #2 POST /v1/messages, #3 send_refund, #4 POST /v1/messages');
+    expect(result.report).toContain('record the test again with SHADOWLAP_RECORD=all');
+    // Kept for inspection, with where it stopped on the run itself.
+    expect(store.getRun(replay.runId)?.divergence).toMatchObject({ type: 'ended_early', callNo: 2, recorded: 4 });
+  });
 });
 
 describe('shadowlap serve --recordings', () => {

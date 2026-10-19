@@ -1,5 +1,5 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -193,6 +193,47 @@ describe('shadowlap bisect', () => {
     const found = store.listEvents({ kinds: ['bisect.found'] })[0]!;
     store.close();
     expect(found.data).toMatchObject({ commit: rev['Ask for brevity'], answered: { session: result.sessionId, at: result.at, ok: false, revision: result.revision } });
+  });
+
+  it('asks before running the recorded command of a run from someone else\'s pack at every commit, and refuses with no one to ask', async () => {
+    // Someone else's recording: its command writes where it ran to a file outside the repository, then runs the agent.
+    const away = mkdtempSync(join(tmpdir(), 'sl-bisect-theirs-'));
+    try {
+      const marker = join(away, 'ran.txt');
+      const script = `require('node:fs').appendFileSync(${JSON.stringify(marker)}, process.cwd() + '\\n'); import('./agent.mjs')`;
+      const theirs = join(away, 'theirs.db');
+      const recorded = await shadowlap(['--db', theirs, 'run', '--', process.execPath, '-e', script]);
+      expect(recorded.code, recorded.out).toBe(0);
+      const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+      expect((await shadowlap(['--db', theirs, 'pack', runId, join(away, 'pack')])).code).toBe(0);
+      rmSync(marker);
+      expect((await shadowlap(['unpack', join(away, 'pack')])).code).toBe(0);
+      const range = ['--good', rev['Start the ticket agent']!, '--bad', rev['Describe the agent']!];
+
+      // No terminal: refused, as a replay of it is, and nothing ran.
+      const refused = await shadowlap(['bisect', runId, ...range]);
+      expect(refused.code, refused.out).toBe(1);
+      expect(refused.out).toContain('was imported from a pack. Replaying it runs the command it was recorded with');
+      expect(refused.out).toContain(`Pass --yes to run it, or give your own command: shadowlap bisect ${runId.slice(0, 10)} --good ${rev['Start the ticket agent']} -- <command>`);
+      expect(refused.out).not.toContain('replay at');
+      expect(existsSync(marker), 'the imported command never ran').toBe(false);
+      const json = await shadowlap(['bisect', runId, ...range, '--json']);
+      expect(json.code).toBe(1);
+      expect(JSON.parse(json.stdout)).toMatchObject({ outcome: 'error', error: { message: expect.stringContaining('needs your consent (--yes)') } });
+      expect(existsSync(marker)).toBe(false);
+
+      // A command of your own runs without asking, in each commit's worktree (where it diverges: it was recorded at HEAD).
+      const own = await shadowlap(['bisect', runId, ...range, '--', process.execPath, 'agent.mjs']);
+      expect(own.out).toContain(`replay at ${rev['Describe the agent']}  ✗ diverged at call 1`);
+      expect(existsSync(marker)).toBe(false);
+
+      // --yes runs the recorded command at every commit it tries.
+      const yes = await shadowlap(['bisect', runId, ...range, '--yes']);
+      expect(yes.out).toContain(`replay at ${rev['Describe the agent']}  ✗ diverged at call 1`);
+      expect(readFileSync(marker, 'utf8')).toContain(join('.shadowlap', 'bisect'));
+    } finally {
+      rmSync(away, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
   });
 
   it('refuses a run that is still recording, whose recording is not whole yet', async () => {

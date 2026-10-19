@@ -5,6 +5,7 @@ import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
 import { type JunitCase } from './junit.js';
 import { placeholderAwsCredentials, providerIds, testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
+import { withoutCommand } from './shared.js';
 import { type PackResult } from './test-report.js';
 
 /**
@@ -64,7 +65,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   // A golden has to be able to start its agent. One packed straight from a capture cannot, and
   // spawning its placeholder would fail for a reason the report would not name.
   if (!ctx.argv && !hasRecordedCommand(parent)) {
-    throw new Error('this recording was imported from a capture and has no command to run. Replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run: it records everything, and has a command of its own');
+    throw new Error(`this recording ${withoutCommand(parent)} and has no command to run. Replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run: it records everything, and has a command of its own`);
   }
   // A recording marked `fork` may diverge on purpose; from the fork on it needs the real providers.
   const live = ctx.online || !!spec?.fork;
@@ -317,7 +318,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     calls: s ? callsOf(s) : null,
     upstreamRequests: r ? upstreamOf(r.attempts) : null,
     tokensNotRespent: s ? notRespentOf(s) : null,
-    divergence: s?.divergence ? { type: s.divergence.type, callNo: s.divergence.callNo, kind: s.divergence.kind, name: s.divergence.name } : null,
+    divergence: s?.divergence ? { type: s.divergence.type, callNo: s.divergence.callNo, kind: s.divergence.kind, name: s.divergence.name, ...(s.divergence.recorded !== undefined ? { recorded: s.divergence.recorded } : {}) } : null,
     checks: r?.shown.checks ?? null,
     attempts: r && r.attempts.length > 1 ? { total: r.attempts.length, passed: r.passed, required: r.required } : null,
     expect: extra.expect,

@@ -273,10 +273,12 @@ describe('storeFacts', () => {
       store.endRun(r.runId, status);
       return r.runId;
     };
-    const replay = (parent: string, status: 'completed' | 'failed', opts: { calls?: number; diverged?: boolean } = {}) => {
+    const replay = (parent: string, status: 'completed' | 'failed', opts: { calls?: number; diverged?: boolean; endedEarly?: boolean } = {}) => {
       const r = store.createRun({ mode: 'replay', parentRunId: parent, command: { argv: ['node', 'a.mjs'], cwd: '/x' } });
       addCalls(store, r.runId, opts.calls ?? 2);
       if (opts.diverged) store.setDivergence(r.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0 });
+      // Every call it made matched, but it stopped before the recording's second: as the sidecar keeps it.
+      if (opts.endedEarly) store.setDivergence(r.runId, { type: 'ended_early', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1, recorded: 2 });
       store.endRun(r.runId, status);
     };
     const forked = record('completed');
@@ -287,8 +289,10 @@ describe('storeFacts', () => {
     replay(exitsWithError, 'failed');
     const otherEnding = record('completed');
     replay(otherEnding, 'failed');
+    const stoppedShort = record('completed');
+    replay(stoppedShort, 'completed', { calls: 1, endedEarly: true });
     const byId = new Map(storeFacts(store).recordings.map((r) => [r.runId, r.replayedClean]));
-    expect([byId.get(forked), byId.get(noCalls), byId.get(exitsWithError), byId.get(otherEnding)]).toEqual([false, false, true, false]);
+    expect([byId.get(forked), byId.get(noCalls), byId.get(exitsWithError), byId.get(otherEnding), byId.get(stoppedShort)]).toEqual([false, false, true, false, false]);
     store.close();
   });
 

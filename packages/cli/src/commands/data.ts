@@ -7,7 +7,7 @@ import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent, inDashboardJob } from '../job-events.js';
 import { OtlpUnreachable, otlpHeaders, runToOtlp, sendOtlp } from '../otel.js';
-import { ancestorsOf, fileSize, formatBytes, openStore, openStoreIfExists, parseChoice, parseIntArg, recordEvents, requireEnded, requireRun, unredacted, VERSION, type GlobalOpts } from '../shared.js';
+import { ancestorsOf, fileSize, formatBytes, openStoreIfExists, parseChoice, parseIntArg, readStore, recordEvents, requireEnded, requireRun, unredacted, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Runs as data for other tools, and removing what is no longer needed. */
@@ -28,7 +28,7 @@ export function register(program: Command): void {
     .option('--no-redact', 'skip the redaction rules in shadowlap.config.json')
     .action((runArgs: string[], flags: { label: string[]; all?: boolean; calls: 'final' | 'model'; format: DatasetFormat; out?: string; redact: boolean }) => {
       if (!runArgs.length && !flags.label.length && !flags.all) throw new InvalidArgumentError('name runs, or select them with --label or --all');
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const picked = new Map<string, RunRecord>();
         for (const arg of runArgs) {
@@ -71,7 +71,7 @@ export function register(program: Command): void {
     .argument('[file]', 'output file (default: stdout)')
     .option('--no-redact', 'skip the redaction rules in shadowlap.config.json')
     .action((runArg: string, file: string | undefined, flags: { redact: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const run = requireRun(store, runArg);
         requireEnded(store, run, 'export');
@@ -106,7 +106,7 @@ export function register(program: Command): void {
     .option('--lineage', "include the run's ancestors, so its recording and forks compare inside the file")
     .option('--no-redact', 'skip the redaction rules in shadowlap.config.json')
     .action(async (runArg: string, file: string | undefined, flags: { lineage?: boolean; redact: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const run = requireRun(store, runArg);
         requireEnded(store, run, 'export', flags.lineage ? ancestorsOf(store, run) : []);
@@ -143,7 +143,7 @@ export function register(program: Command): void {
     .action(async (runArg: string, flags: { endpoint?: string; out?: string; service: string; redact: boolean }) => {
       const config = loadConfig(process.cwd());
       const redact = flags.redact ? config.redact : [];
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       const run = requireRun(store, runArg);
       try {
         requireEnded(store, run, 'export');
@@ -191,7 +191,7 @@ export function register(program: Command): void {
     .argument('<run...>', 'run ids or unique prefixes')
     .option('--forks', 'also delete the forks of each run, recursively')
     .action((runArgs: string[], flags: { forks?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       const targets = new Map<string, RunRecord>();
       const collect = (run: RunRecord) => {
         targets.set(run.runId, run);

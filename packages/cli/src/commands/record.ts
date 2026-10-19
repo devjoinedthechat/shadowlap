@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
-import { addRules, calibrationTarget, commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
+import { addRules, calibrationTarget, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from '../checks.js';
 import { codeVersion, configPath, loadConfig } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
@@ -9,7 +9,7 @@ import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
 import { readExpect } from './fix.js';
-import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, recordEvents, requireEnded, requireRun, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, readStore, recordEvents, requireEnded, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Recording a run, replaying it after a change, and making replays match. */
@@ -47,13 +47,14 @@ export function register(program: Command): void {
     .passThroughOptions()
     .action(async (argv: string[], flags: { guard: GuardMode; summaryJson?: string }) => {
       const opts = program.opts<GlobalOpts>();
-      const { code, summary } = await runUnderSidecar(
+      const { code, summary, started } = await runUnderSidecar(
         opts,
         argv,
         (sidecar) => sidecar.startRun({ mode: 'record', command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) }),
         flags.guard,
       );
-      printOutcome(summary);
+      // A command that never started has said so, and left no run to show.
+      if (started) printOutcome(summary);
       if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary }, null, 2) + '\n');
       process.exitCode = code;
     });
@@ -86,7 +87,7 @@ export function register(program: Command): void {
     .option('--summary-json <file>', 'also write the replay\'s summary (or, with --repeat, every attempt and the report) as JSON to <file>')
     .action(async (runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
-      const store = openStore(opts);
+      const store = readStore(opts);
       const parent = requireRun(store, runArg);
       const parentCalls = store.getCalls(parent.runId);
       let overrides: Map<number, unknown>;
@@ -130,7 +131,7 @@ export function register(program: Command): void {
       // fail and still record a failed run with no calls, which is worse than refusing.
       if (!command.length && !hasRecordedCommand(parent)) {
         throw new InvalidArgumentError(
-          `${shortId(parent.runId)} was imported from a capture, which records what was sent but not what sent it, so it has no command to re-run. Give yours after --:\n  shadowlap replay ${shortId(parent.runId)} -- python agent.py\nThat replay records everything, tool calls included, so it has a command of its own and every fork works on it.`,
+          `${shortId(parent.runId)} ${withoutCommand(parent)}, which records what was sent but not what sent it, so it has no command to re-run. Give yours after --:\n  shadowlap replay ${shortId(parent.runId)} -- python agent.py\nThat replay records everything, tool calls included, so it has a command of its own and every fork works on it.`,
         );
       }
       const argv = command.length ? command : parent.command.argv;
@@ -200,35 +201,45 @@ export function register(program: Command): void {
         if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report }, null, 2) + '\n');
         emitJobEvent({ type: 'result', data: { attempts: attempts.map((a, i) => ({ runId: a.run.runId, exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report } });
         emitJobEvent({ type: 'link', label: 'Open the attempts', href: `#/run/${parent.runId}/${first?.callNo ?? 1}/forks` });
+        // One that stopped before its recording did is among them: its divergence says so.
         const anyDiverged = attempts.some((a) => a.summary.divergence);
         const checksFailed = judged.some((c) => c.some((x) => !x.ok));
         process.exitCode = flags.strict && anyDiverged ? 1 : attempts.length < flags.repeat || attempts.some((a) => a.code !== 0) || checksFailed ? 1 : 0;
         return;
       }
       const once = async (): Promise<void> => {
-        const { code, summary, run, output } = await runUnderSidecar(
+        const { code, summary, run, output, started } = await runUnderSidecar(
           opts,
           argv,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
           { capture },
         );
+        if (!started) {
+          // The command never started: it has said so, and no run is kept to show or judge.
+          if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary }, null, 2) + '\n');
+          process.exitCode = code;
+          return;
+        }
         printOutcome(summary);
         const judged = checks ? judge(run.runId, output) : null;
         if (judged) process.stderr.write(formatChecks(judged, checks!.source) + '\n');
         if (unjudged) process.stderr.write(p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
         if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary, ...(judged ? { checks: judged } : {}) }, null, 2) + '\n');
+        // A replay that stopped before its recording did is no clean one either: its divergence says so.
         process.exitCode = flags.strict && summary.divergence ? 1 : judged?.some((c) => !c.ok) ? 1 : code;
       };
 
-      await once();
-      if (!flags.watch) return;
+      if (!flags.watch) return once();
       // The prefix before a fork replays for free, so re-running after every edit costs nothing.
+      // What a replay writes itself is no edit: the store (with its journals) and the summary file.
+      const db = opts.db && opts.db !== ':memory:' ? [opts.db, `${opts.db}-wal`, `${opts.db}-shm`, `${opts.db}-journal`] : [];
       await watchAndRerun({
         cwd: process.cwd(),
+        ignore: [...db, ...(flags.summaryJson ? [flags.summaryJson] : [])],
         log: (m) => process.stderr.write(`\n${p.dim(m)}\n`),
-        onChange: async () => {
-          process.stderr.write(`\n${p.dim('\u2500'.repeat(40))}\n`);
+        run: async (again) => {
+          if (again) process.stderr.write(`\n${p.dim('\u2500'.repeat(40))}\n`);
           await once();
         },
       });
@@ -241,7 +252,7 @@ export function register(program: Command): void {
     .option('--write', 'add the proposed normalizers to shadowlap.config.json')
     .option('--max-rounds <n>', 'replays to try before giving up', parseIntArg, 8)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
-    .option('--guard <mode>', 'network guard: warn (default), block or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('--guard <mode>', 'network guard: warn, block or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('--json', 'machine-readable output, printed when calibration ends')
     .action(async (runArg: string | undefined, flags: { write?: boolean; maxRounds: number; yes?: boolean; guard: GuardMode; json?: boolean }) => {
       const say = (text: string) => {
@@ -280,9 +291,11 @@ export function register(program: Command): void {
           const label = `  ${p.dim(`round ${round}`)}  `;
           const d = s.divergence;
           rounds.push({ round, divergence: d ? { callNo: d.callNo, kind: d.kind, name: d.name, type: d.type } : null, proposals: [] });
-          if (!d) {
+          // A replay that stopped before its recording did sent no request that changed: no normalizer helps.
+          if (!d || d.type === 'ended_early') {
             if (s.total === 0 && store.getCalls(parent.runId).length > 0) outcome = { clean: false, why: 'the replay made no calls through Shadowlap, so the agent reached its model some other way (a local model server needs SHADOWLAP_UPSTREAM_OPENAI or the like, as when it was recorded)', details: attempt.output.trim().split('\n').slice(-15).join('\n') };
             else if (attempt.code !== 0) outcome = { clean: false, why: `the agent exited with code ${attempt.code} without diverging`, details: attempt.output.trim().split('\n').slice(-15).join('\n') };
+            else if (d) outcome = { clean: false, why: `the agent ended before call ${d.callNo} (${d.kind} ${safe(d.name)}), which it made when recorded: its control flow varies between runs, and no normalizer changes that`, details: formatSummary(s) };
             else {
               say(`${label}${p.green(`clean: ${s.byOrigin.replayed}/${s.total} calls replayed`)}\n`);
               outcome = { clean: true, total: s.total };

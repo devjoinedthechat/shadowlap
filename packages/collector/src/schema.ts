@@ -5,7 +5,7 @@
  */
 
 export const EVENT_TYPES = ['run', 'replay', 'test', 'ui', 'pack'] as const;
-export const DIVERGENCE_TYPES = ['request_changed', 'new_call', 'forced', 'beyond_recording'] as const;
+export const DIVERGENCE_TYPES = ['request_changed', 'new_call', 'forced', 'beyond_recording', 'ended_early'] as const;
 export const PROVIDERS = ['anthropic', 'openai', 'gemini', 'azure', 'vertex', 'bedrock'] as const;
 export const SDKS = ['typescript', 'python', 'mcp', 'other'] as const;
 export const CI_SYSTEMS = ['github', 'gitlab', 'circleci', 'buildkite', 'jenkins', 'azure', 'other'] as const;

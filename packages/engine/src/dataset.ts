@@ -101,7 +101,8 @@ function example(store: Store, run: RunRecord, call: CallRecord, rules: Normaliz
       checks: checks?.length ? { passed: checks.filter((c) => c.ok).length, total: checks.length } : null,
       command: run.command.argv.join(' '),
       code_version: run.codeVersion,
-      forked_at: run.divergence?.callNo ?? null,
+      // A replay that stopped before its recording did forked nowhere: every call it made was replayed.
+      forked_at: run.divergence && run.divergence.type !== 'ended_early' ? run.divergence.callNo : null,
       recorded_at: new Date(run.startedAt).toISOString(),
     },
   };

@@ -74,7 +74,7 @@ Call it when a test starts, before the agent runs.
 | `slot` | yes | This worker's slot. |
 | `mode` | no | `missing` (default): replay when a recording exists, record when it does not. `all`: always record. `none`: only replay, and fail when there is nothing to replay. |
 | `name` | no | The test's name, used in the run's command line when none is given. |
-| `command` | no | The command to record as the run's own, for `shadowlap replay` later. |
+| `command` | no | The command to record as the run's own, for `shadowlap replay` later. Without one the run records `<test>` and the test's name, and has no command to run again: replaying it, finding its commit or forking it needs yours after `--`, as for a capture. |
 
 ```json
 { "runId": "01K5CQ4N7G…", "mode": "record", "recording": "tests/recordings/refund-flow" }
@@ -125,7 +125,7 @@ Call it exactly once per `start`, whatever the test's outcome.
 | record | `true` | Packs the run into the recording directory, atomically (written beside it and swapped in, so an interrupted write never leaves half a pack). Redaction rules from `shadowlap.config.json` are applied. |
 | record | `false` | Saves nothing: a failing test should not become the golden. |
 | record | either, no calls | Saves nothing, and says so — usually a base URL that was never redirected. |
-| replay | — | A clean replay is deleted, since it adds nothing. A divergence is kept in the local store to inspect. |
+| replay | — | A clean replay is deleted, since it adds nothing. A divergence is kept in the local store to inspect. So is a replay that ended early: every request the test sent matched, but it stopped before making every recorded model or tool call, so it fails with `ended early at call 13 (api POST /v1/messages): 12 of 30 recorded calls replayed`. |
 
 ```json
 {

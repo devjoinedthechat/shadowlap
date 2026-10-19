@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import type { DivergenceReport } from '@shadowlap/engine';
+import { endedEarlyCount, type DivergenceReport } from '@shadowlap/engine';
 import { truncate, wrap } from '../render.js';
 
 interface Props {
@@ -23,6 +23,11 @@ function value(v: unknown, width: number): string[] {
 export function diffLines(d: DivergenceReport | null, width: number): Line[] {
   if (!d) return [{ text: 'This run did not diverge.', color: 'green' }];
   const out: Line[] = [];
+  if (d.type === 'ended_early') {
+    out.push({ text: `✗ Ended early at call ${d.callNo} (${d.kind} ${d.name}): ${endedEarlyCount(d)} replayed`, color: 'red', bold: true });
+    out.push({ text: `every request the agent sent matched, but it stopped before its recording did, without making #${d.callNo}`, color: 'gray' });
+    return out;
+  }
   out.push({ text: `✗ Diverged at call ${d.callNo} (${d.kind} ${d.name}): ${d.replayedBefore} calls replayed before divergence`, color: 'red', bold: true });
   switch (d.type) {
     case 'forced':

@@ -12,7 +12,9 @@ shadowlap pack 01K5CQ4N7G goldens/triage-inbox
 git add goldens/triage-inbox
 ```
 
-A pack is a directory: `run.json`, `calls.jsonl`, one file per blob. It's git-friendly (stable file names, one file per message), and [redaction rules](./normalizers-and-redaction.md#redaction) are applied on export. Commit only what you'd be comfortable with a colleague reading.
+A pack is a directory: `run.json`, `calls.jsonl`, one file per blob, and a `.gitattributes` holding `* -text`. It's git-friendly (stable file names, one file per message), and [redaction rules](./normalizers-and-redaction.md#redaction) are applied on export. Commit only what you'd be comfortable with a colleague reading.
+
+Commit the `.gitattributes` with the pack. Every blob is checked against its hash, and the file keeps git from converting line endings, as Git for Windows does by default (`core.autocrlf`) and a `* text=auto` in your own `.gitattributes` would: a golden committed on macOS or Linux then passes in a Windows checkout too. A golden packed before packs carried the file is read as it was committed when git converted only its line endings; `test --update` adds the file to it.
 
 ## Run it
 
@@ -20,7 +22,7 @@ A pack is a directory: `run.json`, `calls.jsonl`, one file per blob. It's git-fr
 shadowlap test goldens/* --junit shadowlap-junit.xml
 ```
 
-For each pack, `shadowlap test` imports it into the project's store, re-runs the recorded command under a replay sidecar with **every provider set to offline**, and passes only if the replay is clean and the process exits 0. A divergence prints the report; a live call is refused with a 503 that names the call; both fail the pack. `--online` allows live calls after a divergence if you really want them; `--cwd` sets the working directory for the recorded commands; `--writes` sets the write policy. A `*` in the last part of a path is expanded by `shadowlap test` itself, so `'goldens/*'` works without a shell.
+For each pack, `shadowlap test` imports it into the project's store, re-runs the recorded command under a replay sidecar with **every provider set to offline**, and passes only if the replay is clean and the process exits 0. Clean means the agent sent every request the recording holds, unchanged, and no more: a request sent differently, a call the recording doesn't have, or a recorded call never made (the agent [ended early](#a-replay-that-ends-early)) each fails it. A divergence prints the report; a live call is refused with a 503 that names the call; both fail the pack. `--online` allows live calls after a divergence if you really want them; `--cwd` sets the working directory for the recorded commands; `--writes` sets the write policy. A `*` in the last part of a path is expanded by `shadowlap test` itself, so `'goldens/*'` works without a shell.
 
 Output, when one agent puts a new UUID in every request's metadata:
 
@@ -44,6 +46,18 @@ Output, when one agent puts a new UUID in every request's metadata:
 Besides dates, UUIDs and ULIDs, the report names the normalizer for an id the agent makes anew on every run: one that looks generated (16 or more hex digits, a prefix with a random tail such as `req_8f3a2c1d9e7b`, a long random token), or one under a key that names a request, a trace, a span, a session, a nonce or an idempotency key. Any other id that changed, such as a customer's number or an order's code, may be a real change: the agent acting on another customer is what the test is there to catch. The report says so, and gives the normalizer only for when you know that id changes on every run; a normalizer would hide a real change from every later test.
 
 The JUnit report renders in GitHub, GitLab and most CI dashboards; each pack is a test case, and a failure carries the divergence report and the agent's output. Control characters in what the agent printed, such as the escape codes of a coloured logger, are written as escapes (`\x1b[32m`), as the Markdown report writes them, so the file stays XML that every parser reads.
+
+### A replay that ends early
+
+An agent can stop before its recording did and still exit 0: an exception it catches, a stop condition that changed, a step it now skips. Every request it sent matched, but what it never sent (the last model turn, the write) is as much a change. The replay leaves its recording at the first recorded model or tool call it never made, a divergence of its own type, `ended_early`, and the golden fails:
+
+```
+✗ research: ended early at call 11 (api POST /v1/messages): 10 of 30 recorded calls replayed
+    ✗ Ended early at call 11: 10 of 30 recorded calls replayed (3 api, 5 tool, 2 clock/random), 0 upstream requests, 3k input tokens not re-spent
+      20 recorded calls not reached: #11 POST /v1/messages, #12 read_file, #13 read_file, …
+```
+
+Its failure kind is `diverged`, and the JSON report's `divergence` has `type` `ended_early` and `recorded`, the calls the recording holds, so the GitHub Action and `bisect` treat it as one. The run keeps it too: `shadowlap ls` and the dashboard list it as `ended early @11`, not as a clean replay. Clock and random reads left unread don't count. A golden marked `fork` passes on its checks, as it does after a fork. If the agent now stops earlier on purpose, re-record the golden with `shadowlap test <golden> --update`.
 
 ## Test history
 
@@ -267,7 +281,7 @@ On other CI systems, run the CLI directly. `--junit`, `--json` and `--markdown` 
 
 When a golden fails an outcome check in CI, the action can propose the fix itself: it runs `shadowlap repair` on the failing replay, which blames it (finds the model call where it was lost), asks the repairer to rewrite the prompt or a tool description, and keeps a rewrite only when `verify` accepts it. A fix verify accepted becomes a pull request with the patch and its report.
 
-A fix changes what the agent sends, so a golden that must replay exactly would diverge on the fix's own branch and fail the pull request's checks. The pull request's one commit therefore carries the golden re-recorded under the fix too: the recording verify accepted replaces the golden's pack (`run.json`, `calls.jsonl`, `blobs/`; other files in its folder stay), once it replays clean with the fix applied, which the action checks in its working tree before it pushes. When it can't, the golden stays as it was, and the pull request and the job summary say to run `shadowlap test <golden> --update` on the branch. A golden marked `fork` is left as it is: it passes on its checks from wherever it diverges. The step:
+A fix changes what the agent sends, so a golden that must replay exactly would diverge on the fix's own branch and fail the pull request's checks. The pull request's one commit therefore carries the golden re-recorded under the fix too: the recording verify accepted replaces the golden's pack (`run.json`, `calls.jsonl`, `blobs/`, with the pack's `.gitattributes`; other files in its folder stay), once it replays clean with the fix applied, which the action checks in its working tree before it pushes. When it can't, the golden stays as it was, and the pull request and the job summary say to run `shadowlap test <golden> --update` on the branch. A golden marked `fork` is left as it is: it passes on its checks from wherever it diverges. The step:
 
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write }
@@ -390,4 +404,4 @@ They need an incoming webhook from your Slack workspace, its URL as a repository
 
 ## Strict replays outside `test`
 
-`shadowlap replay <run> --strict` exits 1 on divergence and is the same check against a run in the local store, for scripts and pre-commit hooks.
+`shadowlap replay <run> --strict` exits 1 on divergence, or when the replay ends early, and is the same check against a run in the local store, for scripts and pre-commit hooks.

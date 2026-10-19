@@ -191,7 +191,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHel
           {current.spent ? ` · ≈${formatUsd(current.spent)} spent` : ''}
           {current.captured ? ` · ≈${formatUsd(current.captured)} of traffic captured` : ''}
           {current.saved ? ` · ${formatUsd(current.saved)} saved by replay` : ''}
-          {current.run.divergence ? ` · diverged at #${current.run.divergence.callNo} (${current.run.divergence.type})` : ''}
+          {current.run.divergence ? (current.run.divergence.type === 'ended_early' ? ` · ended early at #${current.run.divergence.callNo}` : ` · diverged at #${current.run.divergence.callNo} (${current.run.divergence.type})`) : ''}
         </Text>
       ) : (
         <Text> </Text>

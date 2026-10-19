@@ -2,10 +2,10 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, endedEarlyCount, formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
-import { BisectError, formatBisect, runBisect } from '../bisect.js';
+import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
 import { specFor } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { readExpect } from './fix.js';
@@ -17,7 +17,7 @@ import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, type GuardMode } from '../run-agent.js';
-import { ancestorsOf, openStore, parseChoice, parseIntArg, printOutcome, requireEnded, requireRun, telemetry, unredacted, usageOf, VERSION, type GlobalOpts } from '../shared.js';
+import { ancestorsOf, confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, readStore, requireEnded, requireRun, telemetry, unredacted, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { prepareTestPush, pushIfQueued, teamEnv } from '../team.js';
 import { takeoverReader } from '../tasks.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
@@ -98,12 +98,28 @@ export function givenCommand(argv: readonly string[], name: string): string[] {
   return ['shadowlap', ...(args[i] === name ? args.slice(i) : [name, ...args.slice(i)])];
 }
 
+/**
+ * The environment `serve` prints, as the shell it is pasted into sets it: `export K=V` lines for a
+ * POSIX shell, and on Windows PowerShell's `$env:K = 'V'`, which its terminals open by default.
+ */
+export function envLines(env: Record<string, string>, platform: NodeJS.Platform = process.platform): string {
+  const lines = Object.entries(env).map(([k, v]) => (platform === 'win32' ? `$env:${k} = '${v.replace(/'/g, "''")}'` : `export ${k}=${v}`));
+  return lines.join('\n');
+}
+
 /** The one-line result of a golden that passed: `30/30 replayed, 12k input tokens not re-spent, 2 checks passed`. */
 function passedLine(o: GoldenOutcome): string {
   const r = o.result!;
   const s = r.shown.ended.summary;
+  // Out of what the recording holds, not what this replay made: one that stopped short never reads as whole.
+  const replayed = s.byOrigin.replayed + s.byOrigin.overridden;
   return [
-    s.divergence ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed` : `${s.byOrigin.replayed}/${s.total} replayed`,
+    // A golden that may fork passes on its checks, one that stopped short included.
+    s.divergence?.type === 'ended_early'
+      ? `ended early at call ${s.divergence.callNo}, ${endedEarlyCount(s.divergence)} replayed`
+      : s.divergence
+        ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed`
+        : `${replayed}/${replayed + s.notReached.length} replayed`,
     `${formatTokens(s.tokensNotRespent.inputTokens)} input tokens not re-spent`,
     ...(r.shown.checks?.length ? [`${r.shown.checks.length} check${r.shown.checks.length === 1 ? '' : 's'} passed`] : []),
     ...(r.attempts.length > 1 ? [`${r.passed}/${r.attempts.length} attempts passed`] : []),
@@ -139,7 +155,7 @@ export function register(program: Command): void {
     .option('--online', 'allow live calls after a divergence (default: offline, a live call fails the test)')
     .option('--writes <policy>', 'write tools after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
-    .option('--guard <mode>', 'network guard: block (default in CI), warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
+    .option('--guard <mode>', 'network guard: block, warn or off (re-recording under --update, warn unless given)', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
     .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean }) {
       const opts = program.opts<GlobalOpts>();
@@ -360,21 +376,26 @@ export function register(program: Command): void {
     .command('bisect')
     .description('Find the commit that broke a golden or a run: replay it at commits between a good one and a bad one, halving each time, each in a temporary git worktree. Replays are offline, so it costs no tokens.')
     .argument('<recording>', 'a golden (a directory written by shadowlap pack) or a run id')
+    .argument('[command...]', 'the agent\'s command to run at each commit instead of the recorded one (after "--")')
     .requiredOption('--good <rev>', 'a commit where it still passed')
-    .option('--bad <rev>', 'a commit where it fails (default: HEAD)', 'HEAD')
+    .option('--bad <rev>', 'a commit where it fails', 'HEAD')
     .option('--expect <json|@file>', 'checks the replay must pass besides exiting 0 (default: the golden\'s under "tests" in shadowlap.config.json)')
     .option('--fork', 'let each replay diverge and run live from the fork (it costs tokens), so only the exit status and the checks decide: for a run that failed a check')
     .option('--build <command>', 'run in each worktree before the replay, e.g. "npm ci && npm run build"')
     .option('--cwd <dir>', 'the working directory of the recorded command, inside the repository (default: current)')
     .option('--timeout <seconds>', 'stop a replay after this long and count it as failing', parseIntArg, 300)
     .option('--guard <mode>', 'network guard: block, warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
+    .option('-y, --yes', 'run the recorded command of a run from a pack or the team store at each commit without asking')
     .option('--json', 'print the result as JSON (progress still goes to stderr)')
-    .action(async (target: string, flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; json?: boolean }) => {
+    .action(async (target: string, command: string[], flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       try {
         const report = await runBisect({
           opts,
           target,
+          ...(command.length ? { argv: command } : {}),
+          // A command someone else chose runs at every commit only with consent, as a replay of it does.
+          confirm: flags.yes ? async () => true : (run, argv) => confirmImportedCommand(run, argv, `shadowlap bisect ${shortId(run.runId)} --good ${flags.good} -- <command>`),
           good: flags.good,
           bad: flags.bad,
           spec: flags.expect !== undefined ? readExpect(flags.expect) : undefined,
@@ -394,7 +415,8 @@ export function register(program: Command): void {
       } catch (err) {
         if (!(err instanceof BisectError)) throw err;
         if (flags.json) process.stdout.write(JSON.stringify({ outcome: 'error', error: { message: err.message } }, null, 2) + '\n');
-        else process.stderr.write(`${p.red('✗')} ${err.message}\n`);
+        // Declined: the question, or why it couldn't be asked, is already on the terminal.
+        else if (!(err instanceof BisectDeclined)) process.stderr.write(`${p.red('✗')} ${err.message}\n`);
         process.exitCode = 1;
       }
     });
@@ -407,7 +429,7 @@ export function register(program: Command): void {
     .option('--lineage', 'include the run\'s ancestors')
     .option('--no-redact', 'skip the redaction rules in shadowlap.config.json')
     .action(async (runArg: string, dir: string, flags: { lineage?: boolean; redact: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       const run = requireRun(store, runArg);
       requireEnded(store, run, 'pack', flags.lineage ? ancestorsOf(store, run) : []);
       const configured = loadConfig(process.cwd()).redact;
@@ -469,11 +491,13 @@ export function register(program: Command): void {
         return;
       }
       const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
-      const run = sidecar.startRun({ mode: 'record', command: { argv: ['<external>'], cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) });
+      // The person starts the agent, so serve never knows its command: the run has none, as a
+      // capture has none, and a replay of it asks for one after --.
+      const run = sidecar.startRun({ mode: 'record', command: { argv: [EXTERNAL_COMMAND], cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) });
       stampAuthor(store, run.runId);
       emitJobEvent({ type: 'run', runId: run.runId, role: 'new' });
       const env = sidecar.envFor(run.runId);
-      process.stdout.write(Object.entries(env).map(([k, v]) => `export ${k}=${v}`).join('\n') + '\n');
+      process.stdout.write(envLines(env) + '\n');
       process.stderr.write(p.dim(`[shadowlap] recording run ${run.runId}; Ctrl-C to end it\n`));
       await new Promise<void>((resolve) => {
         const stop = () => resolve();

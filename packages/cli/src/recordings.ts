@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { finalAnswer, formatDivergence, formatSummary, heldFrom, packRun, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
+import { divergenceLine, finalAnswer, formatDivergence, formatSummary, heldFrom, packRun, TEST_COMMAND, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
 import { HttpError, type ApiRoute, type Sidecar } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 
@@ -109,7 +109,8 @@ export class RecordingHost {
     }
     const exists = existsSync(join(dir, 'run.json'));
     const rel = relative(this.root, dir).split('\\').join('/');
-    const command = { argv: Array.isArray(body.command) && body.command.every((a) => typeof a === 'string') ? (body.command as string[]) : ['<test>', String(body.name ?? rel)], cwd: this.root };
+    // A test that gives no command starts its agent itself: the run names the test, and has no command to run again.
+    const command = { argv: Array.isArray(body.command) && body.command.length > 0 && body.command.every((a) => typeof a === 'string') ? (body.command as string[]) : [TEST_COMMAND, String(body.name ?? rel)], cwd: this.root };
     if (mode === 'all' || (!exists && mode === 'missing')) {
       const run = sidecar.startRun({ mode: 'record', command, codeVersion: this.opts.codeVersion, slot });
       stampAuthor(this.store, run.runId);
@@ -189,12 +190,15 @@ export class RecordingHost {
       this.store.deleteRun(a.runId);
       return { ...base, ok: true, mode: 'replay', message: null, report: null };
     }
+    // A replay that stopped before its recording did fails as one that diverged: what the agent never
+    // sent (the last model turn, a write) is as much a change. Its summary line says it all.
+    const early = d.type === 'ended_early';
     return {
       ...base,
       ok: false,
       mode: 'replay',
-      message: `diverged from its recording at call ${d.callNo} (${d.kind} ${d.name})`,
-      report: `${formatDivergence(d)}\n${formatSummary(summary)}\n\nIf the change is intended, record the test again with SHADOWLAP_RECORD=all. To inspect the replay: shadowlap dashboard ${a.runId}`,
+      message: early ? divergenceLine(d) : `diverged from its recording at call ${d.callNo} (${d.kind} ${d.name})`,
+      report: `${early ? '' : `${formatDivergence(d)}\n`}${formatSummary(summary)}\n\nIf the change is intended, record the test again with SHADOWLAP_RECORD=all. To inspect the replay: shadowlap dashboard ${a.runId}`,
     };
   }
 

@@ -165,6 +165,52 @@ def send_page(to: str) -> dict:
     expect(scripted('[project]\nname = "x"\n', { 'uv.lock': '' })).toEqual({ argv: ['uv', 'run', 'main.py'], from: 'the entry file main.py' });
   });
 
+  it('names the package manager of the workspace a package belongs to, and how it runs Python', () => {
+    const at = (files: Record<string, string>, member: string) => {
+      const r = inspectProject(join(project(files), member), {});
+      return { pm: r.packageManager, argv: r.command?.argv, text: formatInit(r, palette, false) };
+    };
+    // pnpm: the lockfile and pnpm-workspace.yaml are at the root, never in the member.
+    const pnpm = at({ 'package.json': '{"name":"root","private":true}', 'pnpm-workspace.yaml': "packages:\n  - 'apps/*'\n", 'pnpm-lock.yaml': "lockfileVersion: '9.0'\n", 'apps/agent/package.json': JSON.stringify({ name: 'agent', scripts: { start: 'tsx src/index.ts' }, dependencies: { '@anthropic-ai/sdk': '^0.60.0', '@repo/lib': 'workspace:*' } }), 'apps/agent/src/index.ts': "import Anthropic from '@anthropic-ai/sdk';\n" }, 'apps/agent');
+    expect(pnpm).toMatchObject({ pm: 'pnpm', argv: ['pnpm', 'start'] });
+    expect(pnpm.text).toContain('pnpm add -D shadowlap');
+    expect(pnpm.text).toContain('run -- pnpm start');
+    // Yarn and npm: `workspaces` in the root package.json, the lockfile beside it.
+    const yarnRoot = { 'package.json': JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*'] }), 'yarn.lock': '# yarn lockfile v1\n', 'apps/bot/package.json': JSON.stringify({ name: 'bot', scripts: { start: 'node bot.js' }, dependencies: { openai: '^5.0.0' } }), 'apps/bot/bot.js': "const OpenAI = require('openai');\n" };
+    const yarn = at(yarnRoot, 'apps/bot');
+    expect(yarn).toMatchObject({ pm: 'yarn', argv: ['yarn', 'start'] });
+    expect(yarn.text).toContain('yarn add -D shadowlap');
+    const { 'yarn.lock': _lock, ...unlocked } = yarnRoot;
+    expect(at({ ...unlocked, 'package.json': JSON.stringify({ name: 'root', workspaces: { packages: ['apps/**'] } }), 'bun.lock': '{}' }, 'apps/bot').pm).toBe('bun');
+    expect(at(unlocked, 'apps/bot').pm).toBe('npm');
+    // The packageManager field Corepack reads, at the root or in the package.
+    expect(at({ ...unlocked, 'package.json': JSON.stringify({ name: 'root', workspaces: ['apps/*'], packageManager: 'pnpm@9.12.0' }) }, 'apps/bot').pm).toBe('pnpm');
+    expect(at({ ...yarnRoot, 'apps/bot/package.json': JSON.stringify({ name: 'bot', packageManager: 'yarn@4.5.0', scripts: { start: 'node bot.js' } }) }, 'apps/bot').pm).toBe('yarn');
+    // A folder the workspace doesn't take in, or its own lockfile, keeps its own manager.
+    expect(at({ ...yarnRoot, 'tools/script/package.json': JSON.stringify({ name: 'script' }) }, 'tools/script').pm).toBe('npm');
+    expect(at({ ...yarnRoot, 'apps/bot/package-lock.json': '{}' }, 'apps/bot').pm).toBe('npm');
+    // uv: [tool.uv.workspace] and uv.lock at the root; the member runs with uv run.
+    const uv = at({ 'pyproject.toml': '[tool.uv.workspace]\nmembers = ["agents/*"]\n', 'uv.lock': 'version = 1\n', 'agents/triage/pyproject.toml': '[project]\nname = "triage"\nversion = "0.1.0"\ndependencies = ["anthropic>=0.40"]\n', 'agents/triage/agent.py': 'import anthropic\n' }, 'agents/triage');
+    expect(uv).toMatchObject({ pm: 'uv', argv: ['uv', 'run', 'agent.py'] });
+    expect(uv.text).toContain('uv add shadowlap');
+    // Nothing above the repository's root counts.
+    expect(at({ 'pnpm-workspace.yaml': "packages: ['repo/**']\n", 'pnpm-lock.yaml': '', 'repo/.git/HEAD': 'ref: refs/heads/main\n', 'repo/app/package.json': '{"name":"app"}' }, 'repo/app').pm).toBe('npm');
+  });
+
+  it('runs a Poetry project’s entry file with poetry run, as it does a script it declares', () => {
+    const poetry = '[tool.poetry]\nname = "f"\nversion = "0.1.0"\n\n[tool.poetry.dependencies]\npython = "^3.11"\nanthropic = "^0.40"\n';
+    const locked = inspectProject(project({ 'pyproject.toml': poetry, 'poetry.lock': '# poetry lock\n', 'agent.py': 'import anthropic\n' }), {});
+    expect(locked.packageManager).toBe('poetry');
+    expect(locked.command).toEqual({ argv: ['poetry', 'run', 'python', 'agent.py'], from: 'the entry file agent.py' });
+    const text = formatInit(locked, palette, false);
+    expect(text).toContain('poetry add shadowlap');
+    expect(text).toContain('shadowlap run -- poetry run python agent.py');
+    // Before its first lock, [tool.poetry] says the same; a file found by what it imports runs the same way.
+    const unlocked = inspectProject(project({ 'pyproject.toml': poetry, 'triage.py': 'from anthropic import Anthropic\n' }), {});
+    expect(unlocked.packageManager).toBe('poetry');
+    expect(unlocked.command).toEqual({ argv: ['poetry', 'run', 'python', 'triage.py'], from: 'the entry file triage.py' });
+  });
+
   it('starts a Node project by the file its package.json names, before guessing one by its name', () => {
     const started = (pkg: Record<string, unknown>, more: Record<string, string> = {}) => inspectProject(project({ 'package.json': JSON.stringify({ name: 'triage-bot', ...pkg }), 'agent.js': 'export const runAgent = () => {};\n', 'main.js': 'console.log(1)\n', ...more }), {}).command;
     // agent.js only exports the agent; main.js, which package.json names, runs it.
@@ -295,6 +341,20 @@ tools = [with_effect(lookup, "read")]
     const text = formatInit(r, palette, false);
     expect(text).toContain('Tools: 4 found, 2 with an effect');
     expect(text).toContain('@function_tool(effect="write") on def refund');
+  });
+
+  it('reads files that start with a byte order mark, as Node and npm do', () => {
+    // Windows editors save UTF-8 with a BOM; Node's require('./package.json') reads such a file as if it had none.
+    const BOM = '﻿';
+    const node = inspectProject(project({ 'package.json': BOM + JSON.stringify({ scripts: { start: 'node agent.js' }, dependencies: { openai: '^5.0.0' } }), 'agent.js': "const OpenAI = require('openai');\n" }), {});
+    expect(node.packageManager).toBe('npm');
+    expect(node.providers).toEqual([{ id: 'openai', via: 'openai' }]);
+    expect(node.command).toEqual({ argv: ['npm', 'start'], from: 'package.json scripts.start: node agent.js' });
+    const declared = inspectProject(project({ 'pyproject.toml': BOM + '[project.scripts]\ntriage = "triage.main:run"\n', 'requirements.txt': BOM + 'anthropic>=0.40\n' }), {});
+    expect(declared.providers).toEqual([{ id: 'anthropic', via: 'anthropic' }]);
+    expect(declared.command).toEqual({ argv: ['triage'], from: '[project.scripts] in pyproject.toml' });
+    // A source file too: the one file that imports a model SDK is still found by its first line.
+    expect(inspectProject(project({ 'bot.py': BOM + 'from anthropic import Anthropic\n' }), {}).command).toEqual({ argv: ['python', 'bot.py'], from: 'the entry file bot.py' });
   });
 
   it('says so in a directory with no project, and writes nothing', () => {

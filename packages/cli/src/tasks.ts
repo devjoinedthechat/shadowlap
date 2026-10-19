@@ -7,6 +7,7 @@ import {
   CLOUDS,
   commandIsImported,
   describeTask,
+  endedEarlyCount,
   entryFor,
   errorMessage,
   estimateCost,
@@ -357,7 +358,9 @@ export async function scoreTask(
         return stop(
           a.bypassed
             ? `${BYPASSED} (run ${a.run.runId})`
-            : d
+            : d?.type === 'ended_early'
+              ? `${task.golden} never reached #${k}: the agent stopped first, after ${endedEarlyCount(d)} (run ${a.run.runId})`
+              : d
               ? `${task.golden} doesn't replay up to #${k}: it forked at call ${d.callNo} first (run ${a.run.runId}).\n${formatDivergence(d)}\nMake its test pass first: shadowlap test ${task.golden}`
               : `${task.golden} never reached #${k}: the agent took another path through the recording (run ${a.run.runId})`,
         );

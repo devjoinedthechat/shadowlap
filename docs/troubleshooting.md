@@ -46,9 +46,13 @@ You passed `--live-tool` or `--diverge-at`. Expected.
 
 The agent made more calls than the recording contains. Usually the loop's stop condition changed, or a recorded final turn now yields a tool call because something earlier ran live.
 
+### `ended_early`
+
+Every request the agent sent matched, but it stopped before making every recorded model or tool call: `✗ Ended early at call N: X of Y recorded calls replayed`, where N is the first recorded call it never made. Clock and random reads left over don't count. It is kept on the run like any other divergence, so `--strict` exits 1, `shadowlap test`, `bisect` and the test plugins fail it, and `ls` and the dashboard list it as `ended early @N`, never as a clean replay. Read the agent's output for why it stopped: an exception it caught, a stop condition that changed, a step it now skips.
+
 ### Not reached
 
-At the end, the report lists recorded calls the replay never made. Harmless after a fork; before one, it means the agent stopped earlier than recorded.
+At the end, the report lists recorded calls the replay never made. Harmless after a fork. Without one, a model or tool call among them makes the replay [`ended_early`](#ended_early).
 
 ## Symptoms that aren't divergences
 

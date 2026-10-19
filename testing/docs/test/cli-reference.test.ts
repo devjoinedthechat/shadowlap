@@ -82,6 +82,12 @@ describe('docs/cli.md', () => {
     const globals = program.options.filter((o) => !o.hidden && o.long !== '--version' && o.long !== '--help');
     expect(globals.map((o) => o.long).filter((f) => f && !mentions(reference, f))).toEqual([]);
   });
+
+  it('can say the global options go after a command too, since every command takes them', () => {
+    const globals = program.options.filter((o) => o.long === '--db' || o.long === '--verbose');
+    const without = commands.filter((c) => globals.some((g) => !c.command.options.some((o) => o.long === g.long)));
+    expect(without.map((c) => c.path)).toEqual([]);
+  });
 });
 
 /** Every `shadowlap …` the docs show: in shell, YAML and output blocks, and in inline code that starts with it. */
@@ -158,6 +164,7 @@ function problemsIn(program: Command, lines: Array<{ where: string; line: string
         continue;
       }
       const known = new Set(['--help', '-h']);
+      // The global options too: every command takes them after its name as well (shadowlap ls --db other.db).
       for (const o of [...command.options, ...(fallback?.options ?? []), ...program.options]) for (const f of [o.long, o.short]) if (f) known.add(f);
       for (const w of words.slice(i)) {
         const word = w.replace(/[\])},…]+$|\.\.\.$/g, '');

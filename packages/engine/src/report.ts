@@ -125,6 +125,10 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
     lines.push(`${p.yellow('⚠')} ${s.mode === 'record' ? 'Recorded' : 'Replayed'} ${p.bold(s.runId)}: no calls were made. Did the agent start, and does it use the Shadowlap environment?`);
   } else if (s.mode === 'record') {
     lines.push(`${p.green('●')} Recorded ${p.bold(s.runId)}: ${s.total} calls (${kinds}), ${s.upstreamRequests} upstream requests${s.cost.spent ? `, ≈${formatUsd(s.cost.spent)}` : ''}`);
+  } else if (s.divergence?.type === 'ended_early') {
+    const d = s.divergence;
+    const saved = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
+    lines.push(`${p.red('✗')} Ended early at call ${d.callNo}: ${endedEarlyCount(d)} replayed (${kinds}), ${s.upstreamRequests} upstream requests, ${formatTokens(saved)} input tokens not re-spent`);
   } else if (!s.divergence) {
     const saved = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
     lines.push(
@@ -151,15 +155,16 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
     );
   }
   if (s.status === 'failed' || s.status === 'crashed') lines.push(p.red(`  the agent process ${s.status === 'crashed' ? 'was interrupted' : 'exited with an error'}`));
-  // After a fork the divergence report already covers the recorded call it was compared with.
-  const counterpart = s.divergence?.counterpart?.callNo;
+  // After a fork the divergence report already covers the recorded call it was compared with. A
+  // replay that ended early was compared with none: the calls it never made are all listed.
+  const counterpart = s.divergence?.type === 'ended_early' ? undefined : s.divergence?.counterpart?.callNo;
   const unused = s.notReached.filter((n) => n.callNo !== counterpart);
   if (unused.length && s.total > 0) {
     const preview = unused
       .slice(0, 3)
       .map((n) => `#${n.callNo} ${safeLine(n.name)}`)
       .join(', ');
-    const what = s.divergence ? 'left unused after the fork' : 'not reached';
+    const what = s.divergence && s.divergence.type !== 'ended_early' ? 'left unused after the fork' : 'not reached';
     lines.push(p.dim(`  ${unused.length} recorded call${unused.length === 1 ? '' : 's'} ${what}: ${preview}${unused.length > 3 ? ', …' : ''}`));
   }
   for (const w of s.warnings) lines.push(p.yellow(`  ! ${safeText(w)}`));
@@ -187,9 +192,29 @@ function renderValue(v: unknown, other?: unknown): string {
   return json === undefined ? String(v) : json.length > MAX_STR ? json.slice(0, MAX_STR) + '…' : json;
 }
 
+/** How much of its recording a replay that ended early made: `10 of 30 recorded calls`. */
+export function endedEarlyCount(d: Pick<DivergenceReport, 'replayedBefore' | 'recorded'>): string {
+  return d.recorded !== undefined ? `${d.replayedBefore} of ${d.recorded} recorded calls` : `${d.replayedBefore} recorded calls`;
+}
+
+/**
+ * A divergence in one line, as test, bisect and the recordings report it: `diverged at call 4 (api
+ * POST /v1/messages)`, or for a replay that stopped short, `ended early at call 11 (api POST
+ * /v1/messages): 10 of 30 recorded calls replayed`.
+ */
+export function divergenceLine(d: Pick<DivergenceReport, 'type' | 'callNo' | 'kind' | 'name' | 'replayedBefore' | 'recorded'>): string {
+  const at = `call ${d.callNo} (${d.kind} ${safeLine(d.name)})`;
+  return d.type === 'ended_early' ? `ended early at ${at}: ${endedEarlyCount(d)} replayed` : `diverged at ${at}`;
+}
+
 /** The divergence report: the first unmatched call, its closest counterpart, and a structural diff. */
 export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEntries = 12): string {
   const lines: string[] = [];
+  if (d.type === 'ended_early') {
+    lines.push(`${p.red('✗')} Ended early at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${endedEarlyCount(d)} replayed`);
+    lines.push(p.dim(`  every request the agent sent matched, but it stopped before its recording did, without making #${d.callNo}`));
+    return lines.join('\n');
+  }
   const head = `${p.red('✗')} Diverged at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${d.replayedBefore} calls replayed before divergence`;
   lines.push(head);
   switch (d.type) {

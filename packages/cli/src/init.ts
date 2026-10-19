@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, sep } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Effect } from '@shadowlap/engine';
 import { ProjectRegistry, describeFolder, modelServerFinding, type FolderKind, type ModelServer, type RegistryOptions, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
 import { CONFIG_FILE, CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
@@ -97,9 +98,18 @@ const JS_PROVIDERS: Record<string, Provider['id']> = {
 };
 const PY_PROVIDERS: Record<string, Provider['id']> = { anthropic: 'anthropic', openai: 'openai', 'google-genai': 'gemini', 'langchain-anthropic': 'anthropic', 'langchain-openai': 'openai', 'google-cloud-aiplatform': 'vertex', 'langchain-google-vertexai': 'vertex', 'langchain-aws': 'bedrock' };
 
+/**
+ * A text file as Node and npm read it: a leading byte order mark, which Windows editors write, is
+ * no part of the text (`require('./package.json')` drops it, and JSON.parse would refuse it).
+ */
+function readUtf8(path: string): string {
+  const text = readFileSync(path, 'utf8');
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
 function readJson(path: string): Record<string, unknown> | null {
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    return JSON.parse(readUtf8(path)) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -132,16 +142,16 @@ function pythonDependencies(cwd: string): Set<string> {
   };
   const pyproject = join(cwd, 'pyproject.toml');
   if (existsSync(pyproject)) {
-    const text = readFileSync(pyproject, 'utf8');
+    const text = readUtf8(pyproject);
     for (const spec of tomlRequirements(text, ['dependencies', 'requires'])) add(spec);
     for (const section of text.matchAll(/\[tool\.poetry(?:\.group\.\w+)?\.dependencies\]([\s\S]*?)(?=\n\[|$)/g)) for (const line of section[1]!.split('\n')) if (/^\s*[\w.-]+\s*=/.test(line)) add(line);
   }
   for (const f of ['requirements.txt', 'requirements-dev.txt', 'requirements.in']) {
     const p = join(cwd, f);
-    if (existsSync(p)) for (const line of readFileSync(p, 'utf8').split('\n')) if (line.trim() && !line.trim().startsWith('#') && !line.trim().startsWith('-')) add(line);
+    if (existsSync(p)) for (const line of readUtf8(p).split('\n')) if (line.trim() && !line.trim().startsWith('#') && !line.trim().startsWith('-')) add(line);
   }
   const pipfile = join(cwd, 'Pipfile');
-  if (existsSync(pipfile)) for (const line of readFileSync(pipfile, 'utf8').split('\n')) if (/^\s*[\w.-]+\s*=/.test(line)) add(line);
+  if (existsSync(pipfile)) for (const line of readUtf8(pipfile).split('\n')) if (/^\s*[\w.-]+\s*=/.test(line)) add(line);
   return names;
 }
 
@@ -166,7 +176,7 @@ function pythonExtras(cwd: string): Array<{ name: string; extra: string }> {
     const m = /^\s*([\w.-]+)\s*=\s*\{[^}]*\bextras\s*=\s*\[([^\]]*)\]/.exec(line);
     if (m) add(m[1]!, m[2]!);
   };
-  const read = (f: string) => (existsSync(join(cwd, f)) ? readFileSync(join(cwd, f), 'utf8') : '');
+  const read = (f: string) => (existsSync(join(cwd, f)) ? readUtf8(join(cwd, f)) : '');
   const pyproject = read('pyproject.toml');
   for (const s of tomlRequirements(pyproject, ['dependencies', 'requires'])) spec(s);
   for (const line of pyproject.split('\n')) table(line);
@@ -359,7 +369,7 @@ function openaiInstalled(cwd: string): boolean {
   const read = (name: string) => {
     try {
       const p = join(cwd, name);
-      return statSync(p).size <= MAX_LOCKFILE_BYTES ? readFileSync(p, 'utf8') : '';
+      return statSync(p).size <= MAX_LOCKFILE_BYTES ? readUtf8(p) : '';
     } catch {
       return '';
     }
@@ -427,7 +437,7 @@ function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[stri
   for (const f of openaiClient ? ['.env', '.env.local'] : []) {
     const p = join(cwd, f);
     if (!existsSync(p)) continue;
-    const m = /^\s*OPENAI_BASE_URL\s*=\s*["']?([^"'\s#]+)/m.exec(readFileSync(p, 'utf8'));
+    const m = /^\s*OPENAI_BASE_URL\s*=\s*["']?([^"'\s#]+)/m.exec(readUtf8(p));
     if (m) return { url: m[1]!, upstream: toUpstream(m[1]!), from: `OPENAI_BASE_URL in ${f}` };
   }
   for (const [file, text] of texts) {
@@ -437,11 +447,138 @@ function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[stri
   return null;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Package managers: the folder's own lockfile, or the workspace it belongs to
+
+type NodeManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
+type PythonManager = 'uv' | 'poetry' | 'pip';
+
+/** The Node package manager a folder's lockfile belongs to, if it has one. */
+function lockfileManager(dir: string): NodeManager | null {
+  if (existsSync(join(dir, 'pnpm-lock.yaml'))) return 'pnpm';
+  if (existsSync(join(dir, 'yarn.lock'))) return 'yarn';
+  if (existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))) return 'bun';
+  if (existsSync(join(dir, 'package-lock.json')) || existsSync(join(dir, 'npm-shrinkwrap.json'))) return 'npm';
+  return null;
+}
+
+/** The package manager package.json declares for Corepack: `"packageManager": "pnpm@9.12.0"`. */
+function declaredManager(pkg: Record<string, unknown> | null): NodeManager | null {
+  const m = typeof pkg?.packageManager === 'string' ? /^(npm|pnpm|yarn|bun)@/.exec(pkg.packageManager) : null;
+  return m ? (m[1] as NodeManager) : null;
+}
+
+/**
+ * The folders above `cwd` a workspace holding it could be declared in, nearest first: up to the
+ * repository's root (the first one with `.git`), and, outside a repository, never the home folder
+ * or above it, where a stray lockfile says nothing about the project.
+ */
+function workspaceFolders(cwd: string, home: string = homedir()): string[] {
+  const out: string[] = [];
+  let dir = resolve(cwd);
+  if (existsSync(join(dir, '.git'))) return out;
+  const top = resolve(home);
+  for (let up = dirname(dir); up !== dir; dir = up, up = dirname(up)) {
+    const holdsHome = relative(up, top);
+    if (!holdsHome || (!holdsHome.startsWith('..') && !isAbsolute(holdsHome))) break;
+    out.push(up);
+    if (existsSync(join(up, '.git'))) break;
+  }
+  return out;
+}
+
+/**
+ * Whether a workspace's patterns (`apps/*`, `packages/**`, `!apps/legacy`) take in the folder at
+ * `rel` from its root.
+ */
+function inWorkspace(rel: string, patterns: readonly string[]): boolean {
+  const path = rel.split(sep).join('/');
+  const matches = (pattern: string) => {
+    const glob = pattern.trim().replace(/^\.\//, '').replace(/\/+$/, '');
+    const re = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*/g, '\0').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]').replace(/\0/g, '.*');
+    return new RegExp(`^${re}$`).test(path);
+  };
+  const include = patterns.filter((p) => !p.startsWith('!'));
+  return include.some(matches) && !patterns.filter((p) => p.startsWith('!')).some((p) => matches(p.slice(1)));
+}
+
+/** The `packages` pnpm-workspace.yaml lists, as a block (`- 'apps/*'`) or a flow sequence (`["apps/*"]`). */
+function pnpmPackages(text: string): string[] {
+  const head = /^packages\s*:[ \t]*([^\n]*)$/m.exec(text);
+  if (!head) return [];
+  const inline = head[1]!.replace(/\s+#.*$/, '').trim();
+  if (inline.startsWith('[')) return [...inline.slice(1, inline.lastIndexOf(']')).matchAll(/"([^"]*)"|'([^']*)'|([^,\s][^,]*)/g)].map((m) => (m[1] ?? m[2] ?? m[3]!).trim());
+  const out: string[] = [];
+  for (const line of text.slice(head.index + head[0].length).split('\n').slice(1)) {
+    const item = /^\s*-\s*(?:"([^"]*)"|'([^']*)'|([^#\s][^#]*?))\s*(?:#.*)?$/.exec(line);
+    if (item) out.push(item[1] ?? item[2] ?? item[3]!);
+    else if (line.trim() && !line.trim().startsWith('#')) break;
+  }
+  return out;
+}
+
+/**
+ * The Node package manager of the workspace `cwd` is a package of, from its root up the tree:
+ * pnpm's pnpm-workspace.yaml, or `workspaces` in package.json (Yarn, npm, Bun), whose manager the
+ * root's packageManager field or lockfile names. Null when no workspace takes the folder in.
+ */
+function nodeWorkspaceManager(cwd: string): NodeManager | null {
+  for (const dir of workspaceFolders(cwd)) {
+    const rel = relative(dir, resolve(cwd));
+    const pnpm = join(dir, 'pnpm-workspace.yaml');
+    if (existsSync(pnpm)) {
+      // A pnpm-workspace.yaml that lists no packages still makes pnpm the manager below it.
+      const listed = pnpmPackages(readText(pnpm));
+      if (!listed.length || inWorkspace(rel, listed)) return 'pnpm';
+    }
+    const root = readJson(join(dir, 'package.json'));
+    const ws = root?.workspaces;
+    const patterns = Array.isArray(ws) ? ws : ws && typeof ws === 'object' && Array.isArray((ws as { packages?: unknown }).packages) ? (ws as { packages: unknown[] }).packages : [];
+    if (inWorkspace(rel, patterns.filter((p): p is string => typeof p === 'string'))) return declaredManager(root) ?? lockfileManager(dir) ?? 'npm';
+  }
+  return null;
+}
+
+/** The `[tool.uv.workspace]` table of a pyproject.toml, without its header; null when it has none. */
+function uvWorkspaceTable(text: string): string | null {
+  const lines = text.split('\n');
+  const at = lines.findIndex((line) => line.trim() === '[tool.uv.workspace]');
+  if (at < 0) return null;
+  const end = lines.findIndex((line, i) => i > at && line.trim().startsWith('['));
+  return lines.slice(at + 1, end < 0 ? undefined : end).join('\n');
+}
+
+/** Whether a uv workspace above `cwd` lists it among its `members` (and doesn't `exclude` it). */
+function inUvWorkspace(cwd: string): boolean {
+  for (const dir of workspaceFolders(cwd)) {
+    const table = uvWorkspaceTable(readText(join(dir, 'pyproject.toml')));
+    if (table === null) continue;
+    const rel = relative(dir, resolve(cwd));
+    if (inWorkspace(rel, [...tomlRequirements(table, ['members']), ...tomlRequirements(table, ['exclude']).map((e) => `!${e}`)])) return true;
+  }
+  return false;
+}
+
+/**
+ * How the Python side is installed and run: uv with a uv.lock here or as a member of a uv workspace,
+ * Poetry with a poetry.lock or a `[tool.poetry]` table here, pip otherwise.
+ */
+function pythonManager(cwd: string): PythonManager {
+  if (existsSync(join(cwd, 'uv.lock'))) return 'uv';
+  if (existsSync(join(cwd, 'poetry.lock')) || /^\[tool\.poetry\]\s*$/m.test(readText(join(cwd, 'pyproject.toml')))) return 'poetry';
+  return inUvWorkspace(cwd) ? 'uv' : 'pip';
+}
+
+/** A Python file run the way its project runs Python: `uv run agent.py`, `poetry run python agent.py`. */
+function runPython(manager: PythonManager, file: string): string[] {
+  return manager === 'uv' ? ['uv', 'run', file] : manager === 'poetry' ? ['poetry', 'run', 'python', file] : ['python', file];
+}
+
 /** The first script `pyproject.toml` declares (`[project.scripts]`, or Poetry's `[tool.poetry.scripts]`), by name. */
 function pythonScript(cwd: string): { name: string; table: string } | null {
   let text: string;
   try {
-    text = readFileSync(join(cwd, 'pyproject.toml'), 'utf8');
+    text = readUtf8(join(cwd, 'pyproject.toml'));
   } catch {
     return null;
   }
@@ -502,7 +639,7 @@ const NOT_AN_ENTRY = /^(test_.*|.*_test\.py|.*\.(test|spec)\.[cm]?[jt]sx?|confte
  * imports a model SDK or an agent framework (`triage.mjs`), and that no other file there imports.
  * Null when there are none or several, since a guess between them would only be a guess.
  */
-function modelEntry(cwd: string, texts: ReadonlyArray<readonly [string, string]>, uv: boolean): InitReport['command'] {
+function modelEntry(cwd: string, texts: ReadonlyArray<readonly [string, string]>, python: PythonManager): InitReport['command'] {
   const top = texts.filter(([f]) => relative(cwd, f) === basename(f) && /\.(py|[cm]?js|[cm]?ts|tsx)$/.test(f) && !NOT_AN_ENTRY.test(basename(f)));
   const calling = top.filter(([f, t]) => modelImport(f, t) !== null).map(([f]) => basename(f));
   if (calling.length !== 1) return null;
@@ -511,11 +648,11 @@ function modelEntry(cwd: string, texts: ReadonlyArray<readonly [string, string]>
   // A module another file imports is part of the agent, not where it starts.
   const imported = file.endsWith('.py') ? new RegExp(`^[ \\t]*(?:from[ \\t]+\\.?${stem}[ \\t]+import|import[ \\t]+${stem}\\b)`, 'm') : new RegExp(`['"]\\.\\/${stem}(?:\\.[cm]?[jt]sx?)?['"]`);
   if (top.some(([f, t]) => basename(f) !== file && imported.test(t))) return null;
-  const argv = file.endsWith('.py') ? (uv ? ['uv', 'run', file] : ['python', file]) : /\.([cm]?ts|tsx)$/.test(file) ? ['npx', 'tsx', file] : ['node', file];
+  const argv = file.endsWith('.py') ? runPython(python, file) : /\.([cm]?ts|tsx)$/.test(file) ? ['npx', 'tsx', file] : ['node', file];
   return { argv, from: entryFile(file) };
 }
 
-function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager: InitReport['packageManager'], languages: Language[], texts: ReadonlyArray<readonly [string, string]> = []): InitReport['command'] {
+function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager: InitReport['packageManager'], python: PythonManager, languages: Language[], texts: ReadonlyArray<readonly [string, string]> = []): InitReport['command'] {
   const scripts = (pkg?.scripts ?? {}) as Record<string, string>;
   const runner = manager === 'pnpm' ? ['pnpm'] : manager === 'yarn' ? ['yarn'] : manager === 'bun' ? ['bun', 'run'] : ['npm', 'run'];
   for (const name of ['agent', 'start', 'dev', 'run']) {
@@ -527,12 +664,11 @@ function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager
   const entry = nodeEntry(cwd, pkg);
   if (entry) return { argv: /\.(ts|mts|cts|tsx)$/.test(entry.file) ? ['npx', 'tsx', entry.file] : ['node', entry.file], from: entry.from };
   if (languages.includes('python')) {
-    const uv = existsSync(join(cwd, 'uv.lock'));
     // A script the project declares is how it is meant to start: `uv run research-agent`.
     const script = pythonScript(cwd);
-    if (script) return { argv: uv ? ['uv', 'run', script.name] : manager === 'poetry' ? ['poetry', 'run', script.name] : [script.name], from: `${script.table} in pyproject.toml` };
+    if (script) return { argv: python === 'pip' ? [script.name] : [python, 'run', script.name], from: `${script.table} in pyproject.toml` };
     for (const f of ['agent.py', 'main.py', 'app.py', 'run.py', 'src/agent.py', 'src/main.py']) {
-      if (existsSync(join(cwd, f))) return { argv: uv ? ['uv', 'run', f] : ['python', f], from: entryFile(f) };
+      if (existsSync(join(cwd, f))) return { argv: runPython(python, f), from: entryFile(f) };
     }
   }
   for (const f of ['agent.ts', 'src/agent.ts', 'index.ts', 'src/index.ts', 'main.ts', 'src/main.ts']) {
@@ -542,7 +678,7 @@ function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager
     if (existsSync(join(cwd, f))) return { argv: ['node', f], from: entryFile(f) };
   }
   // Named after what it does (`triage.mjs`): the one file at the top that calls a model.
-  return modelEntry(cwd, texts, existsSync(join(cwd, 'uv.lock')));
+  return modelEntry(cwd, texts, python);
 }
 
 export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env): InitReport {
@@ -550,27 +686,29 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
   const deps = { ...((pkg?.dependencies ?? {}) as Record<string, string>), ...((pkg?.devDependencies ?? {}) as Record<string, string>) };
   const py = pythonDependencies(cwd);
   const files = sourceFiles(cwd);
-  const texts: Array<[string, string]> = files.map((f) => [f, readFileSync(f, 'utf8')]);
+  const texts: Array<[string, string]> = files.map((f) => [f, readUtf8(f)]);
 
   const languages: Language[] = [];
   if (pkg || texts.some(([f]) => /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(f))) languages.push(existsSync(join(cwd, 'tsconfig.json')) || texts.some(([f]) => /\.(ts|tsx|mts|cts)$/.test(f)) ? 'typescript' : 'javascript');
   if (py.size || existsSync(join(cwd, 'pyproject.toml')) || texts.some(([f]) => f.endsWith('.py'))) languages.push('python');
 
-  const packageManager: InitReport['packageManager'] = existsSync(join(cwd, 'pnpm-lock.yaml'))
-    ? 'pnpm'
-    : existsSync(join(cwd, 'yarn.lock'))
-      ? 'yarn'
-      : existsSync(join(cwd, 'bun.lockb')) || existsSync(join(cwd, 'bun.lock'))
-        ? 'bun'
-        : pkg
-          ? 'npm'
+  // The folder's own lockfile, then what its package.json declares, then the workspace it is a
+  // package of: in a pnpm or Yarn workspace the lockfile is at the root, and npm can't install a
+  // member's `workspace:` dependencies.
+  const lock = lockfileManager(cwd);
+  const python = pythonManager(cwd);
+  const packageManager: InitReport['packageManager'] =
+    lock && lock !== 'npm'
+      ? lock
+      : pkg
+        ? (lock ?? declaredManager(pkg) ?? nodeWorkspaceManager(cwd) ?? 'npm')
+        : languages.includes('python')
+          ? python
           : existsSync(join(cwd, 'uv.lock'))
             ? 'uv'
             : existsSync(join(cwd, 'poetry.lock'))
               ? 'poetry'
-              : languages.includes('python')
-                ? 'pip'
-                : null;
+              : null;
 
   const providers: Provider[] = [];
   const addProvider = (id: Provider['id'], via: string) => {
@@ -628,7 +766,7 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
     packageManager,
     providers,
     frameworks,
-    command: detectCommand(cwd, pkg, packageManager, languages, texts),
+    command: detectCommand(cwd, pkg, packageManager, python, languages, texts),
     tools,
     hardcodedBaseUrls,
     modelServer: findModelServer(cwd, env, texts, providers, frameworks),
@@ -825,7 +963,7 @@ export interface InitJson extends Omit<InitReport, 'tools' | 'config' | 'modelSe
 function readText(path: string, limit = 2 * 1024 * 1024): string {
   try {
     if (statSync(path).size > limit) return '';
-    return readFileSync(path, 'utf8');
+    return readUtf8(path);
   } catch {
     return '';
   }

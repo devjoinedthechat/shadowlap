@@ -12,7 +12,8 @@ import type { CallRecord, Normalizer, RunRecord } from './types.js';
 /**
  * Portable recordings: a directory with `run.json`, `calls.jsonl` and one
  * uncompressed file per blob under `blobs/`. Stable names and one file per blob keep it
- * git-friendly, so a recording can be committed as a CI golden or shared.
+ * git-friendly, so a recording can be committed as a CI golden or shared. A `.gitattributes`
+ * beside them keeps git from converting line endings, which would break every blob's hash.
  */
 
 export const PACK_FORMAT = 'shadowlap-pack';
@@ -82,6 +83,33 @@ export interface PackResult {
   redacted: boolean;
 }
 
+/** What a pack's `.gitattributes` says: git keeps every file's bytes as they are. */
+export const PACK_GITATTRIBUTES = '# A Shadowlap pack: every blob is checked against its hash, so git must not convert line endings.\n* -text\n';
+
+/**
+ * Writes the pack's `.gitattributes` unless the folder has one: committed without it, a checkout
+ * that converts line endings (Git for Windows' core.autocrlf, a `text=auto` attribute) changes the
+ * blobs, and the pack no longer matches its hashes. One already there is the person's own, and is
+ * never written through a link.
+ */
+export function writePackAttributes(dir: string): void {
+  try {
+    writeFileSync(join(dir, '.gitattributes'), PACK_GITATTRIBUTES, { flag: 'wx' });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+  }
+}
+
+/**
+ * A blob as it was committed, when git checked it out with its line endings converted: every CRLF
+ * back to LF. Null when it has none. The result counts only if it matches the blob's hash.
+ */
+function withoutCrlf(bytes: Buffer): Buffer | null {
+  if (!bytes.includes('\r\n')) return null;
+  // latin1 maps each byte to one character and back, so nothing else changes.
+  return Buffer.from(bytes.toString('latin1').replace(/\r\n/g, '\n'), 'latin1');
+}
+
 function blobRefs(call: CallRecord): string[] {
   const refs: string[] = [];
   if (call.requestRef) refs.push(call.requestRef);
@@ -145,6 +173,7 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
       writeFileSync(join(into, 'calls.jsonl'), lines.join('\n') + (lines.length ? '\n' : ''));
       writeFileSync(join(into, 'run.json'), JSON.stringify(manifest, null, 2) + '\n');
     });
+    writePackAttributes(dir);
   } finally {
     if (store !== source) store.close();
   }
@@ -383,10 +412,19 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
     let total = 0;
     for (const name of readdirSync(blobDir)) {
       if (!/^[0-9a-f]{64}$/.test(name)) throw new PackError(`${dir}: unexpected file blobs/${name}`);
-      const bytes = readPackFile(join(blobDir, name), PACK_LIMITS.blobBytes, `blobs/${name}`);
+      let bytes = readPackFile(join(blobDir, name), PACK_LIMITS.blobBytes, `blobs/${name}`);
+      if (sha256(bytes) !== name) {
+        // A pack committed without its .gitattributes, checked out by a git that converts line
+        // endings: undone, the blob is exactly the bytes its name hashes, or it is refused.
+        const restored = withoutCrlf(bytes);
+        if (!restored || sha256(restored) !== name) {
+          const crlf = restored ? `: it has CRLF line endings, as git writes them when it converts a pack committed without the .gitattributes "* -text" that shadowlap pack writes beside it. Add that file to ${dir}, commit it and check the pack out again` : '';
+          throw new PackError(`${dir}: blobs/${name} does not match its hash${crlf}`);
+        }
+        bytes = restored;
+      }
       total += bytes.length;
       if (total > PACK_LIMITS.totalBytes) throw new PackError(`${dir}: blobs exceed ${PACK_LIMITS.totalBytes} bytes in total`);
-      if (sha256(bytes) !== name) throw new PackError(`${dir}: blobs/${name} does not match its hash`);
       blobs.push({ name, bytes });
     }
   }
@@ -480,10 +518,34 @@ export function heldFrom(run: Pick<RunRecord, 'meta'>): string {
 export const NO_COMMAND = '<no-recorded-command>';
 
 /**
+ * What a run recorded through `shadowlap serve` carries instead of a command: the person starts the
+ * process, so serve never knows what started it. No command, as `NO_COMMAND` is, and kept apart
+ * from it so a message can say where the run came from.
+ */
+export const EXTERNAL_COMMAND = '<external>';
+
+/**
+ * What a run recorded by a test carries instead of a command, followed by the test's name: a
+ * Vitest or node:test recording, or a Python one that gave no command, starts its agent inside the
+ * test, so there is nothing to run again on its own. (pytest's plugin gives `pytest <test id>`.)
+ */
+export const TEST_COMMAND = '<test>';
+
+/**
  * Whether the run knows how to start its agent. Replaying one that does not needs the agent's own
  * command supplied; the replay that results records everything, so it has a command of its own.
  */
 export function hasRecordedCommand(run: { command: { argv: readonly string[] } }): boolean {
   const argv = run.command.argv;
-  return argv.length > 0 && !(argv.length === 1 && argv[0] === NO_COMMAND);
+  return argv.length > 0 && argv[0] !== TEST_COMMAND && !(argv.length === 1 && (argv[0] === NO_COMMAND || argv[0] === EXTERNAL_COMMAND));
+}
+
+/**
+ * How a run came to have no command to run again (`hasRecordedCommand` false), as the middle of a
+ * sentence: `shadowlap serve` never saw what started the agent, a test started it inside itself, and
+ * a capture records what was sent, not what sent it.
+ */
+export function withoutCommand(run: { command: { argv: readonly string[] } }): string {
+  const first = run.command.argv[0];
+  return first === EXTERNAL_COMMAND ? 'was recorded through shadowlap serve' : first === TEST_COMMAND ? 'was recorded by a test run' : 'was imported from a capture';
 }

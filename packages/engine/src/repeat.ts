@@ -23,8 +23,13 @@ export interface RepeatAttempt {
   runId: string;
   exitCode: number;
   status: RunStatus;
-  /** The call the attempt forked at, or null for a clean replay. */
+  /** The call the attempt forked at, or null for a clean replay and one that ended early. */
   forkedAt: number | null;
+  /**
+   * An attempt that never forked but stopped before its recording did: the first recorded model or
+   * tool call it never made. Null otherwise.
+   */
+  endedEarly: number | null;
   calls: number;
   replayed: number;
   live: number;
@@ -88,13 +93,15 @@ export interface RepeatOptions {
 export function summarizeRepeats(parentRunId: string, inputs: RepeatAttemptInput[], options: RepeatOptions = {}): RepeatReport {
   const contentOf = options.responseContent ?? ((c: CallRecord) => c.end?.responseRef ?? null);
   const attempts: RepeatAttempt[] = inputs.map(({ runId, exitCode, summary: s, calls }) => {
-    const forkedAt = s.divergence?.callNo ?? null;
+    const d = s.divergence;
+    const forkedAt = d && d.type !== 'ended_early' ? d.callNo : null;
     const lastApi = [...calls].reverse().find((c) => c.kind === 'api' && c.end);
     return {
       runId,
       exitCode,
       status: s.status,
       forkedAt,
+      endedEarly: d?.type === 'ended_early' ? d.callNo : null,
       calls: s.total,
       replayed: s.byOrigin.replayed + s.byOrigin.overridden,
       live: s.byOrigin.live,
@@ -160,7 +167,10 @@ export function formatRepeats(r: RepeatReport, p: Palette = plain): string {
         ? `each forked at call ${forks[0]}`
         : 'none forked'
       : `forked at calls ${r.forkedAt.map((f) => (f === null ? 'none' : f)).join(', ')}: the prefix is not deterministic`;
-  lines.push(`${p.yellow('⑂')} ${p.bold(`${n} attempts`)} from ${short(r.parentRunId)}, ${where}`);
+  // An attempt that stopped before its recording did forked nowhere, yet is no clean replay either.
+  const early = r.attempts.filter((a) => a.endedEarly !== null);
+  const ended = early.length ? p.red(` · ${early.length} of ${n} ended early, at call ${[...new Set(early.map((a) => a.endedEarly!))].sort((a, b) => a - b).join(', ')}`) : '';
+  lines.push(`${p.yellow('⑂')} ${p.bold(`${n} attempts`)} from ${short(r.parentRunId)}, ${where}${ended}`);
   const cost = r.spent || r.saved ? ` · ≈${formatUsd(r.spent)} spent, ${formatUsd(r.saved)} saved` : '';
   lines.push(`  ${r.succeeded} of ${n} exited 0 · ${r.attempts.reduce((s, a) => s + a.upstreamRequests, 0)} upstream requests · ${formatTokens(r.tokensNotRespent)} input tokens not re-spent${cost}`);
 

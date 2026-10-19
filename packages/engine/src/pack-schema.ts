@@ -38,7 +38,7 @@ const EFFECTS = new Set(['pure', 'read', 'write']);
 const MODES = new Set(['record', 'replay']);
 const STATUSES = new Set(['running', 'completed', 'failed', 'crashed']);
 const OUTCOMES = new Set(['ok', 'error']);
-const DIVERGENCES = new Set(['request_changed', 'new_call', 'forced', 'beyond_recording']);
+const DIVERGENCES = new Set(['request_changed', 'new_call', 'forced', 'beyond_recording', 'ended_early']);
 const BLAME_OUTCOMES = new Set(['blamed', 'unrescuable', 'stopped']);
 const CONFIDENCES = new Set(['high', 'medium', 'low']);
 
@@ -121,6 +121,7 @@ export function validateRun(v: unknown, where: string): RunRecord {
       text(h.message, `${where}.divergence.hints[${i}].message`, 2048);
     }
     if (d.reason !== undefined) text(d.reason, `${where}.divergence.reason`, 2048);
+    if (d.recorded !== undefined) int(d.recorded, `${where}.divergence.recorded`);
   }
   const m = meta(v.meta, `${where}.meta`);
   // Labels and notes are shown in terminals and dashboards and used to select runs: checked like any text.

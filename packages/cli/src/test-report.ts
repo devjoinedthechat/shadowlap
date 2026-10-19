@@ -33,7 +33,8 @@ export interface PackResult {
   calls: { total: number; replayed: number; live: number; blocked: number; stubbed: number } | null;
   upstreamRequests: number | null;
   tokensNotRespent: number | null;
-  divergence: { type: DivergenceType; callNo: number; kind: string; name: string } | null;
+  /** `recorded`: for one that ended early, how many calls the recording holds. */
+  divergence: { type: DivergenceType; callNo: number; kind: string; name: string; recorded?: number } | null;
   /** Outcome checks from shadowlap.config.json for the attempt shown: the first failure, or the last pass. Null without checks. */
   checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
   /** For a recording that repeats: how many attempts ran, passed and had to pass. */
@@ -75,7 +76,7 @@ function fence(text: string, lang = 'text'): string {
 
 /** The result cell for a passing recording. */
 function passedLabel(r: PackResult): string {
-  const parts = [r.updated ? 'updated' : r.divergence ? `forked at call ${r.divergence.callNo}` : 'clean'];
+  const parts = [r.updated ? 'updated' : r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${r.divergence.callNo}` : 'clean'];
   if (r.checks?.length) parts.push(`${r.checks.length} check${r.checks.length === 1 ? '' : 's'} passed`);
   if (r.attempts) parts.push(`${r.attempts.passed}/${r.attempts.total} attempts`);
   return parts.join(', ');
@@ -93,7 +94,9 @@ export function markdownReport(report: TestReport): string {
     '|---|---|---|---:|---:|',
   );
   for (const r of report.results) {
-    const replayed = r.calls ? `${r.calls.replayed}/${r.calls.total}` : '';
+    // Out of the recording for one that stopped short of it, so it never reads as whole.
+    const of = r.divergence?.type === 'ended_early' && r.divergence.recorded !== undefined ? r.divergence.recorded : r.calls?.total;
+    const replayed = r.calls ? `${r.calls.replayed}/${of}` : '';
     const tokens = r.tokensNotRespent !== null ? formatTokens(r.tokensNotRespent) : '';
     lines.push(`| ${r.ok ? '✅' : '❌'} | \`${cell(r.name)}\` | ${r.ok ? cell(passedLabel(r)) : cell(r.message ?? 'failed')} | ${replayed} | ${tokens} |`);
   }

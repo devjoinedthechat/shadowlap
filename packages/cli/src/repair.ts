@@ -534,7 +534,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
       const d = footprintDelta(v.runs);
       if (d && d.recorded.inputTokens > 0 && d.now.inputTokens > d.recorded.inputTokens * (1 + s.maxGrowth)) {
         c.state = 'rejected';
-        c.reason = `input tokens per run grow ${Math.round((d.now.inputTokens / d.recorded.inputTokens - 1) * 100)}%, more than --max-growth ${Math.round(s.maxGrowth * 100)}%`;
+        c.reason = growthReason(d.now.inputTokens / d.recorded.inputTokens - 1, s.maxGrowth);
         return null;
       }
       c.state = 'accepted';
@@ -708,4 +708,15 @@ function openPullRequest(root: string, branch: string, title: string, body: stri
 export function splitHoldout<T extends { parent: RunRecord }>(runs: T[]): { targets: T[]; holdout: T[] } {
   const sorted = [...runs].sort((a, b) => a.parent.startedAt - b.parent.startedAt || a.parent.runId.localeCompare(b.parent.runId));
   return { targets: sorted.filter((_, i) => i % 2 === 0), holdout: sorted.filter((_, i) => i % 2 === 1) };
+}
+
+/**
+ * Why a candidate was rejected for its footprint: `input tokens per run grow 30%, more than
+ * --max-growth 25%`. Both as precise as they need to be, so a limit given as 0.5 reads 0.5%, and a
+ * growth past it never reads as no more than it.
+ */
+export function growthReason(growth: number, maxGrowth: number): string {
+  const limit = +(maxGrowth * 100).toFixed(4);
+  const whole = Math.round(growth * 100);
+  return `input tokens per run grow ${whole > limit ? whole : +(growth * 100).toFixed(2)}%, more than --max-growth ${limit}%`;
 }

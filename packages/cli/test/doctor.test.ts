@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../src/config.js';
-import { formatDoctor, runDoctor } from '../src/doctor.js';
+import { formatDoctor, pythonCheck, runDoctor } from '../src/doctor.js';
 
 const guardDir = fileURLToPath(new URL('../guard/', import.meta.url));
 const plain = { green: (s: string) => s, yellow: (s: string) => s, red: (s: string) => s, dim: (s: string) => s };
@@ -66,4 +66,15 @@ describe('shadowlap doctor', () => {
     expect(text).toContain('✗ node');
   });
 
+});
+
+describe('the python check', () => {
+  it('names the command that starts Python, and says so when only python3 does', () => {
+    const only = (versions: Record<string, string>) => pythonCheck((command) => versions[command] ?? null);
+    expect(only({ python3: 'Python 3.14.7' })).toEqual({ found: true, detail: 'Python 3.14.7 on PATH as python3 (Python SDK and guard usable); there is no python, so start agents with python3 agent.py' });
+    expect(only({ python: 'Python 3.12.1' }).detail).toBe('Python 3.12.1 on PATH as python (Python SDK and guard usable); there is no python3, so start agents with python agent.py');
+    expect(only({ python3: 'Python 3.12.1', python: 'Python 3.12.1' }).detail).toBe('Python 3.12.1 on PATH as python3 and python (Python SDK and guard usable)');
+    expect(only({ python3: 'Python 3.13.0', python: 'Python 2.7.18' }).detail).toBe('Python 3.13.0 as python3 and Python 2.7.18 as python on PATH (Python SDK and guard usable)');
+    expect(only({})).toEqual({ found: false, detail: 'no python3 or python on PATH' });
+  });
 });

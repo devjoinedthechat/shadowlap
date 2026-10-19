@@ -79,6 +79,7 @@ export const DIVERGED: Readonly<Record<string, string>> = {
   new_call: 'a call the recording never made',
   forced: 'forced live',
   beyond_recording: 'past the end of the recording',
+  ended_early: 'stopped before the recording did: no call made after it',
 };
 
 const replayedBefore = (n: number) => `${num(n)} ${n === 1 ? 'call' : 'calls'} replayed before it`;

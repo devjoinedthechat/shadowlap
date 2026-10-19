@@ -1,4 +1,5 @@
 import { existsSync, statSync } from 'node:fs';
+import { dirname, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { InvalidArgumentError } from 'commander';
 import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
@@ -48,13 +49,54 @@ export function openStore(opts: GlobalOpts): Store {
   return Store.open(opts.db ?? defaultDbPath(process.cwd()));
 }
 
+/** `--db :memory:`: a store that lives as long as the command, and is no file to look for. */
+const MEMORY = ':memory:';
+
 /**
  * The store, or null when the project has none yet: for commands that only read it or clean it up
  * (`gc`, `redact preview`, `calibrate`), which must not leave an empty store behind.
  */
 export function openStoreIfExists(opts: GlobalOpts): Store | null {
   const dbPath = opts.db ?? defaultDbPath(process.cwd());
-  return existsSync(dbPath) ? Store.open(dbPath) : null;
+  return dbPath === MEMORY || existsSync(dbPath) ? Store.open(dbPath) : null;
+}
+
+/** Stores {@link readStore} stood in for, with what to say about the one that isn't there. */
+const missing = new WeakMap<Store, string>();
+
+/**
+ * The store for a command that only reads it, or changes only what it already holds (a run's
+ * labels, a fix's title): when the project has none yet, an empty one in memory, so that a read
+ * never leaves an empty store behind and a missing store reads as one with nothing in it. When
+ * that is likely the wrong folder (the project's store is in one above it, or `--db` names a file
+ * that isn't there), {@link missingStoreNote} says so.
+ */
+export function readStore(opts: GlobalOpts): Store {
+  const dbPath = opts.db ?? defaultDbPath(process.cwd());
+  // Asked for by name, an empty store in memory is what it is: no missing file to point at.
+  if (dbPath === MEMORY || existsSync(dbPath)) return Store.open(dbPath);
+  const store = Store.open(MEMORY);
+  const note = opts.db ? `there is no store at ${opts.db}` : storeAbove(process.cwd());
+  if (note) missing.set(store, note);
+  return store;
+}
+
+/** Why a store from {@link readStore} has nothing in it, when it is likely the wrong one; null otherwise. */
+export function missingStoreNote(store: Store): string | null {
+  return missing.get(store) ?? null;
+}
+
+/** The nearest store in a folder above `cwd`, and how to use it: run from there, or name it with --db. Null for none. */
+function storeAbove(cwd: string): string | null {
+  for (let dir = cwd; dirname(dir) !== dir; ) {
+    dir = dirname(dir);
+    const found = defaultDbPath(dir);
+    if (existsSync(found)) {
+      const shown = relative(cwd, found);
+      return `there is no store in this folder, and the nearest is ${shown}. Run shadowlap from ${dir}, or name that store: shadowlap --db ${shown} <command>`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -95,16 +137,17 @@ export function fileSize(path: string): number {
 
 /**
  * Asks before running an imported run's recorded command (a pack's, or a teammate's pulled from the
- * team store); refuses outright when nobody can answer.
+ * team store); refuses outright when nobody can answer. `own` is how to run the agent with a command
+ * of the person's own instead, as the refusal suggests (default: a replay with one).
  */
-export async function confirmImportedCommand(run: RunRecord, argv: string[]): Promise<boolean> {
+export async function confirmImportedCommand(run: RunRecord, argv: string[], own = `shadowlap replay ${shortId(run.runId)} -- <command>`): Promise<boolean> {
   const runId = run.runId;
   const cmd = quoteArgv(argv);
   const author = typeof run.meta?.author === 'string' && run.meta.author ? run.meta.author : null;
   const from = pulledRun(run) ? `came from the team store${author ? `, recorded by ${safe(author)}` : ''}` : 'was imported from a pack';
   const explain = `Run ${shortId(runId)} ${from}. Replaying it runs the command it was recorded with:\n\n    ${safe(cmd)}\n\n`;
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
-    process.stderr.write(p.red(explain) + `Pass --yes to run it, or give your own command: shadowlap replay ${shortId(runId)} -- <command>\n`);
+    process.stderr.write(p.red(explain) + `Pass --yes to run it, or give your own command: ${own}\n`);
     return false;
   }
   const { createInterface } = await import('node:readline/promises');
@@ -117,9 +160,15 @@ export async function confirmImportedCommand(run: RunRecord, argv: string[]): Pr
   }
 }
 
+/** How a run came to have no command to run again: through serve, by a test, or from a capture. */
+export { withoutCommand } from '@shadowlap/engine';
+
 export function requireRun(store: Store, idOrPrefix: string): RunRecord {
   const run = store.findRun(idOrPrefix);
-  if (!run) throw new Error(`no run matches "${idOrPrefix}" (see: shadowlap ls)`);
+  if (!run) {
+    const note = missingStoreNote(store);
+    throw new Error(`no run matches "${idOrPrefix}"${note ? `: ${note}` : ' (see: shadowlap ls)'}`);
+  }
   return run;
 }
 
@@ -184,7 +233,8 @@ export function parseChoice<T extends string>(choices: readonly T[]) {
 
 export function printOutcome(summary: ReturnType<Sidecar['endRun']>['summary']): void {
   process.stderr.write('\n' + formatSummary(summary, p) + '\n');
-  if (summary.divergence) process.stderr.write(formatDivergence(summary.divergence, p) + '\n');
+  // One that stopped before its recording did changed no request: the summary line says it all.
+  if (summary.divergence && summary.divergence.type !== 'ended_early') process.stderr.write(formatDivergence(summary.divergence, p) + '\n');
   process.stderr.write(p.dim(`  shadowlap show ${shortId(summary.runId)}\n`));
 }
 

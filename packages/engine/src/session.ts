@@ -340,6 +340,32 @@ export class Session {
     return { origin: 'replayed', occurrence, record };
   }
 
+  /**
+   * The run has ended. A replay that never diverged, yet left recorded model or tool calls unmade,
+   * stopped before its recording did: every request it sent matched, but what it never sent (the
+   * last model turn, a write) is as much a change, so it leaves the recording there, at the first
+   * such call. Clock and random reads left over never make it one. Returns that divergence, which
+   * `divergence` holds from now on, or null.
+   */
+  end(): DivergenceReport | null {
+    if (this.mode !== 'replay' || this.state !== 'replaying') return null;
+    const recorded = this.parentCalls.filter((c) => c.end);
+    const first = recorded.filter((c) => (c.kind === 'api' || c.kind === 'tool') && !this.consumed.has(c.callNo)).reduce<CallRecord | null>((a, c) => (a && a.callNo < c.callNo ? a : c), null);
+    if (!first) return null;
+    this.state = 'diverged';
+    this.divergence = {
+      type: 'ended_early',
+      callNo: first.callNo,
+      kind: first.kind,
+      name: first.name,
+      replayedBefore: this.replayedCount,
+      recorded: recorded.length,
+      reason: `the agent stopped after ${this.replayedCount} of the ${recorded.length} recorded calls, before making #${first.callNo}`,
+      counterpart: { runId: this.parentRunId ?? first.runId, callNo: first.callNo },
+    };
+    return this.divergence;
+  }
+
   /** Recorded calls this replay never reached. Meaningful once the run has ended. */
   notReached(): NotReached[] {
     return this.parentCalls
@@ -363,7 +389,7 @@ export class Session {
    */
   unapplied(): string[] {
     const out: string[] = [];
-    const where = this.divergence ? `the replay forked at call ${this.divergence.callNo} before reaching it, and calls after a fork are matched to the recording only when they are the same call` : 'the run never made that call';
+    const where = this.divergence && this.divergence.type !== 'ended_early' ? `the replay forked at call ${this.divergence.callNo} before reaching it, and calls after a fork are matched to the recording only when they are the same call` : 'the run never made that call';
     const note = (flag: string, callNo: number) => {
       if (this.applied.has(callNo) || this.declinedCalls.has(callNo)) return;
       const rec = this.parentCalls.find((c) => c.callNo === callNo);
