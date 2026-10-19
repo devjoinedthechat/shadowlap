@@ -1,4 +1,4 @@
-import { formatTokens, safeText, type DivergenceType, type TestFailure } from '@shadowlap/engine';
+import { checkStatus, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type StoredCheck, type TestFailure } from '@shadowlap/engine';
 
 /**
  * `shadowlap test` results for machines and for pull requests: a JSON report other tools read (the
@@ -35,8 +35,8 @@ export interface PackResult {
   tokensNotRespent: number | null;
   /** `recorded`: for one that ended early, how many calls the recording holds. */
   divergence: { type: DivergenceType; callNo: number; kind: string; name: string; recorded?: number } | null;
-  /** Outcome checks from shadowlap.config.json for the attempt shown: the first failure, or the last pass. Null without checks. */
-  checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
+  /** Outcome checks from shadowlap.config.json for the attempt shown: the first failure, or the last pass. Each has its `status` (passed, failed, inconclusive, not-applicable). Null without checks. */
+  checks: StoredCheck[] | null;
   /** For a recording that repeats: how many attempts ran, passed and had to pass. */
   attempts: { total: number; passed: number; required: number } | null;
   /** Its checks as written under `tests` in the config (`expect`), for tools that act on a failed check, such as the GitHub Action's fix on failure. */
@@ -77,7 +77,7 @@ function fence(text: string, lang = 'text'): string {
 /** The result cell for a passing recording. */
 function passedLabel(r: PackResult): string {
   const parts = [r.updated ? 'updated' : r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${r.divergence.callNo}` : 'clean'];
-  if (r.checks?.length) parts.push(`${r.checks.length} check${r.checks.length === 1 ? '' : 's'} passed`);
+  if (r.checks?.length) parts.push(statusTally(r.checks));
   if (r.attempts) parts.push(`${r.attempts.passed}/${r.attempts.total} attempts`);
   return parts.join(', ');
 }
@@ -102,7 +102,7 @@ export function markdownReport(report: TestReport): string {
   }
   for (const r of report.results.filter((x) => !x.ok)) {
     lines.push('', `<details open><summary><b>${cell(r.name)}</b>: ${cell(r.message ?? 'failed')}</summary>`, '');
-    if (r.checks?.length) lines.push(...r.checks.map((c) => `- ${c.ok ? '✅' : '❌'} ${cell(c.label)}${c.ok ? '' : `: ${cell(c.detail ?? '')}`}`), '');
+    if (r.checks?.length) lines.push(...r.checks.map(markdownCheck), '');
     const details = moreThanMessage(r);
     if (details) lines.push(fence(details), '');
     if (r.output) lines.push('Agent output, last lines:', '', fence(r.output), '');
@@ -117,8 +117,11 @@ export function markdownReport(report: TestReport): string {
       `An intended change fails the test on purpose. Once you mean it, update the golden${diverged.length === 1 ? '' : 's'}: \`shadowlap test ${safeText(dirs.join(' '))} --update\` re-records ${diverged.length === 1 ? 'it' : 'each'} live with writes stubbed, and replaces ${diverged.length === 1 ? 'it' : 'each'} when ${diverged.length === 1 ? 'its' : 'their'} checks pass; review the new recording in this pull request. A value that changes every run, such as a date or a request id, needs a normalizer instead; the report suggests one. To keep the recording and judge the change by what the agent does, mark it \`fork\` and give it checks under \`tests\` in \`shadowlap.config.json\`.`,
     );
   }
-  if (failures.some((r) => r.checks?.some((c) => !c.ok))) {
+  if (failures.some((r) => r.checks?.some((c) => checkStatus(c) === 'failed'))) {
     lines.push('', 'A failed check means the agent did something its recording\'s checks in `shadowlap.config.json` rule out.');
+  }
+  if (failures.some((r) => r.checks?.some((c) => checkStatus(c) === 'inconclusive'))) {
+    lines.push('', 'An inconclusive check could not be decided, such as a judge check with no recorded verdict and no key to ask for one: it never passes.');
   }
   if (report.interrupted) lines.push('', 'The session was interrupted: only the recordings above finished, and the rest did not run.');
   const updated = report.results.filter((r) => r.updated);
@@ -126,6 +129,17 @@ export function markdownReport(report: TestReport): string {
     lines.push('', `Updated: ${updated.map((r) => `\`${cell(r.name)}\``).join(', ')}, re-recorded live with writes stubbed and replaced because ${updated.length === 1 ? 'its checks pass' : 'their checks pass'}. Review the new recording${updated.length === 1 ? '' : 's'} in this pull request.`);
   }
   return lines.join('\n') + '\n';
+}
+
+/** Each verdict as a job summary shows it: the same four words as everywhere, and a mark GitHub renders. */
+const MARKDOWN_MARK: Record<CheckStatus, string> = { passed: '✅', failed: '❌', inconclusive: '⚠️', 'not-applicable': '➖' };
+
+/** A check as a line of the summary's list: its mark, what was expected, and for anything but a pass what happened; a judge's reason after it. */
+function markdownCheck(c: StoredCheck): string {
+  const status = checkStatus(c);
+  const reason = c.reason ? ` · ${cell(c.reason)}` : '';
+  const word = status === 'inconclusive' ? 'inconclusive · ' : status === 'not-applicable' ? 'not applicable · ' : '';
+  return `- ${MARKDOWN_MARK[status]} ${cell(c.label)}${status === 'passed' ? '' : `: ${word}${cell(c.detail ?? '')}`}${reason}`;
 }
 
 /** Escapes for GitHub workflow commands: data and property values have different rules. */
@@ -150,7 +164,7 @@ export function githubAnnotations(report: TestReport): string {
     .filter((r) => !r.ok)
     .map((r) => {
       const file = `${r.dir.replace(/\\/g, '/').replace(/\/+$/, '')}/run.json`;
-      const failedChecks = (r.checks ?? []).filter((c) => !c.ok).map((c) => `✗ ${safeText(c.label)}: ${safeText(c.detail ?? '')}`);
+      const failedChecks = (r.checks ?? []).filter((c) => !c.ok).map((c) => (checkStatus(c) === 'inconclusive' ? `? ${safeText(c.label)}: inconclusive · ${safeText(c.detail ?? '')}` : `✗ ${safeText(c.label)}: ${safeText(c.detail ?? '')}`));
       const details = moreThanMessage(r);
       const body = [r.message ?? 'failed', ...(failedChecks.length ? ['', ...failedChecks] : []), ...(details ? ['', ...safeText(details).split('\n').slice(0, 30)] : [])].join('\n');
       return `::error file=${escapeProperty(file)},title=${escapeProperty(`Shadowlap: ${safeText(r.name)}`)}::${escapeData(body)}`;

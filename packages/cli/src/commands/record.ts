@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
-import { addRules, calibrationTarget, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
-import { type CheckResult, type TestSpec } from '../checks.js';
+import { addRules, calibrationTarget, checkOutcome, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, statusTally, summarizeRepeats, type CheckStatus, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
+import { CHECK_MARKS, checkWords, type CheckResult, type TestSpec } from '../checks.js';
 import { codeVersion, configPath, loadConfig } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
 import { emitJobEvent } from '../job-events.js';
@@ -16,21 +16,33 @@ import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 const checksFrom = (source: string) => (source === '--expect' ? '--expect' : `shadowlap.config.json for ${source}`);
 
+/** A status's mark, coloured as the verdict it is: lime passed, red failed, amber inconclusive, grey not applicable. */
+const MARK: Record<CheckStatus, (s: string) => string> = { passed: p.green, failed: p.red, inconclusive: p.yellow, 'not-applicable': p.dim };
+const mark = (status: CheckStatus) => MARK[status](CHECK_MARKS[status]);
+
 /** One replay's checks, one line each. */
 function formatChecks(checks: CheckResult[], source: string): string {
-  const failed = checks.filter((c) => !c.ok).length;
-  const head = failed ? p.red(`✗ ${failed} of ${checks.length} check${checks.length === 1 ? '' : 's'} failed`) : p.green(`✓ ${checks.length} check${checks.length === 1 ? '' : 's'} passed`);
-  return [`${head} ${p.dim(`(${checksFrom(source)})`)}`, ...checks.map((c) => (c.ok ? `  ${p.green('✓')} ${safe(c.label)}` : `  ${p.red('✗')} ${safe(c.label)}, but ${safe(c.detail ?? '')}`))].join('\n');
+  const outcome = checkOutcome(checks);
+  const head = (outcome === 'failed' ? p.red : outcome === 'inconclusive' ? p.yellow : p.green)(`${CHECK_MARKS[outcome]} ${statusTally(checks)}`);
+  return [`${head} ${p.dim(`(${checksFrom(source)})`)}`, ...checks.map((c) => `  ${mark(c.status)} ${safe(checkWords(c, ', but '))}`)].join('\n');
 }
 
-/** Each check across the attempts of `--repeat`: in how many it failed, and which. */
+/** Each check across the attempts of `--repeat`: in how many it failed or could not be decided, and which; where it did not apply. */
 function formatCheckTally(judged: CheckResult[][], source: string): string {
   const labels = [...new Set(judged.flatMap((checks) => checks.map((c) => c.label)))];
+  const of = `${judged.length} attempt${judged.length === 1 ? '' : 's'}`;
   const lines = labels.map((label) => {
-    const failedIn = judged.map((checks, i) => (checks.some((c) => c.label === label && !c.ok) ? i + 1 : 0)).filter(Boolean);
-    return failedIn.length
-      ? `    ${p.red('✗')} ${safe(label)}: failed in ${failedIn.length} of ${judged.length} attempt${judged.length === 1 ? '' : 's'} (${failedIn.map((n) => `#${n}`).join(', ')})`
-      : `    ${p.green('✓')} ${safe(label)}: passed in all ${judged.length}`;
+    const where = (status: CheckStatus) => judged.map((checks, i) => (checks.some((c) => c.label === label && c.status === status) ? i + 1 : 0)).filter(Boolean);
+    const numbers = (ns: number[]) => `(${ns.map((n) => `#${n}`).join(', ')})`;
+    const failedIn = where('failed');
+    const unsettledIn = where('inconclusive');
+    const notIn = where('not-applicable');
+    const unsettled = unsettledIn.length ? `, inconclusive in ${unsettledIn.length} ${numbers(unsettledIn)}` : '';
+    if (failedIn.length) return `    ${mark('failed')} ${safe(label)}: failed in ${failedIn.length} of ${of} ${numbers(failedIn)}${unsettled}`;
+    if (unsettledIn.length) return `    ${mark('inconclusive')} ${safe(label)}: inconclusive in ${unsettledIn.length} of ${of} ${numbers(unsettledIn)}`;
+    if (notIn.length === judged.length) return `    ${mark('not-applicable')} ${safe(label)}: not applicable in all ${judged.length}`;
+    if (notIn.length) return `    ${mark('passed')} ${safe(label)}: passed in ${judged.length - notIn.length} of ${of}, not applicable in ${notIn.length} ${numbers(notIn)}`;
+    return `    ${mark('passed')} ${safe(label)}: passed in all ${judged.length}`;
   });
   return [`  Checks ${p.dim(`(${checksFrom(source)})`)}`, ...lines].join('\n');
 }

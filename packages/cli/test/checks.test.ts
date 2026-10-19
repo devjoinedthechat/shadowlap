@@ -80,17 +80,18 @@ describe('outcome checks', () => {
     }).map((e) => e.spec);
     const results = evaluateChecks(spec!, { calls, output: 'done.\n', answer: 'I could not issue it.', argsOf: (c) => (c as { args?: unknown }).args, costOf: () => null });
     expect(results).toEqual([
-      { ok: true, label: 'search_web called at least 1 time', detail: null },
-      { ok: false, label: 'send_email called 0 times', detail: 'called 1 time (1 blocked or stubbed)' },
-      { ok: false, label: 'refund called at least 1 time', detail: 'called 0 times; tools called: search_web, send_email' },
-      { ok: false, label: 'at most 2 model calls', detail: '3 model calls' },
-      { ok: true, label: '2 tool calls', detail: null },
-      { ok: true, label: 'output includes "DONE"', detail: null },
-      { ok: true, label: `output doesn't include "Traceback"`, detail: null },
-      { ok: false, label: 'final answer includes "refund issued"', detail: 'not found in the final answer' },
+      { status: 'passed', ok: true, label: 'search_web called at least 1 time', detail: null },
+      { status: 'failed', ok: false, label: 'send_email called 0 times', detail: 'called 1 time (1 blocked or stubbed)' },
+      { status: 'failed', ok: false, label: 'refund called at least 1 time', detail: 'called 0 times; tools called: search_web, send_email' },
+      { status: 'failed', ok: false, label: 'at most 2 model calls', detail: '3 model calls' },
+      { status: 'passed', ok: true, label: '2 tool calls', detail: null },
+      { status: 'passed', ok: true, label: 'output includes "DONE"', detail: null },
+      { status: 'passed', ok: true, label: `output doesn't include "Traceback"`, detail: null },
+      { status: 'failed', ok: false, label: 'final answer includes "refund issued"', detail: 'not found in the final answer' },
     ]);
     const [withArgs] = parseTests({ x: { expect: { tools: { send_email: { count: 1, args: { to: 'ceo@example.com' } } } } } }).map((e) => e.spec);
     expect(evaluateChecks(withArgs!, { calls, output: '', answer: null, argsOf: (c) => (c as { args?: unknown }).args, costOf: () => null })[0]).toEqual({
+      status: 'failed',
       ok: false,
       label: 'send_email with {"to":"ceo@example.com"} called 1 time',
       detail: 'called 0 times; 1 call with other arguments',
@@ -131,7 +132,7 @@ describe('token and cost budgets', () => {
   it('counts input tokens across every model call, cache reads included', () => {
     // A cache read is input the request still carried: a budget is about what the run sends.
     const calls = [apiCall(1, { inputTokens: 100, outputTokens: 10 }), apiCall(2, { inputTokens: 50, outputTokens: 5, cacheReadInputTokens: 900 })];
-    expect(run(budget({ inputTokens: '<= 2000' }), calls)[0]).toEqual({ ok: true, label: 'at most 2000 input tokens', detail: null });
+    expect(run(budget({ inputTokens: '<= 2000' }), calls)[0]).toEqual({ status: 'passed', ok: true, label: 'at most 2000 input tokens', detail: null });
     expect(run(budget({ inputTokens: '<= 1000' }), calls)[0]).toMatchObject({ ok: false, detail: '1050 input tokens' });
   });
 
@@ -144,7 +145,7 @@ describe('token and cost budgets', () => {
   it('measures cost from the price table and reports the overrun', () => {
     const calls = [apiCall(1, { inputTokens: 1000, outputTokens: 100 }), apiCall(2, { inputTokens: 1000, outputTokens: 100 })];
     const each = () => 0.3;
-    expect(run(budget({ cost: '<= 1.00' }), calls, each)[0]).toEqual({ ok: true, label: 'cost at most $1.00', detail: null });
+    expect(run(budget({ cost: '<= 1.00' }), calls, each)[0]).toEqual({ status: 'passed', ok: true, label: 'cost at most $1.00', detail: null });
     expect(run(budget({ cost: '<= 0.50' }), calls, each)[0]).toMatchObject({ ok: false, label: 'cost at most $0.50' });
   });
 

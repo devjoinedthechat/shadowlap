@@ -41,6 +41,15 @@ function unpricedOnly(checks) {
   return [...new Set(models.flatMap((m) => m.split(', ')))];
 }
 
+/**
+ * Whether every check that failed a golden is one that could not be decided (a judge check with no
+ * verdict): a prompt fix changes none of them. A result kept before results had a status has none.
+ */
+function inconclusiveOnly(checks) {
+  const failed = (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok);
+  return failed.length > 0 && failed.every((c) => c.status === 'inconclusive');
+}
+
 /** The failed goldens of a test report, each with the fix it gets or why it gets none. */
 export function planFixes(report) {
   return report.results
@@ -48,6 +57,7 @@ export function planFixes(report) {
     .map((r) => {
       if (r.failure !== 'check') return { result: r, skip: NOT_FIXED[r.failure] ?? 'not an outcome check' };
       if (!r.expect) return { result: r, skip: 'its checks are not under "tests" in shadowlap.config.json' };
+      if (inconclusiveOnly(r.checks)) return { result: r, skip: 'its checks are inconclusive (a judge check with no verdict), which no prompt fix changes: let the judge be asked, with its provider\'s key' };
       const unpriced = unpricedOnly(r.checks);
       if (unpriced) return { result: r, skip: `it fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, which no prompt fix changes: add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json` };
       const failing = (r.runs ?? []).filter((x) => !x.ok).map((x) => x.runId);

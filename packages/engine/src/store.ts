@@ -24,6 +24,7 @@ import type {
   RunMode,
   RunRecord,
   RunStatus,
+  StoredCheck,
 } from './types.js';
 
 /*
@@ -397,7 +398,7 @@ export interface TestResultData {
   tokensNotRespent?: number;
   /** Input tokens of the run's model requests, cache reads included: what it costs to run live. */
   inputTokens?: number;
-  checks?: Array<{ ok: boolean; label: string; detail: string | null }>;
+  checks?: StoredCheck[];
   /** A recording that repeats: attempts run, passed and needed, and each attempt's run. */
   attempts?: { total: number; passed: number; required: number; runs: string[] };
   /**

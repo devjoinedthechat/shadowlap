@@ -1,6 +1,6 @@
 import { basename, resolve } from 'node:path';
 import { formatDivergence, hasRecordedCommand, heldFrom, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
-import { type CheckResult, type TestSpec } from './checks.js';
+import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
 import { type JunitCase } from './junit.js';
@@ -326,9 +326,9 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
   };
 }
 
-/** The checks, one per line, as the terminal and the JUnit report show them. */
+/** The checks, one per line, as the terminal and the JUnit report show them: passed, failed, inconclusive or not applicable. */
 export function formatChecks(checks: CheckResult[]): string {
-  return checks.map((c) => (c.ok ? `✓ ${c.label}` : `✗ ${c.label}: ${c.detail}`)).join('\n');
+  return checks.map((c) => checkLine(c)).join('\n');
 }
 
 /** The golden as a JUnit test case. */

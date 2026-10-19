@@ -1,9 +1,9 @@
 import type { ChildProcess } from 'node:child_process';
-import { estimateCost, finalAnswer, formatDuration, formatUsd, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
+import { checkStatus, estimateCost, formatDuration, formatUsd, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
-import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
+import { evaluateChecks, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { agentEnv, recordsInput, type GuardMode } from './run-agent.js';
@@ -272,17 +272,12 @@ export class AttemptRunner {
 
   private check(calls: CallRecord[], output: string, spec = this.settings.spec): CheckResult[] {
     if (!spec) return [];
-    return evaluateChecks(spec, {
-      calls,
-      output,
-      answer: finalAnswer(this.store, calls),
-      argsOf: (c) => (c.requestRef ? this.store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined),
-      costOf: this.costOf,
-    });
+    return evaluateChecks(spec, { ...storedCheckInput(this.store, calls, output, this.config.prices), costOf: this.costOf });
   }
 }
 
-const failed = (checks: CheckResult[]) => checks.filter((c) => !c.ok).map((c) => `${c.label}, but ${c.detail}`);
+/** Why the checks fail a run: each failed check, and each that could not be decided (an inconclusive check never passes). */
+const failed = (checks: readonly CheckResult[]) => checks.filter((c) => !c.ok).map((c) => `${c.label}, but ${c.status === 'inconclusive' ? `it is inconclusive: ${c.detail}` : c.detail}`);
 
 /** The oracle, as the labels of what a passing run must do. */
 export function oracleLabels(spec: TestSpec | null): string[] {
@@ -291,28 +286,25 @@ export function oracleLabels(spec: TestSpec | null): string[] {
 
 /**
  * How a recorded run fares against the oracle, from what the recording holds: its exit status and
- * every check but those on its output, which is not recorded. Null when that can't settle it: a
- * check on the output, a run still recording, or a partial recording that holds no tool calls.
+ * every check but those on its output, which is not recorded; `calls` and `when` rules read the
+ * recorded arguments and results, so they cost nothing. Null when that can't settle it: a check on
+ * the output, a check that is inconclusive (a judge with no verdict), a run still recording, or a
+ * partial recording that holds no tool calls. `checks` are the results, the ones on the output left out.
  */
-export function judgeRecording(store: Store, run: RunRecord, calls: CallRecord[], spec: TestSpec | null, prices?: ShadowlapConfig['prices']): { passed: boolean | null; failures: string[] } {
+export function judgeRecording(
+  store: Store,
+  run: RunRecord,
+  calls: CallRecord[],
+  spec: TestSpec | null,
+  prices?: ShadowlapConfig['prices'],
+  options: EvaluateOptions = {},
+): { passed: boolean | null; failures: string[]; checks: CheckResult[] } {
   const failures: string[] = [];
   if (run.status === 'failed') failures.push('the agent exited with a non-zero code');
   else if (run.status === 'crashed') failures.push('the run was interrupted');
-  if (spec) {
-    const { output: _unrecorded, ...recordable } = spec;
-    failures.push(
-      ...failed(
-        evaluateChecks(recordable, {
-          calls,
-          output: '',
-          answer: finalAnswer(store, calls),
-          argsOf: (c) => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined),
-          costOf: (c) => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, prices),
-        }),
-      ),
-    );
-  }
+  const checks = spec ? evaluateChecks(withoutOutput(spec), storedCheckInput(store, calls, '', prices), options) : [];
+  failures.push(...failed(checks.filter((c) => checkStatus(c) === 'failed')));
   const partial = !!run.meta?.covers?.length && !run.meta.covers.includes('tool');
-  const unsettled = run.status === 'running' || spec?.output !== undefined || partial;
-  return { passed: failures.length ? false : unsettled ? null : true, failures };
+  const unsettled = run.status === 'running' || (!!spec && readsOutput(spec)) || partial || checks.some((c) => c.status === 'inconclusive');
+  return { passed: failures.length ? false : unsettled ? null : true, failures, checks };
 }

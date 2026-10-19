@@ -80,7 +80,7 @@ describe('shadowlap test with outcome checks', () => {
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain('✓ reference-agent: 30/30 replayed, ');
     expect(r.out).toContain('6 checks passed');
-    expect(r.report.results[0]).toMatchObject({ ok: true, attempts: null, checks: expect.arrayContaining([{ ok: true, label: 'send_email with {"to":"team@example.com"} called 1 time', detail: null }]) });
+    expect(r.report.results[0]).toMatchObject({ ok: true, attempts: null, checks: expect.arrayContaining([{ status: 'passed', ok: true, label: 'send_email with {"to":"team@example.com"} called 1 time', detail: null }]) });
   });
 
   it('fails a clean replay when a check does not hold, saying what the agent did, and keeps the checks with the run', async () => {
@@ -92,7 +92,7 @@ describe('shadowlap test with outcome checks', () => {
     const store = Store.open(db);
     const replay = store.allRuns().find((x) => x.mode === 'replay');
     store.close();
-    expect(replay?.meta?.checks).toEqual([{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }]);
+    expect(replay?.meta?.checks).toEqual([{ status: 'failed', ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }]);
   });
 
   it('still fails an intended prompt change without `fork`', async () => {

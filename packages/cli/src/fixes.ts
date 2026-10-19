@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { ciProvider, commitTitle, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type Store, type VerifyReport } from '@shadowlap/engine';
 import { EXIT_LABEL } from './attempts.js';
-import { evaluateChecks, formatAmount, type CheckResult, type CountRange, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
+import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { quoteArgv, shortId } from './ui.js';
 
@@ -48,7 +48,13 @@ function textWords(t: TextCheck | undefined, what: string): string[] {
 /** What a passing run does, in plain words: the fix's check. The exit code alone when nothing else is asked. */
 export function checkText(spec: TestSpec | null): string {
   if (!spec) return EXIT_LABEL;
-  const parts = [
+  const parts = checkParts(spec);
+  return parts.length ? parts.join('; ') : EXIT_LABEL;
+}
+
+/** Each check of a spec in plain words; a `when` rule's checks joined under its condition. */
+function checkParts(spec: ExpectSpec): string[] {
+  return [
     ...spec.tools.map(toolWords),
     ...(spec.modelCalls ? [rangeWords(spec.modelCalls, 'model call')] : []),
     ...(spec.toolCalls ? [rangeWords(spec.toolCalls, 'tool call')] : []),
@@ -57,8 +63,10 @@ export function checkText(spec: TestSpec | null): string {
     ...(spec.cost ? [`cost ${formatAmount(spec.cost)}`] : []),
     ...textWords(spec.output, 'output'),
     ...textWords(spec.answer, 'final answer'),
+    ...(spec.calls ?? []).map(callRuleLabel),
+    ...(spec.when ?? []).map((w) => `${conditionLabel(w.if)}: ${checkParts(w.then).join(' and ')}`),
+    ...(spec.judge ?? []).map(judgeLabel),
   ];
-  return parts.length ? parts.join('; ') : EXIT_LABEL;
 }
 
 /** Tool arguments as words: `amount 240`, `to ops@example.com, subject "Your refund"`. */
@@ -129,6 +137,19 @@ function checkItems(spec: TestSpec): CheckItem[] {
     const key = what === 'Output' ? 'output' : 'answer';
     for (const s of t.includes) items.push({ spec: { ...EMPTY_SPEC, [key]: { includes: [s], excludes: [] } }, title: () => `${what} never says "${s}"` });
     for (const s of t.excludes) items.push({ spec: { ...EMPTY_SPEC, [key]: { includes: [], excludes: [s] } }, title: () => `${what} says "${s}"` });
+  }
+  // A rule's first problem, without the call numbers: a fix groups runs whose calls are numbered differently.
+  const unnumbered = (text: string) => text.replace(/ \(#\d+\)/g, '').replace(/ #\d+/g, '');
+  for (const rule of spec.calls ?? []) {
+    items.push({ spec: { ...EMPTY_SPEC, calls: [rule] }, title: (detail) => `${rule.tool}: ${unnumbered(detail.split('; ')[0]!.replace(/^[^:]*#\d+: /, ''))}` });
+  }
+  for (const w of spec.when ?? []) {
+    for (const inner of checkItems({ ...EMPTY_SPEC, ...w.then })) {
+      items.push({ spec: { ...EMPTY_SPEC, when: [{ if: w.if, then: inner.spec }] }, title: (detail) => `${inner.title(detail.replace(/; the condition held at .*$/s, ''))}, ${conditionLabel(w.if)}` });
+    }
+  }
+  for (const j of spec.judge ?? []) {
+    items.push({ spec: { ...EMPTY_SPEC, judge: [j] }, title: (detail) => (/^not judged/.test(detail) ? `Judge "${j.name}" not judged` : `Judge "${j.name}" answered ${j.pass === 'yes' ? 'no' : 'yes'}`) });
   }
   return items;
 }
