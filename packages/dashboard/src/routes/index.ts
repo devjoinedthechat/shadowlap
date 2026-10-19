@@ -3,6 +3,7 @@ import type { Router } from '../router.js';
 import * as activity from './activity.js';
 import * as changes from './changes.js';
 import * as compare from './compare.js';
+import * as decisions from './decisions.js';
 import * as files from './files.js';
 import * as fixes from './fixes.js';
 import * as jobs from './jobs.js';
@@ -54,6 +55,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   projects,
   // Training: pairs, tasks, scores and the models to score (#/training).
   training,
+  // The decision diff: decisions and migrate sessions, a run's decisions, retirements, and their jobs.
+  decisions,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

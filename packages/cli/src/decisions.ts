@@ -222,7 +222,7 @@ class Remedies {
 export function refusalRemedy(error: string): { field: string; value: unknown } | null {
   const over = /\bmax_tokens:\s*\d+\s*>\s*(\d+)/.exec(error) ?? /at most (\d+) (?:completion|output) tokens/i.exec(error);
   if (over) return { field: 'max_tokens', value: Number(over[1]) };
-  const only = /'(\w+)' does not support [^.]*\. Only the default \(([^)]+)\) value is supported/.exec(error);
+  const only = /'(\w+)' does not support .*?\. Only the default \(([^)]+)\) value is supported/.exec(error);
   if (only) {
     let value: unknown = only[2];
     try {

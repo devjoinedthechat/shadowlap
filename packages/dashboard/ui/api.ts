@@ -12,6 +12,7 @@ import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
+import type { DecisionSessionDetail, DecisionsListView, RetirementsView, RunDecisionsView } from './types.js';
 import { copyRunId } from './runs.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -65,6 +66,11 @@ export const JOB_KINDS = {
   pairs: 'pairs',
   score: 'score',
   taskUpdate: 'task-update',
+  // The decision diff (Changes): ask the recorded model calls again under a change, migrate to a
+  // model, and verify the runs a session flagged.
+  decisions: 'decisions',
+  migrate: 'migrate',
+  decisionsVerify: 'decisions-verify',
 } as const;
 
 export class ApiError extends Error {
@@ -209,6 +215,16 @@ export interface Client {
   training(): Promise<TrainingView>;
   /** The models Score a model offers, each priced (`/api/models`). It asks providers, so it can take a second. */
   models(): Promise<ModelsView>;
+
+  // ---- The decision diff (`/api/decisions`)
+  /** The decisions and migrate sessions kept, newest first, and the goldens' models that retire. */
+  decisionSessions(kind?: 'decisions' | 'migrate'): Promise<DecisionsListView>;
+  /** One session whole, by its id (`dc-…`, `mg-…`): its report and its matrix. */
+  decisionSession(id: string): Promise<DecisionSessionDetail>;
+  /** A run's decisions under each session that asked its model calls again, for its Decisions view. */
+  runDecisions(runId: string): Promise<RunDecisionsView>;
+  /** The models the goldens use that retire, by the table that ships with Shadowlap. */
+  retirements(): Promise<RetirementsView>;
 }
 
 
@@ -422,6 +438,10 @@ export function createClient(token: string): Client {
     projects: projectsApi(request),
     training: () => request<TrainingView>('training'),
     models: () => request<ModelsView>('models'),
+    decisionSessions: (kind) => request<DecisionsListView>(`decisions${kind ? `?kind=${kind}` : ''}`),
+    decisionSession: (sessionId) => request<DecisionSessionDetail>(`decisions/${id(sessionId)}`),
+    runDecisions: (runId) => request<RunDecisionsView>(`runs/${id(runId)}/decisions`),
+    retirements: () => request<RetirementsView>('retirements'),
   };
 }
 
@@ -497,5 +517,10 @@ export function createExportedClient(data: StaticPayload): Client {
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
     models: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
+    // The decision diff is not part of an exported copy.
+    decisionSessions: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
+    decisionSession: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
+    runDecisions: () => Promise.resolve({ runId: '', sessions: [] }),
+    retirements: () => Promise.resolve({ version: '', notices: [] }),
   };
 }
