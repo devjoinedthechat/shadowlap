@@ -2,6 +2,8 @@ import type { RouteContext } from '../context.js';
 import type { Router } from '../router.js';
 import * as activity from './activity.js';
 import * as changes from './changes.js';
+// Checks: a check tried on the recordings, nothing replayed (the check builder's preview).
+import * as checks from './checks.js';
 import * as compare from './compare.js';
 import * as files from './files.js';
 import * as fixes from './fixes.js';
@@ -54,6 +56,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   projects,
   // Training: pairs, tasks, scores and the models to score (#/training).
   training,
+  checks,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {
