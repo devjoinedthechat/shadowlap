@@ -173,7 +173,14 @@ export function runDoctor(options: DoctorOptions): Check[] {
       const tests = loadTests(cwd);
       if (tests.length) parts.push(`checks for ${tests.length} recording${tests.length === 1 ? '' : 's'}`);
       push('config', 'ok', `${configPath}: ${parts.join(', ')}`);
-      if (tests.length) checks.push(...checkRules(cwd, tests));
+      if (tests.length) {
+        // What goes wrong reading the packs says nothing about the config, which parsed.
+        try {
+          checks.push(...checkRules(cwd, tests));
+        } catch (err) {
+          push('check rules', 'warn', `the tools the checks name could not be held against their recordings: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     } catch (err) {
       push('config', 'fail', `${configPath}: ${err instanceof Error ? err.message : String(err)}`, 'Fix the JSON; shadowlap normalize ls / redact ls print what is loaded.');
     }
