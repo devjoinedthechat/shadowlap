@@ -140,3 +140,14 @@ describe('the config schema', () => {
     }
   });
 });
+
+describe('a judge whose material cannot be made', () => {
+  it('is not judged, saying why, and nothing is sent', async () => {
+    const { askJudges } = await import('../src/judge.js');
+    const store = Store.open(':memory:');
+    const sidecar = { url: 'http://127.0.0.1:9', judgeToken: 't' } as unknown as import('@shadowlap/sidecar').Sidecar;
+    const r = await askJudges([{ ...judge, of: 'output' }], { calls: [], output: 'x' }, { sidecar, store, runId: 'R', upstreams: {}, redact: [{ pattern: '/(/', replace: 'x' }], env: {} });
+    expect(r.verdicts.size).toBe(0);
+    expect(r.notJudged.get('explains')).toMatch(/^what it reads could not be made: /);
+  });
+});

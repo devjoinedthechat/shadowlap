@@ -96,7 +96,13 @@ function errorMessage(bytes: Buffer): string {
 async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: JudgeRunContext): Promise<JudgedEntry | { why: string }> {
   const target = judgeTarget(j.model);
   if (!target) return { why: `Shadowlap can't tell which provider serves ${j.model}` };
-  const m = judgeMaterial(ctx.store, material.calls, j.of, { output: material.output, redact: ctx.redact ?? [] });
+  let m: ReturnType<typeof judgeMaterial>;
+  try {
+    m = judgeMaterial(ctx.store, material.calls, j.of, { output: material.output, redact: ctx.redact ?? [] });
+  } catch (err) {
+    // A redaction rule that can't be applied: nothing is sent unmasked.
+    return { why: `what it reads could not be made: ${(err as Error).message}` };
+  }
   if ('missing' in m) return { why: m.missing };
   const request = judgeRequest(target, j, m);
   const live = liveJudge(target.provider, ctx.upstreams, ctx.env);
@@ -183,7 +189,12 @@ export function heldVerdict(store: Store, calls: readonly CallRecord[], j: Judge
   const target = judgeTarget(j.model);
   let wanted: string | null = null;
   if (o.material && target) {
-    const m = judgeMaterial(store, o.material.calls, j.of, { output: o.material.output, redact: o.redact ?? [] });
+    let m: ReturnType<typeof judgeMaterial>;
+    try {
+      m = judgeMaterial(store, o.material.calls, j.of, { output: o.material.output, redact: o.redact ?? [] });
+    } catch {
+      return null;
+    }
     if ('missing' in m) return null;
     wanted = canonicalize(judgeRequest(target, j, m).body);
   }
