@@ -1,0 +1,22 @@
+{
+  // The tests the Node pass (tsconfig.test.json) leaves out because they import the dashboard's
+  // browser code: type-checked here against the DOM library, as the browser code itself is. The
+  // workspace packages are read as their built declarations, as the browser code's own check reads
+  // them, so the DOM's fetch typings never meet their sources: run it after `npm run build`, as
+  // `npm run typecheck:tests` does in CI and before a commit.
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "paths": {}
+  },
+  "include": [
+    "packages/dashboard/test/normalize.test.ts",
+    "packages/dashboard/test/ui-strip.test.ts",
+    "packages/dashboard/test/ui-run-width.test.ts",
+    "packages/dashboard/test/ui-run-scale.test.ts",
+    "packages/dashboard/test/ui-dialog-tab.test.ts",
+    "packages/dashboard/test/ui-palette-ids.test.ts",
+    "packages/dashboard/test/ui-client-cache.test.ts"
+  ],
+  "exclude": []
+}

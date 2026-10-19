@@ -2,9 +2,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { Store, storeApiRequest } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type Dashboard, type JobView } from '../src/index.js';
 import type { OverviewSummary } from '../src/overview.js';
 import { choicesHere, commitsHere } from '../src/commits-here.js';
@@ -454,6 +455,97 @@ describe('imports', () => {
 describe('searching what runs recorded', () => {
   /** A model call whose prompt says `text`, a conversation of its own. */
   const say = (code: string, text: string, scope = 's1'): CallSpec => ({ code, scope, request: { model: 'claude-sonnet-4-5', max_tokens: 1024, messages: [{ role: 'user', content: text }] } });
+  type Answer = { hits: RecordedHit[]; indexing?: { runs: number; of: number } };
+  /** A search asked again while the index catches up, as the palette asks: the answer once it has. */
+  const settled = async (d: Dashboard, path: string): Promise<Answer> => {
+    for (let i = 0; i < 300; i++) {
+      const a = await get<Answer>(d, path);
+      if (!a.indexing) return a;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error(`${path}: the index never caught up`);
+  };
+
+  it('answers at once while the index catches up beside it, saying how many runs it has yet to read', async () => {
+    const s = Store.open(':memory:');
+    const d = await startDashboard({ store: s, dbPath: ':memory:', project: { path: project } });
+    try {
+      // The index caught up with the empty store as the dashboard started; then runs arrive, and it has read none of them.
+      await new Promise((r) => setTimeout(r, 50));
+      const runs = Array.from({ length: 40 }, (_, i) => addRun(s, { startedAt: NOW - DAY + i * 1000, calls: [say('l', `refund order A-${1000 + i}`), say('l', 'escalate it', 's2')] }));
+      const first = await get<Answer>(d, 'search?q=refund&limit=40');
+      expect(first).toEqual({ hits: [], indexing: { runs: 40, of: 40 } });
+      // Asked again, as the palette does, it has caught up: every run, and nothing more to say.
+      const later = await settled(d, 'search?q=refund&limit=40');
+      expect(new Set(later.hits.map((h) => h.runId))).toEqual(new Set(runs));
+      expect(later.indexing).toBeUndefined();
+      expect(s.searchState(runs[0]!)).toMatchObject({ calls: 2 });
+    } finally {
+      await d.close();
+      s.close();
+    }
+  });
+
+  it('keeps answering every page while another command writes the store, and catches up once it is done', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-search-busy-'));
+    const dbPath = join(dir, 'shadowlap.db');
+    const s = Store.open(dbPath);
+    const runs = Array.from({ length: 20 }, (_, i) => addRun(s, { startedAt: NOW - DAY + i * 1000, calls: [say('l', `refund order A-${1000 + i}`)] }));
+    // Another command writing the store as the dashboard starts catching up: gc's VACUUM, a pull, an import.
+    const holder = new DatabaseSync(dbPath);
+    holder.exec('BEGIN IMMEDIATE');
+    const started = Date.now();
+    const d = await startDashboard({ store: s, dbPath, project: { path: project } });
+    try {
+      await new Promise((r) => setTimeout(r, 150));
+      // A search answers from what the index holds, and has it catch up again from there; the other
+      // pages go on being answered. Neither waits for the index waiting for the store's write lock
+      // (10 s, after which it gave up).
+      const timed = async <T,>(path: string): Promise<T> => {
+        const t0 = Date.now();
+        const out = await get<T>(d, path);
+        expect(Date.now() - t0, path).toBeLessThan(1500);
+        return out;
+      };
+      expect(await timed<Answer>('search?q=refund&limit=40')).toEqual({ hits: [], indexing: { runs: 20, of: 20 } });
+      for (let i = 0; i < 4; i++) {
+        await timed('meta');
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(Date.now() - started).toBeLessThan(5000);
+      holder.exec('ROLLBACK');
+      const later = await settled(d, 'search?q=refund&limit=40');
+      expect(new Set(later.hits.map((h) => h.runId))).toEqual(new Set(runs));
+    } finally {
+      holder.close();
+      await d.close();
+      s.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('answers with what a recording said since the last search, rather than that it has yet to read it', async () => {
+    const s = Store.open(':memory:');
+    const d = await startDashboard({ store: s, dbPath: ':memory:', project: { path: project } });
+    try {
+      const rec = addRun(s, { startedAt: NOW - HOUR, status: 'running', calls: [say('l', 'Where is order A-1042?')] });
+      expect((await settled(d, 'search?q=order&limit=40')).hits.map((h) => [h.runId, h.callNo])).toEqual([[rec, 1]]);
+      // The recording goes on, a call between each search the palette makes: each is in the next
+      // answer, and none says the index is behind, so the palette doesn't ask again every second.
+      for (let n = 2; n <= 4; n++) {
+        const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: `fp${n}`, occurrence: 1 };
+        const requestRef = storeApiRequest(s, { model: 'claude-sonnet-4-5', max_tokens: 1024, messages: [{ role: 'user', content: `Refund order A-104${n}, ticket T-${n}0` }] });
+        s.appendCallStart({ runId: rec, callNo: n, ...identity, origin: 'live', effect: null, requestRef, meta: { scope: `s${n}` }, at: NOW - HOUR + n * 1000 });
+        s.appendCallEnd(identity, { runId: rec, callNo: n, attempt: 0, responseRef: null, outcome: 'ok', meta: { latencyMs: 900 }, at: NOW - HOUR + n * 1000 + 900 });
+        const a = await get<Answer>(d, `search?q=T-${n}0&limit=40`);
+        expect(a.indexing).toBeUndefined();
+        expect(a.hits.map((h) => [h.runId, h.callNo])).toEqual([[rec, n]]);
+      }
+    } finally {
+      await d.close();
+      s.close();
+    }
+  });
 
   it('answers a run’s own hits before any attempt’s, and an attempt’s only for a run with none, naming that run', async () => {
     const s = Store.open(':memory:');
@@ -466,14 +558,14 @@ describe('searching what runs recorded', () => {
       const quiet = addRun(s, { startedAt: NOW - 2 * DAY, calls: [say('l', 'Where is order A-1042?')] });
       const tries = [1, 2, 3].map((i) => addRun(s, { parent: quiet, startedAt: NOW - 2 * HOUR + i, divergence: 1, meta: { repeat: { group: 'g', attempt: i, of: 3 } }, calls: [say('l', 'refund issued'), say('l', 'refund sent', 's2')] }));
 
-      const { hits } = await get<{ hits: RecordedHit[] }>(d, 'search?q=refund&limit=40');
+      const { hits } = await settled(d, 'search?q=refund&limit=40');
       expect(hits[0]).toMatchObject({ runId: rec, attemptOf: null, callNo: 1, field: 'prompt' });
       expect(hits.filter((h) => h.runId === rec || h.attemptOf === rec)).toHaveLength(1);
       expect(hits.slice(1).map((h) => h.attemptOf)).toEqual([quiet, quiet]);
       expect(hits.slice(1).every((h) => tries.includes(h.runId))).toBe(true);
       // The palette asks for a few: a run of its own still comes first.
-      expect((await get<{ hits: RecordedHit[] }>(d, 'search?q=refund&limit=1')).hits.map((h) => h.runId)).toEqual([rec]);
-      expect((await get<{ hits: RecordedHit[] }>(d, 'search?q=')).hits).toEqual([]);
+      expect((await settled(d, 'search?q=refund&limit=1')).hits.map((h) => h.runId)).toEqual([rec]);
+      expect((await settled(d, 'search?q=')).hits).toEqual([]);
     } finally {
       await d.close();
       s.close();

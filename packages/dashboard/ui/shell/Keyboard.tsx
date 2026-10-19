@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { isTyping } from '../dom.js';
+import { isTyping, keepTabInModal } from '../dom.js';
 import { useLatest } from '../hooks.js';
 import { GO_KEYS, GO_WINDOW_MS } from '../route.js';
 import { copyCompares } from '../runs.js';
@@ -9,7 +9,8 @@ import { useApp } from '../state.js';
 /**
  * The keys that work anywhere: ⌘K (Ctrl K) for the palette, / to search (on a run it filters the
  * calls), ? for the shortcuts, g then a letter to go to a page, and Esc, which closes a menu, then a
- * dialog, then a panel, then the phone sidebar. A run's own keys are its page's (`runKeys`). No
+ * dialog, then a panel, then the phone sidebar. While a modal dialog is open, Tab and Shift+Tab go
+ * round its own controls (`keepTabInModal`). A run's own keys are its page's (`runKeys`). No
  * shortcut works while the link has expired.
  */
 export function Keyboard() {
@@ -20,6 +21,8 @@ export function Keyboard() {
     const down = (e: KeyboardEvent) => {
       const a = latest.current;
       if (a.conn === 'expired') return;
+      // A dialog, the shortcuts or the palette open: Tab stays inside it.
+      if (keepTabInModal(e)) return;
       if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
         if (a.exported) return;
         e.preventDefault();

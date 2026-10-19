@@ -21,8 +21,9 @@ const NONE: FixBundle[] = [];
  * first. A failed answer bundles nothing, and the family shows every run.
  */
 export function useFixBundles(runId: string): { bundles: FixBundle[]; bundled: Set<string>; rescued: Set<string>; loading: boolean } {
-  const { client, tick, feeds, exported } = useApp();
-  const loaded = useLoad(() => (exported ? null : client.fixBundles(runId)), `bundles:${runId}`, `${tick}:${feeds.fixes ?? 0}`);
+  const { client, runsTick, feeds, exported } = useApp();
+  // Again when runs move (an attempt started or ended) or fixes do: not for calls another run records.
+  const loaded = useLoad(() => (exported ? null : client.fixBundles(runId)), `bundles:${runId}`, `${runsTick}:${feeds.fixes ?? 0}`);
   const bundles = loaded.data ?? NONE;
   const loading = loaded.loading && loaded.data === null;
   return useMemo(() => ({ bundles, bundled: bundledRuns(bundles), rescued: new Set(bundles.flatMap((b) => b.attempts.filter((a) => a.rescued).map((a) => a.runId))), loading }), [bundles, loading]);

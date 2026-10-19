@@ -1,18 +1,59 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import type { CallRow, RunDetail } from '../api.js';
 import { Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, usedCache, wholeInput } from '../cache.js';
 import { ktok, num } from '../format.js';
+import { useWindow } from './window-hook.js';
 
 /**
  * Context: what each model call sent, split by what the cache did with it (read, written, uncached),
  * the output under it, and where the cache stopped hitting, judged within each scope and
  * conversation (a model call reading less from the cache than the previous call's whole input, by
- * 1,024 tokens or more).
+ * 1,024 tokens or more). Past 360 model calls a bar stands for a range of them and shows its largest
+ * context, as the origin strip does; the table draws only the rows in view (window-hook.ts).
  */
 
 let asTable = false;
+
+/** The chart's bars past this many model calls stand for ranges of them. */
+export const MAX_BARS = 360;
+
+export interface ContextBar {
+  first: number;
+  last: number;
+  /** How many model calls it stands for. */
+  size: number;
+  /** The call with the largest context in the range: its bar is drawn. */
+  call: CallRow;
+  /** The range's largest output. */
+  out: number;
+  /** The tokens the range's misses sent again, and the first of them; null without a miss. */
+  miss: { tokens: number; callNo: number } | null;
+}
+
+/** The chart's bars: one per model call, or past `max` one per range of them, each drawn as its largest context. */
+export function contextBars(ms: readonly CallRow[], misses: ReadonlyMap<number, number>, max = MAX_BARS): ContextBar[] {
+  const size = ms.length > max ? Math.ceil(ms.length / max) : 1;
+  const out: ContextBar[] = [];
+  for (let i = 0; i < ms.length; i += size) {
+    let call = ms[i]!;
+    let most = 0;
+    let miss = null as ContextBar['miss'];
+    const end = Math.min(ms.length, i + size);
+    for (let j = i; j < end; j++) {
+      const c = ms[j]!;
+      if (wholeInput(c.usage!) > wholeInput(call.usage!)) call = c;
+      most = Math.max(most, c.usage!.output);
+      const sent = misses.get(c.callNo);
+      if (sent !== undefined) miss = { tokens: (miss?.tokens ?? 0) + sent, callNo: miss?.callNo ?? c.callNo };
+    }
+    out.push({ first: ms[i]!.callNo, last: ms[end - 1]!.callNo, size: end - i, call, out: most, miss });
+  }
+  return out;
+}
+
+const TABLE_ROWS = { keyOf: (c: CallRow) => c.callNo, shapeOf: () => 'row', estimate: () => 28 };
 
 export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail; calls: CallRow[]; selected: number | null; onSelect: (n: number) => void }) {
   const [table, setTableState] = useState(asTable);
@@ -20,7 +61,8 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
     asTable = t;
     setTableState(t);
   };
-  const ms = calls.filter((c) => c.kind === 'api' && c.usage && c.outcome !== 'error');
+  const ms = useMemo(() => calls.filter((c) => c.kind === 'api' && c.usage && c.outcome !== 'error'), [calls]);
+  const win = useWindow(table ? ms : [], TABLE_ROWS);
   if (!ms.length) return <div className="empty">{calls.some((c) => c.kind === 'api') ? 'No model call reported token usage, so there is no context to show.' : 'No model calls yet.'}</div>;
   // The server's misses when it judged them (for the whole run, or on each call); the same rule here
   // otherwise. Only those among the calls shown (the scope picked) count.
@@ -34,13 +76,17 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
   const stat = missStat(ms, shownMisses);
   // Calls that never used the cache miss on every turn: the note says so once, not a label per bar.
   const labelMisses = usedCache(ms);
-  const max = Math.max(1, ...ms.map((c) => wholeInput(c.usage!)));
-  const outMax = Math.max(1, ...ms.map((c) => c.usage!.output));
   const big = ms.reduce((a, b) => (wholeInput(b.usage!) > wholeInput(a.usage!) ? b : a));
+  const max = Math.max(1, wholeInput(big.usage!));
+  const bars = contextBars(ms, misses);
+  let outMax = 1;
+  for (const b of bars) outMax = Math.max(outMax, b.out);
   const share = cacheReadShare(ms);
-  const many = ms.length > 80;
+  const many = bars.length > 80;
   // A label per bar while they fit (the design's thirty-call run); past that, every few, so they never run together.
-  const every = Math.max(1, Math.ceil(ms.length / (many ? 12 : 22)));
+  const every = Math.max(1, Math.ceil(bars.length / (many ? 12 : 22)));
+  const modelNos = new Set(ms.map((c) => c.callNo));
+  const holds = (b: ContextBar) => selected !== null && selected >= b.first && selected <= b.last && modelNos.has(selected);
   const h = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
   return (
     <>
@@ -100,9 +146,14 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
                 <th>Input total</th>
               </tr>
             </thead>
-            <tbody>
-              {ms.map((c) => (
-                <tr key={c.callNo} className={misses.has(c.callNo) ? 'miss' : undefined} onClick={() => onSelect(c.callNo)}>
+            <tbody ref={win.listRef}>
+              {win.before ? (
+                <tr className="wspace" aria-hidden="true" style={{ height: win.before }}>
+                  <td colSpan={6} />
+                </tr>
+              ) : null}
+              {ms.slice(win.start, win.end).map((c, j) => (
+                <tr key={c.callNo} data-wi={win.start + j} className={misses.has(c.callNo) ? 'miss' : undefined} onClick={() => onSelect(c.callNo)}>
                   <td>#{c.callNo}</td>
                   <td>{num(c.usage!.cacheRead)}</td>
                   <td>{num(c.usage!.cacheWrite)}</td>
@@ -111,26 +162,35 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
                   <td>{num(wholeInput(c.usage!))}</td>
                 </tr>
               ))}
+              {win.after ? (
+                <tr className="wspace" aria-hidden="true" style={{ height: win.after }}>
+                  <td colSpan={6} />
+                </tr>
+              ) : null}
             </tbody>
           </table>
         ) : (
           <>
             <div className={`cbars${many ? ' many' : ''}`}>
-              {ms.map((c) => {
+              {bars.map((b) => {
+                const c = b.call;
                 const u = c.usage!;
-                const tip = tipCard(`#${c.callNo} · ${num(wholeInput(u))} input tokens`, [
+                const range = b.size > 1;
+                const tip = tipCard(range ? `#${num(b.first)}–#${num(b.last)} · largest #${num(c.callNo)}, ${num(wholeInput(u))} input tokens` : `#${c.callNo} · ${num(wholeInput(u))} input tokens`, [
                   { label: 'cache read', value: num(u.cacheRead), color: 'var(--c-read)' },
                   { label: 'cache write', value: num(u.cacheWrite), color: 'var(--c-write)' },
                   { label: 'uncached', value: num(u.input), color: 'var(--c-unc)' },
                   { label: 'output', value: num(u.output), color: 'var(--c-out)' },
-                  ...(misses.has(c.callNo) ? [{ label: 'sent again', value: num(misses.get(c.callNo)!), color: 'var(--warn)' }] : []),
+                  ...(b.miss ? [{ label: range ? 'sent again in the range' : 'sent again', value: num(b.miss.tokens), color: 'var(--warn)' }] : []),
                 ]);
+                // A range opens its miss, else the call picked in it, else its largest context.
+                const opens = b.miss?.callNo ?? (holds(b) ? selected! : c.callNo);
                 return (
-                  <div key={c.callNo} className={`cbar${c.callNo === selected ? ' sel' : ''}`} data-tip={tip} onClick={() => onSelect(c.callNo)}>
+                  <div key={b.first} className={`cbar${holds(b) ? ' sel' : ''}`} data-tip={tip} onClick={() => onSelect(opens)}>
                     {u.cacheRead ? <i className="seg-read" style={{ height: h(u.cacheRead) }} /> : null}
                     <i className="seg-write" style={{ height: h(u.cacheWrite) }} />
                     <i className="seg-unc" style={{ height: `max(2px, ${h(u.input)})` }} />
-                    {labelMisses && misses.has(c.callNo) ? (
+                    {labelMisses && b.miss ? (
                       <span className="miss" style={{ bottom: `calc(${h(wholeInput(u))} + 8px)` }}>
                         cache miss
                       </span>
@@ -140,14 +200,14 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
               })}
             </div>
             <div className={`couts${many ? ' many' : ''}`}>
-              {ms.map((c) => (
-                <i key={c.callNo} style={{ height: `${((c.usage!.output / outMax) * 100).toFixed(2)}%` }} />
+              {bars.map((b) => (
+                <i key={b.first} style={{ height: `${((b.out / outMax) * 100).toFixed(2)}%` }} />
               ))}
             </div>
             <div className={`clabels${many ? ' many' : ''}`}>
-              {ms.map((c, i) => (
-                <span key={c.callNo} className={c.callNo === selected ? 'sel' : undefined}>
-                  {i % every === 0 ? `#${num(c.callNo)}` : ''}
+              {bars.map((b, i) => (
+                <span key={b.first} className={holds(b) ? 'sel' : undefined}>
+                  {i % every === 0 ? `#${num(b.first)}` : ''}
                 </span>
               ))}
             </div>

@@ -7,10 +7,11 @@ import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns }
 import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
+import { holdWhile, Revalidation } from './revalidate.js';
 import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
-import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RecordedHit, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
+import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import { copyRunId } from './runs.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -116,7 +117,8 @@ export interface Client {
   exported: boolean;
   meta(): Promise<Meta>;
   runs(): Promise<RunListItem[]>;
-  run(id: string): Promise<RunDetail>;
+  /** A run's page; `after`, for a recording the page follows: only the calls numbered after it (`RunDetail.after`). */
+  run(id: string, after?: number): Promise<RunDetail>;
   call(id: string, n: number): Promise<CallDetail>;
   lineage(id: string): Promise<LineageNode[]>;
   /** The run's record for Provenance, or null when the server does not work it out. */
@@ -126,8 +128,11 @@ export interface Client {
   /** `shadowlap show <run> --json` as the CLI prints it, or null when the server does not serve it. */
   showJson(id: string): Promise<unknown>;
   compare(a: string, b: string): Promise<RunComparison>;
-  /** What runs recorded: hits from runs of their own first, each naming the run an attempt belongs to. */
-  search(q: string): Promise<RecordedHit[]>;
+  /**
+   * What runs recorded: hits from runs of their own first, each naming the run an attempt belongs to,
+   * and while the server's index is behind, how many runs it has yet to cover (`indexing`).
+   */
+  search(q: string): Promise<SearchAnswer>;
   labels(id: string, add: string[], remove?: string[]): Promise<{ labels: string[] }>;
   note(id: string, callNo: number | null, text: string): Promise<{ notes: RunNote[] }>;
   /** Runs one of the run's actions (`/api/runs/:id/actions`): the server builds the command line. */
@@ -207,17 +212,20 @@ export interface Client {
 }
 
 
-const etags = new Map<string, { etag: string; body: unknown }>();
+/** The answers kept for revalidation, bounded (revalidate.ts). */
+const etags = new Revalidation();
 
 /**
  * Each answer in the shape the views read (`normalize.ts`), worked out once per answer: an unchanged
- * answer (a 304 hands back the same object) comes back as the same object, so nothing redraws.
+ * answer (a 304 hands back the same object) comes back as the same object, so nothing redraws. What
+ * the views read keeps the answer it came from, so a large one stays revalidated while it is shown.
  */
 const shaped = new WeakMap<object, unknown>();
 function shape<T extends object, U>(raw: T, fn: (raw: T) => U): U {
   if (shaped.has(raw)) return shaped.get(raw) as U;
   const out = fn(raw);
   shaped.set(raw, out);
+  holdWhile(out, raw);
   return out;
 }
 
@@ -276,7 +284,7 @@ export function createClient(token: string): Client {
       throw new ApiError(res.status, (body as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
     }
     const etag = res.headers.get('etag');
-    if (etag && method === 'GET') etags.set(path, { etag, body });
+    if (etag && method === 'GET') etags.set(path, etag, body, text.length);
     return body as T;
   }
   const id = encodeURIComponent;
@@ -303,8 +311,8 @@ export function createClient(token: string): Client {
         return shape(m, normalizeMeta);
       }),
     runs: () => request<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
-    run: (runId) =>
-      request<RunDetail>(`runs/${id(runId)}`).then((d) => {
+    run: (runId, after) =>
+      request<RunDetail>(`runs/${id(runId)}${after === undefined ? '' : `?after=${after}`}`).then((d) => {
         const out = shape(d, normalizeRunDetail);
         // The top bar's crumb names the parent of a run the run list leaves out from here (parents.ts).
         noteParent([runId, out.run.runId], out.run.parentRunId ?? null);
@@ -344,7 +352,7 @@ export function createClient(token: string): Client {
     },
     showJson: (runId) => request<unknown>(`runs/${id(runId)}/show`),
     compare: (a, b) => request<RunComparison>(`compare?a=${id(a)}&b=${id(b)}`),
-    search: (q) => request<{ hits: RecordedHit[] }>(`search?q=${id(q)}&limit=40`).then((r) => r.hits),
+    search: (q) => request<SearchAnswer>(`search?q=${id(q)}&limit=40`).then((r) => ({ hits: r.hits ?? [], ...(r.indexing ? { indexing: r.indexing } : {}) })),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
     note: (runId, callNo, text) => request<{ notes: RunNote[] }>(`runs/${id(runId)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),
     action: (runId, key, callNo, value) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}) }) }),
@@ -453,7 +461,7 @@ export function createExportedClient(data: StaticPayload): Client {
     offers: () => Promise.resolve(null),
     showJson: (runId) => get<unknown>(`runs/${full(runId)}/show`),
     compare: (a, b) => get<RunComparison>(`compare?a=${full(a)}&b=${full(b)}`),
-    search: () => Promise.resolve([]),
+    search: () => Promise.resolve({ hits: [] }),
     labels: readOnly,
     note: readOnly,
     action: readOnly,

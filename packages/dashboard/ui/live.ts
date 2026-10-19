@@ -85,3 +85,32 @@ export function recordingToast(ended: readonly EndedRecording[]): string | null 
   const ids = ended.slice(0, 3).map((e) => shortId(e.runId)).join(', ');
   return `${ended.length} recordings ${cut === ended.length ? 'interrupted' : cut ? 'ended' : 'finished'} · ${ids}${ended.length > 3 ? ', …' : ''}`;
 }
+
+/**
+ * The calls of a recording's page that won't change any more: every call up to the first still on
+ * its way or answered with a failure the agent may retry (`retryable`, as the server marks it while
+ * the run records). A retry answers the call again under its number, also once another branch of
+ * the agent has made calls after it. The page asks the server only for the calls after these
+ * (`?after=`). 0 when none is settled yet.
+ */
+export function settledThrough(calls: readonly { callNo: number; outcome: string | null; retryable?: boolean }[]): number {
+  let through = 0;
+  for (const c of calls) {
+    if (c.outcome === null || c.retryable) break;
+    through = c.callNo;
+  }
+  return through;
+}
+
+/**
+ * A recording's page with what the server sent since: everything but the calls from the answer
+ * (`part`, for `?after=`), and the calls the page had up to `part.after` followed by those it sent.
+ * An answer for the whole run (no `after`) replaces what the page had.
+ */
+export function mergeRun<C extends { callNo: number }, R extends { calls: C[]; after?: number }>(had: R, part: R): R {
+  const after = part.after;
+  if (after === undefined) return part;
+  const { after: _after, ...rest } = part;
+  void _after;
+  return { ...(rest as unknown as R), calls: [...had.calls.filter((c) => c.callNo <= after), ...part.calls] };
+}

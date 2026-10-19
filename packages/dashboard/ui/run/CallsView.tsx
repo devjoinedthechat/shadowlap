@@ -5,11 +5,13 @@ import { Icon } from '../components/Icon.js';
 import { callName, kindShort } from '../format.js';
 import type { CallIndex } from '../recorded.js';
 import { callDetail, originOf, resultLine, timeOf, tokensText } from './model.js';
+import { useWindow } from './window-hook.js';
 
 /**
  * Calls: #, call, origin, tokens, time. A tool's result sits on a second line under it. A replayed
  * call's time is its recorded duration, in grey: the replay did not wait for it. Each row has a fork
- * button, shown on hover and on the selected row.
+ * button, shown on hover and on the selected row. Only the rows in view and a screenful either side
+ * are drawn (window-hook.ts), so a run of 50,000 calls opens and moves as one of fifty does.
  */
 
 export type OriginFilter = 'all' | 'live' | 'rep' | 'over' | 'inject' | 'fail' | 'block';
@@ -65,29 +67,31 @@ export function CallsToolbar({ counts, filter, onFilter, text, onText, inputRef 
   );
 }
 
+/** A call's row is one line, or two with a result under it: the window places rows by these shapes. */
+const callShape = (c: CallRow) => (resultLine(c) ? 'two' : 'one');
+const CALL_ROWS = { keyOf: (c: CallRow) => c.callNo, shapeOf: callShape, estimate: (shape: string) => (shape === 'two' ? 50 : 33) };
+
 export function CallsTable({ calls, asked, selected, scoped, forkAt, lostAt, ancestors, live, canFork, onSelect, onFork }: { calls: CallRow[]; asked: ReadonlyMap<number, string> | null; selected: number | null; scoped: boolean; forkAt: number | null; lostAt: number | null; ancestors: readonly CallIndex[]; live: boolean; canFork: boolean; onSelect: (n: number) => void; onFork: (n: number, el: HTMLElement) => void }) {
-  const body = useRef<HTMLTableSectionElement>(null);
+  const head = useRef<HTMLTableSectionElement>(null);
   const placed = useRef(false);
+  const win = useWindow(calls, CALL_ROWS);
+  const { show } = win;
+  const latest = useRef(calls);
+  latest.current = calls;
   // Keep the selected row in view, scrolling the views pane only: centred when the run opens, by as
   // little as it takes after that.
   useEffect(() => {
-    const row = body.current?.querySelector<HTMLElement>('tr[aria-selected="true"]');
-    const box = row?.closest<HTMLElement>('.vbody');
-    if (!row || !box || box.scrollHeight <= box.clientHeight) return;
-    const head = 34;
-    const top = row.offsetTop;
-    const h = row.offsetHeight;
-    if (!placed.current) {
-      placed.current = true;
-      box.scrollTop = top - box.clientHeight / 2 + h / 2;
-    } else if (top - head < box.scrollTop) box.scrollTop = top - head;
-    else if (top + h > box.scrollTop + box.clientHeight) box.scrollTop = top + h - box.clientHeight;
-  }, [selected]);
+    const i = selected === null ? -1 : latest.current.findIndex((c) => c.callNo === selected);
+    if (i < 0) return;
+    show(i, { centre: !placed.current, head: head.current?.offsetHeight ?? 34 });
+    placed.current = true;
+  }, [selected, show]);
   if (!calls.length) return <div className="empty">No calls match.</div>;
+  const cols = scoped ? 7 : 6;
   return (
-    <table className="calls">
-      <thead>
-        <tr>
+    <table className="calls" aria-rowcount={calls.length + 1}>
+      <thead ref={head}>
+        <tr aria-rowindex={1}>
           <th className="n">#</th>
           <th>Call</th>
           {scoped ? <th className="hide-sm">Scope</th> : null}
@@ -99,21 +103,32 @@ export function CallsTable({ calls, asked, selected, scoped, forkAt, lostAt, anc
           </th>
         </tr>
       </thead>
-      <tbody ref={body}>
-        {calls.map((c) => (
-          <Row key={c.callNo} c={c} asked={c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined} selected={c.callNo === selected} scoped={scoped} mark={c.callNo === forkAt ? 'fork' : c.callNo === lostAt ? 'lost' : null} ancestors={ancestors} live={live} canFork={canFork} onSelect={onSelect} onFork={onFork} />
+      <tbody ref={win.listRef}>
+        {win.before ? <Spacer height={win.before} cols={cols} /> : null}
+        {calls.slice(win.start, win.end).map((c, j) => (
+          <Row key={c.callNo} at={win.start + j} c={c} asked={c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined} selected={c.callNo === selected} scoped={scoped} mark={c.callNo === forkAt ? 'fork' : c.callNo === lostAt ? 'lost' : null} ancestors={ancestors} live={live} canFork={canFork} onSelect={onSelect} onFork={onFork} />
         ))}
+        {win.after ? <Spacer height={win.after} cols={cols} /> : null}
       </tbody>
     </table>
   );
 }
 
-const Row = memo(function Row({ c, asked, selected, scoped, mark, ancestors, live, canFork, onSelect, onFork }: { c: CallRow; asked: string | null | undefined; selected: boolean; scoped: boolean; mark: 'fork' | 'lost' | null; ancestors: readonly CallIndex[]; live: boolean; canFork: boolean; onSelect: (n: number) => void; onFork: (n: number, el: HTMLElement) => void }) {
+/** The height of the rows not drawn, above or below those that are. */
+function Spacer({ height, cols }: { height: number; cols: number }) {
+  return (
+    <tr className="wspace" aria-hidden="true" style={{ height }}>
+      <td colSpan={cols} />
+    </tr>
+  );
+}
+
+const Row = memo(function Row({ at, c, asked, selected, scoped, mark, ancestors, live, canFork, onSelect, onFork }: { at: number; c: CallRow; asked: string | null | undefined; selected: boolean; scoped: boolean; mark: 'fork' | 'lost' | null; ancestors: readonly CallIndex[]; live: boolean; canFork: boolean; onSelect: (n: number) => void; onFork: (n: number, el: HTMLElement) => void }) {
   const d = callDetail(c, asked);
   const res = resultLine(c);
   const t = timeOf(c, ancestors, live);
   return (
-    <tr aria-selected={selected} onClick={() => onSelect(c.callNo)}>
+    <tr data-wi={at} aria-rowindex={at + 2} aria-selected={selected} onClick={() => onSelect(c.callNo)}>
       <td className="n">
         {mark ? <span className={`fk${mark === 'lost' ? ' bl' : ''}`}>{mark === 'fork' ? 'FORK' : 'LOST'}</span> : null}
         {c.callNo}

@@ -1,7 +1,8 @@
-import { Fragment, useMemo, type ReactNode } from 'react';
+import { Fragment, useMemo, useRef, type ReactNode } from 'react';
 import type { LineageNode } from '../api.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
 import { shortId, stamp } from '../format.js';
+import { familyRefresh } from '../connection.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
 import { familyLineParts, repeatBundle } from '../runs.js';
@@ -16,8 +17,11 @@ import { lineageRunLike } from './model.js';
  */
 
 export function ForksView({ runId }: { runId: string }) {
-  const { client, runs, tick } = useApp();
-  const lineage = useLoad(() => client.lineage(runId), runId, tick);
+  const { client, runs, runsTick, live } = useApp();
+  // Again when runs move, and while a run of the family records, as its calls do: not for another run's.
+  const members = useRef<ReadonlySet<string>>(new Set());
+  const lineage = useLoad(() => client.lineage(runId), runId, familyRefresh(runsTick, live, members.current));
+  if (lineage.data) members.current = new Set(lineage.data.map((n) => n.runId));
   const byId = useMemo(() => new Map((runs ?? []).map((r) => [r.runId, r])), [runs]);
   // Blame's and verify's attempts, bundled by the fixes read model under the run they replayed.
   const fixes = useFixBundles(runId);

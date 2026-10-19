@@ -540,18 +540,36 @@ class ScopeIndex {
   private readonly owners = new Map<string, Open>();
   private readonly modelCalls: Array<[CallRecord, Open]> = [];
   private scanned = 0;
+  /** Model calls scanned before their answer arrived, with the record read then. */
+  private unanswered: Array<[number, CallRecord]> = [];
 
   took(c: CallRecord, conv: Open): void {
     this.modelCalls.push([c, conv]);
   }
 
-  /** The conversation whose model call answered with response `id`. */
-  ownerOf(store: Store, id: string): Open | undefined {
+  /**
+   * The conversation whose model call answered with response `id`. `cur` gives the newest record of
+   * a call: a model call read before its answer arrived (a run still recording) is read again once
+   * it has one.
+   */
+  ownerOf(store: Store, id: string, cur: (c: CallRecord) => CallRecord = (c) => c): Open | undefined {
     if (!this.owners.has(id)) {
       for (; this.scanned < this.modelCalls.length; this.scanned++) {
         const [c, conv] = this.modelCalls[this.scanned]!;
-        const rid = responseIdOf(store, c);
+        const rec = cur(c);
+        const rid = responseIdOf(store, rec);
         if (rid) this.owners.set(rid, conv);
+        else if (!rec.end) this.unanswered.push([this.scanned, rec]);
+      }
+      if (!this.owners.has(id) && this.unanswered.length) {
+        this.unanswered = this.unanswered.filter(([i, seen]) => {
+          const [c, conv] = this.modelCalls[i]!;
+          const rec = cur(c);
+          if (rec === seen) return true;
+          const rid = responseIdOf(store, rec);
+          if (rid) this.owners.set(rid, conv);
+          return !rid && !rec.end;
+        });
       }
     }
     return this.owners.get(id);
@@ -618,24 +636,148 @@ export function runConversations(store: Store, calls: readonly CallRecord[], opt
   const key = `${runId}\n${options.attribute ? 'all' : 'model'}\n${runStamp(calls)}`;
   const known = runId ? cache.runs.get(key) : undefined;
   if (known) return known;
-  const result = analyse(store, calls, options, cache);
+  const placement = new Placement(store, cache, !!options.attribute);
+  placement.add(calls);
+  const result = placement.result(calls, true);
   if (runId) cache.runs.set(key, result);
   return result;
 }
 
-function analyse(store: Store, calls: readonly CallRecord[], options: ConversationOptions, cache: StoreCaches): RunConversations {
-  const byCall = new Map<number, CallConversation>();
-  const open: Open[] = [];
-  const scopes = new Map<string, ScopeIndex>();
-  const ofCall = new Map<number, Open>();
-  let clock = 0;
+/**
+ * A run's conversations as its calls arrive, for a run still recording: each call is placed once,
+ * from what came before it, when it first shows up, so bringing the analysis up to date costs as much
+ * as the calls that arrived since, not as much as the run is long. An answer that arrives later is
+ * read where later calls need it (a retry, the tools a model asked for). What this gives a call no
+ * model asked for can differ from `runConversations` over the finished run, which also looks at the
+ * calls after it: a call no model asked for that feeds the model call after it waits, in no
+ * conversation, until that model call arrives. A page following a recording reads the finished run
+ * whole once it ends.
+ */
+export class LiveConversations {
+  private readonly placement: Placement;
+  private readonly seen: CallRecord[] = [];
+  private runId: string | null = null;
 
-  const response = (c: CallRecord) => responseInfo(store, c);
+  constructor(store: Store, options: ConversationOptions = {}) {
+    this.placement = new Placement(store, cachesFor(store), !!options.attribute, true);
+  }
 
-  for (const c of calls) {
-    if (c.kind !== 'api') continue;
-    const d = digest(store, c, cache);
-    if (!d) continue;
+  /**
+   * The conversations of `calls`, the run's calls as `store.getCalls` returns them now: the calls
+   * placed before, in the same order, then those that arrived since. Null when they are not (another
+   * run, or calls gone): start again with a new one.
+   */
+  update(calls: readonly CallRecord[]): RunConversations | null {
+    const runId = calls[0]?.runId ?? this.runId;
+    if (this.runId !== null && runId !== this.runId) return null;
+    if (calls.length < this.seen.length) return null;
+    const changed: CallRecord[] = [];
+    for (let i = 0; i < this.seen.length; i++) {
+      const c = calls[i]!;
+      const had = this.seen[i]!;
+      if (c.callNo !== had.callNo) return null;
+      if (c !== had) {
+        changed.push(c);
+        this.seen[i] = c;
+      }
+    }
+    this.runId = runId;
+    this.placement.revise(changed);
+    const arrived = calls.slice(this.seen.length);
+    this.seen.push(...arrived);
+    this.placement.add(arrived);
+    return this.placement.result(calls);
+  }
+}
+
+/**
+ * The placing itself, in call order: the model calls by their requests first, then every other call
+ * (`attribute`). Kept between `add`s, so a run's calls can be placed as they arrive (LiveConversations);
+ * given every call at once it is the analysis of the whole run. Each call is read through `cur`: the
+ * newest record of it, so an answer that arrived after the call was placed is the one read.
+ */
+class Placement {
+  private readonly byCall = new Map<number, CallConversation>();
+  private readonly open: Open[] = [];
+  private readonly scopes = new Map<string, ScopeIndex>();
+  private readonly ofCall = new Map<number, Open>();
+  private clock = 0;
+  /** The newest record of each call placed, by call number. */
+  private readonly latest = new Map<number, CallRecord>();
+  /** Model calls already looked at by their requests, and other calls already looked at for their conversation. */
+  private readonly tried = new Set<number>();
+  private readonly triedOther = new Set<number>();
+  /** Model calls that belong to a conversation, oldest first: all of them, and per scope. */
+  private readonly models: CallRecord[] = [];
+  private readonly modelsIn = new Map<string, CallRecord[]>();
+  /** For each model call, which of the tools it asked for a tool call has matched, with the record they were read from. */
+  private readonly used = new Map<number, { rec: CallRecord; u: boolean[] }>();
+  /** Tool calls placed so far, oldest first, with their conversations. */
+  private readonly tools: Array<[CallRecord, Open]> = [];
+  /** Live: calls that feed the next model call, which has not arrived yet, oldest first. */
+  private waiting: CallRecord[] = [];
+
+  constructor(
+    private readonly store: Store,
+    private readonly cache: StoreCaches,
+    private readonly attribute: boolean,
+    /** The run is still recording: a call that goes with the next model call waits for it. */
+    private readonly live = false,
+  ) {}
+
+  private readonly cur = (c: CallRecord): CallRecord => this.latest.get(c.callNo) ?? c;
+  private readonly response = (c: CallRecord): ResponseInfo => responseInfo(this.store, this.cur(c));
+
+  /** Newer records of calls placed before: their answers arrived. */
+  revise(changed: readonly CallRecord[]): void {
+    for (const c of changed) this.latest.set(c.callNo, c);
+  }
+
+  /** Places `calls`, which come after every call placed so far. */
+  add(calls: readonly CallRecord[]): void {
+    for (const c of calls) this.latest.set(c.callNo, c);
+    for (const c of calls) {
+      if (c.kind !== 'api' || this.tried.has(c.callNo)) continue;
+      this.tried.add(c.callNo);
+      this.placeModelCall(c);
+    }
+    if (!this.attribute) return;
+    for (const c of calls) {
+      if (this.ofCall.has(c.callNo)) {
+        const scope = scopeOf(c);
+        this.models.push(c);
+        const list = this.modelsIn.get(scope);
+        if (list) list.push(c);
+        else this.modelsIn.set(scope, [c]);
+      }
+    }
+    if (this.waiting.length) {
+      const waiting = this.waiting;
+      this.waiting = [];
+      for (const t of waiting) this.placeOther(t);
+    }
+    for (const t of calls) {
+      if (this.byCall.has(t.callNo) || this.triedOther.has(t.callNo)) continue;
+      this.triedOther.add(t.callNo);
+      this.placeOther(t);
+    }
+  }
+
+  /** What it found for `calls`; `last` when nothing is added after, which saves copying what it keeps. */
+  result(calls: readonly CallRecord[], last = false): RunConversations {
+    const byCall = last ? this.byCall : new Map(this.byCall);
+    for (const c of calls) if (!byCall.has(c.callNo)) byCall.set(c.callNo, NONE);
+    return {
+      conversations: this.open.map((x) => ({ n: x.n, scope: x.scope || null, firstCallNo: x.first, lastCallNo: x.last, modelCalls: x.modelCalls, calls: x.calls })),
+      byCall,
+      requests: new Set(this.ofCall.keys()),
+    };
+  }
+
+  private placeModelCall(c: CallRecord): void {
+    const { store, open, scopes, ofCall, byCall, response, cur } = this;
+    const d = digest(store, c, this.cache);
+    if (!d) return;
     const scope = scopeOf(c);
     let s = scopes.get(scope);
     if (!s) scopes.set(scope, (s = new ScopeIndex()));
@@ -647,7 +789,7 @@ function analyse(store: Store, calls: readonly CallRecord[], options: Conversati
 
     let chosen: Open | undefined;
     if (d.conversationId) chosen = s.byConversationId.get(d.conversationId);
-    else if (d.previousResponseId) chosen = s.ownerOf(store, d.previousResponseId) ?? recent(s.all);
+    else if (d.previousResponseId) chosen = s.ownerOf(store, d.previousResponseId, cur) ?? recent(s.all);
     else {
       // Conversations whose latest request this one extends.
       const ext: Open[] = [];
@@ -667,7 +809,7 @@ function analyse(store: Store, calls: readonly CallRecord[], options: Conversati
         const same = [...s.byKey.under(keys[hashes.length])].filter((x) => sameItems(x.items, hashes));
         if (same.length) {
           // The same request again: a retry when the last one failed, otherwise a branch of its own.
-          chosen = recent(same.filter((x) => x.lastCall.end?.outcome === 'error'));
+          chosen = recent(same.filter((x) => cur(x.lastCall).end?.outcome === 'error'));
         } else {
           // Weaker links, when the history was edited: only the first message changed (a system
           // message with the time in it); the request carries tool-use ids a conversation issued
@@ -702,7 +844,7 @@ function analyse(store: Store, calls: readonly CallRecord[], options: Conversati
     s.byEdit.file(conv);
     s.took(c, conv);
     for (const id of ids) s.byId.set(id, conv);
-    conv.touched = ++clock;
+    conv.touched = ++this.clock;
     conv.modelCalls++;
     conv.calls++;
     conv.last = Math.max(conv.last, c.callNo);
@@ -710,14 +852,108 @@ function analyse(store: Store, calls: readonly CallRecord[], options: Conversati
     byCall.set(c.callNo, { conversation: conv.n, starts: !chosen, requestedBy: null, toolUseId: null });
   }
 
-  if (options.attribute) attributeOthers(store, calls, ofCall, byCall, response);
-  for (const c of calls) if (!byCall.has(c.callNo)) byCall.set(c.callNo, NONE);
+  // ---- everything else ----
 
-  return {
-    conversations: open.map((x) => ({ n: x.n, scope: x.scope || null, firstCallNo: x.first, lastCallNo: x.last, modelCalls: x.modelCalls, calls: x.calls })),
-    byCall,
-    requests: new Set(ofCall.keys()),
-  };
+  /** The model calls a call in `scope` looks at: its own scope's, else the nearest enclosing scope's that has some, else all. */
+  private near(scope: string): CallRecord[] {
+    for (let s: string | null = scope; s !== null; s = s.includes('/') ? s.slice(0, s.lastIndexOf('/')) : s ? '' : null) {
+      const list = this.modelsIn.get(s);
+      if (list?.length) return list;
+    }
+    return this.models;
+  }
+
+  /** Which tools a model call asked for are matched already; read again when the call's answer arrived since. */
+  private usedOf(m: CallRecord): boolean[] {
+    const rec = this.cur(m);
+    let e = this.used.get(m.callNo);
+    if (!e || e.rec !== rec) {
+      e = { rec, u: this.response(rec).tools.map((_, i) => e?.u[i] ?? false) };
+      this.used.set(m.callNo, e);
+    }
+    return e.u;
+  }
+
+  private requestedBy(t: CallRecord): { model: CallRecord; tool: RequestedTool } | null {
+    let args: unknown;
+    try {
+      args = t.requestRef ? this.store.getJson<{ args?: unknown }>(t.requestRef)?.args : undefined;
+    } catch {
+      args = undefined;
+    }
+    // Its own scope first; then every scope, for a tool recorded outside the scope its model call ran in.
+    const models = this.models;
+    const own = this.modelsIn.get(scopeOf(t)) ?? [];
+    for (const list of own.length === models.length ? [models] : [own, models]) {
+      let byName: { model: CallRecord; tool: RequestedTool; index: number } | null = null;
+      for (let i = before(list, t.callNo), seen = 0; i >= 0 && seen < LOOK_BACK; i--, seen++) {
+        const m = list[i]!;
+        const tools = this.response(m).tools;
+        const u = this.usedOf(m);
+        for (let k = 0; k < tools.length; k++) {
+          if (u[k] || !sameTool(tools[k]!.name, t.name)) continue;
+          if (args !== undefined && sameArgs(tools[k]!.input, args)) {
+            u[k] = true;
+            return { model: m, tool: tools[k]! };
+          }
+          byName ??= { model: m, tool: tools[k]!, index: k };
+        }
+      }
+      if (byName) {
+        this.usedOf(byName.model)[byName.index] = true;
+        return { model: byName.model, tool: byName.tool };
+      }
+    }
+    return null;
+  }
+
+  /** The tool call that was running when `c` started, in its scope: `c` is part of what the tool did. */
+  private runningAt(c: CallRecord): Open | undefined {
+    const tools = this.tools;
+    for (let i = tools.length - 1, seen = 0; i >= 0 && seen < CONTAIN_LOOK_BACK; i--, seen++) {
+      const [t, conv] = tools[i]!;
+      const end = this.cur(t).end?.at;
+      if (end !== undefined && scopeOf(t) === scopeOf(c) && t.at <= c.at && c.at < end && (!c.end || c.end.at <= end)) return conv;
+    }
+    return undefined;
+  }
+
+  private placeOther(t: CallRecord): void {
+    const { ofCall, byCall } = this;
+    if (t.kind === 'tool') {
+      const asked = this.requestedBy(t);
+      if (asked) {
+        const conv = ofCall.get(asked.model.callNo)!;
+        conv.calls++;
+        conv.last = Math.max(conv.last, t.callNo);
+        byCall.set(t.callNo, { conversation: conv.n, starts: false, requestedBy: asked.model.callNo, toolUseId: asked.tool.id });
+        this.tools.push([t, conv]);
+        return;
+      }
+    }
+    // No model asked for it. Made while a tool ran (an HTTP request the tool sends, a tool it
+    // calls), it goes with that tool. Otherwise it goes with the model call still waiting on tools
+    // it asked for (none of them has run yet), else with the next model call, which it feeds.
+    let conv = this.runningAt(t);
+    if (!conv) {
+      const list = this.near(scopeOf(t));
+      const i = before(list, t.callNo);
+      const prev = i >= 0 ? list[i]! : null;
+      const next = list[i + 1] ?? null;
+      if (!(prev && this.usedOf(prev).some((u) => !u)) && !next && this.live) {
+        // The model call it feeds may be on its way: placed once one arrives.
+        this.waiting.push(t);
+        return;
+      }
+      const owner = prev && this.usedOf(prev).some((u) => !u) ? prev : (next ?? prev);
+      conv = owner ? ofCall.get(owner.callNo) : undefined;
+    }
+    if (!conv) return;
+    conv.calls++;
+    conv.last = Math.max(conv.last, t.callNo);
+    byCall.set(t.callNo, { conversation: conv.n, starts: false, requestedBy: null, toolUseId: null });
+    if (t.kind === 'tool') this.tools.push([t, conv]);
+  }
 }
 
 // ---- everything else ------------------------------------------------------------------------------
@@ -740,118 +976,16 @@ function sameArgs(input: unknown, args: unknown): boolean {
   return given.length > 0 && given.every(([k, v]) => k in args && deepEqual(v, args[k]));
 }
 
-function attributeOthers(store: Store, calls: readonly CallRecord[], ofCall: Map<number, Open>, byCall: Map<number, CallConversation>, response: (c: CallRecord) => ResponseInfo): void {
-  // Model calls that belong to a conversation, oldest first: all of them, and per scope.
-  const models = calls.filter((c) => ofCall.has(c.callNo));
-  const modelsIn = new Map<string, CallRecord[]>();
-  for (const m of models) {
-    const list = modelsIn.get(scopeOf(m)) ?? [];
-    list.push(m);
-    modelsIn.set(scopeOf(m), list);
+/** The index of the last call in `list` (in call order) before `callNo`; -1 when there is none. */
+function before(list: readonly CallRecord[], callNo: number): number {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid]!.callNo < callNo) lo = mid + 1;
+    else hi = mid;
   }
-  /** The model calls a call in `scope` looks at: its own scope's, else the nearest enclosing scope's that has some, else all. */
-  const near = (scope: string): CallRecord[] => {
-    for (let s: string | null = scope; s !== null; s = s.includes('/') ? s.slice(0, s.lastIndexOf('/')) : s ? '' : null) {
-      const list = modelsIn.get(s);
-      if (list?.length) return list;
-    }
-    return models;
-  };
-  const before = (list: CallRecord[], callNo: number) => {
-    let lo = 0;
-    let hi = list.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (list[mid]!.callNo < callNo) lo = mid + 1;
-      else hi = mid;
-    }
-    return lo - 1;
-  };
-  const used = new Map<number, boolean[]>();
-  const usedOf = (m: CallRecord) => {
-    let u = used.get(m.callNo);
-    if (!u) {
-      u = response(m).tools.map(() => false);
-      used.set(m.callNo, u);
-    }
-    return u;
-  };
-
-  const requestedBy = (t: CallRecord): { model: CallRecord; tool: RequestedTool } | null => {
-    let args: unknown;
-    try {
-      args = t.requestRef ? store.getJson<{ args?: unknown }>(t.requestRef)?.args : undefined;
-    } catch {
-      args = undefined;
-    }
-    // Its own scope first; then every scope, for a tool recorded outside the scope its model call ran in.
-    const own = modelsIn.get(scopeOf(t)) ?? [];
-    for (const list of own.length === models.length ? [models] : [own, models]) {
-      let byName: { model: CallRecord; tool: RequestedTool; index: number } | null = null;
-      for (let i = before(list, t.callNo), seen = 0; i >= 0 && seen < LOOK_BACK; i--, seen++) {
-        const m = list[i]!;
-        const tools = response(m).tools;
-        const u = usedOf(m);
-        for (let k = 0; k < tools.length; k++) {
-          if (u[k] || !sameTool(tools[k]!.name, t.name)) continue;
-          if (args !== undefined && sameArgs(tools[k]!.input, args)) {
-            u[k] = true;
-            return { model: m, tool: tools[k]! };
-          }
-          byName ??= { model: m, tool: tools[k]!, index: k };
-        }
-      }
-      if (byName) {
-        usedOf(byName.model)[byName.index] = true;
-        return { model: byName.model, tool: byName.tool };
-      }
-    }
-    return null;
-  };
-
-  /** Tool calls placed so far, oldest first, with their conversations. */
-  const tools: Array<[CallRecord, Open]> = [];
-  /** The tool call that was running when `c` started, in its scope: `c` is part of what the tool did. */
-  const runningAt = (c: CallRecord): Open | undefined => {
-    for (let i = tools.length - 1, seen = 0; i >= 0 && seen < CONTAIN_LOOK_BACK; i--, seen++) {
-      const [t, conv] = tools[i]!;
-      const end = t.end?.at;
-      if (end !== undefined && scopeOf(t) === scopeOf(c) && t.at <= c.at && c.at < end && (!c.end || c.end.at <= end)) return conv;
-    }
-    return undefined;
-  };
-
-  for (const t of calls) {
-    if (byCall.has(t.callNo)) continue;
-    if (t.kind === 'tool') {
-      const asked = requestedBy(t);
-      if (asked) {
-        const conv = ofCall.get(asked.model.callNo)!;
-        conv.calls++;
-        conv.last = Math.max(conv.last, t.callNo);
-        byCall.set(t.callNo, { conversation: conv.n, starts: false, requestedBy: asked.model.callNo, toolUseId: asked.tool.id });
-        tools.push([t, conv]);
-        continue;
-      }
-    }
-    // No model asked for it. Made while a tool ran (an HTTP request the tool sends, a tool it
-    // calls), it goes with that tool. Otherwise it goes with the model call still waiting on tools
-    // it asked for (none of them has run yet), else with the next model call, which it feeds.
-    let conv = runningAt(t);
-    if (!conv) {
-      const list = near(scopeOf(t));
-      const i = before(list, t.callNo);
-      const prev = i >= 0 ? list[i]! : null;
-      const next = list[i + 1] ?? null;
-      const owner = prev && usedOf(prev).some((u) => !u) ? prev : (next ?? prev);
-      conv = owner ? ofCall.get(owner.callNo) : undefined;
-    }
-    if (!conv) continue;
-    conv.calls++;
-    conv.last = Math.max(conv.last, t.callNo);
-    byCall.set(t.callNo, { conversation: conv.n, starts: false, requestedBy: null, toolUseId: null });
-    if (t.kind === 'tool') tools.push([t, conv]);
-  }
+  return lo - 1;
 }
 
 /**

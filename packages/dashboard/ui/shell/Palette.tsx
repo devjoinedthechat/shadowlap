@@ -4,11 +4,11 @@ import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { callName, shortId } from '../format.js';
 import { jobRunning } from '../jobs.js';
-import { highlight, limitRecorded, matchPalette, RECORDED_MIN_CHARS, snippetParts } from '../palette.js';
+import { highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts } from '../palette.js';
 import { onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
-import { isAttempt, kindWord, runSource } from '../runs.js';
+import { isAttempt, kindWord, runSource, type RunLike } from '../runs.js';
 import { useApp, useLayer, type PaletteCommand } from '../state.js';
 
 /**
@@ -32,6 +32,8 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const [q, setQ] = useState('');
   const [i, setI] = useState(0);
   const [hits, setHits] = useState<RecordedHit[]>([]);
+  // While the server's index is behind: how many runs it has yet to read.
+  const [indexing, setIndexing] = useState<{ runs: number; of: number } | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
 
@@ -71,38 +73,66 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       }
     }
     const runs = [...(app.runs ?? [])].filter((r) => !isAttempt(r)).sort((a, b) => b.startedAt - a.startedAt);
-    for (const r of runs)
-      out.push({
-        group: 'Runs',
-        label: shortId(r.runId),
-        mono: true,
-        hint: `${kindWord(r)} · ${runSource(r)}${r.labels.length ? ` · ${r.labels.join(', ')}` : ''}`,
-        run: () => go(href.run(r.runId)),
-      });
+    for (const r of runs) out.push(runCommand(r, go));
     return out;
     // Built when the palette opens, and again only when a source says more arrived: the run list
     // moving under it would move the selection.
   }, [sourcesChanged]);
 
-  // What runs recorded, from three characters, through the server's search.
+  // What runs recorded, from three characters, through the server's search. It answers from what its
+  // index holds; while that is behind, the palette asks again, so matches arrive as it catches up.
   useEffect(() => {
     const t = q.trim();
     if (t.length < RECORDED_MIN_CHARS || app.exported) {
       setHits([]);
+      setIndexing(null);
       return;
     }
     let alive = true;
-    const timer = setTimeout(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const ask = () =>
       app.client.search(t).then(
-        (h) => alive && setHits(limitRecorded(h)),
-        () => alive && setHits([]),
+        (a) => {
+          if (!alive) return;
+          setHits(limitRecorded(a.hits));
+          setIndexing(a.indexing ?? null);
+          if (a.indexing) timer = setTimeout(ask, INDEXING_RETRY_MS);
+        },
+        () => {
+          if (!alive) return;
+          setHits([]);
+          setIndexing(null);
+        },
       );
-    }, 220);
+    timer = setTimeout(ask, 220);
     return () => {
       alive = false;
       clearTimeout(timer);
     };
   }, [q, app.client, app.exported]);
+  const note = q.trim().length >= RECORDED_MIN_CHARS ? indexingNote(indexing) : null;
+
+  // A run's id, typed in full or its start, that no run in the list (the newest 500) has: the server
+  // looks it up among every run, as Runs' filter does.
+  const [byId, setById] = useState<PaletteCommand[]>([]);
+  useEffect(() => {
+    const prefix = app.exported ? null : runsToAskFor(q, app.runs);
+    if (!prefix) {
+      setById([]);
+      return;
+    }
+    let alive = true;
+    const timer = setTimeout(() => {
+      app.client.runsPage({ q: prefix, limit: 20 }).then(
+        (page) => alive && setById(runsById(prefix, page.runs.filter((r) => !isAttempt(r))).map((r) => runCommand(r, go))),
+        () => alive && setById([]),
+      );
+    }, 150);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [q, app.client, app.exported, app.runs]);
 
   const shown = useMemo(() => {
     const matched = matchPalette(items, q);
@@ -114,8 +144,8 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       snippet: h.snippet,
       run: () => go(href.run(h.runId, h.callNo)),
     }));
-    return [...matched, ...recorded] as Array<PaletteCommand & { snippet?: string }>;
-  }, [items, q, hits]);
+    return [...matched, ...byId, ...recorded] as Array<PaletteCommand & { snippet?: string }>;
+  }, [items, q, hits, byId]);
 
   const at = Math.min(i, Math.max(0, shown.length - 1));
   useEffect(() => {
@@ -166,7 +196,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           <span className="kbd">Esc</span>
         </label>
         <div className="pallist" id="palList" role="listbox" ref={list} tabIndex={-1}>
-          {shown.length === 0 ? <div className="empty">Nothing matches “{q.trim()}”.</div> : null}
+          {shown.length === 0 ? <div className="empty">{note ? 'Nothing matches yet.' : `Nothing matches “${q.trim()}”.`}</div> : null}
           {shown.map((x, n) => {
             const head = x.group !== group ? <div className="palg">{x.group}</div> : null;
             group = x.group;
@@ -200,6 +230,11 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
               </Fragment>
             );
           })}
+          {note ? (
+            <div className="palnote" role="status">
+              {note}
+            </div>
+          ) : null}
         </div>
         <div className="palfoot">
           <span>
@@ -217,4 +252,15 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
       </div>
     </div>
   );
+}
+
+/** A run in the palette's Runs group: its short id, what it is and its command, and its labels. */
+function runCommand(r: RunLike & { runId: string; labels: readonly string[] }, go: (to: string) => void): PaletteCommand {
+  return {
+    group: 'Runs',
+    label: shortId(r.runId),
+    mono: true,
+    hint: `${kindWord(r)} · ${runSource(r)}${r.labels.length ? ` · ${r.labels.join(', ')}` : ''}`,
+    run: () => go(href.run(r.runId)),
+  };
 }

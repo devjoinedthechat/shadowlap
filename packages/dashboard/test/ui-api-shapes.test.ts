@@ -40,11 +40,14 @@ describe('meta', () => {
       actions: false,
       readOnly: true,
       readOnlyReason: 'this dashboard is read-only (started with --read-only): it shows runs and changes nothing',
-      live: [{ runId: '01K5CQ6L0P', calls: 9 }, { calls: 3 }] as never,
+      live: [{ runId: '01K5CQ6L0P', calls: 9 }, { calls: 3 }, { runId: '01K5CQ6L0Q', calls: 4, events: 7 }] as never,
       jobKinds: ['action', 7, 'blame'] as never,
     } as Meta);
     expect(m.readOnlyReason).toBe('This dashboard is read-only (started with --read-only): it shows runs and changes nothing.');
-    expect(m.live).toEqual([{ runId: '01K5CQ6L0P', calls: 9 }]);
+    expect(m.live).toEqual([
+      { runId: '01K5CQ6L0P', calls: 9 },
+      { runId: '01K5CQ6L0Q', calls: 4, events: 7 },
+    ]);
     expect(m.jobKinds).toEqual(['action', 'blame']);
     expect(normalizeMeta({ version: null, dbPath: null, actions: true } as Meta).readOnlyReason).toBeNull();
     expect(sentence('ends already.')).toBe('Ends already.');

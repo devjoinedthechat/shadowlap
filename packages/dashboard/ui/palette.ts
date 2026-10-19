@@ -71,6 +71,43 @@ export function matchPalette<T extends PaletteEntry>(items: readonly T[], query:
 /** Recorded data is searched from this many characters. */
 export const RECORDED_MIN_CHARS = 3;
 
+/** While the server's index is behind, the palette asks again this often, so matches arrive as it catches up. */
+export const INDEXING_RETRY_MS = 1000;
+
+/**
+ * A query that can be a run's id, typed in full or its start: 4 to 26 characters of Crockford's
+ * base32, as run ids are written, in capitals. Null for anything else.
+ */
+export function runIdPrefix(q: string): string | null {
+  const t = q.trim().toUpperCase();
+  return /^[0-9A-HJKMNP-TV-Z]{4,26}$/.test(t) ? t : null;
+}
+
+/**
+ * The runs the palette asks the server for by id: the run list holds only the newest runs (500), so
+ * an older run typed by its id is looked up, unless a listed run already starts with it. The rows
+ * the server found are kept only when their id starts with what was typed (its filter also matches
+ * commands and labels), at most `max`.
+ */
+export function runsToAskFor(q: string, listed: readonly { runId: string }[] | null): string | null {
+  const prefix = runIdPrefix(q);
+  if (!prefix || (listed ?? []).some((r) => r.runId.startsWith(prefix))) return null;
+  return prefix;
+}
+export function runsById<R extends { runId: string }>(prefix: string, found: readonly R[], max = 5): R[] {
+  return found.filter((r) => r.runId.startsWith(prefix)).slice(0, max);
+}
+
+/**
+ * What the palette says under recorded data while the server is still indexing it (a store whose
+ * index is being built, a recording's newest calls): matches from those runs may follow.
+ */
+export function indexingNote(indexing: { runs: number; of: number } | null | undefined): string | null {
+  if (!indexing || indexing.runs < 1) return null;
+  const runs = indexing.runs === 1 ? '1 run' : `${indexing.runs.toLocaleString('en-US')} of ${indexing.of.toLocaleString('en-US')} runs`;
+  return `Still reading what ${runs} recorded: more matches may follow.`;
+}
+
 /**
  * Hits from what runs recorded: at most `max`, and at most `perRun` from any one run. Hits from runs
  * of their own (recordings, forks, tests) come first. An attempt (`--repeat`, a blame probe, a verify

@@ -29,9 +29,18 @@
   },
   "include": ["packages/*/test/**/*.ts", "packages/*/test/**/*.tsx", "testing/**/test/**/*.ts"],
   "exclude": [
-    // This one imports the dashboard's browser modules, which need the DOM library. Adding it here
-    // would shadow Node's fetch typings for every source file in the same pass, so the browser code
-    // keeps its own type-check: build-ui.mjs runs tsc over ui/tsconfig.json before bundling.
-    "packages/dashboard/test/normalize.test.ts"
+    // These import the dashboard's browser modules, which need the DOM library. Adding it here
+    // would shadow Node's fetch typings for every source file in the same pass, so they have a
+    // pass of their own, tsconfig.test-dom.json, as the browser code has: build-ui.mjs runs tsc
+    // over ui/tsconfig.json before bundling. A test added here is added there.
+    "packages/dashboard/test/normalize.test.ts",
+    // These render the run page's components, which use the DOM too.
+    "packages/dashboard/test/ui-strip.test.ts",
+    "packages/dashboard/test/ui-run-width.test.ts",
+    "packages/dashboard/test/ui-run-scale.test.ts",
+    // These render the shell's dialogs and palette, or ask through the page's client.
+    "packages/dashboard/test/ui-dialog-tab.test.ts",
+    "packages/dashboard/test/ui-palette-ids.test.ts",
+    "packages/dashboard/test/ui-client-cache.test.ts"
   ]
 }

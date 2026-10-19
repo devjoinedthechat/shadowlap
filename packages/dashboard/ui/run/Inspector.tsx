@@ -47,7 +47,9 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
   const c = detail && detail.call.callNo === call.callNo ? detail.call : null;
   const kindName = call.kind === 'api' ? call.name : call.kind === 'tool' ? call.name : `${call.kind}.${call.name}`;
-  const summary = call.kind === 'api' ? [call.model, tokensText(call), call.origin === 'replayed' || call.latencyMs === null ? null : dur(call.latencyMs)].filter(Boolean).join(' · ') : call.effect ? `${call.effect} tool` : call.kind;
+  // A model call's model, then its tokens and latency: a long model id gives way, the numbers stay in view.
+  const rest = call.kind === 'api' ? [tokensText(call), call.origin === 'replayed' || call.latencyMs === null ? null : dur(call.latencyMs)].filter(Boolean).join(' · ') : '';
+  const summary = call.kind === 'api' ? [call.model, rest].filter(Boolean).join(' · ') : call.effect ? `${call.effect} tool` : call.kind;
   return (
     <section className="insp" aria-label={`Call ${call.callNo}`}>
       <div className="ihead">
@@ -67,7 +69,16 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
         </span>
       </div>
       <div className="ihead isumrow">
-        <span className="isum">{summary}</span>
+        <span className="isum" title={summary}>
+          {call.kind === 'api' && call.model ? (
+            <>
+              <span className="im">{call.model}</span>
+              {rest ? <span className="ir">{` · ${rest}`}</span> : null}
+            </>
+          ) : (
+            summary
+          )}
+        </span>
       </div>
       <div className="tabs" role="tablist" aria-label="Inspector">
         {TABS.map((t, i) => (

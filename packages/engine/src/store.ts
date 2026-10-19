@@ -499,6 +499,16 @@ export interface StoredEvent {
 
 export type NewStoredEvent = Partial<Pick<StoredEvent, 'eventId' | 'at' | 'actor' | 'runId' | 'ref' | 'data'>> & Pick<StoredEvent, 'kind'>;
 
+/** How much of a run the search index covers (search.ts): a row of `search_state`. */
+export interface SearchState {
+  /** Calls indexed. */
+  calls: number;
+  /** The run's status when they were. */
+  status: string;
+  /** Where indexing stopped, as search.ts writes it; null for a row that covers its run whole. */
+  progress: string | null;
+}
+
 // ---- Fixes (v4): the rows of the fixes, fix_links, blames, verdicts and repairs tables. fixes.ts
 // decides what goes in them; these are only their shapes.
 
@@ -650,7 +660,7 @@ export interface CreateRunInput {
   meta?: RunMeta;
 }
 
-/** How long a write that only keeps a cache (saveRunStats) waits for another command's lock before it gives up. */
+/** How long a write that only keeps a cache (saveRunStats, a batch of the search index) waits for another command's lock before it gives up. */
 const CACHE_WAIT_MS = 100;
 
 /** Creates a file readable only by its owner, unless something already exists at the path. */
@@ -800,6 +810,17 @@ export class Store {
       // v3: full-text search over recorded content, built on demand (search.ts). Additive too.
       db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS search_docs USING fts5(text, run_id UNINDEXED, call_no UNINDEXED, field UNINDEXED, tokenize = 'unicode61')`);
       db.exec(`CREATE TABLE IF NOT EXISTS search_state (run_id TEXT PRIMARY KEY, calls INTEGER NOT NULL, status TEXT NOT NULL)`);
+      // Where indexing a run stopped (search.ts), so a long run is indexed a batch at a time and a run
+      // still recording from its newest calls on. Additive: a row without it covers its run whole.
+      const searchColumns = db.prepare(`PRAGMA table_info(search_state)`).all().map((r) => String(r.name));
+      if (!searchColumns.includes('progress')) db.exec(`ALTER TABLE search_state ADD COLUMN progress TEXT`);
+      // Which documents of the index are each run's: search_docs finds a run's only by reading every
+      // document, which made deleting a run cost 35 ms on an index of 200,000 documents, and gc of
+      // 500 runs 17 s. Additive: an index from before it is mapped once, here.
+      const mapped = db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'search_rows'`).get() !== undefined;
+      db.exec(`CREATE TABLE IF NOT EXISTS search_rows (run_id TEXT NOT NULL, doc INTEGER NOT NULL)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS search_rows_run ON search_rows (run_id)`);
+      if (!mapped) db.exec(`INSERT INTO search_rows (run_id, doc) SELECT run_id, rowid FROM search_docs`);
       db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
       db.exec('COMMIT');
     } catch (err) {
@@ -1409,27 +1430,85 @@ export class Store {
 
   deleteRun(runId: string): void {
     this.stmts.deleteRun.run(runId);
-    this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
+    this.deleteSearchDocs(runId);
     this.db.prepare(`DELETE FROM search_state WHERE run_id = ?`).run(runId);
     // A run queued for a push while it recorded goes nowhere now. (A row of a run synced stays: it
     // is what keeps a run deleted here from coming back with the next pull.)
     this.db.prepare(`DELETE FROM team_runs WHERE run_id = ? AND state = 'queued'`).run(runId);
   }
 
-  /** How much of a run the search index covers: its call count and status when it was indexed. */
-  searchState(runId: string): { calls: number; status: string } | null {
-    const row = this.db.prepare(`SELECT calls, status FROM search_state WHERE run_id = ?`).get(runId);
-    return row ? { calls: Number(row.calls), status: String(row.status) } : null;
+  /**
+   * A run's documents out of the search index, found by the rows that map them (search_rows), not by
+   * reading every document. `all` reads every document after all, for a run indexed again from its
+   * start (rare): an earlier Shadowlap may have written some of its documents without their rows.
+   */
+  private deleteSearchDocs(runId: string, all = false): void {
+    if (all) this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
+    else this.db.prepare(`DELETE FROM search_docs WHERE rowid IN (SELECT doc FROM search_rows WHERE run_id = ?)`).run(runId);
+    this.db.prepare(`DELETE FROM search_rows WHERE run_id = ?`).run(runId);
+  }
+
+  /** A run's documents into the search index, each mapped to the run. */
+  private insertSearchDocs(runId: string, docs: ReadonlyArray<{ callNo: number; field: string; text: string }>): void {
+    const insert = this.db.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES (?, ?, ?, ?)`);
+    const map = this.db.prepare(`INSERT INTO search_rows (run_id, doc) VALUES (?, ?)`);
+    for (const d of docs) map.run(runId, insert.run(d.text, runId, d.callNo, d.field).lastInsertRowid);
+  }
+
+  /**
+   * How much of a run the search index covers: the calls indexed, the run's status then, and where
+   * indexing stopped (search.ts), or null for a row that covers the run whole.
+   */
+  searchState(runId: string): SearchState | null {
+    const row = this.db.prepare(`SELECT calls, status, progress FROM search_state WHERE run_id = ?`).get(runId);
+    return row ? searchStateOf(row) : null;
+  }
+
+  /** Every run's search state, by run: one read to tell which runs the index is behind on. */
+  searchStates(): Map<string, SearchState> {
+    return new Map(this.db.prepare(`SELECT run_id, calls, status, progress FROM search_state`).all().map((r) => [String(r.run_id), searchStateOf(r)]));
   }
 
   /** Replaces a run's search documents. */
   replaceSearchDocs(runId: string, calls: number, status: string, docs: Array<{ callNo: number; field: string; text: string }>): void {
     this.transaction(() => {
-      this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
-      const insert = this.db.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES (?, ?, ?, ?)`);
-      for (const d of docs) insert.run(d.text, runId, d.callNo, d.field);
-      this.db.prepare(`INSERT OR REPLACE INTO search_state (run_id, calls, status) VALUES (?, ?, ?)`).run(runId, calls, status);
+      this.deleteSearchDocs(runId, true);
+      this.insertSearchDocs(runId, docs);
+      this.db.prepare(`INSERT OR REPLACE INTO search_state (run_id, calls, status, progress) VALUES (?, ?, ?, NULL)`).run(runId, calls, status);
     });
+  }
+
+  /**
+   * Adds a batch of a run's search documents and moves its state on to `next`, in one write, if its
+   * state is still `expected`: another process indexing the same run meanwhile wins, and this batch
+   * is dropped (false). `fresh` drops the run's documents first, for a run indexed again from its start.
+   * `briefly` waits for another command's write lock a moment only, as saveRunStats does, not the
+   * 10 s anything else waits: a dashboard indexes on the thread that answers its pages. Then it is
+   * 'busy' while that command writes (gc's VACUUM, a pull), and nothing is written.
+   */
+  addSearchDocs(runId: string, o: { expected: SearchState | null; next: SearchState; docs: Array<{ callNo: number; field: string; text: string }>; fresh?: boolean; briefly?: boolean }): boolean | 'busy' {
+    const write = () =>
+      this.transaction(() => {
+        const now = this.searchState(runId);
+        const same = now === null || o.expected === null ? now === o.expected : now.calls === o.expected.calls && now.status === o.expected.status && now.progress === o.expected.progress;
+        if (!same) return false;
+        if (o.fresh && now !== null) this.deleteSearchDocs(runId, true);
+        this.insertSearchDocs(runId, o.docs);
+        this.db.prepare(`INSERT OR REPLACE INTO search_state (run_id, calls, status, progress) VALUES (?, ?, ?, ?)`).run(runId, o.next.calls, o.next.status, o.next.progress);
+        return true;
+      }, 'immediate');
+    if (!o.briefly) return write();
+    const wait = Number((this.db.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined)?.timeout ?? 10_000);
+    this.db.exec(`PRAGMA busy_timeout = ${Math.min(wait, CACHE_WAIT_MS)}`);
+    try {
+      return write();
+    } catch (err) {
+      // SQLITE_BUSY, its extended codes included: the lock was not free in time.
+      if (((err as { errcode?: number }).errcode ?? 0) % 256 === 5) return 'busy';
+      throw err;
+    } finally {
+      this.db.exec(`PRAGMA busy_timeout = ${wait}`);
+    }
   }
 
   /** Full-text matches, best first. `match` is an FTS5 expression; snippets mark matches with characters 1 and 2. */
@@ -1954,9 +2033,23 @@ export class Store {
     );
   }
 
-  /** All calls of a run in arrival order, each with its final end row and earlier attempts. */
-  getCalls(runId: string): CallRecord[] {
-    const rows = this.stmts.eventsForRun.all(runId);
+  /**
+   * All calls of a run in arrival order, each with its final end row and earlier attempts. `range`
+   * reads only some of them: the first `limit` (all, without one) numbered after `after`, or those
+   * named in `only`.
+   */
+  getCalls(runId: string, range?: { after?: number; limit?: number; only?: readonly number[] }): CallRecord[] {
+    const rows = !range
+      ? this.stmts.eventsForRun.all(runId)
+      : range.only
+        ? this.db.prepare(`SELECT * FROM call_events WHERE run_id = ? AND call_no IN (SELECT value FROM json_each(?)) ORDER BY call_no ASC, phase DESC, attempt ASC`).all(runId, JSON.stringify(range.only))
+        : this.db
+            .prepare(
+              `SELECT * FROM call_events WHERE run_id = ? AND call_no > ? AND call_no <= COALESCE(
+                 (SELECT MAX(call_no) FROM (SELECT call_no FROM call_events WHERE run_id = ? AND phase = 'start' AND call_no > ? ORDER BY call_no LIMIT ?)), -1)
+               ORDER BY call_no ASC, phase DESC, attempt ASC`,
+            )
+            .all(runId, range.after ?? 0, runId, range.after ?? 0, range.limit ?? -1);
     const byCall = new Map<number, CallRecord>();
     for (const r of rows) {
       const callNo = Number(r.call_no);
@@ -1994,6 +2087,10 @@ export class Store {
     }
     return [...byCall.values()].sort((a, b) => a.callNo - b.callNo);
   }
+}
+
+function searchStateOf(row: Record<string, unknown>): SearchState {
+  return { calls: Number(row.calls), status: String(row.status), progress: typeof row.progress === 'string' ? row.progress : null };
 }
 
 function parseMeta(raw: unknown): CallMeta {

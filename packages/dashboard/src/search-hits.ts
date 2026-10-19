@@ -1,5 +1,5 @@
-import { searchExpression, updateSearchIndex, type CallKind, type SearchHit, type Store } from '@shadowlap/engine';
-import { loadRunIndex, type RunIndex } from './run-index.js';
+import { indexSearch, searchExpression, searchIndexBehind, type CallKind, type SearchHit, type SearchIndexRun, type Store } from '@shadowlap/engine';
+import { keepingIndex, loadRunIndex, type RunIndex } from './run-index.js';
 
 /**
  * What the palette's "In recorded data" gets from a search. An attempt bundled under a run
@@ -10,11 +10,25 @@ import { loadRunIndex, type RunIndex } from './run-index.js';
  * (recordings, forks, tests, captures), then, among the rest, for attempts of runs that have no hit
  * of their own. Each step keeps a run's best few hits, so one long run can't fill the list either.
  * No HTTP here: the tests call it with a store.
+ *
+ * A search answers from what the index holds: building it reads every call's request and answer, a
+ * minute for a store of thousands of runs, and the dashboard answers every tab from one thread. So
+ * the index is brought up to date beside the requests, in slices of about 50 ms while the server is
+ * idle (`catchUpSearch`, as the run totals are warmed), each waiting a moment at most for another
+ * command's write, and a search made before it caught up says how many runs it has yet to cover
+ * (`searchBehind`). A run still recording is indexed from where the last slice stopped, never again
+ * from its first call.
  */
 
 export interface RecordedHit extends SearchHit {
   /** The run this hit's run is an attempt of, bundled under it; null for a run of its own. */
   attemptOf: string | null;
+}
+
+/** What `GET /api/search` answers: the hits, and while the index is behind, how many runs it has yet to cover of how many. */
+export interface SearchAnswer {
+  hits: RecordedHit[];
+  indexing?: { runs: number; of: number };
 }
 
 /** The most hits a search gives one run, or the attempts of one run together: the palette shows two of a run. */
@@ -83,7 +97,6 @@ function hits(store: Store, sql: string, match: string, runs: readonly string[],
 export function searchRecorded(store: Store, query: string, limit: number, index: RunIndex = loadRunIndex(store)): RecordedHit[] {
   const match = searchExpression(query);
   if (!match || limit < 1) return [];
-  updateSearchIndex(store);
   const attempts = index.runs.filter((r) => r.bundled && r.attemptOf !== null);
   const own = hits(store, OWN_SQL, match, attempts.map((r) => r.runId), limit, () => null);
   // Short of the limit, every run of its own that matches is here: an attempt of any other run has
@@ -93,4 +106,82 @@ export function searchRecorded(store: Store, query: string, limit: number, index
   const of = new Map(attempts.filter((r) => !found.has(r.attemptOf!)).map((r) => [r.runId, r.attemptOf!]));
   if (!of.size) return own;
   return [...own, ...hits(store, ATTEMPTS_SQL, match, [...of.keys()], limit - own.length, (id) => of.get(id) ?? null)];
+}
+
+// ---- the index, brought up to date beside the requests ----
+
+/** Runs as the index needs them, from the run index: no other read. */
+function indexRuns(runs: RunIndex['runs']): SearchIndexRun[] {
+  return runs.map((r) => ({ runId: r.runId, status: r.status, calls: r.calls }));
+}
+
+/** How many runs the index has yet to cover: runs new or ended since it looked, or with calls it hasn't read. */
+export function searchBehind(store: Store, index: RunIndex = loadRunIndex(store)): number {
+  return searchIndexBehind(store, indexRuns(index.runs));
+}
+
+/**
+ * About `budgetMs` of bringing the index up to date, newest runs first: how many runs it is still
+ * behind on after, and whether it stopped because another command was writing the store (`busy`:
+ * gc's VACUUM, a pull, an import), which it waits a moment for at most, never the 10 s a write
+ * waits otherwise, as it runs on the thread that answers every page. Writing the index changes
+ * nothing the run index reads, so the run index read before stays current.
+ */
+export function indexSearchSlice(store: Store, budgetMs = SLICE_MS): { behind: number; busy: boolean } {
+  const index = loadRunIndex(store);
+  const done = keepingIndex(store, () => indexSearch(store, { budgetMs, runs: indexRuns(index.runs), briefly: true }));
+  return { behind: done.behind, busy: done.busy === true };
+}
+
+/**
+ * What the runs still recording said since the index last looked, taken in before a search answers,
+ * for about 20 ms at most and waiting for the store's write lock a moment only, as the slices do. A
+ * recording makes a call or two between two searches: an answer without them, saying the index is
+ * behind on the run, would have the palette ask again every second for as long as it records. What
+ * doesn't fit in the time is left to the slices, and the answer says the index is behind.
+ */
+export function indexRecordings(store: Store, index: RunIndex = loadRunIndex(store)): void {
+  const live = index.runs.filter((r) => r.status === 'running');
+  if (!live.length) return;
+  keepingIndex(store, () => indexSearch(store, { budgetMs: RECORDING_MS, runs: indexRuns(live), briefly: true }));
+}
+
+const SLICE_MS = 50;
+const RECORDING_MS = 20;
+/** Between two slices: time for whatever else the server has to do. */
+const GAP_MS = 20;
+/** After a slice found the store busy, or failed: the first wait before the next, doubled each time after, up to the last. */
+const RETRY_MS = 1000;
+const RETRY_MAX_MS = 8000;
+const catching = new WeakSet<Store>();
+
+/** A store closed under the slices: the dashboard stopped, or serves another project's store now. */
+const closed = (err: unknown) => (err as { code?: unknown } | null)?.code === 'ERR_INVALID_STATE';
+
+/**
+ * Brings the index up to date in the background unless that is under way already: a slice of about
+ * 50 ms, then 20 ms for whatever else the server has to do, until it covers every run. While another
+ * command writes the store, it tries again a second later, then two, up to eight, leaving the store
+ * to that command meanwhile, and stops only once the store is closed. The dashboard starts it when
+ * it starts and again with each search, which then finds what has arrived since.
+ */
+export function catchUpSearch(store: Store): void {
+  if (catching.has(store)) return;
+  catching.add(store);
+  let retry = RETRY_MS;
+  const slice = () => {
+    let wait: number | null;
+    try {
+      const { behind, busy } = indexSearchSlice(store);
+      wait = busy ? retry : behind > 0 ? GAP_MS : null;
+      retry = busy ? Math.min(retry * 2, RETRY_MAX_MS) : RETRY_MS;
+    } catch (err) {
+      // Anything but a closed store (a read SQLite refused for a moment) is tried again later.
+      wait = closed(err) ? null : retry;
+      retry = Math.min(retry * 2, RETRY_MAX_MS);
+    }
+    if (wait === null) catching.delete(store);
+    else setTimeout(slice, wait).unref();
+  };
+  setTimeout(slice, 0).unref();
 }

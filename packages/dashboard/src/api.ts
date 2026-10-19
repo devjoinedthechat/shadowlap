@@ -4,7 +4,8 @@ import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
-import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunPageFacts, type RunProvenance } from './run-page.js';
+import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
+import { runCalls } from './run-calls.js';
 // How a run stands, as the run list works it out: a run's page and its family read the same state.
 import { runState, runStates, type RunState } from './runs-list.js';
 
@@ -84,6 +85,12 @@ export interface CallRow extends CallFacts {
   resultShort: string | null;
   /** A recorded user input: a person's answer the agent read, recorded like a read tool (`user_input`). */
   input?: true;
+  /**
+   * While its run records, a call answered with a failure the agent may retry (a 429, a 5xx, a
+   * connection that broke): the retry answers it again under its number, also after calls made since
+   * in another branch of the agent, so a page following the recording asks for it again.
+   */
+  retryable?: true;
 }
 
 export interface RunDetail extends RunPageFacts {
@@ -111,6 +118,11 @@ export interface RunDetail extends RunPageFacts {
    * reads `crashed`, ended at its last call (`run.endedAt`), as gc would end it.
    */
   state: RunState | null;
+  /**
+   * Set on an answer to `?after=<n>`, a recording's page following it: `calls` holds only the calls
+   * numbered after `n`, and the page keeps the ones it has up to there. Everything else is the whole run's.
+   */
+  after?: number;
 }
 
 export interface CallDetail {
@@ -163,7 +175,8 @@ function oneLine(v: unknown): string {
   return s.length > ONE_LINE ? `${s.slice(0, ONE_LINE - 1)}…` : s;
 }
 
-function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS): CallRow {
+/** A call's row; `recording` while its run records, when a failure the agent may retry is marked so. */
+function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS, recording = false): CallRow {
   const end = c.end;
   const u = end?.meta.usage;
   const model = end?.meta.model ?? c.meta.model ?? (c.kind === 'api' ? modelResolver(store)(c) : null) ?? null;
@@ -194,6 +207,7 @@ function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts
     scope: typeof c.meta.scope === 'string' ? c.meta.scope : null,
     ...ownFacts(store, c),
     ...facts,
+    ...(recording && end?.outcome === 'error' && end.meta.retryable === true ? { retryable: true as const } : {}),
   };
 }
 
@@ -221,16 +235,18 @@ function childRows(store: Store, runId: string): RunDetail['children'] {
   return store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), startedAt: r.startedAt, ...(index.byId.get(r.runId)?.bundled ? { attempt: true as const } : {}) }));
 }
 
-export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions = {}): RunDetail | null {
+export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions = {}, part: { after?: number } = {}): RunDetail | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
+  const after = part.after;
   const runId = run.runId;
-  const calls = store.getCalls(runId);
+  const calls = runCalls(store, runId);
   const state = runState(store, runId);
   // Interrupted as the lists have it: a run its recorder left running is not recording any more,
   // and ended at its last call, as gc would end it.
   const shown = state && state.status !== run.status ? { ...run, status: state.status, endedAt: run.endedAt ?? state.endedAt } : run;
-  const summary = summarizeRun(shown, calls, [], [], { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) });
+  // Read only: the calls are kept for the run's next look (run-calls.ts).
+  const summary = summarizeRun(shown, calls as CallRecord[], [], [], { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) });
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
   const analysis = analyseRun(store, run, calls);
   return {
@@ -238,13 +254,15 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     label: runLabel(run, kindFacts(store, run, calls.length)),
     source: captureSource(run),
     summary,
-    calls: calls.map((c) => row(store, c, options, analysis.facts(c.callNo))),
+    // A recording's page asks only for the calls after those it has: rows are read for those alone.
+    calls: (after === undefined ? calls : calls.filter((c) => c.callNo > after)).map((c) => row(store, c, options, analysis.facts(c.callNo), shown.status === 'running')),
     parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
     children: childRows(store, runId),
     actions: actionsFor(run, undefined),
     ...runPageFacts(store, run, calls),
     fix: fixForRun(store, run.runId),
     state,
+    ...(after === undefined ? {} : { after }),
   };
 }
 
@@ -271,10 +289,27 @@ function modelInPath(name: string): string | null {
 export function callDetail(store: Store, idOrPrefix: string, callNo: number, options: ReadOptions = {}): CallDetail | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
-  const calls = store.getCalls(run.runId);
-  const index = calls.findIndex((c) => c.callNo === callNo);
-  if (index < 0) return null;
-  const c = calls[index]!;
+  // Read once while the run stays the same: the inspector asks for its calls one by one.
+  const calls = runCalls(store, run.runId);
+  return callDetailFrom(store, run, calls, analyseRun(store, run, calls), callNo, options);
+}
+
+/**
+ * Keeps the conversation shown at the call before, for an export going through a run's calls in
+ * order: a tool call shows the conversation of the model call before it, read and normalized once.
+ */
+export interface ConversationMemo {
+  last?: { callNo: number; conversation: CallDetail['conversation'] };
+}
+
+/**
+ * A call's details from its run's calls and their analysis, already read: what `callDetail` answers.
+ * An export works out every call of a run from one read of it, so its time grows with the run's
+ * length, not with its square.
+ */
+export function callDetailFrom(store: Store, run: RunRecord, calls: readonly CallRecord[], analysis: RunAnalysis, callNo: number, options: ReadOptions = {}, memo?: ConversationMemo): CallDetail | null {
+  const c = analysis.byNo.get(callNo);
+  if (!c) return null;
   const end = c.end;
   const provider = typeof (end?.meta.provider ?? c.meta.provider) === 'string' ? String(end?.meta.provider ?? c.meta.provider) : null;
 
@@ -289,8 +324,9 @@ export function callDetail(store: Store, idOrPrefix: string, callNo: number, opt
   }
   // The conversation at this call: its own request for a model call, else its conversation's
   // latest request, which in a batch or a multi-agent run is not simply the latest one before it.
-  const source = conversationSource(store, run, calls, callNo);
-  if (source?.call.requestRef) {
+  const source = conversationSource(store, run, calls, callNo, analysis);
+  if (source?.call.requestRef && memo?.last?.callNo === source.call.callNo) conversation = memo.last.conversation;
+  else if (source?.call.requestRef) {
     try {
       const body = source.call === c ? request : loadApiRequest(store, source.call.requestRef);
       const conv = normalizeConversation(body, modelInPath(source.call.name));
@@ -298,6 +334,7 @@ export function callDetail(store: Store, idOrPrefix: string, callNo: number, opt
     } catch {
       // an unreadable request leaves the conversation empty
     }
+    if (memo) memo.last = { callNo: source.call.callNo, conversation };
   }
 
   let response: NormalizedResponse | null = null;
@@ -314,7 +351,7 @@ export function callDetail(store: Store, idOrPrefix: string, callNo: number, opt
 
   return {
     call: {
-      ...row(store, c, options, analyseRun(store, run, calls).facts(c.callNo)),
+      ...row(store, c, options, analysis.facts(c.callNo)),
       fingerprint: c.fingerprint,
       occurrence: c.occurrence,
       startedAt: c.at,
@@ -445,8 +482,10 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
   const out: LineageNode[] = [];
   const walk = (r: RunRecord, depth: number) => {
     if (out.length >= 1000) return;
-    const calls = store.getCalls(r.runId);
-    const s = summarizeRun(r, calls, [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
+    // The run asked about is the page's own: its calls as the page last read them (run-calls.ts),
+    // so its Forks view, asked again as runs move, doesn't read a long run again.
+    const calls = r.runId === run.runId ? runCalls(store, r.runId) : store.getCalls(r.runId);
+    const s = summarizeRun(r, calls as CallRecord[], [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
     const state = stateOf(r.runId);
     out.push({
       runId: r.runId,

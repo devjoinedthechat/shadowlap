@@ -126,4 +126,7 @@ report.md read as blocks, the drawer's outcome words, which jobs hold which tree
 
 A page that shows what a feature keeps in its own tables reloads on that table's count in
 `feeds` (`useApp().feeds.fixes`), which moves when `/api/changes` lists the table under `other`, as
-it reloads on `tick` when runs change; `feeds.jobs` moves when a job starts, ends or reports.
+it reloads on `tick` when runs or calls change; `feeds.jobs` moves when a job starts, ends or reports.
+A run's page and what hangs from it (its offers, its family, its fix bundles) reload on `runsTick`,
+which moves only when the run list loads again, and while a run records, on its own count in
+`live` (`runRefresh`, `familyRefresh` in connection.ts): another run recording asks them for nothing.

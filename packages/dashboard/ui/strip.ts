@@ -108,6 +108,22 @@ export function stripCells(items: readonly StripItem[], o: StripOptions): Cell[]
   });
 }
 
+/**
+ * The strip is one stop for Tab: the cell that takes it is the one the arrow keys last moved to
+ * while the focus stayed in the strip (`focused`), else the selected call's, else the first.
+ */
+export function stripTabStop(cells: readonly Pick<Cell, 'selected'>[], focused: number | null): number {
+  if (focused !== null && focused >= 0 && focused < cells.length) return focused;
+  const selected = cells.findIndex((c) => c.selected);
+  return selected >= 0 ? selected : 0;
+}
+
+/** The cell a key moves the focus to, as on the Runs calendar: ← and → one cell, Home and End the ends. Null for another key or past the ends. */
+export function moveCell(at: number, key: string, count: number): number | null {
+  const to = key === 'ArrowLeft' ? at - 1 : key === 'ArrowRight' ? at + 1 : key === 'Home' ? 0 : key === 'End' ? count - 1 : null;
+  return to !== null && to >= 0 && to < count && to !== at ? to : null;
+}
+
 /** A small strip's cells: each call's origin, or each range's most notable origin past `max` calls. */
 export function miniCells(origins: readonly Origin7[], max = MINI_CELLS): Origin7[] {
   const bins = binCalls(

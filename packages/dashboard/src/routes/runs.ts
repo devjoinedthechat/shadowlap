@@ -5,6 +5,7 @@ import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { recordingNow, stillRecording } from '../run-exports.js';
 import { maskCount } from '../run-mask.js';
+import { runVersionTag } from '../run-version.js';
 import { deleteRuns } from '../runs-list.js';
 import { exportHtml, withAncestors, type ExportHtmlResult } from '../static.js';
 
@@ -13,11 +14,27 @@ export function register(router: Router, ctx: RouteContext): void {
   // `ctx.store` is read in each handler: on a dashboard with several projects it is the current one's.
   router.get('/runs', (r) => r.tagged({ runs: listRuns(ctx.store, ctx.read) }));
 
+  // A run's page. `?after=<n>` answers with the calls after the n the page has, for a recording it
+  // follows. Revalidated from where the run stands (run-version.ts) before anything is built: the page
+  // asks again whenever runs move, and a long run's answer is megabytes worked out from every call.
   router.get('/runs/:id', (r) => {
     const store = ctx.store;
-    const d = runDetail(store, r.params.id!, ctx.read);
+    const run = lookupRun(store, r.params.id!);
+    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
+    const raw = r.query.get('after');
+    const after = raw === null ? undefined : Number(raw);
+    if (after !== undefined && !(Number.isInteger(after) && after >= 0)) throw new HttpError(400, 'after is a call number: a whole number, 0 or more');
+    const etag = runVersionTag(store, run, JSON.stringify([ctx.read, after ?? null]));
+    if (r.req.headers['if-none-match'] === etag) {
+      r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+      r.res.end();
+      return;
+    }
+    const d = runDetail(store, run.runId, ctx.read, after === undefined ? {} : { after });
     if (!d) throw new HttpError(404, `no run ${r.params.id}`);
-    r.tagged(d);
+    const text = JSON.stringify(d);
+    r.res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-length': String(Buffer.byteLength(text)), etag, 'cache-control': 'no-cache' });
+    r.res.end(text);
   });
 
   // As the Runs page deletes: the attempts bundled under the run go with it, and a run still

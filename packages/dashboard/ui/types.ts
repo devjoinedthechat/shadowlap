@@ -241,6 +241,8 @@ export type TestBannerOffer = NonNullable<ServerRunOffers['test']>;
 export interface LiveRun {
   runId: string;
   calls: number;
+  /** Its call events, starts and answers: a recording's page asks for its newest calls when they move. */
+  events?: number;
 }
 
 export interface Meta {
@@ -360,7 +362,7 @@ export type { TraceSourceView } from '../src/routes/imports.js';
 export type { TeamStoreStatus } from '../src/team-store.js';
 export type { ActivityIcon, ActivityItem, ActivityPage, UploadView } from '../src/views.js';
 /** A hit from what runs recorded, naming the run it is an attempt of (the palette's In recorded data). */
-export type { RecordedHit } from '../src/search-hits.js';
+export type { RecordedHit, SearchAnswer } from '../src/search-hits.js';
 
 /** What the Runs table asks the server for: a page under the chips, the filter field, the days picked and the sort. */
 export interface RunsQuery {
