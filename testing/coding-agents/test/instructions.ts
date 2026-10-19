@@ -13,6 +13,20 @@ export const PLUGIN_DIR = 'coding-agents/claude-code';
 export const SKILL_FILE = `${PLUGIN_DIR}/skills/debug-agent/SKILL.md`;
 
 /**
+ * The fields both a marketplace entry and plugin.json can set, which Claude Code shows in its plugin
+ * listings and details: the entry's value wherever the entry sets one (its marketplace reference).
+ */
+export const DISPLAY_FIELDS = ['displayName', 'description', 'author', 'homepage', 'repository', 'license', 'keywords'] as const;
+
+/** The plugin's description as Claude Code shows it: the marketplace entry's when it sets one, else plugin.json's. */
+export function shownDescription(): string {
+  const plugin = JSON.parse(read(`${PLUGIN_DIR}/.claude-plugin/plugin.json`)) as { description?: string };
+  const marketplace = JSON.parse(read('.claude-plugin/marketplace.json')) as { plugins: Array<{ name: string; description?: string }> };
+  const entry = marketplace.plugins.find((p) => p.name === 'shadowlap');
+  return entry?.description ?? plugin.description ?? '';
+}
+
+/**
  * A Markdown file's frontmatter, kept to flat `key: value` lines (a YAML subset every reader parses
  * the same way: no lists, no nesting, no line breaks in a value), and its body.
  */
@@ -62,6 +76,39 @@ export function commandsIn(markdown: string): string[] {
   }
   return found;
 }
+
+/**
+ * Some Markdown cut into the points a reader takes one at a time: each list item with the lines that
+ * continue it, and each paragraph. Headings and fenced blocks are left out, and each point's lines
+ * are joined, so a code span that wraps onto the next line stays whole.
+ */
+export function blocksOf(markdown: string): string[] {
+  const out: string[] = [];
+  let lines: string[] = [];
+  const flush = () => {
+    if (lines.length) out.push(lines.join(' ').replace(/\s+/g, ' ').trim());
+    lines = [];
+  };
+  let fenced = false;
+  for (const line of markdown.split('\n')) {
+    if (/^\s*```/.test(line)) {
+      flush();
+      fenced = !fenced;
+    } else if (fenced) {
+      continue;
+    } else if (!line.trim() || line.startsWith('#')) {
+      flush();
+    } else {
+      if (/^\s*(?:[-*]|\d+\.)\s/.test(line)) flush();
+      lines.push(line.trim());
+    }
+  }
+  flush();
+  return out;
+}
+
+/** The code spans in a point, as written. */
+export const spansIn = (block: string): string[] => [...block.matchAll(/`([^`]+)`/g)].map((m) => m[1]!.trim());
 
 /** A command line's words, as a POSIX shell splits it: single and double quotes group, and go. */
 export function words(line: string): string[] {

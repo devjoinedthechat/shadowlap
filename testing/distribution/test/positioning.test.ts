@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { shownDescription } from '../../coding-agents/test/instructions.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const read = (path: string) => readFileSync(join(ROOT, path), 'utf8');
@@ -27,9 +28,10 @@ describe('the name of the job', () => {
 
   it('leads the listings people find Shadowlap in', () => {
     const cli = JSON.parse(read('packages/cli/package.json')) as { description: string };
-    const plugin = JSON.parse(read('coding-agents/claude-code/.claude-plugin/plugin.json')) as { description: string };
     expect(cli.description).toBe(`${LINE}: record, replay and fork AI agent runs.`);
     expect(read('packages/cli/README.md').split('\n')[2]).toBe(cli.description);
-    expect(plugin.description.startsWith(`${LINE}: `)).toBe(true);
+    // As Claude Code shows the plugin, before an install and after: the marketplace entry's text
+    // wherever it sets one, so this reads what the user reads, not only plugin.json.
+    expect(shownDescription().startsWith(`${LINE}: `), shownDescription()).toBe(true);
   });
 });

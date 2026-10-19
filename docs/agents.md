@@ -32,7 +32,7 @@ claude plugin marketplace add devjoinedthechat/shadowlap
 claude plugin install shadowlap@shadowlap
 ```
 
-From a clone, add its folder instead (`claude plugin marketplace add ./shadowlap`), or load the plugin for one session with `claude --plugin-dir shadowlap/coding-agents/claude-code`. The skill lets Claude run the commands that only read (`shadowlap ls`, `show`, `search`, `diff` and `fix ls`) without asking; everything that runs the agent asks first, as any other command does. The plugin is in [coding-agents/claude-code](https://github.com/devjoinedthechat/shadowlap/tree/main/coding-agents/claude-code), and its version is the CLI's.
+From a clone, add its folder instead (`claude plugin marketplace add ./shadowlap`), or load the plugin for one session with `claude --plugin-dir shadowlap/coding-agents/claude-code`. While Claude uses the skill, it may run the commands that only read (`shadowlap ls`, `show`, `search`, `diff` and `fix ls`) without asking: the grant lasts for the turn in which it loads the skill, and ends at your next message. Everything that runs the agent asks first, as any other command does. The plugin is in [coding-agents/claude-code](https://github.com/devjoinedthechat/shadowlap/tree/main/coding-agents/claude-code), and its version is the CLI's.
 
 ## Cursor
 

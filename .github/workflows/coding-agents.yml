@@ -2,14 +2,21 @@ name: Coding agents
 
 # The Claude Code plugin's skill, the Cursor rule and the section docs/agents.md gives to paste tell
 # coding agents which shadowlap commands to run. This job runs every command they name against the
-# reference agent, with the scripted fake of the Anthropic API (no key, no model), and checks the JSON
-# fields they say to read, so the instructions never drift from the CLI. Then Claude Code's own
-# validator checks the plugin and the repository's marketplace file.
+# reference agent, with the scripted fake of the Anthropic API (no key, no model), checks that the
+# JSON fields they say to read are there and that the checks they show parse, so the instructions
+# never drift from the CLI. The same tests hold the skill's frontmatter and the Cursor rule to their
+# formats (testing/coding-agents/test/formats.test.ts). Then Claude Code's own validator checks the
+# plugin's manifest and the repository's marketplace file; it reads a skill only for its description,
+# which is why the format checks are in the tests.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+
+# The job only reads the repository, and it runs a package downloaded from npm: its token can do no more.
+permissions:
+  contents: read
 
 jobs:
   skill:

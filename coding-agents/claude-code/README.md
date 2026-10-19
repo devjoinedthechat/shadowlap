@@ -22,9 +22,10 @@ for one session with `claude --plugin-dir shadowlap/coding-agents/claude-code`.
 
 ## What it may run without asking
 
-The skill pre-approves read-only commands only: `shadowlap ls`, `show`, `search`, `diff` and
-`fix ls`. Everything that runs the agent (`replay`, `blame`, `verify`, `test`) asks first, as any
-other command does.
+The skill pre-approves the commands that only read the store: `shadowlap ls`, `show`, `search`,
+`diff` and `fix ls`. Like any skill's, that grant lasts for the turn in which Claude loads the skill
+and ends when you send your next message. Everything that runs the agent (`replay`, `blame`,
+`verify`, `test`) asks first, as any other command does.
 
 ## Kept in step with the CLI
 

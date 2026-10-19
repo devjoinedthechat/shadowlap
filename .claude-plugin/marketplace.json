@@ -9,7 +9,6 @@
     {
       "name": "shadowlap",
       "source": "./coding-agents/claude-code",
-      "description": "Find a failing agent run, replay a change against what the agent actually did, find the model call that lost the run, and verify the fix, with the shadowlap CLI.",
       "category": "testing",
       "tags": [
         "agents",

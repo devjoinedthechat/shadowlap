@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CURSOR_RULE, SKILL_COMMAND, SKILL_PLUGIN, SKILL_REPOSITORY } from '../../../packages/dashboard/src/agent-skill.js';
 import { agentsSection } from '../../../packages/dashboard/src/settings.js';
-import { PLUGIN_DIR, ROOT, SKILL_FILE, frontmatter, read } from './instructions.js';
+import { DISPLAY_FIELDS, PLUGIN_DIR, ROOT, SKILL_FILE, frontmatter, read } from './instructions.js';
 
 const plugin = JSON.parse(read(`${PLUGIN_DIR}/.claude-plugin/plugin.json`)) as Record<string, unknown> & { name: string; version: string; license: string; author?: { name?: string } };
 const marketplace = JSON.parse(read('.claude-plugin/marketplace.json')) as { name: string; owner?: { name?: string }; plugins: Array<Record<string, unknown> & { name: string; source: string }> };
@@ -81,6 +81,9 @@ describe('the plugin', () => {
     expect(existsSync(join(ROOT, entry.source, '.claude-plugin', 'plugin.json'))).toBe(true);
     // The manifest carries the version; an entry that sets one too draws a validator warning.
     expect(entry.version).toBeUndefined();
+    // Claude Code shows the entry's value of a display field wherever the entry sets one, so the
+    // entry sets none and plugin.json's are what users see, before an install and after it.
+    for (const key of DISPLAY_FIELDS) expect(entry[key], `the marketplace entry's ${key} would hide plugin.json's`).toBeUndefined();
   });
 
   it('is what Settings → Coding agents will offer to install', () => {

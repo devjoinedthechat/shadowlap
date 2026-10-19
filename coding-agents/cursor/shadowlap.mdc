@@ -5,7 +5,7 @@ alwaysApply: false
 
 # Debugging an agent with Shadowlap
 
-This project records its agent's runs with Shadowlap: `shadowlap run -- <command>` records every model and tool call, and a replay re-runs the agent's real code against the recording. Calls that didn't change are served from it at no cost; the run forks at the first request that changed, runs live from there, and blocks write tools (emails, tickets, payments). Every command here reads or writes JSON, and a run id can be shortened to any unique prefix.
+This project records its agent's runs with Shadowlap: `shadowlap run -- <command>` records every model and tool call, and a replay re-runs the agent's real code against the recording. Calls that didn't change are served from it at no cost; the run forks at the first request that changed, runs live from there, and blocks write tools (emails, tickets, payments). Read the JSON of the commands below that give it (`--json`, or `--summary-json` for a replay) rather than their text. A run id can be shortened to any unique prefix.
 
 ## Find the run
 
@@ -25,10 +25,10 @@ This project records its agent's runs with Shadowlap: `shadowlap run -- <command
 
 ## Find where a failed run went wrong
 
-`shadowlap blame <run> --expect '<checks>' --json` names the model call that lost the run (`blamed`), and what the model answered there in the recording and in a fork that passed (`contrast`, with that fork's run id). `<checks>` is what a passing run must do besides exiting 0, as JSON: `{"tools":{"send_email":0}}` never sends an email, `{"tools":{"escalate":">= 1","issue_refund":0}}` escalates and never refunds, `{"answer":{"includes":"refund"}}` mentions the refund in its last reply. An `outcome` of `unrescuable` means no model answer saves the run: the fault is in the code, or in what a tool returned.
+`shadowlap blame <run> --expect '<checks>' --json` names the model call that lost the run (`blamed`), and what the model answered there in the recording and in a fork that passed (`contrast`: its `recorded` and `rescued` answers, and that fork's `rescuedRunId`). `<checks>` is what a passing run must do besides exiting 0, as JSON: `{"tools":{"send_email":0}}` never sends an email, `{"tools":{"escalate":">= 1","issue_refund":0}}` escalates and never refunds, `{"answer":{"includes":"refund"}}` mentions the refund in its last reply. An `outcome` of `unrescuable` means no model answer saves the run: the fault is in the code, or in what a tool returned.
 
 ## Before calling it done
 
 - `shadowlap verify --fixes <runs> --keeps label:good --expect '<checks>' --json` replays the failing runs, which must now pass, and the runs labelled `good`, which must still pass, under the code in the working tree. The change holds when `verdict` is `accepted` (exit 0). Label a run that behaved as it should with `shadowlap label <run> good`.
 - `shadowlap test goldens/* --json <file>` replays the project's goldens offline (the runs packed into `goldens/`, or wherever the project keeps them): a changed request, a failed check or a non-zero exit fails one. Keep them passing.
-- `shadowlap diff <a> <b> --json` compares two runs call by call: what changed about them as a whole, and the first request that differs.
+- `shadowlap diff <a> <b> --json` compares two runs call by call: what changed about them as a whole, and the first request that differs. It exits 1 when they differ.
