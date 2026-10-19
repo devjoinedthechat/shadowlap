@@ -158,6 +158,16 @@ describe('shadowlap migrate', () => {
     expect(r.code, r.out).toBe(0);
   }, 240_000);
 
+  it('sends every sample of a step with the fix, and counts the step once', async () => {
+    const r = await shadowlap(['migrate', '--to', 'mock-small', '--samples', '2', '--concurrency', '3', '-y', '--attempts', '1', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = json<MigrateReport>(r);
+    expect(report.set.fields).toEqual([expect.objectContaining({ field: 'max_tokens', value: 512, steps: 11 })]);
+    const steps = report.decisions.runs[0]!.decisions;
+    expect(steps).toHaveLength(11);
+    expect(steps.every((s) => s.samples.asked === 2 && s.samples.answered === 2 && s.error === null)).toBe(true);
+  }, 240_000);
+
   it('exits 1 when a run it verifies breaks under the new model', async () => {
     const expect_ = JSON.stringify({ tools: { send_email: { count: 1, args: { body: 'Replay works.' } } } });
     const r = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '--expect', expect_, '-y', '--attempts', '2', '--json']);

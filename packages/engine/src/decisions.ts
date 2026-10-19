@@ -269,7 +269,7 @@ export function compareDecisions(recorded: ModelDecision, now: ModelDecision, ef
   for (const [b, a] of r.changed) add({ rank: 4, kind: 'read-arguments', tool: b.name, before: b.args, after: a.args, detail: `${b.name} is asked differently` });
 
   // 5: what it says.
-  if (recorded.text !== now.text) add({ rank: 5, kind: 'text', before: recorded.text, after: now.text, detail: recorded.text && now.text ? 'it says something else' : now.text ? 'it says something, where the recording said nothing' : 'it says nothing, where the recording did' });
+  if (recorded.text !== now.text) add({ rank: 5, kind: 'text', before: clipText(recorded.text), after: clipText(now.text), detail: recorded.text && now.text ? 'it says something else' : now.text ? 'it says something, where the recording said nothing' : 'it says nothing, where the recording did' });
 
   changes.sort((a, b) => a.rank - b.rank);
   return { rank: changes[0]?.rank ?? null, changes };
@@ -286,6 +286,14 @@ export interface TokenCount {
 
 export const NO_TOKENS: TokenCount = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
+/**
+ * What a report keeps of a model's text: enough to read what it says, so a suite's report stays
+ * small. The recording holds all of it.
+ */
+export function clipText(text: string, max = 2000): string {
+  return text.length <= max ? text : `${text.slice(0, max)}… (${text.length - max} more characters)`;
+}
+
 /** A decision as a report shows it: each tool call with what it does. */
 export interface DecisionView {
   stop: DecisionStop;
@@ -295,7 +303,7 @@ export interface DecisionView {
 }
 
 export function decisionView(d: ModelDecision, effectOf: EffectOf): DecisionView {
-  return { stop: d.stop, stopReason: d.stopReason, tools: d.tools.map((t) => ({ name: t.name, args: t.args, effect: isHandover(t.name) ? 'handover' : (effectOf(t.name) ?? 'unknown') })), text: d.text };
+  return { stop: d.stop, stopReason: d.stopReason, tools: d.tools.map((t) => ({ name: t.name, args: t.args, effect: isHandover(t.name) ? 'handover' : (effectOf(t.name) ?? 'unknown') })), text: clipText(d.text) };
 }
 
 /** One recorded model call, asked again. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecisions, decisionOf, decisionOfResponse, effectsOf, formatDecisions, isHandover, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
+import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, formatDecisions, isHandover, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
 import type { Effect } from '../src/types.js';
 
 /**
@@ -138,6 +138,14 @@ describe('compareDecisions: ranked by consequence', () => {
   it('ranks 5 for text only, and null for the same decision', () => {
     expect(compareDecisions(decision([], { text: 'Done.' }), decision([], { text: 'All done.' }), effectOf)).toMatchObject({ rank: 5, changes: [{ kind: 'text', before: 'Done.', after: 'All done.' }] });
     expect(compareDecisions(decision([['send_email', { to: 'a' }]], { text: 'x' }), decision([['send_email', { to: 'a' }]], { text: 'x' }), effectOf)).toEqual({ rank: null, changes: [] });
+  });
+
+  it('compares all of a long text and keeps enough of it to read', () => {
+    const long = 'a'.repeat(5000);
+    const c = compareDecisions(decision([], { text: long }), decision([], { text: `${long}b` }), effectOf);
+    expect(c.rank).toBe(5);
+    expect(c.changes[0]!.before).toBe(`${'a'.repeat(2000)}… (3000 more characters)`);
+    expect(decisionView(decision([], { text: long }), effectOf).text).toHaveLength(2000 + '… (3000 more characters)'.length);
   });
 
   it("takes each tool's effect from a run's calls, the most consequential when they disagree", () => {

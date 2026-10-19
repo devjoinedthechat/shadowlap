@@ -45,6 +45,7 @@ import {
   type ModelDecision,
   type Normalizer,
   type Price,
+  type RequestPrompt,
   type RetirementNotice,
   type RunRecord,
   type Store,
@@ -177,7 +178,15 @@ interface Planned {
   path: string;
   query: string | undefined;
   headers: Record<string, string>;
-  body: unknown;
+  /**
+   * Makes the request to send. It is made each time it is sent and let go once answered, so only the
+   * requests in flight are held, never a suite's. It throws only if the recording changed under it.
+   */
+  build: () => unknown;
+  /** Fields a refusal named, changed in each build after it (migrate). */
+  fixes: Record<string, unknown>;
+  /** The request carries cache breakpoints, as the agent placed them. */
+  cacheControl: boolean;
   recorded: ModelDecision;
   recordedModel: string | null;
   askedModel: string | null;
@@ -314,7 +323,9 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, cap
       path,
       query: undefined,
       headers: { ...((call.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {}) },
-      body: null,
+      build: () => null,
+      fixes: {},
+      cacheControl: false,
       recorded,
       recordedModel: (end?.meta.model ?? call.meta.model ?? null) as string | null,
       askedModel: null,
@@ -331,88 +342,98 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, cap
       plan.skip = 'the recording has no answer to compare with (the call failed when it was recorded)';
       continue;
     }
-    if (!providerById(provider)) {
+    const module = providerById(provider);
+    if (!module) {
       plan.skip = `it was recorded through ${provider ?? 'no known provider'}, which Shadowlap can't send to`;
       continue;
     }
-    let body = loadApiRequest(store, call.requestRef);
-    if (requestShape(provider, path, body) === 'other') {
-      plan.skip = "it is not a conversation (an embeddings call, or a model's native body)";
+    const cap = s.fromCode ? capture?.prompts.get(call.callNo) : undefined;
+    if (s.fromCode && !cap) {
+      plan.skip = 'the offline replay of the working tree never sent it, so its new prompt is unknown';
       continue;
     }
-    let promptChanged = false;
-    if (s.fromCode) {
-      const cap = capture?.prompts.get(call.callNo);
-      if (!cap) {
-        plan.skip = 'the offline replay of the working tree never sent it, so its new prompt is unknown';
-        continue;
+    /**
+     * The request with the change swapped in, and what changed; `note` keeps what migrate changed in
+     * the report, which only the first build does.
+     */
+    const make = (note: boolean): { body: unknown; path: string; promptChanged: boolean; modelChanged: boolean; fieldsChanged: boolean; thinking: number } | { skip: string } => {
+      let body = loadApiRequest(store, call.requestRef!);
+      if (requestShape(provider, path, body) === 'other') return { skip: "it is not a conversation (an embeddings call, or a model's native body)" };
+      const promptChanged = cap?.changed === true;
+      if (promptChanged) body = withPrompt(body, cap!.prompt);
+      let at = path;
+      let modelChanged = false;
+      if (s.model) {
+        const sw = switchModel(provider, at, body, s.model);
+        if (refused(sw)) return { skip: `--model: ${sw.refused}` };
+        at = sw.path;
+        body = sw.body;
+        modelChanged = sw.changed;
       }
-      if (cap.changed) {
-        body = withPrompt(body, cap.prompt);
-        promptChanged = true;
+      const fields = Object.fromEntries(Object.entries(s.fields).filter(([k]) => k !== 'model'));
+      let fieldsChanged = false;
+      if (Object.keys(fields).length) {
+        const set = setRequestFields(requestShape(provider, at, body), body, fields);
+        if (refused(set)) return { skip: `--set: ${set.refused}` };
+        body = set.body;
+        fieldsChanged = set.changed;
       }
+      // migrate: what the provider's page says the new model refuses is changed to what it accepts, or left out.
+      if (s.remedies) {
+        const model = module.extractModel(at, body) ?? s.model;
+        for (const f of model ? retiredFields(provider, model, body) : []) {
+          const allowed = f.rule.allowed?.[f.field];
+          if (allowed !== undefined) {
+            const set = setRequestFields(requestShape(provider, at, body), body, { [f.field]: allowed });
+            if (!refused(set)) body = set.body;
+          } else body = withoutFields(provider, at, body, [f.field]);
+          const why = `${model} is among ${f.rule.appliesTo}, where ${f.rule.fields.join(', ')} ${f.rule.behavior.charAt(0).toLowerCase()}${f.rule.behavior.slice(1)} (${RETIREMENT_SOURCES[f.rule.platform].owner}); the requests send ${f.field}=${JSON.stringify(f.value)}. ${f.rule.instead}`;
+          if (note) remedies.note({ field: f.field, value: allowed ?? null, leftOut: allowed === undefined, why, source: f.rule.source });
+          fieldsChanged = true;
+        }
+      }
+      if (Object.keys(plan.fixes).length) {
+        const set = setRequestFields(requestShape(provider, at, body), body, plan.fixes);
+        if (!refused(set)) body = set.body;
+      }
+      // Reasoning from earlier turns is tied to the prompt and the model it was made under.
+      let thinking = 0;
+      if (promptChanged || modelChanged) {
+        const stripped = withoutEarlierThinking(body);
+        body = stripped.body;
+        thinking = stripped.removed;
+      }
+      return { body, path: at, promptChanged, modelChanged, fieldsChanged, thinking };
+    };
+    const first = make(true);
+    if ('skip' in first) {
+      plan.skip = first.skip;
+      continue;
     }
-    let target2 = path;
-    let modelChanged = false;
-    if (s.model) {
-      const sw = switchModel(provider, target2, body, s.model);
-      if (refused(sw)) {
-        plan.skip = `--model: ${sw.refused}`;
-        continue;
-      }
-      target2 = sw.path;
-      body = sw.body;
-      modelChanged = sw.changed;
-    }
-    const fields = Object.fromEntries(Object.entries(s.fields).filter(([k]) => k !== 'model'));
-    let fieldsChanged = false;
-    if (Object.keys(fields).length) {
-      const set = setRequestFields(requestShape(provider, target2, body), body, fields);
-      if (refused(set)) {
-        plan.skip = `--set: ${set.refused}`;
-        continue;
-      }
-      body = set.body;
-      fieldsChanged = set.changed;
-    }
-    // migrate: what the provider's page says the new model refuses is changed to what it accepts, or left out.
-    if (s.remedies) {
-      const model = providerById(provider)!.extractModel(target2, body) ?? s.model;
-      for (const f of model ? retiredFields(provider, model, body) : []) {
-        const allowed = f.rule.allowed?.[f.field];
-        const why = `${model} is among ${f.rule.appliesTo}, where ${f.rule.fields.join(', ')} ${f.rule.behavior.charAt(0).toLowerCase()}${f.rule.behavior.slice(1)} (${RETIREMENT_SOURCES[f.rule.platform].owner}); the requests send ${f.field}=${JSON.stringify(f.value)}. ${f.rule.instead}`;
-        if (allowed !== undefined) {
-          const set = setRequestFields(requestShape(provider, target2, body), body, { [f.field]: allowed });
-          if (!refused(set)) body = set.body;
-        } else body = withoutFields(provider, target2, body, [f.field]);
-        remedies.note({ field: f.field, value: allowed ?? null, leftOut: allowed === undefined, why, source: f.rule.source });
-        fieldsChanged = true;
-      }
-    }
-    if (s.fromCode && !promptChanged && !modelChanged && !fieldsChanged) {
+    if (s.fromCode && !first.promptChanged && !first.modelChanged && !first.fieldsChanged) {
       plan.untouched = true;
       continue;
     }
-    // Reasoning from earlier turns is tied to the prompt and the model it was made under.
-    if (promptChanged || modelChanged) {
-      const stripped = withoutEarlierThinking(body);
-      body = stripped.body;
-      plan.thinkingStripped = stripped.removed;
-    }
-    plan.path = target2;
-    plan.body = body;
-    plan.askedModel = providerById(provider)!.extractModel(target2, body);
+    plan.path = first.path;
+    plan.thinkingStripped = first.thinking;
+    plan.askedModel = module.extractModel(first.path, first.body);
+    plan.cacheControl = JSON.stringify(first.body).includes('"cache_control"');
+    plan.build = () => {
+      const again = make(false);
+      if ('skip' in again) throw new Error(again.skip);
+      return again.body;
+    };
     // Gemini streams as server-sent events when asked with alt=sse, as its SDKs ask; the query is no part of a call's name.
-    if (/:streamGenerateContent$/.test(target2) && contentType?.includes('text/event-stream')) plan.query = 'alt=sse';
+    if (/:streamGenerateContent$/.test(first.path) && contentType?.includes('text/event-stream')) plan.query = 'alt=sse';
   }
   return out;
 }
 
 /** Asks every planned request, `samples` times each, `concurrency` at once, a run's steps in order. */
 async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSender, prices: Record<string, Price> | undefined, log: (line: string) => void, stop: () => string | null, remedies: Remedies): Promise<{ spent: number; upstreamRequests: number; unknownModels: Set<string>; stopReason: string | null }> {
-  const queue: Array<{ plan: Planned; sample: number }> = [];
+  const queue: Planned[] = [];
   // A run's steps share their prefix: asked in step order, the provider's prompt cache can serve it from the step before.
-  for (let sample = 0; sample < s.samples; sample++) for (const plan of planned) if (!plan.skip && !plan.untouched) queue.push({ plan, sample });
+  for (let sample = 0; sample < s.samples; sample++) for (const plan of planned) if (!plan.skip && !plan.untouched) queue.push(plan);
   let spent = 0;
   let upstreamRequests = 0;
   const unknownModels = new Set<string>();
@@ -421,27 +442,37 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
   let done = 0;
   // migrate: what a refusal named, changed in every request after it too, so each is refused once at most.
   const learned = new Map<string, { value: unknown; why: string }>();
-  const apply = (plan: Planned, field: string, value: unknown, why: string): boolean => {
-    const set = setRequestFields(requestShape(plan.provider, plan.path, plan.body), plan.body, { [field]: value });
-    if (refused(set) || !set.changed) return false;
-    remedies.note({ field, value, leftOut: false, why, source: null });
-    plan.body = set.body;
-    return true;
+  const apply = (plan: Planned, body: unknown, field: string, value: unknown, why: string): { body: unknown } | null => {
+    const set = setRequestFields(requestShape(plan.provider, plan.path, body), body, { [field]: value });
+    if (refused(set) || !set.changed) return null;
+    if (JSON.stringify(plan.fixes[field]) !== JSON.stringify(value)) remedies.note({ field, value, leftOut: false, why, source: null });
+    plan.fixes[field] = value;
+    return { body: set.body };
   };
   const worker = async () => {
     while (next < queue.length) {
       stopReason ??= stop() ?? (s.budget !== null && spent >= s.budget ? `the budget of $${s.budget.toFixed(2)} is spent` : null);
       if (stopReason) return;
-      const { plan, sample } = queue[next++]!;
-      if (sample === 0) for (const [field, l] of learned) apply(plan, field, l.value, l.why);
-      const ask = () => sender.send({ provider: plan.provider, method: plan.method, path: plan.path, ...(plan.query ? { query: plan.query } : {}), headers: plan.headers, body: plan.body });
+      const plan = queue[next++]!;
+      let body: unknown;
+      try {
+        body = plan.build();
+      } catch (err) {
+        plan.answers.push({ answer: { status: 0, contentType: undefined, bytes: Buffer.alloc(0), usage: null, stopReason: null, model: null, latencyMs: 0, error: (err as Error).message, attempts: 0 }, decision: null });
+        done++;
+        continue;
+      }
+      for (const [field, l] of learned) body = apply(plan, body, field, l.value, l.why)?.body ?? body;
+      const ask = () => sender.send({ provider: plan.provider, method: plan.method, path: plan.path, ...(plan.query ? { query: plan.query } : {}), headers: plan.headers, body });
       let answer = await ask();
       upstreamRequests += answer.attempts;
       // migrate: a refusal that names what to change is asked once more with it changed.
       const fix = s.remedies && answer.error && (answer.status === 400 || answer.status === 422) ? refusalRemedy(answer.error) : null;
       if (fix) {
         const why = `${plan.askedModel ?? 'the new model'} refused the recorded request: ${answer.error}`;
-        if (apply(plan, fix.field, fix.value, why)) {
+        const fixed = apply(plan, body, fix.field, fix.value, why);
+        if (fixed) {
+          body = fixed.body;
           if (!learned.has(fix.field)) learned.set(fix.field, { value: fix.value, why });
           answer = await ask();
           upstreamRequests += answer.attempts;
@@ -598,9 +629,17 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     const captures = new Map<string, FromCodeCapture>();
     const refusedRuns = new Map<string, string>();
     if (s.fromCode) {
+      // A suite's calls mostly send the same prompt and tools: each is held once.
+      const held = new Map<string, RequestPrompt>();
       for (const t of input.targets) {
         log(p.dim(`  reading the prompt the working tree sends ${t.golden ?? shortId(t.run.runId)}, offline`));
         const cap = await captureFromCode({ store, config, parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && t.golden === null && commandIsImported(t.run), guard: 'block', timeoutMs: s.timeoutMs ?? 120_000, cwd });
+        for (const c of cap.prompts.values()) {
+          const key = JSON.stringify(c.prompt);
+          const had = held.get(key);
+          if (had) c.prompt = had;
+          else held.set(key, c.prompt);
+        }
         captures.set(t.run.runId, cap);
         if (cap.refused) refusedRuns.set(t.run.runId, cap.refused);
       }
@@ -646,7 +685,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     const notes = [JUDGED_IN_RECORDED_STATE];
     const stripped = allSteps.filter((x) => x.thinkingStripped > 0);
     if (stripped.length) notes.push(`Reasoning from earlier turns was left out of ${stripped.length} request${stripped.length === 1 ? '' : 's'}: providers tie it to the prompt and model it was made under, so it would be refused or read as the new model's own.`);
-    if (planned.some((x) => !x.skip && !x.untouched && JSON.stringify(x.body).includes('"cache_control"'))) notes.push("Cache breakpoints stay where the agent placed them, and a run's steps are sent in order, so the prompt cache can serve the prefix they share.");
+    if (planned.some((x) => !x.skip && !x.untouched && x.cacheControl)) notes.push("Cache breakpoints stay where the agent placed them, and a run's steps are sent in order, so the prompt cache can serve the prefix they share.");
     if (counts[5]) notes.push('Text-only changes are counted, not judged.');
     if (s.samples === 1 && (counts[1] || counts[2] || counts[3] || counts[4])) notes.push('Each step was asked once, and a model varies from one answer to the next: --samples 3 says how often a decision changes.');
     if (s.fromCode) notes.push('Nothing ran to read the prompt: each run was replayed offline under the working tree, its model calls matched without their prompt and tools.');
