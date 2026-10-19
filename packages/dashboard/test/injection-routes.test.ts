@@ -125,6 +125,11 @@ describe('the injection read models', () => {
     const recorded = (await (await api(`injection/runs/${recording.runId}`)).json()) as { untrusted: Array<{ callNo: number; from: string }> };
     expect(recorded.untrusted).toEqual([{ callNo: 1, name: 'fetch_page', from: 'sdk' }, { callNo: 2, name: 'search', from: 'config' }]);
     expect((await api('injection/runs/01NOSUCHRUN00000000000000')).status).toBe(404);
+    // show --json, which Provenance copies, lists the same reads under the same config.
+    for (const run of [recording, attemptRun]) {
+      const shown = (await (await api(`runs/${run.runId}/show`)).json()) as { untrusted: unknown };
+      expect(shown.untrusted).toEqual(((await (await api(`injection/runs/${run.runId}`)).json()) as { untrusted: unknown }).untrusted);
+    }
   });
 
   it('put a run or golden whose newest test obeyed, or showed too little to say, in Needs a look', () => {

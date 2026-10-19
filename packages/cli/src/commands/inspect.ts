@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { kindFacts } from '@shadowlap/tui/data';
-import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
+import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, untrustedReads, withLabels, withNote, type RunRecord, type TrustSource } from '@shadowlap/engine';
 import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
@@ -13,6 +13,9 @@ import { dashboardTasks } from '../tasks.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
 
 /** Reading runs: the dashboard, the terminal UI, and the commands that list, show, search, compare and annotate them. */
+
+/** Where a read's untrusted mark came from, as `show` names it. */
+const TRUST_FROM: Record<TrustSource, string> = { config: 'config', sdk: 'SDK', mcp: 'MCP openWorldHint' };
 
 export function register(program: Command): void {
   program.commandsGroup('Look at runs:');
@@ -147,7 +150,7 @@ export function register(program: Command): void {
       if (flags.json) {
         const config = loadConfig(process.cwd());
         // The same function the dashboard serves it from: one shape for scripts and coding agents.
-        process.stdout.write(JSON.stringify(showJson(store, run, { calls, ...(config.prices ? { prices: config.prices } : {}) }), null, 2) + '\n');
+        process.stdout.write(JSON.stringify(showJson(store, run, { calls, ...(config.prices ? { prices: config.prices } : {}), ...(config.tools ? { tools: config.tools } : {}) }), null, 2) + '\n');
         store.close();
         return;
       }
@@ -202,8 +205,18 @@ export function register(program: Command): void {
         const at = hit ? (hit.kind === 'api' ? `model call #${chaos.callNo}` : `${safe(hit.name)} (#${chaos.callNo})`) : `#${chaos.callNo}`;
         head.push(p.dim(`  an attempt of the error-path presets: ${PRESET_LABELS[chaos.preset]} at ${at}${typeof chaos.golden === 'string' ? ` of ${safe(chaos.golden)}` : ''}${Number.isInteger(chaos.attempt) && chaos.attempt > 1 ? `, attempt ${chaos.attempt}` : ''}`));
       }
+      // Its untrusted reads, as the dashboard's Calls view tags them: where shadowlap injection plants,
+      // each marked by the config's tools, the SDK's trust or its MCP server's openWorldHint.
+      const untrusted = new Map(untrustedReads(calls, config.tools).reads.map((r) => [r.callNo, r]));
+      if (untrusted.size) head.push(p.dim(`  untrusted reads: ${[...untrusted.values()].map((r) => `#${r.callNo} ${safe(r.name)} (${TRUST_FROM[r.from]})`).join(', ')} · shadowlap injection plants in them`));
       process.stdout.write(head.join('\n') + '\n\n');
-      process.stdout.write(table(calls.map((c) => describeCall(store, c)), '  ') + '\n');
+      // A column of its own, only when there is a read to tag, so the rest line up as they always have.
+      const rows = calls.map((c) => {
+        const row = describeCall(store, c);
+        if (untrusted.size) row.splice(3, 0, untrusted.has(c.callNo) ? 'untrusted' : '');
+        return row;
+      });
+      process.stdout.write(table(rows, '  ') + '\n');
       if (run.divergence) process.stdout.write('\n' + formatDivergence(run.divergence, p) + '\n');
       store.close();
     });

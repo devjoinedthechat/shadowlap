@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readConfigFile, type Normalizer } from '@shadowlap/engine';
+import { readConfigFile, type Normalizer, type ToolTrust } from '@shadowlap/engine';
 import { showRunJson } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
@@ -77,7 +77,14 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   router.get('/runs/:id/show', (r) => {
-    const out = showRunJson(store, r.params.id!, ctx.read);
+    // The config's trust marks, as the CLI reads them; a config mid-edit leaves them out rather than failing the copy.
+    let tools: ToolTrust | undefined;
+    try {
+      tools = ctx.config().tools;
+    } catch {
+      tools = undefined;
+    }
+    const out = showRunJson(store, r.params.id!, { ...ctx.read, ...(tools ? { tools } : {}) });
     if (!out) throw new HttpError(404, `no run ${r.params.id}`);
     r.tagged(out);
   });
