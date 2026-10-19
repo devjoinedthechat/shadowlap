@@ -96,14 +96,14 @@ export const SHAPES = {
   decisionsView: { section: 'decisions', grows: true, fields: ['stop', 'stopReason', 'tools', 'text'] },
   // A refusal before anything was asked (no credentials, no such run): decisions' and migrate's.
   decisionsError: { section: 'decisions', fields: ['kind', 'outcome', 'error'] },
-  decisionsVerify: { section: 'decisions', grows: true, fields: ['verdict', 'verifyIds', 'runs', 'commands', 'spent', 'upstreamRequests', 'reasons'] },
+  decisionsVerify: { section: 'decisions', grows: true, fields: ['verdict', 'verifyIds', 'runs', 'rule', 'commands', 'spent', 'upstreamRequests', 'reasons'] },
   decisionsSessionVerify: { section: 'decisions', grows: true, fields: ['sessionId', 'kind', 'change', 'verify', 'passes'] },
   decisionsRemedy: { section: 'migrate', grows: true, fields: ['field', 'value', 'leftOut', 'renamedTo', 'why', 'source', 'steps'] },
   migrate: { section: 'migrate', grows: true, fields: ['migrateId', 'kind', 'at', 'from', 'to', 'command', 'decisions', 'changes', 'passes', 'costs', 'set', 'configChange', 'pullRequest', 'files', 'retirements', 'notes', 'warnings', 'stopReason'] },
   migrateCosts: { section: 'migrate', grows: true, fields: ['perRun', 'total', 'tokensPerRun', 'checking'] },
   migrateSet: { section: 'migrate', grows: true, fields: ['flags', 'fields', 'given'] },
   migratePasses: { section: 'migrate', grows: true, fields: ['verdict', 'runs'] },
-  migratePass: { section: 'migrate', grows: true, fields: ['runId', 'golden', 'verdict', 'outcome', 'verified'] },
+  migratePass: { section: 'migrate', grows: true, fields: ['runId', 'golden', 'verdict', 'outcome', 'verified', 'tally'] },
   migrateConfigChange: { section: 'migrate', grows: true, fields: ['files', 'patch', 'review'] },
   migrateError: { section: 'migrate', fields: ['kind', 'outcome', 'error'] },
   // Tests: test's report (the GitHub Action reads it), and bisect's.

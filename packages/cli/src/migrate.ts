@@ -54,6 +54,8 @@ export interface MigrateRunPass {
   /** kept, broken, fixed, not-fixed, unsettled (verified, in verify's own words); unchanged (no write or stop decision changed, so not re-run); not-asked. */
   outcome: string;
   verified: boolean;
+  /** A run verify took: its passes of its attempts and, under a gate, the Wilson bound of its pass rate (null for a clean replay or a fixed count). Null for a run it didn't. */
+  tally: { passes: number; attempts: number; bound: string | null } | null;
 }
 
 /** A place a project file names a model the switch changes. */
@@ -97,6 +99,9 @@ export interface MigrateReport {
 }
 
 const fieldValue = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
+
+/** A verified run's tally after its outcome: ` · 12 of 12 · rate >= 0.76 (95%)`; nothing for a run verify didn't take, or one kept before tallies were. */
+const tallyWords = (x: Pick<MigrateRunPass, 'tally'>): string => (x.tally ? ` · ${x.tally.passes} of ${x.tally.attempts}${x.tally.bound ? ` · ${x.tally.bound}` : ''}` : '');
 
 /** Files the project tracks or would (not ignored), with text, outside recordings and the store. */
 function projectTextFiles(cwd: string): Array<{ path: string; content: string }> | null {
@@ -271,7 +276,9 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
   const c = r.decisions.counts;
   if (c[3] + c[4] + c[5]) lines.push('', `Besides: ${[c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only`].filter(Boolean).join(', ')}.`);
   lines.push('', '### What still passes', '');
-  for (const x of r.passes.runs) lines.push(`- ${name(x)}: ${x.verdict}${x.verified ? ` (${x.outcome}, verified)` : x.outcome === 'unchanged' ? ' (no write or stop decision changed, so not re-run)' : ` (${x.outcome})`}`);
+  for (const x of r.passes.runs) lines.push(`- ${name(x)}: ${x.verdict}${x.verified ? ` (${x.outcome}, verified${tallyWords(x)})` : x.outcome === 'unchanged' ? ' (no write or stop decision changed, so not re-run)' : ` (${x.outcome})`}`);
+  // The rule verify decided them by, said once.
+  if (r.passes.runs.some((x) => x.verified) && r.decisions.verify?.rule) lines.push('', `Verified by ${tick('shadowlap verify')}, ${r.decisions.verify.rule}.`);
   if (r.decisions.verify?.verdict === 'not-run' && r.decisions.verify.reasons.length) lines.push('', `Not verified yet: ${r.decisions.verify.reasons.join('; ')}.`);
   lines.push('', '### What it costs', '', `Per run: ${usd(r.costs.perRun.before)} → ${usd(r.costs.perRun.after)}${pct(r.costs.perRun.before, r.costs.perRun.after)}. Checking it cost ${usd(r.costs.checking.decisions + r.costs.checking.verify)}.`);
   lines.push('', '### What to set', '');
@@ -292,12 +299,12 @@ export function passesOf(runs: readonly DecisionRun[], flagged: readonly string[
   const verified = new Map((verify?.runs ?? []).map((r) => [r.runId, r]));
   return runs.map((r): MigrateRunPass => {
     const v = verified.get(r.runId);
-    if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true };
+    if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true, tally: { passes: v.passes, attempts: v.attempts, bound: v.bound ?? null } };
     const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked);
-    if (unanswered) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-asked', verified: false };
-    if (flagged.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false };
+    if (unanswered) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-asked', verified: false, tally: null };
+    if (flagged.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false, tally: null };
     const passed = recorded(r.runId);
-    return { runId: r.runId, golden: r.golden, verdict: passed === true ? 'passed' : passed === false ? 'failed' : 'inconclusive', outcome: 'unchanged', verified: false };
+    return { runId: r.runId, golden: r.golden, verdict: passed === true ? 'passed' : passed === false ? 'failed' : 'inconclusive', outcome: 'unchanged', verified: false, tally: null };
   });
 }
 
@@ -429,8 +436,10 @@ export function formatMigrate(r: MigrateReport): string {
   lines.push('', p.bold('What still passes'));
   for (const x of r.passes.runs) {
     const word = x.verdict === 'passed' ? p.green(x.verdict) : x.verdict === 'failed' ? p.red(x.verdict) : p.yellow(x.verdict);
-    lines.push(`  ${safeLine(name(x)).padEnd(28)} ${word}${p.dim(x.verified ? ` · ${x.outcome}, verified` : x.outcome === 'unchanged' ? ' · no write or stop decision changed, not re-run' : ` · ${x.outcome}`)}`);
+    lines.push(`  ${safeLine(name(x)).padEnd(28)} ${word}${p.dim(x.verified ? ` · ${x.outcome}, verified${tallyWords(x)}` : x.outcome === 'unchanged' ? ' · no write or stop decision changed, not re-run' : ` · ${x.outcome}`)}`);
   }
+  // The rule the verified runs were decided by, said once under them.
+  if (r.passes.runs.some((x) => x.verified) && r.decisions.verify?.rule) lines.push(p.dim(`  ${safeLine(r.decisions.verify.rule)}`));
   lines.push('', p.bold('What it costs'));
   lines.push(`  per run      ${usd(r.costs.perRun.before)} → ${usd(r.costs.perRun.after)}${pct(r.costs.perRun.before, r.costs.perRun.after)} · ${r.costs.tokensPerRun.before.toLocaleString('en-US')} → ${r.costs.tokensPerRun.after.toLocaleString('en-US')} tokens`);
   const unpriced = r.decisions.cost.unknownModels.length ? ` (no price for ${r.decisions.cost.unknownModels.join(', ')}: add it under "prices" in shadowlap.config.json)` : '';

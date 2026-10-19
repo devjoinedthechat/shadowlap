@@ -93,7 +93,9 @@ describe('shadowlap migrate', () => {
     expect(report).toMatchObject({ kind: 'migrate', from: [FROM], to: 'claude-haiku-4-5' });
     expect(report.changes).toMatchObject({ runs: 1, flagged: 1 });
     expect(report.changes.steps).toEqual([{ runId, golden: 'goldens/research', callNo: callOf('send_email'), rank: 1, detail: 'send_email is called with other arguments', recorded: expect.stringContaining('send_email('), now: expect.stringContaining('send_email('), arguments: ['send_email.body: "Replay works." → "Replay works; forks fence writes."'] }]);
-    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true }] });
+    // A fixed count (--attempts 2) decided it: its tally, and no Wilson bound, which a gate's verdict shows.
+    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 2, attempts: 2, bound: null } }] });
+    expect(report.decisions.verify?.rule).toBe('2 of 2 attempts must pass');
     expect(report.costs.perRun.after!).toBeLessThan(report.costs.perRun.before!);
     expect(report.costs.checking.verify).toBeGreaterThan(0);
     expect(report.set).toEqual({ flags: [], fields: [], given: {} });
@@ -110,7 +112,9 @@ describe('shadowlap migrate', () => {
 
     expect(report.pullRequest.title).toBe(`Switch ${FROM} to claude-haiku-4-5`);
     for (const block of ['### What changes', '### What still passes', '### What it costs', '### What to set']) expect(report.pullRequest.body).toContain(block);
-    expect(report.pullRequest.body).toContain('goldens/research: passed (kept, verified)');
+    expect(report.pullRequest.body).toContain('goldens/research: passed (kept, verified · 2 of 2)');
+    // The rule the verified runs were decided by, once.
+    expect(report.pullRequest.body).toContain('Verified by `shadowlap verify`, 2 of 2 attempts must pass.');
     expect(readFileSync(join(cwd, report.files!.pullRequest), 'utf8')).toContain(`# Switch ${FROM} to claude-haiku-4-5`);
     expect(readFileSync(join(cwd, report.files!.patch!), 'utf8')).toBe(report.configChange!.patch);
 
@@ -195,7 +199,7 @@ describe('shadowlap migrate', () => {
     const r = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '--expect', expect_, '-y', '--attempts', '2', '--json']);
     expect(r.code, r.out).toBe(1);
     const report = json<MigrateReport>(r);
-    expect(report.passes).toEqual({ verdict: 'rejected', runs: [{ runId, golden: 'goldens/research', verdict: 'failed', outcome: 'broken', verified: true }] });
+    expect(report.passes).toEqual({ verdict: 'rejected', runs: [{ runId, golden: 'goldens/research', verdict: 'failed', outcome: 'broken', verified: true, tally: { passes: 0, attempts: 1, bound: null } }] });
   }, 240_000);
 
   it('migrates the goldens from a fresh store, as CI has one, running their commands as test runs them', async () => {

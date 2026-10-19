@@ -235,7 +235,7 @@ describe('migrate, on a project that names its model in many places', () => {
     expect(report.from).toEqual([AGENT_MODEL]);
     expect(report.pullRequest.title).toBe(`Switch ${AGENT_MODEL} to ${NEW_MODEL}`);
     expect(report.changes.steps).toEqual([expect.objectContaining({ rank: 1, detail: 'issue_refund is called with other arguments', arguments: ['issue_refund.note: "card <card> refunded" → "card <card> refunded in full"'] })]);
-    expect(report.passes.runs).toEqual([{ runId, golden: null, verdict: 'passed', outcome: 'kept', verified: true }]);
+    expect(report.passes.runs).toEqual([{ runId, golden: null, verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 1, attempts: 1, bound: null } }]);
     expect(report.set).toEqual({ flags: [], fields: [], given: {} });
     // Verify changes the calls the preview changed: those made with the model it switches from.
     expect(report.decisions.verify!.commands[0]).toContain(`--from ${AGENT_MODEL}`);

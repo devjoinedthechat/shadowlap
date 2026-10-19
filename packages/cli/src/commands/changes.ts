@@ -297,7 +297,9 @@ function verifyLines(v: DecisionsVerify, what: string | null): string {
   if (v.verdict === 'not-run') return v.reasons.length ? `${p.yellow('!')} Not verified: ${v.reasons.join('; ')}\n${v.commands.map((c) => p.dim(`  ${c}`)).join('\n')}\n` : '';
   const head = v.verdict === 'accepted' ? `${p.green('✓')} Verified` : v.verdict === 'rejected' ? `${p.red('✗')} Verify rejected the change` : `${p.yellow('!')} Verify did not finish`;
   const lines = [``, `${head}: ${v.runs.length} run${v.runs.length === 1 ? '' : 's'} with a write or stop change${what ? ` (${what})` : ''}`];
-  for (const x of v.runs) lines.push(`  ${x.runId.slice(0, 10)}  ${x.outcome}  ${p.dim(`${x.passes} of ${x.attempts} passed`)}`);
+  // The rule once, then each run's outcome, its tally and under a gate the Wilson bound.
+  if (v.rule) lines.push(p.dim(`  ${v.rule}`));
+  for (const x of v.runs) lines.push(`  ${x.runId.slice(0, 10)}  ${x.outcome}  ${p.dim(`${x.passes} of ${x.attempts} passed${x.bound ? ` · ${x.bound}` : ''}`)}`);
   for (const reason of v.reasons) lines.push(`  ${p.red('·')} ${reason}`);
   for (const c of v.commands) lines.push(p.dim(`  ${c}`));
   return lines.join('\n') + '\n';

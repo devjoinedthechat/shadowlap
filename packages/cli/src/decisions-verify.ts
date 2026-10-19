@@ -46,7 +46,7 @@ export function mergeVerify(previous: DecisionsVerify | null, now: DecisionsVeri
   const fresh = new Set(now.runs.map((r) => r.runId));
   const runs = [...previous.runs.filter((r) => !fresh.has(r.runId)), ...now.runs];
   const verdict: DecisionsVerify['verdict'] = runs.some((r) => r.outcome === 'broken' || r.outcome === 'not-fixed') ? 'rejected' : runs.some((r) => r.outcome === 'unsettled') || now.verdict === 'incomplete' ? 'incomplete' : 'accepted';
-  return { verdict, verifyIds: [...previous.verifyIds, ...now.verifyIds], runs, commands: [...previous.commands, ...now.commands], spent: previous.spent + now.spent, upstreamRequests: previous.upstreamRequests + now.upstreamRequests, reasons: [...previous.reasons, ...now.reasons] };
+  return { verdict, verifyIds: [...previous.verifyIds, ...now.verifyIds], runs, rule: now.rule ?? previous.rule ?? null, commands: [...previous.commands, ...now.commands], spent: previous.spent + now.spent, upstreamRequests: previous.upstreamRequests + now.upstreamRequests, reasons: [...previous.reasons, ...now.reasons] };
 }
 
 export async function verifySession(input: { opts: GlobalOpts; sessionId: string; runs: readonly string[]; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; budget: number | null; yes: boolean; log: (line: string) => void }): Promise<SessionVerify> {

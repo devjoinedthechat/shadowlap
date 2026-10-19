@@ -34,6 +34,7 @@ import {
   rewriteText,
   sameModel,
   setRequestFields,
+  describeGate,
   SPRT_DEFAULTS,
   switchModel,
   ulid,
@@ -63,6 +64,7 @@ import {
   type TokenCount,
   type Usage,
   type VerifyRole,
+  wilsonBound,
 } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { specFor, type TestSpec } from './checks.js';
@@ -816,7 +818,9 @@ export function verifyFields(change: Pick<DecisionsChange, 'model' | 'fields'>, 
 export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; flagged: DecisionTarget[]; fields: Record<string, unknown>; from: string[] | null; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; prices: Record<string, Price> | undefined; budget: number | null; log: (line: string) => void; blocked?: string | null }): Promise<DecisionsVerify> {
   const { flagged, settings: s, log } = input;
   const v = s.thenVerify!;
-  const empty: DecisionsVerify = { verdict: 'not-run', verifyIds: [], runs: [], commands: [], spent: 0, upstreamRequests: 0, reasons: [] };
+  // The rule every run is decided by, said once over them.
+  const rule = v.gate ? `gate: ${describeGate(v.gate)}` : `${v.needed} of ${v.attempts} attempts must pass`;
+  const empty: DecisionsVerify = { verdict: 'not-run', verifyIds: [], runs: [], rule, commands: [], spent: 0, upstreamRequests: 0, reasons: [] };
   if (!flagged.length) return empty;
   // Grouped by the checks they are judged by: one verify per check.
   const groups = new Map<string, { spec: TestSpec | null; json: unknown; targets: DecisionTarget[] }>();
@@ -857,7 +861,7 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
     out.upstreamRequests += report.upstreamRequests;
     out.reasons.push(...report.reasons);
     // In verify --json's words: fixed, not-fixed, kept, broken, unsettled.
-    for (const r of report.runs) out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length });
+    for (const r of report.runs) out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, bound: r.gate && !r.deterministic ? wilsonBound(r.gate) : null });
     if (report.verdict === 'rejected') out.verdict = 'rejected';
     else if (report.verdict === 'incomplete' && out.verdict !== 'rejected') out.verdict = 'incomplete';
   }

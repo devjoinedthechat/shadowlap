@@ -501,8 +501,14 @@ export interface DecisionsVerify {
   verdict: 'accepted' | 'rejected' | 'incomplete' | 'not-run';
   /** The verdicts kept (one per check the runs are judged by). */
   verifyIds: string[];
-  /** Each run verified: its role, how it came out (fixed, kept, broken, still failing, unsettled), passes and attempts. */
-  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number }>;
+  /**
+   * Each run verified: its role, how it came out (fixed, kept, broken, still failing, unsettled),
+   * passes and attempts, and under a gate the Wilson bound of its pass rate (`rate >= 0.76 (95%)`;
+   * null for a clean replay or a fixed count, absent from sessions kept before it was).
+   */
+  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; bound?: string | null }>;
+  /** The rule its runs were decided by, said once: `gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`, or a fixed count's `4 of 5 attempts must pass`. Absent from sessions kept before it was. */
+  rule?: string | null;
   /** The command that verifies them again. */
   commands: string[];
   spent: number;
