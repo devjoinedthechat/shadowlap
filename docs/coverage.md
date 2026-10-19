@@ -118,7 +118,9 @@ shadowlap coverage --pack 1db3eff9 --fork --expect '{"tools":{"issue_refund":0,"
 agent parts from it, runs live from there, and passes on the checks `--expect` gave, which are
 written to its `tests` entry with `"fork": true`. Name the behaviours (a golden that forks is one
 you chose) and say what the agent must do instead; like any golden that forks, it needs the
-providers when it runs.
+providers when it runs. On a behaviour the agent still reproduces, `--fork` packs its replay with
+the same checks: they then judge what production did, so a golden whose checks it breaks fails
+until the agent is fixed, the test that the fix holds written before the fix.
 
 ## Every week
 

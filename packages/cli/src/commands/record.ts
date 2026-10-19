@@ -88,7 +88,7 @@ export function register(program: Command): void {
     .option('--concurrency <n>', 'with --repeat: attempts running at once', parseIntArg, 1)
     .option('--summary-json <file>', 'also write the replay\'s summary (or, with --repeat, every attempt and the report) as JSON to <file>')
     // Error-path presets on any run: each a fork where a tool or the provider fails.
-    .option('--chaos', 'run the error-path presets instead: a fork of the run for each of a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, each judged by the run\'s checks (writes stubbed unless --writes is given)')
+    .option('--chaos', "run the error-path presets instead: a fork of the run for each of a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, each judged by --expect, or by its golden's chaos.expect or the write limits of its expect (writes stubbed unless --writes is given)")
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all)')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
     .option('--inconclusive <policy>', 'with --chaos: what a preset whose gate ran out between its bounds does to the exit status: fail or warn', parseChoice<'fail' | 'warn'>(['fail', 'warn']), 'fail')

@@ -6,7 +6,7 @@ import { Store } from '@shadowlap/engine';
 import { CHAOS_TIMEOUT, chaosFor, DEFAULT_CHAOS, parseChaosFields } from '../src/chaos-config.js';
 import { chaosJunit, chaosMarkdown, chaosReport, checkLabels, gateWords, writeLimits, type PresetOutcome } from '../src/chaos.js';
 import { parseExpect, parseTests, specFor } from '../src/checks.js';
-import { attemptsToFail, attemptsToPass, decide, parseGate } from '../src/gate-standin.js';
+import { attemptsToFail, attemptsToPass, decide, parseGate, type SprtGate } from '../src/gate-standin.js';
 
 /** The presets' settings under a tests entry, the gate that decides them, and what they report. */
 
@@ -125,10 +125,10 @@ describe('the gate', () => {
   it('counts a bound reached to the last rounding as reached', () => {
     // A pass adds ln(0.6/0.2) = ln 3, and the bound is ln(0.75/0.25) = ln 3: one pass reaches it. In
     // floating point 0.6/0.2 is 2.9999999999999996, a hair under, which must not cost a second pass.
-    const close = parseGate({ good: 0.6, bad: 0.2, risk: 0.25, max: 10 }, 'g');
+    const close = parseGate({ good: 0.6, bad: 0.2, risk: 0.25, max: 10 }, 'g') as SprtGate;
     expect(attemptsToPass(close)).toBe(1);
     expect(decide(1, 1, close)).toBe('pass');
-    const nine = parseGate({ good: 0.9, bad: 0.3, risk: 0.1, max: 10 }, 'g');
+    const nine = parseGate({ good: 0.9, bad: 0.3, risk: 0.1, max: 10 }, 'g') as SprtGate;
     // ln 3 per pass against ln 9: two passes.
     expect(attemptsToPass(nine)).toBe(2);
     expect(decide(2, 2, nine)).toBe('pass');

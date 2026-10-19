@@ -140,12 +140,24 @@ export function askedTools(store: Store, calls: readonly CallRecord[]): Asked[] 
   return asked;
 }
 
+/** What `mcpMetaOf` found, per store and tool: a pack rebuilds the same tools for several captures. */
+const mcpSeen = new WeakMap<Store, Map<string, NonNullable<CallMeta['mcp']> | null>>();
+
 /**
  * How this store last recorded a tool served through `shadowlap mcp`: its `meta.mcp`. An MCP tool's
  * answer reaches the agent as MCP content, so a rebuilt answer must take that shape too, or the
  * agent's MCP client would get a value it never sees from a server.
  */
 function mcpMetaOf(store: Store, tool: string): NonNullable<CallMeta['mcp']> | null {
+  let seen = mcpSeen.get(store);
+  if (!seen) mcpSeen.set(store, (seen = new Map()));
+  if (seen.has(tool)) return seen.get(tool)!;
+  const found = readMcpMeta(store, tool);
+  seen.set(tool, found);
+  return found;
+}
+
+function readMcpMeta(store: Store, tool: string): NonNullable<CallMeta['mcp']> | null {
   const row = store.query(`SELECT json_extract(meta, '$.mcp') AS mcp FROM call_events WHERE phase = 'start' AND kind = 'tool' AND name = ? AND json_extract(meta, '$.mcp') IS NOT NULL ORDER BY at DESC LIMIT 1`, tool)[0];
   if (!row || typeof row.mcp !== 'string') return null;
   try {
@@ -286,7 +298,7 @@ interface Reproduction {
   capture: RunRecord;
   command: { argv: string[]; from: string };
   attempt: TestAttempt;
-  /** The replay's first message, when it forked at its first model call. */
+  /** The replay's first message, when it forked at its first model call (a clock read may come before it). */
   sent: string | null;
 }
 
@@ -318,14 +330,12 @@ async function reproduce(capture: RunRecord, command: { argv: string[]; from: st
     });
     const s = attempt.ended.summary;
     let sent: string | null = null;
-    if (s.divergence?.callNo === 1) {
-      const first = mem.getCalls(s.runId).find((c) => c.kind === 'api' && c.requestRef);
-      if (first?.requestRef) {
-        try {
-          sent = requestMessage(loadApiRequest(mem, first.requestRef), typeof first.meta.model === 'string' ? first.meta.model : null);
-        } catch {
-          sent = null;
-        }
+    const first = s.divergence ? mem.getCalls(s.runId).find((c) => c.kind === 'api' && c.requestRef) : undefined;
+    if (first?.requestRef && s.divergence?.callNo === first.callNo) {
+      try {
+        sent = requestMessage(loadApiRequest(mem, first.requestRef), typeof first.meta.model === 'string' ? first.meta.model : null);
+      } catch {
+        sent = null;
       }
     }
     return { mem, rebuilt: rebuilt.run, result: { capture, command, attempt, sent } };
@@ -341,7 +351,7 @@ function notReproduced(r: Reproduction, message: string | null): { reason: Cover
   const cmd = safeLine(quoteArgv(r.command.argv));
   if (s.divergence) {
     // At its first request, a different first message means the command started the agent with other input.
-    if (s.divergence.callNo === 1 && message !== null && r.sent !== null && r.sent !== message) {
+    if (message !== null && r.sent !== null && r.sent !== message) {
       return { reason: 'other-message', forkable: false, why: `${cmd} starts the agent with another first message than ${short(r.capture.runId)}'s: production sent ${quoted(message)}, the agent sent ${quoted(r.sent)}; put {message} where the agent's input goes` };
     }
     return { reason: 'not-reproduced', forkable: true, why: `${cmd} doesn't reproduce ${short(r.capture.runId)}: ${divergenceLine(s.divergence)}, where the agent sends something else now` };

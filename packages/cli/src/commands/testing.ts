@@ -160,7 +160,7 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'network guard: block, warn or off (re-recording under --update, warn unless given)', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
     // Error-path presets: each golden forked where a tool or the provider fails, instead of the session above.
-    .option('--chaos', 'run the error-path presets instead: each golden forked at one call with a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, each judged as a golden that forks (live from the call it hits; writes stubbed unless --writes says otherwise)')
+    .option('--chaos', "run the error-path presets instead: each golden forked at one call with a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, live from the call it hits (writes stubbed unless --writes says otherwise), each judged by its tests entry's chaos.expect, else the upper bounds its expect sets on write tools")
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all, or the tests entry\'s "chaos.presets")')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
     .option('--inconclusive <policy>', 'with --chaos: what a preset whose gate ran out between its bounds does to the exit status: fail or warn', parseChoice<'fail' | 'warn'>(['fail', 'warn']), 'fail')
