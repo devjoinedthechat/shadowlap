@@ -126,7 +126,7 @@ describe('a calls rule through the CLI', () => {
 describe('a when rule through shadowlap test', () => {
   it('reports not applicable when its condition never held, in the terminal, the JSON and the job summary', async () => {
     config({ 'goldens/*': { expect: ESCALATE } });
-    const r = await shadowlap(['test', 'goldens/in-limit', '--json', 'in-limit.json', '--markdown', 'in-limit.md']);
+    const r = await shadowlap(['test', 'goldens/in-limit', '--json', 'in-limit.json', '--markdown', 'in-limit.md', '--junit', 'in-limit.xml']);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toMatch(/✓ in-limit: .*, 2 checks not applicable/);
     const report = JSON.parse(readFileSync(join(work, 'in-limit.json'), 'utf8')) as { results: Array<{ ok: boolean; checks: Array<Record<string, unknown>> }> };
@@ -136,6 +136,14 @@ describe('a when rule through shadowlap test', () => {
       { status: 'not-applicable', ok: true, label: 'when lookup_order has result.amount > 100: issue_refund called 0 times', detail: expect.stringMatching(/^the condition never held/) },
     ]);
     expect(readFileSync(join(work, 'in-limit.md'), 'utf8')).toContain('| ✅ | `in-limit` | clean, 2 checks not applicable |');
+    expect((JSON.parse(readFileSync(join(work, 'in-limit.json'), 'utf8')) as { results: Array<{ verdict: string }> }).results[0]!.verdict).toBe('passed');
+    // A CI's JUnit view of a pass says what did not apply, rather than a plain pass.
+    expect(readFileSync(join(work, 'in-limit.xml'), 'utf8')).toMatch(/<system-out><!\[CDATA\[– when lookup_order has result\.amount > 100: escalate called at least 1 time: not applicable · the condition never held: lookup_order #\d+: result\.amount 40 <= 100/);
+    // The run it made counts its checks as they came out: none of them passed, two did not apply.
+    const testRun = (JSON.parse(readFileSync(join(work, 'in-limit.json'), 'utf8')) as { results: Array<{ runId: string }> }).results[0]!.runId;
+    const ls = await shadowlap(['ls', '--json']);
+    const listed = (JSON.parse(ls.stdout) as Array<{ runId: string; checks: unknown }>).find((x) => x.runId === testRun);
+    expect(listed?.checks).toEqual({ passed: 0, total: 2, notApplicable: 2 });
   }, 60_000);
 
   it('applies its checks when the condition held, and says where it held', async () => {
@@ -154,11 +162,17 @@ describe('a when rule through shadowlap test', () => {
     config({ 'goldens/escalated': { expect: { judge: [{ name: 'explains-escalation', question: 'Does the reply say why the refund was escalated?', model: 'claude-haiku-4-5' }] } } });
     const r = await shadowlap(['test', 'goldens/escalated', '--json', 'judged.json', '--markdown', 'judged.md']);
     expect(r.code, r.out).toBe(1);
-    expect(r.out).toContain('✗ escalated: check inconclusive: judge "explains-escalation" answers yes, but not judged: no recorded verdict and no key for anthropic');
+    expect(r.out).toContain('? escalated: check inconclusive: judge "explains-escalation" answers yes, but not judged: no recorded verdict and no key for anthropic');
+    expect(r.out).toMatch(/0 passed, 0 failed, 1 inconclusive · /);
+    const report = JSON.parse(readFileSync(join(work, 'judged.json'), 'utf8')) as { failed: number; inconclusive: number; results: Array<{ ok: boolean; verdict: string; failure: string }> };
+    expect(report).toMatchObject({ failed: 1, inconclusive: 1 });
+    expect(report.results[0]).toMatchObject({ ok: false, verdict: 'inconclusive', failure: 'check' });
     expect(r.out).toContain('? judge "explains-escalation" answers yes: inconclusive · not judged: no recorded verdict and no key for anthropic');
     const md = readFileSync(join(work, 'judged.md'), 'utf8');
-    expect(md).toContain('- ⚠️ judge "explains-escalation" answers yes: inconclusive · not judged: no recorded verdict and no key for anthropic');
+    expect(md).toContain('- 🟡 judge "explains-escalation" answers yes: inconclusive · not judged: no recorded verdict and no key for anthropic');
     expect(md).toContain('An inconclusive check could not be decided');
+    expect(md).toContain('### Shadowlap: 1 of 1 recording is inconclusive');
+    expect(md).toContain('| 🟡 | `escalated` | check inconclusive: judge "explains-escalation" answers yes');
   }, 60_000);
 });
 

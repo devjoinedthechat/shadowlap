@@ -15,7 +15,13 @@ export interface PackResult {
   golden: string;
   /** `replay` must send the requests it recorded; `fork` may diverge and passes on its checks. */
   mode: 'replay' | 'fork';
+  /** Whether CI lets it through: it passed. */
   ok: boolean;
+  /**
+   * How it came out: `passed`, `failed`, or `inconclusive` when all it fell short on is checks that
+   * could not be decided. Every report this version writes has it; one made before reads as `ok` says.
+   */
+  verdict?: 'passed' | 'failed' | 'inconclusive';
   /** Why it failed: `diverged`, `check` (an outcome check), `exit`, `no-calls` or `error`. Null when it passed. */
   failure: TestFailure | null;
   /** One line: why the pack failed. */
@@ -50,8 +56,11 @@ export interface TestReport {
   /** The test session in the store's history, and the revision it tested. */
   session: string | null;
   revision: string | null;
+  /** Packs by what CI does with them: an inconclusive one counts as failed. */
   passed: number;
   failed: number;
+  /** Packs whose verdict is inconclusive, counted among `failed` too. */
+  inconclusive: number;
   /** A signal stopped the session: `results` has the goldens that finished before it. */
   interrupted: boolean;
   results: PackResult[];
@@ -59,8 +68,15 @@ export interface TestReport {
 
 export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null): TestReport {
   const failed = results.filter((r) => !r.ok).length;
-  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, interrupted: !!session?.interrupted, results };
+  const inconclusive = results.filter((r) => r.verdict === 'inconclusive').length;
+  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, inconclusive, interrupted: !!session?.interrupted, results };
 }
+
+/** A pack's verdict, as `ok` says for a result made before results had one. */
+const verdictOf = (r: Pick<PackResult, 'verdict' | 'ok'>): NonNullable<PackResult['verdict']> => r.verdict ?? (r.ok ? 'passed' : 'failed');
+
+/** A pack's mark in a report: passed, failed, or inconclusive (amber). */
+const mark = (r: Pick<PackResult, 'verdict' | 'ok'>) => ({ inconclusive: '🟡', passed: '✅', failed: '❌' })[verdictOf(r)];
 
 /** Text safe to put in a Markdown table cell: no control characters, pipes or line breaks. */
 function cell(s: string): string {
@@ -85,20 +101,18 @@ function passedLabel(r: PackResult): string {
 export function markdownReport(report: TestReport): string {
   const lines: string[] = [];
   const total = report.results.length;
-  lines.push(
-    report.failed === 0
-      ? `### Shadowlap: ${total} recording${total === 1 ? '' : 's'} passed`
-      : `### Shadowlap: ${report.failed} of ${total} recording${total === 1 ? '' : 's'} failed`,
-    '',
-    '| | Recording | Result | Replayed | Input tokens not re-spent |',
-    '|---|---|---|---:|---:|',
-  );
+  const recordings = `recording${total === 1 ? '' : 's'}`;
+  // Inconclusive ones are counted apart: they fail the run, but nothing failed in them.
+  const failed = report.results.filter((r) => verdictOf(r) === 'failed').length;
+  const inconclusive = report.results.filter((r) => verdictOf(r) === 'inconclusive').length;
+  const head = !failed && !inconclusive ? `${total} ${recordings} passed` : !failed ? `${inconclusive} of ${total} ${recordings} ${inconclusive === 1 ? 'is' : 'are'} inconclusive` : `${failed} of ${total} ${recordings} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
+  lines.push(`### Shadowlap: ${head}`, '', '| | Recording | Result | Replayed | Input tokens not re-spent |', '|---|---|---|---:|---:|');
   for (const r of report.results) {
     // Out of the recording for one that stopped short of it, so it never reads as whole.
     const of = r.divergence?.type === 'ended_early' && r.divergence.recorded !== undefined ? r.divergence.recorded : r.calls?.total;
     const replayed = r.calls ? `${r.calls.replayed}/${of}` : '';
     const tokens = r.tokensNotRespent !== null ? formatTokens(r.tokensNotRespent) : '';
-    lines.push(`| ${r.ok ? '✅' : '❌'} | \`${cell(r.name)}\` | ${r.ok ? cell(passedLabel(r)) : cell(r.message ?? 'failed')} | ${replayed} | ${tokens} |`);
+    lines.push(`| ${mark(r)} | \`${cell(r.name)}\` | ${r.ok ? cell(passedLabel(r)) : cell(r.message ?? 'failed')} | ${replayed} | ${tokens} |`);
   }
   for (const r of report.results.filter((x) => !x.ok)) {
     lines.push('', `<details open><summary><b>${cell(r.name)}</b>: ${cell(r.message ?? 'failed')}</summary>`, '');
@@ -109,7 +123,7 @@ export function markdownReport(report: TestReport): string {
     lines.push('</details>');
   }
   const failures = report.results.filter((r) => !r.ok);
-  const diverged = failures.filter((r) => r.failure === 'diverged' || (r.divergence && !r.checks?.some((c) => !c.ok)));
+  const diverged = failures.filter((r) => verdictOf(r) !== 'inconclusive' && (r.failure === 'diverged' || (r.divergence && !r.checks?.some((c) => !c.ok))));
   if (diverged.length) {
     const dirs = diverged.map((r) => r.dir.replace(/\\/g, '/').replace(/\/+$/, '')).map((d) => (/^[\w./*@%+=:,-]+$/.test(d) ? d : `'${d.replace(/'/g, `'\\''`)}'`));
     lines.push(
@@ -121,7 +135,7 @@ export function markdownReport(report: TestReport): string {
     lines.push('', 'A failed check means the agent did something its recording\'s checks in `shadowlap.config.json` rule out.');
   }
   if (failures.some((r) => r.checks?.some((c) => checkStatus(c) === 'inconclusive'))) {
-    lines.push('', 'An inconclusive check could not be decided, such as a judge check with no recorded verdict and no key to ask for one: it never passes.');
+    lines.push('', 'An inconclusive check could not be decided, such as a judge check with no recorded verdict and no key to ask for one, or a condition whose value the run does not have: it never passes, and it fails the run.');
   }
   if (report.interrupted) lines.push('', 'The session was interrupted: only the recordings above finished, and the rest did not run.');
   const updated = report.results.filter((r) => r.updated);
@@ -132,7 +146,7 @@ export function markdownReport(report: TestReport): string {
 }
 
 /** Each verdict as a job summary shows it: the same four words as everywhere, and a mark GitHub renders. */
-const MARKDOWN_MARK: Record<CheckStatus, string> = { passed: '✅', failed: '❌', inconclusive: '⚠️', 'not-applicable': '➖' };
+const MARKDOWN_MARK: Record<CheckStatus, string> = { passed: '✅', failed: '❌', inconclusive: '🟡', 'not-applicable': '➖' };
 
 /** A check as a line of the summary's list: its mark, what was expected, and for anything but a pass what happened; a judge's reason after it. */
 function markdownCheck(c: StoredCheck): string {

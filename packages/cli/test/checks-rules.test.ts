@@ -3,6 +3,7 @@ import { JUDGE_SCOPE, checkOutcome, checkStatus, statusTally, type CallRecord } 
 import { aliasOf, checkLine, evaluateChecks, hasChecks, judgeChecksOf, judgeProvider, notJudgedWhy, parseExpect, parseJudge, parseTests, pathsNamed, readsOutput, toolsNamed, unreadPaths, withoutOutput, type CheckInput, type CheckResult, type JudgeVerdict } from '../src/checks.js';
 import { oracleLabels } from '../src/attempts.js';
 import { checkText, failureTitle } from '../src/fixes.js';
+import { scoredChecks } from '../src/tasks.js';
 
 /**
  * The checks that say what an agent did, not only how much: `calls` (every call of a tool meets a
@@ -325,6 +326,14 @@ describe('the result model', () => {
     expect(checkLine({ status: 'inconclusive', ok: false, label: 'a', detail: 'not judged' })).toBe('? a: inconclusive · not judged');
     expect(checkLine({ status: 'not-applicable', ok: true, label: 'a', detail: 'the condition never held' })).toBe('– a: not applicable · the condition never held');
     expect(checkLine({ status: 'passed', ok: true, label: 'judge "j" answers yes', detail: null, reason: 'It does.' })).toBe('✓ judge "j" answers yes · It does.');
+  });
+
+  it('scores a task on the checks that applied: one that did not is left out, one that could not be decided is no pass', () => {
+    const results = judge({ tools: { escalate: 1 }, when: [{ if: { tool: 'nothing' }, then: { modelCalls: 1 } }], judge: [{ name: 'j', question: 'q?', model: 'claude-haiku-4-5' }] }, [tool(1, 'escalate', {})]);
+    expect(scoredChecks(results)).toEqual([
+      { check: 'escalate called 1 time', pass: true, detail: null },
+      { check: 'judge "j" answers yes', pass: false, detail: expect.stringMatching(/^not judged: no recorded verdict/) },
+    ]);
   });
 
   it('leaves the judge\'s own model calls out of every count', () => {

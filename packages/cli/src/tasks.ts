@@ -197,6 +197,11 @@ export interface ScoredCheck {
   detail: string | null;
 }
 
+/** An attempt's checks as a score counts them: a check that did not apply is left out, one that could not be decided is no pass. */
+export function scoredChecks(checks: readonly CheckResult[]): ScoredCheck[] {
+  return checks.filter((c) => c.status !== 'not-applicable').map((c) => ({ check: c.label, pass: c.status === 'passed', detail: c.detail }));
+}
+
 export interface ScoredAttempt {
   attempt: number;
   runId: string;
@@ -381,7 +386,7 @@ export async function scoreTask(
         return stop(`${target.model} didn't answer #${k}: ${!at ? `the agent made no call #${k}` : went && went !== provider ? `the agent sent it to ${went}, not ${provider}` : 'its answer came from somewhere else'} (run ${a.run.runId})`);
       }
       const exit: ScoredCheck = { check: EXIT_LABEL, pass: a.code === 0, detail: a.code === 0 ? null : a.failures.find((f) => /exited|timed out/.test(f)) ?? `the agent exited with code ${a.code}` };
-      const checks: ScoredCheck[] = [exit, ...a.checks.map((c: CheckResult) => ({ check: c.label, pass: c.ok, detail: c.detail }))];
+      const checks: ScoredCheck[] = [exit, ...scoredChecks(a.checks)];
       const score = attemptScore(checks.map((c) => ({ ok: c.pass })));
       const scored: ScoredAttempt = { attempt: n, runId: a.run.runId, score, checks, spent: cost, exitCode: a.code, ms: a.ms };
       result.attempts.push(scored);

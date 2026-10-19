@@ -297,6 +297,25 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
   return data;
 }
 
+/**
+ * How one attempt came out: passed, failed, or inconclusive when every check it failed is one that
+ * could not be decided (a judge with no verdict, a condition the run has no value for). That says
+ * nothing about the agent, and another attempt in the same environment would say no more.
+ */
+export function attemptVerdict(a: Pick<TestAttempt, 'failure' | 'kind' | 'checks'>): 'passed' | 'failed' | 'inconclusive' {
+  if (!a.failure) return 'passed';
+  if (a.kind !== 'check') return 'failed';
+  const notOk = (a.checks ?? []).filter((c) => !c.ok);
+  return notOk.length > 0 && notOk.every((c) => c.status === 'inconclusive') ? 'inconclusive' : 'failed';
+}
+
+/** How a golden came out, whatever CI does with it: inconclusive when every attempt it fell short on was. */
+export function goldenVerdict(o: Pick<GoldenOutcome, 'failure' | 'result'>): 'passed' | 'failed' | 'inconclusive' {
+  if (!o.failure) return 'passed';
+  const failing = o.result?.attempts.filter((a) => a.failure) ?? [];
+  return failing.length > 0 && failing.every((a) => attemptVerdict(a) === 'inconclusive') ? 'inconclusive' : 'failed';
+}
+
 /** The golden's entry in the JSON report (`--json`), which the GitHub Action reads. */
 export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated'] }): PackResult {
   const r = o.result;
@@ -307,6 +326,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     golden: o.golden,
     mode: o.spec?.fork ? 'fork' : 'replay',
     ok: !o.failure,
+    verdict: goldenVerdict(o),
     failure: o.kind,
     message: o.failure?.message ?? null,
     details: o.failure?.details ?? null,
@@ -335,7 +355,10 @@ export function formatChecks(checks: CheckResult[]): string {
 export function junitCase(o: GoldenOutcome): JunitCase {
   const checks = o.result?.shown.checks;
   const failure = o.failure && checks?.length ? { ...o.failure, details: `${formatChecks(checks)}\n\n${o.failure.details}` } : o.failure;
-  const output = o.result?.shown.output ?? '';
+  // A golden that passed with a check that did not apply says so where a CI's view of the case shows
+  // it: a plain pass would claim more than was checked.
+  const notAll = !failure && checks?.some((c) => c.status !== 'passed') ? `${formatChecks(checks)}\n\n` : '';
+  const output = `${notAll}${o.result?.shown.output ?? ''}`;
   return { name: o.name, classname: 'shadowlap.replay', timeSeconds: o.seconds, ...(failure ? { failure } : {}), ...(output ? { systemOut: output } : {}) };
 }
 

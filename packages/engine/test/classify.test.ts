@@ -8,6 +8,7 @@ import {
   classifyRun,
   countOrigins,
   displayOrigin,
+  failedChecks,
   importedRecording,
   isFailedOutcome,
   kindLabel,
@@ -188,6 +189,33 @@ describe('runOutcome: what the status column says', () => {
     expect(passed).toEqual({ kind: 'passed', checks: 2 });
     expect(outcomeLabel(passed)).toBe('2 checks passed');
     expect(outcomeLabel({ kind: 'passed', checks: 1 })).toBe('1 check passed');
+  });
+
+  it('counts checks by how they came out: a check that did not apply is no pass, one that could not be decided neither', () => {
+    const pass = { ok: true, status: 'passed', label: 'issue_refund called 0 times', detail: null };
+    const na = { ok: true, status: 'not-applicable', label: 'when lookup_order has result.total > 200: escalate called at least 1 time', detail: 'the condition never held: lookup_order #2: result.total 180 <= 200' };
+    const unsure = { ok: false, status: 'inconclusive', label: 'judge "explains" answers yes', detail: 'not judged: no recorded verdict and no key for anthropic' };
+    const fail = { ok: false, status: 'failed', label: 'send_email called 0 times', detail: 'called 1 time' };
+    const r = (checks: unknown[], status: ClassifiableRun['status'] = 'completed') => run({ mode: 'replay', parentRunId: 'P', status, meta: { checks } as Record<string, unknown> });
+    // shadowlap test on a golden whose when never held: one check passed, two did not apply.
+    expect(checksOf(r([pass, na, na]))).toEqual({ passed: 1, total: 3, notApplicable: 2 });
+    expect(runOutcome(r([pass, na, na]))).toEqual({ kind: 'passed', checks: 1, notApplicable: 2 });
+    expect(outcomeLabel(runOutcome(r([pass, na, na])))).toBe('1 check passed, 2 not applicable');
+    expect(outcomeLabel(runOutcome(r([na])))).toBe('1 check not applicable');
+    // A check that could not be decided, and none failed: inconclusive, neither a pass nor a failure.
+    const undecided = runOutcome(r([pass, unsure, na]));
+    expect(undecided).toEqual({ kind: 'inconclusive', check: 'judge "explains" answers yes' });
+    expect(outcomeLabel(undecided)).toBe('check inconclusive');
+    expect(isFailedOutcome(undecided)).toBe(false);
+    // One that failed decides it, and is the one named.
+    expect(runOutcome(r([unsure, fail]))).toEqual({ kind: 'check-failed', check: 'send_email called 0 times' });
+    const counts = checksOf(r([unsure, fail, na]))!;
+    expect(counts).toEqual({ passed: 0, total: 3, inconclusive: 1, notApplicable: 1 });
+    expect(failedChecks(counts)).toBe(1);
+    // The agent's exit fails a run whose only other trouble is a check it could not decide.
+    expect(runOutcome(r([unsure], 'failed'))).toEqual({ kind: 'check-failed', check: null });
+    // A check kept before checks had a status reads as its ok says.
+    expect(checksOf(r([{ ok: true, label: 'a', detail: null }, { ok: false, label: 'b', detail: 'x' }]))).toEqual({ passed: 1, total: 2 });
   });
 
   it('says a test diverged when it left its golden without checks to judge it', () => {

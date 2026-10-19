@@ -65,6 +65,9 @@ outputs:
   checks-failed:
     description: Recordings that failed an outcome check.
     value: ${{ steps.test.outputs.checks-failed }}
+  inconclusive:
+    description: Recordings whose checks could not all be decided (a judge check with no verdict, a condition the run has no value for), and nothing else failed. They fail the job too.
+    value: ${{ steps.test.outputs.inconclusive }}
   session:
     description: The test session's id in the store's history.
     value: ${{ steps.test.outputs.session }}

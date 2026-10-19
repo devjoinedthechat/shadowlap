@@ -249,7 +249,7 @@ Pin the action to a release tag once there is one. Until `shadowlap` is on npm, 
 | `fix-budget` | `2.00` | Dollars that may be spent per failing golden on finding and proving a fix |
 | `repairer` | empty | The model that proposes fixes, as for `shadowlap repair --repairer`; empty uses `repair.repairer` in the config |
 
-Outputs: `passed`, `failed` (every failure), `diverged`, `checks-failed`, `session` (the test session's id), `fixes` and `fix-prs` (the fix pull requests opened, and their URLs), and the paths `report-json`, `report-markdown` and `junit`.
+Outputs: `passed`, `failed` (every failure), `diverged`, `checks-failed`, `inconclusive` (recordings that fell short only on a check that could not be decided, counted among `failed` too), `session` (the test session's id), `fixes` and `fix-prs` (the fix pull requests opened, and their URLs), and the paths `report-json`, `report-markdown` and `junit`.
 
 The action reads `tests` from `shadowlap.config.json` in the working directory. A recording marked `fork` calls the providers after the fork, so pass their keys to the step as environment variables (`env: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}`).
 

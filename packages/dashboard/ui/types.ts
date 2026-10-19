@@ -17,9 +17,20 @@ export type RunOutcomeView =
   | { kind: 'diverged'; callNo: number }
   | { kind: 'lost'; callNo: number }
   | { kind: 'check-failed'; check: string | null }
-  | { kind: 'passed'; checks: number }
+  /** No check failed, and one could not be decided. */
+  | { kind: 'inconclusive'; check: string | null }
+  /** `checks` passed; `notApplicable` did not apply, when any did. */
+  | { kind: 'passed'; checks: number; notApplicable?: number }
   | { kind: 'clean' }
   | { kind: 'none' };
+
+/** A run's outcome checks counted: `passed` of `total`, and when any, those `inconclusive` and `notApplicable`; the rest failed. */
+export interface CheckCountsView {
+  passed: number;
+  total: number;
+  inconclusive?: number;
+  notApplicable?: number;
+}
 
 /** What `/api/runs` may add to a run: its origins, whether it is a test or an attempt, its blame and checks. */
 export interface RunListExtras {
@@ -38,7 +49,7 @@ export interface RunListExtras {
   blame?: { callNo: number | null } | null;
   /** Where blame found the run was lost, as the Runs table's rows say it. */
   lostAt?: number | null;
-  checks?: { passed: number; total: number } | null;
+  checks?: CheckCountsView | null;
   author?: string | null;
   /** What kind of run it is (`recording`, `fork`, `clean`, `replay`, `test`, `capture`, `pack`), as the server classifies it. */
   kind?: string | null;
@@ -101,6 +112,11 @@ export interface BlameView {
 export interface CheckView {
   label: string;
   ok: boolean;
+  /** How it came out, when the server says: a result kept before results had a status reads as `ok` says. */
+  status?: CheckStatusView;
+  /** A judge's reason for its verdict, and where the verdict came from. */
+  reason?: string;
+  source?: 'recording' | 'live';
   /** Attempts that passed it, of those that ran it. */
   count?: number;
   of?: number;

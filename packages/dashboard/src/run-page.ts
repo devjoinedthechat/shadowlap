@@ -1,4 +1,5 @@
 import {
+  CHECK_STATUSES,
   cacheMisses,
   canonicalModel,
   Lru,
@@ -16,6 +17,7 @@ import {
   toolResultLine,
   type CacheMiss,
   type CallRecord,
+  type CheckStatus,
   type ConversationSpan,
   type NotRecorded,
   type Normalizer,
@@ -277,6 +279,11 @@ export interface RunCheck {
   /** Attempts that passed it, of those that ran it: the run's repeat or test attempts together, else this run alone. */
   count: number;
   of: number;
+  /** passed, failed, inconclusive or not-applicable, when the result says (one kept before results had a status reads as `ok` says). */
+  status?: CheckStatus;
+  /** A judge's reason for its verdict, and where the verdict came from. */
+  reason?: string;
+  source?: 'recording' | 'live';
 }
 
 export interface RunPageFacts {
@@ -333,10 +340,22 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[]): RunBlame | null 
   };
 }
 
-/** A run's checks as stored, keeping only well-formed entries. */
-function storedChecks(run: RunRecord): Array<{ ok: boolean; label: string; detail: string | null }> {
+type StoredRunCheck = Pick<RunCheck, 'ok' | 'label' | 'detail' | 'status' | 'reason' | 'source'>;
+
+/** A run's checks as stored, keeping only well-formed entries, each with its status, and a judge's reason and source, when it has them. */
+function storedChecks(run: RunRecord): StoredRunCheck[] {
   const v: unknown = run.meta?.checks;
-  return Array.isArray(v) ? v.filter((c): c is { ok: boolean; label: string; detail: string | null } => isObject(c) && typeof c.ok === 'boolean' && typeof c.label === 'string').map((c) => ({ ok: c.ok, label: c.label, detail: str(c.detail) })) : [];
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((c): c is Record<string, unknown> & { ok: boolean; label: string } => isObject(c) && typeof c.ok === 'boolean' && typeof c.label === 'string')
+    .map((c) => ({
+      ok: c.ok,
+      label: c.label,
+      detail: str(c.detail),
+      ...(typeof c.status === 'string' && (CHECK_STATUSES as readonly string[]).includes(c.status) ? { status: c.status as CheckStatus } : {}),
+      ...(typeof c.reason === 'string' ? { reason: c.reason } : {}),
+      ...(c.source === 'recording' || c.source === 'live' ? { source: c.source } : {}),
+    }));
 }
 
 function storedNotRecorded(run: RunRecord): NotRecorded {
@@ -363,7 +382,8 @@ function checksOf(store: Store, run: RunRecord): RunCheck[] | null {
   const attempts = attemptsOf(store, run).map(storedChecks);
   return own.map((c) => {
     const ran = attempts.map((checks) => checks.find((x) => x.label === c.label)).filter((x) => x !== undefined);
-    return { label: c.label, ok: c.ok, detail: c.detail, count: ran.filter((x) => x.ok).length, of: ran.length };
+    const { label, ok, detail, ...rest } = c;
+    return { label, ok, detail, count: ran.filter((x) => x.ok).length, of: ran.length, ...rest };
   });
 }
 

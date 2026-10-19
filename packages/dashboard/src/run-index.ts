@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { classifyRun, hasRecordedCommand, isFailedOutcome, kindLabel, runOutcome, type AttemptKind, type ClassifiableRun, type RunKind, type RunMode, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
+import { CHECK_STATUSES, classifyRun, hasRecordedCommand, isFailedOutcome, kindLabel, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunKind, type RunMode, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
 
 /**
  * Every run in the store, classified, from one light query: the run columns, the few fields of
@@ -61,7 +61,8 @@ export interface IndexedMeta {
    * session numbers its attempts (`attempt`), and each names the attempt it is filed under (`of`).
    */
   test: { golden: string; session: string; fork: boolean | null; passes: number | null; attempt: number | null; of: string | null } | null;
-  checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
+  /** Each check as stored, with its `status` when it has one (a result kept before checks had one reads as `ok` says). */
+  checks: Array<{ ok: boolean; label: string; detail: string | null; status?: CheckStatus }> | null;
   blame: { at: number; outcome: string; callNo: number | null; rescuedRunId: string | null } | null;
   author: string | null;
   /** For a run made in CI (`author` is `ci`): the provider, such as `github`. */
@@ -136,7 +137,7 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
     probe: isObject(probe) ? { of: str(probe.of) ?? '', callNo: num(probe.callNo) ?? 0, passed: probe.passed === true } : null,
     verify: isObject(verify) ? { role: str(verify.role) ?? '', passed: verify.passed === true } : null,
     test: isObject(test) ? { golden: str(test.golden) ?? '', session: str(test.session) ?? '', fork: typeof test.fork === 'boolean' ? test.fork : null, passes: num(test.passes), attempt: num(test.attempt), of: str(test.of) } : null,
-    checks: Array.isArray(checks) ? checks.filter(isObject).map((c) => ({ ok: c.ok === true, label: str(c.label) ?? '', detail: str(c.detail) })) : null,
+    checks: Array.isArray(checks) ? checks.filter(isObject).map((c) => ({ ok: c.ok === true, label: str(c.label) ?? '', detail: str(c.detail), ...(typeof c.status === 'string' && (CHECK_STATUSES as readonly string[]).includes(c.status) ? { status: c.status as CheckStatus } : {}) })) : null,
     blame: isObject(blame) ? { at: num(blame.at) ?? 0, outcome: str(blame.outcome) ?? '', callNo: num(blame.callNo), rescuedRunId: str(blame.rescuedRunId) } : null,
     author: str(row.author),
     ci: str(row.ci),

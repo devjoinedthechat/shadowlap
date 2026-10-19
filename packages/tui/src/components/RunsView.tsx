@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from 'ink';
-import { formatDuration, formatUsd, safeLine } from '@shadowlap/engine';
+import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, safeLine } from '@shadowlap/engine';
 import { useEffect, useMemo, useState } from 'react';
 import type { RunNode } from '../data.js';
 import { ago } from '../data.js';
@@ -22,12 +22,25 @@ interface Props {
 
 type Mode = { kind: 'list' } | { kind: 'search' } | { kind: 'confirm-delete'; runId: string };
 
-/** `shadowlap test` checks as `✓ 3/3` or `✗ 2/3`, empty for a run that has none. */
-function checksOf(run: RunNode['run']): { text: string; ok: boolean } | null {
-  const checks = run.meta?.checks;
-  if (!checks?.length) return null;
-  const passed = checks.filter((c) => c.ok).length;
-  return { text: `${passed === checks.length ? '✓' : '✗'} ${passed}/${checks.length}`, ok: passed === checks.length };
+/**
+ * `shadowlap test` checks as `✓ 3/3`, `✗ 2/3` or `? 1/2`: passed of those that applied, in green,
+ * red when one failed, yellow when one could not be decided; `–` when none applied. Empty for a run
+ * that has none.
+ */
+function checksOf(run: RunNode['run']): { text: string; color: 'green' | 'red' | 'yellow' | 'gray' } | null {
+  const n = engineChecksOf(run);
+  if (!n) return null;
+  const applied = n.total - (n.notApplicable ?? 0);
+  if (!applied) return { text: '– 0/0', color: 'gray' };
+  const failed = failedChecks(n) > 0;
+  return { text: `${failed ? '✗' : n.inconclusive ? '?' : '✓'} ${n.passed}/${applied}`, color: failed ? 'red' : n.inconclusive ? 'yellow' : 'green' };
+}
+
+/** The footer's words for a run's checks: `checks 1/3 passed, 2 not applicable`, a check that did not apply never counted as passed. */
+function checksLine(run: RunNode['run']): string {
+  const n = engineChecksOf(run);
+  if (!n) return '';
+  return `checks ${n.passed}/${n.total} passed${n.inconclusive ? `, ${n.inconclusive} inconclusive` : ''}${n.notApplicable ? `, ${n.notApplicable} not applicable` : ''}`;
 }
 
 export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHelp, openDashboard }: Props) {
@@ -161,7 +174,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHel
               <Text>{`${n.calls} calls`.padEnd(11).slice(0, 11)}</Text>
               <Text color="gray">{(n.spent ? `≈${formatUsd(n.spent)}` : n.captured ? `≈${formatUsd(n.captured)} capt` : '').padEnd(costWidth).slice(0, costWidth)}</Text>
               <Text color="gray">{ago(n.run.startedAt).padEnd(9).slice(0, 9)}</Text>
-              {checks && cmdWidth >= 6 ? <Text color={checks.ok ? 'green' : 'red'}>{checksText}</Text> : null}
+              {checks && cmdWidth >= 6 ? <Text color={checks.color}>{checksText}</Text> : null}
               {labelsText && cmdWidth >= 12 ? <Text color="magenta">{labelsText}</Text> : null}
               {cmdWidth >= 6 ? <Text color="gray">{cmd}</Text> : null}
             </Box>
@@ -180,7 +193,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHel
         <Text color="gray" wrap="truncate">
           {' '}
           {current.run.runId}
-          {current.run.meta?.checks?.length ? ` · checks ${current.run.meta.checks.filter((c) => c.ok).length}/${current.run.meta.checks.length} passed` : ''}
+          {current.run.meta?.checks?.length ? ` · ${checksLine(current.run)}` : ''}
           {current.run.meta?.covers?.length ? ` · partial: ${current.run.meta.covers.join('/')} only` : ''}
           {current.run.meta?.labels?.length ? ` · ${current.run.meta.labels.join(', ')}` : ''}
           {current.run.meta?.notes?.length ? ` · ${current.run.meta.notes.length} note${current.run.meta.notes.length === 1 ? '' : 's'}` : ''}
