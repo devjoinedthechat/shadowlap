@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { formatCheckReport } from '../src/commands/check.js';
 import { runDoctor } from '../src/doctor.js';
 
 /**
@@ -138,6 +139,16 @@ describe('shadowlap check, named more than one way', () => {
     expect(printed.code).toBe(1);
     expect(printed.out.match(/a check reads what the agent printed/g)).toHaveLength(1);
   }, 60_000);
+
+  it('words a recording that passed as every report does: a check that did not apply is not counted as passed', () => {
+    const recording = { runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', pack: 'goldens/in-limit', labels: [], source: '--expect', outcome: 'passed' as const, why: [] };
+    const passed = { status: 'passed' as const, ok: true, label: 'every issue_refund call: amount <= 100', detail: null };
+    const notApplied = { status: 'not-applicable' as const, ok: true, label: 'when lookup_order has result.amount > 100: escalate called at least 1 time', detail: 'the condition never held: lookup_order #2: result.amount 40 <= 100' };
+    const report = (checks: Array<typeof passed | typeof notApplied>) => formatCheckReport({ expect: null, recordings: [{ ...recording, checks }], counts: { passed: 1, failed: 0, inconclusive: 0 }, unchecked: [], notes: [] });
+    expect(report([passed, notApplied, notApplied])).toContain('goldens/in-limit: 1 check passed, 2 not applicable');
+    expect(report([notApplied])).toContain('goldens/in-limit: 1 check not applicable');
+    expect(report([])).toContain('goldens/in-limit: it exited 0, and no check applies to a recording');
+  });
 
   it('notes a value the checks read that none of the calls judged has, and the key it most likely meant', async () => {
     const misspelt = JSON.stringify({ when: [{ if: { tool: 'lookup_order', result: { amout: { '>': 100 } } }, then: { tools: { escalate: '>= 1' } } }] });

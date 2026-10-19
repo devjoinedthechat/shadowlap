@@ -65,7 +65,9 @@ export function checkRecordings(recordings: readonly RecordingToCheck[], o: { ex
       continue;
     }
     const calls = r.store.getCalls(r.run.runId);
-    bySpec.set(r.spec, [...(bySpec.get(r.spec) ?? []), { calls, input: storedCalls(r.store) }]);
+    const judgedBy = bySpec.get(r.spec) ?? [];
+    judgedBy.push({ calls, input: storedCalls(r.store) });
+    bySpec.set(r.spec, judgedBy);
     // A recording whose checks pass but that exited with an error fails, as its replay would.
     const judged = judgeRecording(r.store, r.run, calls, r.spec, o.prices, o.options);
     const outcome = judged.passed === false ? 'failed' : judged.passed === null ? 'inconclusive' : 'passed';

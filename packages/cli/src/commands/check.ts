@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
 import { Command } from 'commander';
-import { hasRecordedCommand, type Store } from '@shadowlap/engine';
+import { hasRecordedCommand, statusTally, type Store } from '@shadowlap/engine';
 import { checkRecordings, packRecording, type CheckedRecording, type CheckReport, type RecordingToCheck } from '../check-recordings.js';
 import { CHECK_MARKS, checkWords, specFor } from '../checks.js';
 import { loadConfig, loadTests } from '../config.js';
@@ -109,8 +109,8 @@ export function formatCheckReport(report: CheckReport, given: ReadonlyArray<Pick
   for (const r of report.recordings) {
     const head = `${COLOUR[r.outcome](CHECK_MARKS[r.outcome])} ${safe(name(r))}`;
     if (r.outcome === 'passed') {
-      const notApplied = r.checks.filter((c) => c.status === 'not-applicable').length;
-      lines.push(`${head}: ${r.checks.length - notApplied} check${r.checks.length - notApplied === 1 ? '' : 's'} passed${notApplied ? `, ${notApplied} not applicable` : ''}`);
+      // A spec with no check a recording can judge leaves its exit status, which passed.
+      lines.push(`${head}: ${statusTally(r.checks) || 'it exited 0, and no check applies to a recording'}`);
       continue;
     }
     // With no check to list, the first reason goes on the line itself, and is not said again under it.

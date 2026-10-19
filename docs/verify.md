@@ -39,7 +39,7 @@ It also warns when a recording contradicts its role. A target that already passe
 
 ## How a run is judged
 
-**The oracle** is the same as [blame's](./blame.md#how-it-works): the agent exits 0, and meets `--expect`, the `expect` object of an [outcome check](./ci.md#outcome-checks). One oracle applies to every run, so a policy such as "never refund $240" is also checked on the good runs.
+**The oracle** is the same as [blame's](./blame.md#how-it-works): the agent exits 0, and meets `--expect`, the `expect` object of an [outcome check](./ci.md#outcome-checks). One oracle applies to every run, so a policy such as "never refund $240" is also checked on the good runs. A [judge check](./checks.md#judge-checks) in `--expect` is refused before anything runs: each attempt is a fork, which would need the judge's verdict asked live, so every attempt would read inconclusive and none could pass.
 
 **Attempts.** Each run is replayed with its recorded command, under the code in the working directory. A replay forks at the first request the change affects, and everything after that runs live, so a forked run is replayed several times (`--attempts`, 5 by default). It passes when enough attempts pass (`--passes`, 80% rounded up, so 4 of 5). A run stops as soon as its verdict is settled.
 

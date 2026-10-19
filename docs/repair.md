@@ -153,7 +153,7 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 | `--fixes <run...>` | The failing runs to repair: ids, prefixes or `label:<name>` |
 | `--holdout <run...>` | Failing runs kept from the repairer (default: every other `--fixes` run, when there are two or more) |
 | `--keeps <run...>` | Runs that pass and must keep passing, such as `label:good` |
-| `--expect <json\|@file>` | What a passing run must do besides exiting 0 ([outcome checks](./ci.md#outcome-checks)) |
+| `--expect <json\|@file>` | What a passing run must do besides exiting 0 ([outcome checks](./ci.md#outcome-checks)). A [judge check](./checks.md#judge-checks) is refused before anything runs, as [verify](./verify.md) refuses it |
 | `--repairer <provider:model>` | The model that proposes fixes (default: `repair.repairer` in the config) |
 | `--candidates <n>` | Rewrites to ask for. Default 3 |
 | `--stronger <model>` | Rescue with this model when the recorded one can't be, and try switching to it |

@@ -140,6 +140,8 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 |---|---|---|
 | *passes its oracle when replayed* | The replayed run does what the oracle asks, so there is no failure | Say what it should have done with `--expect` |
 | *fails only because … has no price* | The only check it fails is a cost check, which can't be judged for a model with no price, whatever the model answers | Add the model under `prices` in `shadowlap.config.json`, and blame again if it still fails |
+| *--expect has a check no attempt can decide* | A [judge check](./checks.md#judge-checks): each probe is a fork, which would need the judge's verdict asked live, so every attempt would read inconclusive and none could pass. Refused before anything runs | Leave it out of `--expect`; [`shadowlap check`](./checks.md#try-a-check-on-your-recordings) judges recordings by it |
+| *has a check that can't be decided as recorded* | A check is [inconclusive](./checks.md#how-a-check-comes-out) on the free replay (a judge with no verdict, a `when` whose condition reads a value the run doesn't have), so it would be on every probe too | Fix the check, such as the path a condition reads (`shadowlap doctor` names one no recorded call has), or leave it out of `--expect` |
 | *does not replay as recorded* | The replay forks by itself, so a probe could not tell a changed answer from a changed prefix | [`shadowlap calibrate`](./normalizers-and-redaction.md#calibrate), then blame again |
 | *forked at call n instead* | An attempt ran a prefix the recording doesn't hold | As above. Branches that run at once need [scopes](./sdk.md#scopes) |
 | *made no model calls* | There is no model answer to blame, or none in the `--scope` given | Check the scope names blame lists |
