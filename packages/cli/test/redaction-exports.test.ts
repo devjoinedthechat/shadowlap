@@ -39,6 +39,8 @@ const VALUES = {
   error: { value: 'carol@example.com', marker: '<EMAIL>' },
   // The run's details: its command line, a label and a note.
   command: { value: 'dave@example.com', marker: '<EMAIL>' },
+  // A key in the command line that a rule finds by the argument before it, across the space between them.
+  flag: { value: 'sk-cmd-778899', marker: '<CMDKEY>' },
   label: { value: 'erin@example.com', marker: '<EMAIL>' },
   note: { value: 'hank@example.com', marker: '<EMAIL>' },
 };
@@ -50,6 +52,7 @@ const RULES = [
   { kind: 'api', path: '$.metadata.user_id', replace: '<USER>' },
   { kind: 'tool', path: '$.args.api_key', replace: '<KEY>' },
   { kind: 'api', path: '$.ticket', replace: '<TICKET>' },
+  { pattern: '/(?<=--api-key )\\S+/', replace: '<CMDKEY>' },
 ];
 
 /**
@@ -60,18 +63,18 @@ const EXPECT: Record<RedactionExport['id'], { kept: Value[]; masked: Value[] } |
   // Every request masked, and the strings of every response and error; what a call got back as
   // recorded otherwise (the ticket), and the command line, labels and notes, since a replay runs the
   // command and hands the agent what each call got back.
-  pack: { kept: ['command', 'label', 'note', 'ticket'], masked: ['system', 'account', 'user', 'key', 'answer', 'error'] },
+  pack: { kept: ['command', 'flag', 'label', 'note', 'ticket'], masked: ['system', 'account', 'user', 'key', 'answer', 'error'] },
   // Everything, the run's details too: the file is read, never replayed.
-  html: { kept: [], masked: ['system', 'account', 'user', 'key', 'ticket', 'answer', 'error', 'command', 'label', 'note'] },
+  html: { kept: [], masked: ['system', 'account', 'user', 'key', 'ticket', 'answer', 'error', 'command', 'flag', 'label', 'note'] },
   // The model calls only, whole requests and responses: no tool calls, no command line.
   har: { kept: [], masked: ['system', 'account', 'user', 'ticket', 'answer'] },
   // The conversation (the tool's error is in it as a result) and the answer, then each row's command line, labels and notes.
   // An answer's other fields (the ticket) aren't in a row.
-  dataset: { kept: [], masked: ['system', 'account', 'answer', 'error', 'command', 'label', 'note'] },
+  dataset: { kept: [], masked: ['system', 'account', 'answer', 'error', 'command', 'flag', 'label', 'note'] },
   // Pairs come from blame, verify and --repeat attempts, which this run has none of: training's own tests hold them to decision 6.
   pairs: null,
   // No prompt text: the command line and the error message, masked.
-  otel: { kept: [], masked: ['command', 'error'] },
+  otel: { kept: [], masked: ['command', 'flag', 'error'] },
 };
 
 /** Each export as the CLI makes it, read back as text. */
@@ -113,7 +116,7 @@ beforeAll(() => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-redact-exports-')));
   writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ redact: RULES }, null, 2));
   const store = Store.open(join(cwd, '.shadowlap', 'shadowlap.db'));
-  const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js', '--notify', VALUES.command.value], cwd } });
+  const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js', '--notify', VALUES.command.value, '--api-key', VALUES.flag.value], cwd } });
   runId = run.runId;
   store.updateRunMeta(runId, { labels: [VALUES.label.value], notes: [{ callNo: null, text: `called back ${VALUES.note.value}`, at: 1 }] });
   const system = `You help the owner of ${VALUES.account.value}, ${VALUES.system.value}.`;
@@ -194,7 +197,7 @@ describe('where the redaction rules apply', () => {
       for (const args of [['export', 'otel', runId], ['export', 'dataset', runId], ['export', 'html', runId, join(cwd, 'x.html')]]) {
         const r = await cli(args);
         expect(r.code, args.join(' ')).toBe(1);
-        expect(r.err).toContain('shadowlap.config.json: redaction rule #6: unknown pattern "emial"');
+        expect(r.err).toContain('shadowlap.config.json: redaction rule #7: unknown pattern "emial"');
       }
     } finally {
       writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ redact: RULES }, null, 2));

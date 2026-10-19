@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { applyNormalizers, parsePath, rewriteText, type RewriteObserver } from '../src/normalize.js';
-import { REDACTION_EXPORTS, clipChange, jsonPath, previewRedaction, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
+import { REDACTION_EXPORTS, clipChange, jsonPath, matchedAs, previewRedaction, redactArgv, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
-import type { Normalizer } from '../src/types.js';
+import type { Normalizer, RunMeta } from '../src/types.js';
 
 const cmd = { argv: ['node', 'agent.js'], cwd: '/tmp' };
 const API = { kind: 'api' as const, name: 'POST /v1/messages' };
@@ -239,6 +239,101 @@ describe('previewRedaction', () => {
     store.close();
   });
 
+  it("masks a captured HTTP call's name, the address it asked for, in every copy and counts it; any other call's name stays", () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    const http = { kind: 'tool' as const, name: 'GET crm.internal:8080/v1/contacts/alice.martin@example.com', fingerprint: 'c'.repeat(64), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: 1, ...http, origin: 'live', effect: 'read', requestRef: store.putJson({ args: { method: 'GET', url: 'http://crm.internal:8080/v1/contacts/alice.martin@example.com' } }), meta: { http: 'crm.internal:8080' }, at: 1 });
+    store.appendCallEnd(http, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putJson({ result: { status: 200, headers: {}, body: { plan: 'pro' }, encoding: 'json' } }), outcome: 'ok', meta: {}, at: 2 });
+    // A tool named by the code, whatever a rule matches in its name.
+    addCall(store, run.runId, 2, 'tool', 'notify_bob@example.com', { args: {} }, [{ body: '{"result":true}' }]);
+    store.endRun(run.runId, 'completed');
+    store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: http.name, replayedBefore: 0 });
+    for (const read of [false, true]) {
+      const dst = Store.open(':memory:');
+      redactRun(store, run.runId, [EMAIL], dst, { read });
+      expect(dst.getCalls(run.runId).map((c) => c.name)).toEqual(['GET crm.internal:8080/v1/contacts/<EMAIL>', 'notify_bob@example.com']);
+      expect(dst.getCalls(run.runId)[0]!.end!.outcome).toBe('ok');
+      expect(dst.getRun(run.runId)!.divergence!.name).toBe('GET crm.internal:8080/v1/contacts/<EMAIL>');
+      dst.close();
+    }
+    // A rule for model calls doesn't reach a tool's name, as it doesn't reach its arguments; nor
+    // does a rule for another call by name. One for this call by name masks its name and its URL.
+    for (const [rule, name] of [
+      [{ ...EMAIL, kind: 'api' }, http.name],
+      [{ ...EMAIL, kind: 'tool', name: 'GET crm.internal:8080/v1/contacts/bob@example.com' }, http.name],
+      [{ ...EMAIL, kind: 'tool', name: http.name }, 'GET crm.internal:8080/v1/contacts/<EMAIL>'],
+    ] as Array<[Normalizer, string]>) {
+      const dst = Store.open(':memory:');
+      redactRun(store, run.runId, [rule], dst);
+      const [copied] = dst.getCalls(run.runId);
+      expect(copied!.name).toBe(name);
+      expect(JSON.stringify(dst.getJson(copied!.requestRef!)).includes('alice.martin'), JSON.stringify(rule)).toBe(name === http.name);
+      dst.close();
+    }
+    const [r] = previewRedaction(store, run.runId, [EMAIL]).rules;
+    // The address in the call's name and in its URL: two strings the copy changes.
+    expect(r!.count).toBe(2);
+    expect(r!.samples).toEqual([
+      { before: '…crm.internal:8080/v1/contacts/alice.martin@example.com', after: '…crm.internal:8080/v1/contacts/<EMAIL>' },
+      { before: '…//crm.internal:8080/v1/contacts/alice.martin@example.com', after: '…//crm.internal:8080/v1/contacts/<EMAIL>' },
+    ]);
+
+    // A replay of the copy matches the live call, and the recorded one, under the masked name, with
+    // a normalizer for the call by name naming it so; another call, or a copy with no rules, as recorded.
+    const masked = 'GET crm.internal:8080/v1/contacts/<EMAIL>';
+    const STAMP: Normalizer = { kind: 'tool', name: http.name, path: '$.args.at', replace: '<AT>' };
+    const live = { kind: 'tool' as const, name: http.name, meta: { http: 'crm.internal:8080' } };
+    expect(matchedAs(live, [STAMP, EMAIL], [EMAIL])).toEqual({ name: masked, normalizers: [{ ...STAMP, name: masked }, EMAIL] });
+    expect(matchedAs({ ...live, name: masked }, [STAMP, EMAIL], [EMAIL])).toEqual({ name: masked, normalizers: [{ ...STAMP, name: masked }, EMAIL] });
+    expect(matchedAs(live, [STAMP], [])).toEqual({ name: http.name, normalizers: [STAMP] });
+    expect(matchedAs({ kind: 'tool', name: 'notify_bob@example.com', meta: {} }, [STAMP], [EMAIL]).name).toBe('notify_bob@example.com');
+    store.close();
+  });
+
+  it('masks the command line as one text in every copy, as the preview counts it, and cuts it back into its arguments', () => {
+    const KEY: Normalizer = { pattern: '/(?<=--api-key )\\S+/', replace: '<KEY>' };
+    const argv = ['node', 'agent.mjs', '--api-key', 'sk-live-abc123def456ghi789', '--note', 'for erin@example.com today'];
+    expect(redactArgv(argv, [KEY, EMAIL])).toEqual(['node', 'agent.mjs', '--api-key', '<KEY>', '--note', 'for <EMAIL> today']);
+    // A match that runs across arguments makes them one; joined, the arguments are always the masked text.
+    const SPAN: Normalizer = { pattern: '/--api-key \\S+/', replace: '<KEY>' };
+    expect(redactArgv(argv, [SPAN])).toEqual(['node', 'agent.mjs', '<KEY>', '--note', 'for erin@example.com today']);
+    const AROUND: Normalizer = { pattern: '/mjs --api/', replace: '$&$$' };
+    for (const rules of [[KEY], [SPAN], [EMAIL], [AROUND], [KEY, EMAIL, SPAN], [{ pattern: '/(?=--)/g', replace: '>' }], [{ pattern: '/ /g', replace: '_' }]]) {
+      expect(redactArgv(argv, rules).join(' ')).toBe(rewriteText(argv.join(' '), rules));
+    }
+    expect(redactArgv(argv, [{ pattern: 'uuid', replace: '<U>' }])).toEqual(argv);
+    expect(redactArgv([], [KEY])).toEqual([]);
+
+    // export html's copy, and the preview's count of it.
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: argv.slice(0, 4), cwd: '/tmp' } });
+    store.endRun(run.runId, 'completed');
+    expect(redactRunDetails(store.getRun(run.runId)!, [KEY]).command.argv).toEqual(['node', 'agent.mjs', '--api-key', '<KEY>']);
+    const html = Store.open(':memory:');
+    redactRunWithDetails(store, run.runId, [KEY], html);
+    expect(JSON.stringify(html.getRun(run.runId))).not.toContain('sk-live');
+    html.close();
+    expect(previewRedaction(store, run.runId, [KEY]).details).toEqual({ count: 1, samples: [{ before: 'node agent.mjs --api-key sk-live-abc123def456ghi789', after: 'node agent.mjs --api-key <KEY>' }], rules: [1] });
+    store.close();
+  });
+
+  it("masks a run's own record whatever shape a pack gave its parts, instead of failing the copy", () => {
+    const store = Store.open(':memory:');
+    const run = seed(store);
+    const odd = { blame: { at: 1, outcome: 'blamed', fields: { note: 'ask zoe@example.com' } }, checks: ['zoe@example.com'], notes: [null], test: { golden: 7 } } as unknown as RunMeta;
+    const copy = redactRunDetails({ ...store.getRun(run.runId)!, meta: odd }, [EMAIL]);
+    expect(JSON.stringify(copy.meta)).not.toContain('example.com');
+    expect(copy.meta?.blame).toEqual({ at: 1, outcome: 'blamed', fields: { note: 'ask <EMAIL>' } });
+    // export html's copy, of a run stored so.
+    store.updateRunMeta(run.runId, odd);
+    const html = Store.open(':memory:');
+    redactRunWithDetails(store, run.runId, [EMAIL], html);
+    expect(JSON.stringify(html.getRun(run.runId)!.meta)).not.toContain('example.com');
+    html.close();
+    store.close();
+  });
+
   it('counts a call it cannot read apart instead of failing the preview', () => {
     const store = Store.open(':memory:');
     const run = seed(store);
@@ -273,6 +368,56 @@ function copied(store: Store, runId: string, rules: Normalizer[], o: { read?: bo
   dst.close();
   return out;
 }
+
+describe("previewRedaction: the run's own record", () => {
+  it('counts what a copy masks there as masked: a blamed run, a fork, its divergence, the response headers', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'replay', command: cmd });
+    const tool = { kind: 'tool' as const, name: 'lookup', fingerprint: 'c'.repeat(64), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: 1, ...tool, origin: 'live', effect: 'read', requestRef: store.putJson({ args: { q: 'refund' } }), meta: {}, at: 1 });
+    store.appendCallEnd(tool, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putJson({ result: 'ok' }), outcome: 'ok', meta: { headers: { 'x-owner': 'dave@example.com' } }, at: 1 });
+    store.endRun(run.runId, 'failed');
+    // What `shadowlap blame --expect '{"output":{"includes":["alice.martin@example.com"]}}'` writes: the check's label is the oracle's too.
+    const label = 'output includes "alice.martin@example.com"';
+    store.updateRunMeta(run.runId, {
+      checks: [{ ok: false, label, detail: 'got bob@example.com' }],
+      blame: { at: 5, outcome: 'blamed', callNo: 1, confidence: 'high', rescuedRunId: null, fields: { system: 'Reply to carol@example.com' }, oracle: ['the agent exits 0', label], probes: [], spent: 0 },
+      interventions: [{ kind: 'override', at: 1, flag: '--override 1=erin@example.com' }],
+    });
+    store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'lookup', replayedBefore: 0, diff: [{ op: 'changed', path: '$.args.q', before: 'frank@example.com', after: 'refund' }] });
+
+    const p = previewRedaction(store, run.runId, [EMAIL]);
+    // The label once though blame repeats it; the check's detail, the probes' field, the flag, the diff's value and the header.
+    expect(p.rules[0]).toMatchObject({ count: 6, note: null });
+    expect(p.total).toBe(6);
+    expect(p.rules[0]!.samples[0]).toEqual({ before: 'dave@example.com', after: '<EMAIL>' });
+    expect(p.details.count).toBe(0);
+
+    // What the pack's copy masks there, the same values.
+    const dst = Store.open(':memory:');
+    const copy = redactRun(store, run.runId, [EMAIL], dst);
+    const kept = JSON.stringify([copy.meta?.checks, copy.meta?.blame, copy.meta?.interventions, copy.divergence, dst.getCalls(run.runId)[0]!.end!.meta]);
+    expect(kept).not.toContain('example.com');
+    expect(kept.match(/<EMAIL>/g)).toHaveLength(7);
+    dst.close();
+    store.close();
+  });
+
+  it('counts a path rule on the diff of a divergence where it was in the request', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'replay', command: cmd });
+    store.endRun(run.runId, 'failed');
+    store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'charge', replayedBefore: 0, diff: [{ op: 'changed', path: '$.args.card', before: 4242424242424242, after: 4000056655665556 }] });
+    const p = previewRedaction(store, run.runId, [EMAIL, { kind: 'tool', path: '$.args.card', replace: '<CARD>' }]);
+    expect(p.rules.map((r) => r.count)).toEqual([0, 2]);
+    expect(p.rules[1]!.samples).toEqual([{ before: '4242424242424242', after: '<CARD>' }, { before: '4000056655665556', after: '<CARD>' }]);
+    // A path no rule can name gets the rules without a path, each counted as itself.
+    store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'charge', replayedBefore: 0, diff: [{ op: 'changed', path: "$['a]", before: 'grace@example.com', after: 'x' }] });
+    const q = previewRedaction(store, run.runId, [{ kind: 'tool', path: '$.args.card', replace: '<CARD>' }, EMAIL]);
+    expect(q.rules.map((r) => r.count)).toEqual([0, 1]);
+    store.close();
+  });
+});
 
 describe('what a copy leaves as it is', () => {
   it('counts the strings of a JSON document, and the numbers a pattern matches apart, with where each is and the path rule that masks it', () => {
@@ -459,6 +604,34 @@ describe('what calls got back, and why a value gets no rule', () => {
     html.close();
     const [r] = previewRedaction(store, run.runId, [rule]).rules;
     expect(r).toMatchObject({ count: 0, reached: 1, note: 'a pack keeps what calls got back, since its replay hands it to the agent', returned: { count: 1, samples: [{ before: '{"token":"tok-123"}', after: '<HIDDEN>' }] } });
+    store.close();
+  });
+
+  it('never masks a clock or random read with a rule without a path either, and counts what it matches there as left as it is', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    const id = '8e9ff1cc-3b7d-4bad-9bdd-2b0d7b3dcb6d';
+    addCall(store, run.runId, 1, 'random', 'uuid', { label: 'uuid' }, [{ body: JSON.stringify({ result: id }) }]);
+    addCall(store, run.runId, 2, 'tool', 'create_ticket', { args: { ref: `T-${id.slice(0, 8)}`, owner: id } }, [{ body: JSON.stringify({ result: { ok: true, ticket: id } }) }]);
+    store.endRun(run.runId, 'completed');
+    const UUID: Normalizer = { pattern: 'uuid', replace: '<REDACTED>' };
+    // A pack keeps the uuid the agent read, so its replay cuts the same ref from it; so does a copy that is read.
+    for (const read of [false, true]) {
+      const [random, ticket] = copied(store, run.runId, [UUID], { read });
+      expect(random!.ends[0]!.body).toBe(JSON.stringify({ result: id }));
+      expect(ticket!.request).toBe(JSON.stringify({ args: { ref: 'T-8e9ff1cc', owner: '<REDACTED>' } }));
+      expect(ticket!.ends[0]!.body).toBe(JSON.stringify({ result: { ok: true, ticket: '<REDACTED>' } }));
+    }
+    const [r] = previewRedaction(store, run.runId, [UUID]).rules;
+    expect(r!.count).toBe(1);
+    expect(r!.unmasked).toMatchObject({ count: 1, samples: [{ value: id, key: false, callNo: 1, kind: 'random', name: 'uuid', in: 'response', path: '$.result', event: null }], remedies: [], reasons: ['replay'] });
+    // Matched only there: the note says so.
+    const only = Store.open(':memory:');
+    const lone = only.createRun({ mode: 'record', command: cmd });
+    addCall(only, lone.runId, 1, 'random', 'uuid', { label: 'uuid' }, [{ body: JSON.stringify({ result: id }) }]);
+    only.endRun(lone.runId, 'completed');
+    expect(previewRedaction(only, lone.runId, [UUID]).rules[0]).toMatchObject({ count: 0, note: 'it matches only what a clock or random read returned here, which a copy leaves as it is' });
+    only.close();
     store.close();
   });
 

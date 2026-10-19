@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { CallRecord, Normalizer, RunRecord } from '@shadowlap/engine';
-import { estimateCost, rewriteText, type Price } from '@shadowlap/engine';
+import { estimateCost, redactArgv, rewriteText, type Price } from '@shadowlap/engine';
 
 /**
  * A run as an OpenTelemetry trace in OTLP/HTTP JSON: one span for the run, one child span per
@@ -71,9 +71,12 @@ const OWN_ATTRIBUTES = new Set([
   'telemetry.sdk.language',
 ]);
 
+/** The command line, which runToOtlp masks as one text before it writes it (redactArgv). */
+const COMMAND_ATTRIBUTES = new Set(['process.command_args']);
+
 function redactAttrs(list: Attr[], text: (s: string) => string): Attr[] {
   const value = (v: AttrValue): AttrValue => ('stringValue' in v ? { stringValue: text(v.stringValue) } : 'arrayValue' in v ? { arrayValue: { values: v.arrayValue.values.map(value) } } : v);
-  return list.map((a) => (OWN_ATTRIBUTES.has(a.key) ? a : { key: a.key, value: value(a.value) }));
+  return list.map((a) => (OWN_ATTRIBUTES.has(a.key) || COMMAND_ATTRIBUTES.has(a.key) ? a : { key: a.key, value: value(a.value) }));
 }
 
 /** What redaction reads and rewrites in a span; the rest (ids, times, kind) is Shadowlap's own. */
@@ -84,11 +87,14 @@ interface Span {
   [field: string]: unknown;
 }
 
-/** The trace with the rules without a path applied to everything it carries from the run. */
-function redactTrace(spans: Span[], rules: Normalizer[]): void {
+/**
+ * The trace with the rules without a path applied to everything it carries from the run. The run's
+ * own span is named after its command line, which runToOtlp masks before it cuts the name: `named`.
+ */
+function redactTrace(spans: Span[], rules: Normalizer[], named: Span): void {
   const text = (s: string) => rewriteText(s, rules);
   for (const span of spans) {
-    span.name = text(span.name);
+    if (span !== named) span.name = text(span.name);
     span.attributes = redactAttrs(span.attributes, text);
     if (span.status.message !== undefined) span.status.message = text(span.status.message);
   }
@@ -143,10 +149,15 @@ export function runToOtlp(run: RunRecord, calls: CallRecord[], options: OtelOpti
       status,
     });
   }
+  // The command line masked as one text, as every copy masks it (a rule sees `--api-key sk-…` across
+  // two arguments), and before the run's span name is cut from it, so the cut never splits a value
+  // the rule would have masked whole.
+  const rules = options.redact ?? [];
+  const argv = rules.length ? redactArgv(run.command.argv, rules) : run.command.argv;
   const runSpan: Span = {
     traceId,
     spanId: runSpanId,
-    name: `shadowlap.${run.mode} ${run.command.argv.join(' ')}`.slice(0, 200),
+    name: `shadowlap.${run.mode} ${argv.join(' ')}`.slice(0, 200),
     kind: 1,
     startTimeUnixNano: nanos(run.startedAt),
     endTimeUnixNano: nanos(endedAt),
@@ -160,11 +171,11 @@ export function runToOtlp(run: RunRecord, calls: CallRecord[], options: OtelOpti
       attr('shadowlap.run.divergence.call_no', run.divergence?.callNo),
       attr('shadowlap.run.divergence.type', run.divergence?.type),
       attr('shadowlap.run.cost_usd', spent),
-      attr('process.command_args', run.command.argv),
+      attr('process.command_args', argv),
     ]),
     status: run.status === 'failed' || run.status === 'crashed' ? { code: 2, message: run.status } : { code: 1 },
   };
-  if (options.redact?.length) redactTrace([runSpan, ...spans], options.redact);
+  if (rules.length) redactTrace([runSpan, ...spans], rules, runSpan);
   return {
     resourceSpans: [
       {

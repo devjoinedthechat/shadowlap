@@ -291,4 +291,27 @@ describe('redactRun: the run record', () => {
     expect(manifest).toContain('--override 2=…');
     src.close();
   });
+
+  it("packs a blamed run with the checks blame judged it by masked as its checks are", () => {
+    const src = Store.open(':memory:');
+    const run = seed(src);
+    // What `shadowlap blame --expect '{"output":{"includes":["alice.martin@example.com"]}}'` writes.
+    const label = 'output includes "alice.martin@example.com"';
+    src.updateRunMeta(run.runId, {
+      checks: [{ ok: false, label, detail: null }],
+      blame: { at: 5, outcome: 'blamed', callNo: 1, confidence: 'high', rescuedRunId: null, fields: { system: 'Reply to alice.martin@example.com', temperature: 1 }, oracle: ['the agent exits 0', label], probes: [{ callNo: 1, passes: 3, attempts: 3, rescued: true }], spent: 0.01 },
+    });
+    const dir = join(mkdtempSync(join(tmpdir(), 'fp-redact-blame-')), 'pack');
+    packRun(src, run.runId, dir, { redact: [EMAIL] });
+    const manifest = readFileSync(join(dir, 'run.json'), 'utf8');
+    expect(manifest).not.toContain('example.com');
+    const packed = (JSON.parse(manifest) as { runs: Array<{ meta: { checks: unknown; blame: unknown } }> }).runs[0]!.meta;
+    expect(packed.checks).toEqual([{ ok: false, label: 'output includes "<EMAIL>"', detail: null }]);
+    expect(packed.blame).toMatchObject({ outcome: 'blamed', callNo: 1, oracle: ['the agent exits 0', 'output includes "<EMAIL>"'], fields: { system: 'Reply to <EMAIL>', temperature: 1 }, probes: [{ callNo: 1, passes: 3, attempts: 3, rescued: true }] });
+    // It unpacks: the masked record is still one blame writes.
+    const dst = Store.open(':memory:');
+    expect(dst.getRun(unpackRun(dst, dir).imported[0]!)!.meta?.blame).toEqual(packed.blame);
+    dst.close();
+    src.close();
+  });
 });

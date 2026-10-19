@@ -2,12 +2,14 @@ import { createHash } from 'node:crypto';
 import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from './eventstream.js';
 import { reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
 import { loadApiRequest, storeApiRequest, type RequestManifest } from './manifest.js';
-import { applyNormalizers, compilePattern, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
+import { applyNormalizers, compilePattern, countMatches, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
 import { inEvent, maskJsonChunks, maskSseStream, maskStreamed } from './redact-stream.js';
 import { redactRunFacts } from './run-facts.js';
 import type { Store } from './store.js';
 import { quoteArgv } from './text.js';
-import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceReport, Normalizer, RunMeta, RunRecord, SerializedError } from './types.js';
+import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceReport, Normalizer, RunMeta, RunNote, RunRecord, SerializedError } from './types.js';
+
+type RunCheck = NonNullable<RunMeta['checks']>[number];
 
 /**
  * Redaction: a copy of a run whose stored requests and responses have the rules applied. Rules
@@ -24,7 +26,10 @@ import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceR
  * (export html, har and dataset), also applies a path rule to what a call got back when the path
  * starts with a key or a position (`$.result.card`): a response or tool result that is one JSON
  * document, and an attempt's error read as a tool stores it (`{ "error": … }`). That is how a number
- * there is masked, which no pattern rewrites (json-doc.ts). A clock or random read is never reached.
+ * there is masked, which no pattern rewrites (json-doc.ts). A clock or random read is never reached,
+ * by a rule with a path or without one: it is the run's own time and randomness, which every copy
+ * keeps as recorded (keptAsRecorded), or a replay of a pack would hand the agent `<REDACTED>` for
+ * the uuid it read.
  *
  * What the run record itself repeats of that content is masked too: the flags that made a fork
  * (an `--override` carries a whole tool result), the divergence report's diff and reason, the
@@ -108,11 +113,60 @@ function redactRequest(src: Store, call: CallRecord, rules: Normalizer[], dst: S
   return call.kind === 'api' ? storeApiRequest(dst, body) : dst.putJson(body);
 }
 
-function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallScope | undefined): string | null {
+/**
+ * Whether what a call got back is the run's own time or randomness, a clock or random read, which
+ * every copy keeps as recorded whatever the rules: a replay hands it to the agent, which builds on
+ * it (an id cut from the uuid it read, a date from the time), so a masked value would fork it.
+ */
+export function keptAsRecorded(call: Pick<CallScope, 'kind'>): boolean {
+  return call.kind === 'clock' || call.kind === 'random';
+}
+
+/**
+ * A call's name as every copy writes it. A captured HTTP call (a host under "http" in the config) is
+ * named after the address the agent asked for, `GET api.example.com/contacts/alice@example.com`,
+ * so the rules without a path that apply to tool calls mask its name as they mask the address in its
+ * arguments. Any other call's name is the code's (a tool, a model API path) and stays as it is.
+ *
+ * A rule scoped to a call by its `name` masks that call's name, as it masks only that call's
+ * arguments. A replay of the copy matches such a call by its masked name (matchedAs). `observer`
+ * hears each rule's change, by its place in `rules`.
+ */
+export function redactedCallName(call: Pick<CallRecord, 'kind' | 'name' | 'meta'>, rules: readonly Normalizer[], observer?: RewriteObserver): string {
+  if (call.kind !== 'tool' || typeof call.meta.http !== 'string') return call.name;
+  let name = call.name;
+  rules.forEach((rule, i) => {
+    if (rule.path !== undefined || rule.pattern === undefined || !normalizerApplies(rule, 'tool', call.name)) return;
+    const regex = compilePattern(rule.pattern);
+    regex.lastIndex = 0;
+    const next = name.replace(regex, rule.replace);
+    if (next !== name) observer?.changed?.(i, name, next, countMatches(name, regex));
+    name = next;
+  });
+  return name;
+}
+
+/**
+ * How a replay of a redacted copy matches a call: the name the copy holds it under, and the
+ * normalizers that apply to it. A captured HTTP call's name is masked by the copy's rules
+ * (`meta.redactions`, redactedCallName), live and recorded alike, and so is the name each
+ * normalizer is scoped to, so a rule written for `POST crm.example.com/contacts/alice@example.com`
+ * applies to the call on both sides. Masking twice changes nothing, so a recorded name the copy
+ * already masked, or one an older copy kept, comes out the same. Any other call, and a replay of a
+ * run no rules redacted, is matched as it was recorded.
+ */
+export function matchedAs(call: Pick<CallRecord, 'kind' | 'name' | 'meta'>, normalizers: Normalizer[], redactions: readonly Normalizer[]): { name: string; normalizers: Normalizer[] } {
+  if (!redactions.length || call.kind !== 'tool' || typeof call.meta.http !== 'string') return { name: call.name, normalizers };
+  const masked = (name: string) => redactedCallName({ kind: 'tool', name, meta: call.meta }, redactions);
+  return { name: masked(call.name), normalizers: normalizers.map((n) => (n.name === undefined ? n : { ...n, name: masked(n.name) })) };
+}
+
+/** What a call got back as a copy writes it: `read` for a copy that is only read (redactBytes' `call`). */
+function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallScope, read: boolean): string | null {
   if (!ref) return null;
   const bytes = src.getBlob(ref);
   if (!bytes) return null;
-  return dst.putBlob(redactBytes(bytes, rules, call));
+  return dst.putBlob(keptAsRecorded(call) ? bytes : redactBytes(bytes, rules, read ? call : undefined));
 }
 
 /** The bytes as a string when they are text (UTF-8 that round-trips), else null. */
@@ -228,12 +282,14 @@ function redactEventStream(frames: EventStreamFrame[], rules: Normalizer[], obse
  *
  * `call` is for a copy that is only read, never replayed (export html, har and dataset): the path
  * rules that reach what that call got back (reachesResultsOf) apply too, to a response that is one
- * JSON document. A pack passes none: its replay hands what calls got back to the agent.
+ * JSON document. A pack passes none: its replay hands what calls got back to the agent. A clock or
+ * random read is never passed here (keptAsRecorded); one that is given comes back as it is.
  *
  * The preview passes an observer and reads this to count exactly what a copy changes, and what the
  * rules match that it leaves as it is (previewRedaction); a copy passes none.
  */
 export function redactBytes(bytes: Buffer, rules: Normalizer[], call?: CallScope, observer?: RewriteObserver): Buffer {
+  if (call && keptAsRecorded(call)) return bytes;
   const pathless = rules.some((n) => n.path === undefined && n.pattern !== undefined);
   const reaching = !!call && rules.some((n) => reachesResultsOf(n, call));
   if (!pathless && !reaching) return bytes;
@@ -258,9 +314,15 @@ export function redactBytes(bytes: Buffer, rules: Normalizer[], call?: CallScope
  * A diff entry's value with the rules applied as if it were still in the request at `path`: the path
  * rules for that place, the pathless rules everywhere. A path that can't be read gets the pathless rules.
  */
-function redactAt(path: string, value: unknown, rules: Normalizer[], kind: CallKind, name: string): unknown {
+function redactAt(path: string, value: unknown, rules: Normalizer[], kind: CallKind, name: string, observer?: RewriteObserver): unknown {
   if (value === undefined) return value;
-  const pathless = () => applyNormalizers(value, rules.filter((r) => r.path === undefined), kind, name);
+  // The rules without a path, each heard by the observer under its place in `rules`.
+  const pathless = () => {
+    const places: number[] = [];
+    const kept = rules.filter((r, i) => r.path === undefined && places.push(i) > 0);
+    const heard: RewriteObserver | undefined = observer?.changed && { changed: (i, before, after, count) => observer.changed!(places[i]!, before, after, count) };
+    return applyNormalizers(value, kept, kind, name, heard);
+  };
   let segs: ReturnType<typeof parsePath>;
   try {
     segs = parsePath(path);
@@ -283,7 +345,7 @@ function redactAt(path: string, value: unknown, rules: Normalizer[], kind: CallK
     slot = key;
   }
   holder[slot] = value;
-  let node: unknown = applyNormalizers(root.doc, rules, kind, name);
+  let node: unknown = applyNormalizers(root.doc, rules, kind, name, observer?.changed ? { changed: observer.changed } : undefined);
   for (const key of keys) {
     // A rule on an ancestor replaced the whole value: that replacement is what the copy shows.
     if (node === null || typeof node !== 'object') return node;
@@ -292,13 +354,14 @@ function redactAt(path: string, value: unknown, rules: Normalizer[], kind: CallK
   return node;
 }
 
-function redactDivergence(d: DivergenceReport, rules: Normalizer[]): DivergenceReport {
+/** A divergence report as a copy keeps it: its diff's values masked where they were in the request, and its reason. `observer` hears each change, for the preview. */
+function redactDivergence(d: DivergenceReport, rules: Normalizer[], observer?: RewriteObserver): DivergenceReport {
   const entry = (e: DiffEntry): DiffEntry => ({
     ...e,
-    ...('before' in e ? { before: redactAt(e.path, e.before, rules, d.kind, d.name) } : {}),
-    ...('after' in e ? { after: redactAt(e.path, e.after, rules, d.kind, d.name) } : {}),
+    ...('before' in e ? { before: redactAt(e.path, e.before, rules, d.kind, d.name, observer) } : {}),
+    ...('after' in e ? { after: redactAt(e.path, e.after, rules, d.kind, d.name, observer) } : {}),
   });
-  return { ...d, ...(d.diff ? { diff: d.diff.map(entry) } : {}), ...(d.reason !== undefined ? { reason: rewriteText(d.reason, rules) } : {}) };
+  return { ...d, ...(d.diff ? { diff: d.diff.map(entry) } : {}), ...(d.reason !== undefined ? { reason: rewriteText(d.reason, rules, observer) } : {}) };
 }
 
 /**
@@ -306,27 +369,35 @@ function redactDivergence(d: DivergenceReport, rules: Normalizer[]): DivergenceR
  * can carry a whole `--override` result, and a copy is never made again from its record anyway, so
  * the `--expect` it was judged by goes too. Each flag is rebuilt from the fields a flag has, so a
  * record from someone else's pack carries nothing else along. Checks keep their verdicts, with their
- * details masked. A record that isn't a list is left for the read side, which skips it.
+ * details masked, and so does the last blame: the labels of the checks it judged its attempts by
+ * (the same labels as the checks', `output includes "…"`) and the request fields its probes changed,
+ * their strings wherever they are. Another record that isn't a list is left for the read side,
+ * which skips it. The hosts the guard named are masked as well (redactRunFacts). `observer` hears
+ * each change, for the preview.
  */
-function redactMeta(meta: RunMeta | undefined, rules: Normalizer[]): RunMeta {
+function redactMeta(meta: RunMeta | undefined, rules: Normalizer[], observer?: RewriteObserver): RunMeta {
   const { expect: _expect, ...rest } = meta ?? {};
   const out: RunMeta = { ...rest, redactions: [...(meta?.redactions ?? []), ...rules] };
-  const text = (v: unknown): string => (typeof v === 'string' ? rewriteText(v, rules) : '');
+  const text = (v: unknown): string => (typeof v === 'string' ? rewriteText(v, rules, observer) : '');
   if (Array.isArray(meta?.interventions)) out.interventions = meta.interventions.filter(isObject).map((i) => ({ kind: i.kind, at: i.at, flag: text(i.flag) }));
   if (Array.isArray(meta?.checks)) out.checks = meta.checks.filter(isObject).map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail) }));
-  return out;
+  if (isObject(meta?.blame)) {
+    const b = meta.blame;
+    out.blame = { ...b, ...('oracle' in b ? { oracle: rewriteDeep(b.oracle, rules, observer) as string[] } : {}), ...('fields' in b ? { fields: rewriteDeep(b.fields, rules, observer) as Record<string, unknown> } : {}) };
+  }
+  return redactRunFacts(out, rules, observer);
 }
 
 /**
  * A call's metadata with what it repeats of the content masked: its error, an injected failure's
  * message, the response headers. `call` for a copy that is only read: the error gets the path rules
- * that reach what that call got back too.
+ * that reach what that call got back too. `observer` hears each change, for the preview.
  */
-function redactCallMeta(meta: CallMeta, rules: Normalizer[], call: CallScope | undefined): CallMeta {
+function redactCallMeta(meta: CallMeta, rules: Normalizer[], call: CallScope | undefined, observer?: RewriteObserver): CallMeta {
   const out: CallMeta = { ...meta };
-  if (meta.error) out.error = redactedError(meta.error, rules, undefined, call);
-  if (isObject(meta.failure) && typeof meta.failure.message === 'string') out.failure = { ...meta.failure, message: rewriteText(meta.failure.message, rules) };
-  if (meta.headers) out.headers = Object.fromEntries(Object.entries(meta.headers).map(([k, v]) => [k, rewriteText(v, rules)]));
+  if (meta.error) out.error = redactedError(meta.error, rules, observer, call);
+  if (isObject(meta.failure) && typeof meta.failure.message === 'string') out.failure = { ...meta.failure, message: rewriteText(meta.failure.message, rules, observer) };
+  if (meta.headers) out.headers = Object.fromEntries(Object.entries(meta.headers).map(([k, v]) => [k, rewriteText(v, rules, observer)]));
   return out;
 }
 
@@ -343,21 +414,25 @@ export interface RedactRunOptions {
 export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: Store, options: RedactRunOptions = {}): RunRecord {
   const run = src.getRun(runId);
   if (!run) throw new Error(`unknown run ${runId}`);
+  const calls = src.getCalls(runId);
+  // The divergence report names the call the run forked at: a captured HTTP call's name is masked as the call's is.
+  const forkedAt = run.divergence && calls.find((c) => c.callNo === run.divergence!.callNo && c.name === run.divergence!.name);
   const copy: RunRecord = {
     ...run,
     parentRunId: run.parentRunId && dst.getRun(run.parentRunId) ? run.parentRunId : null,
-    divergence: run.divergence ? redactDivergence(run.divergence, rules) : null,
+    divergence: run.divergence ? { ...redactDivergence(run.divergence, rules), ...(forkedAt ? { name: redactedCallName(forkedAt, rules) } : {}) } : null,
     // The run page's facts in the metadata (the hosts the guard named) are masked too.
-    meta: redactRunFacts(redactMeta(run.meta, rules), rules),
+    meta: redactMeta(run.meta, rules),
   };
   dst.transaction(() => {
     dst.importRun(copy);
-    for (const call of src.getCalls(runId)) {
+    for (const call of calls) {
       const { end, attempts, ...start } = call;
-      dst.appendCallStart({ ...start, requestRef: redactRequest(src, call, rules, dst) });
-      const identity = { kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence };
+      const name = redactedCallName(call, rules);
+      dst.appendCallStart({ ...start, name, requestRef: redactRequest(src, call, rules, dst) });
+      const identity = { kind: call.kind, name, fingerprint: call.fingerprint, occurrence: call.occurrence };
       const results = options.read ? call : undefined;
-      const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, meta: redactCallMeta(e.meta, rules, results), responseRef: redactResponse(src, e.responseRef, rules, dst, results) });
+      const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, meta: redactCallMeta(e.meta, rules, results), responseRef: redactResponse(src, e.responseRef, rules, dst, call, options.read === true) });
       for (const a of attempts) dst.appendCallEnd(identity, redactEnd(a));
       if (end) dst.appendCallEnd(identity, redactEnd(end));
     }
@@ -367,29 +442,94 @@ export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: S
 
 // ---- the run's own record ----
 
+/**
+ * A command line with the rules without a path applied to it as one text, `argv.join(' ')`, as the
+ * preview counts it and `export dataset` writes it: so a rule sees what runs across arguments, the
+ * lookbehind in `(?<=--api-key )\S+` included. The text is then cut back into arguments: a space
+ * between two arguments that no match covered still parts them, and arguments a match runs across
+ * become one. Joined, the result is the masked text, so every copy that carries the command line,
+ * as one text or as its arguments, masks it alike. `observer` hears each rule's change of the text.
+ */
+export function redactArgv(argv: readonly string[], rules: readonly Normalizer[], observer?: RewriteObserver): string[] {
+  let args = [...argv];
+  rules.forEach((rule, i) => {
+    if (rule.path !== undefined || rule.pattern === undefined) return;
+    const text = args.join(' ');
+    const regex = compilePattern(rule.pattern);
+    regex.lastIndex = 0;
+    const found = regex.global ? [...text.matchAll(regex)] : [regex.exec(text)].filter((m): m is RegExpExecArray => m !== null);
+    if (!found.length) return;
+    // Where the spaces between arguments are in the text.
+    const spaces: number[] = [];
+    let end = 0;
+    for (const a of args.slice(0, -1)) {
+      end += a.length;
+      spaces.push(end);
+      end += 1;
+    }
+    // A match's replacement as the rule writes it there: `replace` on the whole text at that place
+    // alone, so a lookbehind still sees what comes before it.
+    const there = new RegExp(regex.source, `${regex.flags.replace(/[gy]/g, '')}y`);
+    let out = '';
+    let from = 0;
+    let shift = 0;
+    let next = 0;
+    const kept: number[] = [];
+    for (const m of found) {
+      const start = m.index!;
+      const stop = start + m[0].length;
+      there.lastIndex = start;
+      const whole = text.replace(there, rule.replace);
+      const replacement = whole.slice(start, whole.length - (text.length - stop));
+      for (; next < spaces.length && spaces[next]! < start; next++) kept.push(spaces[next]! + shift);
+      // A space inside the match is gone: the arguments on either side of it become one.
+      for (; next < spaces.length && spaces[next]! < stop; next++);
+      out += text.slice(from, start) + replacement;
+      shift += replacement.length - (stop - start);
+      from = stop;
+    }
+    for (; next < spaces.length; next++) kept.push(spaces[next]! + shift);
+    out += text.slice(from);
+    if (out === text) return;
+    observer?.changed?.(i, text, out, countMatches(text, regex));
+    const cut: string[] = [];
+    let at = 0;
+    for (const k of kept) {
+      cut.push(out.slice(at, k));
+      at = k + 1;
+    }
+    cut.push(out.slice(at));
+    args = cut;
+  });
+  return args;
+}
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * A run's own record with the rules without a path applied to what a person or a command line
- * wrote in it, outside its calls: the command line and its folder, labels, notes, outcome checks,
- * the file or golden it came from, its author, what blame changed, and the divergence report's
- * values and words. Ids, times and Shadowlap's own words stay as they are.
+ * wrote in it, outside its calls: the command line (as one text, redactArgv) and its folder,
+ * labels, notes, outcome checks, the file or golden it came from, its author, what blame changed,
+ * and the divergence report's values and words. Ids, times and Shadowlap's own words stay as they
+ * are.
  */
 export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord {
   if (!rules.some((r) => r.path === undefined && r.pattern !== undefined)) return run;
   const text = (value: string) => rewriteText(value, rules);
   const deep = (value: unknown): unknown => (typeof value === 'string' ? text(value) : Array.isArray(value) ? value.map(deep) : isRecord(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deep(v)])) : value);
-  const out: RunRecord = { ...run, command: { ...run.command, argv: run.command.argv.map(text), cwd: text(run.command.cwd) } };
+  const out: RunRecord = { ...run, command: { ...run.command, argv: redactArgv(run.command.argv, rules), cwd: text(run.command.cwd) } };
   const meta = run.meta;
   if (meta) {
+    // A record imported from someone else's pack may hold anything the pack's checks let through:
+    // each part is masked where it has the shape it should, its strings wherever they are otherwise.
     const m: RunMeta = { ...meta };
-    if (meta.labels) m.labels = meta.labels.map(text);
-    if (meta.notes) m.notes = meta.notes.map((n) => ({ ...n, text: text(n.text) }));
-    if (meta.checks) m.checks = meta.checks.map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail) }));
-    if (meta.imported) m.imported = { ...meta.imported, from: text(meta.imported.from) };
-    if (meta.test) m.test = { ...meta.test, golden: text(meta.test.golden) };
+    if (meta.labels !== undefined) m.labels = deep(meta.labels) as string[];
+    if (Array.isArray(meta.notes)) m.notes = meta.notes.map((n) => (isRecord(n) ? { ...n, text: deep(n.text) as string } : (deep(n) as RunNote)));
+    if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isRecord(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null } : (deep(c) as RunCheck)));
+    if (isRecord(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from) };
+    if (isRecord(meta.test) && typeof meta.test.golden === 'string') m.test = { ...meta.test, golden: text(meta.test.golden) };
     if (typeof meta.author === 'string') m.author = text(meta.author);
-    if (meta.blame) m.blame = { ...meta.blame, fields: deep(meta.blame.fields) as Record<string, unknown>, oracle: meta.blame.oracle.map(text) };
+    if (isRecord(meta.blame)) m.blame = { ...meta.blame, fields: deep(meta.blame.fields) as Record<string, unknown>, oracle: deep(meta.blame.oracle) as string[] };
     out.meta = m;
   }
   const d = run.divergence;
@@ -840,25 +980,26 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
     // A path rule that reaches what this call got back, in the copies that are read.
     const reaches = rules.some((r) => r.path !== undefined && reachesResultsOf(r, call));
     try {
-      // What redactRun copies, read through the functions it copies with: the request, then each
-      // attempt's response and error.
+      // What redactRun copies, read through the functions it copies with: a captured HTTP call's
+      // name, the request, then each attempt's response and error.
+      here = { call, in: 'request' };
+      redactedCallName(call, rules, observer);
       if (call.requestRef) {
-        here = { call, in: 'request' };
         const request = call.kind === 'api' && skipSeen ? unseenParts(reader, call, seen) : storedRequest(reader, call);
         applyNormalizers(request, rules, call.kind, call.name, observer);
       }
       for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
         const response = end.responseRef ? counting.getBlob(end.responseRef) : null;
         here = { call, in: 'response' };
-        if (response) {
+        if (response && keptAsRecorded(call)) reportKept(response, rules, observer);
+        else if (response) {
           redactBytes(response, rules, undefined, observer);
           if (reaches) redactBytes(response, rules, call, reading);
         }
+        // The error and what else an attempt's record repeats: an injected failure's message, the response headers.
         here = { call, in: 'error' };
-        if (end.meta.error) {
-          redactedError(end.meta.error, rules, observer);
-          if (reaches) redactedError(end.meta.error, rules, reading, call);
-        }
+        redactCallMeta(end.meta, rules, undefined, observer);
+        if (end.meta.error && reaches) redactedError(end.meta.error, rules, reading, call);
       }
     } catch {
       unreadable++;
@@ -866,6 +1007,12 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       here = null;
     }
   }
+  // What the run's own record repeats of its content, as a copy masks it (redactRun): a fork's
+  // flags, the checks' labels and details, the last blame's oracle and fields, the hosts the guard
+  // named, the divergence report. Masked in a pack as in every copy, so counted with the rest.
+  const record: RewriteObserver = { changed: observer.changed! };
+  redactMeta(run.meta, rules, record);
+  if (run.divergence) redactDivergence(run.divergence, rules, record);
   const previews = rules.map((rule, i): RedactionRulePreview => {
     const r = per[i]!;
     const fixes = [...r.unmasked.fixes.values()];
@@ -881,7 +1028,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
     const returned = { count: r.returned.count, samples: r.returned.samples };
     return { n: i + 1, rule, count: r.count, samples: r.samples, reached: rule.path === undefined ? null : r.reached.requests + r.reached.results, note: r.count ? null : zeroNote(rule, r.scoped, r.reached, r.unmasked, returned.count), returned, unmasked };
   });
-  // The run's details, as the exports that carry them mask them (redactRunDetails): the command line as one text, each label and each note.
+  // The run's details, as the exports that carry them mask them (redactRunDetails): the command line as one text (redactArgv), each label and each note.
   const details: RedactionPreview['details'] = { count: 0, samples: [], rules: [] };
   const detailObserver: RewriteObserver = {
     changed(i, before, after, count) {
@@ -890,7 +1037,8 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       if (details.samples.length < SAMPLES) details.samples.push(clipChange(shownText(before), shownText(after)));
     },
   };
-  for (const text of [run.command.argv.join(' '), ...(run.meta?.labels ?? []), ...(run.meta?.notes ?? []).map((n) => n.text)]) rewriteText(text, rules, detailObserver);
+  redactArgv(run.command.argv, rules, detailObserver);
+  for (const text of [...(run.meta?.labels ?? []), ...(run.meta?.notes ?? []).map((n) => n.text)]) rewriteText(text, rules, detailObserver);
   details.rules.sort((a, b) => a - b);
   return {
     runId,
@@ -905,10 +1053,50 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
   };
 }
 
-/** What a rule matched that a copy leaves, in words: `a number here, which a copy leaves as it is`, `numbers and keys here, which …`. */
+/**
+ * What a rule without a path matched that a copy leaves, in words: `a number here, which a copy
+ * leaves as it is`, `numbers and keys here, which …`. Such a rule leaves a string only in a clock or
+ * random read (reportKept).
+ */
 function leftWords(u: { numbers: number; keys: number; strings: number }): string {
-  const parts = [u.numbers ? (u.numbers === 1 ? 'a number' : 'numbers') : '', u.keys ? (u.keys === 1 ? 'a key' : 'keys') : ''].filter(Boolean);
-  return `${parts.join(' and ') || 'values'} here, which a copy leaves as ${u.numbers + u.keys === 1 ? 'it is' : 'they are'}`;
+  const parts = [u.numbers ? (u.numbers === 1 ? 'a number' : 'numbers') : '', u.keys ? (u.keys === 1 ? 'a key' : 'keys') : '', u.strings ? 'what a clock or random read returned' : ''].filter(Boolean);
+  return `${parts.join(' and ') || 'values'} here, which a copy leaves as ${u.numbers + u.keys + u.strings === 1 ? 'it is' : 'they are'}`;
+}
+
+/**
+ * What the rules without a path match in a clock or random read, which every copy keeps as recorded
+ * (keptAsRecorded), told to the observer as left as it is: each string, number and key of the JSON
+ * stored for it, or its text when it isn't JSON. A rule with a path never reaches one.
+ */
+function reportKept(bytes: Buffer, rules: Normalizer[], observer: RewriteObserver): void {
+  const report = observer.unmasked;
+  const text = asText(bytes);
+  if (!report || text === null) return;
+  let value: unknown = text;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    // Its text as a whole.
+  }
+  rules.forEach((rule, i) => {
+    if (rule.path !== undefined || rule.pattern === undefined) return;
+    const regex = compilePattern(rule.pattern);
+    const test = (found: string, path: Array<string | number>, what: UnmaskedAt['what']) => {
+      const count = countMatches(found, regex);
+      if (count) report(i, found, { path: [...path], what }, count);
+    };
+    const walk = (v: unknown, path: Array<string | number>) => {
+      if (typeof v === 'string') test(v, path, 'string');
+      else if (typeof v === 'number') test(JSON.stringify(v), path, 'number');
+      else if (Array.isArray(v)) v.forEach((item, k) => walk(item, [...path, k]));
+      else if (isObject(v))
+        for (const [k, item] of Object.entries(v)) {
+          test(k, [...path, k], 'key');
+          walk(item, [...path, k]);
+        }
+    };
+    walk(value, []);
+  });
 }
 
 /**
@@ -970,7 +1158,7 @@ export interface RedactionExport {
  * never stored at all.
  */
 export const REDACTION_EXPORTS: readonly RedactionExport[] = [
-  { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule on the requests it copies, and the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise; the command line, labels and notes are copied as recorded, since a replay runs the command' },
+  { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule on the requests it copies, and the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise, but for a clock or random read, which stays as recorded; the command line, labels and notes are copied as recorded, since a replay runs the command' },
   { id: 'html', command: 'shadowlap export html', applies: 'all', details: 'masked', note: 'every rule, as pack applies them, the rules with a path on what calls got back too, and the rules without a path on the command line, labels and notes' },
   { id: 'har', command: 'shadowlap export har', applies: 'all', details: 'absent', note: 'every rule on the model calls it holds, as export html applies them to their requests and responses, and the rules without a path on URLs and headers; it holds no tool calls and no command line' },
   { id: 'dataset', command: 'shadowlap export dataset', applies: 'messages', details: 'masked', note: 'every rule on the conversations and answers it keeps, as export html applies them, and the rules without a path on the rest of each row: command line, labels and notes' },

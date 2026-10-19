@@ -1,4 +1,4 @@
-import { rewriteText } from './normalize.js';
+import { rewriteText, type RewriteObserver } from './normalize.js';
 import type { Store } from './store.js';
 import type { CallRecord, Normalizer, NotRecorded, RunMeta, RunRecord } from './types.js';
 
@@ -111,11 +111,11 @@ export function runInterventions(store: Store, run: RunRecord, calls: readonly C
 /**
  * Run metadata with redaction rules applied to what this module keeps on a run: the hosts the guard
  * named, which can name internal systems, for a copy (pack, export html). A replay's flags are masked
- * with the rest of the run's record (redact.ts).
+ * with the rest of the run's record (redact.ts). `observer` hears each change, for the preview.
  */
-export function redactRunFacts(meta: RunMeta, rules: readonly Normalizer[]): RunMeta {
+export function redactRunFacts(meta: RunMeta, rules: readonly Normalizer[], observer?: RewriteObserver): RunMeta {
   if (!rules.length) return meta;
-  const text = (s: string) => rewriteText(s, rules as Normalizer[]);
+  const text = (s: string) => rewriteText(s, rules as Normalizer[], observer);
   const out: RunMeta = { ...meta };
   const nr: unknown = meta.notRecorded;
   if (typeof nr === 'object' && nr !== null && Array.isArray((nr as NotRecorded).hosts)) {

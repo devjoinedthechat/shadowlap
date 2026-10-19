@@ -329,6 +329,21 @@ describe('pairs as training rows', () => {
     expect(JSON.stringify(loadApiRequest(store, call.requestRef!))).toContain('dana@example.com');
     store.close();
   });
+
+  it('masks tool calls\' arguments before writing them as JSON text, so they still parse', () => {
+    const store = Store.open(':memory:');
+    blamed(store);
+    const { pairs } = findPairs(store);
+    type Message = { tool_calls?: Array<{ function: { arguments: string } }> };
+    const [row] = pairRows(store, pairs.slice(0, 1), { format: 'openai-preference', redact: [{ pattern: 'number', replace: '<N>' }] }) as Array<{ input: { messages: Message[] }; preferred_output: Message[]; non_preferred_output: Message[] }>;
+    const args = [...row!.input.messages, ...row!.preferred_output, ...row!.non_preferred_output].flatMap((m) => (m.tool_calls ?? []).map((c) => c.function.arguments));
+    expect(args.length).toBeGreaterThan(2);
+    for (const a of args) expect(() => JSON.parse(a), a).not.toThrow();
+    // Strings masked, numbers kept, as export dataset writes them.
+    expect(row!.non_preferred_output[0]!.tool_calls![0]!.function.arguments).toBe('{"order_id":"A<N>","amount":240}');
+    expect(JSON.stringify(row)).not.toContain('1042');
+    store.close();
+  });
 });
 
 // ---- reading them ----
