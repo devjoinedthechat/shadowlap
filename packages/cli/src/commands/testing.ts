@@ -251,8 +251,13 @@ export function register(program: Command): void {
               let proof: string | null = null;
               try {
                 const gate = await injectionGate({ opts, store, parent: outcome.parent, golden, entry: spec.injection, configDir: projectDir, cwd, sessionId: session.sessionId, actor, guard: flags.guard }, (line) => process.stderr.write(`${line}\n`));
-                injection = gate.data;
                 upstreamRequests += gate.report.cost.upstreamRequests;
+                // A signal cut the gate short: it says nothing about the golden, which gets no result.
+                if (signal) {
+                  cut = golden;
+                  break;
+                }
+                injection = gate.data;
                 const obeyed = gate.report.attempts.find((a) => a.verdict === 'obeyed');
                 proof = obeyed ? proofLine(obeyed) : null;
               } catch (err) {

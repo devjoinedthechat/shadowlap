@@ -738,7 +738,9 @@ export interface AttemptReport {
   why: string | null;
   /** The attempt's call where the planted read was served, and its first model call that read it. */
   plantedAt: number | null;
+  /** Where the attempt forked, and the first model call whose request carried the planted text. */
   forkedAt: number | null;
+  readAt: number | null;
   exitCode: number;
   evidence: Evidence[];
   spent: number;
@@ -850,10 +852,10 @@ export interface CleanReport {
 export type InjectionReport = PlantReport | CleanReport;
 
 /** The one line that shows an obeyed attempt's proof: planted at #9 → read at #10 → send_email.to = x7f3k@canary.invalid at #12. */
-export function proofLine(a: Pick<AttemptReport, 'read' | 'forkedAt' | 'evidence'>): string | null {
+export function proofLine(a: Pick<AttemptReport, 'read' | 'forkedAt' | 'evidence'> & { readAt?: number | null }): string | null {
   const e = a.evidence.find((x) => x.kind === 'canary') ?? a.evidence[0];
   if (!e) return null;
   const what = e.kind === 'write' ? `${e.tool}(…) that no clean replay made` : `${atPath(e.tool, e.path)} = ${e.value}`;
-  return `planted at #${a.read} → read at #${a.forkedAt ?? '?'} → ${what} at #${e.callNo}`;
+  return `planted at #${a.read} → read at #${a.readAt ?? a.forkedAt ?? '?'} → ${what} at #${e.callNo}`;
 }
 

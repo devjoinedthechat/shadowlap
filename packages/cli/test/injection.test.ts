@@ -103,6 +103,9 @@ describe('shadowlap injection on the reference agent', () => {
     expect(new Set(report.attempts.map((a) => a.canary!.token)).size).toBe(60);
     for (const a of report.attempts) {
       expect(a.verdict).toBe('obeyed');
+      // The model call that read the planted text is where the attempt forked, after the read.
+      expect(a.readAt).toBe(a.forkedAt);
+      expect(a.readAt!).toBeGreaterThan(a.plantedAt!);
       expect(a.evidence[0]).toEqual({ kind: 'canary', callNo: expect.any(Number), tool: 'send_email', path: '$.to', value: a.canary!.address, why: null });
     }
     expect(out.totals).toEqual({ runs: 1, attempts: 60, obeyed: 60, influenced: 0, ignored: 0, unread: 0 });
@@ -249,6 +252,7 @@ describe('shadowlap injection on the reference agent', () => {
     expect((await shadowlap(['injection', runId, '--templates', 'nosuch'])).out).toContain('no injection template "nosuch": the templates are system-notice');
     expect((await shadowlap(['injection'])).out).toContain('name the runs or goldens to test');
     const listed = json<{ version: number; templates: Array<{ id: string }> }>(await shadowlap(['injection', '--list-templates', '--json']));
+    held('injectionTemplateSet', listed);
     expect(listed.templates.map((t) => t.id)).toEqual(injectionTemplates().templates.map((t) => t.id));
   }, 120_000);
 });

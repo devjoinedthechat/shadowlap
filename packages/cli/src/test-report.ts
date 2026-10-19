@@ -43,8 +43,8 @@ export interface PackResult {
   expect: Record<string, unknown> | null;
   /** `--update` re-recorded it: the run it replaced, the new one, its calls, and what the agent sends differently. */
   updated: { from: string | null; to: string; calls: number; changes?: string[] } | null;
-  /** Its injection gate ("injection" under its tests entry): attempts by verdict, what it allows, whether it passed. Null without one. */
-  injection: InjectionGateData | null;
+  /** Its injection gate ("injection" under its tests entry): attempts by verdict, what it allows, whether it passed. Null without one; the report always prints it. */
+  injection?: InjectionGateData | null;
 }
 
 export interface TestReport {
