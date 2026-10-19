@@ -14,7 +14,7 @@ import type { Router } from '../router.js';
  *   GET /api/injection/templates          the built-in templates, versioned, for the dialog
  *   GET /api/injection/tools              { tools }: every recorded tool with its trust, for Settings → Tools
  *   GET /api/injection/needs-look         { items }: runs and goldens whose newest test obeyed or was influenced
- *   GET /api/injection/runs/:id           { results, attempt }: a run's tests, and the test it is an attempt of
+ *   GET /api/injection/runs/:id           { untrusted, results, attempt }: a run's untrusted reads, its tests, and the test it is an attempt of
  *   GET /api/injection/:id                { row, report, gone }: one result, as --json printed it
  *   GET /api/injection/:id/report         the security report (HTML), the project's redaction rules applied
  *
@@ -55,7 +55,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/injection/needs-look', (r) => r.tagged({ items: injectionNeedsLook(store) }));
   router.get('/injection/runs/:id', (r) => {
     if (!store.getRun(r.params.id!)) throw new HttpError(404, `no run ${r.params.id}`);
-    r.tagged(runInjection(store, r.params.id!));
+    r.tagged(runInjection(store, r.params.id!, tools()));
   });
   router.get('/injection/:id', (r) => {
     const found = injectionResult(store, r.params.id!);

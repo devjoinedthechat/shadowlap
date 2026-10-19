@@ -1,4 +1,4 @@
-import { commandIsImported, hasRecordedCommand, importedCommandSource, injectionTemplates, trustOf, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type Store, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
+import { commandIsImported, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type Store, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
@@ -99,15 +99,19 @@ export function injectionResult(store: Store, resultId: string): { row: Injectio
 }
 
 /**
- * What a run's page shows of injection tests: the results kept for the run, and, for a replay one
- * of them made, the test it belongs to and what it showed (the canary to highlight, the write that
- * carried it, where the planted text was read).
+ * What a run's page shows of injection tests: its untrusted reads (the Calls view tags them), the
+ * results kept for the run, and, for a replay one of them made, the test it belongs to and what it
+ * showed: the canary to highlight, the write that carried it, where the planted text was read, and
+ * the line that joins them. The planted text itself is in the run's interventions
+ * (`--inject-result`), as for any planted replay.
  */
-export function runInjection(store: Store, runId: string): { results: InjectionRow[]; attempt: (InjectionMark & { line: string | null }) | null } {
+export function runInjection(store: Store, runId: string, tools?: ToolTrust): { untrusted: Array<{ callNo: number; name: string; from: TrustSource }>; results: InjectionRow[]; attempt: (InjectionMark & { line: string | null; proof: string | null }) | null } {
   const run = store.getRun(runId);
   const mark = run?.meta?.injection ?? null;
   const of = mark ? store.getInjectionResult(mark.result) : null;
-  return { results: store.listInjectionResults({ runId }).map(row), attempt: mark ? { ...mark, line: of ? injectionLine(of) : null } : null };
+  const untrusted = untrustedReads(store.getCalls(runId), tools).reads.map((r) => ({ callNo: r.callNo, name: r.name, from: r.from }));
+  const proof = mark?.evidence?.length ? proofLine({ read: mark.read, forkedAt: mark.readAt ?? null, readAt: mark.readAt ?? null, evidence: mark.evidence.map((e) => ({ ...e, why: null })) }) : null;
+  return { untrusted, results: store.listInjectionResults({ runId }).map(row), attempt: mark ? { ...mark, line: of ? injectionLine(of) : null, proof } : null };
 }
 
 /** Needs a look: the newest result of each run or golden whose attempts obeyed (or were influenced), as one line each. */

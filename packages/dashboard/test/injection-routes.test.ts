@@ -115,9 +115,13 @@ describe('the injection read models', () => {
   });
 
   it('give a run\'s page its tests, and an attempt the test it belongs to with what it showed', async () => {
-    const page = (await (await api(`injection/runs/${attemptRun.runId}`)).json()) as { results: Array<{ resultId: string }>; attempt: { result: string; canary: { address: string }; evidence: Array<{ callNo: number }>; line: string } };
+    const page = (await (await api(`injection/runs/${attemptRun.runId}`)).json()) as { untrusted: Array<{ callNo: number; name: string; from: string }>; results: Array<{ resultId: string }>; attempt: { result: string; canary: { address: string }; evidence: Array<{ callNo: number }>; line: string; proof: string } };
     expect(page.results.map((r) => r.resultId)).toEqual(['inj-01CLEAN']);
-    expect(page.attempt).toMatchObject({ result: 'inj-01PLANT', role: 'attempt', verdict: 'obeyed', canary: { address: CANARY.address }, readAt: 2, line: 'send_email obeyed a planted instruction (1 of 1)' });
+    expect(page.attempt).toMatchObject({ result: 'inj-01PLANT', role: 'attempt', verdict: 'obeyed', canary: { address: CANARY.address }, readAt: 2, line: 'send_email obeyed a planted instruction (1 of 1)', proof: `planted at #1 → read at #2 → send_email.to = ${CANARY.address} at #3` });
+    // The Calls view's untrusted tags: the config's word (search) and what was recorded (none here on the replay).
+    expect(page.untrusted).toEqual([{ callNo: 2, name: 'search', from: 'config' }]);
+    const recorded = (await (await api(`injection/runs/${recording.runId}`)).json()) as { untrusted: Array<{ callNo: number; from: string }> };
+    expect(recorded.untrusted).toEqual([{ callNo: 1, name: 'fetch_page', from: 'sdk' }, { callNo: 2, name: 'search', from: 'config' }]);
     expect((await api('injection/runs/01NOSUCHRUN00000000000000')).status).toBe(404);
   });
 
