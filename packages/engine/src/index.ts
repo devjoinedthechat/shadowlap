@@ -122,3 +122,12 @@ export { chatCompletionToResponse, responseEvents, responsesToOpenAIChat, type R
 export { anthropicAnswer, answerAs, CLOUD_ADVICE, CLOUDS, errorAs, isTakeoverCall, modelUnswitchable, requestFor, switchTakeoverModel, takeoverMode, takeoverRefusal, wantsStream, type AnswerOptions, type EncodedAnswer, type TakeoverMode, type TakeoverTarget, type TargetRoute } from './takeover.js';
 export { messagesOf, type DatasetMessage } from './dataset.js';
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';
+// The decision diff (shadowlap decisions, migrate): a recorded request with only the change swapped
+// in, its answer's decision against the recorded one, ranked by consequence; the providers' model
+// retirement dates; and the sessions the store keeps.
+export { promptOf, promptParts, samePrompt, withoutEarlierThinking, withPrompt, type RequestPrompt } from './prompt.js';
+export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LABELS, STOP_WORDS, argsDelta, bareModel, byConsequence, callLine, clipText, compareDecisions, decisionLine, decisionOf, decisionOfResponse, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, majorityRank, modelFamily, normalizedArgs, sameModel, stepDelta } from './decisions.js';
+export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
+export { longDate, replacementModels, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTable, retirementTableProblems, tableModel } from './model-retirements.js';
+export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform, RetirementSource, RetirementTable } from './model-retirements.js';
+export type { DecisionRunRow, DecisionSessionRow, NewDecisionSession } from './store.js';

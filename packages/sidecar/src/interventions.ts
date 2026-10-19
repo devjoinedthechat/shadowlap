@@ -1,4 +1,4 @@
-import { applyInjection, formatToolFailure, literalValue, modelInRequest, placeInjection, refused, requestShape, setRequestFields, switchModel, type CallRecord, type InjectAs, type InjectionPlace, type OverrideSources, type ReplayOptions, type RequestShape, type RunIntervention } from '@shadowlap/engine';
+import { applyInjection, formatToolFailure, literalValue, modelInRequest, placeInjection, refused, requestShape, sameModel, setRequestFields, switchModel, type CallRecord, type InjectAs, type InjectionPlace, type OverrideSources, type ReplayOptions, type RequestShape, type RunIntervention } from '@shadowlap/engine';
 
 /**
  * Request-level interventions for a replay. Both are append-only with respect to the conversation
@@ -19,6 +19,11 @@ export interface Interventions {
     fromCall: number;
     /** Request fields to set, e.g. `{ model: "claude-opus-5", max_tokens: 2048 }`; dotted keys are paths. `model` switches the model, in the path where the provider names it there. */
     fields: Record<string, unknown>;
+    /**
+     * Only at model calls whose request names one of these models (`verify --from`), as `sameModel`
+     * reads a name: the agent's calls, not a simulated user's or a sub-agent's on another model.
+     */
+    models?: string[];
   };
 }
 
@@ -66,7 +71,7 @@ const callLabel = (at: CallPlace) => `model call ${at.index + 1}${at.scope ? ` o
  */
 export class RequestInterventions {
   private readonly inject?: { at: CallPlace; callNo: number; provider: string | null; text: string; as: InjectAs; place?: InjectionPlace; shape?: RequestShape; reached: boolean };
-  private readonly set?: { at: CallPlace; callNo: number; provider: string | null; fields: Record<string, unknown>; model?: string; reached: boolean };
+  private readonly set?: { at: CallPlace; callNo: number; provider: string | null; fields: Record<string, unknown>; model?: string; models?: string[]; reached: boolean };
   /** Problems with requests after the first, said once each. */
   readonly warnings: string[] = [];
   /** Whether the recording used scopes; if it didn't, scopes are ignored, as the session ignores them. */
@@ -90,10 +95,10 @@ export class RequestInterventions {
       this.inject = { ...find(atCall, '--inject'), callNo: atCall, text, as, reached: false };
     }
     if (interventions.set) {
-      const { fromCall, fields } = interventions.set;
+      const { fromCall, fields, models } = interventions.set;
       const { model, ...rest } = fields;
       if (model !== undefined && typeof model !== 'string') onError(`--model: the model is a name, got ${JSON.stringify(model)}`);
-      this.set = { ...find(fromCall, '--set'), callNo: fromCall, fields: rest, ...(typeof model === 'string' ? { model } : {}), reached: false };
+      this.set = { ...find(fromCall, '--set'), callNo: fromCall, fields: rest, ...(typeof model === 'string' ? { model } : {}), ...(models?.length ? { models } : {}), reached: false };
     }
   }
 
@@ -154,7 +159,9 @@ export class RequestInterventions {
       }
     }
     const set = this.set;
-    if (set && fromOn(set) && (set.provider === null || set.provider === provider)) {
+    // With models named, only the calls made with one of them change: another model's calls are someone else's.
+    const named = !set?.models || set.models.some((m) => sameModel(modelInRequest(provider, path, body)?.model, m));
+    if (set && fromOn(set) && (set.provider === null || set.provider === provider) && named) {
       const target = isTarget(set.at);
       if (target) set.reached = true;
       if (shape === 'other') {

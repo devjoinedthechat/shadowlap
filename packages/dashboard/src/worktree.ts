@@ -43,6 +43,10 @@ const TREE_READS: Readonly<Record<string, { noun: string; verb: string }>> = {
 /** How the CLI command `args` (what follows `shadowlap`) uses the working tree, or null when it runs no agent. */
 export function commandTreeUse(args: readonly string[]): TreeUse | null {
   const [command, sub] = args;
+  // The decision diff runs the agent only to read the prompt it sends (--from-code) and to verify; migrate always verifies.
+  if (command === 'migrate') return { use: 'reads', doing: 'a migration is verifying runs with your agent from your working tree', verb: 'migrate' };
+  if (command === 'decisions' && args.includes('--verify')) return { use: 'reads', doing: 'the changed runs are being verified with your agent from your working tree', verb: 'verify the changed runs' };
+  if (command === 'decisions' && (args.includes('--from-code') || args.includes('--then-verify'))) return { use: 'reads', doing: 'a decision diff is running your agent from your working tree', verb: 'preview the change' };
   if (command === 'repair') return { use: 'writes', doing: 'a repair is trying candidates in your working tree', verb: 'repair' };
   if (command === 'fix' && sub === 'apply') return { use: 'writes', doing: 'a patch is being applied to your working tree', verb: 'apply the patch' };
   const reads = command === 'tasks' ? (sub === 'score' ? { noun: 'tasks score', verb: 'score' } : undefined) : TREE_READS[command ?? ''];

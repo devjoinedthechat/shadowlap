@@ -1,4 +1,5 @@
 import { message, text, toolUse, type MockMessage, type ScriptContext, type ScriptResult } from '@shadowlap-testing/mock-anthropic';
+import { decisionRules } from './decision-rules.js';
 
 /**
  * The deterministic conversation the mock API plays for the reference agent, keyed by how many
@@ -27,6 +28,9 @@ export const EXPECTED_TOTAL_CALLS = EXPECTED_MODEL_CALLS + EXPECTED_TOOL_CALLS +
 
 /** The mock script: play the scripted turn for the conversation's position. */
 export function referenceScript(ctx: ScriptContext): ScriptResult {
+  // How the model answers a changed prompt or another model, for the decision diff (decision-rules.ts).
+  const changed = decisionRules(ctx, TURNS);
+  if (changed) return changed;
   const turn = TURNS[ctx.assistantTurns];
   if (!turn) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: `mock: no scripted turn ${ctx.assistantTurns}` } } };
   // Fresh ids per request keep the recording honest: tool_use ids are part of the next request.

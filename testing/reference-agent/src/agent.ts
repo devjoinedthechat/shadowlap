@@ -23,6 +23,8 @@ export interface AgentOptions {
   failAfterModelCall?: number;
   /** Wait this long before every model call (room for an interrupt). */
   pauseMs?: number;
+  /** Think before each answer with this budget: extended thinking in manual mode (`budget_tokens`). */
+  thinkingBudget?: number;
   log?: (line: string) => void;
 }
 
@@ -110,7 +112,9 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     if (opts.lateChange && modelCalls === 5) messages.push({ role: 'user', content: 'Focus on recent sources only.' });
     if (opts.failAfterModelCall !== undefined && modelCalls >= opts.failAfterModelCall) throw new Error(`agent crashed after model call ${modelCalls}`);
     if (opts.pauseMs) await delay(opts.pauseMs);
-    const stream = opts.client.messages.stream({ model: opts.model ?? 'claude-opus-5', max_tokens: 1024, system, tools: TOOLS, messages });
+    // With a thinking budget, the answer's limit leaves room for the answer after it.
+    const thinking = opts.thinkingBudget ? { thinking: { type: 'enabled' as const, budget_tokens: opts.thinkingBudget } } : {};
+    const stream = opts.client.messages.stream({ model: opts.model ?? 'claude-opus-5', max_tokens: 1024 + (opts.thinkingBudget ?? 0), system, tools: TOOLS, messages, ...thinking });
     const response = await stream.finalMessage();
     modelCalls++;
     messages.push({ role: 'assistant', content: response.content });

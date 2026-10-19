@@ -42,6 +42,8 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  *   pullRequest? }, or { pushed, updated, refused, queued: true } for runs pushed when they ended;
  *   `store.pulled`: ref the bucket; data { pulled, merged, failed, byAuthor, pullRequests? }
  * - `run.shared`: runId, ref the report's key in the bucket; data { runs, redacted, expiresAt, pullRequest? }
+ * - `decisions.done`, `migrate.done`: ref the session (`dc-…`, `mg-…`); data { change, runs, flagged,
+ *   spent }: `shadowlap decisions` or `migrate` asked recorded model calls again under a change
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

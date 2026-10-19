@@ -5,6 +5,7 @@ import * as changes from './changes.js';
 // Checks: a check tried on the recordings, nothing replayed (the check builder's preview).
 import * as checks from './checks.js';
 import * as compare from './compare.js';
+import * as decisions from './decisions.js';
 import * as files from './files.js';
 import * as fixes from './fixes.js';
 import * as jobs from './jobs.js';
@@ -57,6 +58,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   // Training: pairs, tasks, scores and the models to score (#/training).
   training,
   checks,
+  // The decision diff: decisions and migrate sessions, a run's decisions, retirements, and their jobs.
+  decisions,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

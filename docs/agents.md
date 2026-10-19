@@ -12,6 +12,7 @@ Claude Code, Cursor, Codex and other coding agents can debug an agent with Shado
 | Search what runs recorded | `shadowlap search <words> --json` | Matching prompts, responses, tool arguments and results |
 | Check a change | `shadowlap replay <run> --strict --summary-json out.json` | Exit code 1 on divergence or an early end; the summary in `out.json` |
 | Check a prompt change from a later step | `shadowlap replay <run> --prompt-from <call> --summary-json out.json` | As above |
+| See what a prompt or model change decides differently | `shadowlap decisions <runs\|goldens> --from-code --json` (or `--model <model>`) | Each recorded model call asked again with only the change: the changed decisions in rank order, writes first, with the recorded and the new action; no tool runs ([fields](./cli.md#decisions)) |
 | See whether a fix holds | `shadowlap replay <run> --repeat 5 --summary-json out.json` | Every attempt, and the paths they took |
 | Find where a failed run went wrong | `shadowlap blame <run> --expect '<checks>' --json` | The model call that lost the run, what the model answered there in the recording and in a fork that passed, and that fork's run id ([fields](./blame.md#json)) |
 | Check a fix before calling it done | `shadowlap verify --fixes <runs> --keeps label:good --expect '<checks>' --json` | Accepted or rejected, and for each run whether it is fixed, kept or broken ([fields](./verify.md#json)) |
@@ -37,7 +38,9 @@ Agent runs are recorded with Shadowlap (`shadowlap run -- <command>`). To invest
    against the recording: calls that didn't change are served from it for free, and the run forks at
    the first request that changed. Read `summary.divergence` in the JSON to see where and why.
 3. A changed system prompt forks at call 1; to test it from a later model call instead, add
-   `--prompt-from <call>`. To see whether a fix holds rather than got lucky, add `--repeat 5`.
+   `--prompt-from <call>`. To see what it decides differently at every step without running the
+   agent, `shadowlap decisions goldens/* --from-code --json` (rank 1 is a write that changed). To
+   see whether a fix holds rather than got lucky, add `--repeat 5`.
    Not sure where it went wrong? `shadowlap blame <run> --expect '<what it must do>' --json` names
    the model call that lost the run and shows what the model answered there in a fork that passed.
 4. Writes (emails, tickets, payments) are blocked after a fork; never pass `--writes allow`.

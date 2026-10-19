@@ -93,13 +93,15 @@ const anthropicEvents = (text) => [
 const anthropicMessage = (text) => ({ id: 'msg_1', type: 'message', role: 'assistant', model: 'claude', content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 12, output_tokens: 5 } });
 
 export async function startCloudMock() {
-  const stats = { requests: 0, http2Requests: 0, signaturesOk: 0, signatureFailures: [] };
+  // `seen`: each request's method and URL (path and query), for a test to say where a request went.
+  const stats = { requests: 0, http2Requests: 0, signaturesOk: 0, signatureFailures: [], seen: [] };
   const handler = (req, res) => {
     if (req.httpVersionMajor === 2) stats.http2Requests++;
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
       stats.requests++;
+      stats.seen.push({ method: req.method, url: req.url });
       const raw = Buffer.concat(chunks);
       const url = new URL(req.url, 'http://mock');
       const path = req.url.split('?')[0];

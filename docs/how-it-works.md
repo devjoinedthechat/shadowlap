@@ -89,7 +89,7 @@ A replay forks at the first **request** that changes, not where the bug is. That
 2. **Changes that alter late requests.** A sub-agent prompt first used at call 20, a tool whose fixed result changes call 9, a different tool result injected at call *k*. The unchanged prefix replays; the suffix runs live with writes fenced.
 3. **Changes that alter every request.** The top-level system prompt and tool definitions are sent with every model call, so editing them diverges at call 1. Shadowlap still provides the diff, a fork whose writes are fenced, and the lineage, but no token savings. No design can serve a recorded response to a request the model never saw.
 
-Class 3 is why [interventions](./interventions.md) exist.
+Class 3 is why [interventions](./interventions.md) exist, and why the [decision diff](./decisions.md) does: it asks each recorded model call again with only the changed prompt or model, so the change's effect on every step shows before a live run of anything.
 
 ## Partial recordings
 

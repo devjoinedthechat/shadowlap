@@ -448,6 +448,15 @@ export type { CiListRow, CiTeamStore, CiWorkflowOptions, CiWorkflowsView, PullRe
 // ---- Training (#/training): the training read model's answers, as the server sends them (src/training.ts) ----
 export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TaskUpdate, TrainingView } from '../src/training.js';
 
+// The decision diff (`/api/decisions`): the read model's own shapes, as the server sends them.
+export type { DecisionCell, DecisionRow, DecisionSessionView, DecisionsListView, RetirementsView } from '../src/decisions.js';
+export type { DecisionChange, DecisionRun, DecisionStep, DecisionsReport, DecisionView } from '../../engine/src/decisions.js';
+export type { RetirementNotice } from '../../engine/src/model-retirements.js';
+/** One session whole: a decisions report (`decisions --json`) or a migrate report, with the matrix the page draws. */
+export type DecisionSessionDetail = Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: import('../src/decisions.js').DecisionRow[] };
+/** A run's decisions under each session that asked it again, newest first. */
+export type RunDecisionsView = ReturnType<typeof import('../src/decisions.js').runDecisions>;
+
 // ---- Compare (#/compare/<a>/<b>): two runs compared, with what git says about the code between them (src/compare.ts) ----
 export type { CodeChange } from '../src/compare.js';
 /** `GET /api/compare`: the engine's comparison, and the code card's commits (absent from an exported copy, which has no git behind it). */

@@ -16,6 +16,7 @@ Shadowlap records every model API call and tool call an agent makes, then re-run
 | Know a fix works before it ships | Rerun the failing case once and hope | `shadowlap verify`: the failing runs fixed, runs it was not written against too, and the good runs kept, several attempts each |
 | Fix a prompt the agent keeps misreading | Edit it by hand, rerun, repeat | `shadowlap repair`: a model you choose proposes rewrites, and the smallest one `verify` accepts comes back as a patch with its evidence |
 | Catch unintended prompt changes in CI | String snapshot tests | `shadowlap test` fails the build on the first changed request |
+| Know what a prompt edit or a model switch decides differently | Run every golden live and read the transcripts | `shadowlap decisions`: each recorded model call asked again with only the change, ranked by consequence, writes first; `shadowlap migrate` for a model switch, verified and priced |
 
 ## Three sentences to keep in mind
 
@@ -33,6 +34,7 @@ Shadowlap records every model API call and tool call an agent makes, then re-run
 - [Checks](./checks.md): what a passing run must do, from call counts and budgets to the order of its calls, their arguments against earlier calls' results, and rules that apply only on a condition; tried on your recordings for free with `shadowlap check`.
 - [Gating](./gating.md): verdicts on attempts that vary, with stated error rates: a forked golden's gate, against two pass rates or its own history, and how verify and blame decide.
 - [Judge checks](./judges.md): a model answers a question about a run, recorded like any call, so a clean replay is judged from the recording, free and the same every time.
+- [Decisions](./decisions.md): what a prompt edit or a model switch decides differently on your recorded runs, ranked by consequence, before anything runs live; `migrate` for a model a provider retires.
 - [Training](./training.md): the preference pairs your blames and verifies already left in the store, exported for fine-tuning, and goldens as tasks a model is scored on, in the CLI or on the dashboard's Training page.
 - [Compared with other tools](./compare.md): cassettes, tracing platforms, framework time travel, durable execution.
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.
