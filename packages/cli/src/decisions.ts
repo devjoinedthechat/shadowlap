@@ -20,6 +20,7 @@ import {
   NO_TOKENS,
   outcomeOf,
   placeFields,
+  promoteByJudge,
   promptOf,
   promptParts,
   quoteArgv,
@@ -43,6 +44,7 @@ import {
   type CallRecord,
   type DecisionChange,
   type DecisionCounts,
+  type DecisionJudge,
   type DecisionRank,
   type DecisionRemedy,
   type DecisionRun,
@@ -70,10 +72,12 @@ import { judgeRecording } from './attempts.js';
 import { specFor, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, loadTests, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { captureFromCode, type FromCodeCapture } from './decisions-capture.js';
+import { TextJudge } from './decisions-judge.js';
 import { azureApiVersion, azureDeploymentCall, ModelSender, providerById, type ModelAnswer } from './decisions-send.js';
 import { gateFlags, recordVerifyFix, verifyCommand } from './fixes.js';
 import { importGolden } from './golden-test.js';
 import { expandRecordings, goldenName, rawExpectFor } from './goldens.js';
+import { checksOfRun } from './interventions.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, requireRun, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
@@ -84,9 +88,11 @@ import { runVerify } from './verify.js';
  * agent. Each recorded model call is asked again: its request exactly as recorded, with only what
  * the change touches swapped in (the model, request fields, or the prompt and tools the working tree
  * sends now), sent through the sidecar's upstreams. Its answer's decision is compared with the
- * recorded one and ranked by consequence (engine decisions.ts). No tool runs, and a step doesn't
- * depend on the one before, so the steps go in parallel. `--then-verify` hands the runs with a write
- * or stop change to `shadowlap verify`, the end-to-end check, and only those.
+ * recorded one and ranked by consequence (engine decisions.ts); a text-only change that a judge check
+ * of the run reads is judged (decisions-judge.ts), and one it reads otherwise ranks with a changed
+ * stop. No tool runs, and a step doesn't depend on the one before, so the steps go in parallel.
+ * `--then-verify` hands the runs with a write, stop or judged change to `shadowlap verify`, the
+ * end-to-end check, and only those.
  *
  * A model switch changes the agent's calls, not every call a recording holds: those made with the
  * models `--from` names, else (decisions) the one the runs use most, or (migrate) the ones that
@@ -98,12 +104,33 @@ export interface DecisionTarget {
   run: RunRecord;
   /** The golden's name, as `shadowlap test` names it, or null for a run from the store. */
   golden: string | null;
-  /** The golden's checks from the config, for verifying it. */
+  /**
+   * The checks it is judged by, from the config: a golden's tests entry, or for a run from the store
+   * the entry of the recording it comes from (checksOfRun). What verifies it, and what judges its
+   * text-only changes.
+   */
   spec: TestSpec | null;
   expect: Record<string, unknown> | null;
 }
 
 export class DecisionsError extends Error {}
+
+/**
+ * A run from the store as a target: its checks are those of the tests entry the recording it comes
+ * from has (a golden `shadowlap test` replayed, the pack it was unpacked from), as a replay of it
+ * finds them; none when no entry names it.
+ */
+export function storeTarget(store: Store, run: RunRecord, cwd: string): DecisionTarget {
+  const own = checksOfRun(store, run, cwd);
+  if (!own) return { run, golden: null, spec: null, expect: null };
+  let expect: Record<string, unknown> | null = null;
+  try {
+    expect = rawExpectFor(loadTests(cwd), own.source, cwd);
+  } catch {
+    // the config read for the checks a moment ago: what it says of them is what verify is told
+  }
+  return { run, golden: null, spec: own.spec, expect };
+}
 
 /** Runs and goldens as given: run ids or prefixes, `label:<name>`, and pack folders (`goldens/*`). */
 export function resolveTargets(store: Store, specs: readonly string[], cwd: string): DecisionTarget[] {
@@ -119,13 +146,13 @@ export function resolveTargets(store: Store, specs: readonly string[], cwd: stri
       const label = spec.slice('label:'.length);
       const runs = store.allRuns().filter((r) => r.meta?.labels?.includes(label));
       if (!runs.length) throw new DecisionsError(`${spec}: no run has the label "${label}" (see shadowlap ls --label ${label})`);
-      for (const run of runs) if (!out.has(run.runId)) out.set(run.runId, { run, golden: null, spec: null, expect: null });
+      for (const run of runs) if (!out.has(run.runId)) out.set(run.runId, storeTarget(store, run, cwd));
       continue;
     }
     const path = /[\\/*?]/.test(spec) || existsSync(join(resolve(cwd, spec), 'run.json'));
     if (!path) {
       const run = requireRun(store, spec);
-      if (!out.has(run.runId)) out.set(run.runId, { run, golden: null, spec: null, expect: null });
+      if (!out.has(run.runId)) out.set(run.runId, storeTarget(store, run, cwd));
       continue;
     }
     const { dirs, unmatched } = expandRecordings([spec], cwd);
@@ -221,6 +248,8 @@ interface Planned {
   effectOf: (tool: string) => Effect | null;
   opts: { normalizers: Normalizer[]; clock?: number[] };
   answers: Array<{ answer: ModelAnswer; decision: ModelDecision | null }>;
+  /** The judge checks that read a text-only answer's words, by the answer's place in `answers`. */
+  judged: Map<number, DecisionJudge[]>;
   /** Why it is not asked; null when it is. */
   skip: string | null;
   /** The change doesn't touch this request: the working tree sends it the same prompt, or it was made with a model the switch leaves. */
@@ -501,6 +530,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
       effectOf,
       opts,
       answers: [],
+      judged: new Map(),
       skip: null,
       untouched: false,
       switched,
@@ -723,16 +753,17 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
 /** A step as the report shows it, from its answers, its values masked by the redaction rules. */
 function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopReason: string | null, samples: number, m: Mask): DecisionStep {
   const recordedView = decisionView(plan.recorded, plan.effectOf);
-  const answered = plan.answers.filter((a) => a.decision);
-  const compared = answered.map((a) => ({ a, c: compareDecisions(plan.recorded, a.decision!, plan.effectOf) }));
+  const answered = plan.answers.flatMap((a, i) => (a.decision ? [{ a, i }] : []));
+  // A text-only answer a judge check reads otherwise is raised to rank 2 (promoteByJudge).
+  const compared = answered.map(({ a, i }) => ({ a, judge: plan.judged.get(i) ?? null, c: promoteByJudge(compareDecisions(plan.recorded, a.decision!, plan.effectOf), plan.judged.get(i) ?? []) }));
   const worst = [...compared].sort((x, y) => (x.c.rank ?? 9) - (y.c.rank ?? 9))[0];
   const ranks = compared.map((x) => x.c.rank ?? 0);
   const before = tokensOf(plan.recordedUsage);
   // In a run like the recorded one: the first answer's whole input, split as the recorded call's was, and the samples' mean output.
-  const measured = answered.map((a) => tokensOf(a.answer.usage)).filter((t): t is TokenCount => t !== null);
+  const measured = answered.map(({ a }) => tokensOf(a.answer.usage)).filter((t): t is TokenCount => t !== null);
   const first = measured[0];
   const after = first ? estimatedTokens(before, first.input + first.cacheRead + first.cacheWrite, Math.round(measured.reduce((n, t) => n + t.output, 0) / measured.length)) : null;
-  const model = plan.askedModel ?? answered[0]?.answer.model ?? null;
+  const model = plan.askedModel ?? answered[0]?.a.answer.model ?? null;
   const spent = plan.answers.reduce((n, a) => n + (estimateCost(plan.askedModel ?? a.answer.model, a.answer.usage ?? undefined, prices) ?? 0), 0);
   const failed = plan.answers.find((a) => a.answer.error)?.answer.error ?? null;
   const error = plan.skip ?? (plan.untouched ? null : answered.length ? null : failed ?? (stopReason ? `not asked: ${stopReason}` : null));
@@ -751,7 +782,51 @@ function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopRe
     cost: { before: estimateCost(plan.recordedModel, plan.recordedUsage ?? undefined, prices), after: after ? estimateCost(model, usageOf(after), prices) : null, spent },
     thinkingStripped: plan.thinkingStripped,
     error: error === null ? null : m.text(error),
+    judge: worst?.judge ? worst.judge.map((j) => maskJudge(j, m)) : null,
   };
+}
+
+/** A judge check's sides as the report shows them: its reasons masked, as every value the report holds. */
+function maskJudge(j: DecisionJudge, m: Mask): DecisionJudge {
+  if (m === NO_MASK) return j;
+  return { ...j, recorded: { ...j.recorded, reason: m.text(j.recorded.reason) }, now: { ...j.now, reason: m.text(j.now.reason) } };
+}
+
+/**
+ * Asks the judge checks that read a text-only answer's words about the recorded words and the new
+ * ones (decisions-judge.ts), for every answered sample of a step that is text only: the run's own
+ * checks, or those given with --expect for verify. Runs go side by side, `concurrency` at once, as
+ * asking does. What it finds raises a step whose check comes out otherwise to rank 2 (stepOf).
+ */
+async function judgeTextSteps(store: Store, targets: readonly DecisionTarget[], planned: readonly Planned[], judge: TextJudge, expect: TestSpec | null, concurrency: number): Promise<{ outputJudges: string[] }> {
+  const outputJudges = new Set<string>();
+  const work: Array<() => Promise<void>> = [];
+  for (const t of targets) {
+    const spec = expect ?? t.spec;
+    const text = planned.filter((plan) => plan.target === t && plan.answers.some((a) => a.decision && compareDecisions(plan.recorded, a.decision, plan.effectOf).rank === 5));
+    if (!spec || !text.length) continue;
+    for (const j of TextJudge.readsOutput(spec)) outputJudges.add(j.name);
+    const calls = store.getCalls(t.run.runId);
+    const reads = judge.reads(t.run, calls, spec);
+    work.push(async () => {
+      for (const plan of text) {
+        const checks = reads.get(plan.call.callNo);
+        if (!checks?.length) continue;
+        for (const [i, a] of plan.answers.entries()) {
+          if (!a.decision || compareDecisions(plan.recorded, a.decision, plan.effectOf).rank !== 5) continue;
+          const given = { bytes: a.answer.bytes, contentType: a.answer.contentType, provider: plan.provider };
+          const found: DecisionJudge[] = [];
+          for (const j of checks) found.push(await judge.compare(t.run, calls, j, plan.call.callNo, given));
+          plan.judged.set(i, found);
+        }
+      }
+    });
+  }
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, work.length)) }, async () => {
+    while (next < work.length) await work[next++]!();
+  }));
+  return { outputJudges: [...outputJudges] };
 }
 
 /** A run's part of the report. */
@@ -810,7 +885,7 @@ export function verifyFields(change: Pick<DecisionsChange, 'model' | 'fields'>, 
 }
 
 /**
- * Verifies the runs with a write or stop change, as `shadowlap verify` would: each under its own
+ * Verifies the runs with a write, stop or judged change, as `shadowlap verify` would: each under its own
  * checks (a golden's from the config, or `--expect`), one verify per set of checks, each run in the
  * role its recording plays under them (a run that fails them must now pass; one that passes must
  * keep passing). With `blocked`, nothing runs: the verdict is not-run, with why, and the commands.
@@ -847,7 +922,7 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
   const out: DecisionsVerify = { ...empty, verdict: 'accepted' };
   for (const { g, runs, line } of plans) {
     const remaining = input.budget === null ? null : Math.max(0, input.budget - out.spent);
-    log(`${p.yellow('⑂')} Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} with a write or stop change: ${runs.map((r) => shortId(r.parent.runId)).join(', ')}`);
+    log(`${p.yellow('⑂')} Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} with a write, stop or judged change: ${runs.map((r) => shortId(r.parent.runId)).join(', ')}`);
     const report = await runVerify({
       opts: input.opts,
       runs,
@@ -945,6 +1020,15 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     if (problems.size) throw new DecisionsError(`nothing was sent: ${[...problems].join('; ')}`);
 
     const asked = await askAll(planned, s, sender, config.prices, log, () => (interrupted ? 'interrupted' : null), remedies);
+    // Text-only answers a judge check reads: the judge asked about the recorded words and the new ones,
+    // what it costs counted apart from asking, and against the budget (decisions-judge.ts).
+    const judge = new TextJudge(store, config, env, (judgeSpent) => (interrupted ? 'interrupted' : (asked.stopReason ?? (s.budget !== null && asked.spent + judgeSpent >= s.budget ? `the budget of $${s.budget.toFixed(2)} is spent` : null))));
+    let outputJudges: string[] = [];
+    try {
+      ({ outputJudges } = await judgeTextSteps(store, input.targets, planned, judge, s.thenVerify?.expect?.spec ?? null, s.concurrency));
+    } finally {
+      await judge.close();
+    }
     const warnings: string[] = [];
     const runs: DecisionRun[] = [];
     for (const t of input.targets) {
@@ -978,8 +1062,15 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     }
     for (const m of s.from ?? []) if (!use.some((u) => sameModel(u.model, m))) warnings.push(`--from ${m}: no model call of the runs was made with it (they use ${use.map((u) => u.model).join(', ') || 'no named model'})`);
     const minority = allSteps.filter((x) => x.rank !== null && x.rank <= 2 && !(x.majority !== null && x.majority <= 2)).length;
-    if (minority) notes.push(`${minority} step${minority === 1 ? '' : 's'} decided a write or when to stop differently in fewer than half ${minority === 1 ? 'its' : 'their'} samples: listed, not flagged, as a model's own variation.`);
-    if (counts[5]) notes.push('Text-only changes are counted, not judged.');
+    if (minority) notes.push(`${minority} step${minority === 1 ? '' : 's'} had a write, stop or judged change in fewer than half ${minority === 1 ? 'its' : 'their'} samples: listed, not flagged, as a model's own variation.`);
+    // Text-only changes a judge check reads were judged; the rest are counted.
+    const judgedSteps = allSteps.filter((x) => x.judge?.length);
+    const otherwise = judgedSteps.filter((x) => x.judge!.some((j) => j.changed)).length;
+    const unjudged = judgedSteps.filter((x) => x.judge!.some((j) => j.changed === null));
+    if (judgedSteps.length) notes.push(`A judge check of the runs read the words of ${judgedSteps.length} text-only step${judgedSteps.length === 1 ? '' : 's'}, as recorded and as answered now: ${otherwise ? `${otherwise} came out otherwise, rank 2, as a changed stop is` : 'every check came out as recorded'}.`);
+    if (unjudged.length) warnings.push(`${unjudged.length} text-only step${unjudged.length === 1 ? '' : 's'} a judge check reads could not be judged: ${[...new Set(unjudged.flatMap((x) => x.judge!.filter((j) => j.changed === null).map((j) => (j.now.status === 'inconclusive' ? j.now.reason : j.recorded.reason).replace(/^not judged: /, ''))))].slice(0, 3).join('; ')}`);
+    if (allSteps.some((x) => x.rank === 5 && !x.judge?.length)) notes.push(judgedSteps.length ? 'Text-only changes no judge check reads are counted, not judged.' : 'Text-only changes are counted, not judged.');
+    if (outputJudges.length) notes.push(`The judge check${outputJudges.length === 1 ? '' : 's'} ${outputJudges.map((n) => `"${n}"`).join(', ')} read${outputJudges.length === 1 ? 's' : ''} what the agent printed, which asking a model call again doesn't make: verify judges ${outputJudges.length === 1 ? 'it' : 'them'}.`);
     if (s.samples === 1 && (counts[1] || counts[2] || counts[3] || counts[4])) notes.push('Each step was asked once, and a model varies from one answer to the next: --samples 3 says how often a decision changes.');
     if (s.fromCode) notes.push('Nothing ran to read the prompt: each run was replayed offline under the working tree, its model calls matched without their prompt and tools.');
     if (rules.length) notes.push("The project's redaction rules masked the values this report shows, as they mask every copy of a run that leaves the machine.");
@@ -1019,6 +1110,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
       notes,
       warnings,
       verify: null,
+      judge: judgedSteps.length || judge.upstreamRequests || judge.spent ? { steps: judgedSteps.length, changed: otherwise, inconclusive: unjudged.length, spent: judge.spent, upstreamRequests: judge.upstreamRequests, unknownModels: [...judge.unknownModels] } : null,
       remedies: remedies.list(),
       stopReason: asked.stopReason,
     };
@@ -1032,11 +1124,11 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
         from,
         settings: s,
         prices: config.prices,
-        budget: s.budget === null ? null : Math.max(0, s.budget - asked.spent),
+        budget: s.budget === null ? null : Math.max(0, s.budget - asked.spent - judge.spent),
         log,
         blocked: codeChangeNeeded(report.remedies, s.model),
       });
-      if (report.verify.verdict === 'not-run' && !report.verify.reasons.length) report.notes.push('No run decides a write or when to stop differently, so none needs verify.');
+      if (report.verify.verdict === 'not-run' && !report.verify.reasons.length) report.notes.push('No run has a write, stop or judged change, so none needs verify.');
     }
     if (input.kind !== 'migrate') report.decisionsId = keepDecisions(store, report, 'decisions');
     return report;
@@ -1072,9 +1164,9 @@ export function keepDecisions(store: Store, report: DecisionsReport | (Record<st
       runs: runs.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.majority ?? null, changed: r.decisions.filter((x) => x.rank !== null).length, data: r as unknown as Record<string, unknown> })),
     });
     if (event) {
-      // What asking (and, for migrate, verifying) cost.
-      const r = report as Partial<DecisionsReport> & { costs?: { checking?: { decisions: number; verify: number } } };
-      const spent = r.costs?.checking ? r.costs.checking.decisions + r.costs.checking.verify : (r.cost?.spent ?? 0) + (r.verify?.spent ?? 0);
+      // What asking (and judging, and for migrate, verifying) cost.
+      const r = report as Partial<DecisionsReport> & { costs?: { checking?: { decisions: number; verify: number; judge?: number } } };
+      const spent = r.costs?.checking ? r.costs.checking.decisions + r.costs.checking.verify + (r.costs.checking.judge ?? 0) : (r.cost?.spent ?? 0) + (r.verify?.spent ?? 0) + (r.judge?.spent ?? 0);
       recordEvent(store, { kind: `${kind}.done`, actor, ref: sessionId, data: { change: report.change.text, runs: runs.length, flagged: report.flagged.length, spent } });
     }
     return sessionId;

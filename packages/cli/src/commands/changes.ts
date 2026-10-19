@@ -58,7 +58,7 @@ function failed(err: unknown, json: boolean | undefined, kind: 'decisions' | 'mi
   process.exitCode = 1;
 }
 
-/** Where a job's drawer goes next: the runs whose writes or stops changed, the first of them its primary action. */
+/** Where a job's drawer goes next: the runs with a write, stop or judged change, the first of them its primary action. */
 function emitDecisions(report: DecisionsReport): void {
   const flagged = report.flagged.slice(0, 3);
   flagged.forEach((runId, i) => emitJobEvent({ type: 'link', label: `Open ${runId.slice(0, 10)}`, href: `#/run/${runId}`, ...(i < flagged.length - 1 ? { secondary: true } : {}) }));
@@ -74,12 +74,18 @@ function inconclusiveExit(mode: 'fail' | 'warn', why: string | null): number {
   return 1;
 }
 
-/** Why a decisions report settles nothing, or null: it stopped early, a run could not be asked, verify didn't settle the runs it took. */
+/**
+ * Why a decisions report settles nothing, or null: it stopped early, a run could not be asked, a run
+ * it doesn't flag has a text-only change a judge check reads that could not be judged (it might be
+ * judged otherwise, which would flag it), verify didn't settle the runs it took.
+ */
 export function decisionsInconclusive(r: DecisionsReport): string | null {
   if (r.stopReason) return `it stopped before every step was asked: ${r.stopReason}`;
   // A run that could not be asked at all (a --from-code change that is more than a prompt, a model that refused every step) is no preview of it.
   const unasked = r.runs.filter((x) => x.refused || (x.steps > 0 && x.asked === 0 && x.counts.notAsked > 0));
   if (unasked.length) return `${unasked.length} run${unasked.length === 1 ? '' : 's'} could not be asked`;
+  const unjudged = r.runs.filter((x) => !r.flagged.includes(x.runId) && x.decisions.some((s) => s.judge?.some((j) => j.changed === null)));
+  if (unjudged.length) return `${unjudged.length} run${unjudged.length === 1 ? ' has' : 's have'} a text-only change a judge check reads that could not be judged`;
   if (r.verify?.verdict === 'incomplete') return 'verify did not settle every run it took';
   if (r.verify?.verdict === 'not-run' && r.verify.reasons.length) return `verify did not run: ${r.verify.reasons[0]}`;
   return null;
@@ -194,7 +200,7 @@ export function register(program: Command): void {
 
   program
     .command('migrate')
-    .description("Switch models with the evidence: ask your goldens' model calls again under the new model (with the fields it refuses changed to what it takes), verify the runs whose writes or stops change, and compare what a run costs. Ends in one report, what changes, what still passes, what it costs and what to set, with the change to your files and a pull request body.")
+    .description("Switch models with the evidence: ask your goldens' model calls again under the new model (with the fields it refuses changed to what it takes), verify the runs with a write, stop or judged change, and compare what a run costs. Ends in one report, what changes, what still passes, what it costs and what to set, with the change to your files and a pull request body.")
     .argument('[goldens...]', 'goldens (pack folders) or runs to migrate (default: goldens/*); after "--", the command to verify with')
     .requiredOption('--to <model>', 'the model to switch to')
     .option('--from <model>', 'the recorded model to switch from (repeatable; default: the models the runs use that retire, else the one they use most)', repeat, [] as string[])
@@ -259,7 +265,7 @@ export function register(program: Command): void {
           ...(flags.guard !== 'warn' ? ['--guard', flags.guard] : []),
           ...(split.argv ? ['--', ...split.argv] : []),
         ]);
-        log(`${p.yellow('⑂')} Migrating ${targets.length} run${targets.length === 1 ? '' : 's'} to ${flags.to}: the agent's model calls asked again, then the runs whose writes or stops change verified`);
+        log(`${p.yellow('⑂')} Migrating ${targets.length} run${targets.length === 1 ? '' : 's'} to ${flags.to}: the agent's model calls asked again, then the runs with a write, stop or judged change verified`);
         const report = await runMigrate({
           opts,
           targets,
@@ -284,19 +290,20 @@ export function register(program: Command): void {
 
 /**
  * 1 when a run verify took breaks under the new model; when the report settles nothing (it stopped
- * early, a step got no answer, a flagged run went unverified), 1 with `--inconclusive fail` and 0
- * with `warn`; else 0.
+ * early, a step got no answer, a flagged run went unverified, a text-only change a judge check reads
+ * could not be judged), 1 with `--inconclusive fail` and 0 with `warn`; else 0.
  */
 export function migrateExit(r: MigrateReport, inconclusive: 'fail' | 'warn' = 'fail'): number {
   if (r.passes.verdict === 'rejected' || r.passes.runs.some((x) => x.verified && x.verdict === 'failed')) return 1;
-  const unsettled = r.stopReason ? `it stopped before every step was asked: ${r.stopReason}` : r.passes.verdict === 'incomplete' ? 'verify did not settle every run it took' : r.passes.runs.some((x) => x.verdict === 'inconclusive') ? `${r.passes.runs.filter((x) => x.verdict === 'inconclusive').length} run(s) are inconclusive` : null;
+  const open = r.passes.runs.filter((x) => x.verdict === 'inconclusive').length;
+  const unsettled = r.stopReason ? `it stopped before every step was asked: ${r.stopReason}` : r.passes.verdict === 'incomplete' ? 'verify did not settle every run it took' : open ? `${open} run${open === 1 ? ' is' : 's are'} inconclusive` : null;
   return inconclusiveExit(inconclusive, unsettled);
 }
 
 function verifyLines(v: DecisionsVerify, what: string | null): string {
   if (v.verdict === 'not-run') return v.reasons.length ? `${p.yellow('!')} Not verified: ${v.reasons.join('; ')}\n${v.commands.map((c) => p.dim(`  ${c}`)).join('\n')}\n` : '';
   const head = v.verdict === 'accepted' ? `${p.green('✓')} Verified` : v.verdict === 'rejected' ? `${p.red('✗')} Verify rejected the change` : `${p.yellow('!')} Verify did not finish`;
-  const lines = [``, `${head}: ${v.runs.length} run${v.runs.length === 1 ? '' : 's'} with a write or stop change${what ? ` (${what})` : ''}`];
+  const lines = [``, `${head}: ${v.runs.length} run${v.runs.length === 1 ? '' : 's'} with a write, stop or judged change${what ? ` (${what})` : ''}`];
   // The rule once, then each run's outcome, its tally and under a gate the Wilson bound.
   if (v.rule) lines.push(p.dim(`  ${v.rule}`));
   for (const x of v.runs) lines.push(`  ${x.runId.slice(0, 10)}  ${x.outcome}  ${p.dim(`${x.passes} of ${x.attempts} passed${x.bound ? ` · ${x.bound}` : ''}`)}`);

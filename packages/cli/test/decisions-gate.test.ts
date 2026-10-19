@@ -46,7 +46,7 @@ describe('a session verified more than once', () => {
 
 describe('the exit status of an inconclusive gate', () => {
   it('fails decisions unless --inconclusive warn lets it through', () => {
-    const report = { stopReason: null, runs: [run('01A')], verify: verified({ verdict: 'incomplete', runs: [{ runId: '01A', role: 'good', outcome: 'inconclusive', passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)' }], rule: SHORT }) } as unknown as DecisionsReport;
+    const report = { stopReason: null, runs: [run('01A')], flagged: ['01A'], verify: verified({ verdict: 'incomplete', runs: [{ runId: '01A', role: 'good', outcome: 'inconclusive', passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)' }], rule: SHORT }) } as unknown as DecisionsReport;
     expect(decisionsInconclusive(report)).toBe('verify did not settle every run it took');
     expect(decisionsInconclusive({ ...report, verify: verified({ runs: [{ runId: '01A', role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' }] }) })).toBeNull();
   });

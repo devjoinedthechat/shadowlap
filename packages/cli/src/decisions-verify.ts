@@ -4,7 +4,7 @@ import { commandIsImported, importedCommandSource, type DecisionRemedy, type Dec
 import { judgeRecording } from './attempts.js';
 import { specFor } from './checks.js';
 import { loadConfig, loadTests } from './config.js';
-import { codeChangeNeeded, DecisionsError, verifyFields, verifyFlagged, type DecisionsSettings, type DecisionTarget } from './decisions.js';
+import { codeChangeNeeded, DecisionsError, storeTarget, verifyFields, verifyFlagged, type DecisionsSettings, type DecisionTarget } from './decisions.js';
 import { importGolden } from './golden-test.js';
 import { rawExpectFor } from './goldens.js';
 import { passesOf, type MigrateRunPass } from './migrate.js';
@@ -77,9 +77,9 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
     const change: Pick<DecisionsChange, 'model' | 'fields' | 'from'> = { model: report?.change?.model ?? null, fields: report?.change?.fields ?? {}, from: report?.change?.from ?? null };
     const named = (id: string, given: string) => id === given || (given.length >= 6 && id.startsWith(given));
     const missing = input.runs.filter((r) => !flagged.some((id) => named(id, r)));
-    if (missing.length) throw new DecisionsError(`${missing.join(', ')}: no run ${session.sessionId} flagged has that id (it flags the runs whose writes or stops change: ${flagged.map((id) => id.slice(0, 10)).join(', ') || 'none'})`);
+    if (missing.length) throw new DecisionsError(`${missing.join(', ')}: no run ${session.sessionId} flagged has that id (it flags the runs with a write, stop or judged change: ${flagged.map((id) => id.slice(0, 10)).join(', ') || 'none'})`);
     const chosen = input.runs.length ? flagged.filter((id) => input.runs.some((r) => named(id, r))) : flagged;
-    if (!chosen.length) throw new DecisionsError(`no run in ${session.sessionId} decides a write or when to stop differently: there is nothing to verify`);
+    if (!chosen.length) throw new DecisionsError(`no run in ${session.sessionId} has a write, stop or judged change: there is nothing to verify`);
 
     // Each run as the session asked it: a golden from its pack, with its checks from the config.
     const goldenOf = new Map(session.runRows.map((r) => [r.runId, r.golden]));
@@ -96,7 +96,7 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
       }
       const run = store.getRun(runId);
       if (!run) throw new DecisionsError(`${runId.slice(0, 10)}, which ${session.sessionId} names, is no longer in the store`);
-      return { run, golden: null, spec: null, expect: null };
+      return storeTarget(store, run, cwd);
     };
     const targets = chosen.map(targetOf);
     // A run from someone's pack runs its recorded command only with a yes; a golden runs its pack's, as test runs it.

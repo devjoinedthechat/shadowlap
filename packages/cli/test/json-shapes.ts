@@ -88,10 +88,14 @@ export const SHAPES = {
   fixPr: { section: 'fix', grows: true, fields: ['fixId', 'pr'] },
   fixError: { section: 'fix', grows: true, fields: ['fixId', 'status', 'error'] },
   // Preview a change: decisions' report, which the dashboard reads as it is, and migrate's.
-  decisions: { section: 'decisions', grows: true, fields: ['decisionsId', 'kind', 'at', 'change', 'command', 'samples', 'runs', 'counts', 'flagged', 'cost', 'tokens', 'retirements', 'notes', 'warnings', 'verify', 'remedies', 'stopReason'] },
+  decisions: { section: 'decisions', grows: true, fields: ['decisionsId', 'kind', 'at', 'change', 'command', 'samples', 'runs', 'counts', 'flagged', 'cost', 'tokens', 'retirements', 'notes', 'warnings', 'verify', 'judge', 'remedies', 'stopReason'] },
   decisionsChange: { section: 'decisions', grows: true, fields: ['model', 'fields', 'from', 'fromCode', 'text'] },
   decisionsRun: { section: 'decisions', grows: true, fields: ['runId', 'golden', 'steps', 'asked', 'rank', 'majority', 'counts', 'cost', 'tokens', 'thinkingStripped', 'refused', 'decisions', 'warnings'] },
-  decisionsStep: { section: 'decisions', grows: true, fields: ['callNo', 'step', 'scope', 'rank', 'majority', 'changes', 'recorded', 'now', 'samples', 'model', 'tokens', 'cost', 'thinkingStripped', 'error'] },
+  decisionsStep: { section: 'decisions', grows: true, fields: ['callNo', 'step', 'scope', 'rank', 'majority', 'changes', 'recorded', 'now', 'samples', 'model', 'tokens', 'cost', 'thinkingStripped', 'error', 'judge'] },
+  // A text-only change a judge check reads: each check's verdict on the recorded words and the new ones, and what judging cost.
+  decisionsJudge: { section: 'decisions', grows: true, fields: ['name', 'of', 'model', 'pass', 'recorded', 'now', 'changed'] },
+  decisionsJudgeSide: { section: 'decisions', grows: true, fields: ['status', 'verdict', 'reason', 'source', 'cost', 'request'] },
+  decisionsJudged: { section: 'decisions', grows: true, fields: ['steps', 'changed', 'inconclusive', 'spent', 'upstreamRequests', 'unknownModels'] },
   decisionsDifference: { section: 'decisions', grows: true, fields: ['rank', 'kind', 'tool', 'effect', 'before', 'after', 'detail'] },
   decisionsView: { section: 'decisions', grows: true, fields: ['stop', 'stopReason', 'tools', 'text'] },
   // A refusal before anything was asked (no credentials, no such run): decisions' and migrate's.

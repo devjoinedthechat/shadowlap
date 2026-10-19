@@ -369,7 +369,7 @@ describe('shadowlap decisions', () => {
     expect(step.samples.ranks.slice().sort()).toEqual([0, 0, 1]);
     expect(report.runs[0]).toMatchObject({ rank: 1, majority: null });
     expect(report.flagged).toEqual([]);
-    expect(report.notes).toContain("1 step decided a write or when to stop differently in fewer than half its samples: listed, not flagged, as a model's own variation.");
+    expect(report.notes).toContain("1 step had a write, stop or judged change in fewer than half its samples: listed, not flagged, as a model's own variation.");
     const text = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3']);
     expect(text.stdout).toMatch(/rank 1 +send_email is called with other arguments · in 1 of 3 samples, fewer than half: not flagged/);
   }, 120_000);

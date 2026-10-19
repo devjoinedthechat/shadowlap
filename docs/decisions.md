@@ -54,7 +54,7 @@ A decision is what the agent does next because of an answer: the tools it calls,
 | Rank | Change | Example |
 |---|---|---|
 | 1 | A write tool added, removed or called with other arguments, or the writes in another order | `issue_refund(240)` → `escalate()` |
-| 2 | When the agent stops or hands over | it answers at step 7 instead of calling another tool; it transfers to another agent |
+| 2 | When the agent stops or hands over, or a [judge check](#text-a-judge-check-reads) reads its words otherwise | it answers at step 7 instead of calling another tool; it transfers to another agent; its final reply no longer says what a judge check asks it to |
 | 3 | A read tool added or removed | `lookup_policy` no longer called |
 | 4 | Other arguments to a read | a search phrased differently |
 | 5 | Text only | the same actions, other words |
@@ -63,7 +63,34 @@ A step takes the rank of its most consequential change, and a run that of its mo
 
 Tools the provider runs or defines itself are read too, by what they do. Anthropic's web search, web fetch, tool search and code execution, and the Responses API's web search, file search and code interpreter, read: code runs in the provider's own sandbox, where nothing outside it changes. An image the model makes is pure. A computer use action (`computer.click`, `computer.type`, named for its kind) writes, but for a screenshot or a wait, which read; the Responses API's shell and patch tools write. A call to a remote MCP server's tool (Anthropic's MCP connector, the Responses API's `mcp` tool) is named for the tool and takes its effect from `mcp.effects`, else counts as a write.
 
-Arguments and text are compared after the project's [normalizers](./normalizers-and-redaction.md) (and a redacted recording's rules), with dates near the run's start masked as a replay masks them, so an id or a timestamp made anew is no change. Reads asked in another order within a turn are the same decision. Text-only changes are counted, not judged.
+Arguments and text are compared after the project's [normalizers](./normalizers-and-redaction.md) (and a redacted recording's rules), with dates near the run's start masked as a replay masks them, so an id or a timestamp made anew is no change. Reads asked in another order within a turn are the same decision. Text-only changes are counted, not judged, unless a judge check reads them.
+
+## Text a judge check reads
+
+A text-only change, the same actions in other words, is counted, not judged, unless a [judge check](./checks.md#judge-checks) of the run reads those words. The checks are the ones the run is judged by: its golden's from `shadowlap.config.json`, for a run named by id those of the recording it comes from, or `--expect` with `--then-verify`. A check reads a step's words when its judge reads the final answer (`"of": "answer"`) and the step is the run's last model call, or reads the run (`"of": "run"`) and the step is the last model call of a conversation. Then the judge is asked about the recorded words and the new ones, as a test asks it: through Shadowlap's sidecar in the judge's own scope, `shadowlap:judge`, at temperature 0 where the model takes one, for a structured verdict, about what it reads with the project's redaction rules applied. A judge of the run reads the run as recorded with the new answer in its place.
+
+**A check that comes out otherwise ranks the step 2**, beside a changed stop, so the run is flagged: `--then-verify` verifies it, `--strict` fails on it and `migrate` lists it under what changes. What the agent hands back passed a check the project wrote and now fails it, or the other way round: as when it stops or hands over differently, what reaches the person or the next agent changed. It is not rank 1: no write changed, nothing acts on the world differently, and a verdict is a model's reading of the words, which can be wrong, so verify settles it end to end. A check that comes out as recorded leaves the step text only, with the verdicts beside it.
+
+```sh
+AGENT_SYSTEM_SUFFIX="Keep the final answer short." shadowlap decisions goldens/research --from-code
+```
+
+```
+✗ 1 of 1 run is judged otherwise, under the prompt and tools in the working tree
+  11 steps asked: 1 rank 2, 10 the same · no tool ran
+
+goldens/research 01M58W8A0Z  11 of 11 model calls asked · 1 changed, most: rank 2 (it stops, hands over or is judged differently)
+  #30   step 11  rank 2  judge "fences" fails what it says now, which passed as recorded
+         recorded answers and stops: "Done. Summary: recorded runs replay deterministically; forks fence writ…"
+         now      answers and stops: "Done. Recorded runs replay deterministically."  −8 tokens · −<$0.001
+         judge "fences" passed → failed · It no longer says that forks fence writes. (judged live, <$0.001)
+```
+
+The golden's check `fences` asks whether the final answer says that forks fence writes; the recording's verdict was yes, the new words' is no.
+
+Each verdict is kept with the session, with the request it answered. The recorded words' verdict comes from the golden's own judge call, which `pack` and `test --update` keep, for free; a request asked before, such as the same new words in an earlier session, is answered from what that session kept, for free; only the rest is asked. What judging costs is reported apart from asking (`judging:` under the report, `judge` in its JSON) and counts against `--budget`. Where the judge can't be asked (no key for its provider and no upstream set for it, the budget spent), the check is *inconclusive* and says why: the step stays text only, and a preview that can't tell whether a run would be flagged settles nothing, so it exits 1 unless `--inconclusive warn`.
+
+A check on what the agent printed (`"of": "output"`) reads no model call's answer: the report names it, and verify judges it. Nor does a judge read the words of an earlier step as given: the requests after it carry them back to the model as recorded, so no run holds that answer with the rest as recorded.
 
 ## Reading the report
 
@@ -71,7 +98,7 @@ Each run lists its changed steps, the most consequential first: the call number 
 
 The steps don't depend on each other: step 9 is asked with the conversation as recorded up to step 9, whatever step 3 decided. That is what makes them parallel and free of side effects, and it is the report's limit: **after the first changed decision, later steps are judged in the recorded run's state**, which the changed agent may never have reached. Every report says so. It narrows where to look; [`verify`](./verify.md) is the end-to-end check, and `--then-verify` runs it on exactly the runs that need it.
 
-`--samples <n>` asks each step *n* times and reports how often its decision changed (*in 2 of 3 samples*), which tells a changed policy from a model's own variation. A step flags its run only when more than half its samples show a write or stop change; one fewer samples show is listed with how often, and *not flagged*, and the report counts such steps. With one sample and a change, the report says so.
+`--samples <n>` asks each step *n* times and reports how often its decision changed (*in 2 of 3 samples*), which tells a changed policy from a model's own variation. A step flags its run only when more than half its samples show a write, stop or judged change; one fewer samples show is listed with how often, and *not flagged*, and the report counts such steps. A judge reads each sample's words. With one sample and a change, the report says so.
 
 The report shows what the project's [redaction rules](./normalizers-and-redaction.md) leave of a value: the arguments, texts and errors it holds are masked as every copy of a run that leaves the machine is (a pull request body, a comment on one), while the comparison reads the values themselves.
 
@@ -118,7 +145,7 @@ A call is sent with the query it was recorded with, credentials left out: an Azu
 shadowlap decisions goldens/* --from-code --then-verify
 ```
 
-After asking, `--then-verify` runs [`verify`](./verify.md) on the runs with a rank 1 or 2 change, and only on those. Each run is judged by its golden's checks from `shadowlap.config.json` (or `--expect`), one verify per set of checks, in the role its recording plays under them: a run that passes them as recorded must keep passing, one that fails them must now pass. The model and fields of the change go to verify as `--model` and `--set`, with `--from` naming the models they change at, so verify changes the same calls the preview did; a `--from-code` change is your working tree, which verify replays. Each run is replayed until verify's [gate](./gating.md) decides, as `verify` decides by default: `--gate` changes its figures, and `--attempts` and `--passes` give a fixed count instead. The verdict is kept like any other, and the report ends with the commands that verify the runs again. Runs whose writes and stops didn't change are not replayed.
+After asking, `--then-verify` runs [`verify`](./verify.md) on the runs with a rank 1 or 2 change, and only on those. Each run is judged by its checks from `shadowlap.config.json` (or `--expect`): a golden's own, and for a run named by id those of the recording it comes from (a golden a test replayed), one verify per set of checks, in the role its recording plays under them: a run that passes them as recorded must keep passing, one that fails them must now pass. The model and fields of the change go to verify as `--model` and `--set`, with `--from` naming the models they change at, so verify changes the same calls the preview did; a `--from-code` change is your working tree, which verify replays. Each run is replayed until verify's [gate](./gating.md) decides, as `verify` decides by default: `--gate` changes its figures, and `--attempts` and `--passes` give a fixed count instead. The verdict is kept like any other, and the report ends with the commands that verify the runs again. Runs with no write, stop or judged change are not replayed.
 
 A session kept earlier can be verified later, or one run of it: `shadowlap decisions --verify dc-01M58W8A0Z… [run]` verifies the runs it flagged the same way, without asking anything again, and keeps what verify finds in the session, over what an earlier verify found for the others. A run whose gate ran out of attempts between its bounds is *inconclusive*, and the session stays incomplete until a verify settles it; a session verified again under another gate states each rule once. That is what the dashboard's *Verify the changed runs* runs.
 
@@ -158,8 +185,8 @@ The config change
 
 It runs `decisions --model` on your goldens (`goldens/*`, or the packs and runs you name), then `verify` on the runs with a rank 1 or 2 change, each decided by verify's gate as `--then-verify` decides it, and compares what a run costs. It switches the agent's calls: those made with the models `--from` names, else those made with a model that retires, by the [retirement table](#model-retirements), else those made with the model the runs use most; a simulated user or a sub-agent on another model keeps its own, in the preview and in verify. The report has four blocks, in order:
 
-- **What changes:** each write and stop change, with the recorded and the new action; the rest counted.
-- **What still passes:** each run's verdict, *passed*, *failed* or *inconclusive*. A run verified says how verify found it: *kept*, *fixed*, *broken*, *not fixed*, *unsettled* when its attempts stopped before they settled it (the budget, Ctrl-C), or *inconclusive* when its gate ran out of attempts between its bounds, with its tally and the Wilson bound of its pass rate, under the gate's rule, stated once. A run whose writes and stops didn't change is *unchanged*: it is not re-run, and its recording's own verdict under its checks stands.
+- **What changes:** each write, stop and judged change, with the recorded and the new action; the rest counted.
+- **What still passes:** each run's verdict, *passed*, *failed* or *inconclusive*. A run verified says how verify found it: *kept*, *fixed*, *broken*, *not fixed*, *unsettled* when its attempts stopped before they settled it (the budget, Ctrl-C), or *inconclusive* when its gate ran out of attempts between its bounds, with its tally and the Wilson bound of its pass rate, under the gate's rule, stated once. A run with no write, stop or judged change is *unchanged*: it is not re-run, and its recording's own verdict under its checks stands. One with a text-only change a judge check reads that could not be judged is *inconclusive* (`not-judged`): the words might read otherwise.
 - **What it costs:** per run, before and after, from the recorded calls and the new answers, and what checking cost.
 - **What to set:** the fields the switch needs, each with why.
 
@@ -194,7 +221,7 @@ A call is judged by the platform that served it: a Claude model called through B
 shadowlap decisions goldens/* --from-code --strict
 ```
 
-On a pull request, this previews the prompt and tools the branch sends against the goldens, sends only the requests the change touches, and exits 1 when a golden's writes or stops change. It asks the model, so the job needs the provider's key as a secret, as a live `verify` does; `--budget` caps what it spends, and `--inconclusive warn` lets a preview that couldn't settle (the budget ran out) pass with a warning. `--json` prints the report the dashboard reads, with the same fields for a coding agent ([the reference](./cli.md#decisions)).
+On a pull request, this previews the prompt and tools the branch sends against the goldens, sends only the requests the change touches, and exits 1 when a golden's writes, stops or judged answers change. It asks the model, so the job needs the provider's key as a secret, as a live `verify` does; `--budget` caps what it spends, and `--inconclusive warn` lets a preview that couldn't settle (the budget ran out) pass with a warning. `--json` prints the report the dashboard reads, with the same fields for a coding agent ([the reference](./cli.md#decisions)).
 
 ## Limits
 
@@ -204,5 +231,5 @@ On a pull request, this previews the prompt and tools the branch sends against t
 - A switch to a model of another family is verify's: the recorded request can't be asked of it as it stands.
 - A Responses request that continues a stored response (`previous_response_id`) is asked with the turns the provider holds for it, as recorded.
 - An agent that thinks between its tool calls has its earlier reasoning left out under a new prompt, as above; a provider that still wants it back refuses such a step, which is listed with the provider's words, not ranked.
-- Text-only changes are counted, not judged.
+- Text-only changes are counted, not judged, unless a judge check reads them, as above; the words of a step a later request carries are counted.
 - Each session is kept in the store with each run's decisions, for the dashboard; `gc` leaves sessions, which outlive the runs they name.
