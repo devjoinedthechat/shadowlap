@@ -70,9 +70,9 @@ describe('a probe tally', () => {
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 /**
- * A probe whose attempts the test ends one by one: `end(n, passed)` ends attempt n as blame does
- * (the tally reads it), `stop(n)` ends it unread, as Ctrl-C does. `stopped` stands for what else
- * stops new attempts: an interrupt, a prefix that broke, the budget spent.
+ * A probe whose attempts the test ends one by one: `end(n, passed)` ends attempt n as blame does (the
+ * tally reads it), `end(n, null)` unread, as Ctrl-C does. `stop()` stands for whatever stops new
+ * attempts: an interrupt, a prefix that broke, the budget spent.
  */
 function probe(concurrency: number) {
   const tally = gated();
