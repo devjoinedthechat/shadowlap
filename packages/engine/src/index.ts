@@ -111,3 +111,12 @@ export { chatCompletionToResponse, responseEvents, responsesToOpenAIChat, type R
 export { anthropicAnswer, answerAs, CLOUD_ADVICE, CLOUDS, errorAs, isTakeoverCall, modelUnswitchable, requestFor, switchTakeoverModel, takeoverMode, takeoverRefusal, wantsStream, type AnswerOptions, type EncodedAnswer, type TakeoverMode, type TakeoverTarget, type TargetRoute } from './takeover.js';
 export { messagesOf, type DatasetMessage } from './dataset.js';
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';
+// The decision diff (shadowlap decisions, migrate): a recorded request with only the change swapped
+// in, its answer's decision against the recorded one, ranked by consequence; the providers' model
+// retirement dates; and the sessions the store keeps.
+export { promptOf, promptParts, samePrompt, withoutEarlierThinking, withPrompt, type RequestPrompt } from './prompt.js';
+export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LABELS, STOP_WORDS, byConsequence, callLine, compareDecisions, decisionLine, decisionOf, decisionOfResponse, decisionView, effectsOf, emptyCounts, formatDecisions, isHandover, normalizedArgs, stepDelta } from './decisions.js';
+export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionOptions, DecisionRank, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
+export { FIELD_RETIREMENTS, MODEL_RETIREMENTS, RETIREMENT_SOURCES, RETIREMENTS_VERSION, longDate, retiredFields, retirementOf, retirementPlatform, retirementsOf, retirementTableProblems, tableModel } from './model-retirements.js';
+export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlatform } from './model-retirements.js';
+export type { DecisionRunRow, DecisionSessionRow, NewDecisionSession } from './store.js';

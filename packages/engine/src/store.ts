@@ -354,7 +354,74 @@ CREATE TRIGGER IF NOT EXISTS change_counts_team_update AFTER UPDATE ON team_runs
 CREATE TRIGGER IF NOT EXISTS change_counts_team_delete AFTER DELETE ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_insert AFTER INSERT ON team_sync BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_update AFTER UPDATE ON team_sync BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
+
+-- Decisions: each shadowlap decisions or migrate session, and how each run's model calls decided
+-- under its change (decisions.ts). A session keeps its report as --json prints it, without its runs;
+-- each run's part is a row of its own, so a run's page reads its decisions without the rest of the
+-- session. Sessions name runs by id with no foreign key: a session outlives a run gc deletes. Every
+-- write moves the 'decisions' counter, so the Changes page follows a session another process keeps.
+CREATE TABLE IF NOT EXISTS decision_sessions (
+  session_id  TEXT    PRIMARY KEY,
+  kind        TEXT    NOT NULL CHECK (kind IN ('decisions', 'migrate')),
+  at          INTEGER NOT NULL,
+  change      TEXT    NOT NULL,
+  runs        INTEGER NOT NULL,
+  flagged     INTEGER NOT NULL,
+  actor       TEXT,
+  revision    TEXT,
+  data        TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS decision_sessions_at ON decision_sessions (at);
+CREATE TABLE IF NOT EXISTS decision_runs (
+  session_id  TEXT    NOT NULL REFERENCES decision_sessions(session_id) ON DELETE CASCADE,
+  run_id      TEXT    NOT NULL,
+  position    INTEGER NOT NULL,
+  golden      TEXT,
+  rank        INTEGER,
+  changed     INTEGER NOT NULL DEFAULT 0,
+  at          INTEGER NOT NULL,
+  data        TEXT    NOT NULL,
+  PRIMARY KEY (session_id, run_id)
+);
+CREATE INDEX IF NOT EXISTS decision_runs_run ON decision_runs (run_id, at);
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('decisions', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_decisions_insert AFTER INSERT ON decision_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'decisions'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_decisions_update AFTER UPDATE ON decision_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'decisions'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_decisions_delete AFTER DELETE ON decision_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'decisions'; END;
 `;
+
+// ---- Decisions: the shapes of the decision tables ----
+
+/** A decisions or migrate session as the store lists it: what changed, over how many runs, and when. */
+export interface DecisionSessionRow {
+  sessionId: string;
+  kind: 'decisions' | 'migrate';
+  at: number;
+  /** The change in words: `the model claude-haiku-4-5`. */
+  change: string;
+  runs: number;
+  /** Runs with a rank 1 or 2 change. */
+  flagged: number;
+  actor: string | null;
+  revision: string | null;
+}
+
+/** One run's part of a session: its rank and changed steps, and its report (a `DecisionRun`) whole. */
+export interface DecisionRunRow {
+  sessionId: string;
+  runId: string;
+  golden: string | null;
+  rank: number | null;
+  changed: number;
+  at: number;
+  data: Record<string, unknown>;
+}
+
+export interface NewDecisionSession extends Omit<DecisionSessionRow, 'runs'> {
+  /** The report without its runs. */
+  data: Record<string, unknown>;
+  runs: Array<Pick<DecisionRunRow, 'runId' | 'golden' | 'rank' | 'changed' | 'data'>>;
+}
 
 // ---- tests (v4): the shapes of the test tables ----
 
@@ -1304,6 +1371,75 @@ export class Store {
         session: String(r.session),
         at: Number(r.at),
       }));
+  }
+
+  // ---- Decisions: decisions and migrate sessions, and each run's part of one ----
+
+  /** Keeps a session and its runs, in one transaction; a session kept again under its id is replaced. */
+  putDecisionSession(s: NewDecisionSession): void {
+    const flagged = s.runs.filter((r) => r.rank !== null && r.rank <= 2).length;
+    this.transaction(() => {
+      this.db.prepare(`DELETE FROM decision_sessions WHERE session_id = ?`).run(s.sessionId);
+      this.db
+        .prepare(`INSERT INTO decision_sessions (session_id, kind, at, change, runs, flagged, actor, revision, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(s.sessionId, s.kind, s.at, s.change, s.runs.length, flagged, s.actor, s.revision, JSON.stringify(s.data));
+      const insert = this.db.prepare(`INSERT OR REPLACE INTO decision_runs (session_id, run_id, position, golden, rank, changed, at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+      s.runs.forEach((r, i) => insert.run(s.sessionId, r.runId, i, r.golden, r.rank, r.changed, s.at, JSON.stringify(r.data)));
+    });
+  }
+
+  private decisionSessionRow(r: Record<string, unknown>): DecisionSessionRow {
+    return {
+      sessionId: String(r.session_id),
+      kind: r.kind === 'migrate' ? 'migrate' : 'decisions',
+      at: Number(r.at),
+      change: String(r.change),
+      runs: Number(r.runs),
+      flagged: Number(r.flagged),
+      actor: r.actor === null ? null : String(r.actor),
+      revision: r.revision === null ? null : String(r.revision),
+    };
+  }
+
+  private decisionRunRow(r: Record<string, unknown>): DecisionRunRow {
+    return {
+      sessionId: String(r.session_id),
+      runId: String(r.run_id),
+      golden: r.golden === null ? null : String(r.golden),
+      rank: r.rank === null ? null : Number(r.rank),
+      changed: Number(r.changed),
+      at: Number(r.at),
+      data: JSON.parse(String(r.data)) as Record<string, unknown>,
+    };
+  }
+
+  /** A session with its report and its runs in the order it asked them, or null. */
+  getDecisionSession(sessionId: string): (DecisionSessionRow & { data: Record<string, unknown>; runRows: DecisionRunRow[] }) | null {
+    const row = this.db.prepare(`SELECT * FROM decision_sessions WHERE session_id = ?`).get(sessionId);
+    if (!row) return null;
+    const runRows = this.db.prepare(`SELECT * FROM decision_runs WHERE session_id = ? ORDER BY position`).all(sessionId).map((r) => this.decisionRunRow(r));
+    return { ...this.decisionSessionRow(row), data: JSON.parse(String(row.data)) as Record<string, unknown>, runRows };
+  }
+
+  /** Sessions, newest first; `kind` keeps one kind. */
+  listDecisionSessions(options: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionRow[] {
+    const limit = Math.max(1, Math.min(10_000, options.limit ?? 50));
+    const rows = options.kind
+      ? this.db.prepare(`SELECT * FROM decision_sessions WHERE kind = ? ORDER BY at DESC, session_id DESC LIMIT ?`).all(options.kind, limit)
+      : this.db.prepare(`SELECT * FROM decision_sessions ORDER BY at DESC, session_id DESC LIMIT ?`).all(limit);
+    return rows.map((r) => this.decisionSessionRow(r));
+  }
+
+  /** A run's part of each session that asked its model calls again, newest first, with the session's kind and change. */
+  decisionsOfRun(runId: string, limit = 20): Array<DecisionRunRow & Pick<DecisionSessionRow, 'kind' | 'change'>> {
+    return this.db
+      .prepare(`SELECT r.*, s.kind AS kind, s.change AS change FROM decision_runs r JOIN decision_sessions s ON s.session_id = r.session_id WHERE r.run_id = ? ORDER BY r.at DESC, r.session_id DESC LIMIT ?`)
+      .all(runId, Math.max(1, Math.min(1000, limit)))
+      .map((r) => ({ ...this.decisionRunRow(r), kind: r.kind === 'migrate' ? ('migrate' as const) : ('decisions' as const), change: String(r.change) }));
+  }
+
+  deleteDecisionSession(sessionId: string): void {
+    this.db.prepare(`DELETE FROM decision_sessions WHERE session_id = ?`).run(sessionId);
   }
 
   // ---- runs ----
