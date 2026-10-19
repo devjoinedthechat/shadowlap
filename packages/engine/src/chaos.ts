@@ -1,3 +1,4 @@
+import { canonicalize } from './canonical.js';
 import type { Refusal, ToolFailure } from './interventions.js';
 import type { ReplayOptions } from './session.js';
 import type { CallRecord } from './types.js';
@@ -15,7 +16,8 @@ import type { CallRecord } from './types.js';
  *   500         the provider fails that model call with a server error
  *
  * Every preset changes what the agent gets at one call, so the replay forks there and runs live
- * from it, writes fenced, and is judged as a fork is: the agent exits 0 and passes its checks.
+ * from it, its writes stubbed (the agent is told they succeeded, and nothing is sent), and is judged
+ * as a fork is: the agent exits 0 and passes the checks an error path must pass.
  */
 
 export const CHAOS_PRESETS = ['timeout', 'empty', 'malformed', 'oversized', '429', '500'] as const;
@@ -222,9 +224,26 @@ const refuse = (why: string): Refusal => ({ refused: why });
 /** The text blocks of an MCP tool's result. */
 const mcpTexts = (v: Record<string, unknown>) => (Array.isArray(v.content) ? v.content : []).map((b, i) => ({ b, i })).filter((x): x is { b: { type: 'text'; text: string }; i: number } => isObject(x.b) && x.b.type === 'text' && typeof x.b.text === 'string');
 
-/** The result a tool preset serves in place of the recorded one, or why it can't. */
+/**
+ * The result a tool preset serves in place of the recorded one, or why it can't. A result the preset
+ * would leave as it was (an empty preset on a tool that answered with nothing) is refused: playing
+ * it in would change nothing, and the attempt would pass on a failure it never met.
+ */
 export function presetResult(preset: Exclude<ChaosPreset, 'timeout' | '429' | '500'>, recorded: unknown, shape: ResultShape, o: { oversize?: number } = {}): { result: unknown } | Refusal {
-  const chars = o.oversize ?? OVERSIZE_CHARS;
+  const made = served(preset, recorded, shape, o.oversize ?? OVERSIZE_CHARS);
+  if ('result' in made && same(made.result, recorded)) return refuse(preset === 'empty' ? 'it already answered with nothing' : 'the preset would leave its answer as it was');
+  return made;
+}
+
+function same(a: unknown, b: unknown): boolean {
+  try {
+    return canonicalize(a) === canonicalize(b);
+  } catch {
+    return false;
+  }
+}
+
+function served(preset: Exclude<ChaosPreset, 'timeout' | '429' | '500'>, recorded: unknown, shape: ResultShape, chars: number): { result: unknown } | Refusal {
   if (shape === 'http') {
     if (!isHttp(recorded)) return refuse('its recorded response is missing');
     if (recorded.encoding === 'base64') return refuse('its recorded response is binary');

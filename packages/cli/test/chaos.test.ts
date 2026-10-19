@@ -77,7 +77,7 @@ interface ReportJson {
   failed: number;
   inconclusive: number;
   notApplicable: number;
-  results: Array<{ golden: string | null; runId: string | null; outcomes: PresetJson[]; error: string | null; skipped: string | null }>;
+  results: Array<{ golden: string | null; runId: string | null; outcomes: PresetJson[]; judge: { source: string; checks: string[] } | null; error: string | null; skipped: string | null }>;
 }
 const report = (name: string) => JSON.parse(readFileSync(join(work, name), 'utf8')) as ReportJson;
 const byPreset = (r: ReportJson) => Object.fromEntries(r.results[0]!.outcomes.map((o) => [o.preset, o]));
@@ -153,7 +153,7 @@ describe('test --chaos', () => {
     expect(r.code, r.out).toBe(1);
     const p = byPreset(report('expect.json'));
     expect(Object.keys(p)).toEqual(['timeout', 'oversized']);
-    expect(p.timeout).toMatchObject({ verdict: 'passed', summary: 'timed out: the agent exited 0 and its 1 check passed' });
+    expect(p.timeout).toMatchObject({ verdict: 'passed', summary: 'timed out: the agent exited 0, 1 check passed' });
     expect(p.oversized).toMatchObject({ verdict: 'failed', reason: 'check failed: send_alert called 0 times, but called 1 time' });
 
     // --presets picks from the command line; a tool no call makes leaves the tool presets nothing to hit.
@@ -179,6 +179,42 @@ describe('test --chaos', () => {
     expect((await shadowlap(['test', 'goldens/forecast', '--chaos'])).out).toContain("a baseline gate compares a golden with its own history, which an error-path preset doesn't have");
     expect((await shadowlap(['test', 'goldens/forecast', '--presets', 'timeout'])).out).toContain('--presets and --chaos-tool go with --chaos');
     expect((await shadowlap(['test', 'goldens/forecast', '--chaos', '--update'])).out).toContain('--chaos runs the error-path presets, not a test session');
+  }, 180_000);
+
+  it("judges each attempt by the write limits of the golden's own expect when chaos.expect doesn't say", async () => {
+    // The golden's expect says the forecast is read once and no alert goes out: a path through a
+    // failure may read it again, but must never alert. Under an oversized forecast it still alerts.
+    config({ 'goldens/forecast': { expect: { tools: { get_forecast: 1, send_alert: 0 } }, chaos: { presets: ['timeout', 'oversized'] } } });
+    const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'limits.json']);
+    expect(r.code, r.out).toBe(1);
+    const out = report('limits.json');
+    expect(out.results[0]!.judge).toEqual({ source: 'write-limits', checks: ['send_alert called 0 times'] });
+    const p = byPreset(out);
+    expect(p.timeout).toMatchObject({ verdict: 'passed', summary: 'timed out: the agent exited 0, 1 check passed' });
+    expect(p.oversized).toMatchObject({ verdict: 'failed', reason: 'check failed: send_alert called 0 times, but called 1 time' });
+    expect(r.stdout).toContain("  checks: send_alert called 0 times (the write limits of the golden's expect)");
+    expect(r.stdout).not.toContain('judged on the agent exiting 0 alone');
+
+    // shadowlap show says what an attempt is: which preset played what in where.
+    const attempt = p.oversized!.runs[0]!.runId;
+    const shown = await shadowlap(['show', attempt]);
+    expect(shown.stdout).toContain('an attempt of the error-path presets: oversized result at get_forecast (#3) of goldens/forecast');
+
+    // docs/error-paths.md shows a golden whose expect lets one alert out: every attempt is held to that.
+    config({ 'goldens/forecast': { expect: { tools: { send_alert: 1 } } } });
+    const docs = readFileSync(fileURLToPath(new URL('../../../docs/error-paths.md', import.meta.url)), 'utf8');
+    const sample = /^```\n(⚡ goldens\/forecast[\s\S]*?)^```/m.exec(docs)![1]!;
+    const mask = (t: string) => t.replace(/SyntaxError: .*/g, 'SyntaxError: …').trimEnd();
+    const held = await shadowlap(['test', 'goldens/forecast', '--chaos']);
+    expect(held.code, held.out).toBe(1);
+    expect(mask(held.stdout)).toContain(mask(sample));
+
+    // With no expect at all, the exit status alone judged them, and test --chaos says what would say more.
+    config({ 'goldens/forecast': { chaos: { presets: ['timeout'] } } });
+    const plain = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'plain.json']);
+    expect(plain.code, plain.out).toBe(0);
+    expect(report('plain.json').results[0]!.judge).toEqual({ source: 'exit', checks: [] });
+    expect(plain.stdout).toContain('Each preset was judged on the agent exiting 0 alone: no checks say what an error path must do.\nSay it in its tests entry, as "chaos": { "expect": {"tools":{"issue_refund":"<= 1"}} }, or as upper bounds on write tools in its "expect".');
   }, 180_000);
 
   it('gates each preset as attempts come in: a sequential test stops as soon as it can say', async () => {
@@ -240,9 +276,11 @@ describe('replay --chaos', () => {
     const out = report('replay.json');
     expect(out.results[0]).toMatchObject({ golden: null, runId: recording });
     const p = byPreset(out);
-    expect(p.timeout).toMatchObject({ verdict: 'passed', summary: 'timed out: the agent exited 0 and its 1 check passed' });
+    expect(p.timeout).toMatchObject({ verdict: 'passed', summary: 'timed out: the agent exited 0, 1 check passed' });
     expect(p.malformed).toMatchObject({ verdict: 'failed' });
+    expect(out.results[0]!.judge).toEqual({ source: '--expect', checks: ['send_alert called at most 1 time'] });
     expect(r.stdout).toContain(`⚡ run ${recording.slice(0, 10)}: 2 error-path presets at get_forecast (#3)`);
+    expect(r.stdout).toContain('  checks: send_alert called at most 1 time (--expect)');
     const store = Store.open(db());
     try {
       const results = store.listChaosResults({ sessionId: out.session });
@@ -256,7 +294,7 @@ describe('replay --chaos', () => {
     // Without checks, it says what judged them.
     const plain = await shadowlap(['replay', recording, '--chaos', '--presets', 'empty']);
     expect(plain.code, plain.out).toBe(0);
-    expect(plain.stdout).toContain('Each preset was judged on the agent exiting 0: no checks say what an error path must do.');
+    expect(plain.stdout).toContain("Each preset was judged on the agent exiting 0 alone: no checks say what an error path must do.\nSay it with --expect, such as --expect '{\"tools\":{\"issue_refund\":\"<= 1\"}}'.");
   }, 120_000);
 
   it('prints what docs/cli.md says', () => {

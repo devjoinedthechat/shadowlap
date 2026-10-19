@@ -150,7 +150,8 @@ Checks work the same on recordings that don't fork: they then describe the recor
 A golden records a healthy run, so it never holds a tool timeout or a rate limit. `shadowlap test
 goldens/* --chaos` forks each golden where the first tool that reads the world times out, answers
 nothing, answers malformed or oversized JSON, and where the model call after it gets a 429 or a
-500, and judges each fork as a recording that forks is. See [Error-path presets](./error-paths.md).
+500, and judges each fork by the checks that hold on any path: the upper bounds its `expect` sets on
+write tools, or its `chaos.expect`. See [Error-path presets](./error-paths.md).
 
 ## Update a golden after an intended change
 

@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { CHAOS_PRESETS, OVERSIZE_CHARS, parsePresets, type ChaosPreset } from '@shadowlap/engine';
+import { CHAOS_PRESETS, OVERSIZE_CHARS, parsePresets, readConfigFile, type ChaosPreset } from '@shadowlap/engine';
 import type { TestSpec } from './checks.js';
 import { parseGate, type Gate } from './gate-standin.js';
 
@@ -8,17 +7,20 @@ import { parseGate, type Gate } from './gate-standin.js';
  * `test --chaos` runs on it (default all six), the tool the tool presets hit (default the first
  * one that reads the world), what an error path must do besides the agent exiting 0 (`expect`, the
  * grammar of the entry's own: its checks describe the path the recording took, which an error path
- * needn't take), the gate each preset is decided by (default the golden's `repeat` and `passes`),
- * how long an oversized result grows, and how long an attempt may run. `"chaos": false` leaves the golden out of every
+ * needn't take; without it, the upper bounds the entry's own expect sets on write tools), the gate
+ * each preset is decided by (default the golden's `repeat` and `passes`), how long an oversized
+ * result grows, and how long an attempt may run. `"chaos": false` leaves the golden out of
  * `test --chaos`. Read beside `tests` as `task` is: the golden's checks don't need it.
  */
 
 export interface ChaosSpec {
   presets: ChaosPreset[];
-  /** What every attempt must do besides exiting 0, parsed; null for nothing more. */
+  /** What every attempt must do besides exiting 0, parsed; null for the write limits of the golden's own expect. */
   expect: TestSpec | null;
   /** That `expect` as written, for the report. */
   expectRaw: Record<string, unknown> | null;
+  /** Where `expect` came from when not from the tests entry: `--expect` on `replay --chaos`. */
+  expectFrom?: '--expect';
   /** The tool whose first call the tool presets hit; null for the first that reads the world. */
   tool: string | null;
   /** The gate each preset's attempts are decided by; null for the golden's repeat and passes. */
@@ -74,14 +76,15 @@ export function parseChaosFields(raw: unknown, where: string, parseExpect: Expec
   return { presets, expect, expectRaw: expect ? (raw.expect as Record<string, unknown>) : null, tool: typeof raw.tool === 'string' ? raw.tool.trim() : null, gate, oversize, timeout };
 }
 
-/** The `chaos` of the config's tests entry `key` (as `testsKeyFor` picks it), read from the file: the defaults without one. */
-export function chaosFor(configFile: string, key: string | null, parseExpect: ExpectParser): ChaosSpec | false {
+/**
+ * The `chaos` of the config's tests entry `key` (as `testsKeyFor` picks it), read from the project's
+ * config as every command reads it: the defaults without an entry. A config that can't be read
+ * throws, as it does for the tests entry itself; it never stands for the defaults.
+ */
+export function chaosFor(projectDir: string, key: string | null, parseExpect: ExpectParser): ChaosSpec | false {
   if (key === null) return DEFAULT_CHAOS;
-  let raw: { tests?: Record<string, { chaos?: unknown }> };
-  try {
-    raw = JSON.parse(readFileSync(configFile, 'utf8')) as typeof raw;
-  } catch {
-    return DEFAULT_CHAOS;
-  }
-  return parseChaosFields(raw.tests?.[key]?.chaos, `tests["${key}"].chaos`, parseExpect);
+  const data = readConfigFile(projectDir).data;
+  const tests = isObject(data) && isObject(data.tests) ? data.tests : {};
+  const entry = tests[key];
+  return parseChaosFields(isObject(entry) ? entry.chaos : undefined, `tests["${key}"].chaos`, parseExpect);
 }

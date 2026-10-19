@@ -14,13 +14,14 @@ shadowlap test goldens/* --chaos
 
 ```
 ⚡ goldens/forecast: 6 error-path presets at get_forecast (#3) and model call #4
-  ✓ tool timeout      passed         timed out: the agent exited 0
-  ✓ empty result      passed         answered with nothing: the agent exited 0
-  ✗ malformed JSON    failed         answered malformed JSON: the agent exited with code 1
+  ✓ tool timeout      passed  timed out: the agent exited 0, 1 check passed
+  ✓ empty result      passed  answered with nothing: the agent exited 0, 1 check passed
+  ✗ malformed JSON    failed  answered malformed JSON: the agent exited with code 1
       SyntaxError: Unterminated string in JSON at position 52 (line 1 column 53)
-  ✓ oversized result  passed         answered 1,000,000 characters: the agent exited 0
-  ✓ provider 429      passed         failed with HTTP 429: the agent exited 0
-  ✓ provider 500      passed         failed with HTTP 500: the agent exited 0
+  ✓ oversized result  passed  answered 1,000,000 characters: the agent exited 0, 1 check passed
+  ✓ provider 429      passed  failed with HTTP 429: the agent exited 0, 1 check passed
+  ✓ provider 500      passed  failed with HTTP 500: the agent exited 0, 1 check passed
+  checks: send_alert called at most 1 time (the write limits of the golden's expect)
 
 5 passed, 1 failed · 2 upstream requests
 ```
@@ -54,23 +55,35 @@ Everything before that call is served from the recording, for free.
 Each preset is a fork: from the call it hits, the agent runs live, so like a
 [golden that forks](./ci.md#recordings-that-fork-on-purpose) it needs the providers, and its later
 model calls spend tokens. Writes after the fork are stubbed: the agent is told they succeeded and
-nothing is sent (`--writes block` makes them fail instead).
+nothing is sent. A golden that forks blocks them instead, but a blocked write raises an error in
+the agent, and every preset would then test that error too; stubbed, the preset is the only failure
+played in. `--writes block` blocks them anyway.
 
-An attempt passes when the agent exits 0 and passes the checks `chaos.expect` gives. The golden's own
-`expect` doesn't judge it: those checks describe the path its recording took (a refund issued, an
-email sent), and an agent that escalates when the order lookup times out is right not to take it. Say
-what must hold on any path instead, such as never refunding twice:
+An attempt passes when the agent exits 0 and passes the checks an error path must pass. The
+golden's own `expect` describes the path its recording took (a refund issued, an email sent), and
+an agent that escalates when the order lookup times out is right not to take it, so not all of it
+carries over:
+
+- **By default, its write limits.** The upper bounds the golden's `expect` sets on write tools (and
+  tools whose effect nothing declares) hold on any path: `"issue_refund": 1` becomes "at most once",
+  `"send_email": 0` stays "never". Lower bounds, and bounds on reads, describe the recorded path, and
+  are left out: a read retried after a timeout is the agent doing its job.
+- **With `chaos.expect`**, those checks instead, in the grammar of `expect`:
 
 ```json
 {
   "tests": {
     "goldens/refund-in-limit": {
       "expect": { "tools": { "issue_refund": 1, "send_email": 1 } },
-      "chaos": { "expect": { "tools": { "issue_refund": "<= 1", "send_email": "<= 1" } } }
+      "chaos": { "expect": { "tools": { "issue_refund": "<= 1", "escalate": "<= 1" } } }
     }
   }
 }
 ```
+
+The table's last line names the checks and where they came from. A golden whose `expect` sets no
+upper bound on a write, and that has no `chaos.expect`, is judged on the agent exiting 0 alone, and
+the command says so.
 
 A preset's verdict is one of four:
 
@@ -78,7 +91,7 @@ A preset's verdict is one of four:
 - **inconclusive**: the gate ran out of attempts between its bounds, or the replay never reached the
   call (a golden that no longer replays as far as that: `shadowlap test` says why);
 - **not applicable**: the recording has no call the preset can hit, or no answer it can change (a
-  binary response, a result with no text or list to grow).
+  binary response, a result with no text or list to grow, a tool that already answered with nothing).
 
 A preset whose change never reaches a model request (the agent reads one field of the answer, and
 that field is still there) replays clean from there: it was played in, and the agent coped.
@@ -91,8 +104,10 @@ Forks vary, so a preset can be decided over several attempts, as they come in:
 - **With `chaos.gate`**, by a sequential test: `{ "good": 0.9, "bad": 0.5, "risk": 0.1, "max": 6 }`
   passes at 90% or more and fails at 50% or less, each with at most 10% risk of the wrong verdict.
   Each passing attempt adds ln(good/bad) to its score, each failure ln((1−good)/(1−bad)), and it stops
-  as soon as the score crosses ±ln((1−risk)/risk): with these figures, after four passes or two
-  failures. Inconclusive after `max` attempts.
+  as soon as the score reaches ±ln((1−risk)/risk): with these figures, after four passes or two
+  failures. Inconclusive after `max` attempts. Every figure is optional (0.9, 0.7, 0.05 and 40 when
+  left out), and a `max` too small for an agent that always passes to reach the pass bound is
+  refused, since the gate could never pass.
 
 `--inconclusive fail` (the default) fails the command on an inconclusive preset; `--inconclusive warn`
 reports it and exits 0.
@@ -104,13 +119,14 @@ Under its `tests` entry in `shadowlap.config.json`, every key optional:
 | Key | What it says |
 |---|---|
 | `presets` | Which presets `test --chaos` runs on it, such as `["timeout", "429"]`. Default all six; `--presets` overrides it |
-| `expect` | What every attempt must pass besides exiting 0, in the grammar of `expect` |
+| `expect` | What every attempt must pass besides exiting 0, in the grammar of `expect`. Default: the write limits of the golden's own `expect` |
 | `tool` | The tool whose first call the tool presets hit |
 | `gate` | `{ good, bad, risk, max }`, the sequential test above |
 | `oversize` | How many characters an oversized answer grows to (default 1000000) |
 | `timeout` | Seconds an attempt may run before it is stopped, and fails (default 300): an error path can hang |
 
-`"chaos": false` leaves the golden out of every `--chaos` session.
+`"chaos": false` leaves the golden out of `test --chaos`. Asked for by name, `replay --chaos` on one
+of its runs still runs the presets, with the defaults.
 
 ## On any run
 
@@ -118,9 +134,9 @@ Under its `tests` entry in `shadowlap.config.json`, every key optional:
 shadowlap replay <run> --chaos --expect '{"tools":{"issue_refund":"<= 1"}}'
 ```
 
-runs the presets on a run of the store, judged by `--expect` (or the `chaos.expect` of the golden the
-run came from). It doesn't combine with the flags that change a replay, such as `--override` or
-`--fail-at`: each preset is played in alone.
+runs the presets on a run of the store, judged by `--expect`, or, for a run of a golden, by that
+golden's `chaos.expect` or write limits. It doesn't combine with the flags that change a replay,
+such as `--override` or `--fail-at`: each preset is played in alone.
 
 ## In CI
 
@@ -130,14 +146,16 @@ Presets cost tokens, so they suit a nightly job better than every pull request:
 shadowlap test goldens/* --chaos --junit chaos.xml --markdown "$GITHUB_STEP_SUMMARY"
 ```
 
-`--junit` writes a case per preset, and `--markdown` a table of them. `--json` writes the report, with
-each attempt's run ([its fields](./cli.md#error-path-presets)).
+`--junit` writes a case per preset, and `--markdown` a table of them, with any golden whose presets
+couldn't run listed under it. `--json` writes the report, with each attempt's run
+([its fields](./cli.md#error-path-presets)).
 
 ## What is kept
 
-Each session and every preset's result are kept in the store: the call it hit, the verdict, the
-attempts and their runs. Each attempt is a run of its own, bundled under the recording it forked, so
-`shadowlap show` opens the error path the agent took.
+Each session and every preset's result are kept in the store, per golden: the call it hit, the
+verdict, the attempts and their runs. Each attempt is a run of its own, bundled under the recording
+it forked as blame's probes are, so Runs lists the recording and `shadowlap show` on an attempt
+opens the error path the agent took.
 
 ## Limits
 

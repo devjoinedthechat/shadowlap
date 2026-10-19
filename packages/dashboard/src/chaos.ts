@@ -33,7 +33,7 @@ export interface ChaosCell {
   sessionId: string;
 }
 
-/** A recording's presets: one cell per preset that has run on it, in the presets' order. */
+/** A golden's presets (or a run's, for replay --chaos): one cell per preset that has run on it, in the presets' order. */
 export interface ChaosMatrix {
   /** The recording the presets forked: a golden's run, or the run they were run on. */
   runId: string;
@@ -93,26 +93,28 @@ function cellOf(r: ChaosResult): ChaosCell {
   };
 }
 
+/** A matrix per golden and recording: two goldens that hold the same recording have one each. */
 function matrices(results: readonly ChaosResult[]): ChaosMatrix[] {
-  const byRun = new Map<string, ChaosResult[]>();
+  const byKey = new Map<string, ChaosResult[]>();
   for (const r of results) {
-    const list = byRun.get(r.runId);
+    const key = `${r.golden ?? ''}\n${r.runId}`;
+    const list = byKey.get(key);
     if (list) list.push(r);
-    else byRun.set(r.runId, [r]);
+    else byKey.set(key, [r]);
   }
-  return [...byRun.entries()]
-    .map(([runId, list]) => {
+  return [...byKey.values()]
+    .map((list) => {
       const cells = list.map(cellOf).sort((a, b) => order(a.preset) - order(b.preset));
       const n = (v: ChaosVerdict) => cells.filter((c) => c.verdict === v).length;
       return {
-        runId,
-        golden: list.find((r) => r.golden)?.golden ?? null,
+        runId: list[0]!.runId,
+        golden: list[0]!.golden,
         cells,
         at: Math.max(...cells.map((c) => c.at)),
         counts: { passed: n('passed'), failed: n('failed'), inconclusive: n('inconclusive'), notApplicable: n('not-applicable') },
       };
     })
-    .sort((a, b) => b.at - a.at || a.runId.localeCompare(b.runId));
+    .sort((a, b) => b.at - a.at || a.runId.localeCompare(b.runId) || (a.golden ?? '').localeCompare(b.golden ?? ''));
 }
 
 const sessionView = (s: ChaosSession): ChaosSessionView => ({ ...s });
@@ -123,17 +125,21 @@ export function chaosView(store: Store, o: { sessions?: number } = {}): ChaosVie
 }
 
 /**
- * The presets matrix of one run: the run's own when presets ran on it, else that of the recording
- * it is an attempt of (a preset's attempt opens on its recording's matrix). Null when no preset has
+ * The presets matrix of one run: the run's own when presets ran on it (the newest, when goldens that
+ * hold the same recording each have one), else that of the recording it is an attempt of, for the
+ * golden it ran for (a preset's attempt opens on its recording's matrix). Null when no preset has
  * run on either.
  */
 export function chaosOfRun(store: Store, runId: string): ChaosMatrix | null {
   const run = store.getRun(runId);
   if (!run) return null;
-  const own = matrices(store.latestChaosResults().filter((r) => r.runId === run.runId))[0];
+  const latest = store.latestChaosResults();
+  const own = matrices(latest.filter((r) => r.runId === run.runId))[0];
   if (own) return own;
-  if (run.meta?.chaos && run.parentRunId) return matrices(store.latestChaosResults().filter((r) => r.runId === run.parentRunId))[0] ?? null;
-  return null;
+  const chaos = run.meta?.chaos;
+  if (!chaos || !run.parentRunId) return null;
+  const golden = typeof chaos.golden === 'string' ? chaos.golden : null;
+  return matrices(latest.filter((r) => r.runId === run.parentRunId && r.golden === golden))[0] ?? null;
 }
 
 /** A Tests row's presets: the newest matrix of a golden, by its name. */

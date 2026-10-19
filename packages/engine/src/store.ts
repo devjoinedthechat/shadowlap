@@ -395,8 +395,10 @@ CREATE TRIGGER IF NOT EXISTS change_counts_coverage_groups_delete AFTER DELETE O
 -- v4: error-path presets. Each \`shadowlap test --chaos\` or \`replay --chaos\` session, and how each
 -- preset came out on each recording it forked: the call it hit, the verdict its gate reached
 -- (passed, failed, inconclusive, or not-applicable when the recording has no call the preset can
--- hit), and the attempts it took, each a run. A session stopped by a signal ends with interrupted = 1
--- and the results that finished. No foreign key on run ids: a result outlives the runs gc deletes.
+-- hit), and the attempts it took, each a run. A result is one golden's (or, for replay --chaos, one
+-- run's): two goldens that hold the same recording keep a result each. A session stopped by a
+-- signal ends with interrupted = 1 and the results that finished. No foreign key on run ids: a
+-- result outlives the runs gc deletes.
 CREATE TABLE IF NOT EXISTS chaos_sessions (
   session_id         TEXT    PRIMARY KEY,
   started_at         INTEGER NOT NULL,
@@ -422,9 +424,9 @@ CREATE TABLE IF NOT EXISTS chaos_results (
   call_no     INTEGER,
   passes      INTEGER NOT NULL DEFAULT 0,
   attempts    INTEGER NOT NULL DEFAULT 0,
-  data        TEXT,
-  PRIMARY KEY (session_id, run_id, preset)
+  data        TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS chaos_results_key ON chaos_results (session_id, run_id, preset, coalesce(golden, ''));
 CREATE INDEX IF NOT EXISTS chaos_results_run ON chaos_results (run_id, at);
 CREATE INDEX IF NOT EXISTS chaos_results_golden ON chaos_results (golden, at);
 INSERT OR IGNORE INTO change_counts (name, n) VALUES ('chaos', 0);
@@ -1596,7 +1598,7 @@ export class Store {
       .map(rowToChaosSession);
   }
 
-  /** Records how one preset came out on one recording; a second result for the same one in the same session replaces the first. */
+  /** Records how one preset came out on one golden's recording (or one run); a second result for the same one in the same session replaces the first. */
   addChaosResult(input: NewChaosResult): ChaosResult {
     const result: ChaosResult = {
       sessionId: input.sessionId,
@@ -1632,10 +1634,10 @@ export class Store {
       .map(rowToChaosResult);
   }
 
-  /** The newest result of each preset on each recording: one row per recording and preset, newest first. */
+  /** The newest result of each preset on each golden's recording (and each run presets ran on alone): one row per golden, recording and preset, newest first. */
   latestChaosResults(): ChaosResult[] {
     return this.db
-      .prepare(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY run_id, preset ORDER BY at DESC, session_id DESC) AS n FROM chaos_results) WHERE n = 1 ORDER BY at DESC, run_id ASC, preset ASC`)
+      .prepare(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY coalesce(golden, ''), run_id, preset ORDER BY at DESC, session_id DESC) AS n FROM chaos_results) WHERE n = 1 ORDER BY at DESC, run_id ASC, preset ASC`)
       .all()
       .map(rowToChaosResult);
   }

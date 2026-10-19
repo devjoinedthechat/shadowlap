@@ -66,7 +66,7 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--concurrency <n>` | With `--repeat`: attempts running at once. Default 1 |
 | `--model <call>:<model>` | Switch the model from model call *n* on: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure |
 | `--guard warn\|block\|off` | [Network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. Default `warn` (`run` accepts `warn\|off`; `test` defaults to `block`) |
-| `--chaos` | Run the [error-path presets](#error-path-presets) on this run instead of one replay: a fork for each, judged by `--expect` (or the `chaos.expect` of the golden it came from), writes stubbed unless `--writes` is given. `--summary-json` writes their report. It doesn't combine with the flags that change a replay |
+| `--chaos` | Run the [error-path presets](#error-path-presets) on this run instead of one replay: a fork for each, judged by `--expect` (or, for a golden's run, by its `chaos.expect` or the write limits of its `expect`), writes stubbed unless `--writes` is given. `--summary-json` writes their report. It doesn't combine with the flags that change a replay |
 | `--presets <list>`, `--chaos-tool <name>`, `--inconclusive fail\|warn` | With `--chaos`, as for [`test --chaos`](#test) |
 
 Exit status: the agent's, except 1 with `--strict` when the replay diverged or ended early, and 1 when a [check](#checks-on-a-replay) failed. With `--repeat`, 0 only when every attempt asked for ran, exited 0 and passed its checks (with `--strict`, 1 when any attempt diverged or ended early); a `--repeat` cut short exits 1. A run still recording is refused, exit status 1, until it has ended: it has no end to replay to yet, as the dashboard's Replay and Fork wait for it; one whose recording process was killed (see [`gc`](#rm-gc)) replays as it is. `--summary-json` writes what `run` writes, with `checks` (each check and whether it passed) when the replay has checks; with `--repeat`, `{ "attempts", "report" }`: each attempt's `exitCode`, `summary` and `checks`, and the report the terminal prints (`parentRunId`, `attempts`, `forkedAt`, `paths`, `tools`, `distinctFinalResponses`, `succeeded`, `spent`, `saved`, `tokensNotRespent`).
@@ -384,39 +384,46 @@ nothing declares, else a write; never a pure tool, a person's input or a call th
 recorded), or the first call of `--chaos-tool`; the provider presets hit the model call after it.
 Each preset is a fork from there, live with writes stubbed (`--writes` changes that), so like a
 [golden that forks](./ci.md#recordings-that-fork-on-purpose) it needs the providers. An attempt passes
-when the agent exits 0 and passes the checks under `chaos.expect` in the golden's `tests` entry: the
-golden's own `expect` describes the path its recording took, which a path through a failure needn't
-take. A preset's attempts are gated as they come in: by `chaos.gate` (`{ good, bad, risk, max }`)
-when the entry has one, else by the golden's `repeat` and `passes`. Its verdict is `passed`,
-`failed`, `inconclusive` (the gate ran out of attempts between its bounds, or the replay never
-reached the call, which a golden that no longer replays does) or `not-applicable` (the recording has
-no call the preset can hit, or no result it can change, such as a binary one). An attempt stops
-after `chaos.timeout` seconds (default 300) and fails: an error path can hang. `"chaos": false`
-leaves a golden out. Each attempt is a run bundled under the golden's recording, and the session and
-every result are kept in the store for the dashboard. Exit status: 1 when a preset failed, a golden
-couldn't be run, or (with `--inconclusive fail`) a preset was inconclusive; 130 or 143 on a signal.
+when the agent exits 0 and passes the checks an error path must pass: those under `chaos.expect` in
+the golden's `tests` entry, else the write limits of its own `expect` (the upper bounds it sets on
+write tools, which hold on any path; the rest describes the path its recording took, which a path
+through a failure needn't take). A preset's attempts are gated as they come in: by `chaos.gate`
+(`{ good, bad, risk, max }`, each optional) when the entry has one, else by the golden's `repeat`
+and `passes`. Its verdict is `passed`, `failed`, `inconclusive` (the gate ran out of attempts between
+its bounds, or the replay never reached the call, which a golden that no longer replays does) or
+`not-applicable` (the recording has no call the preset can hit, or no result it can change, such as
+a binary one or one that is empty already). An attempt stops after `chaos.timeout` seconds (default
+300) and fails: an error path can hang. `"chaos": false` leaves a golden out of `test --chaos`. Each
+attempt is a run bundled under the golden's recording, and the session and every result are kept in
+the store for the dashboard. Exit status: 1 when a preset failed, a golden couldn't be run, or (with
+`--inconclusive fail`) a preset was inconclusive; 130 or 143 on a signal.
 
 ```
 ⚡ goldens/forecast: 6 error-path presets at get_forecast (#3) and model call #4
-  ✓ tool timeout      passed         timed out: the agent exited 0
-  ✓ empty result      passed         answered with nothing: the agent exited 0
-  ✗ malformed JSON    failed         answered malformed JSON: the agent exited with code 1
+  ✓ tool timeout      passed  timed out: the agent exited 0
+  ✓ empty result      passed  answered with nothing: the agent exited 0
+  ✗ malformed JSON    failed  answered malformed JSON: the agent exited with code 1
       SyntaxError: Unterminated string in JSON at position 52 (line 1 column 53)
-  ✓ oversized result  passed         answered 1,000,000 characters: the agent exited 0
-  ✓ provider 429      passed         failed with HTTP 429: the agent exited 0
-  ✓ provider 500      passed         failed with HTTP 500: the agent exited 0
+  ✓ oversized result  passed  answered 1,000,000 characters: the agent exited 0
+  ✓ provider 429      passed  failed with HTTP 429: the agent exited 0
+  ✓ provider 500      passed  failed with HTTP 500: the agent exited 0
 ```
 
+Under the table, a line names the checks that judged every attempt and where they came from
+(`checks: send_alert called at most 1 time (the write limits of the golden's expect)`), or, when
+only the exit status did, two lines say how to give them.
+
 `--json <file>` writes `{ version, session, revision, presets, passed, failed, inconclusive, notApplicable, interrupted, results }`,
-with each recording (`golden`, the `runId` the presets forked, its `outcomes`, and the `error` that
-kept it from running or why it was `skipped`) and, for each preset (`preset`, its `label`, the
-`verdict`, the `callNo` it hit and its `target` (`kind`, `name`), the `passes` and `attempts`, a
-`detail` sentence naming what came of it (and its `summary`, without the call, as the table shows
-it), the first failure's `reason`, the `gate` it was decided by,
-`upstreamRequests`, `spent`, and its `runs`), each attempt (`runId`, `passed`, the agent's
-`exitCode`, its `checks`, the `reason` it failed and, for an agent that exited with an error,
-`lastLine`: the error it died of, as it printed it). `--junit` writes a case per preset and
-`--markdown` a table of them.
+with each recording (`golden`, the `runId` the presets forked, its `outcomes`, the `judge` of its
+presets: the `source` of their checks, `chaos.expect`, `--expect`, `write-limits` or `exit`, and the
+`checks` as a failure names them, and the `error` that kept it from running or why it was
+`skipped`) and, for each preset (`preset`, its `label`, the `verdict`, the `callNo` it hit and its
+`target` (`kind`, `name`), the `passes` and `attempts`, a `detail` sentence naming what came of it
+(and its `summary`, without the call, as the table shows it), the first failure's `reason`, the
+`gate` it was decided by, `upstreamRequests`, `spent`, and its `runs`), each attempt (`runId`,
+`passed`, the agent's `exitCode`, its `checks`, the `reason` it failed and, for an agent that
+exited with an error, `lastLine`: the error it died of, as it printed it). `--junit` writes a case
+per preset and `--markdown` a table of them, listing under it any golden whose presets couldn't run.
 
 ## bisect
 

@@ -116,7 +116,7 @@ export const SHAPES = {
   coveragePack: { section: 'coverage', list: 'what each became', fields: ['key', 'golden', 'runId', 'from', 'command', 'why'] },
   // Error-path presets: test --chaos --json and replay --chaos --summary-json, each recording, each preset, each attempt.
   chaos: { section: 'Error-path presets', fields: ['version', 'session', 'revision', 'presets', 'passed', 'failed', 'inconclusive', 'notApplicable', 'interrupted', 'results'] },
-  chaosRecording: { section: 'Error-path presets', list: 'each recording', fields: ['golden', 'runId', 'outcomes', 'error', 'skipped'] },
+  chaosRecording: { section: 'Error-path presets', list: 'each recording', fields: ['golden', 'runId', 'outcomes', 'judge', 'error', 'skipped'] },
   chaosPreset: { section: 'Error-path presets', list: 'each preset', fields: ['preset', 'label', 'verdict', 'callNo', 'target', 'passes', 'attempts', 'detail', 'summary', 'reason', 'runs', 'gate', 'upstreamRequests', 'spent'] },
   chaosRun: { section: 'Error-path presets', list: 'each attempt', fields: ['runId', 'passed', 'exitCode', 'checks', 'reason', 'lastLine'] },
 } as const satisfies Record<string, Shape>;

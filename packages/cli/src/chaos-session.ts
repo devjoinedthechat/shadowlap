@@ -2,9 +2,9 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { hasRecordedCommand, parsePresets, recordEvent, resolveAuthor, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
 import { chaosFor, DEFAULT_CHAOS, type ChaosSpec } from './chaos-config.js';
-import { chaosJunit, chaosMarkdown, chaosReport, chaosTotals, formatPresets, runPresets, type ChaosRecordingResult, type PresetOutcome } from './chaos.js';
+import { chaosJunit, chaosMarkdown, chaosReport, chaosTotals, formatPresets, judgedOnExit, runPresets, type ChaosRecordingResult, type PresetOutcome } from './chaos.js';
 import { parseExpect, specFor, type TestSpec } from './checks.js';
-import { codeVersion, configPath, defaultDbPath, loadConfig, loadTests } from './config.js';
+import { codeVersion, defaultDbPath, loadConfig, loadTests } from './config.js';
 import { importGolden } from './golden-test.js';
 import { expandRecordings, goldenName, readPackHead, testsKeyFor } from './goldens.js';
 import { emitJobEvent } from './job-events.js';
@@ -133,14 +133,15 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
       let spec: TestSpec | null;
       try {
         spec = specFor(tests, packDir, projectDir);
-        chaos = chaosFor(configPath(projectDir), testsKeyFor(tests, resolve(packDir), projectDir), parseExpect);
+        chaos = chaosFor(projectDir, testsKeyFor(tests, resolve(packDir), projectDir), parseExpect);
       } catch (err) {
-        results.push({ golden, runId: null, outcomes: [], error: (err as Error).message, skipped: null });
+        process.stdout.write(`${p.red('✗')} ${safe(golden)}: ${safe((err as Error).message)}\n`);
+        results.push({ golden, runId: null, outcomes: [], judge: null, error: (err as Error).message, skipped: null });
         continue;
       }
       if (chaos === false) {
         process.stdout.write(p.dim(`– ${safe(golden)}: skipped, its tests entry turns the presets off ("chaos": false)\n`));
-        results.push({ golden, runId: null, outcomes: [], error: null, skipped: 'its tests entry turns the presets off ("chaos": false)' });
+        results.push({ golden, runId: null, outcomes: [], judge: null, error: null, skipped: 'its tests entry turns the presets off ("chaos": false)' });
         continue;
       }
       let parent: RunRecord;
@@ -149,13 +150,13 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
         if (!hasRecordedCommand(parent)) throw new Error(`this recording ${withoutCommand(parent)} and has no command to run. Replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run`);
       } catch (err) {
         process.stdout.write(`${p.red('✗')} ${safe(golden)}: ${safe((err as Error).message)}\n`);
-        results.push({ golden, runId: null, outcomes: [], error: (err as Error).message, skipped: null });
+        results.push({ golden, runId: null, outcomes: [], judge: null, error: (err as Error).message, skipped: null });
         continue;
       }
       // A redacted pack replays with its rules as normalizers, as `test` replays it.
       const head = readPackHead(packDir);
       const packed = 'error' in head || JSON.stringify(parent.meta?.redactions ?? []) === JSON.stringify(head.redactions) ? [] : head.redactions;
-      const { outcomes } = await runPresets(parent, spec, withFlags(chaos, flags), {
+      const { outcomes, judge } = await runPresets(parent, spec, withFlags(chaos, flags), {
         store,
         config: { ...config, normalize: [...config.normalize, ...packed] },
         cwd,
@@ -166,8 +167,9 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
         onRun: (runId, preset, attempt) => process.stderr.write(ATTEMPT_LINE(runId, golden, preset, attempt)),
         stopped: session.stopped,
       });
-      if (outcomes.length) process.stdout.write(`${formatPresets(golden, outcomes, p)}\n`);
-      results.push({ golden, runId: parent.runId, outcomes, error: null, skipped: null });
+      if (outcomes.length) process.stdout.write(`${formatPresets(golden, outcomes, p, judge)}\n`);
+      if (judge.source === 'exit' && outcomes.some((o) => o.attempts > 0)) process.stdout.write(p.dim(`${judgedOnExit('chaos.expect')}\n`));
+      results.push({ golden, runId: parent.runId, outcomes, judge, error: null, skipped: null });
     }
   } finally {
     const only = results.length === 1 ? results[0]! : null;
@@ -175,26 +177,23 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
   }
 }
 
-/** `shadowlap replay <run> --chaos`: every preset on one run, judged by its checks (`--expect`, or its golden's). */
+/**
+ * `shadowlap replay <run> --chaos`: every preset on one run, judged by `--expect`, or by its golden's
+ * `chaos.expect` or write limits. Asked for by name, a golden's run runs its presets even when its
+ * tests entry leaves it out of `test --chaos` (`"chaos": false`), with the defaults.
+ */
 export async function replayChaos(opts: GlobalOpts, parent: RunRecord, checks: { spec: TestSpec; source: string } | null, flags: ChaosFlags, command: string[], argv?: string[]): Promise<void> {
   const projectDir = process.cwd();
   const config = loadConfig(projectDir);
   // The run's own presets when it is a golden's recording, the defaults otherwise; --expect judges them when given.
-  let chaos: ChaosSpec | false = DEFAULT_CHAOS;
-  if (checks && checks.source !== '--expect') {
-    try {
-      chaos = chaosFor(configPath(projectDir), testsKeyFor(loadTests(projectDir), resolve(checks.source), projectDir), parseExpect);
-    } catch {
-      chaos = DEFAULT_CHAOS;
-    }
-  }
+  const chaos: ChaosSpec | false = checks && checks.source !== '--expect' ? chaosFor(projectDir, testsKeyFor(loadTests(projectDir), resolve(checks.source), projectDir), parseExpect) : DEFAULT_CHAOS;
   const own = chaos === false ? DEFAULT_CHAOS : chaos;
-  const spec = withFlags(checks?.source === '--expect' ? { ...own, expect: checks.spec } : own, flags);
+  const spec = withFlags(checks?.source === '--expect' ? { ...own, expect: checks.spec, expectFrom: '--expect' as const } : own, flags);
   const store = opts.db ? Store.open(opts.db) : Store.open(defaultDbPath(projectDir));
   const session = startSession(store, command, spec.presets, projectDir);
   const results: ChaosRecordingResult[] = [];
   try {
-    const { outcomes } = await runPresets(parent, checks?.source === '--expect' ? null : (checks?.spec ?? null), spec, {
+    const { outcomes, judge } = await runPresets(parent, checks?.source === '--expect' ? null : (checks?.spec ?? null), spec, {
       store,
       config,
       cwd: projectDir,
@@ -205,9 +204,9 @@ export async function replayChaos(opts: GlobalOpts, parent: RunRecord, checks: {
       onRun: (runId, preset, attempt) => process.stderr.write(ATTEMPT_LINE(runId, shortId(parent.runId), preset, attempt)),
       stopped: session.stopped,
     });
-    if (outcomes.length) process.stdout.write(`${formatPresets(`run ${shortId(parent.runId)}`, outcomes, p)}\n`);
-    if (!spec.expect && outcomes.some((o) => o.attempts > 0)) process.stdout.write(p.dim('Each preset was judged on the agent exiting 0: no checks say what an error path must do. Give them with --expect, such as --expect \'{"tools":{"issue_refund":"<= 1"}}\'.\n'));
-    results.push({ golden: null, runId: parent.runId, outcomes, error: null, skipped: null });
+    if (outcomes.length) process.stdout.write(`${formatPresets(`run ${shortId(parent.runId)}`, outcomes, p, judge)}\n`);
+    if (judge.source === 'exit' && outcomes.some((o) => o.attempts > 0)) process.stdout.write(p.dim(`${judgedOnExit('--expect')}\n`));
+    results.push({ golden: null, runId: parent.runId, outcomes, judge, error: null, skipped: null });
   } finally {
     await endSession(session, results, flags, [{ label: 'Open the run', href: `#/run/${parent.runId}` }]);
   }

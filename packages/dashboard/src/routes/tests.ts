@@ -38,6 +38,8 @@ export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bi
  * would replay a pack the other is rewriting, or report a session the other's results land in. A
  * setup's Keep it as a test packs a new golden and tests it. Find the commit on a golden reads its
  * pack and answers the failure it started from, so it runs alone too; on a run, it touches none.
+ * The error-path presets replay a golden's pack (on a run, they touch none), and packing goldens
+ * of production writes new ones into the goldens folder.
  */
 const TEST_FAMILY = new Map<string, string>([
   ['test', 'a test session'],
@@ -45,11 +47,14 @@ const TEST_FAMILY = new Map<string, string>([
   ['normalize-and-test', 'a normalizer and its re-run'],
   ['pack-test', 'a new golden being packed and tested'],
   ['bisect', 'find the commit'],
+  ['chaos', 'a session of error-path presets'],
+  ['coverage-pack', 'a coverage pack'],
 ]);
 
-/** Whether a job is one of those: a bisect counts when it searches a golden rather than a run (by its id). */
+/** Whether a job is one of those: a bisect counts when it searches a golden rather than a run (by its id), the presets when they run on a golden. */
 export function inTestFamily(job: { kind: string; args?: readonly string[] }): boolean {
   if (job.kind === 'bisect') return !!job.args?.[1] && !/^[0-9A-Z]{26}$/.test(job.args[1]);
+  if (job.kind === 'chaos') return job.args?.[0] === 'test';
   return TEST_FAMILY.has(job.kind);
 }
 

@@ -1,5 +1,6 @@
 import {
   chaosTargets,
+  effectsFor,
   formatUsd,
   PRESET_LABELS,
   presetHits,
@@ -8,16 +9,19 @@ import {
   refused,
   resultShape,
   safeLine,
+  storeEffects,
   type CallRecord,
   type ChaosPreset,
   type ChaosVerdict,
+  type Effect,
+  type EffectOf,
   type Palette,
   type RunRecord,
   type Store,
   type WritePolicy,
 } from '@shadowlap/engine';
 import { type ChaosSpec } from './chaos-config.js';
-import { type TestSpec } from './checks.js';
+import { evaluateChecks, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { decide, type Gate, type GateDecision } from './gate-standin.js';
 import { storedResult } from './interventions.js';
@@ -30,11 +34,13 @@ import { usageOf, telemetry } from './shared.js';
  * `test --chaos` and `replay --chaos`: each error-path preset played into a replay of a recording
  * at its place (engine chaos.ts says where, and what it answers), each a fork judged as a golden
  * that forks is: the agent exits 0 and passes the checks an error path must pass (`chaos.expect`,
- * or `--expect`), writes fenced. The golden's own checks say what its recording's path did, which a
- * path through a failure needn't do, so they don't judge it. A preset's attempts are decided by a
- * gate as they come in, the golden's own `repeat` and `passes` unless its `chaos.gate` gives one,
- * and the verdict is passed, failed, inconclusive (the gate's attempts ran out between its bounds,
- * or the replay never reached the call), or not applicable (no call the preset can hit).
+ * or `--expect`), its writes stubbed so the preset is the only failure played in. The golden's own
+ * checks say what its recording's path did, which a path through a failure needn't do, so only
+ * their write limits judge it when `chaos.expect` doesn't say: the upper bounds they set on write
+ * tools hold on any path. A preset's attempts are decided by a gate as they come in, the golden's
+ * own `repeat` and `passes` unless its `chaos.gate` gives one, and the verdict is passed, failed,
+ * inconclusive (the gate's attempts ran out between its bounds, or the replay never reached the
+ * call), or not applicable (no call the preset can hit).
  */
 
 export interface PresetRun {
@@ -70,9 +76,20 @@ export interface PresetOutcome {
   spent: number;
 }
 
+/** What judged a recording's presets besides the agent exiting 0. */
+export interface ChaosJudge {
+  /**
+   * `chaos.expect` (the golden's tests entry), `--expect` (replay --chaos), `write-limits` (the upper
+   * bounds the golden's own expect sets on write tools), or `exit` (nothing but the exit status).
+   */
+  source: 'chaos.expect' | '--expect' | 'write-limits' | 'exit';
+  /** The checks, as a failure names them: `issue_refund called at most 1 time`. */
+  checks: string[];
+}
+
 export interface ChaosContext {
   store: Store;
-  config: Pick<ShadowlapConfig, 'normalize' | 'prices' | 'clock' | 'http'>;
+  config: Pick<ShadowlapConfig, 'normalize' | 'prices' | 'clock' | 'http' | 'mcp'>;
   cwd: string;
   writes: WritePolicy;
   guard: GuardMode;
@@ -144,6 +161,27 @@ export function lastLine(output: string): string | null {
   return line ? safeLine(line).slice(0, 200) : null;
 }
 
+/**
+ * The checks every error path must pass when `chaos.expect` doesn't say: the upper bounds the
+ * golden's own expect sets on write tools, a tool of unknown effect counted as one. They hold on any
+ * path (an agent whose lookup timed out may escalate rather than refund, but never refunds more than
+ * the golden allows). A lower bound, or a bound on a read, says what the recorded path did, which a
+ * path through a failure needn't do: a read retried after a timeout is the agent doing its job.
+ * Null when the golden's expect sets no such bound.
+ */
+export function writeLimits(golden: TestSpec | null, effectOf: EffectOf): TestSpec | null {
+  if (!golden) return null;
+  const tools = golden.tools
+    .filter((t) => Number.isFinite(t.count.max) && effectOf(t.name) !== 'read' && effectOf(t.name) !== 'pure')
+    .map((t) => ({ name: t.name, count: { min: 0, max: t.count.max }, ...(t.args ? { args: t.args } : {}) }));
+  return tools.length ? { fork: true, repeat: 1, passes: 1, tools } : null;
+}
+
+/** A spec's checks as a failure names them, without running them. */
+export function checkLabels(spec: TestSpec): string[] {
+  return evaluateChecks(spec, { calls: [], output: '', argsOf: () => undefined, answer: null, costOf: () => null }).map((r) => r.label);
+}
+
 function notApplicable(preset: ChaosPreset, why: string, gate: PresetOutcome['gate'], hit: { callNo: number; name: string } | null = null): PresetOutcome {
   const at = hit ? `${callWords(preset, hit)}: ` : '';
   const target = hit ? { kind: presetHits(preset) === 'tool' ? ('tool' as const) : ('api' as const), name: hit.name } : null;
@@ -152,17 +190,21 @@ function notApplicable(preset: ChaosPreset, why: string, gate: PresetOutcome['ga
 
 /**
  * Runs each preset on a recording that is in the store, as forks of it, and keeps each outcome in
- * the session (`store.addChaosResult`) as it is decided. `counts` are the golden's `repeat` and
- * `passes`, which gate a preset when `chaos.gate` doesn't; `chaos.expect` is what every attempt must
- * pass besides exiting 0.
+ * the session (`store.addChaosResult`) as it is decided. `golden` is the golden's own spec: its
+ * `repeat` and `passes` gate a preset when `chaos.gate` doesn't, and the upper bounds its expect
+ * sets on write tools judge every attempt when `chaos.expect` doesn't say what an error path must do.
  */
-export async function runPresets(parent: RunRecord, counts: Pick<TestSpec, 'repeat' | 'passes'> | null, chaos: ChaosSpec, ctx: ChaosContext): Promise<{ outcomes: PresetOutcome[]; interrupted: boolean }> {
+export async function runPresets(parent: RunRecord, golden: TestSpec | null, chaos: ChaosSpec, ctx: ChaosContext): Promise<{ outcomes: PresetOutcome[]; interrupted: boolean; judge: ChaosJudge }> {
   const calls = ctx.store.getCalls(parent.runId);
   const targets = chaosTargets(calls, { tool: chaos.tool });
-  const gate: Gate | FixedGate = chaos.gate ?? { repeat: counts?.repeat ?? 1, passes: counts?.passes ?? counts?.repeat ?? 1 };
+  const gate: Gate | FixedGate = chaos.gate ?? { repeat: golden?.repeat ?? 1, passes: golden?.passes ?? golden?.repeat ?? 1 };
   const shownGate: PresetOutcome['gate'] = 'kind' in gate ? (gate.kind === 'sprt' ? { good: gate.good, bad: gate.bad, risk: gate.risk, max: gate.max } : { repeat: gate.min, passes: gate.min }) : gate;
   // A fork passes on its checks: here, what an error path must do, judged on every attempt.
-  const forkSpec: TestSpec = { ...(chaos.expect ?? { repeat: 1, passes: 1, tools: [] }), fork: true };
+  const configured = new Map<string, Effect>(Object.entries(ctx.config.mcp?.effects ?? {}) as Array<[string, Effect]>);
+  const limits = chaos.expect ? null : writeLimits(golden, effectsFor(calls, storeEffects(ctx.store, configured)));
+  const checks = chaos.expect ?? limits;
+  const judge: ChaosJudge = checks ? { source: chaos.expect ? (chaos.expectFrom ?? 'chaos.expect') : 'write-limits', checks: checkLabels(checks) } : { source: 'exit', checks: [] };
+  const forkSpec: TestSpec = { ...(checks ?? { repeat: 1, passes: 1, tools: [] }), fork: true };
   const resultOf = storedResult(ctx.store);
   const outcomes: PresetOutcome[] = [];
   let interrupted = false;
@@ -252,7 +294,7 @@ export async function runPresets(parent: RunRecord, counts: Pick<TestSpec, 'repe
     const summary = unreached
       ? `${what}: ${unreached}`
       : verdict === 'passed'
-        ? `${what}: ${tally ?? `the agent exited 0${checks ? ` and its ${plural(checks, 'check')} passed` : ''}`}`
+        ? `${what}: ${tally ?? `the agent exited 0${checks ? `, ${plural(checks, 'check')} passed` : ''}`}`
         : verdict === 'failed'
           ? `${what}: ${tally ? `${tally}; ` : ''}${firstFail?.reason ?? 'it failed'}`
           : `${what}: ${tally ?? `${passes} of ${runs.length} passed`}, between the gate's bounds when its ${'kind' in gate && gate.kind === 'sprt' ? gate.max : runs.length} attempts ran out`;
@@ -275,7 +317,7 @@ export async function runPresets(parent: RunRecord, counts: Pick<TestSpec, 'repe
       }),
     );
   }
-  return { outcomes, interrupted };
+  return { outcomes, interrupted, judge };
 }
 
 /** Keeps an outcome in the session; a store that refuses it costs the history, not the result. */
@@ -305,6 +347,8 @@ export interface ChaosRecordingResult {
   /** The recording the presets forked. */
   runId: string | null;
   outcomes: PresetOutcome[];
+  /** What judged its presets besides the agent exiting 0; null when they couldn't run. */
+  judge: ChaosJudge | null;
   /** Why its presets couldn't run at all (a golden that couldn't be imported, chaos off for it). */
   error: string | null;
   skipped: string | null;
@@ -331,28 +375,46 @@ export function chaosReport(results: ChaosRecordingResult[], o: { session: strin
 
 const VERDICT_WORDS: Readonly<Record<ChaosVerdict, string>> = { passed: 'passed', failed: 'failed', inconclusive: 'inconclusive', 'not-applicable': 'not applicable' };
 
+/** Where checks that judged the presets came from, as the table's last line says it. */
+const JUDGED_FROM: Readonly<Record<Exclude<ChaosJudge['source'], 'exit'>, string>> = {
+  'chaos.expect': 'chaos.expect',
+  '--expect': '--expect',
+  'write-limits': "the write limits of the golden's expect",
+};
+
 /**
  * One recording's presets as a table, preset × outcome, under a header that names the calls they
- * hit; a failure's last line is what the agent died of.
+ * hit; a failure's last line is what the agent died of. Under it, the gate, and the checks that
+ * judged every attempt besides the agent exiting 0.
  */
-export function formatPresets(name: string, outcomes: readonly PresetOutcome[], p: Palette): string {
+export function formatPresets(name: string, outcomes: readonly PresetOutcome[], p: Palette, judge: ChaosJudge | null = null): string {
   const hit = (kind: 'tool' | 'api') => outcomes.find((o) => o.target?.kind === kind && o.callNo !== null);
   const tool = hit('tool');
   const model = hit('api');
   const at = [tool ? `${safeLine(tool.target!.name)} (#${tool.callNo})` : null, model ? `model call #${model.callNo}` : null].filter(Boolean).join(' and ');
   const lines = [`${p.yellow('⚡')} ${p.bold(safeLine(name))}: ${plural(outcomes.length, 'error-path preset')}${at ? ` at ${at}` : ''}`];
   const width = Math.max(...outcomes.map((o) => o.label.length));
+  // As wide as the longest verdict word the table holds, so a line stays within a terminal's width.
+  const words = Math.max(...outcomes.map((o) => VERDICT_WORDS[o.verdict].length));
   for (const o of outcomes) {
     const mark = o.verdict === 'passed' ? p.green('✓') : o.verdict === 'failed' ? p.red('✗') : o.verdict === 'inconclusive' ? p.yellow('?') : p.dim('–');
     const word = VERDICT_WORDS[o.verdict];
     const verdict = o.verdict === 'passed' ? p.green(word) : o.verdict === 'failed' ? p.red(word) : o.verdict === 'inconclusive' ? p.yellow(word) : p.dim(word);
-    lines.push(`  ${mark} ${o.label.padEnd(width)}  ${verdict}${' '.repeat(Math.max(1, 15 - word.length))}${o.verdict === 'not-applicable' ? p.dim(safeLine(o.summary)) : safeLine(o.summary)}`);
+    lines.push(`  ${mark} ${o.label.padEnd(width)}  ${verdict}${' '.repeat(words - word.length + 2)}${o.verdict === 'not-applicable' ? p.dim(safeLine(o.summary)) : safeLine(o.summary)}`);
     const said = o.verdict === 'failed' ? o.runs.find((r) => !r.passed)?.lastLine : null;
     if (said) lines.push(p.dim(`      ${safeLine(said)}`));
   }
   const gated = outcomes.find((o) => o.attempts > 0);
   if (gated && 'good' in gated.gate) lines.push(p.dim(`  gate: ${gateWords(gated.gate)}`));
+  if (gated && judge && judge.source !== 'exit') lines.push(p.dim(`  checks: ${judge.checks.map(safeLine).join('; ')} (${JUDGED_FROM[judge.source]})`));
   return lines.join('\n');
+}
+
+/** The hint under a table whose presets only the exit status judged: what would say more, in two lines. */
+export function judgedOnExit(where: 'chaos.expect' | '--expect'): string {
+  const example = `{"tools":{"issue_refund":"<= 1"}}`;
+  const first = 'Each preset was judged on the agent exiting 0 alone: no checks say what an error path must do.';
+  return where === '--expect' ? `${first}\nSay it with --expect, such as --expect '${example}'.` : `${first}\nSay it in its tests entry, as "chaos": { "expect": ${example} }, or as upper bounds on write tools in its "expect".`;
 }
 
 /** The session's totals, as the last line says them. */
@@ -377,13 +439,16 @@ export function chaosJunit(results: readonly ChaosRecordingResult[], o: { inconc
 export function chaosMarkdown(r: ChaosReport): string {
   const cell = (s: string) => safeLine(s).replace(/\|/g, '\\|');
   const lines = ['## Shadowlap error-path presets', '', `${r.passed} passed · ${r.failed} failed${r.inconclusive ? ` · ${r.inconclusive} inconclusive` : ''}${r.notApplicable ? ` · ${r.notApplicable} not applicable` : ''}`, '', '| Recording | Preset | Verdict | What came of it |', '|---|---|---|---|'];
+  // A recording whose presets couldn't run has no verdict: the Verdict column keeps the four words.
+  const apart: string[] = [];
   for (const res of r.results) {
     const name = cell(res.golden ?? res.runId ?? '');
     if (res.error || res.skipped) {
-      lines.push(`| ${name} | | ${res.error ? 'error' : 'skipped'} | ${cell(res.error ?? res.skipped ?? '')} |`);
+      apart.push(`- ${name}: ${res.error ? `not run: ${cell(res.error)}` : `skipped: ${cell(res.skipped ?? '')}`}`);
       continue;
     }
     for (const x of res.outcomes) lines.push(`| ${name} | ${cell(x.label)} | ${VERDICT_WORDS[x.verdict]} | ${cell(x.detail)} |`);
   }
+  if (apart.length) lines.push('', ...apart);
   return `${lines.join('\n')}\n`;
 }

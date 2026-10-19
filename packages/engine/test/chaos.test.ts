@@ -59,6 +59,16 @@ describe('what a preset answers', () => {
     expect(presetResult('empty', { content: [{ type: 'text', text: '{}' }], isError: false }, 'mcp')).toEqual({ result: { content: [], isError: false } });
   });
 
+  it('empty: refused on a tool that already answered with nothing, which it would leave as it was', () => {
+    for (const nothing of [[], {}, '', null]) expect(presetResult('empty', nothing, 'value')).toEqual({ refused: 'it already answered with nothing' });
+    expect(presetResult('empty', { status: 200, headers: {}, body: [], encoding: 'json' }, 'http')).toEqual({ refused: 'it already answered with nothing' });
+    expect(presetResult('empty', { status: 204, headers: {}, body: '', encoding: 'text' }, 'http')).toEqual({ refused: 'it already answered with nothing' });
+    expect(presetResult('empty', { content: [] }, 'mcp')).toEqual({ refused: 'it already answered with nothing' });
+    // Something, however small, is still changed.
+    expect(presetResult('empty', [0], 'value')).toEqual({ result: [] });
+    expect(presetResult('empty', 0, 'value')).toEqual({ result: null });
+  });
+
   it('malformed: the JSON cut short, which never parses', () => {
     const cut = presetResult('malformed', order, 'value');
     expect(refused(cut)).toBe(false);
