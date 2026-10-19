@@ -274,7 +274,7 @@ describe('the CI gate under tests', () => {
   });
 });
 
-describe('the gate --clean decides with (the stand-in for stats.ts)', () => {
+describe('the gate --clean decides with (stats.ts)', () => {
   it('is Wald\'s sequential test: all passes clear good 0.9 against bad 0.7 at 5% risk after 12 attempts', () => {
     const gate = parseGate({ good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, 'gate');
     expect(decide(11, 11, gate)).toBe('continue');
@@ -289,15 +289,15 @@ describe('the gate --clean decides with (the stand-in for stats.ts)', () => {
     expect([decide(2, 2, gate), decide(3, 3, gate), decide(0, 3, gate)]).toEqual(['continue', 'pass', 'fail']);
     expect([attemptsToPass(gate as never), attemptsToFail(gate as never)]).toEqual([3, 3]);
     expect(() => parseGate({ good: 0.5, bad: 0.7 }, '--gate')).toThrow(/^--gate: bad \(0\.7\) must be below good \(0\.5\)/);
-    expect(parseGate({ baseline: 'history' }, 'g')).toEqual({ kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5 });
+    expect(parseGate({ baseline: 'history' }, 'g')).toEqual({ kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40 });
   });
 
   it('fills the figures left out with the defaults it is given, as stats.ts does, and refuses a max that can never pass', () => {
     const clean = { good: 0.8, bad: 0.2, risk: 0.05, max: 10 };
     expect(parseGate({ good: 0.8, bad: 0.2 }, '--gate', clean)).toEqual({ kind: 'sprt', ...clean });
     expect(parseGate({ risk: 0.01 }, '--gate', clean)).toEqual({ kind: 'sprt', ...clean, risk: 0.01 });
-    // Without defaults, stats.ts's own: 0.9 against 0.7, up to 40 attempts.
-    expect(parseGate({}, 'g')).toEqual({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 40 });
+    // Without defaults, stats.ts's own: 0.9 against 0.7, up to 80 attempts.
+    expect(parseGate({}, 'g')).toEqual({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 });
     expect(() => parseGate({ risk: 2 }, '--gate', clean)).toThrow(/--gate\.risk must be .*such as 0\.05/);
     expect(() => parseGate({ good: 7 }, '--gate', clean)).toThrow(/--gate\.good must be .*such as 0\.9/);
     expect(() => parseGate({ max: 2 }, '--gate', clean)).toThrow(/--gate: max \(2\) is fewer than the 3 attempts/);

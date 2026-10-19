@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { canonicalize } from './canonical.js';
 import { looksGenerated } from './volatile.js';
-import type { Gate } from './injection-gate.js';
+import type { Gate } from './stats.js';
 import type { Refusal } from './interventions.js';
 import { applyNormalizers } from './normalize.js';
 import type { CallRecord, Effect, Normalizer, Trust } from './types.js';
