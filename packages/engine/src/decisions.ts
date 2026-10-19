@@ -623,14 +623,21 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
   const lines: string[] = [];
   const changed = r.counts[1] + r.counts[2] + r.counts[3] + r.counts[4] + r.counts[5];
   const asked = changed + r.counts.same;
+  // A run refused whole (a --from-code change that is more than its prompt and tools) counts no
+  // step, so it is named apart: no headline may read as if it had nothing to ask.
+  const refused = r.runs.filter((x) => x.refused).length;
+  const unasked = `${refused} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'} could not be asked`;
   const head = !asked
-    ? r.counts.notAsked
-      ? `${p.yellow('!')} ${p.bold('No step was answered')} (the warnings say why)`
-      : r.counts.untouched
-        ? `${p.green('✓')} ${p.bold('Nothing to ask')}: the change leaves every request as recorded`
-        : `${p.green('✓')} ${p.bold('Nothing to ask')}: the runs hold no model call`
-    : r.flagged.length ? `${p.red('✗')} ${p.bold(`${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`)} decide${r.flagged.length === 1 ? 's' : ''} a write or when to stop differently` : changed ? `${p.yellow('!')} ${p.bold('No write and no stop changes')}: ${changed} decision${changed === 1 ? '' : 's'} differ in reads or text` : `${p.green('✓')} ${p.bold('The same decisions')} at every step asked`;
-  lines.push(`${head}, under ${safeLine(r.change.text)}`);
+    ? refused
+      ? `${p.yellow('!')} ${p.bold(unasked)}`
+      : r.counts.notAsked
+        ? `${p.yellow('!')} ${p.bold('No step was answered')} (the warnings say why)`
+        : r.counts.untouched
+          ? `${p.green('✓')} ${p.bold('Nothing to ask')}: the change leaves every request as recorded`
+          : `${p.green('✓')} ${p.bold('Nothing to ask')}: the runs hold no model call`
+    : r.flagged.length ? `${p.red('✗')} ${p.bold(`${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`)} decide${r.flagged.length === 1 ? 's' : ''} a write or when to stop differently` : changed ? `${p.yellow('!')} ${p.bold('No write and no stop changes')}: ${changed} decision${changed === 1 ? '' : 's'} differ in reads or text` : `${refused ? p.yellow('!') : p.green('✓')} ${p.bold('The same decisions')} at every step asked`;
+  const why = !refused ? '' : asked ? `; ${unasked} (why below)` : ' (why below)';
+  lines.push(`${head}, under ${safeLine(r.change.text)}${why}`);
   const ranks = ([1, 2, 3, 4, 5] as const).filter((k) => r.counts[k]).map((k) => `${r.counts[k]} rank ${k}`);
   lines.push(p.dim(`  ${asked} step${asked === 1 ? '' : 's'} asked${r.samples > 1 ? `, ${r.samples} samples each` : ''}: ${ranks.length ? `${ranks.join(', ')}, ` : ''}${r.counts.same} the same${r.counts.untouched ? `, ${r.counts.untouched} the change leaves as recorded` : ''}${r.counts.notAsked ? `, ${r.counts.notAsked} not asked` : ''} · no tool ran`));
   for (const run of r.runs) {

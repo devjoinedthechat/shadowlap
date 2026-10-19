@@ -291,5 +291,22 @@ describe('formatDecisions', () => {
     expect(text).toContain('now      answers and stops: "Not emailing."');
     expect(text).toContain("Later steps are judged in the recorded run's state.");
     expect(text).not.toContain('#3 ');
+
+    // A run --from-code refuses counts no step: the headline says it could not be asked, in amber,
+    // never that the runs hold no model call.
+    const none = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0 };
+    const refusal = 'the first request differs in more than its system prompt and tools ($.model changed): verify it instead';
+    const refusedRun = { ...report.runs[0]!, steps: 11, asked: 0, rank: null, majority: null, counts: { ...none }, refused: refusal, decisions: [] };
+    const allRefused = formatDecisions({ ...report, runs: [refusedRun], counts: { ...none }, flagged: [] });
+    expect(allRefused.split('\n')[0]).toBe('! 1 of 1 run could not be asked, under the prompt and tools in the working tree (why below)');
+    expect(allRefused).toContain(`01K1AAAAAA  not asked: ${refusal}`);
+    expect(allRefused).not.toMatch(/Nothing to ask|no model call/);
+    // One run asked the same, another refused: amber, with the refusal named in the headline.
+    const sameRun = { ...report.runs[0]!, runId: '01K1BBBBBBBBBBBBBBBBBBBBBB', rank: null, majority: null, counts: { ...none, same: 2 }, decisions: [step(3, null, ''), step(10, null, '')] };
+    const mixed = formatDecisions({ ...report, runs: [sameRun, refusedRun], counts: { ...none, same: 2 }, flagged: [] });
+    expect(mixed.split('\n')[0]).toBe('! The same decisions at every step asked, under the prompt and tools in the working tree; 1 of 2 runs could not be asked (why below)');
+    // Runs that hold no model call still say so.
+    const empty = formatDecisions({ ...report, runs: [{ ...sameRun, steps: 0, asked: 0, counts: { ...none }, decisions: [] }], counts: { ...none }, flagged: [] });
+    expect(empty.split('\n')[0]).toBe('✓ Nothing to ask: the runs hold no model call, under the prompt and tools in the working tree');
   });
 });
