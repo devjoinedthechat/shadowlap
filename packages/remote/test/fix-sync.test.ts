@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixRecords, markFixApplied, PACK_LIMITS, recordBlame, recordRepair, recordVerdict, setFixTitle, Store } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, fixRecords, gateResult, markFixApplied, PACK_LIMITS, recordBlame, recordRepair, recordVerdict, setFixTitle, SPRT_DEFAULTS, Store, type BlameReport, type SprtGate } from '@shadowlap/engine';
 import { FIX_FORMAT, FIX_VERSION, fixDocHash, fixDocOf, fixKey, mergeFixDocs, parseFixDoc, parseStoreUrl, pull, pullRequestLocation, push, storeKey, type FixDoc, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
 import { blameReport, EXPECT, makeRun, ORACLE, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
@@ -188,6 +188,68 @@ describe('a fix in the team store', () => {
     for (const id of ids) expect(maya.store.getFix(id)).toBeNull();
     // Tried again on the next pull, still refused.
     expect((await pull(maya)).fixes.failed).toHaveLength(5);
+  });
+
+  it("brings a blame decided by a gate, and keeps out one whose gate, decision or rate is malformed", async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const run = makeRun(dana.store, { labels: ['refund-bug'] });
+    // The fixture's probes, decided by blame's gate as a blame now records them.
+    const gate: SprtGate = { kind: 'sprt', ...BLAME_DEFAULTS };
+    const base = blameReport(run);
+    const decided = (p: NonNullable<BlameReport['blamed']>) => {
+      const outcomes = p.attempts.map((a) => a.passed);
+      const r = gateResult(gate, outcomes);
+      return { ...p, decision: r.decision, gate: r };
+    };
+    const report: BlameReport = { ...base, gate, blamed: decided(base.blamed!), lost: decided(base.lost!), probes: base.probes.map(decided) };
+    const { fix } = recordBlame(dana.store, { runId: run, report, expect: EXPECT, scope: null, command: `shadowlap blame ${run}`, title: 'Refunds above the limit issued without approval', checkText: 'issue_refund called 0 times', actor: 'dana@northwind.example' });
+    inStore(dana.store, run);
+    await push(dana, { runIds: [] });
+    const good = parseFixDoc(remote.objects.get(fixKey(fix.fixId))!.body, fix.fixId);
+    expect(good.blames[0]!.report.gate).toEqual(gate);
+    expect(good.blames[0]!.report.probes[0]!.gate).toMatchObject({ kind: 'sprt', decision: expect.any(String), interval: { confidence: 0.95 } });
+
+    const hostile = (id: string, change: (d: FixDoc) => void) => {
+      const doc = JSON.parse(JSON.stringify({ ...good, fix: { ...good.fix, fixId: id } })) as FixDoc;
+      change(doc);
+      remote.objects.set(fixKey(id), { body: Buffer.from(JSON.stringify(doc)), version: `x-${id}`, contentType: 'application/json' });
+    };
+    const ids = ['fx-01M3RZ0000000000000000001A', 'fx-01M3RZ0000000000000000001C', 'fx-01M3RZ0000000000000000001D', 'fx-01M3RZ0000000000000000001E', 'fx-01M3RZ0000000000000000001F'];
+    hostile(ids[0]!, (d) => void ((d.blames[0]!.report.probes[0] as { gate: unknown }).gate = {}));
+    hostile(ids[1]!, (d) => void ((d.blames[0]!.report as { gate: unknown }).gate = { kind: 'sprt', good: 'most', bad: 0.1, risk: 0.05, max: 20 }));
+    hostile(ids[2]!, (d) => void ((d.blames[0]!.report.probes[0] as { decision: unknown }).decision = 'probably'));
+    hostile(ids[3]!, (d) => void delete (d.blames[0]!.report.probes[0]!.gate as { interval?: unknown }).interval);
+    hostile(ids[4]!, (d) => void ((d.blames[0]!.report.probes[0]!.gate as { sentence: unknown }).sentence = 'passed\u001b[2J'));
+    const maya = machine(remote, 'maya@northwind.example');
+    const got = await pull(maya);
+    expect(got.fixes.pulled).toEqual([fix.fixId]);
+    expect(Object.fromEntries(got.fixes.failed.map((f) => [f.fixId, f.reason]))).toEqual({
+      [ids[0]!]: expect.stringMatching(/probes\[0\]\.gate\.kind: must be one of "sprt", "baseline"/),
+      [ids[1]!]: expect.stringMatching(/report\.gate\.good: must be a number/),
+      [ids[2]!]: expect.stringMatching(/probes\[0\]\.decision: must be one of "pass", "fail", "continue", "inconclusive"/),
+      [ids[3]!]: expect.stringMatching(/probes\[0\]\.gate\.interval: must be an object/),
+      [ids[4]!]: expect.stringMatching(/control characters|must be one line/),
+    });
+    // What it took reads as the dashboard shows it.
+    expect(maya.store.getFix(fix.fixId)).not.toBeNull();
+  });
+
+  it("keeps out a fix whose verify ran a malformed gate", async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const { run, fixId } = blamed(dana.store);
+    const gate: SprtGate = { kind: 'sprt', ...SPRT_DEFAULTS };
+    const v = verifyReport([{ runId: run, role: 'target', pass: true }]);
+    const gated = { ...v, gate, runs: v.runs.map((x) => ({ ...x, decision: 'pass' as const, gate: gateResult(gate, Array(12).fill(true)) })) };
+    recordVerdict(dana.store, { report: gated, expect: EXPECT, command: `shadowlap verify --fixes ${run}` });
+    inStore(dana.store, run);
+    await push(dana, { runIds: [] });
+    const good = parseFixDoc(remote.objects.get(fixKey(fixId))!.body, fixId);
+    expect(good.verdicts[0]!.report.runs[0]!.gate).toMatchObject({ decision: 'pass', passes: 12 });
+    const doc = JSON.parse(JSON.stringify(good)) as FixDoc;
+    (doc.verdicts[0]!.report.runs[0]!.gate as { interval: unknown }).interval = { lo: 'low', hi: 1, confidence: 0.95 };
+    expect(() => parseFixDoc(Buffer.from(JSON.stringify(doc)), fixId)).toThrow(/runs\[0\]\.gate\.interval\.lo: must be a number/);
   });
 
   it("keeps out a fix whose repair's patch is more than the change its candidate makes", async () => {
