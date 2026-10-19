@@ -123,6 +123,33 @@ describe('a calls rule through the CLI', () => {
   }, 60_000);
 });
 
+describe('shadowlap check, named more than one way', () => {
+  it('judges each recording once however it is named, the pack when it is one, and says a reason once', async () => {
+    const r = await shadowlap(['check', runs.under!, 'label:good', runs.over!, 'goldens/over-limit', '--expect', REFUND_RULE, '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = JSON.parse(r.stdout) as { recordings: Array<{ runId: string; pack: string | null; outcome: string }>; counts: Record<string, number> };
+    expect(report.recordings.map((x) => [x.runId, x.pack, x.outcome])).toEqual([
+      [runs.under, null, 'passed'],
+      [runs.over, 'goldens/over-limit', 'failed'],
+    ]);
+    expect(report.counts).toEqual({ passed: 1, failed: 1, inconclusive: 0 });
+    // A check on the output alone can't be settled from a recording: the line says why, once.
+    const printed = await shadowlap(['check', runs.under!, '--expect', JSON.stringify({ output: { includes: 'Done' } })]);
+    expect(printed.code).toBe(1);
+    expect(printed.out.match(/a check reads what the agent printed/g)).toHaveLength(1);
+  }, 60_000);
+
+  it('notes a value the checks read that none of the calls judged has, and the key it most likely meant', async () => {
+    const misspelt = JSON.stringify({ when: [{ if: { tool: 'lookup_order', result: { amout: { '>': 100 } } }, then: { tools: { escalate: '>= 1' } } }] });
+    const r = await shadowlap(['check', runs.over!, runs.small!, '--expect', misspelt, '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = JSON.parse(r.stdout) as { recordings: Array<{ outcome: string; checks: Array<{ status: string; detail: string }> }>; notes: string[] };
+    expect(report.recordings.map((x) => x.outcome)).toEqual(['inconclusive', 'inconclusive']);
+    expect(report.recordings[0]!.checks[0]!.detail).toMatch(/^could not tell whether the condition held: lookup_order #\d+: has no result\.amout$/);
+    expect(report.notes).toEqual(['--expect.when[0].if.result["amout"] reads result.amout from lookup_order, which none of the 2 lookup_order calls judged has: did you mean amount?']);
+  }, 60_000);
+});
+
 describe('a when rule through shadowlap test', () => {
   it('reports not applicable when its condition never held, in the terminal, the JSON and the job summary', async () => {
     config({ 'goldens/*': { expect: ESCALATE } });
@@ -177,27 +204,51 @@ describe('a when rule through shadowlap test', () => {
 });
 
 describe('doctor on checks', () => {
-  it('names a rule\'s tool that no recording called, and the one it most likely meant', () => {
+  const doctor = () => runDoctor({ cwd: work, env: {}, version: '0.0.0', dbPath: join(work, 'store.db'), python: () => 'Python 3.12.1' }).filter((c) => c.name === 'check rules');
+  const held = /\(\d+ packs? and \d+ runs? in the store\)/;
+
+  it('names a rule\'s tool that no recording called or offered, and the one it most likely meant', () => {
     config({
       'goldens/over-limit': { expect: { tools: { send_emails: 0, escalate: 0 }, calls: [{ tool: 'issue_refund', after: 'lookup_orders' }], when: [{ if: { tool: 'escalate' }, then: { tools: { issue_refund: 0 } } }] } },
       'goldens/missing-*': { expect: { tools: { escalate: 1 } } },
     });
-    const checks = runDoctor({ cwd: work, env: {}, version: '0.0.0', dbPath: join(work, 'store.db'), python: () => 'Python 3.12.1' }).filter((c) => c.name === 'check rules');
+    const checks = doctor();
     const w = 'shadowlap.config.json: tests["goldens/over-limit"].expect';
-    // The misspelt names, each with where it is and what it most likely meant; "never call escalate"
-    // on a tool the agent has is what it says, and is left alone.
-    expect(checks.map((c) => c.detail)).toEqual([
-      `${w}.tools["send_emails"] names send_emails, which goldens/over-limit never called or offered to the model`,
-      `${w}.calls[0].after names lookup_orders, which goldens/over-limit never called or offered to the model`,
-      `${w}.when[0].if.tool names escalate, which goldens/over-limit never called, so the condition never holds there and the rule is not applicable`,
+    // The misspelt names, each with where it is and what it most likely meant. "Never call escalate",
+    // and a condition on escalate, in a golden that never escalates, are what they say: other
+    // recordings call escalate, so they are left alone.
+    expect(checks.map((c) => c.detail.replace(held, '(…)'))).toEqual([
+      `${w}.tools["send_emails"] names send_emails, which no recording called or offered to its model (…), so the count is of calls that never happen`,
+      `${w}.calls[0].after names lookup_orders, which no recording called or offered to its model (…), so every call the rule checks fails it`,
       'tests["goldens/missing-*"] has checks but no recording: there is no pack that matches it',
     ]);
-    expect(checks[1]!.fix).toBe('Did you mean lookup_order? Otherwise check the name: they call issue_refund, lookup_order.');
+    expect(checks[0]!.detail).toMatch(held);
+    expect(checks[1]!.fix).toBe('Did you mean lookup_order? Otherwise check the name: the recordings call escalate, issue_refund, lookup_order.');
     expect(checks.every((c) => c.verdict === 'warn')).toBe(true);
+  });
 
-    config({ 'goldens/*': { expect: ESCALATE } });
-    expect(runDoctor({ cwd: work, env: {}, version: '0.0.0', dbPath: join(work, 'store.db'), python: () => 'Python 3.12.1' }).filter((c) => c.name === 'check rules')).toEqual([
-      { name: 'check rules', verdict: 'ok', detail: 'every tool the checks name is called in their recordings (3 recordings)' },
+  it('leaves alone a guard rule on a golden that never makes the call it guards', () => {
+    // The escalation golden never refunds: a rule on its refunds guards against one, which is the point.
+    config({ 'goldens/escalated': { fork: true, expect: { calls: [{ tool: 'issue_refund', after: 'lookup_order', args: { amount: { '<=': '@lookup_order.result.amount' } } }], when: [{ if: { tool: 'escalate' }, then: { tools: { issue_refund: 0 } } }] } }, 'goldens/*': { expect: ESCALATE } });
+    const checks = doctor();
+    expect(checks).toHaveLength(1);
+    expect(checks[0]).toMatchObject({ verdict: 'ok', detail: expect.stringMatching(/^every tool and value the checks name is in the recordings \(3 packs and \d+ runs in the store\)$/) });
+  });
+
+  it('names a value a rule reads that no recorded call of its tool has, and the key it most likely meant', () => {
+    config({
+      'goldens/*': {
+        expect: {
+          calls: [{ tool: 'issue_refund', args: { amount: { '<=': '@lookup_order.result.total' } } }],
+          when: [{ if: { tool: 'lookup_order', result: { amout: { '>': 100 } } }, then: { tools: { escalate: '>= 1' } } }],
+        },
+      },
+    });
+    const checks = doctor();
+    const w = 'shadowlap.config.json: tests["goldens/*"].expect';
+    expect(checks.map((c) => [c.detail.replace(/\d+ recorded calls/, 'N recorded calls'), c.fix])).toEqual([
+      [`${w}.calls[0].args["amount"]["<="] reads result.total from lookup_order, which none of its N recorded calls has, so a rule that reads it fails, or a condition that reads it is inconclusive`, 'Check the path: they have amount, order_id, status there.'],
+      [`${w}.when[0].if.result["amout"] reads result.amout from lookup_order, which none of its N recorded calls has, so whether the condition held can't be told, and its checks read inconclusive`, 'Did you mean amount? Check the path: they have amount, order_id, status there.'],
     ]);
   });
 });

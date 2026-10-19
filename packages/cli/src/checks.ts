@@ -1096,8 +1096,19 @@ export function checkWords(c: StoredCheck, join = ': '): string {
  * and result (read once each), the last model response, and each model call's cost under `prices`.
  */
 export function storedCheckInput(store: Store, calls: CallRecord[], output: string, prices?: Record<string, Price>): CheckInput {
-  const args = new Map<number, unknown>();
-  const results = new Map<number, unknown>();
+  return {
+    calls,
+    output,
+    answer: finalAnswer(store, calls.filter((c) => c.meta?.scope !== JUDGE_SCOPE)),
+    ...storedCalls(store),
+    costOf: (c) => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, prices),
+  };
+}
+
+/** How to read a run's tool calls in the store: each call's recorded arguments and result, read once each. */
+export function storedCalls(store: Store): Pick<CheckInput, 'argsOf' | 'resultOf'> {
+  const args = new Map<string, unknown>();
+  const results = new Map<string, unknown>();
   const read = <T>(ref: string | null | undefined, pick: (doc: T) => unknown): unknown => {
     if (!ref) return undefined;
     try {
@@ -1107,20 +1118,17 @@ export function storedCheckInput(store: Store, calls: CallRecord[], output: stri
       return undefined;
     }
   };
+  const key = (c: CallRecord) => `${c.runId} ${c.callNo}`;
   return {
-    calls,
-    output,
-    answer: finalAnswer(store, calls.filter((c) => c.meta?.scope !== JUDGE_SCOPE)),
     argsOf: (c) => {
-      if (!args.has(c.callNo)) args.set(c.callNo, read<{ args?: unknown }>(c.requestRef, (d) => d.args));
-      return args.get(c.callNo);
+      if (!args.has(key(c))) args.set(key(c), read<{ args?: unknown }>(c.requestRef, (d) => d.args));
+      return args.get(key(c));
     },
     resultOf: (c) => {
       if (c.kind !== 'tool' || c.end?.outcome !== 'ok') return undefined;
-      if (!results.has(c.callNo)) results.set(c.callNo, read<{ result?: unknown }>(c.end.responseRef, (d) => d.result));
-      return results.get(c.callNo);
+      if (!results.has(key(c))) results.set(key(c), read<{ result?: unknown }>(c.end.responseRef, (d) => d.result));
+      return results.get(key(c));
     },
-    costOf: (c) => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, prices),
   };
 }
 
@@ -1312,6 +1320,27 @@ export function unreadPaths(paths: readonly NamedPath[], recordings: readonly Re
     if (!found && calls) out.push({ ...p, calls, keys: [...keys].sort() });
   }
   return out;
+}
+
+/** How many single-character edits turn one name into the other. */
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j]! + 1, row[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return prev[b.length]!;
+}
+
+/** The known name a misspelt one most likely meant: within a third of its length in edits, or null. */
+export function closestName(name: string, known: Iterable<string>): string | null {
+  let best: { name: string; d: number } | null = null;
+  for (const k of known) {
+    const d = editDistance(name.toLowerCase(), k.toLowerCase());
+    if (d <= Math.max(1, Math.floor(name.length / 3)) && (!best || d < best.d)) best = { name: k, d };
+  }
+  return best?.name ?? null;
 }
 
 export function parseTests(raw: unknown): TestEntry[] {

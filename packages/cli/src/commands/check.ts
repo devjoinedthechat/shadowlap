@@ -53,8 +53,21 @@ export function register(program: Command): void {
     });
 }
 
-/** The recordings named, or every recording in the store; a pack's is read into a store of its own, added to `packs`. */
+/**
+ * The recordings named, or every recording in the store; a pack's is read into a store of its own,
+ * added to `packs`. A recording named twice (a run and a label it has, a pack and its run in the
+ * store) is judged once, as its pack when it is one.
+ */
 function chosen(store: Store, given: readonly string[], cwd: string, packs: Store[]): Array<Pick<RecordingToCheck, 'run' | 'store' | 'pack'>> {
+  const once = new Map<string, Pick<RecordingToCheck, 'run' | 'store' | 'pack'>>();
+  for (const r of named(store, given, cwd, packs)) {
+    const seen = once.get(r.run.runId);
+    if (!seen || (!seen.pack && r.pack)) once.set(r.run.runId, r);
+  }
+  return [...once.values()];
+}
+
+function named(store: Store, given: readonly string[], cwd: string, packs: Store[]): Array<Pick<RecordingToCheck, 'run' | 'store' | 'pack'>> {
   if (!given.length) {
     return store
       .allRuns()
@@ -100,10 +113,12 @@ export function formatCheckReport(report: CheckReport, given: ReadonlyArray<Pick
       lines.push(`${head}: ${r.checks.length - notApplied} check${r.checks.length - notApplied === 1 ? '' : 's'} passed${notApplied ? `, ${notApplied} not applicable` : ''}`);
       continue;
     }
-    lines.push(`${head}: ${r.outcome}${r.why[0] && !r.checks.length ? ` · ${safe(r.why[0])}` : ''}`);
+    // With no check to list, the first reason goes on the line itself, and is not said again under it.
+    const onLine = r.why[0] && !r.checks.length ? r.why[0] : null;
+    lines.push(`${head}: ${r.outcome}${onLine ? ` · ${safe(onLine)}` : ''}`);
     for (const c of r.checks) lines.push(`    ${COLOUR[c.status](CHECK_MARKS[c.status])} ${safe(checkWords(c))}`);
     // What the checks don't say: how the agent exited, what a recording can't settle.
-    for (const why of r.why.filter((w) => !r.checks.some((c) => w.startsWith(c.label)))) lines.push(`    ${p.dim(safe(why))}`);
+    for (const why of r.why.filter((w) => w !== onLine && !r.checks.some((c) => w.startsWith(c.label)))) lines.push(`    ${p.dim(safe(why))}`);
   }
   const n = report.recordings.length;
   const { passed, failed, inconclusive } = report.counts;

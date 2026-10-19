@@ -1,6 +1,6 @@
 import { GOOD_LABEL, Store, unpackRun, type RunRecord } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
-import { type CheckResult, type EvaluateOptions, type TestSpec } from './checks.js';
+import { closestName, pathsNamed, storedCalls, unreadPaths, type CheckResult, type EvaluateOptions, type RecordedCalls, type TestSpec } from './checks.js';
 import { type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
 
@@ -46,7 +46,10 @@ export interface CheckReport {
   counts: { passed: number; failed: number; inconclusive: number };
   /** Recordings given that have no checks to judge them by. */
   unchecked: string[];
-  /** The verdicts against the runs' labels: recordings labelled good that fail, labelled bug that pass. */
+  /**
+   * What the outcomes say against the runs' labels (recordings labelled good that fail, labelled bug
+   * that pass), and the values a check reads that no call it judged has: a misspelt path.
+   */
   notes: string[];
 }
 
@@ -54,13 +57,17 @@ export interface CheckReport {
 export function checkRecordings(recordings: readonly RecordingToCheck[], o: { expect: unknown; prices?: ShadowlapConfig['prices']; options?: EvaluateOptions }): CheckReport {
   const out: CheckedRecording[] = [];
   const unchecked: string[] = [];
+  // The calls judged by each spec, for the values its checks read that none of them has.
+  const bySpec = new Map<TestSpec, RecordedCalls[]>();
   for (const r of recordings) {
     if (!r.spec) {
       unchecked.push(r.pack ?? r.run.runId);
       continue;
     }
+    const calls = r.store.getCalls(r.run.runId);
+    bySpec.set(r.spec, [...(bySpec.get(r.spec) ?? []), { calls, input: storedCalls(r.store) }]);
     // A recording whose checks pass but that exited with an error fails, as its replay would.
-    const judged = judgeRecording(r.store, r.run, r.store.getCalls(r.run.runId), r.spec, o.prices, o.options);
+    const judged = judgeRecording(r.store, r.run, calls, r.spec, o.prices, o.options);
     const outcome = judged.passed === false ? 'failed' : judged.passed === null ? 'inconclusive' : 'passed';
     out.push({
       runId: r.run.runId,
@@ -79,6 +86,13 @@ export function checkRecordings(recordings: readonly RecordingToCheck[], o: { ex
   const bugPasses = out.filter((x) => x.outcome === 'passed' && x.labels.includes(BUG_LABEL));
   if (goodFails.length) notes.push(`fails ${goodFails.length} recording${goodFails.length === 1 ? '' : 's'} labelled ${GOOD_LABEL}: ${ids(goodFails)}`);
   if (bugPasses.length) notes.push(`passes ${bugPasses.length} recording${bugPasses.length === 1 ? '' : 's'} labelled ${BUG_LABEL}: ${ids(bugPasses)}`);
+  for (const [spec, judgedCalls] of bySpec) {
+    for (const u of unreadPaths(pathsNamed(spec), judgedCalls)) {
+      const last = u.path.at(-1);
+      const meant = last?.type === 'key' ? closestName(last.key, u.keys) : null;
+      notes.push(`${u.at} reads ${u.text} from ${u.tool}, which none of the ${u.calls} ${u.tool} call${u.calls === 1 ? '' : 's'} judged has${meant ? `: did you mean ${meant}?` : u.keys.length ? `; they have ${u.keys.join(', ')} there` : ''}`);
+    }
+  }
   return { expect: o.expect ?? null, recordings: out, counts: { passed: count('passed'), failed: count('failed'), inconclusive: count('inconclusive') }, unchecked, notes };
 }
 

@@ -185,11 +185,11 @@ A check that fails a run labelled `good`, or passes one labelled `bug`, says so 
 
 ## Checking the checks
 
-`shadowlap doctor` holds the rules under `tests` against the packs they apply to. A tool a rule names that none of those recordings called or offered to its model is most likely misspelt, or renamed since, and a rule on it checks nothing:
+`shadowlap doctor` holds the rules under `tests` against every recording there is: the packs they apply to and the store's 200 newest runs. A tool a rule names that no recording called or offered to its model is most likely misspelt, or renamed since, and a rule on it checks nothing:
 
 ```
-! check rules    shadowlap.config.json: tests["goldens/refund-in-limit"].expect.calls[0].after names lookup_orders, which goldens/refund-in-limit never called or offered to the model
-                 Did you mean lookup_order? Otherwise check the name: they call issue_refund, lookup_order.
+! check rules    shadowlap.config.json: tests["goldens/refund-in-limit"].expect.calls[0].after names lookup_orders, which no recording called or offered to its model (1 pack and 4 runs in the store), so every call the rule checks fails it
+                 Did you mean lookup_order? Otherwise check the name: the recordings call escalate, issue_refund, lookup_order.
 ```
 
-A tool the recordings offered but never called is reported where the rule needs the call: a condition that never holds there, a reference with nothing to read. A count that allows none (`"delete_account": 0`) on a tool the agent has is what it says, and is left alone.
+A tool the agent has but that no recording called yet is left alone: a rule that guards against a refund belongs on a golden that never refunds. So is a count that allows none (`"delete_account": 0`). A value a rule reads that no recorded call of its tool has, such as a misspelt `result.totl`, is named with the key it most likely meant: a rule that reads it fails on every call, and a condition on it can't be decided. `shadowlap check` notes such a value too, among the calls it judged.
