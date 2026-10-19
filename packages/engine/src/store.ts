@@ -1406,11 +1406,11 @@ export class Store {
    * The revisions runs were made at (their code version), newest first: when each was last seen,
    * how many runs ended there and how many of those failed (a non-zero exit, a crash, or a failed
    * check). `argv` counts only runs of that command, `before` only runs started before it. Blame's
-   * probes and verify's attempts are left out: they ran with a change of their own. Bisect offers
-   * these as commits where a run still worked.
+   * probes, verify's attempts and the error-path presets' attempts are left out: they ran with a
+   * change of their own. Bisect offers these as commits where a run still worked.
    */
   runRevisions(options: { argv?: readonly string[]; before?: number; limit?: number } = {}): Array<{ revision: string; lastAt: number; runs: number; failed: number }> {
-    const where = [`code_version IS NOT NULL`, `status <> 'running'`, `json_extract(meta, '$.probe') IS NULL`, `json_extract(meta, '$.verify') IS NULL`];
+    const where = [`code_version IS NOT NULL`, `status <> 'running'`, `json_extract(meta, '$.probe') IS NULL`, `json_extract(meta, '$.verify') IS NULL`, `json_extract(meta, '$.chaos') IS NULL`];
     const params: unknown[] = [];
     if (options.argv) {
       where.push(`json_extract(command, '$.argv') = json(?)`);

@@ -162,8 +162,9 @@ function madeModelCall(store: Store, run: RunRecord): boolean {
  */
 export function blameOffer(store: Store, run: RunRecord, tests: unknown): BlameOffer | null {
   if (run.status === 'running' || !hasRecordedCommand(run) || run.meta?.blame) return null;
-  // A blame probe's or a verify attempt's outcome belongs to the fix it was made for.
-  if (run.meta?.probe || run.meta?.verify) return null;
+  // A blame probe's or a verify attempt's outcome belongs to the fix it was made for, and a preset's
+  // attempt failed on the failure the preset played in: its verdict is the preset's.
+  if (run.meta?.probe || run.meta?.verify || run.meta?.chaos) return null;
   const failed = (run.meta?.checks ?? []).filter((c) => isObject(c) && c.ok === false && typeof c.label === 'string').map((c) => c.label);
   if (!failed.length && run.status !== 'failed') return null;
   if (!madeModelCall(store, run)) return null;

@@ -11,7 +11,7 @@ export interface CachedRuns {
   /** Newest first. */
   runs: RunRecord[];
   byId: Map<string, RunRecord>;
-  /** Runs that are attempts of another (`--repeat`, blame probes, verify): left out of the run count. */
+  /** Runs that are attempts of another (`--repeat`, blame probes, verify, error-path presets): left out of the run count. */
   attempts: number;
 }
 
@@ -19,7 +19,7 @@ const cache = new WeakMap<Store, CachedRuns>();
 
 /** An attempt of another run, bundled under it rather than counted as a run of its own. */
 export function isAttempt(run: RunRecord): boolean {
-  return !!(run.meta?.repeat || run.meta?.probe || run.meta?.verify);
+  return !!(run.meta?.repeat || run.meta?.probe || run.meta?.verify || run.meta?.chaos);
 }
 
 export function cachedRuns(store: Store): CachedRuns {
