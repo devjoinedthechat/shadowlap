@@ -130,8 +130,9 @@ Every way a run's content leaves the machine applies the rules; Shadowlap's test
 | `shadowlap export dataset` | every rule on the conversations and answers it keeps, as `export html` applies them, then the rules without a path on the rest of each row | masked |
 | `shadowlap export pairs` | the rules on the conversations and answers it keeps: path rules on the request and on tool arguments and results, and the rules without a path on every string | not in a pair |
 | `shadowlap export otel` | a trace carries no prompt text; the rules without a path apply to its span names, model and tool names, and error messages | the command line, masked |
+| `shadowlap repair`, to the repairer | every rule on the system prompt, tool descriptions, conversation and two answers it shows the repairer, as `export html` applies them (the spans a fix may rewrite are your source, shown as they are), and the rules without a path on how the run fails; the answers `report.md` (a pull request's body) quotes are the masked ones too | not shown to the repairer |
 
-Each export that applies rules takes `--no-redact`, and stops, naming the rule, when one can't be read.
+Each export that applies rules takes `--no-redact`, and stops, naming the rule, when one can't be read. `repair` always applies them, and stops the same way before it blames anything.
 
 ### Preview
 

@@ -121,7 +121,7 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 | Field | |
 |---|---|
 | `runId` | The run blamed |
-| `outcome` | `blamed`, `unrescuable` or `stopped`; `error` when blame refused, with `error.reason` (`passes`, `diverged`, `bypassed`, `prefix`, `no-model-calls`, `interrupted`) and `error.message` |
+| `outcome` | `blamed`, `unrescuable` or `stopped`; `error` when blame refused, with `error.reason` (`passes`, `unpriced`, `diverged`, `bypassed`, `prefix`, `no-model-calls`, `interrupted`) and `error.message` |
 | `blamed`, `lost` | `{ callNo, step, passes, attempts }` for the blamed call and the one after it, or `null` |
 | `confidence` | `high`, `medium` or `low` |
 | `contrast` | `{ callNo, recorded, rescued, rescuedRunId }`: the model's answer at the blamed call in the recording and in the rescued fork, as blocks (`text`, `thinking`, `tool_call` with `name` and `input`) |
@@ -139,6 +139,7 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 | Message | Why | What to do |
 |---|---|---|
 | *passes its oracle when replayed* | The replayed run does what the oracle asks, so there is no failure | Say what it should have done with `--expect` |
+| *fails only because … has no price* | The only check it fails is a cost check, which can't be judged for a model with no price, whatever the model answers | Add the model under `prices` in `shadowlap.config.json`, and blame again if it still fails |
 | *does not replay as recorded* | The replay forks by itself, so a probe could not tell a changed answer from a changed prefix | [`shadowlap calibrate`](./normalizers-and-redaction.md#calibrate), then blame again |
 | *forked at call n instead* | An attempt ran a prefix the recording doesn't hold | As above. Branches that run at once need [scopes](./sdk.md#scopes) |
 | *made no model calls* | There is no model answer to blame, or none in the `--scope` given | Check the scope names blame lists |

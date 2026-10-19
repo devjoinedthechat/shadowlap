@@ -123,7 +123,7 @@ export function selectRuns(store: Store, specs: readonly string[], flag: string)
 }
 
 /** The report as `verify --json` prints it, with the verdict's id and the fixes it was kept with. */
-export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Array<{ fix: Pick<StoredFix, 'fixId' | 'title' | 'status'>; standing: VerdictStanding }> } | null): Record<string, unknown> {
+export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Array<{ fix: Pick<StoredFix, 'fixId' | 'title' | 'status'>; standing: VerdictStanding | null }> } | null): Record<string, unknown> {
   const count = (role: VerifyRole) => {
     const of = r.runs.filter((x) => x.role === role);
     return { passed: of.filter((x) => x.verdict === 'pass').length, total: of.length };
@@ -472,7 +472,9 @@ export function register(program: Command): void {
         // Where --apply --goldens put the recordings, relative to the project as the store keeps paths: the ones that got there.
         const goldensCopied = report.output.applied && flags.goldens ? report.output.goldens.map((g) => resolve(flags.goldens!, basename(g))).filter((to) => existsSync(to)).map((to) => relative(process.cwd(), to)) : undefined;
         const kept = recordRepairFix(opts, report, { expect: expect?.json ?? null, command: line, ...(goldensCopied ? { goldensCopied } : {}) });
-        const json = { ...report, repairId: kept?.repair.repairId ?? null, verifyId: kept?.verdict?.verifyId ?? null, fixes: keptFixes(kept?.fixes ?? []), ...(handOverFailed ? { error: { message: handOverFailed.message } } : {}) };
+        // Each candidate's verification as verify --json prints one: the accepted one's with the verdict it was kept as.
+        const candidates = report.candidates.map((c) => ({ ...c, verify: c.verify ? verifyJson(c.verify, c.id === report.accepted && kept?.verdict ? { verifyId: kept.verdict.verifyId, fixes: kept.fixes } : null) : null }));
+        const json = { ...report, candidates, repairId: kept?.repair.repairId ?? null, verifyId: kept?.verdict?.verifyId ?? null, fixes: keptFixes(kept?.fixes ?? []), ...(handOverFailed ? { error: { message: handOverFailed.message } } : {}) };
         if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
         else {
           // Open still, with the candidates it tried, or with none when no repairer proposed any (the report says why).

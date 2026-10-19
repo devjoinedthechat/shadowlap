@@ -186,7 +186,11 @@ function jsonIn(text: string): unknown {
   } catch {
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
-    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
+    try {
+      if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
+    } catch {
+      // braces around something else
+    }
     throw new RepairerError('the repairer did not answer with JSON');
   }
 }
@@ -234,7 +238,8 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
     const child = spawn(start.command, start.args, start.options);
     child.stdout!.on('data', (d: Buffer) => (stdout += d.toString()));
     child.stderr!.on('data', (d: Buffer) => (stderr += d.toString()));
-    child.on('error', (err: NodeJS.ErrnoException) => reject(err.code === 'ENOENT' ? new RepairerError(`${bin} was not found`, 'install Claude Code, or set SHADOWLAP_CLAUDE to its path') : err));
+    // Not found, or found and not runnable (no execute bit, a directory): either way it can't be asked.
+    child.on('error', (err: NodeJS.ErrnoException) => reject(err.code === 'ENOENT' ? new RepairerError(`${bin} was not found`, 'install Claude Code, or set SHADOWLAP_CLAUDE to its path') : new RepairerError(`${bin} could not be run`, `${err.message}; check that it is Claude Code's binary and that you may run it, or set SHADOWLAP_CLAUDE to the one to run`)));
     // On 'close', not 'exit': the last of stdout can arrive after the process exits, through
     // cmd.exe most of all, and the report is read whole.
     child.on('close', (c) => resolveCode(c ?? 1));
@@ -258,6 +263,44 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
   return { ...out, served, usage, cost: typeof d.total_cost_usd === 'number' ? d.total_cost_usd : estimateCost(served, usage, prices) };
 }
 
+const SDK_MISSING = () => new RepairerError('the Anthropic SDK is not installed', 'an anthropic repairer needs it, and Shadowlap does not install it for everyone: npm install @anthropic-ai/sdk');
+const REFUSED = () => new RepairerError('the Anthropic API refused the credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
+
+/** Why the SDK sent nothing: it refuses before it sends when it finds no key, token or profile to sign in with. */
+function unsent(err: unknown): RepairerError {
+  const said = err instanceof Error ? err.message : String(err);
+  if (/could not resolve authentication method/i.test(said)) return new RepairerError('no Anthropic credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
+  return new RepairerError('the Anthropic SDK could not send the request', said);
+}
+
+/**
+ * Why the repairer can't be asked, found out before a repair spends anything on blame, or null. An
+ * Anthropic repairer is asked of the Models API (`GET /v1/models/<model>`, which reads no prompt and
+ * spends no tokens) with the credentials it would ask with: the SDK finds none to sign in with, or
+ * the API refuses them. Anything else (a gateway with no Models API, a model it doesn't list, a
+ * server out of reach) tells nothing for certain, so it is null, and asking finds out. Other
+ * repairers are found out when they are asked.
+ */
+export async function cannotAsk(r: Repairer): Promise<RepairerError | null> {
+  if (r.provider !== 'anthropic') return null;
+  let sdk: typeof import('@anthropic-ai/sdk');
+  try {
+    sdk = await import('@anthropic-ai/sdk');
+  } catch {
+    return SDK_MISSING();
+  }
+  const Anthropic = sdk.default;
+  try {
+    const client = new Anthropic(r.baseUrl ? { baseURL: r.baseUrl } : {});
+    await client.models.retrieve(r.model, {}, { maxRetries: 0, timeout: 15_000 });
+    return null;
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError) return REFUSED();
+    if (err instanceof Anthropic.APIError) return null;
+    return unsent(err);
+  }
+}
+
 async function askAnthropic(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
   // An optional peer: installed by those who ask Claude for fixes, and by nobody else.
   let sdk: typeof import('@anthropic-ai/sdk');
@@ -266,7 +309,7 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
     sdk = await import('@anthropic-ai/sdk');
     helpers = await import('@anthropic-ai/sdk/helpers/beta/json-schema');
   } catch {
-    throw new RepairerError('the Anthropic SDK is not installed', 'an anthropic repairer needs it, and Shadowlap does not install it for everyone: npm install @anthropic-ai/sdk');
+    throw SDK_MISSING();
   }
   const Anthropic = sdk.default;
   const { betaJSONSchemaOutputFormat } = helpers;
@@ -284,10 +327,10 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
       ...(FALLBACK.has(r.model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
     });
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) throw new RepairerError('the Anthropic API refused the credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
+    if (err instanceof Anthropic.AuthenticationError) throw REFUSED();
     if (err instanceof Anthropic.NotFoundError) throw new RepairerError(`the Anthropic API has no model ${r.model}`);
     if (err instanceof Anthropic.APIError) throw new RepairerError(`the Anthropic API answered ${err.status ?? 'with an error'}`, err.message);
-    throw err;
+    throw unsent(err);
   }
   if (message.stop_reason === 'refusal') throw new RepairerError('the repairer declined to answer');
   if (message.stop_reason === 'max_tokens') throw new RepairerError('the repairer ran out of tokens before it finished its answer');

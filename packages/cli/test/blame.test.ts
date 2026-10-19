@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { unpricedOnly } from '../src/blame.js';
 
 /**
  * `shadowlap blame` through the CLI, on a support agent whose run turns on one decision: at its third
@@ -174,6 +175,27 @@ describe('shadowlap blame', () => {
     const err = JSON.parse(r.stdout) as { error: { reason: string; message: string } };
     expect(err.error.reason).toBe('bypassed');
     expect(err.error.message).toContain('SHADOWLAP_UPSTREAM_OPENAI');
+  });
+
+  it('refuses a run that fails only because its model has no price, without a live request', async () => {
+    const runId = await record();
+    const before = mock.requests.length;
+    const r = await shadowlap(['blame', runId, '--expect', JSON.stringify({ cost: '<= 1.00' }), '--json']);
+    expect(r.code, r.out).toBe(1);
+    const err = JSON.parse(r.stdout) as { outcome: string; error: { reason: string; message: string } };
+    expect(err).toMatchObject({ outcome: 'error', error: { reason: 'unpriced' } });
+    expect(err.error.message).toContain('fails only because small-model has no price, so the cost check can\'t be judged whatever the model answers. Add it under "prices" in shadowlap.config.json');
+    expect(mock.requests.length).toBe(before);
+  });
+
+  it('tells a failure for want of a price from one that has another failure too', () => {
+    const cost = { ok: false, label: 'cost at most $1.00', detail: 'no price for small-model, big-model; add it under "prices" in shadowlap.config.json' };
+    const tool = { ok: false, label: 'issue_refund called 0 times', detail: 'called 1 time' };
+    expect(unpricedOnly({ checks: [{ ok: true, label: 'escalate called', detail: null }, cost], failures: ['cost at most $1.00: no price …'] })).toEqual(['small-model', 'big-model']);
+    expect(unpricedOnly({ checks: [cost, tool], failures: ['…', '…'] })).toBeNull();
+    // A non-zero exit is a failure of its own.
+    expect(unpricedOnly({ checks: [cost], failures: ['the agent exited with code 1', '…'] })).toBeNull();
+    expect(unpricedOnly({ checks: [], failures: ['the agent exited with code 1'] })).toBeNull();
   });
 
   it('stops at a budget and says what it found so far', async () => {

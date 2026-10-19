@@ -38,23 +38,29 @@ const store = input('STORE') ? resolve(workdir, input('STORE')) : null;
 const push = bool('PUSH', false);
 
 /**
- * A pattern with `*` or `?` in its last path segment, matched against that directory; anything else
- * as given. Hidden folders never match, as in `shadowlap test` itself.
+ * The recordings a path or pattern names, as `shadowlap test` reads them. A path as given (or one
+ * that exists, a `*` in its name and all) goes to the test whatever is there, so a path that names
+ * no pack fails there, as it does on the command line, rather than drop out of the test. A pattern
+ * with `*` or `?` in its last part matches the packs in that directory; hidden folders never match.
  */
 function expand(pattern) {
+  if (existsSync(resolve(workdir, pattern))) return [pattern];
   if (/[*?]/.test(dirname(pattern))) fail(`only the last part of a recordings path may contain a wildcard: ${pattern}`);
   if (!/[*?]/.test(basename(pattern))) return [pattern];
   const dir = resolve(workdir, dirname(pattern));
   if (!existsSync(dir)) return [];
   const re = new RegExp(`^${basename(pattern).replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
   return readdirSync(dir)
-    .filter((name) => re.test(name) && !name.startsWith('.') && statSync(join(dir, name)).isDirectory())
+    .filter((name) => re.test(name) && !name.startsWith('.') && statSync(join(dir, name)).isDirectory() && existsSync(join(dir, name, 'run.json')))
     .sort()
     .map((name) => join(dirname(pattern), name));
 }
 const patterns = input('RECORDINGS', 'goldens/*').split(/[\n\s]+/).filter(Boolean);
-const packs = [...new Set(patterns.flatMap(expand))].filter((p) => existsSync(join(resolve(workdir, p), 'run.json')));
-if (packs.length === 0) fail(`no recordings found for ${patterns.join(' ')} in ${workdir}. A recording is a directory written by shadowlap pack, with a run.json inside.`);
+const expanded = patterns.map((pattern) => ({ pattern, packs: expand(pattern) }));
+// A pattern that matches no pack fails the step, each one named, as shadowlap test refuses one.
+const unmatched = expanded.filter((x) => !x.packs.length).map((x) => x.pattern);
+if (unmatched.length) fail(`no recordings match ${unmatched.join(' ')} in ${workdir}. A recording is a directory written by shadowlap pack, with a run.json inside.`);
+const packs = [...new Set(expanded.flatMap((x) => x.packs))];
 
 const out = mkdtempSync(join(env.RUNNER_TEMP ?? tmpdir(), 'shadowlap-'));
 const json = join(out, 'shadowlap-report.json');

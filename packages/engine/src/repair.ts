@@ -453,6 +453,17 @@ export interface RepairReport {
   accepted: number | null;
   patch: string | null;
   cost: { blame: number; repairer: number | null; verify: number };
+  /**
+   * What write tools did after a fork, in every replay blame and verify made: stubbed (the agent
+   * carried on as if the write succeeded) or blocked. Reports written before it was kept lack it.
+   */
+  writes?: 'stub' | 'block';
+  /**
+   * With `--branch`: tracked files that had uncommitted changes when the fix was handed over. Verify
+   * replayed the working tree with them; the branch is HEAD with the fix, without them. Absent when
+   * there were none, or no branch was asked for.
+   */
+  uncommitted?: string[];
   output: { dir: string | null; patch: string | null; report: string | null; goldens: string[]; applied: boolean; branch: string | null; pr: string | null };
   warnings: string[];
 }
@@ -492,6 +503,12 @@ const one = (s: string, n = 90) => {
   const line = safeLine(s).replace(/\s+/g, ' ').trim();
   return line.length > n ? `${line.slice(0, n - 1)}…` : line;
 };
+
+/** What a fix's report says when verify replayed uncommitted changes that its branch doesn't hold. */
+function uncommittedNote(files: readonly string[]): string {
+  const named = files.slice(0, 5).map((f) => `\`${one(f, 120)}\``).join(', ') + (files.length > 5 ? ` and ${files.length - 5} more` : '');
+  return `The runs were replayed on a working tree with uncommitted changes to ${named}. The branch holds HEAD with the fix, without them, so check that it passes as committed.`;
+}
 
 /** The commit title for a candidate: its strategy, as a sentence without a full stop. */
 export function commitTitle(c: Pick<RepairCandidate, 'strategy'>): string {
@@ -575,11 +592,16 @@ export function repairMarkdown(r: RepairReport): string {
   }
 
   out.push('### What failed', '', `A run passes when ${r.oracle.map((o) => one(o, 120)).join('; ')}.`, '');
-  out.push('Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (`shadowlap blame`).', '');
-  out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
-  for (const t of r.targets) {
-    const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})` : t.outcome === 'unrescuable' ? 'not rescued from any model call' : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
-    out.push(`| \`${short(t.runId)}\` | ${cell(at)} | ${cell(t.recorded ?? '')} | ${cell(t.rescued ? `${t.rescued}${t.rescuedBy ? ` (${t.rescuedBy})` : ''}` : '')} |`);
+  if (r.targets.length) {
+    out.push('Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (`shadowlap blame`).', '');
+    out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
+    for (const t of r.targets) {
+      const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})` : t.outcome === 'unrescuable' ? 'not rescued from any model call' : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
+      out.push(`| \`${short(t.runId)}\` | ${cell(at)} | ${cell(t.recorded ?? '')} | ${cell(t.rescued ? `${t.rescued}${t.rescuedBy ? ` (${t.rescuedBy})` : ''}` : '')} |`);
+    }
+  } else {
+    // Found out before blame ran, as a repairer that can't sign in is.
+    out.push(`No failing run was blamed${r.noRepairer ? `: ${one(r.noRepairer, 200)}` : ''}.`);
   }
   if (r.diagnosis) out.push('', `The repairer's diagnosis: ${one(r.diagnosis, 600)}`);
   out.push('');
@@ -591,6 +613,7 @@ export function repairMarkdown(r: RepairReport): string {
     for (const x of v.runs) out.push(`| ${x.role === 'holdout' ? 'held-out' : x.role} | \`${short(x.runId)}\` | ${outcomeOf(x)} | ${x.deterministic ? 'clean replay' : `${x.passes} of ${x.attempts.length} passed`} |`);
     const d = footprintDelta(v.runs);
     if (d) out.push('', `Per run, as it would run live: ${Math.round(d.recorded.inputTokens).toLocaleString('en-US')} → ${Math.round(d.now.inputTokens).toLocaleString('en-US')} input tokens${d.recorded.cost !== null && d.now.cost !== null ? `, ≈${formatUsd(d.recorded.cost)} → ≈${formatUsd(d.now.cost)}` : ''}.`);
+    if (r.uncommitted?.length) out.push('', `**${uncommittedNote(r.uncommitted)}**`);
     out.push('');
   }
 
@@ -601,6 +624,8 @@ export function repairMarkdown(r: RepairReport): string {
   }
 
   const repairer = r.repairer ? `, the repairer (${r.repairer.served ?? r.repairer.model}) ${r.repairer.cost === null ? 'at no known price' : `≈${formatUsd(r.repairer.cost)}`}` : '';
-  out.push(`Cost: blame ≈${formatUsd(r.cost.blame)}${repairer}, verification ≈${formatUsd(r.cost.verify)}. Writes were stubbed in every replay.`);
+  // The write policy the replays ran under, when the report kept it: an older report says nothing it can't know.
+  const writes = r.writes === 'block' ? ' Writes were blocked in every replay.' : r.writes === 'stub' ? ' Writes were stubbed in every replay.' : '';
+  out.push(`Cost: blame ≈${formatUsd(r.cost.blame)}${repairer}, verification ≈${formatUsd(r.cost.verify)}.${writes}`);
   return out.join('\n') + '\n';
 }

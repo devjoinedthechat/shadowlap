@@ -2,12 +2,16 @@
 // replay (it blames it, asks the repairer for prompt fixes and keeps one only when verify accepts
 // it), within a budget per golden, and open a pull request with the patch and the report. Never for
 // a divergence: most divergences are intended changes, and a golden update is a person's call. It
-// never merges anything.
+// never merges anything. Goldens that fail the same check are one failure, as the store keeps them
+// (one fix), so they get one repair over all their failing replays and one pull request. When no
+// patch fixes them all, each is repaired on its own, within what the group has left, until one fix
+// is accepted: its pull request names the others, which it is not verified for.
 //
 // A fix changes what the agent sends, so a golden that must replay exactly would diverge on the
-// fix's own branch and fail the pull request's checks. Before the branch is pushed, that golden is
-// re-recorded on it: the recording verify accepted takes the place of its pack, once it replays
-// clean with the fix applied.
+// fix's own branch and fail the pull request's checks. Before the branch is pushed, each fixed
+// golden is re-recorded on it: the recording verify accepted takes the place of its pack, once it
+// replays clean with the fix applied. Every other golden the session tested is replayed there too,
+// and the pull request names the ones the fix leaves diverging, with the command that updates them.
 //
 // With the push input (the dashboard's Settings → CI writes it when Push from CI is on), each fix
 // whose pull request opened goes to the team store too, for teammates' Fixes page. That comes after
@@ -26,6 +30,17 @@ const NOT_FIXED = {
   error: 'it could not be replayed',
 };
 
+/**
+ * The models with no price, when a cost check that couldn't be judged for want of one is the only
+ * check that failed (`shadowlap test` words it "no price for <models>; add it under "prices" …").
+ */
+function unpricedOnly(checks) {
+  const failed = (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok);
+  const models = failed.map((c) => /^no price for (.+?); add it under "prices"/.exec(String(c.detail ?? ''))?.[1]);
+  if (!failed.length || !models.every(Boolean)) return null;
+  return [...new Set(models.flatMap((m) => m.split(', ')))];
+}
+
 /** The failed goldens of a test report, each with the fix it gets or why it gets none. */
 export function planFixes(report) {
   return report.results
@@ -33,10 +48,43 @@ export function planFixes(report) {
     .map((r) => {
       if (r.failure !== 'check') return { result: r, skip: NOT_FIXED[r.failure] ?? 'not an outcome check' };
       if (!r.expect) return { result: r, skip: 'its checks are not under "tests" in shadowlap.config.json' };
+      const unpriced = unpricedOnly(r.checks);
+      if (unpriced) return { result: r, skip: `it fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, which no prompt fix changes: add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json` };
       const failing = (r.runs ?? []).filter((x) => !x.ok).map((x) => x.runId);
       if (!failing.length) return { result: r, skip: 'no failing replay was kept' };
       return { result: r, skip: null, fixes: failing, keeps: (r.runs ?? []).filter((x) => x.ok).map((x) => x.runId) };
     });
+}
+
+/** Canonical JSON: keys sorted, so the same check written in another order is the same check. */
+function canonical(v) {
+  if (Array.isArray(v)) return `[${v.map((x) => (x === undefined ? 'null' : canonical(x))).join(',')}]`;
+  if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+  return JSON.stringify(v ?? null);
+}
+
+/**
+ * The failed goldens that get a fix attempt, grouped into the fixes their failures join. A test's
+ * replays carry no labels, so a failing replay joins the fix with its check (compared canonically,
+ * as the store compares it), and goldens that fail the same check are one failure: they are repaired
+ * together, with every failing replay a target and every passing one kept, so one patch has to fix
+ * them all, and they get one pull request. Each group is a plan of its own (the first golden names
+ * its branch), with `members` the goldens in it, in the report's order.
+ */
+export function groupFixes(plans) {
+  const groups = new Map();
+  for (const p of plans) {
+    if (p.skip) continue;
+    const key = canonical(p.result.expect);
+    const g = groups.get(key);
+    if (!g) groups.set(key, { result: p.result, skip: null, fixes: [...p.fixes], keeps: [...p.keeps], members: [p] });
+    else {
+      g.members.push(p);
+      g.fixes.push(...p.fixes);
+      g.keeps.push(...p.keeps);
+    }
+  }
+  return [...groups.values()];
 }
 
 /** A branch name for a golden's fix that no other run of the workflow uses: `shadowlap/fix-refund-flow-7k2q1x`. */
@@ -131,99 +179,205 @@ function filesUnder(dir, prefix = '') {
   });
 }
 
+/** A golden's folder as the reports name it: forward slashes, no trailing one. */
+const dirOf = (r) => String(r?.dir ?? r?.golden ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+
+/** Names in a sentence: `a`, `a and b`, `a, b and c`. */
+const listed = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+
 /**
- * Replays the recording verify accepted as the golden, with the fix applied, in the working tree,
- * where the agent's dependencies are, as verify itself ran it: the golden's pack entries are swapped
- * for the recording's, the patch applied, `shadowlap test` run on the golden (its checks included),
- * and both put back. Returns null when it replays clean, or why not.
+ * The branch, tried in the working tree, where the agent's dependencies are, as verify ran it: each
+ * golden in `swaps` gets the recording verify accepted in place of its pack entries, the patch is
+ * applied, `shadowlap test` replays `dirs` (their checks included), and everything is put back.
+ * Returns each folder's result, or why the test could not run.
  */
-function replaysClean({ cli, workdir, root, golden, pack, patch, guard, env, scratch }) {
-  const dir = resolve(workdir, golden);
+function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, env, scratch }) {
   const aside = join(scratch, 'golden-aside');
-  mkdirSync(aside, { recursive: true });
   const moved = [];
   let applied = false;
   try {
-    for (const e of PACK_ENTRIES) {
-      if (!present(join(dir, e))) continue;
-      move(join(dir, e), join(aside, e));
-      moved.push(e);
-    }
-    for (const e of PACK_ENTRIES) if (present(join(pack, e))) cpSync(join(pack, e), join(dir, e), { recursive: true });
+    swaps.forEach((swap, i) => {
+      const dir = resolve(workdir, swap.golden);
+      const keep = join(aside, String(i));
+      mkdirSync(keep, { recursive: true });
+      for (const e of PACK_ENTRIES) {
+        if (!present(join(dir, e))) continue;
+        move(join(dir, e), join(keep, e));
+        moved.push({ dir, keep, e });
+      }
+      for (const e of PACK_ENTRIES) if (present(join(swap.pack, e))) cpSync(join(swap.pack, e), join(dir, e), { recursive: true });
+    });
     const apply = run('git', ['apply', '--whitespace=nowarn', patch], root, env);
-    if (apply.status !== 0) return `the fix does not apply to the working tree: ${(apply.stderr ?? '').trim()}`;
+    if (apply.status !== 0) return { why: `the fix does not apply to the working tree: ${(apply.stderr ?? '').trim()}`, results: new Map() };
     applied = true;
-    const t = run(process.execPath, [cli, '--db', ':memory:', 'test', golden, '--guard', guard], workdir, env);
-    if (t.status === 0) return null;
-    const failed = /✗ [^\n]*/.exec(t.stdout ?? '')?.[0];
-    return `the recording verify accepted does not replay clean on the branch${failed ? ` (${failed.slice(2)})` : ''}`;
+    const json = join(scratch, 'branch-test.json');
+    rmSync(json, { force: true });
+    const t = run(process.execPath, [cli, '--db', ':memory:', 'test', ...dirs, '--json', json, '--guard', guard], workdir, env);
+    let report = null;
+    try {
+      report = JSON.parse(readFileSync(json, 'utf8'));
+    } catch {
+      // no report: its output says why
+    }
+    if (!Array.isArray(report?.results)) return { why: `shadowlap test did not finish on the branch: ${`${t.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${t.status}`}`, results: new Map() };
+    return { why: null, results: new Map(report.results.map((r) => [dirOf(r), r])) };
   } finally {
-    // The golden goes back whatever happens to the patch, and a patch that won't come out is said.
+    // The goldens go back whatever happens to the patch, and a patch that won't come out is said.
     const back = applied ? run('git', ['apply', '-R', '--whitespace=nowarn', patch], root, env) : null;
-    for (const e of PACK_ENTRIES) rmSync(join(dir, e), { recursive: true, force: true });
-    for (const e of moved) move(join(aside, e), join(dir, e));
+    for (const swap of swaps) for (const e of PACK_ENTRIES) rmSync(join(resolve(workdir, swap.golden), e), { recursive: true, force: true });
+    for (const m of moved) move(join(m.keep, m.e), join(m.dir, m.e));
     rmSync(aside, { recursive: true, force: true });
     if (back && back.status !== 0) throw new Error(`the fix could not be taken back out of the working tree: ${(back.stderr ?? '').trim()}`);
   }
 }
 
 /**
- * The branch's fix commit made again with the golden's pack replaced by `pack` (the golden's other
- * files stay), so the pull request is one commit: the fix and the recording that proves it. HEAD and
- * the working tree stay as they are.
+ * The branch's fix commit made again with each golden's pack replaced by the recording in `packs`
+ * (a golden's other files stay), so the pull request is one commit: the fix and the recordings that
+ * prove it. HEAD and the working tree stay as they are.
  */
-function commitGolden({ root, branch, golden, pack, env, scratch }) {
+function commitGoldens({ root, branch, packs, env, scratch }) {
   const head = git(root, ['rev-parse', '--verify', `refs/heads/${branch}`], env).trim();
   const [subject, , ...rest] = git(root, ['log', '-1', '--format=%B', head], env).replace(/\s+$/, '').split('\n');
   const [an, ae, ad] = git(root, ['log', '-1', '--format=%an%x00%ae%x00%aI', head], env).trim().split('\0');
   const index = join(scratch, 'golden-index');
   const ienv = { ...env, GIT_INDEX_FILE: index };
   git(root, ['read-tree', head], ienv);
-  git(root, ['rm', '--cached', '-r', '-q', '--ignore-unmatch', '--', ...PACK_ENTRIES.map((e) => `${golden}/${e}`)], ienv);
-  for (const f of filesUnder(pack)) {
-    const blob = git(root, ['hash-object', '-w', join(pack, f)], env).trim();
-    git(root, ['update-index', '--add', '--cacheinfo', `100644,${blob},${golden}/${f}`], ienv);
+  for (const { golden, pack } of packs) {
+    git(root, ['rm', '--cached', '-r', '-q', '--ignore-unmatch', '--', ...PACK_ENTRIES.map((e) => `${golden}/${e}`)], ienv);
+    for (const f of filesUnder(pack)) {
+      const blob = git(root, ['hash-object', '-w', join(pack, f)], env).trim();
+      git(root, ['update-index', '--add', '--cacheinfo', `100644,${blob},${golden}/${f}`], ienv);
+    }
   }
   const tree = git(root, ['write-tree'], ienv).trim();
   const body = rest.join('\n').trim();
-  const message = `${subject}\n\n${body ? `${body}\n\n` : ''}${golden} is re-recorded under the fix, from the run verify accepted: the prompt it sends changed, so the recording made before the fix would diverge here.\n`;
+  const names = packs.map((p) => p.golden);
+  const what = names.length === 1 ? `${names[0]} is re-recorded under the fix, from the run verify accepted: the prompt it sends changed, so the recording made before the fix would diverge here.` : `${listed(names)} are re-recorded under the fix, from the runs verify accepted: the prompt they send changed, so the recordings made before the fix would diverge here.`;
+  const message = `${subject}\n\n${body ? `${body}\n\n` : ''}${what}\n`;
   const commit = git(root, ['commit-tree', tree, '-p', `${head}^`, '-F', '-'], { ...env, GIT_AUTHOR_NAME: an, GIT_AUTHOR_EMAIL: ae, GIT_AUTHOR_DATE: ad }, message).trim();
   git(root, ['update-ref', `refs/heads/${branch}`, commit, head], env);
   rmSync(index, { force: true });
 }
 
 /**
- * The golden on the fix's branch. A golden marked `fork` passes on its checks from wherever it
- * diverges, so it needs nothing. One that must replay exactly gets the recording verify accepted
- * (repair packs one of each fixed run) in place of its pack, once that replays clean with the fix
- * applied, which is what the pull request's own CI runs. Otherwise it stays as it was, and the pull
- * request says how to update it.
+ * The goldens on the fix's branch, and the other goldens the session tested. Each of the fix's own
+ * goldens (`members`, the plans repaired together) that may fork passes on its checks from wherever
+ * it diverges, so it needs nothing. One that must replay exactly gets the recording verify accepted
+ * for one of its failing replays (repair packs one of each fixed run) in place of its pack, once that
+ * replays clean with the fix applied, which is what the pull request's own CI runs; otherwise it stays
+ * as it was, and the pull request says how to update it. Every other golden in `results` that must
+ * replay exactly is replayed with the fix too: one that passed before and fails now is `diverging`,
+ * one that failed before too is `failing`; one that may fork runs live from where it diverges, so it
+ * is not replayed here (`unreplayed`). `checked` says whether the replay ran; when it couldn't,
+ * `why` says why and the other goldens it would have replayed are `unchecked`. Goldens in `unfixed`
+ * fail the same check, and the fix was verified without them (`unfixedWhy` says how it came to
+ * that): each is `unfixed`, as it was, and the pull request says how to see whether the fix repairs
+ * it too.
  */
-export function refreshGolden({ cli, workdir, result, repair, guard = 'block', env, scratch }) {
-  const golden = (result.dir ?? result.golden ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
-  if (result.mode === 'fork') return { state: 'fork', golden, why: null };
-  const stale = (why) => ({ state: 'stale', golden, why });
-  const recorded = repair.output?.goldens?.[0];
-  if (!recorded || !repair.output?.patch || !repair.output?.branch) return stale('repair kept no recording of the fixed run');
+export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy = null, results = [], repair, guard = 'block', env, scratch }) {
+  const goldens = [];
+  const candidates = [];
+  const recordings = repair.output?.goldens ?? [];
+  const usable = !!repair.output?.patch && !!repair.output?.branch;
+  for (const m of members) {
+    const golden = dirOf(m.result);
+    if (m.result.mode === 'fork') {
+      goldens.push({ state: 'fork', golden, why: null });
+      continue;
+    }
+    // The recording of one of this golden's failing replays: repair names each by its run's short id.
+    const mine = recordings.find((g) => (m.fixes ?? []).some((id) => String(g).replace(/\\/g, '/').endsWith(`/${String(id).slice(0, 10)}`)));
+    const recorded = mine ?? (members.length === 1 ? recordings[0] : undefined);
+    const state = { state: 'stale', golden, why: recorded && usable ? null : 'repair kept no recording of the fixed run' };
+    goldens.push(state);
+    if (recorded && usable) candidates.push({ golden, recorded, state });
+  }
+  // Goldens that fail the same check, which the fix was not verified for: named, never re-recorded.
+  for (const u of unfixed) goldens.push({ state: 'unfixed', golden: dirOf(u.result), why: unfixedWhy, ...(u.result.mode === 'fork' ? { fork: true } : {}) });
+  const own = new Set([...members, ...unfixed].map((m) => dirOf(m.result)));
+  const others = results.filter((r) => dirOf(r) && !own.has(dirOf(r)));
+  const replayed = others.filter((r) => r.mode !== 'fork');
+  const out = { goldens, others: { diverging: [], failing: [], unreplayed: others.filter((r) => r.mode === 'fork').map(dirOf), unchecked: [], replayed: 0 }, checked: false, why: null };
+  if (!usable || (!candidates.length && !replayed.length)) {
+    out.checked = usable;
+    return out;
+  }
+  // Nothing was re-recorded, and when the replay itself never ran, nothing is known of the others either.
+  const cannot = (why) => {
+    for (const c of candidates) if (c.state.state !== 'recorded') c.state.why ??= why;
+    if (out.checked) return;
+    out.why = why;
+    out.others.unchecked = replayed.map(dirOf);
+  };
   try {
     const root = realpathSync(git(workdir, ['rev-parse', '--show-toplevel'], env).trim());
-    const inRoot = relative(root, realpathSync(resolve(workdir, golden))).split(sep).join('/');
-    if (!inRoot || inRoot.startsWith('..') || isAbsolute(inRoot)) return stale(`${golden} is not inside the repository`);
-    const pack = resolve(workdir, recorded);
-    const why = replaysClean({ cli, workdir, root, golden, pack, patch: resolve(workdir, repair.output.patch), guard, env, scratch });
-    if (why) return stale(why);
-    commitGolden({ root, branch: repair.output.branch, golden: inRoot, pack, env, scratch });
-    return { state: 'recorded', golden, why: null };
+    const swaps = [];
+    for (const c of candidates) {
+      const inRoot = relative(root, realpathSync(resolve(workdir, c.golden))).split(sep).join('/');
+      if (!inRoot || inRoot.startsWith('..') || isAbsolute(inRoot)) c.state.why = `${c.golden} is not inside the repository`;
+      else swaps.push({ ...c, inRoot, pack: resolve(workdir, c.recorded) });
+    }
+    const dirs = [...swaps.map((c) => c.golden), ...replayed.map(dirOf)];
+    if (!dirs.length) return out;
+    const tried = replayOnBranch({ cli, workdir, root, swaps, dirs, patch: resolve(workdir, repair.output.patch), guard, env, scratch });
+    if (tried.why) {
+      cannot(tried.why);
+      return out;
+    }
+    const clean = [];
+    for (const c of swaps) {
+      const t = tried.results.get(c.golden);
+      if (t?.ok) clean.push(c);
+      else c.state.why = `the recording verify accepted does not replay clean on the branch${t?.message ? ` (${t.name}: ${t.message})` : ''}`;
+    }
+    for (const r of replayed) {
+      if (tried.results.get(dirOf(r))?.ok) continue;
+      (r.ok ? out.others.diverging : out.others.failing).push(dirOf(r));
+    }
+    out.others.replayed = replayed.length;
+    out.checked = true;
+    if (clean.length) {
+      commitGoldens({ root, branch: repair.output.branch, packs: clean.map((c) => ({ golden: c.inRoot, pack: c.pack })), env, scratch });
+      for (const c of clean) Object.assign(c.state, { state: 'recorded', why: null });
+    }
   } catch (err) {
-    return stale(err.message.split('\n')[0]);
+    cannot(err.message.split('\n')[0]);
   }
+  return out;
 }
 
-/** What the pull request says about the golden, after repair's report. */
+/** What the pull request says about one of the fix's goldens. */
 export function goldenNote(g) {
-  if (g.state === 'recorded') return `### The golden\n\n\`${g.golden}\` is re-recorded under the fix: the recording verify accepted replaces its pack in this branch, and it replays clean here, so this pull request's own checks pass. Review the new recording like any other change to a golden.\n`;
-  if (g.state === 'fork') return `### The golden\n\n\`${g.golden}\` may fork, so it passes on its checks with the fix as it is.\n`;
-  return `### The golden\n\n\`${g.golden}\` still holds the recording made before the fix, which sends the old prompt, so it diverges on this branch. Re-record it here and commit the change:\n\n\`\`\`sh\nshadowlap test ${g.golden} --update\n\`\`\`\n\nIt was not re-recorded automatically: ${g.why}.\n`;
+  if (g.state === 'unfixed') {
+    const head = `\`${g.golden}\` fails the same check, but this fix is not verified for it${g.why ? `: ${g.why}` : ''}.`;
+    if (g.fork) return `${head} It may fork, so on this branch it runs live from where it diverges, and its checks say whether the fix repairs it too.\n`;
+    return `${head} It still holds the recording made before the fix, so it diverges on this branch. Re-recording it here keeps the new recording only when it passes its checks, which says whether the fix repairs it too; if it fails them, it is left as it is, and it needs a fix of its own:\n\n\`\`\`sh\nshadowlap test ${g.golden} --update\n\`\`\`\n`;
+  }
+  if (g.state === 'recorded') return `\`${g.golden}\` is re-recorded under the fix: the recording verify accepted replaces its pack in this branch, and it replays clean here. Review the new recording like any other change to a golden.\n`;
+  if (g.state === 'fork') return `\`${g.golden}\` may fork, so it passes on its checks with the fix as it is.\n`;
+  return `\`${g.golden}\` still holds the recording made before the fix, which sends the old prompt, so it diverges on this branch. Re-record it here and commit the change:\n\n\`\`\`sh\nshadowlap test ${g.golden} --update\n\`\`\`\n\nIt was not re-recorded automatically: ${g.why}.\n`;
+}
+
+/**
+ * What the pull request says, after repair's report, about the goldens on its branch: each of the
+ * fix's own, the other goldens the fix leaves diverging (with the command that re-records them), and
+ * that its own checks pass only when every golden replayed there replays clean.
+ */
+export function branchNote({ goldens, others = { diverging: [], failing: [], unreplayed: [], unchecked: [], replayed: 0 }, checked = false, why = null }) {
+  const code = (dirs) => listed(dirs.map((d) => `\`${d}\``));
+  const parts = [`### The golden${goldens.length === 1 ? '' : 's'}\n`, ...goldens.map(goldenNote)];
+  const d = others.diverging;
+  if (d.length) parts.push(`The fix changes what the agent sends, so ${d.length === 1 ? 'another golden, which passed before it, diverges' : `${d.length} other goldens, which passed before it, diverge`} on this branch: ${code(d)}. Re-record ${d.length === 1 ? 'it' : 'them'} here once the change is what you meant, and commit the change:\n\n\`\`\`sh\nshadowlap test ${d.join(' ')} --update\n\`\`\`\n`);
+  if (others.failing.length) parts.push(`${code(others.failing)} failed before the fix too, and ${others.failing.length === 1 ? 'fails' : 'fail'} on this branch as well.\n`);
+  const unchecked = others.unchecked ?? [];
+  if (unchecked.length) parts.push(`${code(unchecked)} could not be replayed under the fix here${why ? ` (${why})` : ''}, so whether ${unchecked.length === 1 ? 'it diverges' : 'they diverge'} on this branch is not known: run \`shadowlap test ${unchecked.join(' ')}\` on it to see.\n`);
+  if (others.unreplayed.length) parts.push(`${code(others.unreplayed)} may fork, so ${others.unreplayed.length === 1 ? 'it was' : 'they were'} not replayed here: ${others.unreplayed.length === 1 ? 'it runs' : 'they run'} live from where ${others.unreplayed.length === 1 ? 'it diverges' : 'they diverge'}, and ${others.unreplayed.length === 1 ? 'its' : 'their'} checks decide.\n`);
+  const replayed = goldens.filter((g) => g.state === 'recorded').length + (checked ? others.replayed : 0);
+  const clean = checked && !goldens.some((g) => g.state === 'stale' || g.state === 'unfixed') && !d.length && !others.failing.length && !unchecked.length;
+  const forks = others.unreplayed.length || goldens.some((g) => g.state === 'fork');
+  if (clean && replayed) parts.push(forks ? 'Every golden this job replayed exactly replays clean on this branch.\n' : "Every golden this job tested replays clean on this branch, so this pull request's own checks pass.\n");
+  return parts.join('\n');
 }
 
 /** Pushes the branch and opens its pull request into the branch checked out, titled by the fix commit. */
@@ -346,15 +500,35 @@ export function pushLine(name, pushed) {
   return `::warning title=Shadowlap::${commandText(`${name}: the fix is not in the team store, so teammates won't see it on their Fixes page: ${String(pushed.why ?? '').replace(/[\s.]+$/, '')}. Its pull request is open all the same.`)}`;
 }
 
-/** Runs repair for each failed check, one golden at a time, and says how each went. */
+/**
+ * Why goldens repaired together, then one at a time, got no fix: once when every try ended the same
+ * way, else each try's own reason.
+ */
+function triedWhy(together, alone, members) {
+  if (alone.length === members && alone.every((a) => a.why === together)) return `together and each on its own: ${together}`;
+  return [`together: ${together}`, ...alone.map((a) => `${a.golden} on its own: ${a.why}`)].join(' · ');
+}
+
+/** Whether a repair that kept no fix leaves one for a repair of fewer goldens to find: it ran to its end, with a repairer to ask. */
+const worthSplitting = (repair) => !!repair && (repair.outcome === 'not-fixed' || repair.outcome === 'no-diagnosis') && !repair.noRepairer;
+
+/**
+ * Runs repair for each failed check, one fix at a time (goldens that fail the same check together,
+ * within their budgets added up), and says how each went. When no patch fixes all the goldens of a
+ * group, each is repaired on its own, in the report's order, within what the group has left, until
+ * one fix is accepted: that fix gets the group's one pull request, which names the goldens it was
+ * not verified for, and no other.
+ */
 export function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', push = false, env, log = () => {} }) {
   const plans = planFixes(report);
   const blocked = plans.some((x) => !x.skip) ? cannotFix(workdir, env) : null;
+  const groups = groupFixes(plans);
   const scratch = mkdtempSync(join(env.RUNNER_TEMP ?? tmpdir(), 'shadowlap-fix-'));
   const fixEnv = repairEnv(workdir, env);
   const out = [];
   // The fixes this job's pushes reported sending: a later push leaves out one an earlier sent, as it is there.
   const sentInJob = new Set();
+  let repairs = 0;
   try {
     for (const plan of plans) {
       const r = plan.result;
@@ -362,33 +536,79 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
         out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'skipped', why: plan.skip ?? blocked, pr: null, title: null, spent: 0, verify: null, goldenState: null });
         continue;
       }
-      const expectFile = join(scratch, `${out.length}-expect.json`);
-      writeFileSync(expectFile, JSON.stringify(r.expect));
-      log(`shadowlap repair for ${r.golden ?? r.name}: blame, repair and verify, within $${Number(budget).toFixed(2)}`);
-      const res = run(process.execPath, [cli, ...repairArgs(plan, { db, budget, repairer, expectFile })], workdir, fixEnv);
-      if (res.stderr) process.stderr.write(res.stderr);
-      let repair = null;
-      try {
-        repair = JSON.parse(res.stdout);
-      } catch {
-        // no report: stderr says why
+      // A golden repaired with the first one of its group is reported with it.
+      const group = groups.find((g) => g.members[0] === plan);
+      if (!group) continue;
+      const names = group.members.map((m) => m.result.name).join(', ');
+      const goldenOf = (m) => m.result.golden ?? m.result.name;
+      const goldens = group.members.map(goldenOf);
+      const allowed = Number(budget) * group.members.length;
+      /** One repair, of the group or one of its goldens, within `within` dollars: what it reported and spent. */
+      const attempt = (target, within, line) => {
+        const expectFile = join(scratch, `${repairs++}-expect.json`);
+        writeFileSync(expectFile, JSON.stringify(r.expect));
+        log(line);
+        const res = run(process.execPath, [cli, ...repairArgs(target, { db, budget: within, repairer, expectFile })], workdir, fixEnv);
+        if (res.stderr) process.stderr.write(res.stderr);
+        let repair = null;
+        try {
+          repair = JSON.parse(res.stdout);
+        } catch {
+          // no report: stderr says why
+        }
+        const spent = repair?.cost ? (repair.cost.blame ?? 0) + (repair.cost.repairer ?? 0) + (repair.cost.verify ?? 0) : 0;
+        const why = repair?.why ?? repair?.error?.message ?? (`${res.stderr ?? ''}`.trim().split('\n').at(-1) || `repair exited ${res.status}`);
+        return { repair, spent, why, fixed: repair?.outcome === 'fixed' && !!repair.output?.branch };
+      };
+      const together = attempt(group, allowed, `shadowlap repair for ${listed(goldens)}${goldens.length > 1 ? ', which fail the same check' : ''}: blame, repair and verify, within $${allowed.toFixed(2)}`);
+      let spent = together.spent;
+      let chosen = together.fixed ? { attempt: together, members: group.members } : null;
+      // No patch fixed them all: one that fixes one of them is still a fix, and the group's one pull request.
+      const alone = [];
+      if (!chosen && group.members.length > 1 && worthSplitting(together.repair) && spent < allowed) {
+        log(`no fix was accepted for ${listed(goldens)} together (${together.why}), so each is repaired on its own, until a fix is accepted for one`);
+        for (const m of group.members) {
+          const left = Number((allowed - spent).toFixed(6));
+          if (left <= 0) break;
+          const tried = attempt(m, left, `shadowlap repair for ${goldenOf(m)} on its own: blame, repair and verify, within the $${left.toFixed(2)} left`);
+          spent += tried.spent;
+          alone.push({ member: m, tried });
+          if (tried.fixed) {
+            chosen = { attempt: tried, members: [m] };
+            break;
+          }
+          if (!worthSplitting(tried.repair)) break;
+        }
       }
-      const spent = repair?.cost ? (repair.cost.blame ?? 0) + (repair.cost.repairer ?? 0) + (repair.cost.verify ?? 0) : 0;
+      const last = chosen?.attempt ?? alone.at(-1)?.tried ?? together;
+      const repair = last.repair;
       const accepted = repair?.candidates?.find((c) => c.id === repair.accepted) ?? null;
       const runs = accepted?.verify?.runs ?? [];
+      // Each run as verify --json prints it (outcome fixed or kept); a CLI from before that printed the verdict.
+      const passed = (x) => (typeof x.outcome === 'string' ? x.outcome === 'fixed' || x.outcome === 'kept' : x.verdict === 'pass');
       const count = (role) => {
         const of = runs.filter((x) => x.role === role);
-        return of.length ? `${role === 'holdout' ? 'held-out' : role} ${of.filter((x) => x.verdict === 'pass').length} of ${of.length}` : null;
+        return of.length ? `${role === 'holdout' ? 'held-out' : role} ${of.filter(passed).length} of ${of.length}` : null;
       };
       const verify = accepted ? ['target', 'holdout', 'good'].map(count).filter(Boolean).join(' · ') : null;
-      if (repair?.outcome === 'fixed' && repair.output?.branch) {
+      const base = { golden: goldens.join(', '), name: names, budget: allowed };
+      if (chosen) {
         const branch = repair.output.branch;
-        const g = refreshGolden({ cli, workdir, result: r, repair, guard, env: fixEnv, scratch });
-        log(g.state === 'recorded' ? `${g.golden} re-recorded on ${branch}` : g.state === 'stale' ? `${g.golden} not re-recorded on ${branch}: ${g.why}` : `${g.golden} may fork: left as it is`);
+        const leftOut = group.members.filter((m) => !chosen.members.includes(m));
+        const unfixedWhy = leftOut.length ? `no fix was accepted for ${listed(goldens.map((g) => `\`${g}\``))} together (${together.why}), and this one was verified for ${listed(chosen.members.map((m) => `\`${goldenOf(m)}\``))} alone` : null;
+        const branchState = refreshGoldens({ cli, workdir, members: chosen.members, unfixed: leftOut, unfixedWhy, results: report.results, repair, guard, env: fixEnv, scratch });
+        for (const g of branchState.goldens) {
+          if (g.state === 'recorded') log(`${g.golden} re-recorded on ${branch}`);
+          else if (g.state === 'stale') log(`${g.golden} not re-recorded on ${branch}: ${g.why}`);
+          else if (g.state === 'unfixed') log(`${g.golden} fails the same check, and the fix on ${branch} is not verified for it${g.fork ? '' : `: see whether it fixes it too with shadowlap test ${g.golden} --update on the branch`}`);
+          else log(`${g.golden} may fork: left as it is`);
+        }
+        const diverging = branchState.others.diverging;
+        if (diverging.length) log(`${diverging.join(' ')} ${diverging.length === 1 ? 'diverges' : 'diverge'} on ${branch} under the fix: re-record with shadowlap test ${diverging.join(' ')} --update on the branch`);
         // The body is kept beside repair's report, to be read after the job.
         const reportFile = resolve(workdir, repair.output.report ?? join(repair.output.dir ?? '.', 'report.md'));
         const bodyFile = join(dirname(reportFile), 'pull-request.md');
-        writeFileSync(bodyFile, `${existsSync(reportFile) ? readFileSync(reportFile, 'utf8').replace(/\s+$/, '') : ''}\n\n${goldenNote(g)}`);
+        writeFileSync(bodyFile, `${existsSync(reportFile) ? readFileSync(reportFile, 'utf8').replace(/\s+$/, '') : ''}\n\n${branchNote(branchState)}`);
         const opened = openPullRequest(realpathSync(git(workdir, ['rev-parse', '--show-toplevel'], fixEnv).trim()), branch, bodyFile, fixEnv);
         // The fix records where it went, so the dashboard shows "from CI · PR #138" and follows its state.
         if (opened.pr) for (const f of repair.fixes ?? []) if (typeof f?.fixId === 'string') run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'fix', 'pr', f.fixId, opened.pr], workdir, fixEnv);
@@ -402,20 +622,23 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
           } catch (err) {
             pushed = { state: 'failed', why: err instanceof Error ? err.message : String(err), pr: null };
           }
-          log(pushLine(r.name, pushed));
+          log(pushLine(names, pushed));
         }
-        if (opened.pr) out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, goldenState: g, pushed });
-        else out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'not-opened', why: opened.why, pr: null, branch, title: null, spent, verify, goldenState: g });
+        const onBranch = { goldenState: branchState.goldens.length === 1 ? branchState.goldens[0] : null, goldenStates: branchState.goldens, others: branchState.others };
+        if (opened.pr) out.push({ ...base, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, ...onBranch, pushed });
+        else out.push({ ...base, outcome: 'not-opened', why: opened.why, pr: null, branch, title: null, spent, verify, ...onBranch });
       } else {
         // Once the budget is spent, that is why there is no fix, whatever was learned by then.
-        const spentAll = spent >= Number(budget);
+        const spentAll = spent >= allowed;
         const why =
           repair?.outcome === 'fixed'
             ? 'a fix was accepted, but no branch was made for it'
             : spentAll
-              ? `the budget of $${Number(budget).toFixed(2)} is spent`
-              : (repair?.why ?? repair?.error?.message ?? (`${res.stderr ?? ''}`.trim().split('\n').at(-1) || `repair exited ${res.status}`));
-        out.push({ golden: r.golden ?? r.name, name: r.name, outcome: repair?.outcome === 'fixed' ? 'not-opened' : 'no-fix', why, pr: null, title: null, spent, verify, goldenState: null });
+              ? `the budget of $${allowed.toFixed(2)} is spent`
+              : alone.length
+                ? triedWhy(together.why, alone.map((a) => ({ golden: goldenOf(a.member), why: a.tried.why })), group.members.length)
+                : last.why;
+        out.push({ ...base, outcome: repair?.outcome === 'fixed' ? 'not-opened' : 'no-fix', why, pr: null, title: null, spent, verify, goldenState: null });
       }
     }
   } finally {
@@ -426,10 +649,28 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
 
 const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 
-/** What the summary says about the golden on a fix's branch. */
-function goldenCell(g) {
-  if (!g || g.state === 'fork') return '';
-  return g.state === 'recorded' ? ' · golden re-recorded' : ` · golden not re-recorded: run \`shadowlap test ${cell(g.golden)} --update\` on the branch`;
+/** What the summary says about the goldens on a fix's branch: its own, re-recorded or not, and the others it leaves diverging. */
+function goldenCell(f) {
+  const states = (f.goldenStates ?? (f.goldenState ? [f.goldenState] : [])).filter((g) => g && g.state !== 'fork');
+  const recorded = states.filter((g) => g.state === 'recorded');
+  const stale = states.filter((g) => g.state === 'stale');
+  const unfixed = states.filter((g) => g.state === 'unfixed');
+  const update = (dirs) => `run \`shadowlap test ${dirs.map(cell).join(' ')} --update\` on the branch`;
+  const parts = [];
+  // By name when the goldens on the branch fare differently.
+  const named = [recorded, stale, unfixed].filter((x) => x.length).length > 1;
+  const which = (gs) => (named ? gs.map((g) => cell(g.golden)).join(', ') : `golden${gs.length === 1 ? '' : 's'}`);
+  if (recorded.length) parts.push(`${which(recorded)} re-recorded`);
+  if (stale.length) parts.push(`${which(stale)} not re-recorded: ${update(stale.map((g) => g.golden))}`);
+  if (unfixed.length) {
+    const replays = unfixed.filter((g) => !g.fork);
+    parts.push(`${unfixed.map((g) => cell(g.golden)).join(', ')} ${unfixed.length === 1 ? 'fails' : 'fail'} the same check, not verified under the fix${replays.length ? `: ${update(replays.map((g) => g.golden))}, which keeps a recording only when it passes` : ''}`);
+  }
+  const d = f.others?.diverging ?? [];
+  if (d.length) parts.push(`${d.length} other golden${d.length === 1 ? ' diverges' : 's diverge'}: ${update(d)}`);
+  const u = f.others?.unchecked ?? [];
+  if (u.length) parts.push(`${u.length} other golden${u.length === 1 ? '' : 's'} not replayed under the fix`);
+  return parts.map((x) => ` · ${x}`).join('');
 }
 
 /** What the summary says about a fix and the team store, with push: in it, kept to a pull request's folder, or not (a warning when it couldn't go). */
@@ -454,12 +695,12 @@ export function fixSummary(fixes, budget) {
   for (const f of fixes) {
     const what =
       f.outcome === 'opened'
-        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f.goldenState)}${pushCell(f.pushed)}`
+        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f)}${pushCell(f.pushed)}`
         : f.outcome === 'skipped'
           ? cell(f.why)
-          : `no fix: ${cell(f.why)}${goldenCell(f.goldenState)}`;
+          : `no fix: ${cell(f.why)}${goldenCell(f)}`;
     const icon = f.outcome === 'opened' ? '✅' : f.outcome === 'skipped' ? '➖' : '❌';
-    lines.push(`| ${icon} | \`${cell(f.name)}\` | ${what} | ${f.outcome === 'skipped' ? '' : `$${f.spent.toFixed(2)} of $${Number(budget).toFixed(2)}`} |`);
+    lines.push(`| ${icon} | \`${cell(f.name)}\` | ${what} | ${f.outcome === 'skipped' ? '' : `$${f.spent.toFixed(2)} of $${Number(f.budget ?? budget).toFixed(2)}`} |`);
   }
   // A push that couldn't happen: each fix with why, under the table where the reasons have room.
   const unsent = fixes.filter((f) => f.pushed?.state === 'failed');

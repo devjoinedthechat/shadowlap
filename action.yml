@@ -7,7 +7,7 @@ branding:
 
 inputs:
   recordings:
-    description: Recording directories written by `shadowlap pack`, separated by spaces or new lines. A `*` is allowed in the last part of a path.
+    description: Recording directories written by `shadowlap pack`, separated by spaces or new lines. A `*` is allowed in the last part of a path. A path that names no pack fails as a test, and a pattern that matches none fails the step.
     default: goldens/*
   working-directory:
     description: Where the recorded commands run and relative paths start.

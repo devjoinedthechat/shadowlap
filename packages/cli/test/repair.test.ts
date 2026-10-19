@@ -1,5 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -185,6 +187,7 @@ describe('shadowlap repair', () => {
     expect(md).toContain('## Escalate refunds above the policy limit');
     expect(md).toContain(`+ ${FIX}`);
     expect(md).toContain('The held-out runs were never shown to the repairer.');
+    expect(md).toContain('Writes were stubbed in every replay.');
     expect(md).toMatch(/\| good \| `\w{10}` \| kept \| 4 of 4 passed \|/);
     expect(md).toContain(good.slice(0, 10));
   });
@@ -227,6 +230,27 @@ describe('shadowlap repair', () => {
       rmSync(remote, { recursive: true, force: true });
       rmSync(bin, { recursive: true, force: true });
     }
+  });
+
+  it('says when the branch leaves out uncommitted changes that verify replayed', async () => {
+    writeFileSync(join(project, 'notes.txt'), 'committed\n');
+    sh(project, 'git', ['add', 'notes.txt']);
+    sh(project, 'git', ['commit', '-q', '-m', 'notes']);
+    const failed = await record();
+    mode = 'alternate';
+    // A change in the working tree that verify replays with, and that HEAD, so the branch, lacks.
+    writeFileSync(join(project, 'notes.txt'), 'changed, not committed\n');
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--branch', 'fix/escalate', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as Report & { uncommitted?: string[] };
+    expect(report.outcome).toBe('fixed');
+    expect(report.uncommitted).toEqual(['notes.txt']);
+    expect(report.warnings).toContain('the working tree has uncommitted changes to notes.txt, which verify replayed and the branch fix/escalate does not hold: it is HEAD with the fix. Commit them and repair again, or check that the branch passes without them');
+    expect(sh(project, 'git', ['log', '-1', '--format=%B', 'fix/escalate'])).toContain('uncommitted changes to notes.txt, which this commit does not hold');
+    expect(readFileSync(join(project, report.output.report), 'utf8')).toContain('uncommitted changes to `notes.txt`. The branch holds HEAD with the fix, without them');
+    // The branch is HEAD with the fix; the working tree keeps its change.
+    expect(sh(project, 'git', ['show', 'fix/escalate:notes.txt'])).toBe('committed\n');
+    expect(readFileSync(join(project, 'notes.txt'), 'utf8')).toBe('changed, not committed\n');
   });
 
   // On Windows the stand-in is a batch file, as an npm-installed claude is there, so it runs through cmd.exe.
@@ -287,6 +311,44 @@ process.stdin.on('end', () => {
     }
   });
 
+  it('shows the repairer the run with the redaction rules applied, as every copy of a run that leaves the machine', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+    // The customer's address is in the opening message, which the repairer is shown as part of the conversation.
+    const failed = await record('jane.doe@example.com');
+    mode = 'alternate';
+    const before = mock.requests.length;
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as Report;
+    expect(report.outcome).toBe('fixed');
+    const asked = mock.requests.slice(before).filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents'));
+    expect(asked).toHaveLength(1);
+    const sent = JSON.stringify(asked[0]!.body);
+    expect(sent).toContain('refund on order <EMAIL>');
+    expect(sent).not.toContain('jane.doe@example.com');
+    // A case detail is still screened out: the check runs on the run as recorded, on this machine.
+    expect(report.candidates[0]).toMatchObject({ state: 'invalid', reason: expect.stringContaining('mentions A-1042') });
+    expect(readFileSync(join(project, report.output.report), 'utf8')).not.toContain('jane.doe@example.com');
+  });
+
+  it("masks a run's own details in the system prompt it shows the repairer", async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+    // A system prompt with the customer's address filled in at run time, as the agent's replays see it too.
+    const system = { AGENT_SYSTEM: 'You are a support agent for the account of jane.doe@example.com. Follow the refund policy.' };
+    const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], system);
+    expect(recorded.code, recorded.out).toBe(0);
+    const failed = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    mode = 'alternate';
+    const before = mock.requests.length;
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json'], system);
+    expect(r.stdout, r.out).toContain('"outcome"');
+    const asked = mock.requests.slice(before).filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents'));
+    expect(asked).toHaveLength(1);
+    const sent = JSON.stringify(asked[0]!.body);
+    expect(sent).toContain('System prompt:\\nYou are a support agent for the account of <EMAIL>. Follow the refund policy.');
+    expect(sent).not.toContain('jane.doe@example.com');
+  });
+
   it('switches to a stronger model when only it rescues the runs, without asking a repairer', async () => {
     const { failed } = await runs();
     mode = 'stubborn';
@@ -319,6 +381,80 @@ process.stdin.on('end', () => {
     const again = JSON.parse((await shadowlap(['repair', '--fixes', failed[0]!, '--expect', ORACLE, '--repairer', 'anthropic', '--json'])).stdout) as Report & { targets: Array<{ reused: boolean }> };
     expect(again.targets[0]).toMatchObject({ outcome: 'unrescuable', reused: true });
     expect(mock.requests.length).toBe(before);
+  });
+
+  it('stops when the budget runs out while it blames, rather than say what a search it never finished found', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ prices: { 'small-model': { input: 5, output: 25 } } }));
+    const failed = await record();
+    mode = 'alternate';
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--budget', '0.01', '--writes', 'block', '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = JSON.parse(r.stdout) as Report & { cost: { blame: number } };
+    expect(report.targets).toEqual([expect.objectContaining({ runId: failed, outcome: 'stopped' })]);
+    expect(report.cost.blame).toBeGreaterThan(0.01);
+    expect(report).toMatchObject({ outcome: 'stopped', why: 'the budget of $0.01 is spent', candidates: [], writes: 'block' });
+    const md = readFileSync(join(project, report.output.report), 'utf8');
+    expect(md).toContain('## Not fixed: the budget of $0.01 is spent');
+    // The pull request body names the write policy the replays ran under.
+    expect(md).toContain('Writes were blocked in every replay.');
+    expect(md).not.toContain('stubbed');
+  });
+
+  it('finds out before it blames anything that an Anthropic repairer cannot sign in: no credentials, or a key refused', async () => {
+    const failed = await record();
+    mode = 'alternate';
+    const home = mkdtempSync(join(tmpdir(), 'fp-home-'));
+    // An API that refuses every key, as it refuses a revoked one.
+    const refusing = createServer((_req, res) => {
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }));
+    });
+    await new Promise<void>((resolve) => refusing.listen(0, '127.0.0.1', resolve));
+    try {
+      // No key, no token and no profile: an empty home, and none of this machine's ANTHROPIC_ variables.
+      const unset = Object.fromEntries(Object.keys(process.env).filter((k) => k.startsWith('ANTHROPIC_')).map((k) => [k, undefined]));
+      const before = mock.requests.length;
+      const nokey = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json'], { ...unset, ANTHROPIC_API_KEY: undefined, ANTHROPIC_BASE_URL: mock.url, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config'), APPDATA: home });
+      expect(nokey.code, nokey.out).toBe(1);
+      const report = JSON.parse(nokey.stdout) as Report & { noRepairer: string | null; cost: { blame: number } };
+      expect(report).toMatchObject({ outcome: 'not-fixed', noRepairer: 'the repairer could not be asked: no Anthropic credentials', why: 'the repairer could not be asked: no Anthropic credentials', targets: [], candidates: [] });
+      expect(report.warnings).toContain('the repairer could not be asked: no Anthropic credentials: set ANTHROPIC_API_KEY, or run ant auth login');
+      expect(report.warnings).toContain('no failing run was blamed, as the repairer could not be asked, so nothing was spent: repair again once it can be');
+      // Not one probe: blame never started.
+      expect(mock.requests.length).toBe(before);
+      expect(report.cost.blame).toBe(0);
+      expect(existsSync(join(project, report.output.dir, 'report.json'))).toBe(true);
+      expect(readFileSync(join(project, report.output.report), 'utf8')).toContain('No failing run was blamed: the repairer could not be asked: no Anthropic credentials.');
+
+      const port = (refusing.address() as AddressInfo).port;
+      const refused = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json'], { ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}` });
+      expect(refused.code, refused.out).toBe(1);
+      expect(JSON.parse(refused.stdout)).toMatchObject({ outcome: 'not-fixed', noRepairer: 'the repairer could not be asked: the Anthropic API refused the credentials', targets: [] });
+      expect(mock.requests.length).toBe(before);
+    } finally {
+      await new Promise<void>((resolve) => refusing.close(() => resolve()));
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('keeps the repair, its blames and its fix, and says why, when the repairer binary cannot be run', async () => {
+    const failed = await record();
+    mode = 'alternate';
+    const bin = mkdtempSync(join(tmpdir(), 'fp-claude-'));
+    try {
+      // A claude that is there and can't be run: no execute bit. Found out only once blame has run.
+      writeFileSync(join(bin, 'claude'), '#!/bin/sh\necho {}\n', { mode: 0o644 });
+      const eacces = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'claude-code', '--json'], { SHADOWLAP_CLAUDE: join(bin, 'claude') });
+      expect(eacces.code, eacces.out).toBe(1);
+      const again = JSON.parse(eacces.stdout) as Report & { noRepairer: string | null; fixes: Array<{ fixId: string }> };
+      expect(again).toMatchObject({ outcome: 'not-fixed', noRepairer: `the repairer could not be asked: ${join(bin, 'claude')} could not be run` });
+      expect(again.targets[0]).toMatchObject({ outcome: 'blamed' });
+      expect(again.warnings.find((w) => w.startsWith('the repairer could not be asked'))).toContain('EACCES');
+      expect(existsSync(join(project, again.output.dir, 'report.json'))).toBe(true);
+      expect(again.fixes).toHaveLength(1);
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
   });
 
   it('checks its flags before running anything', async () => {
@@ -382,5 +518,7 @@ describe('noDiagnosisWhy', () => {
     const unknown = noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }, { target: target(B, 'unrescuable'), notTheAnswer: null }], null);
     expect(unknown).toContain('--stronger <model>');
     expect(noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: null }], 'big-model')).toBe('neither resampling nor big-model rescued any failing run, so there is no passing path to learn from: the cause is likely in the code or the tools');
+    // A search that stopped part way is no search: the run that couldn't be blamed says why.
+    expect(noDiagnosisWhy([{ target: target(A, 'stopped'), notTheAnswer: null }, { target: target(B, 'passes', passes), notTheAnswer: null }], null)).toBe(`no failing run could be blamed: ${passes}`);
   });
 });

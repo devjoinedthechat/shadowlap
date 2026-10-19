@@ -1,11 +1,11 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, REPAIR_FILE_LIMIT, repairMarkdown, toolDefinitions, unifiedDiff, type Conversation, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Store, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, REPAIR_FILE_LIMIT, repairMarkdown, rewriteText, safeLine, Store, toolDefinitions, unifiedDiff, type Conversation, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
-import { askRepairer, buildRepairPrompt, RepairerError, type RepairCase, type Repairer } from './repairer.js';
+import { askRepairer, buildRepairPrompt, cannotAsk, RepairerError, type RepairCase, type Repairer } from './repairer.js';
 import { physicalPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
@@ -196,6 +196,27 @@ function lastExchange(store: Store, runId: string): string {
   return `${conversationText(conv)}\n${describeBlocks(responseBlocks(store, last))}`;
 }
 
+/**
+ * Runs as the repairer may see them: each copied, once, into a store in memory with the redaction
+ * rules applied as `export html` applies them (a copy that is read, never replayed), so the path
+ * rules reach what calls got back too. The project's store is never changed.
+ */
+function maskedView(store: Store, rules: Normalizer[]): { of: (...runIds: string[]) => Store; close: () => void } {
+  const copy = Store.open(':memory:');
+  const copied = new Set<string>();
+  return {
+    of: (...runIds) => {
+      for (const id of runIds) {
+        if (copied.has(id)) continue;
+        redactRun(store, id, rules, copy, { read: true });
+        copied.add(id);
+      }
+      return copy;
+    },
+    close: () => copy.close(),
+  };
+}
+
 function runBuild(cmd: string, cwd: string): { ok: boolean; tail: string } {
   const r = spawnSync(cmd, { cwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const tail = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-5).join('\n');
@@ -204,9 +225,14 @@ function runBuild(cmd: string, cwd: string): { ok: boolean; tail: string } {
 
 interface Blamed {
   target: RepairTarget;
+  /** What the repairer is shown of the run: masked by the project's redaction rules. */
   repairCase: RepairCase | null;
+  /** What the run said where it was lost, as recorded: case details are looked for in it. */
+  caseText?: string;
   /** The request at the blamed call, whose prompt a fix rewrites. */
   request: unknown;
+  /** The same request with the redaction rules applied: the instructions the repairer is shown. */
+  shownRequest?: unknown;
   /** The model the recording asked at the blamed call. */
   model: string | null;
   /**
@@ -230,7 +256,8 @@ export function noDiagnosisWhy(blamed: ReadonlyArray<Pick<Blamed, 'target' | 'no
     const said = new Set(found).size === 1 ? found[0]! : unrescued.map((b, i) => `${shortId(b.target.runId)}: ${found[i]}`).join('; ');
     return `${said}: no answer of the model's lost ${unrescued.length === 1 ? 'the run' : 'these runs'}; look at the tools, the harness or the command`;
   }
-  const searched = blamed.some((b) => b.target.outcome === 'unrescuable' || b.target.outcome === 'stopped');
+  // A search that stopped part way (runRepair reports the repair as stopped) learned nothing either way.
+  const searched = blamed.some((b) => b.target.outcome === 'unrescuable');
   const note = blamed.find((b) => b.target.note)?.target.note;
   if (!searched && note) return `no failing run could be blamed: ${note}`;
   return stronger
@@ -248,7 +275,16 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
   for (const f of restored) log(p.yellow(`  ! restored ${relative(cwd, f)}, which an interrupted repair had left edited`));
 
   const config = loadConfig(cwd);
+  // The repairer is a model of the user's choosing, often another machine's: what it is shown of a
+  // run goes through the redaction rules first, as every copy of a run that leaves the machine does.
+  let rules: Normalizer[];
+  try {
+    rules = config.redact;
+  } catch (err) {
+    throw new RepairError(err instanceof Error ? err.message : String(err));
+  }
   const store = openStore(input.opts);
+  const shown = rules.length ? maskedView(store, rules) : null;
   let interrupted = false;
   const onSignal = () => {
     interrupted = true;
@@ -287,6 +323,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     accepted: null,
     patch: null,
     cost,
+    writes: s.writes,
     output: { dir: null, patch: null, report: null, goldens: [], applied: false, branch: null, pr: null },
     warnings,
   };
@@ -295,7 +332,26 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
   // What a stopped repair found so far is still reported.
   const stopped = (why: string): RepairReport => ({ ...report, targets: blamed.map((b) => b.target), candidates: candidates.map((x) => x.c), outcome: 'stopped', why });
 
+  const repairer: Repairer = { ...s.repairer, ...(config.repair?.baseUrl && !s.repairer.baseUrl ? { baseUrl: config.repair.baseUrl } : {}) };
+  // Says why the repairer proposed nothing: in a few words for the fix's Repair step, and at length, with what to do, as a warning.
+  const notAsked = (e: RepairerError) => {
+    report.noRepairer = `${NO_REPAIRER.notAsked}: ${e.what}`;
+    warnings.push(`${NO_REPAIRER.notAsked}: ${e.message}`);
+  };
+
   try {
+    // 0. A repairer that can't sign in is found out before blame spends anything. Only a fix that
+    // needs no model (--stronger) is left to look for then; without one, there is nothing to blame for.
+    const unaskable = s.repairerConfigured === false ? null : await cannotAsk(repairer);
+    if (unaskable) log(`  ${p.yellow('!')} ${NO_REPAIRER.notAsked}: ${unaskable.message}${s.stronger ? `; only a switch to ${s.stronger} is looked for` : '; nothing is blamed'}`);
+    if (unaskable && !s.stronger) {
+      notAsked(unaskable);
+      warnings.push('no failing run was blamed, as the repairer could not be asked, so nothing was spent: repair again once it can be');
+      report.outcome = 'not-fixed';
+      report.why = report.noRepairer ?? null;
+      return report;
+    }
+
     // 1. Where each failing run was lost, and a path from there that passed.
     for (const t of input.targets) {
       if (interrupted) return stopped('interrupted');
@@ -306,11 +362,15 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
         log(`  resampling did not rescue ${shortId(t.parent.runId)}; trying ${s.stronger}`);
         const again = await blameOne(t, { ...(s.rescueFields ?? {}), model: s.stronger });
         if (again.target.outcome === 'blamed') blamed[blamed.length - 1] = { ...again, target: { ...again.target, rescuedBy: s.stronger } };
+        // A search with the stronger model that stopped part way found nothing either way.
+        else if (again.target.outcome === 'stopped') blamed[blamed.length - 1] = again;
       }
     }
     report.targets = blamed.map((b) => b.target);
     if (interrupted) return stopped('interrupted');
     const learned = blamed.filter((b) => b.repairCase);
+    // A blame the budget or a signal stopped part way found neither a rescue nor that there is none.
+    if (!learned.length && blamed.some((b) => b.target.outcome === 'stopped')) return stopped(outOfBudget() ? `the budget of $${s.budget!.toFixed(2)} is spent` : 'interrupted');
     if (!learned.length) {
       report.outcome = 'no-diagnosis';
       report.why = noDiagnosisWhy(blamed, s.stronger);
@@ -320,15 +380,17 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     // 2. What a fix may rewrite, where it lives, and what it must not mention.
     const files = projectFiles(root);
     const surfaces: Surface[] = [];
-    let prompt: ReturnType<typeof surfacesOf> | null = null;
     for (const b of learned) {
       const found = surfacesOf(b.request);
-      prompt ??= found;
       for (const x of found.surfaces) if (!surfaces.some((y) => y.label === x.label && y.text === x.text)) surfaces.push(x);
     }
+    // The agent's instructions as the repairer is shown them: a system prompt can carry a run's own
+    // details (a customer's name filled in), so it is read from the masked copy, while the spans a fix
+    // may rewrite are the project's source.
+    const instructions = surfacesOf(learned[0]!.shownRequest ?? learned[0]!.request);
     const anchors = findAnchors(surfaces, files);
     report.anchors = anchors.length;
-    const failingTexts = learned.map((b) => `${conversationText(b.repairCase!.conversation)}\n${describeBlocks(b.repairCase!.recorded)}`);
+    const failingTexts = learned.map((b) => b.caseText ?? '');
     const allowedTexts = [...surfaces.map((x) => x.text), ...input.good.map((g) => lastExchange(store, g.parent.runId))];
     const forbidden = forbiddenDetails(failingTexts, allowedTexts);
 
@@ -365,18 +427,25 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
 
     // 3b. The repairer, when nothing cheaper worked.
     if (!accepted && !interrupted && !outOfBudget()) {
-      // Why it proposed nothing, when it doesn't: in a few words for the fix's Repair step, and at length, with what to do, as a warning.
       if (s.repairerConfigured === false) {
         report.noRepairer = NO_REPAIRER.unconfigured;
         warnings.push(`${NO_REPAIRER.unconfigured}, so only fixes that need no model were tried: set one with --repairer anthropic, or repair.repairer in shadowlap.config.json`);
       } else if (!anchors.length) {
         report.noRepairer = NO_REPAIRER.nothingToRewrite;
         warnings.push(`${NO_REPAIRER.nothingToRewrite}: none of the system prompt or tool descriptions appears verbatim, exactly once, in the project's files`);
+      } else if (unaskable) {
+        notAsked(unaskable);
       } else {
-        const request = buildRepairPrompt({ oracle, system: prompt?.system ?? '', tools: prompt?.tools ?? [], cases: learned.map((b) => b.repairCase!), anchors, candidates: s.candidates });
+        const request = buildRepairPrompt({ oracle, system: instructions.system, tools: instructions.tools, cases: learned.map((b) => b.repairCase!), anchors, candidates: s.candidates });
         log(`\n  asking ${s.repairer.model ? `${s.repairer.provider}:${s.repairer.model}` : s.repairer.provider} for ${s.candidates} candidates (${anchors.length} spans it may rewrite; held-out runs are not shown to it)`);
+        let answer: Awaited<ReturnType<typeof askRepairer>> | null = null;
         try {
-          const answer = await askRepairer({ ...s.repairer, ...(config.repair?.baseUrl && !s.repairer.baseUrl ? { baseUrl: config.repair.baseUrl } : {}) }, request, config.prices);
+          answer = await askRepairer(repairer, request, config.prices);
+        } catch (err) {
+          // Whatever kept it from answering, the blames and the fix they opened are kept, with why.
+          notAsked(err instanceof RepairerError ? err : new RepairerError(safeLine((err instanceof Error ? err.message : String(err)).split('\n')[0]!).slice(0, 200) || 'it failed'));
+        }
+        if (answer) {
           cost.repairer = answer.cost;
           report.repairer = { provider: s.repairer.provider, model: s.repairer.model, served: answer.served, cost: answer.cost };
           report.diagnosis = answer.diagnosis || null;
@@ -391,10 +460,6 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
           }
           candidates.push(...fresh);
           await tryAll(fresh);
-        } catch (err) {
-          if (!(err instanceof RepairerError)) throw err;
-          report.noRepairer = `${NO_REPAIRER.notAsked}: ${err.what}`;
-          warnings.push(`${NO_REPAIRER.notAsked}: ${err.message}`);
         }
       }
     }
@@ -419,6 +484,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
   } finally {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
+    shown?.close();
     store.close();
   }
 
@@ -472,18 +538,29 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
         return { target: { ...base, outcome: err.reason === 'passes' ? 'passes' : 'error', note: err.message.split('\n')[0]! }, repairCase: null, request: null, model: null, notTheAnswer: null };
       }
     }
-    const parentCall = parentCalls.find((c) => c.callNo === callNo);
-    const rescuedCall = store.getCalls(rescuedRunId!).find((c) => c.callNo === callNo);
+    // The request as recorded, for the prompt a fix rewrites, which lives in the project's files; what
+    // the repairer is shown of the run (the conversation, both answers, how it fails), with the rules applied.
     const request = requestAt(store, runId, callNo!);
-    const conversation = isObject(request) ? normalizeConversation(request) : null;
-    const recorded = responseBlocks(store, parentCall);
-    const rescued = responseBlocks(store, rescuedCall);
-    const target: RepairTarget = { ...base, outcome: 'blamed', callNo, step: steps.indexOf(callNo!) + 1, rescuedRunId, recorded: describeBlocks(recorded), rescued: describeBlocks(rescued) };
+    const exchange = (from: Store) => {
+      const asked = requestAt(from, runId, callNo!);
+      return {
+        conversation: isObject(asked) ? normalizeConversation(asked) : null,
+        recorded: responseBlocks(from, from.getCalls(runId).find((c) => c.callNo === callNo)),
+        rescued: responseBlocks(from, from.getCalls(rescuedRunId!).find((c) => c.callNo === callNo)),
+      };
+    };
+    const asRecorded = exchange(store);
+    const view = shown ? shown.of(runId, rescuedRunId!) : store;
+    const seen = view === store ? asRecorded : exchange(view);
+    const target: RepairTarget = { ...base, outcome: 'blamed', callNo, step: steps.indexOf(callNo!) + 1, rescuedRunId, recorded: describeBlocks(seen.recorded), rescued: describeBlocks(seen.rescued) };
     return {
       target,
-      repairCase: { step: target.step!, steps: steps.length, callNo: callNo!, conversation, recorded, rescued, failures, rescuedBy: typeof fields.model === 'string' ? fields.model : null },
+      repairCase: { step: target.step!, steps: steps.length, callNo: callNo!, ...seen, failures: failures.map((f) => rewriteText(f, rules)), rescuedBy: typeof fields.model === 'string' ? fields.model : null },
+      // Case details are screened against the run as recorded: the check never leaves the machine.
+      caseText: `${conversationText(asRecorded.conversation)}\n${describeBlocks(asRecorded.recorded)}`,
       request,
-      model: conversation?.model ?? (isObject(request) && typeof request.model === 'string' ? request.model : null),
+      shownRequest: view === store ? request : requestAt(view, runId, callNo!),
+      model: asRecorded.conversation?.model ?? (isObject(request) && typeof request.model === 'string' ? request.model : null),
       notTheAnswer: null,
     };
   }
@@ -570,6 +647,17 @@ export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' |
   out.dir = rel(dir);
   const accepted = report.candidates.find((c) => c.id === report.accepted) ?? null;
 
+  // Verify replayed the working tree; a branch is HEAD with the fix. Tracked changes not committed are
+  // in what was verified and not in what is committed: the report, the commit and the pull request say so.
+  if (accepted && report.patch && input.outputs.branch) {
+    const uncommitted = uncommittedFiles(root);
+    if (uncommitted.length) {
+      report.uncommitted = uncommitted;
+      const named = uncommitted.length > 3 ? `${uncommitted.slice(0, 3).join(', ')} and ${uncommitted.length - 3} more` : uncommitted.join(', ');
+      report.warnings.push(`the working tree has uncommitted changes to ${named}, which verify replayed and the branch ${input.outputs.branch} does not hold: it is HEAD with the fix. Commit them and repair again, or check that the branch passes without them`);
+    }
+  }
+
   if (accepted && report.patch) {
     writeFileSync(join(dir, 'fix.patch'), report.patch);
     out.patch = rel(join(dir, 'fix.patch'));
@@ -644,8 +732,19 @@ function commitMessage(r: RepairReport, c: RepairCandidate): string {
   if (c.why.trim()) lines.push(c.why.trim(), '');
   lines.push(`The failing runs were lost at ${r.targets.filter((t) => t.callNo !== null).map((t) => `model call #${t.callNo} of ${shortId(t.runId)}`).join(', ')}.`);
   if (v) lines.push(`Verified by replaying them under the change: fixes ${pass('target')} of ${count('target').length} target and ${pass('holdout')} of ${count('holdout').length} held-out failing runs, keeps ${pass('good')} of ${count('good').length} good runs, each at ${v.needed} of ${v.attemptsPerRun} attempts.`);
+  if (r.uncommitted?.length) lines.push('', `The runs were replayed on a working tree with uncommitted changes to ${r.uncommitted.join(', ')}, which this commit does not hold: it is HEAD with the fix alone.`);
   return lines.join('\n') + '\n';
 }
+
+/** Tracked files whose working-tree content differs from HEAD's, staged or not, relative to the repository's root. */
+function uncommittedFiles(root: string): string[] {
+  try {
+    return git(root, ['diff', '--name-only', '-z', 'HEAD', '--']).split('\0').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 
 /** A commit on a new branch with the fix, made without checking anything out: HEAD and the working tree stay as they are. */
 function commitBranch(root: string, name: string, c: RepairCandidate, extra: Array<{ from: string; to: string }>, message: string, scratch: string): string {

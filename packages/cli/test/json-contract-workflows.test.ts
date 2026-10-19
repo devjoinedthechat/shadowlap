@@ -141,6 +141,11 @@ describe('Fixes: blame, verify, repair and fix', () => {
     const r = json(repair);
     expect(r.outcome).toBe('fixed');
     hold([['repair', r], ['repairTarget', first(r.targets)], ['repairCandidate', first(r.candidates)], ['repairOutput', r.output]]);
+    // Each candidate's verification is printed as verify --json prints one, the accepted one with the verdict it was kept as.
+    const tried = (r.candidates as Array<{ id: number; verify: { runs: unknown[]; summary: unknown; verifyId: string | null } | null }>).filter((c) => c.verify);
+    expect(tried.length).toBeGreaterThan(0);
+    for (const c of tried) hold([['verify', c.verify], ['verifyRun', first(c.verify!.runs)], ['verifySummary', c.verify!.summary]]);
+    expect(tried.find((c) => c.id === r.accepted)!.verify!.verifyId).toBe(r.verifyId);
 
     const ls = json(await cli(project, ['fix', 'ls', '--json']));
     hold([['fixList', ls], ['fixRow', first(ls.fixes)], ['fixCounts', ls.counts]]);

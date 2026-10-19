@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type ScriptContext, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { branchName, cannotPush, fixSummary, forkPullRequest, goldenNote, planFixes, pushFix, pushLine, refreshGolden, repairArgs, type ReportResult } from '../../../action/fix.mjs';
+import { branchName, branchNote, cannotPush, fixSummary, forkPullRequest, goldenNote, groupFixes, planFixes, pushFix, pushLine, refreshGoldens, repairArgs, type ReportResult } from '../../../action/fix.mjs';
 import { startFakeS3 } from '../../remote/test/fakes/s3.js';
 
 /**
@@ -41,7 +41,9 @@ const NO_AWS: NodeJS.ProcessEnv = {
 };
 
 let mock: MockServer;
-let mode: 'refund' | 'alternate' = 'refund';
+let mode: 'refund' | 'alternate' | 'escalate' = 'refund';
+/** An order the model refunds whatever its prompt says, so no prompt fix repairs a run about it. */
+let stubborn: string | null = null;
 let decisions = 0;
 let counter = 0;
 let project = '';
@@ -63,7 +65,8 @@ function script(ctx: ScriptContext) {
       return { message: message([toolUse('read_policy', {}, `toolu_policy_${ctx.requestNo}`)], usage) };
     case 2: {
       decisions++;
-      const escalates = system.includes('escalate every refund above the limit') || (mode === 'alternate' && decisions % 2 === 0);
+      const refunds = stubborn !== null && JSON.stringify(ctx.request.messages).includes(stubborn);
+      const escalates = !refunds && (system.includes('escalate every refund above the limit') || mode === 'escalate' || (mode === 'alternate' && decisions % 2 === 0));
       return { message: escalates ? message([text('Above the limit.'), toolUse('escalate', { reason: 'above the refund limit' }, `toolu_decide_${ctx.requestNo}`)], usage) : message([toolUse('issue_refund', { order_id: 'A-1042', amount: 240 }, `toolu_decide_${ctx.requestNo}`)], usage) };
     }
     default:
@@ -125,6 +128,7 @@ async function setUp(tests: Record<string, unknown>, agent: (source: string) => 
   sh(project, 'git', ['config', 'user.email', 'test@example.com']);
   mode = 'refund';
   decisions = 0;
+  stubborn = null;
   const recorded = await run([CLI, 'run', '--', process.execPath, 'agent.mjs']);
   expect(recorded.code, recorded.out).toBe(0);
   const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
@@ -136,11 +140,27 @@ async function setUp(tests: Record<string, unknown>, agent: (source: string) => 
   remote = mkdtempSync(join(tmpdir(), 'sl-remote-'));
   sh(remote, 'git', ['init', '-q', '--bare']);
   sh(project, 'git', ['remote', 'add', 'origin', remote]);
-  // A stand-in for gh: records how it was called and prints a pull request URL, as gh does.
+  // A stand-in for gh: records how it was last called, and that it was, and prints a pull request URL, as gh does.
   bin = mkdtempSync(join(tmpdir(), 'sl-gh-'));
-  writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '%s\\n' "$@" > "${join(bin, 'args')}"\necho https://github.com/example/agent/pull/7\n`);
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '%s\\n' "$@" > "${join(bin, 'args')}"\necho "$1 $2" >> "${join(bin, 'calls')}"\necho https://github.com/example/agent/pull/7\n`);
   chmodSync(join(bin, 'gh'), 0o755);
   mode = 'alternate';
+}
+
+/** Another golden beside the first: recorded with the model refunding or escalating, its checks under `tests` when given, committed. */
+async function addGolden(name: string, order: string, as: 'refund' | 'escalate', tests?: Record<string, unknown>): Promise<void> {
+  const was = mode;
+  mode = as;
+  const recorded = await run([CLI, 'run', '--', process.execPath, 'agent.mjs', order]);
+  mode = was;
+  expect(recorded.code, recorded.out).toBe(0);
+  expect((await run([CLI, 'pack', /recording run (\w{26})/.exec(recorded.out)![1]!, `goldens/${name}`])).code).toBe(0);
+  if (tests) {
+    const config = JSON.parse(readFileSync(join(project, 'shadowlap.config.json'), 'utf8')) as { tests: Record<string, unknown> };
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ ...config, tests: { ...config.tests, [`goldens/${name}`]: tests } }, null, 2));
+  }
+  sh(project, 'git', ['add', '.']);
+  sh(project, 'git', ['commit', '-q', '-m', `golden ${name}`]);
 }
 
 afterEach(() => {
@@ -181,7 +201,8 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(args.slice(0, 8)).toEqual(['pr', 'create', '--head', branch, '--base', 'main', '--title', 'Escalate refunds above the policy limit']);
     const body = readFileSync(args[9]!, 'utf8');
     expect(body).toContain('## Escalate refunds above the policy limit');
-    expect(body).toContain("`goldens/refund-over-limit` is re-recorded under the fix: the recording verify accepted replaces its pack in this branch, and it replays clean here, so this pull request's own checks pass.");
+    expect(body).toContain('`goldens/refund-over-limit` is re-recorded under the fix: the recording verify accepted replaces its pack in this branch, and it replays clean here.');
+    expect(body).toContain("Every golden this job tested replays clean on this branch, so this pull request's own checks pass.");
 
     expect(r.summary).toContain('### Shadowlap: 1 of 1 recording failed');
     expect(r.summary).toContain('### Shadowlap: 1 fix pull request opened');
@@ -194,6 +215,116 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(onBranch.code, onBranch.out).toBe(0);
     expect(onBranch.out).toMatch(/✓ refund-over-limit: \d+\/\d+ replayed/);
     expect(mock.requests.length).toBe(hits);
+  });
+
+  it('replays every other golden under the fix, and says which ones diverge on the branch rather than that its checks pass', async () => {
+    await setUp({ expect: EXPECT });
+    // A golden that passes as a plain replay: the fix changes the prompt every request carries, so it diverges under it.
+    await addGolden('escalates', 'A-3001', 'escalate');
+    const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' });
+    expect(r.outputs).toMatchObject({ passed: '1', failed: '1', fixes: '1' });
+    expect(r.out).toContain('goldens/refund-over-limit re-recorded on shadowlap/fix-');
+    expect(r.out).toMatch(/goldens\/escalates diverges on shadowlap\/fix-\S+ under the fix/);
+    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9]!, 'utf8');
+    expect(body).toContain('`goldens/refund-over-limit` is re-recorded under the fix');
+    expect(body).toContain('another golden, which passed before it, diverges on this branch: `goldens/escalates`');
+    expect(body).toContain('shadowlap test goldens/escalates --update');
+    expect(body).not.toContain("this pull request's own checks pass");
+    expect(r.summary).toContain('· golden re-recorded · 1 other golden diverges: run `shadowlap test goldens/escalates --update` on the branch');
+    // As the pull request's own checks find it: the fixed golden replays clean, the other diverges.
+    const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
+    sh(project, 'git', ['checkout', '-q', branch]);
+    const onBranch = await run([CLI, '--db', ':memory:', 'test', 'goldens/*']);
+    expect(onBranch.code).toBe(1);
+    expect(onBranch.out).toMatch(/✓ refund-over-limit: /);
+    expect(onBranch.out).toMatch(/✗ escalates: diverged at call 1/);
+  });
+
+  it('repairs goldens that fail the same check together, in one pull request that re-records each of them', async () => {
+    await setUp({ expect: EXPECT });
+    // A second golden that refunds against the same policy, under the same check: the same failure, so the same fix.
+    // goldens/* lists it first.
+    await addGolden('refund-again', 'A-2077', 'refund', { expect: EXPECT });
+    const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' });
+    expect(r.outputs).toMatchObject({ passed: '0', failed: '2', 'checks-failed': '2', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
+    expect(r.out).toContain('shadowlap repair for goldens/refund-again and goldens/refund-over-limit, which fail the same check: blame, repair and verify, within $10.00');
+    expect(r.out).toContain('::notice title=Shadowlap::refund-again, refund-over-limit: opened https://github.com/example/agent/pull/7');
+    // One branch, pushed once; the one fix in CI's store holds both failures and names the pull request.
+    const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
+    expect(branch.split('\n')).toHaveLength(1);
+    expect(sh(remote, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)'])).toBe(branch);
+    expect(r.fixes).toHaveLength(1);
+    expect(r.fixes[0]!.source).toMatch(/PR #7$/);
+    // Both goldens are re-recorded in the fix's one commit, and the pull request's own checks pass on both.
+    expect(sh(project, 'git', ['rev-list', '--count', `main..${branch}`])).toBe('1');
+    const changed = sh(project, 'git', ['diff', '--name-only', 'main', branch]).split('\n');
+    expect(changed).toEqual(expect.arrayContaining(['agent.mjs', 'goldens/refund-over-limit/run.json', 'goldens/refund-again/run.json']));
+    expect(sh(project, 'git', ['log', '-1', '--format=%B', branch])).toContain('goldens/refund-again and goldens/refund-over-limit are re-recorded under the fix, from the runs verify accepted');
+    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9]!, 'utf8');
+    expect(body).toContain('### The goldens');
+    expect(body).toContain('`goldens/refund-over-limit` is re-recorded under the fix');
+    expect(body).toContain('`goldens/refund-again` is re-recorded under the fix');
+    expect(body).toContain("Every golden this job tested replays clean on this branch, so this pull request's own checks pass.");
+    expect(r.summary).toMatch(/\| ✅ \| `refund-again, refund-over-limit` \| .* · goldens re-recorded \| \$\d+\.\d\d of \$10\.00 \|/);
+    sh(project, 'git', ['checkout', '-q', branch]);
+    const onBranch = await run([CLI, '--db', ':memory:', 'test', 'goldens/*']);
+    expect(onBranch.code, onBranch.out).toBe(0);
+    expect(onBranch.out).toContain('2 passed');
+  });
+
+  it('when no fix repairs every golden that fails the same check, opens the one pull request for the golden one fix repairs, and names the other', async () => {
+    await setUp({ expect: EXPECT });
+    // A second golden under the same check, about an order the model refunds whatever the prompt says:
+    // no prompt fix repairs it, so no patch fixes both. goldens/* lists it second.
+    await addGolden('refund-vip', 'A-2077', 'refund', { expect: EXPECT });
+    stubborn = 'A-2077';
+    const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' });
+    expect(r.outputs).toMatchObject({ passed: '0', failed: '2', 'checks-failed': '2', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
+    expect(r.out).toContain('shadowlap repair for goldens/refund-over-limit and goldens/refund-vip, which fail the same check: blame, repair and verify, within $10.00');
+    // Then each on its own, in order, within what is left, until one fix is accepted.
+    expect(r.out).toMatch(/no fix was accepted for goldens\/refund-over-limit and goldens\/refund-vip together \(.+\), so each is repaired on its own, until a fix is accepted for one\n/);
+    expect(r.out).toMatch(/shadowlap repair for goldens\/refund-over-limit on its own: blame, repair and verify, within the \$\d+\.\d\d left/);
+    expect(r.out).not.toContain('shadowlap repair for goldens/refund-vip on its own');
+    expect(r.out).toContain('::notice title=Shadowlap::refund-over-limit, refund-vip: opened https://github.com/example/agent/pull/7');
+    // One pull request, from one branch, and the fix in CI's store names it.
+    expect(readFileSync(join(bin, 'calls'), 'utf8').trim().split('\n')).toEqual(['pr create']);
+    const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
+    expect(branch).toMatch(/^shadowlap\/fix-refund-over-limit-[0-9a-z]{6}$/);
+    expect(r.fixes).toHaveLength(1);
+    expect(r.fixes[0]).toMatchObject({ status: 'verified' });
+    expect(r.fixes[0]!.source).toMatch(/PR #7$/);
+    // The branch re-records the golden the fix was verified for, and leaves the other as it was.
+    const changed = sh(project, 'git', ['diff', '--name-only', 'main', branch]).split('\n');
+    expect(changed).toEqual(expect.arrayContaining(['agent.mjs', 'goldens/refund-over-limit/run.json']));
+    expect(changed.some((f) => f.startsWith('goldens/refund-vip/'))).toBe(false);
+    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9]!, 'utf8');
+    expect(body).toContain('`goldens/refund-over-limit` is re-recorded under the fix');
+    expect(body).toMatch(/`goldens\/refund-vip` fails the same check, but this fix is not verified for it: no fix was accepted for `goldens\/refund-over-limit` and `goldens\/refund-vip` together \(.+\), and this one was verified for `goldens\/refund-over-limit` alone\./);
+    expect(body).toContain('shadowlap test goldens/refund-vip --update');
+    expect(body).not.toContain("this pull request's own checks pass");
+    expect(r.out).toContain('goldens/refund-vip fails the same check, and the fix on shadowlap/fix-');
+    expect(r.summary).toMatch(/\| ✅ \| `refund-over-limit, refund-vip` \| .* · goldens\/refund-over-limit re-recorded · goldens\/refund-vip fails the same check, not verified under the fix: run `shadowlap test goldens\/refund-vip --update` on the branch, which keeps a recording only when it passes \| \$\d+\.\d\d of \$10\.00 \|/);
+    // As the pull request's own checks find it: the fixed golden replays clean, the other still fails.
+    sh(project, 'git', ['checkout', '-q', branch]);
+    const onBranch = await run([CLI, '--db', ':memory:', 'test', 'goldens/*']);
+    expect(onBranch.code).toBe(1);
+    expect(onBranch.out).toMatch(/✓ refund-over-limit: /);
+    expect(onBranch.out).toMatch(/✗ refund-vip: /);
+  });
+
+  it('says, when no fix repairs goldens that fail the same check either together or one at a time, how each try ended', async () => {
+    await setUp({ expect: EXPECT });
+    await addGolden('refund-vip', 'A-2077', 'refund', { expect: EXPECT });
+    // The model refunds every order whatever the prompt says: no failing run is rescued, so there is nothing to learn from.
+    stubborn = 'refund on order';
+    const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' });
+    expect(r.outputs).toMatchObject({ failed: '2', fixes: '0', 'fix-prs': '' });
+    expect(r.out).toContain('shadowlap repair for goldens/refund-over-limit on its own');
+    expect(r.out).toContain('shadowlap repair for goldens/refund-vip on its own');
+    expect(r.out).toContain('refund-over-limit, refund-vip: no fix pull request: together and each on its own: resampling rescued no failing run, so there is no passing path to learn from');
+    expect(r.summary).toMatch(/\| ❌ \| `refund-over-limit, refund-vip` \| no fix: together and each on its own: resampling rescued no failing run/);
+    expect(existsSync(join(bin, 'calls'))).toBe(false);
+    expect(sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*'])).toBe('');
   });
 
   it('with push, sends the test runs and the fix with every run it made to the team store, for teammates to pull', async () => {
@@ -360,6 +491,20 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     // Not "there was no candidate to try": what kept the repairer from proposing one.
     expect(r.out).toContain('refund-over-limit: no fix pull request: the repairer could not be asked: /nonexistent/claude was not found');
     expect(r.summary).toMatch(/\| ❌ \| `refund-over-limit` \| no fix: the repairer could not be asked: \/nonexistent\/claude was not found \|/);
+
+    // An anthropic repairer whose key the job lacks, as when the secret isn't set: found out before any blame, so nothing is spent.
+    const home = mkdtempSync(join(tmpdir(), 'sl-home-'));
+    try {
+      const unset = Object.fromEntries(Object.keys(process.env).filter((k) => k.startsWith('ANTHROPIC_')).map((k) => [k, undefined]));
+      const hits = mock.requests.length;
+      const nokey = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '1.00', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false' }, { ...unset, ANTHROPIC_API_KEY: undefined, ANTHROPIC_BASE_URL: mock.url, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config'), APPDATA: home });
+      expect(nokey.outputs).toMatchObject({ failed: '1', fixes: '0' });
+      expect(nokey.out).toContain('refund-over-limit: no fix pull request: the repairer could not be asked: no Anthropic credentials');
+      expect(nokey.summary).toMatch(/\| ❌ \| `refund-over-limit` \| no fix: the repairer could not be asked: no Anthropic credentials \| \$0\.00 of \$1\.00 \|/);
+      expect(mock.requests.length).toBe(hits);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it('opens nothing from a detached HEAD, and says how to check out the branch', async () => {
@@ -376,12 +521,26 @@ describe('planning fixes from a test report', () => {
   const result = (over: Partial<ReportResult>): ReportResult => ({ name: 'refund-flow', golden: 'goldens/refund-flow', ok: false, failure: 'check', runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', runs: [{ runId: 'A', ok: false }, { runId: 'B', ok: true }, { runId: 'C', ok: false }], expect: { tools: { send_email: 0 } }, ...over });
 
   it('fixes failed checks only, with the failing attempts to fix and the passing ones to keep', () => {
-    const plans = planFixes({ results: [result({}), result({ name: 'drift', failure: 'diverged' }), result({ name: 'crash', failure: 'exit' }), result({ name: 'unchecked', expect: null }), result({ name: 'fine', ok: true })] });
+    const unpriced = { ok: false, label: 'cost at most $1.00', detail: 'no price for small-model; add it under "prices" in shadowlap.config.json' };
+    const plans = planFixes({
+      results: [
+        result({}),
+        result({ name: 'drift', failure: 'diverged' }),
+        result({ name: 'crash', failure: 'exit' }),
+        result({ name: 'unchecked', expect: null }),
+        result({ name: 'fine', ok: true }),
+        result({ name: 'unpriced', checks: [{ ok: true, label: 'issue_refund called 0 times', detail: null }, unpriced] }),
+        result({ name: 'refunds-too', checks: [{ ok: false, label: 'issue_refund called 0 times', detail: 'called 1 time' }, unpriced] }),
+      ],
+    });
     expect(plans.map((p) => [p.result.name, p.skip])).toEqual([
       ['refund-flow', null],
       ['drift', 'diverged: never fixed automatically, because most divergences are intended. Update the golden or add a normalizer'],
       ['crash', 'the agent exited with an error, which is not an outcome check'],
       ['unchecked', 'its checks are not under "tests" in shadowlap.config.json'],
+      // A cost check that fails for want of a price fails whatever the model answers: no prompt fix changes it.
+      ['unpriced', 'it fails only because small-model has no price, which no prompt fix changes: add it under "prices" in shadowlap.config.json'],
+      ['refunds-too', null],
     ]);
     expect(plans[0]).toMatchObject({ fixes: ['A', 'C'], keeps: ['B'] });
     expect(branchName(result({}))).toBe('shadowlap/fix-refund-flow-t9rb1d');
@@ -426,10 +585,65 @@ describe('planning fixes from a test report', () => {
     expect(md.indexOf('⚠️ 2 fixes')).toBeLessThan(md.indexOf('Nothing is merged'));
   });
 
+  it('repairs goldens that fail the same check as one fix, with every failing replay a target', () => {
+    const plans = planFixes({
+      results: [
+        result({ name: 'a', golden: 'goldens/a', runs: [{ runId: 'A1', ok: false }, { runId: 'A2', ok: true }], expect: { tools: { send_email: 0 }, cost: '<= 1.00' } }),
+        result({ name: 'b', golden: 'goldens/b', runs: [{ runId: 'B1', ok: false }], expect: { tools: { refund: 0 } } }),
+        result({ name: 'drift', golden: 'goldens/drift', failure: 'diverged' }),
+        // The same check as a's, written in another order.
+        result({ name: 'c', golden: 'goldens/c', runs: [{ runId: 'C1', ok: false }, { runId: 'C2', ok: true }], expect: { cost: '<= 1.00', tools: { send_email: 0 } } }),
+      ],
+    });
+    const groups = groupFixes(plans);
+    expect(groups.map((g) => g.members.map((m) => m.result.name))).toEqual([['a', 'c'], ['b']]);
+    expect(groups[0]).toMatchObject({ result: { name: 'a' }, skip: null, fixes: ['A1', 'C1'], keeps: ['A2', 'C2'] });
+    expect(repairArgs(groups[0]!, { db: null, budget: 4, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'A1', 'C1', '--keeps', 'A2', 'C2', '--expect', '@/tmp/expect.json', '--budget', '4', '--branch', branchName(plans[0]!.result), '--yes', '--json']);
+    // The plans themselves are left as they were.
+    expect(plans[0]).toMatchObject({ fixes: ['A1'], keeps: ['A2'] });
+  });
+
   it('re-records only a golden that must replay exactly, and only from a recording repair kept', () => {
     const base = { cli: CLI, workdir: tmpdir(), env: process.env, scratch: tmpdir() };
-    expect(refreshGolden({ ...base, result: { name: 'x', dir: 'goldens/x', mode: 'fork', ok: false }, repair: { output: { goldens: ['g'], patch: 'p', branch: 'b' } } })).toEqual({ state: 'fork', golden: 'goldens/x', why: null });
-    expect(refreshGolden({ ...base, result: { name: 'x', dir: 'goldens\\x\\', mode: 'replay', ok: false }, repair: { output: { goldens: [], patch: 'p', branch: 'b' } } })).toEqual({ state: 'stale', golden: 'goldens/x', why: 'repair kept no recording of the fixed run' });
+    const member = (result: ReportResult) => ({ result, skip: null, fixes: ['01K5CQ4V3H8M2XWQH6V3T9RB1D'], keeps: [] });
+    expect(refreshGoldens({ ...base, members: [member({ name: 'x', dir: 'goldens/x', mode: 'fork', ok: false })], repair: { output: { goldens: ['g'], patch: 'p', branch: 'b' } } }).goldens).toEqual([{ state: 'fork', golden: 'goldens/x', why: null }]);
+    expect(refreshGoldens({ ...base, members: [member({ name: 'x', dir: 'goldens\\x\\', mode: 'replay', ok: false })], repair: { output: { goldens: [], patch: 'p', branch: 'b' } } }).goldens).toEqual([{ state: 'stale', golden: 'goldens/x', why: 'repair kept no recording of the fixed run' }]);
+    // Of goldens repaired together, each takes the recording of one of its own failing replays, which repair names by its run.
+    const two = refreshGoldens({ ...base, members: [member({ name: 'x', dir: 'goldens/x', mode: 'fork', ok: false }), { ...member({ name: 'y', dir: 'goldens/y', mode: 'replay', ok: false }), fixes: ['01K5CQ9ZZZ0000000000000000'] }], repair: { output: { goldens: ['.shadowlap/repairs/r/goldens/01K5CQ4V3H'], patch: 'p', branch: 'b' } } });
+    expect(two.goldens).toEqual([{ state: 'fork', golden: 'goldens/x', why: null }, { state: 'stale', golden: 'goldens/y', why: 'repair kept no recording of the fixed run' }]);
+    // A golden of the group the fix was verified without is named as it is, never re-recorded, and is none of the others.
+    const without = refreshGoldens({ ...base, members: [member({ name: 'x', dir: 'goldens/x', mode: 'fork', ok: false })], unfixed: [member({ name: 'y', dir: 'goldens/y', mode: 'replay', ok: false }), member({ name: 'z', dir: 'goldens/z', mode: 'fork', ok: false })], unfixedWhy: 'w', results: [{ name: 'y', dir: 'goldens/y', mode: 'replay', ok: false }], repair: { output: { goldens: ['g'], patch: 'p', branch: 'b' } } });
+    expect(without.goldens).toEqual([{ state: 'fork', golden: 'goldens/x', why: null }, { state: 'unfixed', golden: 'goldens/y', why: 'w' }, { state: 'unfixed', golden: 'goldens/z', why: 'w', fork: true }]);
+    expect(without.others).toMatchObject({ diverging: [], failing: [], unreplayed: [], replayed: 0 });
+  });
+
+  it('says the pull request\'s checks pass only when every golden replayed on the branch is clean', () => {
+    const recorded = { state: 'recorded' as const, golden: 'goldens/a', why: null };
+    const none = { diverging: [], failing: [], unreplayed: [], replayed: 0 };
+    expect(branchNote({ goldens: [recorded], others: { ...none, replayed: 2 }, checked: true })).toContain("Every golden this job tested replays clean on this branch, so this pull request's own checks pass.");
+    const diverging = branchNote({ goldens: [recorded], others: { ...none, diverging: ['goldens/b', 'goldens/c'], replayed: 2 }, checked: true });
+    expect(diverging).toContain('2 other goldens, which passed before it, diverge on this branch: `goldens/b` and `goldens/c`');
+    expect(diverging).toContain('shadowlap test goldens/b goldens/c --update');
+    expect(diverging).not.toContain('checks pass');
+    expect(branchNote({ goldens: [recorded], others: { ...none, failing: ['goldens/d'], replayed: 1 }, checked: true })).toContain('`goldens/d` failed before the fix too, and fails on this branch as well.');
+    // One that may fork runs live from where it diverges, so it isn't replayed, and nothing is said of the checks it decides.
+    const forks = branchNote({ goldens: [recorded], others: { ...none, unreplayed: ['goldens/e'], replayed: 1 }, checked: true });
+    expect(forks).toContain('Every golden this job replayed exactly replays clean on this branch.');
+    expect(forks).not.toContain('checks pass');
+    // Nothing replayed, or a replay that could not run: no word on the checks.
+    expect(branchNote({ goldens: [{ state: 'fork', golden: 'goldens/a', why: null }], others: none, checked: true })).not.toContain('replays clean on this branch');
+    expect(branchNote({ goldens: [recorded], others: none, checked: false })).not.toContain('checks pass');
+    // A replay that could not run leaves the others unknown, and says so.
+    const unknown = branchNote({ goldens: [{ state: 'stale', golden: 'goldens/a', why: 'x' }], others: { ...none, unchecked: ['goldens/f'] }, checked: false, why: 'the fix does not apply to the working tree' });
+    expect(unknown).toContain('`goldens/f` could not be replayed under the fix here (the fix does not apply to the working tree), so whether it diverges on this branch is not known: run `shadowlap test goldens/f` on it to see.');
+    expect(unknown).not.toContain('checks pass');
+    // A golden that fails the same check, which the fix was not verified for: the others' replay says nothing of it.
+    const unfixed = branchNote({ goldens: [recorded, { state: 'unfixed', golden: 'goldens/g', why: 'no fix was accepted for both together' }], others: { ...none, replayed: 2 }, checked: true });
+    expect(unfixed).toContain('`goldens/g` fails the same check, but this fix is not verified for it: no fix was accepted for both together. It still holds the recording made before the fix');
+    expect(unfixed).toContain('shadowlap test goldens/g --update');
+    expect(unfixed).not.toContain('replays clean on this branch');
+    const forking = goldenNote({ state: 'unfixed', golden: 'goldens/h', why: null, fork: true });
+    expect(forking).toBe('`goldens/h` fails the same check, but this fix is not verified for it. It may fork, so on this branch it runs live from where it diverges, and its checks say whether the fix repairs it too.\n');
   });
 
   it('tells the pull request how to update a golden it could not re-record', () => {
