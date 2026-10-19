@@ -24,9 +24,10 @@ export type RunKind = 'recording' | 'fork' | 'clean' | 'replay' | 'test' | 'capt
 /**
  * Runs made by `--repeat`, by blame's probes and by verify, bundled under the run they came from; and
  * the attempts of a golden one test session replays more than once (`test`), bundled under the
- * attempt its result shows.
+ * attempt its result shows. The attempts of an error-path preset (`chaos`) are bundled under the
+ * recording they forked.
  */
-export type AttemptKind = 'repeat' | 'probe' | 'verify' | 'test';
+export type AttemptKind = 'repeat' | 'probe' | 'verify' | 'test' | 'chaos';
 
 export interface RunClass {
   kind: RunKind;
@@ -46,6 +47,7 @@ export interface ClassifiableMeta {
   probe?: { of?: unknown } | undefined;
   verify?: unknown;
   test?: unknown;
+  chaos?: unknown;
   checks?: ReadonlyArray<{ ok?: unknown; label?: unknown }> | undefined;
   blame?: { outcome?: unknown; callNo?: unknown; rescuedRunId?: unknown } | undefined;
 }
@@ -162,7 +164,7 @@ export function classifyRun(run: ClassifiableRun, ctx: ClassifyContext = {}): Ru
     return filed && !ctx.rescued ? { kind, attemptOf: of, attemptKind: 'test' } : { kind, attemptOf: null, attemptKind: null };
   }
   if (!m || ctx.rescued) return { kind, attemptOf: null, attemptKind: null };
-  const attemptKind: AttemptKind | null = isObject(m.probe) ? 'probe' : isObject(m.verify) ? 'verify' : isObject(m.repeat) ? 'repeat' : null;
+  const attemptKind: AttemptKind | null = isObject(m.probe) ? 'probe' : isObject(m.verify) ? 'verify' : isObject(m.repeat) ? 'repeat' : isObject(m.chaos) ? 'chaos' : null;
   if (!attemptKind) return { kind, attemptOf: null, attemptKind: null };
   // Blame always probes the run it replays. A probe naming another run did not come from blame here
   // (a pack can carry anything), and must not hide under, or be deleted with, a run it names.

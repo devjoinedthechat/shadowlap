@@ -354,6 +354,82 @@ CREATE TRIGGER IF NOT EXISTS change_counts_team_update AFTER UPDATE ON team_runs
 CREATE TRIGGER IF NOT EXISTS change_counts_team_delete AFTER DELETE ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_insert AFTER INSERT ON team_sync BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_update AFTER UPDATE ON team_sync BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
+
+-- v4: coverage. What \`shadowlap coverage\` found when it last looked: the imported runs (captures
+-- and traces) grouped by behaviour (the tools the model called in order, the writes among them, how
+-- the run ended), each group with the goldens whose recordings behave the same way, as of that scan.
+-- A scan replaces the groups of the one before; coverage_scans keeps every scan's totals. A group
+-- \`--pack\` made a golden of says which. No foreign key on run ids: gc may delete a group's runs.
+CREATE TABLE IF NOT EXISTS coverage_scans (
+  scan_id    TEXT    PRIMARY KEY,
+  at         INTEGER NOT NULL,
+  runs       INTEGER NOT NULL,
+  groups     INTEGER NOT NULL,
+  uncovered  INTEGER NOT NULL,
+  goldens    INTEGER NOT NULL,
+  actor      TEXT,
+  data       TEXT
+);
+CREATE INDEX IF NOT EXISTS coverage_scans_at ON coverage_scans (at);
+CREATE TABLE IF NOT EXISTS coverage_groups (
+  key         TEXT    PRIMARY KEY,
+  scan_id     TEXT    NOT NULL,
+  behaviour   TEXT    NOT NULL,
+  runs        INTEGER NOT NULL,
+  run_ids     TEXT    NOT NULL,
+  sources     TEXT    NOT NULL,
+  first_seen  INTEGER NOT NULL,
+  last_seen   INTEGER NOT NULL,
+  covered_by  TEXT    NOT NULL,
+  nearest     TEXT,
+  packed      TEXT
+);
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('coverage', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_coverage_scans_insert AFTER INSERT ON coverage_scans BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'coverage'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_coverage_groups_insert AFTER INSERT ON coverage_groups BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'coverage'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_coverage_groups_update AFTER UPDATE ON coverage_groups BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'coverage'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_coverage_groups_delete AFTER DELETE ON coverage_groups BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'coverage'; END;
+
+-- v4: error-path presets. Each \`shadowlap test --chaos\` or \`replay --chaos\` session, and how each
+-- preset came out on each recording it forked: the call it hit, the verdict its gate reached
+-- (passed, failed, inconclusive, or not-applicable when the recording has no call the preset can
+-- hit), and the attempts it took, each a run. A session stopped by a signal ends with interrupted = 1
+-- and the results that finished. No foreign key on run ids: a result outlives the runs gc deletes.
+CREATE TABLE IF NOT EXISTS chaos_sessions (
+  session_id         TEXT    PRIMARY KEY,
+  started_at         INTEGER NOT NULL,
+  ended_at           INTEGER,
+  command            TEXT    NOT NULL,
+  revision           TEXT,
+  actor              TEXT,
+  presets            TEXT    NOT NULL,
+  passed             INTEGER NOT NULL DEFAULT 0,
+  failed             INTEGER NOT NULL DEFAULT 0,
+  inconclusive       INTEGER NOT NULL DEFAULT 0,
+  upstream_requests  INTEGER NOT NULL DEFAULT 0,
+  interrupted        INTEGER NOT NULL DEFAULT 0 CHECK (interrupted IN (0, 1))
+);
+CREATE INDEX IF NOT EXISTS chaos_sessions_started ON chaos_sessions (started_at);
+CREATE TABLE IF NOT EXISTS chaos_results (
+  session_id  TEXT    NOT NULL REFERENCES chaos_sessions(session_id) ON DELETE CASCADE,
+  run_id      TEXT    NOT NULL,
+  golden      TEXT,
+  preset      TEXT    NOT NULL,
+  at          INTEGER NOT NULL,
+  verdict     TEXT    NOT NULL CHECK (verdict IN ('passed', 'failed', 'inconclusive', 'not-applicable')),
+  call_no     INTEGER,
+  passes      INTEGER NOT NULL DEFAULT 0,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  data        TEXT,
+  PRIMARY KEY (session_id, run_id, preset)
+);
+CREATE INDEX IF NOT EXISTS chaos_results_run ON chaos_results (run_id, at);
+CREATE INDEX IF NOT EXISTS chaos_results_golden ON chaos_results (golden, at);
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('chaos', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_chaos_sessions_insert AFTER INSERT ON chaos_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'chaos'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_chaos_sessions_update AFTER UPDATE ON chaos_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'chaos'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_chaos_results_insert AFTER INSERT ON chaos_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'chaos'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_chaos_results_delete AFTER DELETE ON chaos_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'chaos'; END;
 `;
 
 // ---- tests (v4): the shapes of the test tables ----
@@ -445,6 +521,115 @@ export interface TestResult {
 }
 
 export type NewTestResult = Partial<Pick<TestResult, 'at' | 'revision' | 'failure' | 'reason' | 'runId' | 'goldenRunId' | 'data'>> & Pick<TestResult, 'sessionId' | 'golden' | 'ok'>;
+
+// ---- coverage (v4): the shapes of the coverage tables ----
+
+/** One `shadowlap coverage` scan: what it read and what it found. */
+export interface CoverageScan {
+  scanId: string;
+  at: number;
+  /** Imported runs read. */
+  runs: number;
+  groups: number;
+  /** Groups no golden covers. */
+  uncovered: number;
+  /** Goldens read. */
+  goldens: number;
+  actor: string | null;
+  /** The goldens read (by name), the ones that couldn't be (and why), and what the scan packed. */
+  data: CoverageScanData | null;
+}
+
+export interface CoverageScanData {
+  goldens?: string[];
+  unreadable?: Array<{ golden: string; error: string }>;
+  packed?: Array<{ key: string; golden: string; runId: string }>;
+  notPacked?: Array<{ key: string; why: string }>;
+}
+
+/** A group of imported runs that behave alike, as the last scan left it (coverage.ts `CoverageGroup`, plus what `--pack` made of it). */
+export interface StoredCoverageGroup {
+  key: string;
+  scanId: string;
+  behaviour: CoverageBehaviour;
+  runs: number;
+  runIds: string[];
+  sources: string[];
+  firstSeen: number;
+  lastSeen: number;
+  coveredBy: string[];
+  nearest: { golden: string; shared: number; differs: { step: number; seen: string | null; golden: string | null } | null } | null;
+  /** The golden `coverage --pack` made of the group: its name, the run packed, when. */
+  packed: { golden: string; runId: string; at: number } | null;
+}
+
+/** coverage.ts `Behaviour`, as stored. */
+export interface CoverageBehaviour {
+  path: string[];
+  writes: string[];
+  unknown: string[];
+  outcome: string;
+}
+
+// ---- error-path presets (v4): the shapes of the chaos tables ----
+
+/** One `shadowlap test --chaos` (or `replay --chaos`) session. */
+export interface ChaosSession {
+  sessionId: string;
+  startedAt: number;
+  /** Null while it runs, or when its process was killed before it could end it. */
+  endedAt: number | null;
+  /** The command as given, without global options. */
+  command: string[];
+  revision: string | null;
+  actor: string | null;
+  /** The presets it was asked to run, in order. */
+  presets: string[];
+  /** Set when it ends: the results by verdict (not-applicable ones aren't counted). */
+  passed: number;
+  failed: number;
+  inconclusive: number;
+  upstreamRequests: number;
+  interrupted: boolean;
+}
+
+export type ChaosVerdict = 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
+
+/** How one preset came out on one recording. */
+export interface ChaosResult {
+  sessionId: string;
+  /** The recording it forked: a golden's run, or the run `replay --chaos` was given. */
+  runId: string;
+  /** The golden, for `test --chaos`; null for a run. */
+  golden: string | null;
+  preset: string;
+  at: number;
+  verdict: ChaosVerdict;
+  /** The call the preset hit, or null when it found none to hit. */
+  callNo: number | null;
+  passes: number;
+  attempts: number;
+  data: ChaosResultData | null;
+}
+
+/** What a result keeps besides its verdict. Every field is optional to readers. */
+export interface ChaosResultData {
+  /** The call it hit: its kind (`tool` or `api`) and name. */
+  target?: { kind: string; name: string } | null;
+  /** One sentence: what came out, naming the values involved. */
+  detail?: string;
+  /** For a failure: the first failing attempt's reason. */
+  reason?: string | null;
+  /** Each attempt: its run, whether it passed, the agent's exit code, and its checks. */
+  runs?: Array<{ runId: string; passed: boolean; exitCode: number; checks?: Array<{ ok: boolean; label: string; detail: string | null }>; reason?: string | null }>;
+  /** The gate the attempts were decided by, as configured. */
+  gate?: Record<string, unknown> | null;
+  revision?: string | null;
+  upstreamRequests?: number;
+  spent?: number;
+}
+
+export type NewChaosResult = Partial<Pick<ChaosResult, 'at' | 'golden' | 'callNo' | 'passes' | 'attempts' | 'data'>> & Pick<ChaosResult, 'sessionId' | 'runId' | 'preset' | 'verdict'>;
 
 // ---- Team store (v4): the shapes of the team tables ----
 
@@ -1306,6 +1491,150 @@ export class Store {
       }));
   }
 
+  // ---- coverage (v4): what the last `shadowlap coverage` found ----
+
+  /** Keeps a scan and its groups: the groups of the scan before it go. */
+  saveCoverageScan(scan: CoverageScan, groups: readonly StoredCoverageGroup[]): void {
+    this.transaction(() => {
+      this.db
+        .prepare(`INSERT INTO coverage_scans (scan_id, at, runs, groups, uncovered, goldens, actor, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(scan.scanId, scan.at, scan.runs, scan.groups, scan.uncovered, scan.goldens, scan.actor, scan.data === null ? null : JSON.stringify(scan.data));
+      this.db.prepare(`DELETE FROM coverage_groups`).run();
+      const insert = this.db.prepare(
+        `INSERT INTO coverage_groups (key, scan_id, behaviour, runs, run_ids, sources, first_seen, last_seen, covered_by, nearest, packed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const g of groups) {
+        insert.run(g.key, scan.scanId, JSON.stringify(g.behaviour), g.runs, JSON.stringify(g.runIds), JSON.stringify(g.sources), g.firstSeen, g.lastSeen, JSON.stringify(g.coveredBy), g.nearest ? JSON.stringify(g.nearest) : null, g.packed ? JSON.stringify(g.packed) : null);
+      }
+    });
+  }
+
+  /** The newest scans, newest first. */
+  listCoverageScans(limit = 20): CoverageScan[] {
+    return this.db
+      .prepare(`SELECT * FROM coverage_scans ORDER BY at DESC, scan_id DESC LIMIT ?`)
+      .all(Math.max(1, Math.min(1000, limit)))
+      .map((r) => ({
+        scanId: String(r.scan_id),
+        at: Number(r.at),
+        runs: Number(r.runs),
+        groups: Number(r.groups),
+        uncovered: Number(r.uncovered),
+        goldens: Number(r.goldens),
+        actor: r.actor === null ? null : String(r.actor),
+        data: r.data === null ? null : (JSON.parse(String(r.data)) as CoverageScanData),
+      }));
+  }
+
+  /** The groups of the last scan: not covered first, as the scan ordered them. */
+  coverageGroups(): StoredCoverageGroup[] {
+    const parse = <T>(v: unknown, fallback: T): T => (v === null || v === undefined ? fallback : (JSON.parse(String(v)) as T));
+    return this.db
+      .prepare(`SELECT * FROM coverage_groups ORDER BY rowid ASC`)
+      .all()
+      .map((r) => ({
+        key: String(r.key),
+        scanId: String(r.scan_id),
+        behaviour: parse<CoverageBehaviour>(r.behaviour, { path: [], writes: [], unknown: [], outcome: 'answered' }),
+        runs: Number(r.runs),
+        runIds: parse<string[]>(r.run_ids, []),
+        sources: parse<string[]>(r.sources, []),
+        firstSeen: Number(r.first_seen),
+        lastSeen: Number(r.last_seen),
+        coveredBy: parse<string[]>(r.covered_by, []),
+        nearest: parse<StoredCoverageGroup['nearest']>(r.nearest, null),
+        packed: parse<StoredCoverageGroup['packed']>(r.packed, null),
+      }));
+  }
+
+  // ---- error-path presets (v4): test --chaos sessions and each preset's result ----
+
+  /** Starts a session; finishChaosSession fills in its totals. */
+  startChaosSession(input: Partial<Pick<ChaosSession, 'sessionId' | 'startedAt' | 'revision' | 'actor'>> & Pick<ChaosSession, 'command' | 'presets'>): ChaosSession {
+    const session: ChaosSession = {
+      sessionId: input.sessionId ?? ulidNow(),
+      startedAt: input.startedAt ?? Date.now(),
+      endedAt: null,
+      command: input.command,
+      revision: input.revision ?? null,
+      actor: input.actor ?? null,
+      presets: input.presets,
+      passed: 0,
+      failed: 0,
+      inconclusive: 0,
+      upstreamRequests: 0,
+      interrupted: false,
+    };
+    this.db
+      .prepare(`INSERT INTO chaos_sessions (session_id, started_at, ended_at, command, revision, actor, presets) VALUES (?, ?, NULL, ?, ?, ?, ?)`)
+      .run(session.sessionId, session.startedAt, JSON.stringify(session.command), session.revision, session.actor, JSON.stringify(session.presets));
+    return session;
+  }
+
+  /** Records a session's totals once its presets have run, or once a signal stopped it (`interrupted`). */
+  finishChaosSession(sessionId: string, totals: { passed: number; failed: number; inconclusive: number; upstreamRequests: number; endedAt?: number; interrupted?: boolean }): void {
+    this.db
+      .prepare(`UPDATE chaos_sessions SET ended_at = ?, passed = ?, failed = ?, inconclusive = ?, upstream_requests = ?, interrupted = ? WHERE session_id = ?`)
+      .run(totals.endedAt ?? Date.now(), totals.passed, totals.failed, totals.inconclusive, totals.upstreamRequests, totals.interrupted ? 1 : 0, sessionId);
+  }
+
+  getChaosSession(sessionId: string): ChaosSession | null {
+    const row = this.db.prepare(`SELECT * FROM chaos_sessions WHERE session_id = ?`).get(sessionId);
+    return row ? rowToChaosSession(row) : null;
+  }
+
+  /** Sessions, newest first. */
+  listChaosSessions(options: { limit?: number } = {}): ChaosSession[] {
+    return this.db
+      .prepare(`SELECT * FROM chaos_sessions ORDER BY started_at DESC, session_id DESC LIMIT ?`)
+      .all(Math.max(1, Math.min(10_000, options.limit ?? 100)))
+      .map(rowToChaosSession);
+  }
+
+  /** Records how one preset came out on one recording; a second result for the same one in the same session replaces the first. */
+  addChaosResult(input: NewChaosResult): ChaosResult {
+    const result: ChaosResult = {
+      sessionId: input.sessionId,
+      runId: input.runId,
+      golden: input.golden ?? null,
+      preset: input.preset,
+      at: input.at ?? Date.now(),
+      verdict: input.verdict,
+      callNo: input.callNo ?? null,
+      passes: input.passes ?? 0,
+      attempts: input.attempts ?? 0,
+      data: input.data ?? null,
+    };
+    this.db
+      .prepare(`INSERT OR REPLACE INTO chaos_results (session_id, run_id, golden, preset, at, verdict, call_no, passes, attempts, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(result.sessionId, result.runId, result.golden, result.preset, result.at, result.verdict, result.callNo, result.passes, result.attempts, result.data === null ? null : JSON.stringify(result.data));
+    return result;
+  }
+
+  /** Results, newest first: of one session, one recording, or one golden (`limit`, default 1000). */
+  listChaosResults(options: { sessionId?: string; runId?: string; golden?: string; limit?: number } = {}): ChaosResult[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    for (const [column, value] of [['session_id', options.sessionId], ['run_id', options.runId], ['golden', options.golden]] as const) {
+      if (value === undefined) continue;
+      where.push(`${column} = ?`);
+      params.push(value);
+    }
+    params.push(Math.max(1, Math.min(100_000, options.limit ?? 1000)));
+    return this.db
+      .prepare(`SELECT * FROM chaos_results ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, session_id DESC, preset ASC LIMIT ?`)
+      .all(...params)
+      .map(rowToChaosResult);
+  }
+
+  /** The newest result of each preset on each recording: one row per recording and preset, newest first. */
+  latestChaosResults(): ChaosResult[] {
+    return this.db
+      .prepare(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY run_id, preset ORDER BY at DESC, session_id DESC) AS n FROM chaos_results) WHERE n = 1 ORDER BY at DESC, run_id ASC, preset ASC`)
+      .all()
+      .map(rowToChaosResult);
+  }
+
   // ---- runs ----
 
   createRun(input: CreateRunInput): RunRecord {
@@ -1672,14 +2001,15 @@ export class Store {
   }
 
   /**
-   * How many runs the store holds: `attempts` are the runs blame, verify and `replay --repeat` make
-   * (marked `probe`, `verify` or `repeat`), and `running` the runs not ended yet.
+   * How many runs the store holds: `attempts` are the runs blame, verify, `replay --repeat` and the
+   * error-path presets make (marked `probe`, `verify`, `repeat` or `chaos`), and `running` the runs
+   * not ended yet.
    */
   runCounts(): { runs: number; attempts: number; running: number } {
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS total,
-                SUM(CASE WHEN json_valid(meta) THEN (json_type(meta, '$.probe') IS NOT NULL OR json_type(meta, '$.verify') IS NOT NULL OR json_type(meta, '$.repeat') IS NOT NULL) ELSE 0 END) AS attempts,
+                SUM(CASE WHEN json_valid(meta) THEN (json_type(meta, '$.probe') IS NOT NULL OR json_type(meta, '$.verify') IS NOT NULL OR json_type(meta, '$.repeat') IS NOT NULL OR json_type(meta, '$.chaos') IS NOT NULL) ELSE 0 END) AS attempts,
                 SUM(status = 'running') AS running
          FROM runs`,
       )
@@ -2262,6 +2592,42 @@ function rowToTestResult(row: Record<string, unknown>): TestResult {
     runId: str(row.run_id),
     goldenRunId: str(row.golden_run_id),
     data: parseJsonColumn<TestResultData | null>(row.data, null),
+  };
+}
+
+// ---- error-path presets (v4): rows to records ----
+
+function rowToChaosSession(row: Record<string, unknown>): ChaosSession {
+  const command = parseJsonColumn<unknown>(row.command, []);
+  const presets = parseJsonColumn<unknown>(row.presets, []);
+  return {
+    sessionId: String(row.session_id),
+    startedAt: Number(row.started_at),
+    endedAt: row.ended_at === null || row.ended_at === undefined ? null : Number(row.ended_at),
+    command: Array.isArray(command) ? command.map(String) : [],
+    revision: row.revision === null || row.revision === undefined ? null : String(row.revision),
+    actor: row.actor === null || row.actor === undefined ? null : String(row.actor),
+    presets: Array.isArray(presets) ? presets.map(String) : [],
+    passed: Number(row.passed),
+    failed: Number(row.failed),
+    inconclusive: Number(row.inconclusive),
+    upstreamRequests: Number(row.upstream_requests),
+    interrupted: Number(row.interrupted ?? 0) === 1,
+  };
+}
+
+function rowToChaosResult(row: Record<string, unknown>): ChaosResult {
+  return {
+    sessionId: String(row.session_id),
+    runId: String(row.run_id),
+    golden: row.golden === null || row.golden === undefined ? null : String(row.golden),
+    preset: String(row.preset),
+    at: Number(row.at),
+    verdict: String(row.verdict) as ChaosVerdict,
+    callNo: row.call_no === null || row.call_no === undefined ? null : Number(row.call_no),
+    passes: Number(row.passes),
+    attempts: Number(row.attempts),
+    data: parseJsonColumn<ChaosResultData | null>(row.data, null),
   };
 }
 

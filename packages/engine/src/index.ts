@@ -111,3 +111,11 @@ export { chatCompletionToResponse, responseEvents, responsesToOpenAIChat, type R
 export { anthropicAnswer, answerAs, CLOUD_ADVICE, CLOUDS, errorAs, isTakeoverCall, modelUnswitchable, requestFor, switchTakeoverModel, takeoverMode, takeoverRefusal, wantsStream, type AnswerOptions, type EncodedAnswer, type TakeoverMode, type TakeoverTarget, type TargetRoute } from './takeover.js';
 export { messagesOf, type DatasetMessage } from './dataset.js';
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';
+// Production coverage: imported runs grouped by behaviour (path, writes, outcome), and the goldens that cover each.
+export { GROUP_RUN_IDS, GROUP_SOURCES, OUTCOME_WORDS, behaviourKey, behaviourSlug, describeBehaviour, effectsFor, groupCoverage, nearestGolden, runBehaviour, sharedSteps, storeEffects, strongest } from './coverage.js';
+export type { Behaviour, BehaviourOutcome, CoverageGolden, CoverageGroup, CoverageMember, EffectOf, NearestGolden } from './coverage.js';
+export type { CoverageBehaviour, CoverageScan, CoverageScanData, StoredCoverageGroup } from './store.js';
+// Error-path presets: where each hits a recording and what it answers there.
+export { CHAOS_PRESETS, OVERSIZE_CHARS, PRESET_LABELS, chaosTargets, cutJson, isChaosPreset, parsePresets, presetHits, presetReplay, presetResult, resultShape } from './chaos.js';
+export type { ChaosPreset, ChaosTarget, ChaosTargets, ResultShape } from './chaos.js';
+export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult } from './store.js';

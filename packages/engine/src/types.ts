@@ -201,6 +201,12 @@ export interface RunMeta {
    * before the takeover) has no score, and says why.
    */
   task?: { golden: string; model: string; baseUrl?: string; takeover: number; attempt: number; of: number; score: number | null; stopped?: string; session: string };
+  /**
+   * One attempt of an error-path preset (`test --chaos`, `replay --chaos`): the preset, the call of
+   * the recording it hit, the session it ran in, which attempt it was, and the golden it forked.
+   * Attempts are bundled under the recording they forked, as blame's probes are.
+   */
+  chaos?: { preset: string; callNo: number; session: string; attempt: number; golden?: string };
 }
 
 /**
