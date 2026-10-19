@@ -298,7 +298,7 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
 }
 
 /** The golden's entry in the JSON report (`--json`), which the GitHub Action reads. */
-export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated'] }): PackResult {
+export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated']; injection?: PackResult['injection'] }): PackResult {
   const r = o.result;
   const s = r?.shown.ended.summary ?? null;
   return {
@@ -323,6 +323,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     attempts: r && r.attempts.length > 1 ? { total: r.attempts.length, passed: r.passed, required: r.required } : null,
     expect: extra.expect,
     updated: extra.updated ?? null,
+    injection: extra.injection ?? null,
   };
 }
 

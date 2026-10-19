@@ -2,6 +2,7 @@ import { Command, Option } from 'commander';
 import { register as registerData } from './commands/data.js';
 import { register as registerFix } from './commands/fix.js';
 import { register as registerImport } from './commands/import.js';
+import { register as registerInjection } from './commands/injection.js';
 import { register as registerInspect } from './commands/inspect.js';
 import { register as registerRecord } from './commands/record.js';
 import { register as registerSetup } from './commands/setup.js';
@@ -31,6 +32,8 @@ export async function main(argv: string[]): Promise<void> {
   registerInspect(program);
   registerFix(program);
   registerTesting(program);
+  // Injection tests sit with the tests: `shadowlap injection`, and the gate `test` runs for a golden.
+  registerInjection(program);
   registerSetup(program);
   program.helpCommand(true); // listed under "Set up:" rather than a group of its own
   registerImport(program);

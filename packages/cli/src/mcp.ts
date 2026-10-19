@@ -23,7 +23,8 @@ export { isLoopbackUrl, type SidecarTarget } from './agent-registry.js';
  * Either way, `tools/call` requests go through the sidecar like SDK tool calls (recorded, replayed,
  * blocked or stubbed); every other message passes through untouched. Effects come from the server's
  * tool annotations (`readOnlyHint` → read, otherwise write), overridden by `--effect name=read` or
- * the `mcp.effects` config. A call the recording answers never reaches the server, and a write
+ * the `mcp.effects` config; a read tool with `openWorldHint: true` is recorded untrusted, where
+ * `shadowlap injection` plants. A call the recording answers never reaches the server, and a write
  * after a fork is refused or stubbed here, so a remote write never runs again on replay. When the
  * proxy was started under Shadowlap but can't record (its sidecar can't be found or asked), it
  * refuses writes rather than send them unrecorded: this could be a replay.
@@ -121,11 +122,21 @@ type ResolveResponse =
 interface McpTool {
   name: string;
   inputSchema?: unknown;
-  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } & Record<string, unknown>;
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; openWorldHint?: boolean } & Record<string, unknown>;
 }
 
 export function effectFromAnnotations(annotations: McpTool['annotations']): Effect {
   return annotations?.readOnlyHint === true ? 'read' : 'write';
+}
+
+/**
+ * Whether a tool reaches outside entities (a web search, a mailbox), as MCP's `openWorldHint` says:
+ * a read of one brings outside text in, so it is recorded as untrusted, where `shadowlap injection`
+ * plants. Only a hint the server sets counts (MCP reads a missing one as true, which would mark every
+ * read of a server that annotates nothing); the config's `tools` marks any tool either way.
+ */
+export function openWorld(annotations: McpTool['annotations']): boolean {
+  return annotations?.openWorldHint === true;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -224,7 +235,7 @@ const bounded = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]/g, 
  * be one) is a refusal for a write and an unrecorded pass for anything else.
  */
 class ToolCalls {
-  private readonly tools = new Map<string, { effect: Effect; implHash: string }>();
+  private readonly tools = new Map<string, { effect: Effect; implHash: string; openWorld: boolean }>();
   private readonly warned = new Set<string>();
   /** The tool list last sent to the sidecar, so it is sent again only when it changes. */
   private sentTools = '';
@@ -245,12 +256,17 @@ class ToolCalls {
   learn(result: unknown): void {
     if (!isObject(result) || !Array.isArray(result.tools)) return;
     for (const t of result.tools as McpTool[]) {
-      if (isObject(t) && typeof t.name === 'string') this.tools.set(t.name, { effect: effectFromAnnotations(t.annotations), implHash: createHash('sha256').update(JSON.stringify(t.inputSchema ?? null)).digest('hex') });
+      if (isObject(t) && typeof t.name === 'string') this.tools.set(t.name, { effect: effectFromAnnotations(t.annotations), implHash: createHash('sha256').update(JSON.stringify(t.inputSchema ?? null)).digest('hex'), openWorld: openWorld(t.annotations) });
     }
   }
 
   private effectOf(name: string): Effect {
     return this.effects?.[name] ?? this.tools.get(name)?.effect ?? 'write';
+  }
+
+  /** An open-world tool that only reads brings outside text in: its calls are recorded untrusted. */
+  private untrusted(name: string): boolean {
+    return this.tools.get(name)?.openWorld === true && this.effectOf(name) !== 'write';
   }
 
   /**
@@ -261,7 +277,7 @@ class ToolCalls {
     const tools = [...this.tools.keys()]
       .sort()
       .slice(0, 1000)
-      .map((name) => ({ name: bounded(name, 200), effect: this.effectOf(name) }));
+      .map((name) => ({ name: bounded(name, 200), effect: this.effectOf(name), ...(this.untrusted(name) ? { trust: 'untrusted' as const } : {}) }));
     const json = JSON.stringify(tools);
     const fresh = tools.length > 0 && json !== this.sentTools;
     return { meta: { transport: this.origin.transport, server: bounded(this.origin.server, 200), ...(fresh ? { tools } : {}) }, sent: () => void (this.sentTools = json) };
@@ -282,7 +298,7 @@ class ToolCalls {
     let r: ResolveResponse;
     const mcp = this.mcpMeta();
     try {
-      r = await post<ResolveResponse>(sidecar, '/v1/calls/resolve', { kind: 'tool', name, effect, args, ...(known ? { implHash: known.implHash } : {}), mcp: mcp.meta });
+      r = await post<ResolveResponse>(sidecar, '/v1/calls/resolve', { kind: 'tool', name, effect, args, ...(known ? { implHash: known.implHash } : {}), ...(this.untrusted(name) ? { trust: 'untrusted' } : {}), mcp: mcp.meta });
       mcp.sent();
     } catch (err) {
       return this.unrecorded(m, name, effect, `Shadowlap's sidecar could not be asked (${err instanceof Error ? err.message : String(err)})`);

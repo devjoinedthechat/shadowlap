@@ -250,3 +250,6 @@ export async function startMockAnthropic(opts: MockOptions): Promise<MockServer>
       }),
   };
 }
+
+// Injection tests: a model that obeys (or quotes, or is steered by) what a tool result tells it.
+export { DEFENCE, obeyPlanted, type ObeyOptions } from './obey.js';

@@ -1,4 +1,4 @@
-import { formatTokens, safeText, type DivergenceType, type TestFailure } from '@shadowlap/engine';
+import { formatTokens, safeText, type DivergenceType, type InjectionGateData, type TestFailure } from '@shadowlap/engine';
 
 /**
  * `shadowlap test` results for machines and for pull requests: a JSON report other tools read (the
@@ -16,7 +16,7 @@ export interface PackResult {
   /** `replay` must send the requests it recorded; `fork` may diverge and passes on its checks. */
   mode: 'replay' | 'fork';
   ok: boolean;
-  /** Why it failed: `diverged`, `check` (an outcome check), `exit`, `no-calls` or `error`. Null when it passed. */
+  /** Why it failed: `diverged`, `check` (an outcome check), `exit`, `no-calls`, `error` or `injection` (its injection gate). Null when it passed. */
   failure: TestFailure | null;
   /** One line: why the pack failed. */
   message: string | null;
@@ -43,6 +43,8 @@ export interface PackResult {
   expect: Record<string, unknown> | null;
   /** `--update` re-recorded it: the run it replaced, the new one, its calls, and what the agent sends differently. */
   updated: { from: string | null; to: string; calls: number; changes?: string[] } | null;
+  /** Its injection gate ("injection" under its tests entry): attempts by verdict, what it allows, whether it passed. Null without one. */
+  injection: InjectionGateData | null;
 }
 
 export interface TestReport {

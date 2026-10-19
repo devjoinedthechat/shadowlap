@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { formatUsd, parseTaskFields, testsEntryFor, type CallRecord } from '@shadowlap/engine';
+import { formatUsd, parseInjectionEntry, parseTaskFields, testsEntryFor, type CallRecord, type InjectionEntry } from '@shadowlap/engine';
 
 /**
  * Outcome checks for `shadowlap test`. A golden normally passes only when the replay is clean, which
@@ -57,6 +57,8 @@ export interface TestSpec {
   cost?: CountRange;
   output?: TextCheck;
   answer?: TextCheck;
+  /** The injection gate (`"injection"` beside `expect`): `shadowlap test` runs the golden's injection test after its replay passes. */
+  injection?: InjectionEntry;
 }
 
 export interface TestEntry {
@@ -189,7 +191,7 @@ function parseSpec(raw: unknown, where: string): TestSpec {
   if (!isObject(raw)) throw new Error(`${where} must be an object`);
   // `task` (where a model takes over, why, what it rewards) is read by `shadowlap tasks` (tasks.ts);
   // a mistake in it fails here too, as any other mistake under `tests` does.
-  onlyKeys(raw, ['fork', 'repeat', 'passes', 'expect', 'task'], where);
+  onlyKeys(raw, ['fork', 'repeat', 'passes', 'expect', 'task', 'injection'], where);
   parseTaskFields(raw.task, `${where}.task`);
   if (raw.fork !== undefined && typeof raw.fork !== 'boolean') throw new Error(`${where}.fork must be true or false`);
   const repeat = raw.repeat ?? 1;
@@ -198,6 +200,8 @@ function parseSpec(raw: unknown, where: string): TestSpec {
   if (typeof passes !== 'number' || !Number.isInteger(passes) || passes < 1 || passes > repeat) throw new Error(`${where}.passes must be a whole number from 1 to repeat (${repeat})`);
   const spec: TestSpec = { fork: raw.fork === true, repeat, passes, tools: [] };
   if (raw.expect !== undefined) parseExpectInto(spec, raw.expect, `${where}.expect`);
+  // Injection tests (injection.ts in the engine): the gate `shadowlap test` and `shadowlap injection` read.
+  if (raw.injection !== undefined) spec.injection = parseInjectionEntry(raw.injection, `${where}.injection`);
   return spec;
 }
 

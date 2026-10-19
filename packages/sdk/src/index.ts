@@ -13,11 +13,20 @@ import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
 
 export type Effect = 'pure' | 'read' | 'write';
 
+/** Whether a tool's results can carry text an attacker wrote: a web page, an email, a ticket. */
+export type Trust = 'trusted' | 'untrusted';
+
 export interface ToolOptions<A, R> {
   /** Required: what the tool does to the world outside its arguments. */
   effect: Effect;
   /** For `write` tools under `--writes stub`: the value returned instead of executing. */
   onFork?: (args: A) => R | Promise<R>;
+  /**
+   * `untrusted` for a read that brings outside text in (a page, an email, a document): it is
+   * recorded on each call, and `shadowlap injection` plants payloads in what it returns. Default
+   * `trusted`. It never changes how a call is matched, so marking a tool keeps its recordings.
+   */
+  trust?: Trust;
   /**
    * The code a replay compares with the recording's to warn that the tool changed (`… changed since
    * the recording`): a function, or its source text. Default: `impl`. Give it when `impl` only calls
@@ -323,11 +332,16 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
   if (options.effect !== 'pure' && options.effect !== 'read' && options.effect !== 'write') {
     throw new TypeError(`tool ${name}: effect must be "pure", "read" or "write"`);
   }
+  if (options.trust !== undefined && options.trust !== 'trusted' && options.trust !== 'untrusted') {
+    throw new TypeError(`tool ${name}: trust must be "trusted" or "untrusted"`);
+  }
   const implHash = createHash('sha256').update(String(options.source ?? impl)).digest('hex');
+  // What the sidecar is asked for every call: `trust` only when the tool brings outside text in.
+  const resolveBody = (args: A) => ({ kind: 'tool', name, effect: options.effect, args, implHash, ...(options.trust === 'untrusted' ? { trust: 'untrusted' } : {}) });
 
   /** One call under Shadowlap; `run` executes the implementation and gives the result to record. */
   async function call(cfg: Config, args: A, run: (args: A) => Promise<unknown>, decided?: ResolveResponse): Promise<{ value: unknown; ran: boolean }> {
-    const r = decided ?? (await post<ResolveResponse>(cfg, '/v1/calls/resolve', { kind: 'tool', name, effect: options.effect, args, implHash }));
+    const r = decided ?? (await post<ResolveResponse>(cfg, '/v1/calls/resolve', resolveBody(args)));
     switch (r.origin) {
       case 'replayed':
         if (r.outcome === 'ok') return { value: r.result, ran: false };
@@ -367,7 +381,7 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
         yield* stream(args);
         return;
       }
-      const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', { kind: 'tool', name, effect: options.effect, args, implHash });
+      const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', resolveBody(args));
       if (r.origin !== 'live') {
         // Replayed or stubbed: the implementation doesn't run, so the recorded value is the stream.
         yield (await call(cfg, args, async () => null, r)).value;

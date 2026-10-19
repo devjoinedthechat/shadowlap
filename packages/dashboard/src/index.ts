@@ -13,6 +13,8 @@ export { changesView } from './changes.js';
 export { metaView } from './meta.js';
 export { actionArgs, actionsFor, callDetail, compare, listRuns, lookupRun, runDetail } from './api.js';
 export { exportHtml, withAncestors } from './static.js';
+// Injection tests: the security report (shadowlap injection --html, and the dashboard's), and the read model.
+export { injectionReportHtml, type InjectionReportOptions } from './injection-report.js';
 export type { ExportHtmlOptions, ExportHtmlResult, StaticPayload } from './static.js';
 export type { ActionItem, CallDetail, CallRow, LineageNode, ReadOptions, RunDetail, RunListItem } from './api.js';
 export type { ActivityIcon, ActivityItem, ActivityPage, ChangesView, JobFile, JobLink, JobListItem, JobView, LiveRun, MetaView, ProjectView, UploadView } from './views.js';

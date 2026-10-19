@@ -12,6 +12,7 @@ import { runAgent } from './agent.js';
  *   REFERENCE_AGENT_OUTBOX=path    file the write tool appends to
  *   AGENT_FAIL_AFTER_CALL=5        crash after the 5th model call
  *   AGENT_PAUSE_MS=300             wait before every model call
+ *   AGENT_EMAIL_DOMAIN=example.com send email only to that domain (refused in the agent's code otherwise)
  */
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? 'shadowlap-placeholder-key' });
 const result = await runAgent({
@@ -22,6 +23,7 @@ const result = await runAgent({
   ...(process.env.REFERENCE_AGENT_OUTBOX ? { outbox: process.env.REFERENCE_AGENT_OUTBOX } : {}),
   ...(process.env.AGENT_FAIL_AFTER_CALL ? { failAfterModelCall: Number(process.env.AGENT_FAIL_AFTER_CALL) } : {}),
   ...(process.env.AGENT_PAUSE_MS ? { pauseMs: Number(process.env.AGENT_PAUSE_MS) } : {}),
+  ...(process.env.AGENT_EMAIL_DOMAIN ? { emailDomain: process.env.AGENT_EMAIL_DOMAIN } : {}),
   log: (line) => process.stderr.write(`[agent] ${line}\n`),
 });
 process.stdout.write(JSON.stringify(result) + '\n');

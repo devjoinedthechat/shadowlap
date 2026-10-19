@@ -1181,6 +1181,9 @@ export class Sidecar {
     if (input) meta.input = true;
     const mcp = kind === 'tool' ? mcpCallMeta(body.mcp) : undefined;
     if (mcp) meta.mcp = mcp;
+    // A tool that brings outside text in, as the SDK's `trust` or an MCP server's openWorldHint says.
+    // Kept on the call, never in its fingerprint: marking a tool changes no replay.
+    if (kind === 'tool' && body.trust === 'untrusted') meta.trust = 'untrusted';
     this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: stored, effect, requestRef: this.store.putJson(request), meta, at: Date.now() });
 
     if (decision.origin === 'injected') {
@@ -1378,6 +1381,8 @@ export interface ResolveBody {
   input?: boolean;
   /** The call came through `shadowlap mcp`: from which server, and the tools it offers (see docs/protocol.md). */
   mcp?: unknown;
+  /** `untrusted`: the tool brings outside text in, where `shadowlap injection` plants (see docs/protocol.md). */
+  trust?: 'trusted' | 'untrusted';
 }
 
 /** `mcp` from a resolve body, checked and bounded, as call meta; undefined when it isn't one. */
@@ -1389,8 +1394,8 @@ function mcpCallMeta(raw: unknown): CallMeta['mcp'] | undefined {
   const listed = Array.isArray(tools)
     ? tools
         .slice(0, 1000)
-        .filter((t): t is { name: string; effect: Effect } => typeof t === 'object' && t !== null && typeof t.name === 'string' && (t.effect === 'pure' || t.effect === 'read' || t.effect === 'write'))
-        .map((t) => ({ name: text(t.name), effect: t.effect }))
+        .filter((t): t is { name: string; effect: Effect; trust?: unknown } => typeof t === 'object' && t !== null && typeof t.name === 'string' && (t.effect === 'pure' || t.effect === 'read' || t.effect === 'write'))
+        .map((t) => ({ name: text(t.name), effect: t.effect, ...(t.trust === 'untrusted' ? { trust: 'untrusted' as const } : {}) }))
     : undefined;
   return { transport, server: text(server), ...(listed ? { tools: listed } : {}) };
 }
