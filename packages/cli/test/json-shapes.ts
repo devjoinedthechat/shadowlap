@@ -31,6 +31,8 @@ export const SHAPES = {
   summaryJson: { section: 'run', fields: ['exitCode', 'summary'] },
   summary: { section: 'run', fields: ['runId', 'mode', 'status', 'total', 'byOrigin', 'byKind', 'upstreamRequests', 'injected', 'refused', 'imported', 'tokensNotRespent', 'cost', 'durationMs', 'notReached', 'warnings', 'divergence'] },
   cost: { section: 'run', fields: ['spent', 'saved', 'captured', 'unknownModels'] },
+  // A run with judge checks: what the judge's calls did and cost, apart from the agent's (summary.judge).
+  summaryJudge: { section: 'run', fields: ['calls', 'replayed', 'live', 'notAsked', 'upstreamRequests', 'spent', 'saved', 'unknownModels'] },
   replayChecks: { section: 'replay', fields: ['exitCode', 'summary', 'checks'] },
   repeat: { section: 'replay', fields: ['attempts', 'report'] },
   repeatReport: { section: 'replay', fields: ['parentRunId', 'attempts', 'forkedAt', 'paths', 'tools', 'distinctFinalResponses', 'succeeded', 'spent', 'saved', 'tokensNotRespent'] },
@@ -79,7 +81,9 @@ export const SHAPES = {
   fixError: { section: 'fix', grows: true, fields: ['fixId', 'status', 'error'] },
   // Tests: test's report (the GitHub Action reads it), and bisect's.
   test: { section: 'test', grows: true, fields: ['version', 'session', 'revision', 'passed', 'failed', 'interrupted', 'results'] },
-  testResult: { section: 'test', grows: true, fields: ['name', 'dir', 'golden', 'mode', 'ok', 'failure', 'message', 'details', 'output', 'seconds', 'runId', 'runs', 'goldenRunId', 'calls', 'upstreamRequests', 'tokensNotRespent', 'divergence', 'checks', 'attempts', 'expect', 'updated'] },
+  testResult: { section: 'test', grows: true, fields: ['name', 'dir', 'golden', 'mode', 'ok', 'failure', 'message', 'details', 'output', 'seconds', 'runId', 'runs', 'goldenRunId', 'calls', 'upstreamRequests', 'tokensNotRespent', 'divergence', 'checks', 'attempts', 'expect', 'updated', 'judge'] },
+  // A judge check's entry in `checks`: its verdict, where it came from and what it cost (checks[].judge).
+  checkJudge: { section: 'test', fields: ['name', 'model', 'of', 'verdict', 'source', 'cost', 'redactions', 'cut', 'callNo'] },
   bisect: { section: 'bisect', grows: true, fields: ['outcome', 'target', 'good', 'bad', 'commits', 'steps', 'first', 'untested', 'why', 'replays', 'tokens', 'upstreamRequests', 'spent', 'seconds'] },
   bisectTarget: { section: 'bisect', grows: true, fields: ['kind', 'name', 'runId'] },
   bisectCommit: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'author', 'date'] },

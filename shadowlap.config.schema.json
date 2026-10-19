@@ -186,6 +186,44 @@
               "cost": {
                 "description": "USD from the price table. A model with no price fails the check rather than passing quietly.",
                 "$ref": "#/$defs/amount"
+              },
+              "judge": {
+                "description": "Questions a model answers about the run, yes or no. The judge's call is recorded like any model call: a golden is judged once when it is packed, every clean replay after is judged from the recording, free, and a fork asks the judge live. A check with no recorded verdict and no way to ask live is inconclusive, never passed.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "question", "model"],
+                  "properties": {
+                    "name": {
+                      "description": "Unique within its expect: what the check's verdicts are kept under.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "question": {
+                      "description": "What the judge is asked, to be answered yes or no.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "of": {
+                      "description": "What the judge reads: the text of the last model response, what the agent printed on stdout, or the run (its conversations and tool calls), with the project's redaction rules applied.",
+                      "enum": ["answer", "output", "run"],
+                      "default": "answer"
+                    },
+                    "model": {
+                      "description": "The judge's model: claude-…, gpt-…, o3, o4-…, gemini-…, or any model with its provider before it (anthropic:, openai:, gemini:).",
+                      "type": "string",
+                      "pattern": "^\\s*(claude-|gpt-|chatgpt-|o[0-9]|gemini-|anthropic:|openai:|gemini:)"
+                    },
+                    "pass": {
+                      "description": "The answer that passes.",
+                      "enum": ["yes", "no"],
+                      "default": "yes"
+                    }
+                  }
+                }
               }
             }
           },

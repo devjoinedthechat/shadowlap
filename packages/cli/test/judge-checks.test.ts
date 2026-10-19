@@ -120,3 +120,23 @@ describe('whether a judge can be asked live', () => {
     expect(liveJudge('anthropic', { anthropic: 'offline' }, { ANTHROPIC_API_KEY: 'k' })).toEqual({ why: 'the test runs offline' });
   });
 });
+
+describe('the config schema', () => {
+  it('describes a judge check as the parser reads it', async () => {
+    const { readFileSync } = await import('node:fs');
+    const schema = JSON.parse(readFileSync(new URL('../../../shadowlap.config.schema.json', import.meta.url), 'utf8')) as { properties: { tests: { additionalProperties: { properties: { expect: { properties: { judge: { items: { properties: Record<string, { pattern?: string; enum?: string[] }>; required: string[] } } } } } } } } };
+    const item = schema.properties.tests.additionalProperties.properties.expect.properties.judge.items;
+    expect(Object.keys(item.properties).sort()).toEqual(['model', 'name', 'of', 'pass', 'question']);
+    expect(item.required).toEqual(['name', 'question', 'model']);
+    expect(item.properties.of!.enum).toEqual(['answer', 'output', 'run']);
+    const model = new RegExp(item.properties.model!.pattern!);
+    for (const m of ['claude-haiku-4-5', 'gpt-5-mini', 'o4-mini', 'gemini-2.5-flash', 'openai:qwen2.5-7b']) {
+      expect(model.test(m), m).toBe(true);
+      expect(() => parseExpect({ judge: [{ ...judge, model: m }] }, 'expect'), m).not.toThrow();
+    }
+    for (const m of ['llama-3', 'mistral-large']) {
+      expect(model.test(m), m).toBe(false);
+      expect(() => parseExpect({ judge: [{ ...judge, model: m }] }, 'expect'), m).toThrow(/names no model/);
+    }
+  });
+});

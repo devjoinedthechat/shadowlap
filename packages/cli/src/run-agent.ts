@@ -3,7 +3,7 @@ import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, statSync, write
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, divergenceLine, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, divergenceLine, estimateCost, finalAnswer, isJudgeCall, formatDivergence, formatDuration, formatSummary, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
@@ -380,6 +380,7 @@ export function parseFailures(specs: string[], parentCalls: CallRecord[]): { mod
       continue;
     }
     if (call.kind !== 'api') throw new Error(`--fail-at: call #${callNo} is a ${call.kind} read; give the number of a model or tool call (see shadowlap show)`);
+    if (isJudgeCall(call)) throw new Error(JUDGE_CALL('--fail-at', callNo));
     if (value === 'timeout' || value === 'error' || value.startsWith('error:')) {
       throw new Error(`--fail-at ${callNo}=${value}: #${callNo} is a model call, which fails with an HTTP status (429 rate limited, 500 or 529 overloaded, 400 bad request); timeout and error are for tool calls`);
     }
@@ -395,7 +396,11 @@ export function requireModelCall(callNo: number, parentCalls: CallRecord[], flag
   const call = parentCalls.find((c) => c.callNo === callNo);
   if (!call) throw new Error(`${flag}: the recording has no call #${callNo}`);
   if (call.kind !== 'api') throw new Error(`${flag}: call #${callNo} is a ${call.kind} call; give the number of a model call (see shadowlap show)`);
+  if (isJudgeCall(call)) throw new Error(JUDGE_CALL(flag, callNo));
 }
+
+/** Why a flag that names one of the agent's model calls can't name a judge's. */
+const JUDGE_CALL = (flag: string, callNo: number) => `${flag}: call #${callNo} is a judge check's call, not the agent's: give the number of one of the agent's model calls (see shadowlap show)`;
 
 /** `--inject 15="text"`, `--set 15:max_tokens=2048`, `--model 15:claude-opus-5`. */
 export function parseInterventions(flags: { inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string }, parentCalls: CallRecord[]): Interventions | undefined {

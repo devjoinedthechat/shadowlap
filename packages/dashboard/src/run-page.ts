@@ -23,6 +23,7 @@ import {
   type RunCache,
   type RunConversations,
   type InterventionFlag,
+  type JudgeOutcome,
   type RunNote,
   type RunRecord,
   type ShowJson,
@@ -277,6 +278,12 @@ export interface RunCheck {
   /** Attempts that passed it, of those that ran it: the run's repeat or test attempts together, else this run alone. */
   count: number;
   of: number;
+  /** A judge check: `passed`, `failed`, or `inconclusive` when it was not judged. */
+  status?: 'passed' | 'failed' | 'inconclusive';
+  /** A judge check's reason for its verdict, in the judge's words. */
+  reason?: string;
+  /** A judge check: its verdict, whether it came from the recording (free) or the judge live, and what it cost. */
+  judge?: JudgeOutcome;
 }
 
 export interface RunPageFacts {
@@ -333,10 +340,36 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[]): RunBlame | null 
   };
 }
 
-/** A run's checks as stored, keeping only well-formed entries. */
-function storedChecks(run: RunRecord): Array<{ ok: boolean; label: string; detail: string | null }> {
+type StoredRunCheck = Pick<RunCheck, 'ok' | 'label' | 'detail' | 'status' | 'reason' | 'judge'>;
+
+/** A judge check's outcome as stored, checked field by field: a run can come from someone else's pack. */
+function storedJudge(v: unknown): JudgeOutcome | null {
+  if (!isObject(v) || typeof v.name !== 'string' || typeof v.model !== 'string') return null;
+  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+  return {
+    name: v.name,
+    model: v.model,
+    of: oneOf(v.of, ['answer', 'output', 'run'] as const, 'answer'),
+    verdict: v.verdict === 'yes' || v.verdict === 'no' ? v.verdict : null,
+    source: v.source === 'recording' || v.source === 'live' ? v.source : null,
+    cost: num(v.cost),
+    redactions: num(v.redactions) ?? 0,
+    cut: num(v.cut) ?? 0,
+    ...(int(v.callNo) !== null ? { callNo: int(v.callNo)! } : {}),
+  };
+}
+
+/** A run's checks as stored, keeping only well-formed entries: a judge check's with its verdict, reason and where it came from. */
+function storedChecks(run: RunRecord): StoredRunCheck[] {
   const v: unknown = run.meta?.checks;
-  return Array.isArray(v) ? v.filter((c): c is { ok: boolean; label: string; detail: string | null } => isObject(c) && typeof c.ok === 'boolean' && typeof c.label === 'string').map((c) => ({ ok: c.ok, label: c.label, detail: str(c.detail) })) : [];
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((c): c is Record<string, unknown> & { ok: boolean; label: string } => isObject(c) && typeof c.ok === 'boolean' && typeof c.label === 'string')
+    .map((c) => {
+      const judge = storedJudge(c.judge);
+      const status = c.status === 'passed' || c.status === 'failed' || c.status === 'inconclusive' ? c.status : null;
+      return { ok: c.ok, label: c.label, detail: str(c.detail), ...(status ? { status } : {}), ...(typeof c.reason === 'string' ? { reason: c.reason } : {}), ...(judge ? { judge } : {}) };
+    });
 }
 
 function storedNotRecorded(run: RunRecord): NotRecorded {
@@ -363,7 +396,8 @@ function checksOf(store: Store, run: RunRecord): RunCheck[] | null {
   const attempts = attemptsOf(store, run).map(storedChecks);
   return own.map((c) => {
     const ran = attempts.map((checks) => checks.find((x) => x.label === c.label)).filter((x) => x !== undefined);
-    return { label: c.label, ok: c.ok, detail: c.detail, count: ran.filter((x) => x.ok).length, of: ran.length };
+    const { label, ok, detail, ...judged } = c;
+    return { label, ok, detail, count: ran.filter((x) => x.ok).length, of: ran.length, ...judged };
   });
 }
 

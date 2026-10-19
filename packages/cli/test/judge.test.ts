@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { JUDGE_SCOPE, Store, type CallRecord } from '@shadowlap/engine';
 import { judgeRequests, startMockAnthropic, withJudge, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
+import { departures, fields, keys } from './json-shapes.js';
 
 /**
  * Judge checks through the CLI, on the reference agent (11 model calls, ending in an email to
@@ -121,6 +122,10 @@ describe('a golden with a judge check', () => {
       expect(r.result.checks[0]).toMatchObject({ status: 'passed', judge: { verdict: 'yes', source: 'recording', cost: 0 } });
     }
     expect(second.result.checks[0]!.reason).toBe(first.result.checks[0]!.reason);
+    // The JSON shapes the reference lists.
+    expect(departures('testResult', first.result)).toEqual({ missing: [], extra: [] });
+    expect(keys(first.result.judge)).toEqual(fields('summaryJudge'));
+    expect(keys(first.result.checks[0]!.judge)).toEqual(fields('checkJudge'));
     expect(mock.requests.length).toBe(sent);
     // The replay holds its judge call, answered from the recording (the newer session keeps its own).
     expect(storeCalls(second.result.runId).filter((c) => c.meta.scope === JUDGE_SCOPE).map((c) => c.origin)).toEqual(['replayed']);
@@ -215,6 +220,8 @@ describe('a golden with a judge check', () => {
     const c = JSON.parse(readFileSync(join(work, 'clean.json'), 'utf8')) as { summary: { judge: Record<string, unknown> }; checks: Result['checks'] };
     expect(c.checks[0]).toMatchObject({ status: 'passed', judge: { source: 'recording' } });
     expect(c.summary.judge).toMatchObject({ calls: 1, replayed: 1, upstreamRequests: 0 });
+    expect(keys(c.summary)).toEqual([...fields('summary'), 'judge'].sort());
+    expect(keys(c.summary.judge)).toEqual(fields('summaryJudge'));
     const fork = await shadowlap(['replay', recording, '--expect', expect_, '--summary-json', 'fork.json'], { AGENT_SYSTEM_SUFFIX: 'Never send email.' });
     expect(fork.code).toBe(1);
     expect(fork.out).toContain('✗ summarizes: the judge answers yes to "Does the final answer summarize what the research found?": the judge answered no: it says only that the summary was not emailed (judged live,');

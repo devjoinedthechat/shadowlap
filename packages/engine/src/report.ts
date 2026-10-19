@@ -134,13 +134,19 @@ export function aboutUsd(n: number): string {
   return s.startsWith('<') ? s : `≈${s}`;
 }
 
-/** The judge's part of a run, in one line: `judge: 1 call from the recording, free`, or live with what it cost. */
-export function judgeLine(j: JudgeSummary): string {
-  const parts: string[] = [];
+/** What a run's judge calls did and cost, part by part: `1 call`, `1 from the recording, free`, `0 upstream requests`. */
+export function judgeParts(j: JudgeSummary): string[] {
+  const parts = [`${j.calls} call${j.calls === 1 ? '' : 's'}`];
   if (j.replayed) parts.push(`${j.replayed} from the recording, free`);
   if (j.live) parts.push(`${j.live} live${j.spent ? ` (${aboutUsd(j.spent)})` : j.unknownModels.length ? ` (no price for ${j.unknownModels.join(', ')})` : ''}`);
-  if (j.notAsked) parts.push(`${j.notAsked} not asked: not in the recording, and no way to ask live`);
-  return `judge: ${j.calls} call${j.calls === 1 ? '' : 's'}${parts.length ? `, ${parts.join(', ')}` : ''}; ${j.upstreamRequests} upstream request${j.upstreamRequests === 1 ? '' : 's'}`;
+  if (j.notAsked) parts.push(`${j.notAsked} not asked (no recorded verdict, and no way to ask live)`);
+  parts.push(`${j.upstreamRequests} upstream request${j.upstreamRequests === 1 ? '' : 's'}`);
+  return parts;
+}
+
+/** The judge's part of a run, in one line: `judge: 1 call · 1 from the recording, free · 0 upstream requests`. */
+export function judgeLine(j: JudgeSummary): string {
+  return `judge: ${judgeParts(j).join(' · ')}`;
 }
 
 export interface Palette {

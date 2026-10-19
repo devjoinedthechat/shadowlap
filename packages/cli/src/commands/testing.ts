@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { EXTERNAL_COMMAND, endedEarlyCount, formatTokens, judgeLine, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, endedEarlyCount, formatTokens, judgeLine, judgeParts, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -82,7 +82,7 @@ function judgesOfPack(dir: string): JudgeCheck[] {
 
 /** Each judge check a pack was judged by: its verdict, or why it has none and how to get one. */
 function printPackJudged(dir: string, judges: readonly JudgeCheck[], judged: JudgedRun): void {
-  process.stdout.write(`judged ${judges.length} check${judges.length === 1 ? '' : 's'} for the pack${judged.judge ? ` · ${judgeLine(judged.judge)}` : ''}:\n`);
+  process.stdout.write(`judged ${judges.length} check${judges.length === 1 ? '' : 's'} for the pack${judged.judge ? ` (${judgeParts(judged.judge).join(' · ')})` : ''}:\n`);
   for (const line of judgeResults(judges, { judgeVerdicts: judged.verdicts, notJudged: judged.notJudged }).map(checkLine)) process.stdout.write(`  ${safe(line)}\n`);
   if (judged.notJudged.size) {
     const again = `shadowlap test ${safe(quoteArgv([dir]))} --update`;
