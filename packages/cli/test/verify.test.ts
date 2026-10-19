@@ -5,14 +5,15 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
-import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext, type ScriptResult } from '@shadowlap-testing/mock-anthropic';
 
 /**
  * `shadowlap verify` through the CLI, on the support agent. Order A-1042 is $240, which policy says to
  * escalate; order B-7 is $40, which it may refund. The mock plays the model under three prompts: the
  * original one refunds whatever it is asked to; the good fix escalates the large refund and still
  * refunds the small one; the bad fix names a `refund_order` tool the agent doesn't have, so the small
- * refund crashes it. "big-model" follows policy under any prompt. The oracle: never refund $240.
+ * refund crashes it. "big-model" follows policy under any prompt. The oracle: never refund $240. With
+ * `hold` set, the mock keeps the next request it gets waiting before it answers.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
@@ -23,8 +24,17 @@ const BAD_FIX = 'You are a support agent. Escalate refunds above $100; use refun
 let mock: MockServer;
 let work: string;
 let db: string;
+/** The next request the mock gets waits `ms` before its answer; `held` counts the requests it held. */
+let hold: { ms: number; held: number } | null = null;
 
-function script(ctx: ScriptContext) {
+function script(ctx: ScriptContext): ScriptResult {
+  const result = answer(ctx);
+  if (!hold || hold.held) return result;
+  hold.held++;
+  return { ...result, delayMs: hold.ms };
+}
+
+function answer(ctx: ScriptContext): ScriptResult {
   const system = JSON.stringify(ctx.request.system ?? '');
   const small = JSON.stringify(ctx.request.messages[0]?.content ?? '').includes('B-7');
   const order = small ? 'B-7' : 'A-1042';
@@ -55,6 +65,7 @@ beforeEach(() => {
   if (work) rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   work = mkdtempSync(join(tmpdir(), 'fp-verify-'));
   db = join(work, 'store.db');
+  hold = null;
 });
 
 function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {
@@ -223,5 +234,37 @@ describe('shadowlap verify', () => {
     expect((await shadowlap(['verify'])).out).toContain('give the runs to verify');
     expect((await shadowlap(['verify', '--fixes', failed, '--keeps', failed])).out).toContain('is given to both --fixes and --keeps; a run has one role');
     expect((await shadowlap(['verify', '--keeps', 'label:nothing'])).out).toContain('no run has the label "nothing"');
+  });
+
+  // Last: its 36 attempts raise the token counts the mock answers with, which tests above print.
+  it('verifies runs at once with --concurrency, each run\'s attempts one after another, so none runs past its gate\'s verdict', async () => {
+    const { failed, heldOut, good } = await runs();
+    // The first attempt to ask the model waits 2 s for its answer, holding back its own run alone.
+    hold = { ms: 2_000, held: 0 };
+    const r = await shadowlap(['verify', '--fixes', failed, '--holdout', heldOut, '--keeps', 'label:good', '--expect', ORACLE, '--concurrency', '3', '--json'], { AGENT_SYSTEM: GOOD_FIX });
+    expect(r.code, r.out).toBe(0);
+    expect(hold.held).toBe(1);
+    const report = JSON.parse(r.stdout) as Json;
+    expect(report.verdict).toBe('accepted');
+    // Each run's gate read its attempts as they ended, one after another: the 12 of 12 it takes
+    // without --concurrency, and no attempt past them.
+    for (const run of report.runs) expect(run).toMatchObject({ passes: 12, attempts: 12, decision: 'pass', rate: { sentence: 'passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts' } });
+    const store = Store.open(db);
+    try {
+      const all = store.allRuns().filter((x) => x.meta?.verify);
+      const of = (runId: string) => all.filter((x) => x.parentRunId === runId).sort((a, b) => a.meta!.repeat!.attempt - b.meta!.repeat!.attempt);
+      for (const runId of [failed, heldOut, good]) {
+        const attempts = of(runId);
+        expect(attempts).toHaveLength(12);
+        // Each started once the one before it had ended.
+        attempts.slice(1).forEach((a, i) => expect(a.startedAt).toBeGreaterThanOrEqual(attempts[i]!.endedAt!));
+      }
+      // The runs went at once: another run's attempts ran while the held one waited.
+      const held = all.reduce((x, y) => (y.endedAt! - y.startedAt > x.endedAt! - x.startedAt ? y : x));
+      expect(held.endedAt! - held.startedAt).toBeGreaterThanOrEqual(2_000);
+      expect(all.some((x) => x.parentRunId !== held.parentRunId && x.startedAt < held.endedAt! && x.endedAt! > held.startedAt)).toBe(true);
+    } finally {
+      store.close();
+    }
   });
 });
