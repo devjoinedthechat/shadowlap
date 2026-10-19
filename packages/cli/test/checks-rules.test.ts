@@ -95,8 +95,11 @@ describe('calls: a rule every call of a tool meets', () => {
     const negated = { calls: [{ tool: 'issue_refund', args: { amount: { not: { '>': '@lookup_order.result.total' } } } }] };
     expect(one(negated, [tool(3, 'issue_refund', { amount: 10 })]).status).toBe('failed');
     // A reader without results reads none, and so passes nothing that needs one.
-    const withoutResults = input([tool(2, 'lookup_order', {}, { total: 10 }), tool(3, 'issue_refund', { amount: 1 })], { resultOf: () => undefined });
+    const { resultOf: _results, ...withoutResults } = input([tool(2, 'lookup_order', {}, { total: 10 }), tool(3, 'issue_refund', { amount: 1 })]);
     expect(evaluateChecks(parseExpect(rule, 'e'), withoutResults)[0]!.detail).toBe('issue_refund #3: lookup_order #2 has no result');
+    // Nor does it switch a condition on a result off quietly: whether it held can't be told.
+    const big = parseExpect({ when: [{ if: { tool: 'lookup_order', result: { total: { '>': 5 } } }, then: { tools: { escalate: 1 } } }] }, 'e');
+    expect(evaluateChecks(big, withoutResults)[0]).toMatchObject({ status: 'inconclusive', detail: 'could not tell whether the condition held: lookup_order #2: has no result' });
   });
 
   it('passes a rule on a tool that was never called, which "tools" is for', () => {

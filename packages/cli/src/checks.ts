@@ -684,9 +684,11 @@ export interface CheckInput {
   argsOf: (call: CallRecord) => unknown;
   /**
    * A tool call's recorded result, or undefined for one that has none: it failed, was blocked, or
-   * never finished. An input that only labels checks, and judges no run, gives `() => undefined`.
+   * never finished. An input without it reads every result as missing, which never passes and
+   * never goes unsaid: a rule that reads a result fails, naming it, and a condition on one is
+   * inconclusive, not quietly not applicable. Inputs that judge runs give it (`storedCheckInput`).
    */
-  resultOf: (call: CallRecord) => unknown;
+  resultOf?: (call: CallRecord) => unknown;
   /** The text of the last model response, or null without one. */
   answer: string | null;
   /** A model call's estimated cost in USD, or null when its model has no price. */
@@ -818,7 +820,7 @@ const undecided = (why: string): Match => ({ state: 'undecided', why });
  * there to read (the call never finished, or its response can't be read).
  */
 function resultOf(c: CallRecord, input: CheckInput): { value: unknown } | { none: string; ended: boolean } {
-  const value = input.resultOf(c);
+  const value = input.resultOf?.(c);
   if (value !== undefined) return { value };
   const why = c.origin === 'blocked' ? 'it was blocked' : !c.end ? 'it never finished' : c.end.outcome === 'error' ? 'it failed' : null;
   return { none: why ? `has no result (${why})` : 'has no result', ended: c.origin === 'blocked' || c.end?.outcome === 'error' };
@@ -1303,7 +1305,7 @@ export function unreadPaths(paths: readonly NamedPath[], recordings: readonly Re
     for (const r of recordings) {
       for (const c of r.calls) {
         if (c.kind !== 'tool' || c.name !== p.tool) continue;
-        const base = p.part === 'args' ? r.input.argsOf(c) : r.input.resultOf(c);
+        const base = p.part === 'args' ? r.input.argsOf(c) : r.input.resultOf?.(c);
         if (base === undefined) continue;
         calls++;
         if (valuesAt(base, p.path).length) {
