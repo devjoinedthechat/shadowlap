@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { injectionTemplates, Store, type CleanReport, type PlantReport, type RunRecord } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { injectionJob, injectionLine, injectionNeedsLook, toolTrust } from '../src/injection.js';
+import { commandTreeUse } from '../src/worktree.js';
 
 /**
  * Injection tests on the dashboard: the read models over what shadowlap injection kept (its
@@ -196,6 +197,10 @@ describe('the injection job', () => {
     expect(injectionJob({ runId: pulled.runId, yes: true }, b, goldens)).toMatchObject({ args: ['injection', pulled.runId, '--json', '--yes'] });
     // A payload file the browser sent is passed by its path.
     expect(injectionJob({ runId: recording.runId, payloadsUpload: 'u1' }, { store, upload: () => ({ path: '/tmp/u1-payloads.txt', name: 'payloads.txt', original: 'payloads.txt', bytes: 10 }) }, goldens)).toMatchObject({ args: ['injection', recording.runId, '--json', '--payloads', '/tmp/u1-payloads.txt'] });
+  });
+
+  it('runs the agent from the working tree, so it waits for a repair or an apply there', () => {
+    expect(commandTreeUse(['injection', recording.runId, '--json'])).toEqual({ use: 'reads', doing: 'an injection test is running your agent from your working tree', verb: 'test for injection' });
   });
 
   it('is listed among the job kinds the server takes', async () => {

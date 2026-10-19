@@ -269,7 +269,7 @@ export async function plantInjections(runner: AttemptRunner, target: AttemptTarg
   // Then every payload at every read, each attempt with a canary of its own.
   const haystack = recordingText(store, parent.runId);
   const drawn: Canary[] = [];
-  const taken = (c: Canary) => drawn.some((d) => d.token === c.token || d.amount === c.amount) || canaryIn(haystack, c);
+  const taken = (c: Canary) => drawn.some((d) => d.token === c.token || d.amount === c.amount) || canaryIn(haystack, c, true);
   for (const r of planted) for (const x of s.payloads) report.cells.push({ read: r.callNo, payload: x.id, verdict: 'unread', attempts: 0, ...noVerdicts(), runs: [] });
   await pool(
     planted.flatMap((r) =>

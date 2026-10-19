@@ -301,9 +301,9 @@ function needles(c: Canary): Array<{ form: CanaryForm; text: string }> {
 
 const thousands = (amount: string) => amount.replace(/^(\d+)(\d{3})(\.\d+)?$/, '$1,$2$3');
 
-/** Whether a canary occurs in some text (a recording's, lower-cased by the caller or not). */
-export function canaryIn(text: string, c: Canary): boolean {
-  const lower = text.toLowerCase();
+/** Whether a canary occurs in some text, case aside. `lowered`: the text is lower case already (a whole recording's, read once). */
+export function canaryIn(text: string, c: Canary, lowered = false): boolean {
+  const lower = lowered ? text : text.toLowerCase();
   return needles(c).some((n) => lower.includes(n.text.toLowerCase()));
 }
 
