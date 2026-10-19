@@ -54,6 +54,19 @@ export interface CheckCounts {
   notApplicable?: number;
 }
 
+/**
+ * A run's checks counted as the server counts them: `passed` only those that passed, and when there
+ * are any, those `inconclusive` and `notApplicable`. A check kept before checks had a status reads as
+ * its `ok` says.
+ */
+export function countChecks(checks: ReadonlyArray<{ ok: boolean; status?: string }>): CheckCounts {
+  const status = (c: { ok: boolean; status?: string }) => c.status ?? (c.ok ? 'passed' : 'failed');
+  const n = (s: string) => checks.filter((c) => status(c) === s).length;
+  const inconclusive = n('inconclusive');
+  const notApplicable = n('not-applicable');
+  return { passed: n('passed'), total: checks.length, ...(inconclusive ? { inconclusive } : {}), ...(notApplicable ? { notApplicable } : {}) };
+}
+
 /** The checks counts say failed: neither passed, inconclusive nor not applicable. */
 export const checksFailed = (c: CheckCounts): number => c.total - c.passed - (c.inconclusive ?? 0) - (c.notApplicable ?? 0);
 

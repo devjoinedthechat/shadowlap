@@ -93,6 +93,19 @@ describe('test history in the store', () => {
     store.close();
   });
 
+  it('counts no run as failed for a check that could not be decided, or did not apply', () => {
+    const store = Store.open(':memory:');
+    const run = (codeVersion: string, startedAt: number, checks: NonNullable<Parameters<Store['createRun']>[0]['meta']>['checks']) => {
+      const r = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, codeVersion, startedAt, meta: { checks } });
+      store.endRun(r.runId, 'completed', startedAt + 1);
+    };
+    run('aaa1111', 100, [{ status: 'inconclusive', ok: false, label: 'judge "j" answers yes', detail: 'not judged' }]);
+    run('aaa1111', 110, [{ status: 'not-applicable', ok: true, label: 'when x is called: y called 1 time', detail: 'the condition never held' }]);
+    run('aaa1111', 120, [{ status: 'failed', ok: false, label: 'y called 1 time', detail: 'called 0 times' }]);
+    expect(store.runRevisions()).toEqual([{ revision: 'aaa1111', lastAt: 120, runs: 3, failed: 1 }]);
+    store.close();
+  });
+
   it('keeps history when the runs it names are deleted', () => {
     const store = Store.open(':memory:');
     const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/' } });

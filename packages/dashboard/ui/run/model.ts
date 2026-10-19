@@ -2,7 +2,7 @@ import { importedRecording, pulledRun } from '../../../engine/src/classify.js';
 import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
 import { personName } from '../overview/model.js';
 import type { BlameView, CallRow, CheckStatusView, CheckView, LineageNode, RunDetail, RunListItem } from '../types.js';
-import type { RunLike } from '../runs.js';
+import { countChecks, type RunLike } from '../runs.js';
 import { modelCallOf, originOf } from './calls.js';
 
 /**
@@ -18,7 +18,7 @@ import { modelCallOf, originOf } from './calls.js';
 export function runLikeOf(d: RunDetail): RunLike {
   const meta = d.run.meta;
   const state = d.state ?? null;
-  const checks = meta?.checks?.length ? { passed: meta.checks.filter((c) => c.ok).length, total: meta.checks.length } : null;
+  const checks = meta?.checks?.length ? countChecks(meta.checks) : null;
   return {
     runId: d.run.runId,
     parentRunId: d.run.parentRunId,

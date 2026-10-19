@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeOutcome, normalizeRunDetail } from '../ui/normalize.js';
 import { bannerFor, failureText, type BannerInput } from '../ui/run/banner.js';
-import { isFailed, repeatBundle, runOutcome } from '../ui/runs.js';
+import { countChecks, isFailed, repeatBundle, runOutcome } from '../ui/runs.js';
 import type { RunDetail, RunListItem } from '../ui/types.js';
 
 /**
@@ -43,6 +43,11 @@ describe('the Runs table', () => {
     expect(runOutcome(row({ checks: { passed: 1, total: 2, inconclusive: 1 } }))).toEqual({ tone: 'warn', text: 'check inconclusive' });
     expect(runOutcome(row({ checks: { passed: 1, total: 2 } }))).toEqual({ tone: 'err', text: 'check failed' });
     expect(isFailed({ ...row({ checks: { passed: 1, total: 3, notApplicable: 2 } }), failed: undefined } as never)).toBe(false);
+  });
+
+  it('counts a run page\'s checks as the server counts them, an old one\'s by its ok', () => {
+    expect(countChecks([{ ok: true, status: 'passed' }, { ok: true, status: 'not-applicable' }, { ok: false, status: 'inconclusive' }])).toEqual({ passed: 1, total: 3, inconclusive: 1, notApplicable: 1 });
+    expect(countChecks([{ ok: true }, { ok: false }])).toEqual({ passed: 1, total: 2 });
   });
 
   it('reads the new outcome from the server, and an old one as before', () => {
