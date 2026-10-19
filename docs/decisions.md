@@ -27,6 +27,7 @@ goldens/research 01M58W8A0Z  11 of 11 model calls asked · 3 changed, most: rank
 ! claude-sonnet-4-5-20250929 retires on the Claude API on November 30, 2026, in 42 days; Anthropic recommends claude-sonnet-5-5
 
   Later steps are judged in the recorded run's state: after the first changed decision, each step says what the change decides where the recorded run was, not where the changed run would have got to. shadowlap verify runs it end to end.
+  Each step was asked once, and a model varies from one answer to the next: --samples 3 says how often a decision changes.
   asking: 11 upstream requests · ≈$0.014 spent · per run ≈$0.043 → ≈$0.014 (−67%)
 ```
 
@@ -83,7 +84,8 @@ AGENT_SYSTEM_SUFFIX="Do not email the summary." shadowlap decisions 01M58VT1J5 -
 01M58VT1J5  11 of 11 model calls asked · 1 changed, most: rank 1 (a write changed)
   #28   step 10  rank 1  send_email is no longer called
          recorded send_email({"to":"team@example.com","subject":"Research summary","body":"Replay wo…)
-         now      answers and stops: "Summary: recorded runs replay deterministically, and forks fence writes…"
+         now      answers and stops: "Summary: recorded runs replay deterministically, and forks fence writes…"  −8 tokens · −<$0.001
+  the steps asked, as recorded and now: 12,260 → 12,260 input tokens · ≈$0.043 → ≈$0.043 (about the same)
 ```
 
 It refuses a run, saying why, when its first model request differs in more than its prompt and tools: a changed model or setting, another message. That is another change, and `verify` tests it. When a later request differs in more (the code changed what step 6 sends), the offline replay stops there: that step and the ones after it are asked with the last prompt it captured in their scope, and the run's warnings say so. A request whose prompt the working tree doesn't change is left out: asking it again would only measure noise.
