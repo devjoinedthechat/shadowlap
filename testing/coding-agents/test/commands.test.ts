@@ -179,6 +179,17 @@ const SCENARIOS: Record<string, Variant[]> = {
     },
   ],
   calibrate: [{ check: (r) => expect(json(r.stdout, 'calibrate --json')).toMatchObject({ clean: true, normalizers: [] }) }],
+  decisions: [
+    {
+      // The working tree sends the prompt and tools the golden recorded: each step is left as it was, ranked by nothing.
+      check: (r) => {
+        const report = json<{ kind: string; runs: Array<{ golden: string | null; rank: number | null; decisions: Array<{ rank: number | null }> }> }>(r.stdout, 'decisions --json');
+        expect(report.kind).toBe('decisions');
+        expect(report.runs.map((x) => [x.golden, x.rank])).toEqual([['goldens/research', null]]);
+        expect(report.runs[0]!.decisions.length).toBeGreaterThan(0);
+      },
+    },
+  ],
   blame: [
     {
       // The recording emails a summary, and the script answers every call as recorded: no answer saves it.
