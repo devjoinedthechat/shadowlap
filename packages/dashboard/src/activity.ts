@@ -131,6 +131,15 @@ const EVENT_TEXT = new Map<string, Describe>([
     },
   ],
   ['store.ci', (_e, d) => ({ kind: 'setting', text: `Push from CI ${d.push === false ? 'off' : 'on'}` })],
+  // The coding agents' plugin or rule, put into the project by `shadowlap skill install`.
+  [
+    'skill.installed',
+    (e, d) => {
+      const verb = d.outcome === 'updated' ? 'updated' : 'added';
+      const what = e.ref === 'cursor' ? `Cursor rule ${verb}` : `Claude Code skill ${verb === 'added' ? 'installed' : 'updated'}`;
+      return { kind: 'setting', text: parts(what, str(d.version)), href: '#/settings/agents' };
+    },
+  ],
   [
     'store.pushed',
     (_e, d) => {

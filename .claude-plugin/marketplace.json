@@ -1,0 +1,21 @@
+{
+  "name": "shadowlap",
+  "description": "Shadowlap for Claude Code: the skill that debugs an AI agent and checks a change to it with the shadowlap CLI.",
+  "owner": {
+    "name": "Shadowlap",
+    "url": "https://github.com/devjoinedthechat/shadowlap"
+  },
+  "plugins": [
+    {
+      "name": "shadowlap",
+      "source": "./coding-agents/claude-code",
+      "category": "testing",
+      "tags": [
+        "agents",
+        "replay",
+        "testing",
+        "debugging"
+      ]
+    }
+  ]
+}

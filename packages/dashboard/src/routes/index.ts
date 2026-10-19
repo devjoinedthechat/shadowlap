@@ -4,6 +4,7 @@ import * as activity from './activity.js';
 import * as changes from './changes.js';
 // Checks: a check tried on the recordings, nothing replayed (the check builder's preview).
 import * as checks from './checks.js';
+import * as codingAgents from './coding-agents.js';
 import * as compare from './compare.js';
 import * as decisions from './decisions.js';
 import * as files from './files.js';
@@ -58,6 +59,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   fixes,
   tests,
   settings,
+  // Settings → Coding agents' install: the skill-install job kind.
+  codingAgents,
   // Several projects behind one dashboard: the switcher, Add a project, the setup, removing one.
   projects,
   // Training: pairs, tasks, scores and the models to score (#/training).

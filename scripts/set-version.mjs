@@ -1,4 +1,5 @@
-// Sets one version across every publishable package, their internal dependencies, and the Python SDK.
+// Sets one version across every publishable package, their internal dependencies, the Python SDK and
+// the Claude Code plugin in coding-agents/.
 // Usage: node scripts/set-version.mjs 0.1.0
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,4 +29,10 @@ writeFileSync(py, readFileSync(py, 'utf8').replace(/^version = ".*"$/m, `version
 const init = 'sdks/python/shadowlap/__init__.py';
 writeFileSync(init, readFileSync(init, 'utf8').replace(/^__version__ = ".*"$/m, `__version__ = "${version}"`));
 
-console.log(`version ${version} set in ${PACKAGES.length} packages and the Python SDK; run npm install to refresh the lockfile`);
+// The Claude Code plugin is versioned with the CLI whose commands its skill names.
+const plugin = 'coding-agents/claude-code/.claude-plugin/plugin.json';
+const manifest = JSON.parse(readFileSync(plugin, 'utf8'));
+manifest.version = version;
+writeFileSync(plugin, JSON.stringify(manifest, null, 2) + '\n');
+
+console.log(`version ${version} set in ${PACKAGES.length} packages, the Python SDK and the Claude Code plugin; run npm install to refresh the lockfile`);

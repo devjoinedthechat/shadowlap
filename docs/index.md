@@ -1,6 +1,6 @@
 # Introduction
 
-Shadowlap records every model API call and tool call an agent makes, then re-runs the agent's **real code** against that recording. Calls that haven't changed are served from the recording: no tokens spent, no side effects repeated. The first call that differs is reported with a precise diff, and from that point the run continues live as a *fork* of the original, with write tools fenced off.
+Shadowlap is change safety for agents: every change to an agent (its code, its prompt, its model, a tool, the route to its provider) is checked against what the agent actually did. It records every model API call and tool call an agent makes, then re-runs the agent's **real code** against that recording. Calls that haven't changed are served from the recording: no tokens spent, no side effects repeated. The first call that differs is reported with a precise diff, and from that point the run continues live as a *fork* of the original, with write tools fenced off.
 
 > Replay your agent, not a trace of it.
 
@@ -30,6 +30,7 @@ Shadowlap records every model API call and tool call an agent makes, then re-run
 - [How it works](./how-it-works.md): the sidecar, fingerprints, matching, effects, thinking blocks, storage.
 - [Why did my replay diverge?](./troubleshooting.md): the page you'll visit most.
 - Fixes: [blame](./blame.md) finds the model call that lost a run, [repair](./repair.md) rewrites the prompt, and [verify](./verify.md) proves the fix on failing, held-out and good runs.
+- [Coding agents](./agents.md): Claude Code, Cursor and Codex debugging an agent through the CLI, with the Claude Code plugin and the Cursor rule that tell them how.
 - [CI mode](./ci.md): a run kept as a golden, replayed offline on every pull request.
 - [Checks](./checks.md): what a passing run must do, from call counts and budgets to the order of its calls, their arguments against earlier calls' results, and rules that apply only on a condition; tried on your recordings for free with `shadowlap check`.
 - [Gating](./gating.md): verdicts on attempts that vary, with stated error rates: a forked golden's gate, against two pass rates or its own history, and how verify and blame decide.
@@ -40,8 +41,9 @@ Shadowlap records every model API call and tool call an agent makes, then re-run
 - [Error-path presets](./error-paths.md): a golden forked where a tool times out or answers malformed JSON, or the provider fails, to check the agent's error path.
 - [Training](./training.md): the preference pairs your blames and verifies already left in the store, exported for fine-tuning, and goldens as tasks a model is scored on, in the CLI or on the dashboard's Training page.
 - [Compared with other tools](./compare.md): cassettes, tracing platforms, framework time travel, durable execution.
+- [Agents across services](./downstream-services.md): a service the agent calls over HTTP, recorded as a tool, so its answers replay without it.
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.
 - [Team store](./team.md): your team's runs in a bucket you own, pushed and pulled with your own credentials, with pull requests kept to their own folders, and share links.
-- [The wire protocol](./protocol.md), [the recordings protocol](./recordings-protocol.md) and [the engine as a library](./engine.md): building on Shadowlap, writing an SDK for another language, or integrating another test runner.
+- [The wire protocol](./protocol.md), [the recording format](./recording-format.md) with the recordings protocol, and [the engine as a library](./engine.md): building on Shadowlap, writing an SDK for another language, integrating another test runner, or writing recordings Shadowlap replays.
 
 Shadowlap is pre-release and open source under Apache-2.0: [github.com/devjoinedthechat/shadowlap](https://github.com/devjoinedthechat/shadowlap).

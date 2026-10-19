@@ -6,8 +6,8 @@
 </p>
 
 <p align="center">
-  <b>Record, replay and fork AI agent runs.</b><br>
-  Replay a failure exactly, find the call that lost the run, and prove your fix holds before it ships.
+  <b>Change safety for agents.</b><br>
+  Record, replay and fork AI agent runs: reproduce a failure exactly, find the call that lost the run, and prove your fix holds before it ships.
 </p>
 
 <p align="center">
@@ -194,7 +194,7 @@ Tests in your own suite work the same way: mark a test with `@pytest.mark.shadow
 | SDKs | TypeScript (`@shadowlap/sdk`) and Python (`shadowlap`): tools, clock, randomness and scopes. Any other language speaks the [wire protocol](docs/protocol.md). [docs/sdk.md](docs/sdk.md) |
 | Frameworks | Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain and LangGraph, the Anthropic tool runner; in Python, Pydantic AI, OpenAI Agents SDK, LangGraph and CrewAI. Each adapter is tested against the real framework. [docs/frameworks.md](docs/frameworks.md) |
 | MCP | `shadowlap mcp -- <server>` records, replays and fences an MCP server's tool calls. [docs/mcp.md](docs/mcp.md) |
-| Coding agents | Claude Code, Cursor and Codex drive the CLI as it is: every command they need reads and writes JSON. [docs/agents.md](docs/agents.md) |
+| Coding agents | Claude Code, Cursor and Codex drive the CLI as it is: every command they need reads and writes JSON. The Claude Code plugin and the Cursor rule that tell them how go into your project with `shadowlap skill install`. [docs/agents.md](docs/agents.md) |
 | Imports | HAR files, nock recordings, VCR cassettes and production traffic from a LiteLLM gateway become recordings you replay your own code against. [docs/gateways.md](docs/gateways.md) |
 | Exports | Redacted packs, one-file HTML reports, HAR, OpenTelemetry traces, and datasets for evals (JSONL, OpenAI chat, Braintrust, Langfuse). [docs/cli.md](docs/cli.md#export-dataset) |
 
@@ -251,7 +251,7 @@ On 2026-10-15: ✅ works in this repository today, ⬜ is being built.
 | [Test suites](docs/testing.md) · [CI mode](docs/ci.md) | Tests |
 | [Dashboard](docs/dashboard.md) · [Terminal UI](docs/tui.md) · [Coding agents](docs/agents.md) | Looking at runs |
 | [Team store](docs/team.md) | Your team's runs in a bucket you own: push, pull, CI's test runs, pull requests, share links |
-| [CLI](docs/cli.md) · [Telemetry](docs/telemetry.md) · [Wire protocol](docs/protocol.md) · [Recordings protocol](docs/recordings-protocol.md) · [Engine](docs/engine.md) | Reference, and building on Shadowlap |
+| [CLI](docs/cli.md) · [Telemetry](docs/telemetry.md) · [Wire protocol](docs/protocol.md) · [Recording format](docs/recording-format.md) · [Engine](docs/engine.md) | Reference, and building on Shadowlap: the recording format specifies packs and the recordings protocol |
 | [Compared with other tools](docs/compare.md) | Cassettes, tracing platforms, replay evals, framework time travel, durable execution |
 
 

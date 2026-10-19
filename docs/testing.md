@@ -154,6 +154,6 @@ All of that holds only while a recorded test runs, in both plugins: the base-URL
 ## Another test runner
 
 The plugins here are clients of one small HTTP API on `shadowlap serve --recordings`, specified in
-**[the recordings protocol](./recordings-protocol.md)**: the handshake, slots for parallel workers,
+**[the recordings protocol](./recording-format.md#the-recordings-protocol)**: the handshake, slots for parallel workers,
 the three endpoints, and what happens to a recording when a test passes or fails. Anything that can
 spawn a process and make an HTTP request can integrate — JUnit, Go's `testing`, RSpec, Playwright.

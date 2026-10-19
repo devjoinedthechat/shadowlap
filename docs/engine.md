@@ -52,7 +52,8 @@ verifies blob hashes, and it is the same door the CLI uses for recordings from e
 ## Packs: the supported way in
 
 A pack is a directory — `run.json`, `calls.jsonl`, one uncompressed file per blob under `blobs/` —
-with stable names, so it is diffable and committable.
+with stable names, so it is diffable and committable. [The recording format](./recording-format.md)
+specifies it, for a program that writes packs without this library.
 
 ```ts
 packRun(source: Store, runId: string, dir: string, opts?: { lineage?: boolean; redact?: Normalizer[] }): PackResult

@@ -63,6 +63,9 @@ export const SHAPES = {
   checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive'] },
   checkResult: { section: 'check', fields: ['status', 'ok', 'label', 'detail'] },
   init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'hardcodedBaseUrls', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
+  // The coding agents' plugin and rule, put into a project (skill-install.test.ts).
+  skillInstall: { section: 'skill', fields: ['agent', 'path', 'version', 'before', 'installedVersion', 'outcome', 'files', 'reason'] },
+  skillInstallFile: { section: 'skill', fields: ['path', 'action'] },
 
   // Fixes: blame, verify and repair print their reports; fix prints the dashboard's read model of Fixes.
   blame: { page: 'blame.md', section: 'JSON', grows: true, fields: ['runId', 'outcome', 'blamed', 'lost', 'confidence', 'contrast', 'sameAnswer', 'failedWrite', 'probes', 'oracle', 'recordedFailures', 'rescue', 'modelCalls', 'attemptsPerProbe', 'passesNeeded', 'gate', 'nonMonotone', 'cost', 'judge', 'stopReason', 'warnings', 'fix'] },
