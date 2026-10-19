@@ -184,5 +184,6 @@ On a pull request, this previews the prompt and tools the branch sends against t
 - Later steps are judged in the recorded state, as above.
 - A step whose recorded call failed, or that isn't a conversation (an embeddings call), is not asked, and the report says why.
 - `--from-code` sees the prompt and tools; a change to anything else the requests carry is verify's.
+- A Responses request that continues a stored response (`previous_response_id`) is asked with the turns the provider holds for it, as recorded.
 - An agent that thinks between its tool calls (Anthropic's extended thinking with tool use) has its earlier reasoning left out under a new prompt or model, and a provider that wants the current turn's reasoning back refuses such a step: it is listed with the provider's words, not ranked.
 - Each session is kept in the store with each run's decisions, for the dashboard; `gc` leaves sessions, which outlive the runs they name.

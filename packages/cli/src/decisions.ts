@@ -580,7 +580,9 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
   const store = openStore(input.opts);
   const at = input.now ?? Date.now();
   let interrupted = false;
+  // The first Ctrl-C starts no new request and keeps what was asked; a second one doesn't wait.
   const onSignal = () => {
+    if (interrupted) process.exit(130);
     interrupted = true;
   };
   process.on('SIGINT', onSignal);
