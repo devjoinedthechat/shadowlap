@@ -34,6 +34,7 @@ import {
   rewriteText,
   sameModel,
   setRequestFields,
+  SPRT_DEFAULTS,
   switchModel,
   ulid,
   withoutEarlierThinking,
@@ -57,6 +58,7 @@ import {
   type RequestPrompt,
   type RetirementNotice,
   type RunRecord,
+  type SprtGate,
   type Store,
   type TokenCount,
   type Usage,
@@ -67,7 +69,7 @@ import { specFor, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, loadTests, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { captureFromCode, type FromCodeCapture } from './decisions-capture.js';
 import { azureApiVersion, azureDeploymentCall, ModelSender, providerById, type ModelAnswer } from './decisions-send.js';
-import { recordVerifyFix, verifyCommand } from './fixes.js';
+import { gateFlags, recordVerifyFix, verifyCommand } from './fixes.js';
 import { importGolden } from './golden-test.js';
 import { expandRecordings, goldenName, rawExpectFor } from './goldens.js';
 import { type GuardMode } from './run-agent.js';
@@ -166,8 +168,12 @@ export interface DecisionsSettings {
   guard: GuardMode;
   /** The command to run instead of each run's recorded one, for --from-code and --then-verify. */
   argv: string[] | null;
-  /** --then-verify: verify the runs with a rank 1 or 2 change, with these. */
-  thenVerify: { attempts: number; needed: number; writes: 'stub' | 'block'; expect: { spec: TestSpec; json: unknown } | null } | null;
+  /**
+   * --then-verify: verify the runs with a rank 1 or 2 change, with these: each run's gate, as verify
+   * decides by default (`attempts` is then its `max`), or with `gate` null a fixed count, `needed` of
+   * `attempts`.
+   */
+  thenVerify: { attempts: number; needed: number; gate: SprtGate | null; writes: 'stub' | 'block'; expect: { spec: TestSpec; json: unknown } | null } | null;
 }
 
 export interface DecisionsInput {
@@ -830,7 +836,7 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
       return { parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && t.golden === null && commandIsImported(t.run), role };
     });
     const role = (r: VerifyRole) => runs.filter((x) => x.role === r).map((x) => x.parent.runId);
-    const line = verifyCommand({ fixes: role('target').map((id) => shortId(id)), keeps: role('good').map((id) => shortId(id)) }, { expect: g.json ?? null, attempts: v.attempts, passes: v.needed !== Math.ceil(0.8 * v.attempts) ? v.needed : undefined, gate: null, fields: input.fields, from: input.from ?? undefined, liveTools: [], writes: v.writes, reads: 'live', budget: null, timeoutMs: s.timeoutMs, argv: s.argv });
+    const line = verifyCommand({ fixes: role('target').map((id) => shortId(id)), keeps: role('good').map((id) => shortId(id)) }, { expect: g.json ?? null, attempts: v.attempts, passes: !v.gate && v.needed !== Math.ceil(0.8 * v.attempts) ? v.needed : undefined, gate: v.gate, fields: input.fields, from: input.from ?? undefined, liveTools: [], writes: v.writes, reads: 'live', budget: null, timeoutMs: s.timeoutMs, argv: s.argv });
     return { g, runs, line };
   });
   if (input.blocked) return { ...empty, commands: plans.map((x) => x.line), reasons: [input.blocked] };
@@ -841,7 +847,7 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
     const report = await runVerify({
       opts: input.opts,
       runs,
-      settings: { attempts: v.attempts, needed: v.needed, gate: null, concurrency: 1, fields: input.fields, ...(input.from?.length ? { fromModels: input.from } : {}), failFast: false, spec: g.spec, expect: g.json ?? null, writes: v.writes, reads: 'live', liveTools: [], budget: remaining, timeoutMs: s.timeoutMs, guard: s.guard },
+      settings: { attempts: v.attempts, needed: v.needed, gate: v.gate, concurrency: 1, fields: input.fields, ...(input.from?.length ? { fromModels: input.from } : {}), failFast: false, spec: g.spec, expect: g.json ?? null, writes: v.writes, reads: 'live', liveTools: [], budget: remaining, timeoutMs: s.timeoutMs, guard: s.guard },
       log,
     });
     const kept = recordVerifyFix(input.opts, report, { expect: g.json ?? null, command: line });
@@ -1085,8 +1091,11 @@ export interface AskFlags {
   budget?: number | null;
   timeoutMs?: number | null;
   expect?: unknown;
-  attempts?: number;
+  /** A fixed count, as given: `--attempts`, `--passes`. */
+  attempts?: number | undefined;
   passes?: number | undefined;
+  /** The gate verify decides by, when no count is given: flags only for figures other than verify's. */
+  gate?: SprtGate | null;
   writes?: 'stub' | 'block';
   guard?: GuardMode;
   inconclusive?: 'fail' | 'warn';
@@ -1099,8 +1108,7 @@ export function askArgs(f: AskFlags, verifies: boolean): string[] {
     ...(f.budget !== null && f.budget !== undefined ? ['--budget', String(f.budget)] : []),
     ...(f.timeoutMs !== null && f.timeoutMs !== undefined ? ['--timeout', String(Math.round(f.timeoutMs / 1000))] : []),
     ...(verifies && f.expect !== null && f.expect !== undefined ? ['--expect', JSON.stringify(f.expect)] : []),
-    ...(verifies && f.attempts !== undefined && f.attempts !== 5 ? ['--attempts', String(f.attempts)] : []),
-    ...(verifies && f.passes !== undefined ? ['--passes', String(f.passes)] : []),
+    ...(verifies ? (f.attempts !== undefined || f.passes !== undefined ? gateFlags(null, SPRT_DEFAULTS, { attempts: f.attempts ?? 5, passes: f.passes }) : f.gate ? gateFlags(f.gate, SPRT_DEFAULTS, { attempts: f.gate.max }) : []) : []),
     ...(verifies && f.writes === 'block' ? ['--writes', 'block'] : []),
     ...(verifies && f.guard !== undefined && f.guard !== 'warn' ? ['--guard', f.guard] : []),
     ...(f.inconclusive === 'warn' ? ['--inconclusive', 'warn'] : []),

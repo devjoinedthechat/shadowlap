@@ -263,6 +263,31 @@ describe('shadowlap decisions', () => {
     }
   }, 180_000);
 
+  it("verifies through verify's own gate unless a fixed count is given, and --gate changes its figures", async () => {
+    const runId = await record();
+    const noEmail = { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' };
+    // No count given: the gate decides, as verify's does, so a run that always passes is kept after 12 attempts, not 4 of 5.
+    const r = await shadowlap(['decisions', runId, '--from-code', '--then-verify', '--json'], noEmail);
+    expect(r.code, r.out).toBe(0);
+    const report = json<DecisionsReport>(r);
+    expect(report.verify).toMatchObject({ verdict: 'accepted', runs: [{ runId, role: 'good', outcome: 'kept', passes: 12, attempts: 12 }] });
+    expect(report.verify!.commands).toEqual([`shadowlap verify --keeps ${runId.slice(0, 10)}`]);
+    expect(report.command).toBe(`shadowlap decisions ${runId} --from-code --then-verify`);
+    // Other figures, for the session kept: two straight passes settle it, and the command says how.
+    const again = await shadowlap(['decisions', '--verify', report.decisionsId!, '--gate', '{"bad":0.1,"max":4}', '--json'], noEmail);
+    expect(again.code, again.out).toBe(0);
+    const out = json<{ verify: NonNullable<DecisionsReport['verify']> }>(again);
+    expect(out.verify.runs).toMatchObject([{ runId, outcome: 'kept', passes: 2, attempts: 2 }]);
+    expect(out.verify.commands).toEqual([`shadowlap verify --keeps ${runId.slice(0, 10)} --gate '{"bad":0.1,"max":4}'`]);
+    // A gate and a count at once is refused, as verify refuses it; so is either without a verify to decide.
+    const both = await shadowlap(['decisions', '--verify', report.decisionsId!, '--gate', '{"bad":0.1}', '--attempts', '3'], noEmail);
+    expect(both.code).toBe(1);
+    expect(both.out).toContain('give a gate (--gate) or a fixed count (--attempts, --passes), not both');
+    const alone = await shadowlap(['decisions', runId, '--from-code', '--attempts', '3'], noEmail);
+    expect(alone.code).toBe(1);
+    expect(alone.out).toContain('--expect, --gate, --attempts and --passes are for --then-verify');
+  }, 180_000);
+
   it('asks the goldens a pack holds, named as test names them, and warns about a model that retires', async () => {
     const runId = await record({ AGENT_MODEL: 'claude-sonnet-4-5-20250929' });
     mkdirSync(join(cwd, 'goldens'), { recursive: true });

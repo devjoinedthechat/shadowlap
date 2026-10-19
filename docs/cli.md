@@ -273,7 +273,7 @@ Runs are ids, unique prefixes or `label:<name>`; a path such as `goldens/*` name
 | `--scope <name>` | Ask only the model calls made in this [scope](./sdk.md#scopes); `none` for those made in no scope |
 | `--then-verify` | Then run [`verify`](#verify) on the runs with a rank 1 or 2 change, and only on those: a run that passed as recorded must keep passing, one that failed must now pass, each under its golden's checks or `--expect`, one verify per set of checks |
 | `--verify <session>` | Ask nothing: verify the runs a kept session flagged (its `dc-…` or `mg-…` id, or a prefix of it), or those of them named after it, as `--then-verify` verifies them, under the session's change, and keep what verify finds in the session. The dashboard's *Verify the changed runs* runs this |
-| `--expect <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify` or `--verify`: as for `verify` |
+| `--expect <json\|@file>`, `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify` or `--verify`: as for [`verify`](#verify). Each run is decided by verify's gate, unless `--attempts` or `--passes` gives a fixed count |
 | `--budget <usd>` | Send no request, and start no verify attempt, once this much is spent |
 | `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long. A model request waits ten minutes by default, as the official SDKs do |
 | `--strict` | Exit 1 when a run has a rank 1 or 2 change, for CI |
@@ -311,7 +311,7 @@ It switches the agent's model calls: those made with the models `--from` names, 
 | `--set <key=value>` | A request field the switch sets as well (repeatable) |
 | `--samples <n>`, `--concurrency <n>` | As for `decisions` |
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0. Default: each golden's checks from `shadowlap.config.json` |
-| `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | Verify's, as for `verify`. Default 4 of 5 |
+| `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | Verify's, as for [`verify`](#verify). Each run is decided by verify's gate, unless `--attempts` or `--passes` gives a fixed count |
 | `--budget <usd>`, `--timeout <seconds>` | As for `decisions` |
 | `--inconclusive fail\|warn` | What an inconclusive result does to the exit status, as for `decisions` |
 | `-y`, `--yes` | Run the recorded command of a run imported from someone's pack without asking; a golden runs its command as `test` runs it |

@@ -1,8 +1,9 @@
 import { Command, InvalidArgumentError } from 'commander';
-import { commandIsImported, formatDecisions, hasRecordedCommand, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
+import { commandIsImported, formatDecisions, hasRecordedCommand, SPRT_DEFAULTS, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { verifySession } from '../decisions-verify.js';
-import { parseFields, readExpectJson } from './fix.js';
+import { attemptRule, parseFields, readExpectJson } from './fix.js';
+import { gateFlags } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
 import { formatMigrate, runMigrate, type MigrateReport } from '../migrate.js';
 import { type GuardMode } from '../run-agent.js';
@@ -101,8 +102,9 @@ export function register(program: Command): void {
     .option('--then-verify', 'then run shadowlap verify on the runs with a rank 1 or 2 change (a write, or when the agent stops), and only on those')
     .option('--verify <session>', 'ask nothing: verify the runs a kept session flagged (its dc-… or mg-… id), or the runs named, each under its golden\'s checks, and keep what verify finds in the session')
     .option('--expect <json|@file>', 'with --then-verify or --verify: what a passing run must do besides exiting 0 (default: each golden\'s checks from shadowlap.config.json)')
-    .option('--attempts <n>', 'with --then-verify or --verify: attempts per run', parseIntArg, 5)
-    .option('--passes <n>', 'with --then-verify or --verify: attempts that must pass (default: 80%, rounded up)', parseIntArg)
+    .option('--gate <json|@file>', `with --then-verify or --verify: how each run decides, as for verify: pass at "good" or more, fail at "bad" or less, each at "risk", up to "max" attempts (default '{"good":${SPRT_DEFAULTS.good},"bad":${SPRT_DEFAULTS.bad},"risk":${SPRT_DEFAULTS.risk},"max":${SPRT_DEFAULTS.max}}', verify's)`)
+    .option('--attempts <n>', 'with --then-verify or --verify: a fixed count instead of the gate: attempts per run (5 with --passes alone)', parseIntArg)
+    .option('--passes <n>', 'with --then-verify or --verify and a fixed count: attempts that must pass (default: 80%, rounded up: 4 of 5)', parseIntArg)
     .option('--writes <policy>', 'with --then-verify or --verify: what write tools do after a fork: stub or block', parseChoice(['stub', 'block'] as const), 'stub')
     .option('--budget <usd>', 'send no request (and start no verify attempt) once this much is spent', parseUsd)
     .option('--timeout <seconds>', 'stop a model request, or a verify attempt, after this long', parseIntArg)
@@ -111,16 +113,15 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'with --then-verify or --verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "run the recorded command of runs imported from someone's pack without asking (a golden's runs as test runs it)")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
-    .action(async (given: string[], flags: { model?: string; fromCode?: boolean; set: string[]; from: string[]; samples: number; concurrency: number; scope?: string; thenVerify?: boolean; verify?: string; expect?: string; attempts: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; strict?: boolean; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (given: string[], flags: { model?: string; fromCode?: boolean; set: string[]; from: string[]; samples: number; concurrency: number; scope?: string; thenVerify?: boolean; verify?: string; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; strict?: boolean; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const { specs, argv } = splitCommand(program, given);
-      if (flags.attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
-      const passes = flags.passes ?? Math.ceil(0.8 * flags.attempts);
-      if (passes > flags.attempts) throw new InvalidArgumentError(`--passes (${passes}) can't be more than --attempts (${flags.attempts})`);
+      // Verify's own rule: its gate, unless a fixed count is given.
+      const rule = attemptRule(flags, { defaults: SPRT_DEFAULTS, passes: (n) => Math.ceil(0.8 * n) });
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
       const log = (line: string) => process.stderr.write(`${line}\n`);
       const timeoutMs = flags.timeout === undefined ? null : flags.timeout * 1000;
-      const thenVerify = { attempts: flags.attempts, needed: passes, writes: flags.writes, expect };
+      const thenVerify = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, writes: flags.writes, expect };
 
       if (flags.verify !== undefined) {
         // A kept session's flagged runs, verified: nothing is asked again.
@@ -146,7 +147,7 @@ export function register(program: Command): void {
       if (!model && !flags.fromCode && !Object.keys(fields).length) throw new InvalidArgumentError('give the change: --model <model>, --set <key=value>, or --from-code for the prompt and tools in your working tree');
       if (flags.from.length && !model && !Object.keys(fields).length) throw new InvalidArgumentError('--from names the model calls --model and --set change: give one of them');
       if (flags.samples > 20) throw new InvalidArgumentError('--samples is at most 20');
-      if (!flags.thenVerify && (flags.expect !== undefined || flags.passes !== undefined)) throw new InvalidArgumentError('--expect and --passes are for --then-verify, which verifies the runs a change flags');
+      if (!flags.thenVerify && (flags.expect !== undefined || flags.gate !== undefined || flags.attempts !== undefined || flags.passes !== undefined)) throw new InvalidArgumentError('--expect, --gate, --attempts and --passes are for --then-verify, which verifies the runs a change flags');
       const store = openStore(opts);
       let targets: DecisionTarget[];
       try {
@@ -176,7 +177,7 @@ export function register(program: Command): void {
           argv,
           thenVerify: flags.thenVerify ? thenVerify : null,
         };
-        const command = decisionsCommand(specs, settings, { concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs, expect: expect?.json ?? null, attempts: flags.attempts, passes: flags.passes, writes: flags.writes, guard: flags.guard, inconclusive: flags.inconclusive });
+        const command = decisionsCommand(specs, settings, { concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs, expect: expect?.json ?? null, attempts: flags.attempts, passes: flags.passes, gate: rule.gate, writes: flags.writes, guard: flags.guard, inconclusive: flags.inconclusive });
         log(`${p.yellow('⑂')} Asking the model calls of ${targets.length} run${targets.length === 1 ? '' : 's'} again under ${[flags.fromCode ? 'the prompt and tools in your working tree' : '', model ? `the model ${model}` : '', Object.keys(fields).length ? Object.entries(fields).map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ') : ''].filter(Boolean).join(' and ')}`);
         log(p.dim(`  ${flags.samples} sample${flags.samples === 1 ? '' : 's'} per call, ${flags.concurrency} at once · no tool runs${flags.budget ? ` · budget $${flags.budget.toFixed(2)}` : ''}`));
         const report = await runDecisions({ opts, targets, settings, command, log });
@@ -202,8 +203,9 @@ export function register(program: Command): void {
     .option('--samples <n>', 'ask each model call this many times', parseIntArg, 1)
     .option('--concurrency <n>', 'requests in flight at once', parseIntArg, 4)
     .option('--expect <json|@file>', "what a passing run must do besides exiting 0 (default: each golden's checks from shadowlap.config.json)")
-    .option('--attempts <n>', 'verify: attempts per run', parseIntArg, 5)
-    .option('--passes <n>', 'verify: attempts that must pass (default: 80%, rounded up)', parseIntArg)
+    .option('--gate <json|@file>', `verify: how each run decides, as for verify: pass at "good" or more, fail at "bad" or less, each at "risk", up to "max" attempts (default '{"good":${SPRT_DEFAULTS.good},"bad":${SPRT_DEFAULTS.bad},"risk":${SPRT_DEFAULTS.risk},"max":${SPRT_DEFAULTS.max}}', verify's)`)
+    .option('--attempts <n>', 'verify: a fixed count instead of the gate: attempts per run (5 with --passes alone)', parseIntArg)
+    .option('--passes <n>', 'verify, with a fixed count: attempts that must pass (default: 80%, rounded up: 4 of 5)', parseIntArg)
     .option('--writes <policy>', 'verify: what write tools do after a fork: stub or block', parseChoice(['stub', 'block'] as const), 'stub')
     .option('--budget <usd>', 'send no request and start no attempt once this much is spent', parseUsd)
     .option('--timeout <seconds>', 'stop a model request, or a verify attempt, after this long', parseIntArg)
@@ -211,16 +213,14 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "run the recorded command of runs imported from someone's pack without asking (a golden's runs as test runs it)")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
-    .action(async (given: string[], flags: { to: string; from: string[]; scope?: string; set: string[]; samples: number; concurrency: number; expect?: string; attempts: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (given: string[], flags: { to: string; from: string[]; scope?: string; set: string[]; samples: number; concurrency: number; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const split = splitCommand(program, given);
       const specs = split.specs.length ? split.specs : ['goldens/*'];
       const fields = parseFields(flags.set, undefined);
       if ('model' in fields) throw new InvalidArgumentError('--to is the model to switch to; --set model=… would set it twice');
       if (flags.samples > 20) throw new InvalidArgumentError('--samples is at most 20');
-      if (flags.attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
-      const passes = flags.passes ?? Math.ceil(0.8 * flags.attempts);
-      if (passes > flags.attempts) throw new InvalidArgumentError(`--passes (${passes}) can't be more than --attempts (${flags.attempts})`);
+      const rule = attemptRule(flags, { defaults: SPRT_DEFAULTS, passes: (n) => Math.ceil(0.8 * n) });
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
       const log = (line: string) => process.stderr.write(`${line}\n`);
       const store = openStore(opts);
@@ -251,8 +251,7 @@ export function register(program: Command): void {
           ...(flags.samples !== 1 ? ['--samples', String(flags.samples)] : []),
           ...(flags.concurrency !== 4 ? ['--concurrency', String(flags.concurrency)] : []),
           ...(expect ? ['--expect', JSON.stringify(expect.json)] : []),
-          ...(flags.attempts !== 5 ? ['--attempts', String(flags.attempts)] : []),
-          ...(flags.passes !== undefined ? ['--passes', String(flags.passes)] : []),
+          ...gateFlags(rule.gate, SPRT_DEFAULTS, { attempts: rule.attempts, passes: flags.passes }),
           ...(flags.writes === 'block' ? ['--writes', 'block'] : []),
           ...(flags.budget !== undefined ? ['--budget', String(flags.budget)] : []),
           ...(flags.timeout !== undefined ? ['--timeout', String(flags.timeout)] : []),
@@ -264,7 +263,7 @@ export function register(program: Command): void {
         const report = await runMigrate({
           opts,
           targets,
-          settings: { to: flags.to, from: flags.from.length ? flags.from : null, scope: flags.scope ?? null, fields, samples: flags.samples, concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs, attempts: flags.attempts, needed: passes, writes: flags.writes, expect, guard: flags.guard, argv: split.argv },
+          settings: { to: flags.to, from: flags.from.length ? flags.from : null, scope: flags.scope ?? null, fields, samples: flags.samples, concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs, attempts: rule.attempts, needed: rule.needed, gate: rule.gate, writes: flags.writes, expect, guard: flags.guard, argv: split.argv },
           command,
           log,
         });

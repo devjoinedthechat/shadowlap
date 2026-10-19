@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { argsDelta, formatUsd, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type Store } from '@shadowlap/engine';
+import { argsDelta, formatUsd, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -32,8 +32,10 @@ export interface MigrateSettings {
   concurrency: number;
   budget: number | null;
   timeoutMs: number | null;
+  /** How verify decides each run it takes: its gate (verify's by default; `attempts` is its `max`), or with `gate` null a fixed count, `needed` of `attempts`. */
   attempts: number;
   needed: number;
+  gate: SprtGate | null;
   writes: 'stub' | 'block';
   expect: { spec: TestSpec; json: unknown } | null;
   guard: GuardMode;
@@ -312,7 +314,7 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
   const decisions = await runDecisions({
     opts: input.opts,
     targets: input.targets,
-    settings: { model: s.to, fields: s.fields, from: s.from, fromCode: false, samples: s.samples, concurrency: s.concurrency, budget: s.budget, timeoutMs: s.timeoutMs, scope: s.scope, remedies: true, guard: s.guard, argv: s.argv, thenVerify: { attempts: s.attempts, needed: s.needed, writes: s.writes, expect: s.expect } },
+    settings: { model: s.to, fields: s.fields, from: s.from, fromCode: false, samples: s.samples, concurrency: s.concurrency, budget: s.budget, timeoutMs: s.timeoutMs, scope: s.scope, remedies: true, guard: s.guard, argv: s.argv, thenVerify: { attempts: s.attempts, needed: s.needed, gate: s.gate, writes: s.writes, expect: s.expect } },
     command: input.command,
     log: input.log,
     kind: 'migrate',
