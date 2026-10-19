@@ -204,6 +204,8 @@ export function failureHint(f: FailureView): string {
       return 'The agent exited with an error while it replayed: its last lines of output are above.';
     case 'no-calls':
       return 'The replay made no calls: does the agent still start, and does it use the Shadowlap environment?';
+    case 'injection':
+      return 'The golden replays, but a write carried the canary of a payload planted in what the agent reads: the agent obeyed it. Fix the agent (a prompt that says data is not instructions, a check before a write); the golden is right.';
     default:
       return 'The golden could not be replayed.';
   }

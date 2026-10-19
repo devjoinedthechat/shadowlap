@@ -36,9 +36,9 @@ describe('trust through an adapter', () => {
     const run = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
     process.env.SHADOWLAP_URL = sidecar.url;
     process.env.SHADOWLAP_RUN_ID = run.runId;
-    await tools.fetch_page!.execute!({ url: 'https://example.com/a' }, {});
-    await tools.search_web!.execute!({ query: 'x' }, {});
-    await inbox.execute({}, undefined);
+    await tools.fetch_page!.execute!({ url: 'https://example.com/a' });
+    await tools.search_web!.execute!();
+    await inbox.execute();
     sidecar.endRun(run.runId, 'completed');
     expect(store.getCalls(run.runId).map((c) => [c.name, c.meta.trust ?? null])).toEqual([
       ['fetch_page', 'untrusted'],
