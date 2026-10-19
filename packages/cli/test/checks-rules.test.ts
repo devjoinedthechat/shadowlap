@@ -271,7 +271,9 @@ describe('judge: the grammar, and a verdict given or missing', () => {
 
   it('is inconclusive without a verdict, saying why, and never passes unjudged', () => {
     for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) vi.stubEnv(k, '');
-    expect(judge({ judge: [JUDGE] }, [])).toEqual([{ status: 'inconclusive', ok: false, label: 'judge "explains-escalation" answers yes', detail: 'not judged: no recorded verdict and no key for anthropic' }]);
+    // How it came out is kept beside it, for the reports: no verdict, from nowhere, at no cost.
+    const outcome = { name: 'explains-escalation', model: 'claude-haiku-4-5', of: 'answer', verdict: null, source: null, cost: null, redactions: 0, normalized: false, cut: 0 };
+    expect(judge({ judge: [JUDGE] }, [])).toEqual([{ status: 'inconclusive', ok: false, label: 'judge "explains-escalation" answers yes', detail: 'not judged: no recorded verdict and no key for anthropic', judge: outcome }]);
     // A key that is there is not named as missing.
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-test');
     expect(judge({ judge: [JUDGE] }, [])[0]!.detail).toBe('not judged: no recorded verdict');
@@ -280,11 +282,13 @@ describe('judge: the grammar, and a verdict given or missing', () => {
 
   it('passes or fails on its verdict, with the reason beside it and where the verdict came from', () => {
     const verdicts = (v: JudgeVerdict) => ({ judgeVerdicts: new Map([['explains-escalation', v]]) });
+    const outcome = (verdict: 'yes' | 'no', source: 'recording' | 'live', cost: number | null) => ({ name: 'explains-escalation', model: 'claude-haiku-4-5', of: 'answer', verdict, source, cost, redactions: 0, normalized: false, cut: 0 });
     expect(judge({ judge: [JUDGE] }, [], verdicts({ verdict: 'yes', reason: 'It says the refund is above the limit.', source: 'recording' }))).toEqual([
-      { status: 'passed', ok: true, label: 'judge "explains-escalation" answers yes', detail: null, reason: 'It says the refund is above the limit.', source: 'recording' },
+      { status: 'passed', ok: true, label: 'judge "explains-escalation" answers yes', detail: null, reason: 'It says the refund is above the limit.', source: 'recording', judge: outcome('yes', 'recording', 0) },
     ]);
+    // A verdict asked live costs what its call cost, which a caller that doesn't know leaves unpriced.
     expect(judge({ judge: [JUDGE] }, [], verdicts({ verdict: 'no', reason: 'It never says why.', source: 'live' }))).toEqual([
-      { status: 'failed', ok: false, label: 'judge "explains-escalation" answers yes', detail: 'the judge answered no', reason: 'It never says why.', source: 'live' },
+      { status: 'failed', ok: false, label: 'judge "explains-escalation" answers yes', detail: 'the judge answered no', reason: 'It never says why.', source: 'live', judge: outcome('no', 'live', null) },
     ]);
   });
 

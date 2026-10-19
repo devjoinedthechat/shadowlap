@@ -106,7 +106,10 @@ describe('the JSON the CLI prints', () => {
     expect(keys(report)).toEqual(fields('check'));
     expect(keys(report.recordings[0])).toEqual(fields('checkRecording'));
     expect(keys(report.counts)).toEqual(fields('checkCounts'));
-    for (const c of report.recordings[0]!.checks) expect(keys(c).filter((k) => k !== 'reason' && k !== 'source')).toEqual(fields('checkResult'));
+    // A judge check's has its outcome as well (checkJudge), and a reason and source once it has a verdict.
+    for (const c of report.recordings[0]!.checks) expect(keys(c).filter((k) => k !== 'reason' && k !== 'source' && k !== 'judge')).toEqual(fields('checkResult'));
+    const judged = report.recordings[0]!.checks.at(-1) as { judge: object };
+    expect(keys(judged.judge).filter((k) => k !== 'callNo')).toEqual(fields('checkJudge').filter((k) => k !== 'callNo'));
     expect(report.recordings[0]!.checks.map((c) => (c as { status: string }).status)).toEqual(['passed', 'not-applicable', 'inconclusive']);
     // Without the judge, every recording judged passes: exit 0.
     const { judge: _judge, ...plain } = expect_;
