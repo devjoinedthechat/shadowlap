@@ -40,7 +40,7 @@ That is the [reference agent](./quickstart.md) against its mock model, recorded 
 | `--set <key=value>` | A request field, where the provider keeps it: `temperature` is `generationConfig.temperature` on Gemini and `inferenceConfig.temperature` on Bedrock Converse; a dotted key is a path |
 | `--from-code` | The system prompt and tool definitions your working tree sends now ([below](#the-prompt-your-code-sends)) |
 
-They combine: `--from-code --model claude-sonnet-5-5` previews a new prompt on a new model. Everything else in the request stays exactly as recorded: the conversation up to that call, the tool results it saw, the other settings, and the cache breakpoints the agent placed.
+They combine: `--from-code --model claude-sonnet-5-5` previews a new prompt on a new model. Everything else in the request stays exactly as recorded: the conversation up to that call, the tool results it saw, the other settings, and the cache breakpoints the agent placed. The change is sent as given, so a model that refuses a recorded setting answers no step; the report then says what it takes instead, by the provider's pages and its own refusal, and [`migrate`](#migrate) asks with that.
 
 The runs are run ids or prefixes, `label:<name>`, or goldens: `goldens/*` names every pack there, imported as [`shadowlap test`](./cli.md#test) imports them and named as its history names them. `--scope <name>` asks only the calls made in one [scope](./sdk.md#scopes), such as the agent's and not a simulated user's.
 

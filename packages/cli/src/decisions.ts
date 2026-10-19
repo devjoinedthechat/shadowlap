@@ -199,6 +199,8 @@ interface Planned {
   skip: string | null;
   /** The change doesn't touch this request: the working tree sends it the same prompt. */
   untouched: boolean;
+  /** `decisions --model`: the fields the provider's pages say the new model refuses here, and what it takes instead (migrate's changes, not made). */
+  takes: Array<{ field: string; value: unknown; leftOut: boolean }>;
 }
 
 const tokensOf = (u: Usage | null | undefined): TokenCount | null => (u ? { input: u.inputTokens, output: u.outputTokens, cacheRead: u.cacheReadInputTokens ?? 0, cacheWrite: u.cacheCreationInputTokens ?? 0 } : null);
@@ -338,6 +340,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, cap
       answers: [],
       skip: null,
       untouched: false,
+      takes: [],
     };
     out.push(plan);
     if (!end || end.outcome !== 'ok' || !bytes) {
@@ -393,6 +396,10 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, cap
           if (note) remedies.note({ field: f.field, value: allowed ?? null, leftOut: allowed === undefined, why, source: f.rule.source });
           fieldsChanged = true;
         }
+      } else if (note && s.model) {
+        // decisions sends the change as given: what migrate would change is kept to say, should the new model refuse it.
+        const model = module.extractModel(at, body) ?? s.model;
+        for (const f of retiredFields(provider, model, body)) plan.takes.push({ field: f.field, value: f.rule.allowed?.[f.field] ?? null, leftOut: f.rule.allowed?.[f.field] === undefined });
       }
       if (Object.keys(plan.fixes).length) {
         const set = setRequestFields(requestShape(provider, at, body), body, plan.fixes);
@@ -695,6 +702,16 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     for (const plan of planned) if (plan.skip) warnings.push(`#${plan.call.callNo} of ${shortId(plan.target.run.runId)} not asked: ${plan.skip}`);
     const failures = allSteps.filter((x) => !x.samples.answered && x.samples.asked && x.error);
     if (failures.length) warnings.push(`${failures.length} step${failures.length === 1 ? '' : 's'} got no answer: ${[...new Set(failures.map((x) => x.error))].slice(0, 3).join('; ')}`);
+    // The new model refused requests as recorded: what it takes, by the provider's pages and its own words, as migrate would send them.
+    if (!s.remedies && s.model && failures.length) {
+      const takes = new Map<string, string>();
+      for (const plan of planned) {
+        if (!plan.answers.length || plan.answers.some((a) => a.decision)) continue;
+        const fix = refusalRemedy(plan.answers.find((a) => a.answer.error)?.answer.error ?? '');
+        for (const t of [...plan.takes, ...(fix ? [{ ...fix, leftOut: false }] : [])]) takes.set(t.field, t.leftOut ? `${t.field} left out` : `${t.field}=${typeof t.value === 'string' ? t.value : JSON.stringify(t.value)}`);
+      }
+      if (takes.size) warnings.push(`${s.model} takes ${[...takes.values()].join(', ')} in place of what the recorded requests send: shadowlap migrate --to ${s.model} asks with ${takes.size === 1 ? 'that' : 'those'}, says why, and verifies the runs that change`);
+    }
 
     // Models the runs use that retire, and the one the change switches to.
     const models = planned.flatMap((x) => [{ provider: x.provider, model: x.recordedModel }, ...(x.askedModel && x.askedModel !== x.recordedModel ? [{ provider: x.provider, model: x.askedModel }] : [])]);

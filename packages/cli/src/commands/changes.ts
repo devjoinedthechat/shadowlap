@@ -135,8 +135,10 @@ export function register(program: Command): void {
         emitDecisions(report);
         emitJobEvent({ type: 'result', data: report as unknown as Record<string, unknown> });
         const rejected = report.verify && report.verify.verdict !== 'accepted' && report.verify.verdict !== 'not-run';
-        // A run that could not be asked at all (a --from-code change that is more than a prompt) is no preview of it.
-        process.exitCode = rejected || (flags.strict && report.flagged.length) || report.stopReason || report.runs.some((r) => r.refused) ? 1 : 0;
+        // A run that could not be asked at all (a --from-code change that is more than a prompt, a model
+        // that refused every step) is no preview of it.
+        const unasked = report.runs.some((r) => r.refused || (r.steps > 0 && r.asked === 0 && r.counts.notAsked > 0));
+        process.exitCode = rejected || (flags.strict && report.flagged.length) || report.stopReason || unasked ? 1 : 0;
       } catch (err) {
         failed(err, flags.json, 'decisions');
       }

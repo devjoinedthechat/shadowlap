@@ -506,8 +506,12 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
   const lines: string[] = [];
   const changed = r.counts[1] + r.counts[2] + r.counts[3] + r.counts[4] + r.counts[5];
   const asked = changed + r.counts.same;
-  const head = !asked && r.counts.untouched
-    ? `${p.green('✓')} ${p.bold('Nothing to ask')}: the change leaves every request as recorded`
+  const head = !asked
+    ? r.counts.notAsked
+      ? `${p.yellow('!')} ${p.bold('No step was answered')} (the warnings say why)`
+      : r.counts.untouched
+        ? `${p.green('✓')} ${p.bold('Nothing to ask')}: the change leaves every request as recorded`
+        : `${p.green('✓')} ${p.bold('Nothing to ask')}: the runs hold no model call`
     : r.flagged.length ? `${p.red('✗')} ${p.bold(`${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`)} decide${r.flagged.length === 1 ? 's' : ''} a write or when to stop differently` : changed ? `${p.yellow('!')} ${p.bold('No write and no stop changes')}: ${changed} decision${changed === 1 ? '' : 's'} differ in reads or text` : `${p.green('✓')} ${p.bold('The same decisions')} at every step asked`;
   lines.push(`${head}, under ${safeLine(r.change.text)}`);
   const ranks = ([1, 2, 3, 4, 5] as const).filter((k) => r.counts[k]).map((k) => `${r.counts[k]} rank ${k}`);

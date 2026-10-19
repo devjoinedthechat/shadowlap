@@ -206,6 +206,17 @@ describe('shadowlap decisions', () => {
     expect(sent.every((q) => q.model === 'claude-haiku-4-5' && assistantTurns(q).every(opensWithThinking))).toBe(true);
     expect(switched.runs[0]!.thinkingStripped).toBe(0);
     expect(switched.notes.join('\n')).not.toMatch(/Reasoning from earlier turns/);
+
+    // Claude 4.7 and later refuse the budget: decisions sends the change as given, and says what the model takes.
+    const refused = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-5-5', '--json']);
+    expect(refused.code, refused.out).toBe(1);
+    const unanswered = json<DecisionsReport>(refused);
+    expect(unanswered.counts).toMatchObject({ same: 0, notAsked: 11 });
+    expect(unanswered.warnings).toContain('claude-sonnet-5-5 takes thinking={"type":"adaptive"} in place of what the recorded requests send: shadowlap migrate --to claude-sonnet-5-5 asks with that, says why, and verifies the runs that change');
+    const text = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-5-5']);
+    expect(text.code).toBe(1);
+    expect(text.stdout).toContain('! No step was answered (the warnings say why), under the model claude-sonnet-5-5');
+    expect(text.stdout).toContain('11 steps got no answer: HTTP 400: "thinking.type.enabled" is not supported for this model');
   }, 120_000);
 
   it('ranks what another model decides differently, with how often across samples, in rank order', async () => {
