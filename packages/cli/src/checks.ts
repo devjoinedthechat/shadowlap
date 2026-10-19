@@ -1,5 +1,11 @@
 import { resolve } from 'node:path';
 import { formatUsd, parseTaskFields, testsEntryFor, type CallRecord } from '@shadowlap/engine';
+// ---- judge checks (judge-check.ts, judge-results.ts) ----
+import { agentCallsOf, type CheckStatus, type JudgeOutcome } from '@shadowlap/engine';
+import { parseJudge, type JudgeCheck } from './judge-check.js';
+import { judgeResults, type JudgeInputs } from './judge-results.js';
+export type { JudgeCheck } from './judge-check.js';
+// ---- end judge checks ----
 
 /**
  * Outcome checks for `shadowlap test`. A golden normally passes only when the replay is clean, which
@@ -57,6 +63,8 @@ export interface TestSpec {
   cost?: CountRange;
   output?: TextCheck;
   answer?: TextCheck;
+  /** Questions a model answers about the run, recorded like any model call (judge-check.ts). */
+  judge?: JudgeCheck[];
 }
 
 export interface TestEntry {
@@ -71,6 +79,12 @@ export interface CheckResult {
   label: string;
   /** What happened, for a failed check. */
   detail: string | null;
+  /** A judge check's verdict: `passed`, `failed`, or `inconclusive` when it was not judged (ok is false). */
+  status?: CheckStatus;
+  /** A judge check's reason for its verdict, in the judge's words. */
+  reason?: string;
+  /** A judge check: its verdict, where it came from and what it cost. */
+  judge?: JudgeOutcome;
 }
 
 const CONFIG = 'shadowlap.config.json';
@@ -213,7 +227,8 @@ export function parseExpect(raw: unknown, where: string): TestSpec {
 
 function parseExpectInto(spec: TestSpec, expect: unknown, where: string): void {
   if (!isObject(expect)) throw new Error(`${where} must be an object`);
-  onlyKeys(expect, ['tools', 'modelCalls', 'toolCalls', 'inputTokens', 'outputTokens', 'cost', 'output', 'answer'], where);
+  onlyKeys(expect, ['tools', 'modelCalls', 'toolCalls', 'inputTokens', 'outputTokens', 'cost', 'output', 'answer', 'judge'], where);
+  if (expect.judge !== undefined) spec.judge = parseJudge(expect.judge, `${where}.judge`);
   if (expect.tools !== undefined) {
     if (!isObject(expect.tools)) throw new Error(`${where}.tools must map tool names to counts`);
     for (const [name, v] of Object.entries(expect.tools)) {
@@ -280,7 +295,13 @@ function textChecks(check: TextCheck, text: string | null, what: string): CheckR
   ].map((r) => ({ ...r, detail: r.ok ? null : r.detail }));
 }
 
-export function evaluateChecks(spec: TestSpec, input: CheckInput): CheckResult[] {
+/**
+ * The checks of `spec` on a run. Judge checks take their verdicts from `judgeVerdicts`, by name; one
+ * with none is inconclusive, with why from `notJudged`. The judge's own calls are none of the
+ * agent's: no other check counts them.
+ */
+export function evaluateChecks(spec: TestSpec, given: CheckInput, judged: JudgeInputs = {}): CheckResult[] {
+  const input = { ...given, calls: agentCallsOf(given.calls) };
   const results: CheckResult[] = [];
   const tools = input.calls.filter((c) => c.kind === 'tool');
   for (const t of spec.tools) {
@@ -329,9 +350,10 @@ export function evaluateChecks(spec: TestSpec, input: CheckInput): CheckResult[]
 
   if (spec.output) results.push(...textChecks(spec.output, input.output, 'output'));
   if (spec.answer) results.push(...textChecks(spec.answer, input.answer, 'final answer'));
+  if (spec.judge?.length) results.push(...judgeResults(spec.judge, judged));
   return results;
 }
 
 export function hasChecks(spec: TestSpec): boolean {
-  return spec.tools.length > 0 || !!spec.modelCalls || !!spec.toolCalls || !!spec.inputTokens || !!spec.outputTokens || !!spec.cost || !!spec.output || !!spec.answer;
+  return spec.tools.length > 0 || !!spec.modelCalls || !!spec.toolCalls || !!spec.inputTokens || !!spec.outputTokens || !!spec.cost || !!spec.output || !!spec.answer || !!spec.judge?.length;
 }

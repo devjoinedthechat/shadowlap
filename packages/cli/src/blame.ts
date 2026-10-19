@@ -49,7 +49,7 @@ export interface BlameInput {
 export class BlameError extends Error {
   constructor(
     message: string,
-    readonly reason: 'no-model-calls' | 'diverged' | 'bypassed' | 'passes' | 'unpriced' | 'prefix' | 'interrupted',
+    readonly reason: 'no-model-calls' | 'diverged' | 'bypassed' | 'passes' | 'unpriced' | 'unjudged' | 'prefix' | 'interrupted',
   ) {
     super(message);
     this.name = 'BlameError';
@@ -100,6 +100,11 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     const unpriced = unpricedOnly(baseline);
     if (unpriced) {
       throw new BlameError(`${shortId(parent.runId)} fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, so the cost check can't be judged whatever the model answers. Add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json, and blame again if it still fails.`, 'unpriced');
+    }
+    // A judge check with no verdict is no failure: no probe could pass it either, whatever the model answers.
+    const notJudged = baseline.checks.filter((c) => c.status === 'inconclusive');
+    if (notJudged.length && notJudged.length === baseline.failures.length) {
+      throw new BlameError(`${shortId(parent.runId)} fails nothing but judge checks with no verdict (${notJudged.map((c) => `${c.judge?.name ?? c.label}, ${c.detail}`).join('; ')}), so no probe could pass them either. Give the judge a way to be asked live, such as its key, and blame again.`, 'unjudged');
     }
     log(`  ${p.green('✓')} replays as recorded and fails: ${baseline.failures.join('; ')}`);
 
@@ -202,6 +207,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       attempts: runner.attempts,
       spent: runner.spent,
       upstreamRequests: runner.upstreamRequests,
+      // Judge checks' calls, apart from the agent's.
+      ...(runner.judgeRequests || runner.judgeSpent ? { judge: { spent: runner.judgeSpent, upstreamRequests: runner.judgeRequests } } : {}),
       unknownModels: [...runner.unknownModels],
       stopReason: result.outcome === 'stopped' ? runner.stopReason : null,
       warnings: [...runner.warnings, ...warnings],

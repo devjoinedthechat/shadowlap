@@ -16,6 +16,7 @@ import type {
   CallStartRow,
   DivergenceReport,
   Effect,
+  JudgeSummary,
   Normalizer,
   Origin,
   Outcome,
@@ -24,6 +25,7 @@ import type {
   RunMode,
   RunRecord,
   RunStatus,
+  StoredCheck,
 } from './types.js';
 
 /*
@@ -397,7 +399,10 @@ export interface TestResultData {
   tokensNotRespent?: number;
   /** Input tokens of the run's model requests, cache reads included: what it costs to run live. */
   inputTokens?: number;
-  checks?: Array<{ ok: boolean; label: string; detail: string | null }>;
+  /** Each check of the attempt shown, a judge check's with its verdict, reason and where the verdict came from. */
+  checks?: StoredCheck[];
+  /** What its judge checks' calls did and cost over every attempt, apart from the agent's (`calls`, `upstreamRequests`). */
+  judge?: JudgeSummary;
   /** A recording that repeats: attempts run, passed and needed, and each attempt's run. */
   attempts?: { total: number; passed: number; required: number; runs: string[] };
   /**

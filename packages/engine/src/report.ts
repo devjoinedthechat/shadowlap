@@ -1,11 +1,12 @@
 import { importedRecording } from './classify.js';
 import { firstDifference } from './diff.js';
+import { isJudgeCall } from './judge-scope.js';
 import { normalizeAddCommand } from './volatile.js';
 import { loadApiRequest } from './manifest.js';
 import { estimateCost, formatUsd, type Price } from './prices.js';
 import { safeLine, safeText } from './text.js';
 import type { Store } from './store.js';
-import type { CallKind, CallRecord, DivergenceReport, NotReached, Origin, RunRecord, RunSummary, Usage } from './types.js';
+import type { CallKind, CallRecord, DivergenceReport, JudgeSummary, NotReached, Origin, RunRecord, RunSummary, Usage } from './types.js';
 
 /** The model a call was made with: stored at record time, or supplied by a resolver that can read the request. */
 export type ModelResolver = (call: CallRecord) => string | null | undefined;
@@ -34,8 +35,38 @@ export function storedModelResolver(store: Store): ModelResolver {
   };
 }
 
-/** Builds a run summary from its stored calls. `notReached` comes from the session at run end. */
-export function summarizeRun(run: RunRecord, calls: CallRecord[], notReached: NotReached[] = [], warnings: string[] = [], options: SummaryOptions = {}): RunSummary {
+/**
+ * What a run's judge calls did and cost: from the recording at no cost, or live. An imported run's
+ * were made somewhere else, as its other calls were.
+ */
+export function summarizeJudge(run: RunRecord, calls: readonly CallRecord[], options: SummaryOptions = {}): JudgeSummary {
+  const imported = importedRecording(run);
+  const out: JudgeSummary = { calls: calls.length, replayed: 0, live: 0, notAsked: 0, upstreamRequests: 0, spent: 0, saved: 0, unknownModels: [] };
+  for (const c of calls) {
+    if (c.origin === 'replayed') out.replayed++;
+    else if (c.origin === 'live' && c.end?.meta.offline) out.notAsked++;
+    else if (c.origin === 'live') out.live++;
+    if (c.origin === 'live' && !imported) out.upstreamRequests += [c.end, ...c.attempts].filter((e) => e && !e.meta.offline && !e.meta.injected && !e.meta.refused).length;
+    const u = c.end?.meta.usage;
+    if (!u) continue;
+    const model = c.end?.meta.model ?? c.meta.model ?? options.modelOf?.(c) ?? null;
+    const usd = estimateCost(model, u, options.prices);
+    if (usd === null) {
+      if (model && !out.unknownModels.includes(model)) out.unknownModels.push(model);
+    } else if (c.origin === 'replayed') out.saved += usd;
+    else if (c.origin === 'live' && !imported) out.spent += usd;
+  }
+  return out;
+}
+
+/**
+ * Builds a run summary from its stored calls. `notReached` comes from the session at run end. The
+ * judge's calls (scope `shadowlap:judge`) are summed apart, as `judge`: everything else is the
+ * agent's own, so adding a judge check never changes what a run says the agent did or cost.
+ */
+export function summarizeRun(run: RunRecord, allCalls: CallRecord[], notReached: NotReached[] = [], warnings: string[] = [], options: SummaryOptions = {}): RunSummary {
+  const judged = allCalls.filter(isJudgeCall);
+  const calls = judged.length ? allCalls.filter((c) => !isJudgeCall(c)) : allCalls;
   const byOrigin: Record<Origin, number> = { live: 0, replayed: 0, blocked: 0, stubbed: 0, overridden: 0 };
   const byKind: Record<CallKind, number> = { api: 0, tool: 0, clock: 0, random: 0 };
   const tokens: Usage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
@@ -93,7 +124,23 @@ export function summarizeRun(run: RunRecord, calls: CallRecord[], notReached: No
     notReached,
     warnings,
     divergence: run.divergence,
+    ...(judged.length ? { judge: summarizeJudge(run, judged, options) } : {}),
   };
+}
+
+/** An estimate in dollars: `≈$0.0004`, and `<$0.001` as it is. */
+export function aboutUsd(n: number): string {
+  const s = formatUsd(n);
+  return s.startsWith('<') ? s : `≈${s}`;
+}
+
+/** The judge's part of a run, in one line: `judge: 1 call from the recording, free`, or live with what it cost. */
+export function judgeLine(j: JudgeSummary): string {
+  const parts: string[] = [];
+  if (j.replayed) parts.push(`${j.replayed} from the recording, free`);
+  if (j.live) parts.push(`${j.live} live${j.spent ? ` (${aboutUsd(j.spent)})` : j.unknownModels.length ? ` (no price for ${j.unknownModels.join(', ')})` : ''}`);
+  if (j.notAsked) parts.push(`${j.notAsked} not asked: not in the recording, and no way to ask live`);
+  return `judge: ${j.calls} call${j.calls === 1 ? '' : 's'}${parts.length ? `, ${parts.join(', ')}` : ''}; ${j.upstreamRequests} upstream request${j.upstreamRequests === 1 ? '' : 's'}`;
 }
 
 export interface Palette {
@@ -155,6 +202,8 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
     );
   }
   if (s.status === 'failed' || s.status === 'crashed') lines.push(p.red(`  the agent process ${s.status === 'crashed' ? 'was interrupted' : 'exited with an error'}`));
+  // The judge's calls are no part of the line above: what they did and cost comes apart.
+  if (s.judge) lines.push(p.dim(`  ${judgeLine(s.judge)}`));
   // After a fork the divergence report already covers the recorded call it was compared with. A
   // replay that ended early was compared with none: the calls it never made are all listed.
   const counterpart = s.divergence?.type === 'ended_early' ? undefined : s.divergence?.counterpart?.callNo;

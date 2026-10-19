@@ -3,6 +3,7 @@ import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
 import { headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
 import { formatToolFailure, type ToolFailure } from './interventions.js';
+import { isJudgeCall, JUDGE_SCOPE } from './judge-scope.js';
 import type { CallKind, CallRecord, Coverage, DivergenceReport, Effect, NotReached, ReadPolicy, RunMode, WritePolicy } from './types.js';
 
 /**
@@ -162,6 +163,8 @@ export class Session {
 
   private readonly parentRunId: string | null;
   private readonly index = new Map<string, CallRecord>();
+  /** The recording's judge calls that got a verdict back, by call key: a judge asked the same question about the same material gets it again. */
+  private readonly judged = new Map<string, CallRecord>();
   private readonly parentCalls: CallRecord[];
   private readonly consumed = new Set<number>();
   /** Recorded calls a tool-call intervention (override, planted text, failure) took effect on. */
@@ -196,13 +199,20 @@ export class Session {
     this.matchName = opts.matchName ?? ((record) => record.name);
     this.clock = opts.clock;
     this.state = this.mode === 'replay' ? 'replaying' : 'diverged';
-    this.scoped = this.mode === 'record' || this.parentCalls.some((c) => typeof c.meta.scope === 'string');
+    // The judge's scope is Shadowlap's, not the agent's: a recording whose only scope is the judge's has none of its own.
+    this.scoped = this.mode === 'record' || this.parentCalls.some((c) => typeof c.meta.scope === 'string' && !isJudgeCall(c));
     this.holdsInput = opts.parentRecordsInput === true || this.parentCalls.some((c) => c.meta.input === true);
     for (const c of this.parentCalls) {
+      // A judge call that failed holds no verdict: the judge is asked again.
+      if (isJudgeCall(c)) {
+        if (c.end?.outcome === 'ok') this.judged.set(key(c.kind, c.fingerprint, c.occurrence, JUDGE_SCOPE), c);
+        continue;
+      }
       if (c.end) this.index.set(key(c.kind, c.fingerprint, c.occurrence, this.scopeOf(c.meta.scope)), c);
     }
+    // Flags name the agent's model calls by their place; the judge's are never among them.
     const parentCounts = new Map<string, number>();
-    for (const c of [...this.parentCalls].sort((a, b) => a.callNo - b.callNo)) if (c.kind === 'api') this.parentPlaces.set(c.callNo, this.nextPlace(c.meta.scope, parentCounts));
+    for (const c of [...this.parentCalls].sort((a, b) => a.callNo - b.callNo)) if (c.kind === 'api' && !isJudgeCall(c)) this.parentPlaces.set(c.callNo, this.nextPlace(c.meta.scope, parentCounts));
   }
 
   /**
@@ -219,6 +229,7 @@ export class Session {
   }
 
   private scopeOf(scope: unknown): string {
+    if (scope === JUDGE_SCOPE) return JUDGE_SCOPE;
     return this.scoped && typeof scope === 'string' ? scope : '';
   }
 
@@ -235,6 +246,7 @@ export class Session {
     const scope = this.scopeOf(input.scope);
     const effect = input.effect ?? null;
 
+    if (input.scope === JUDGE_SCOPE) return this.judge(input, occurrence);
     if (this.mode === 'record') return { origin: 'live', occurrence };
 
     // A partial recording never saw this kind of call, so its absence is not a divergence: run it
@@ -298,6 +310,23 @@ export class Session {
     return { origin: 'live', occurrence };
   }
 
+  /**
+   * A judge call (the scope `shadowlap:judge`): answered from the recording when it holds the same
+   * request with a verdict, whatever the agent's replay did, else run live. It never moves the
+   * replay: it is no call of the agent's, so it neither forks the replay nor counts as replayed, and
+   * a missing one means "ask the judge live", not "the agent changed".
+   */
+  private judge(input: ResolveInput, occurrence: number): Decision {
+    if (this.mode === 'replay') {
+      const record = this.judged.get(key(input.kind, input.fingerprint, occurrence, JUDGE_SCOPE));
+      if (record && !this.consumed.has(record.callNo)) {
+        this.consumed.add(record.callNo);
+        return { origin: 'replayed', occurrence, record };
+      }
+    }
+    return { origin: 'live', occurrence };
+  }
+
   /** Whether a partial recording holds calls like this one: their kind, or for a tool, its name. */
   private covers(input: ResolveInput): boolean {
     const kinds = this.options.kinds!;
@@ -349,7 +378,8 @@ export class Session {
    */
   end(): DivergenceReport | null {
     if (this.mode !== 'replay' || this.state !== 'replaying') return null;
-    const recorded = this.parentCalls.filter((c) => c.end);
+    // The judge's calls are none of the agent's: one never asked again is judged live, not missing.
+    const recorded = this.parentCalls.filter((c) => c.end && !isJudgeCall(c));
     const first = recorded.filter((c) => (c.kind === 'api' || c.kind === 'tool') && !this.consumed.has(c.callNo)).reduce<CallRecord | null>((a, c) => (a && a.callNo < c.callNo ? a : c), null);
     if (!first) return null;
     this.state = 'diverged';
@@ -369,7 +399,7 @@ export class Session {
   /** Recorded calls this replay never reached. Meaningful once the run has ended. */
   notReached(): NotReached[] {
     return this.parentCalls
-      .filter((c) => c.end && !this.consumed.has(c.callNo))
+      .filter((c) => c.end && !this.consumed.has(c.callNo) && !isJudgeCall(c))
       .map((c) => ({ callNo: c.callNo, kind: c.kind, name: c.name }));
   }
 

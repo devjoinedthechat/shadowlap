@@ -1,4 +1,5 @@
-import { formatTokens, safeText, type DivergenceType, type TestFailure } from '@shadowlap/engine';
+import { aboutUsd, formatTokens, safeText, type DivergenceType, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { judgeSource } from './judge-results.js';
 
 /**
  * `shadowlap test` results for machines and for pull requests: a JSON report other tools read (the
@@ -35,14 +36,19 @@ export interface PackResult {
   tokensNotRespent: number | null;
   /** `recorded`: for one that ended early, how many calls the recording holds. */
   divergence: { type: DivergenceType; callNo: number; kind: string; name: string; recorded?: number } | null;
-  /** Outcome checks from shadowlap.config.json for the attempt shown: the first failure, or the last pass. Null without checks. */
-  checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
+  /**
+   * Outcome checks from shadowlap.config.json for the attempt shown: the first failure, or the last
+   * pass. Null without checks. A judge check's has its `status`, the judge's `reason` and `judge`.
+   */
+  checks: StoredCheck[] | null;
   /** For a recording that repeats: how many attempts ran, passed and had to pass. */
   attempts: { total: number; passed: number; required: number } | null;
   /** Its checks as written under `tests` in the config (`expect`), for tools that act on a failed check, such as the GitHub Action's fix on failure. */
   expect: Record<string, unknown> | null;
   /** `--update` re-recorded it: the run it replaced, the new one, its calls, and what the agent sends differently. */
   updated: { from: string | null; to: string; calls: number; changes?: string[] } | null;
+  /** Its judge checks' calls over every attempt, apart from the agent's: how many came from the recording, how many went live, and what they cost. Null without one. */
+  judge: JudgeSummary | null;
 }
 
 export interface TestReport {
@@ -74,6 +80,26 @@ function fence(text: string, lang = 'text'): string {
   return `${f}${lang}\n${safeText(text).replace(/\s+$/, '')}\n${f}`;
 }
 
+/** A check as a Markdown list item: a judge check's with its verdict, reason and where it came from. */
+function checkItem(c: StoredCheck): string {
+  if (c.status === 'inconclusive') return `- ❔ ${cell(c.label)}: inconclusive, ${cell(c.detail ?? '')}`;
+  if (!c.judge) return `- ${c.ok ? '✅' : '❌'} ${cell(c.label)}${c.ok ? '' : `: ${cell(c.detail ?? '')}`}`;
+  const source = judgeSource(c.judge);
+  return `- ${c.ok ? '✅' : '❌'} ${cell(c.label)}: ${cell(c.detail ?? '')}${source ? ` (${cell(source)})` : ''}`;
+}
+
+/** What the judges cost across the session, apart from the agents: `3 judge calls: 2 from the recordings, free; 1 live, ≈$0.0004`. */
+function judgeTotals(results: readonly PackResult[]): string | null {
+  const parts = results.flatMap((r) => (r.judge ? [r.judge] : []));
+  if (!parts.length) return null;
+  const calls = parts.reduce((n, j) => n + j.calls, 0);
+  const replayed = parts.reduce((n, j) => n + j.replayed, 0);
+  const live = parts.reduce((n, j) => n + j.live, 0);
+  const spent = parts.reduce((n, j) => n + j.spent, 0);
+  const said = [replayed ? `${replayed} from the recordings, free` : null, live ? `${live} live${spent ? `, ${aboutUsd(spent)}` : ''}` : null].filter(Boolean);
+  return `${calls} judge call${calls === 1 ? '' : 's'}${said.length ? `: ${said.join('; ')}` : ''}, apart from the agents' calls above.`;
+}
+
 /** The result cell for a passing recording. */
 function passedLabel(r: PackResult): string {
   const parts = [r.updated ? 'updated' : r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${r.divergence.callNo}` : 'clean'];
@@ -100,9 +126,17 @@ export function markdownReport(report: TestReport): string {
     const tokens = r.tokensNotRespent !== null ? formatTokens(r.tokensNotRespent) : '';
     lines.push(`| ${r.ok ? '✅' : '❌'} | \`${cell(r.name)}\` | ${r.ok ? cell(passedLabel(r)) : cell(r.message ?? 'failed')} | ${replayed} | ${tokens} |`);
   }
+  // A judge's verdict and reason are worth reading on a recording that passed too.
+  const judged = report.results.filter((r) => r.ok && r.checks?.some((c) => c.judge));
+  if (judged.length) {
+    lines.push('', 'Judge checks:', '');
+    for (const r of judged) lines.push(...r.checks!.filter((c) => c.judge).map((c) => checkItem(c).replace(/^- /, `- \`${cell(r.name)}\` `)));
+  }
+  const totals = judgeTotals(report.results);
+  if (totals) lines.push('', totals);
   for (const r of report.results.filter((x) => !x.ok)) {
     lines.push('', `<details open><summary><b>${cell(r.name)}</b>: ${cell(r.message ?? 'failed')}</summary>`, '');
-    if (r.checks?.length) lines.push(...r.checks.map((c) => `- ${c.ok ? '✅' : '❌'} ${cell(c.label)}${c.ok ? '' : `: ${cell(c.detail ?? '')}`}`), '');
+    if (r.checks?.length) lines.push(...r.checks.map(checkItem), '');
     const details = moreThanMessage(r);
     if (details) lines.push(fence(details), '');
     if (r.output) lines.push('Agent output, last lines:', '', fence(r.output), '');
@@ -150,7 +184,7 @@ export function githubAnnotations(report: TestReport): string {
     .filter((r) => !r.ok)
     .map((r) => {
       const file = `${r.dir.replace(/\\/g, '/').replace(/\/+$/, '')}/run.json`;
-      const failedChecks = (r.checks ?? []).filter((c) => !c.ok).map((c) => `✗ ${safeText(c.label)}: ${safeText(c.detail ?? '')}`);
+      const failedChecks = (r.checks ?? []).filter((c) => !c.ok).map((c) => (c.status === 'inconclusive' ? `? ${safeText(c.label)}: inconclusive, ${safeText(c.detail ?? '')}` : `✗ ${safeText(c.label)}: ${safeText(c.detail ?? '')}`));
       const details = moreThanMessage(r);
       const body = [r.message ?? 'failed', ...(failedChecks.length ? ['', ...failedChecks] : []), ...(details ? ['', ...safeText(details).split('\n').slice(0, 30)] : [])].join('\n');
       return `::error file=${escapeProperty(file)},title=${escapeProperty(`Shadowlap: ${safeText(r.name)}`)}::${escapeData(body)}`;

@@ -250,3 +250,6 @@ export async function startMockAnthropic(opts: MockOptions): Promise<MockServer>
       }),
   };
 }
+
+// A scripted judge, for Shadowlap's judge checks (judge.ts).
+export { judgeAnswer, judgeQuestion, judgeRequests, withJudge, type JudgeDecision, type JudgeQuestion } from './judge.js';

@@ -9,6 +9,7 @@ import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
+import { askJudges, unjudged, type Judged } from './judge.js';
 import { emitJobEvent } from './job-events.js';
 import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
@@ -144,6 +145,8 @@ export interface TestAttempt {
   code: number;
   ms: number;
   output: string;
+  /** What the agent printed on stdout alone: what a judge check reads as its output. */
+  stdout: string;
   /** Null when the recording has no checks. */
   checks: CheckResult[] | null;
   failure: JunitCase['failure'];
@@ -159,6 +162,8 @@ export async function testAttempt(
   parent: RunRecord,
   o: {
     cwd: string; upstreams: Record<string, string>; extraEnv: Record<string, string>; writes: WritePolicy; guard: GuardMode; normalizers: ReturnType<typeof loadConfig>['normalize']; prices: ReturnType<typeof loadConfig>['prices']; clock: ReturnType<typeof loadConfig>['clock']; http?: ReturnType<typeof loadConfig>['http']; spec: TestSpec | null;
+    // The project's redaction rules: what a judge check reads has them applied.
+    redact?: ReturnType<typeof loadConfig>['redact'];
     // `shadowlap test` and `bisect`: the command to run (default: the recorded one), metadata for the
     // replay (`test: { golden, session }`), a callback once the replay run exists, a time limit, and a
     // call forced live (`test --update` re-records from call 1).
@@ -195,7 +200,12 @@ export async function testAttempt(
   // groups: there the agent's whole process tree is ended while it runs.
   const group = process.platform !== 'win32';
   const child = spawnAgent(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'], detached: group }, { url: sidecar.url, runId: run.runId });
-  child.stdout!.on('data', (d: Buffer) => (output += d.toString()));
+  // What a judge reads as the output is stdout alone: interleaved with stderr it could differ on every run.
+  let stdout = '';
+  child.stdout!.on('data', (d: Buffer) => {
+    output += d.toString();
+    stdout += d.toString();
+  });
   child.stderr!.on('data', (d: Buffer) => (output += d.toString()));
   const kill = (sig: NodeJS.Signals) => killTree(child, sig, { group });
   let interrupted = null as NodeJS.Signals | null;
@@ -231,6 +241,9 @@ export async function testAttempt(
   if (group) kill('SIGKILL');
   if (timedOut) output += `\n[shadowlap] stopped after ${formatDuration(o.timeoutMs!)}\n`;
   if (interrupted) output += `\n[shadowlap] interrupted (${interrupted})\n`;
+  // Judge checks are asked once the agent has exited, through this sidecar while the run is open, so
+  // their calls are the run's: a clean replay's from its recording, a fork's live.
+  const judged = o.spec?.judge?.length ? await judgeAttempt(store, sidecar, run.runId, o.spec, { code, timedOut, interrupted: interrupted !== null, stdout, upstreams: o.upstreams, redact: o.redact ?? [], prices: o.prices, forkFails: !o.spec.fork }) : null;
   const ended = sidecar.endRun(run.runId, timedOut || interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   await sidecar.close();
   // Nothing waits for this attempt: the process ends as the signal meant it to, with the run ended.
@@ -240,13 +253,17 @@ export async function testAttempt(
   let checks: CheckResult[] | null = null;
   if (o.spec) {
     const calls = store.getCalls(run.runId);
-    checks = evaluateChecks(o.spec, {
-      calls,
-      output,
-      answer: finalAnswer(store, calls),
-      argsOf: (c) => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined),
-      costOf: (c) => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, o.prices),
-    });
+    checks = evaluateChecks(
+      o.spec,
+      {
+        calls,
+        output,
+        answer: finalAnswer(store, calls),
+        argsOf: (c) => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined),
+        costOf: (c) => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, o.prices),
+      },
+      judged ? { judgeVerdicts: judged.verdicts, notJudged: judged.notJudged } : {},
+    );
     store.updateRunMeta(run.runId, { checks });
   }
   const failedChecks = checks?.filter((c) => !c.ok) ?? [];
@@ -286,11 +303,35 @@ export async function testAttempt(
     failure = { message: divergenceLine(summary.divergence), details: formatSummary(summary) };
   } else if (failedChecks.length) {
     kind = 'check';
-    const first = failedChecks[0]!;
-    const more = failedChecks.length > 1 ? `; ${failedChecks.length - 1} more check${failedChecks.length > 2 ? 's' : ''} failed` : '';
-    failure = { message: `check failed: ${first.label}, but ${first.detail}${more}`, details: divergence + formatSummary(summary) };
+    failure = { message: checksFailure(failedChecks), details: divergence + formatSummary(summary) };
   }
-  return { ended, code, ms: Date.now() - started, output, checks, failure, kind, interrupted };
+  return { ended, code, ms: Date.now() - started, output, stdout, checks, failure, kind, interrupted };
+}
+
+/**
+ * Why checks that did not pass fail an attempt, in one line: the first that failed, else the first
+ * that is inconclusive (a judge check with no verdict), which never passes either.
+ */
+export function checksFailure(notPassed: readonly CheckResult[]): string {
+  const failed = notPassed.filter((c) => c.status !== 'inconclusive');
+  const first = failed[0] ?? notPassed[0]!;
+  const others = notPassed.length - 1;
+  const more = others ? `; ${others} more check${others === 1 ? '' : 's'} ${failed.length > 1 ? 'failed' : 'did not pass'}` : '';
+  return first.status === 'inconclusive' ? `check inconclusive: ${first.label}, ${first.detail}${more}` : `check failed: ${first.label}, but ${first.detail}${more}`;
+}
+
+/**
+ * The judge checks of an attempt whose agent has exited: asked through its sidecar, unless the
+ * attempt can't pass anyway (the agent failed or was stopped, or, with `forkFails`, the replay
+ * forked), when asking a judge would only cost: each then says why it was not judged.
+ */
+export async function judgeAttempt(store: Store, sidecar: Sidecar, runId: string, spec: TestSpec, a: { code: number; timedOut?: boolean; interrupted: boolean; stdout: string; upstreams: Record<string, string>; redact: ReturnType<typeof loadConfig>['redact']; prices: ReturnType<typeof loadConfig>['prices']; forkFails?: boolean }): Promise<Judged> {
+  const judges = spec.judge ?? [];
+  if (a.interrupted) return unjudged(judges, 'the replay was interrupted');
+  if (a.timedOut) return unjudged(judges, 'the agent was stopped before it finished');
+  if (a.code !== 0) return unjudged(judges, `the agent exited with code ${a.code}`);
+  if (a.forkFails && store.getRun(runId)?.divergence) return unjudged(judges, 'the replay diverged, which fails the test whatever the judge says');
+  return askJudges(judges, { calls: store.getCalls(runId), output: a.stdout }, { sidecar, store, runId, upstreams: a.upstreams, redact: a.redact, ...(a.prices ? { prices: a.prices } : {}) });
 }
 
 export function parseOverrides(specs: string[], parentCalls: CallRecord[]): Map<number, unknown> {
@@ -416,20 +457,29 @@ function onDrained(child: ReturnType<typeof spawn>, resolve: (code: number) => v
 
 /**
  * The agent's output, for checks on what it printed, still shown as it comes. Only stdout and stderr
- * are piped, and only when a check needs them: stdin stays the terminal's.
+ * are piped, and only when a check needs them: stdin stays the terminal's. `stdout` alone is what a
+ * judge check reads as the output: interleaved with stderr, it could differ on every run.
  */
-function teeOutput(child: ReturnType<typeof spawn>): () => string {
+function teeOutput(child: ReturnType<typeof spawn>): { all: () => string; stdout: () => string } {
   let output = '';
+  let stdout = '';
   child.stdout?.on('data', (d: Buffer) => {
     output += d.toString();
+    stdout += d.toString();
     process.stdout.write(d);
   });
   child.stderr?.on('data', (d: Buffer) => {
     output += d.toString();
     process.stderr.write(d);
   });
-  return () => output;
+  return { all: () => output, stdout: () => stdout };
 }
+
+/**
+ * Called once a run's agent has exited, while its sidecar still has the run open: where a replay's
+ * judge checks are asked, so their calls are the run's.
+ */
+export type BeforeEnd = (sidecar: Sidecar, store: Store, run: RunRecord, agent: { code: number; interrupted: boolean; stdout: string }) => Promise<void>;
 
 /**
  * Whether a program by this name is on PATH, as a shell would find it (on Windows with each of
@@ -483,7 +533,7 @@ export function startFailure(err: NodeJS.ErrnoException, argv0: string, cwd: str
   return { notFound: false, message: `failed to start ${argv0}: ${err.message}` };
 }
 
-export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean }> {
+export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean; beforeEnd?: BeforeEnd } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean }> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
@@ -513,7 +563,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
   // A dashboard job links to the run once its agent has started: one whose command isn't found is not kept.
   child.once('spawn', () => emitJobEvent({ type: 'run', runId: run.runId, role: 'new' }));
-  const output = extra.capture ? teeOutput(child) : () => '';
+  const tee = extra.capture ? teeOutput(child) : null;
+  const output = () => tee?.all() ?? '';
   let interrupted = false;
   // Heard before the run's status is settled: the listener that settles it comes after this one.
   child.once('exit', (_c, signal) => {
@@ -545,6 +596,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   } catch {
     // gone already, or not ours to remove
   }
+  if (extra.beforeEnd && !notStarted) await extra.beforeEnd(sidecar, store, run, { code, interrupted, stdout: tee?.stdout() ?? '' });
   const result = sidecar.endRun(run.runId, status);
   const why = notStarted as ReturnType<typeof startFailure> | null;
   if (why) {
@@ -584,7 +636,7 @@ export interface AttemptResult {
  * concurrency of 1 the agent's output streams as usual under a header per attempt; with more, each
  * attempt's output is collected and printed whole when it finishes, so attempts never interleave.
  */
-export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count: number, concurrency: number, start: (sidecar: Sidecar) => RunRecord, guard: GuardMode, extra: { capture?: boolean } = {}): Promise<AttemptResult[]> {
+export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count: number, concurrency: number, start: (sidecar: Sidecar) => RunRecord, guard: GuardMode, extra: { capture?: boolean; beforeEnd?: BeforeEnd } = {}): Promise<AttemptResult[]> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
@@ -625,9 +677,13 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
         if (signal && STOP_SIGNALS.has(signal)) stoppedBySignal = true;
       });
       let output = '';
+      let stdout = '';
       const shown = tee ? teeOutput(child) : null;
       if (!tee) {
-        child.stdout?.on('data', (d: Buffer) => (output += d.toString()));
+        child.stdout?.on('data', (d: Buffer) => {
+          output += d.toString();
+          stdout += d.toString();
+        });
         child.stderr?.on('data', (d: Buffer) => (output += d.toString()));
       }
       const code = await new Promise<number>((resolveCode) => {
@@ -640,8 +696,12 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
         else child.on('exit', (c, signal) => resolveCode(c ?? (signal ? 128 : 1)));
       });
       running.delete(child);
-      if (shown) output = shown();
+      if (shown) {
+        output = shown.all();
+        stdout = shown.stdout();
+      }
       const status: Exclude<RunStatus, 'running'> = stopped || stoppedBySignal ? 'crashed' : code === 0 ? 'completed' : 'failed';
+      if (extra.beforeEnd) await extra.beforeEnd(sidecar, store, run, { code, interrupted: stopped || stoppedBySignal, stdout });
       const ended = sidecar.endRun(run.runId, status);
       results[i] = { run, code, summary: ended.summary, output };
       telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });

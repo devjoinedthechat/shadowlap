@@ -1,8 +1,9 @@
 import { basename, resolve } from 'node:path';
-import { formatDivergence, hasRecordedCommand, heldFrom, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { agentCallsOf, formatDivergence, hasRecordedCommand, heldFrom, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
+import { checkLine } from './judge-results.js';
 import { type JunitCase } from './junit.js';
 import { placeholderAwsCredentials, providerIds, testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { withoutCommand } from './shared.js';
@@ -16,7 +17,8 @@ import { type PackResult } from './test-report.js';
 
 export interface RecordingTestContext {
   store: Store;
-  config: Pick<ShadowlapConfig, 'normalize' | 'prices' | 'clock' | 'http'>;
+  /** `redact`: the rules applied to what a judge check reads. */
+  config: Pick<ShadowlapConfig, 'normalize' | 'prices' | 'clock' | 'http'> & { redact?: ShadowlapConfig['redact'] };
   /** Where the recorded command runs. */
   cwd: string;
   writes: WritePolicy;
@@ -91,6 +93,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
       prices: ctx.config.prices,
       clock: ctx.config.clock,
       http: ctx.config.http,
+      ...(ctx.config.redact ? { redact: ctx.config.redact } : {}),
       spec,
       ...(ctx.argv ? { argv: ctx.argv } : {}),
       ...(meta ? { meta } : {}),
@@ -215,10 +218,11 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
 /**
  * Tokens of a run's model calls: input, cache reads and writes included, and with `output` the
  * output too; with `live`, only calls that reached a provider. Every call's input is what the run
- * costs to run live; the live calls' input and output are what a replay spent.
+ * costs to run live; the live calls' input and output are what a replay spent. The agent's calls
+ * only: a judge check's are counted apart.
  */
 export function tokensOf(calls: readonly CallRecord[], o: { live?: boolean; output?: boolean } = {}): number {
-  return calls
+  return agentCallsOf(calls)
     .filter((c) => c.kind === 'api' && (!o.live || c.origin === 'live'))
     .reduce((n, c) => {
       const u = c.end?.meta.usage;
@@ -230,7 +234,24 @@ type Summary = TestAttempt['ended']['summary'];
 /** Calls by origin, as the reports and the history show them: overridden calls count as replayed. */
 const callsOf = (s: Summary) => ({ total: s.total, replayed: s.byOrigin.replayed + s.byOrigin.overridden, live: s.byOrigin.live, blocked: s.byOrigin.blocked, stubbed: s.byOrigin.stubbed });
 const notRespentOf = (s: Summary) => s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
-const upstreamOf = (attempts: readonly TestAttempt[]) => attempts.reduce((n, a) => n + a.ended.summary.upstreamRequests, 0);
+/** Every request a golden's replays sent upstream, a judge check's included: none, for one replayed offline. */
+export const upstreamOf = (attempts: readonly TestAttempt[]) => attempts.reduce((n, a) => n + a.ended.summary.upstreamRequests + (a.ended.summary.judge?.upstreamRequests ?? 0), 0);
+
+/** What a golden's judge checks did and cost over every attempt, apart from the agent; null without a judge call. */
+export function judgeOf(attempts: readonly TestAttempt[]): JudgeSummary | null {
+  const parts = attempts.flatMap((a) => (a.ended.summary.judge ? [a.ended.summary.judge] : []));
+  if (!parts.length) return null;
+  return parts.reduce((t, j) => ({
+    calls: t.calls + j.calls,
+    replayed: t.replayed + j.replayed,
+    live: t.live + j.live,
+    notAsked: t.notAsked + j.notAsked,
+    upstreamRequests: t.upstreamRequests + j.upstreamRequests,
+    spent: t.spent + j.spent,
+    saved: t.saved + j.saved,
+    unknownModels: [...new Set([...t.unknownModels, ...j.unknownModels])],
+  }));
+}
 
 /** A changed value as the history keeps it: long strings and large objects cut to 2,000 characters. */
 function clipValue(v: unknown): unknown {
@@ -272,6 +293,8 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
   data.tokensNotRespent = notRespentOf(s);
   data.inputTokens = tokensOf(store.getCalls(s.runId));
   if (r.shown.checks) data.checks = r.shown.checks;
+  const judge = judgeOf(r.attempts);
+  if (judge) data.judge = judge;
   if (r.attempts.length > 1) data.attempts = { total: r.attempts.length, passed: r.passed, required: r.required, runs: r.attempts.map((a) => a.ended.summary.runId) };
   if (s.divergence) {
     const d = s.divergence;
@@ -323,12 +346,13 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     attempts: r && r.attempts.length > 1 ? { total: r.attempts.length, passed: r.passed, required: r.required } : null,
     expect: extra.expect,
     updated: extra.updated ?? null,
+    judge: r ? judgeOf(r.attempts) : null,
   };
 }
 
-/** The checks, one per line, as the terminal and the JUnit report show them. */
+/** The checks, one per line, as the terminal and the JUnit report show them: a judge check's with its verdict and reason. */
 export function formatChecks(checks: CheckResult[]): string {
-  return checks.map((c) => (c.ok ? `✓ ${c.label}` : `✗ ${c.label}: ${c.detail}`)).join('\n');
+  return checks.map(checkLine).join('\n');
 }
 
 /** The golden as a JUnit test case. */

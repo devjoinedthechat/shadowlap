@@ -199,6 +199,8 @@ export interface BlameReport extends BlameSearchResult {
   attempts: number;
   spent: number;
   upstreamRequests: number;
+  /** What its judge checks' calls cost, apart from `spent` and `upstreamRequests`: only when a judge was asked. */
+  judge?: { spent: number; upstreamRequests: number };
   /** Models with no price, whose cost is missing from `spent`. */
   unknownModels: string[];
   /** Why the search stopped early, for the `stopped` outcome. */
@@ -298,7 +300,8 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
   if (r.warnings.length) lines.push('', ...r.warnings.map((w) => `  ${p.yellow('!')} ${safeLine(w)}`));
   const attempts = r.attempts;
   const unpriced = r.unknownModels.length ? ` (no price for ${r.unknownModels.map(safeLine).join(', ')})` : '';
-  lines.push('', p.dim(`  ${attempts} attempt${attempts === 1 ? '' : 's'} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced} · every call before a probe replayed from the recording`));
+  const judged = r.judge ? ` · judge checks: ${r.judge.upstreamRequests} upstream request${r.judge.upstreamRequests === 1 ? '' : 's'}, ≈${formatUsd(r.judge.spent)}` : '';
+  lines.push('', p.dim(`  ${attempts} attempt${attempts === 1 ? '' : 's'} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged} · every call before a probe replayed from the recording`));
   lines.push(p.dim(`  oracle: ${r.oracle.map(safeLine).join('; ')}`));
   if (r.contrast) lines.push(p.dim(`  rescued fork: shadowlap diff ${short(r.runId)} ${short(r.contrast.rescuedRunId)}    shadowlap ui ${short(r.contrast.rescuedRunId)} --call ${r.contrast.callNo}`));
   else if (r.outcome === 'unrescuable' && r.sameAnswer) lines.push(p.dim(`  an attempt that passed: shadowlap diff ${short(r.runId)} ${short(r.sameAnswer.runId)}    shadowlap ui ${short(r.sameAnswer.runId)} --call ${r.sameAnswer.callNo}`));

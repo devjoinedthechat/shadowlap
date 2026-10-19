@@ -101,6 +101,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       attempts: runner.attempts,
       spent: runner.spent,
       upstreamRequests: runner.upstreamRequests,
+      // Judge checks' calls, apart from the agent's.
+      ...(runner.judgeRequests || runner.judgeSpent ? { judge: { spent: runner.judgeSpent, upstreamRequests: runner.judgeRequests } } : {}),
       unknownModels: [...runner.unknownModels],
       stopReason,
       replayWarnings: [...runner.warnings],

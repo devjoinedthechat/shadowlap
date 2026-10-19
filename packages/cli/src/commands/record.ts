@@ -2,12 +2,14 @@ import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
 import { addRules, calibrationTarget, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from '../checks.js';
-import { codeVersion, configPath, loadConfig } from '../config.js';
+import { codeVersion, configPath, loadConfig, upstreamOverrides } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
+import type { Judged } from '../judge.js';
+import { checkLine } from '../judge-results.js';
 import { emitJobEvent } from '../job-events.js';
 import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
-import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
+import { judgeAttempt, parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type BeforeEnd, type GuardMode } from '../run-agent.js';
 import { readExpect } from './fix.js';
 import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, readStore, recordEvents, requireEnded, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
@@ -16,21 +18,36 @@ import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 const checksFrom = (source: string) => (source === '--expect' ? '--expect' : `shadowlap.config.json for ${source}`);
 
-/** One replay's checks, one line each. */
+const unsure = (c: CheckResult) => c.status === 'inconclusive';
+
+/** One replay's checks, one line each: a judge check's with its verdict, reason and where it came from. */
 function formatChecks(checks: CheckResult[], source: string): string {
-  const failed = checks.filter((c) => !c.ok).length;
-  const head = failed ? p.red(`✗ ${failed} of ${checks.length} check${checks.length === 1 ? '' : 's'} failed`) : p.green(`✓ ${checks.length} check${checks.length === 1 ? '' : 's'} passed`);
-  return [`${head} ${p.dim(`(${checksFrom(source)})`)}`, ...checks.map((c) => (c.ok ? `  ${p.green('✓')} ${safe(c.label)}` : `  ${p.red('✗')} ${safe(c.label)}, but ${safe(c.detail ?? '')}`))].join('\n');
+  const failed = checks.filter((c) => !c.ok && !unsure(c)).length;
+  const notJudged = checks.filter(unsure).length;
+  const head = failed
+    ? p.red(`✗ ${failed} of ${checks.length} check${checks.length === 1 ? '' : 's'} failed`)
+    : notJudged
+      ? p.yellow(`? ${notJudged} of ${checks.length} check${checks.length === 1 ? '' : 's'} inconclusive`)
+      : p.green(`✓ ${checks.length} check${checks.length === 1 ? '' : 's'} passed`);
+  const line = (c: CheckResult) => {
+    if (c.judge || unsure(c)) return `  ${c.ok ? p.green('✓') : unsure(c) ? p.yellow('?') : p.red('✗')} ${safe(checkLine(c).slice(2))}`;
+    return c.ok ? `  ${p.green('✓')} ${safe(c.label)}` : `  ${p.red('✗')} ${safe(c.label)}, but ${safe(c.detail ?? '')}`;
+  };
+  return [`${head} ${p.dim(`(${checksFrom(source)})`)}`, ...checks.map(line)].join('\n');
 }
 
-/** Each check across the attempts of `--repeat`: in how many it failed, and which. */
+/** Each check across the attempts of `--repeat`: in how many it failed, or was inconclusive, and which. */
 function formatCheckTally(judged: CheckResult[][], source: string): string {
   const labels = [...new Set(judged.flatMap((checks) => checks.map((c) => c.label)))];
+  const of = `${judged.length} attempt${judged.length === 1 ? '' : 's'}`;
   const lines = labels.map((label) => {
-    const failedIn = judged.map((checks, i) => (checks.some((c) => c.label === label && !c.ok) ? i + 1 : 0)).filter(Boolean);
-    return failedIn.length
-      ? `    ${p.red('✗')} ${safe(label)}: failed in ${failedIn.length} of ${judged.length} attempt${judged.length === 1 ? '' : 's'} (${failedIn.map((n) => `#${n}`).join(', ')})`
-      : `    ${p.green('✓')} ${safe(label)}: passed in all ${judged.length}`;
+    const where = (test: (c: CheckResult) => boolean) => judged.map((checks, i) => (checks.some((c) => c.label === label && test(c)) ? i + 1 : 0)).filter(Boolean);
+    const failedIn = where((c) => !c.ok && !unsure(c));
+    const unsureIn = where(unsure);
+    const listed = (ns: number[]) => ns.map((n) => `#${n}`).join(', ');
+    if (failedIn.length) return `    ${p.red('✗')} ${safe(label)}: failed in ${failedIn.length} of ${of} (${listed(failedIn)})${unsureIn.length ? `, inconclusive in ${unsureIn.length} (${listed(unsureIn)})` : ''}`;
+    if (unsureIn.length) return `    ${p.yellow('?')} ${safe(label)}: inconclusive in ${unsureIn.length} of ${of} (${listed(unsureIn)})`;
+    return `    ${p.green('✓')} ${safe(label)}: passed in all ${judged.length}`;
   });
   return [`  Checks ${p.dim(`(${checksFrom(source)})`)}`, ...lines].join('\n');
 }
@@ -151,14 +168,22 @@ export function register(program: Command): void {
       if (failures.models.size) replay.failAt = failures.models;
       if (failures.tools.size) replay.toolFailures = failures.tools;
       if (plants.size) replay.plants = plants;
-      // A check on what the agent printed needs its output; nothing else does.
-      const capture = !!checks?.spec.output;
+      // A check on what the agent printed needs its output, and so does a judge check that reads it; nothing else does.
+      const capture = !!checks?.spec.output || !!checks?.spec.judge?.some((j) => j.of === 'output');
       const config = checks ? loadConfig(process.cwd()) : null;
       const given = flags.expect ? expectJson(flags.expect) : undefined;
+      // Judge checks are asked once each replay's agent has exited, before its run ends: a clean
+      // replay's from the recording, a fork's live, and either way the call is the replay's.
+      const verdicts = new Map<string, Judged>();
+      const beforeEnd: BeforeEnd | undefined = checks?.spec.judge?.length
+        ? async (sidecar, store, run, agent) => {
+            verdicts.set(run.runId, await judgeAttempt(store, sidecar, run.runId, checks!.spec, { code: agent.code, interrupted: agent.interrupted, stdout: agent.stdout, upstreams: upstreamOverrides(process.env), redact: config!.redact, prices: config!.prices }));
+          }
+        : undefined;
       const judge = (runId: string, output: string): CheckResult[] => {
         const reader = openStore(opts);
         try {
-          return judgeRun(reader, runId, checks!.spec, output, config?.prices, given);
+          return judgeRun(reader, runId, checks!.spec, output, config?.prices, given, verdicts.get(runId));
         } finally {
           reader.close();
         }
@@ -175,7 +200,7 @@ export function register(program: Command): void {
           flags.concurrency,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
-          { capture },
+          { capture, ...(beforeEnd ? { beforeEnd } : {}) },
         );
         const judged = checks ? attempts.map((a) => judge(a.run.runId, a.output)) : [];
         const reader = openStore(opts);
@@ -213,7 +238,7 @@ export function register(program: Command): void {
           argv,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
-          { capture },
+          { capture, ...(beforeEnd ? { beforeEnd } : {}) },
         );
         if (!started) {
           // The command never started: it has said so, and no run is kept to show or judge.

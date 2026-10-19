@@ -68,7 +68,63 @@ export interface CallMeta {
    * command, and, on the first call to it in a run and whenever they change, the tools it offers.
    */
   mcp?: { transport: 'stdio' | 'http'; server: string; tools?: Array<{ name: string; effect: Effect }> };
+  /**
+   * A call Shadowlap's judge made (scope `shadowlap:judge`): the check it answered, by its name in
+   * the config, and `ask`, a digest of the check's question, what it reads and its model (judgeAskId).
+   */
+  judge?: { check: string; ask: string };
   [key: string]: unknown;
+}
+
+/** A check's verdict. These are the only verdict words, in the CLI, the reports, the JSON and every page. */
+export type CheckStatus = 'passed' | 'failed' | 'inconclusive' | 'not-applicable';
+
+/** How a judge check came out, kept beside its result. */
+export interface JudgeOutcome {
+  /** The check's name in the config. */
+  name: string;
+  model: string;
+  /** What the judge read: the final answer, the agent's output, or the run. */
+  of: 'answer' | 'output' | 'run';
+  /** The judge's answer, or null when it was not judged. */
+  verdict: 'yes' | 'no' | null;
+  /** Where the verdict came from: the recording (free, the same every time) or the judge, asked live. Null when not judged. */
+  source: 'recording' | 'live' | null;
+  /** USD the judge's call cost: 0 from the recording, null for a model with no price. */
+  cost: number | null;
+  /** How many of the project's redaction rules applied to what the judge read. */
+  redactions: number;
+  /** Characters of what it read that were left out, to keep it within the judge's limit; 0 when it read it whole. */
+  cut: number;
+  /** The judge's call in the run, when it made one. */
+  callNo?: number;
+}
+
+/** A check's result as a run and the test history keep it. */
+export interface StoredCheck {
+  ok: boolean;
+  label: string;
+  detail: string | null;
+  status?: CheckStatus;
+  /** A judge check's reason for its verdict, in its own words. */
+  reason?: string;
+  judge?: JudgeOutcome;
+}
+
+/** What a run's judge calls did and cost, apart from the agent's calls (`RunSummary.judge`). */
+export interface JudgeSummary {
+  calls: number;
+  /** Answered from the recording, at no cost. */
+  replayed: number;
+  /** Asked live. */
+  live: number;
+  /** Answered by no one: the recording didn't hold them, and there was no way to ask the judge live. */
+  notAsked: number;
+  upstreamRequests: number;
+  /** USD the live ones cost, and what the ones from the recording would have. */
+  spent: number;
+  saved: number;
+  unknownModels: string[];
 }
 
 /** Token usage. `inputTokens` is the uncached input; cache reads and writes are separate, whatever the provider reports. */
@@ -162,8 +218,8 @@ export interface RunMeta {
   commandFromImport?: boolean;
   /** One attempt of `shadowlap replay --repeat`: attempts of one invocation share the group. */
   repeat?: { group: string; attempt: number; of: number };
-  /** Outcome checks from `shadowlap test` or `shadowlap blame`, as they came out for this run. */
-  checks?: Array<{ ok: boolean; label: string; detail: string | null }>;
+  /** Outcome checks from `shadowlap test` or `shadowlap blame`, as they came out for this run: a judge check's with its verdict and reason. */
+  checks?: StoredCheck[];
   /** One attempt of a `shadowlap blame` probe: the run blamed, the model call forced live, and whether the attempt passed. */
   probe?: { of: string; callNo: number; passed: boolean };
   /** The last `shadowlap blame` of this run. */
@@ -327,4 +383,9 @@ export interface RunSummary {
   notReached: NotReached[];
   warnings: string[];
   divergence: DivergenceReport | null;
+  /**
+   * A run with judge calls: what they did and cost. Every other field is the agent's alone, so a
+   * judge never changes what a run says the agent cost, sent upstream or replayed.
+   */
+  judge?: JudgeSummary;
 }
