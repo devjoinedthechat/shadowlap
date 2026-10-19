@@ -137,9 +137,9 @@ describe('the gate', () => {
 });
 
 describe('what a session reports', () => {
-  const outcome = (o: Partial<PresetOutcome>): PresetOutcome => ({ preset: 'timeout', label: 'tool timeout', verdict: 'passed', callNo: 3, target: { kind: 'tool', name: 'get_forecast' }, passes: 1, attempts: 1, detail: 'get_forecast (#3) timed out: the agent exited 0', summary: 'timed out: the agent exited 0', reason: null, runs: [{ runId: 'R1', passed: true, exitCode: 0, checks: [], reason: null, lastLine: null }], gate: { repeat: 1, passes: 1 }, upstreamRequests: 1, spent: 0, ...o });
+  const outcome = (o: Partial<PresetOutcome>): PresetOutcome => ({ preset: 'timeout', label: 'tool timeout', verdict: 'passed', callNo: 3, target: { kind: 'tool', name: 'get_forecast' }, passes: 1, attempts: 1, detail: 'get_forecast (#3) timed out: the agent exited 0', summary: 'timed out: the agent exited 0', reason: null, runs: [{ runId: 'R1', verdict: 'passed', passed: true, exitCode: 0, checks: [], reason: null, lastLine: null }], gate: { repeat: 1, passes: 1 }, upstreamRequests: 1, spent: 0, ...o });
   const results = [
-    { golden: 'goldens/forecast', runId: 'G', error: null, skipped: null, judge: { source: 'exit' as const, checks: [] }, outcomes: [outcome({}), outcome({ preset: 'malformed', label: 'malformed JSON', verdict: 'failed', passes: 0, detail: 'get_forecast (#3) answered malformed JSON: the agent exited with code 1', reason: 'the agent exited with code 1', runs: [{ runId: 'R2', passed: false, exitCode: 1, checks: null, reason: 'the agent exited with code 1', lastLine: 'SyntaxError: x' }] }), outcome({ preset: '429', label: 'provider 429', verdict: 'inconclusive', detail: 'model call #4 failed with HTTP 429: 3 of 5 passed' }), outcome({ preset: 'empty', label: 'empty result', verdict: 'not-applicable', runs: [], attempts: 0, detail: 'the recording makes no tool call' })] },
+    { golden: 'goldens/forecast', runId: 'G', error: null, skipped: null, judge: { source: 'exit' as const, checks: [] }, outcomes: [outcome({}), outcome({ preset: 'malformed', label: 'malformed JSON', verdict: 'failed', passes: 0, detail: 'get_forecast (#3) answered malformed JSON: the agent exited with code 1', reason: 'the agent exited with code 1', runs: [{ runId: 'R2', verdict: 'failed', passed: false, exitCode: 1, checks: null, reason: 'the agent exited with code 1', lastLine: 'SyntaxError: x' }] }), outcome({ preset: '429', label: 'provider 429', verdict: 'inconclusive', detail: 'model call #4 failed with HTTP 429: 3 of 5 passed' }), outcome({ preset: 'empty', label: 'empty result', verdict: 'not-applicable', runs: [], attempts: 0, detail: 'the recording makes no tool call' })] },
     { golden: 'goldens/broken', runId: null, outcomes: [], judge: null, error: 'the pack contains no runs', skipped: null },
     { golden: 'goldens/quiet', runId: null, outcomes: [], judge: null, error: null, skipped: 'its tests entry turns the presets off ("chaos": false)' },
   ];
@@ -165,6 +165,27 @@ describe('what a session reports', () => {
     expect(warn[2]!.skipped).toEqual({ message: 'inconclusive: model call #4 failed with HTTP 429: 3 of 5 passed' });
     expect(warn.filter((c) => c.skipped).map((c) => c.name)).toEqual(['provider 429']);
     expect(warn[1]!.failure).toBeDefined();
+  });
+
+  it('lists each attempt in a failing case by its own verdict: one that said nothing of the error path reads inconclusive, never failed', () => {
+    const undecided = 'check inconclusive: judge "ok" answers yes, but not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)';
+    const never = 'the replay never reached #3, so the preset was never played in';
+    const judged = { ok: false, label: 'judge "ok" answers yes', detail: 'not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)' };
+    const outcomes = [
+      // All that kept its one attempt from passing is a judge no attempt can ask.
+      outcome({ verdict: 'inconclusive', passes: 0, reason: undecided, detail: `get_forecast (#3) timed out: ${undecided}`, runs: [{ runId: 'R5', verdict: 'inconclusive', passed: false, exitCode: 0, checks: [judged], reason: undecided, lastLine: null }] }),
+      // Its second attempt left the recording before the call: the preset was never played in.
+      outcome({ preset: 'empty', label: 'empty result', verdict: 'inconclusive', gate: { repeat: 3, passes: 3 }, passes: 1, attempts: 2, reason: never, detail: `get_forecast (#3) answered with nothing: ${never}`, runs: [{ runId: 'R6', verdict: 'passed', passed: true, exitCode: 0, checks: [], reason: null, lastLine: null }, { runId: 'R7', verdict: 'inconclusive', passed: false, exitCode: 1, checks: [], reason: never, lastLine: null }] }),
+      // A gate that ran out of attempts between its bounds: each attempt passed or failed.
+      outcome({ preset: '500', label: 'provider 500', verdict: 'inconclusive', gate: { repeat: 2, passes: 2 }, passes: 1, attempts: 2, detail: 'model call #4 failed with HTTP 500: 1 of 2 passed', runs: [{ runId: 'R8', verdict: 'passed', passed: true, exitCode: 0, checks: [], reason: null, lastLine: null }, { runId: 'R9', verdict: 'failed', passed: false, exitCode: 1, checks: [], reason: 'the agent exited with code 1', lastLine: null }] }),
+    ];
+    const [check, unreached, ranOut] = chaosJunit([{ ...results[0]!, outcomes }], { inconclusive: 'fail' });
+    expect(check!.failure).toEqual({ message: `inconclusive: get_forecast (#3) timed out: ${undecided}`, details: `attempt 1 (run R5): inconclusive: ${undecided}` });
+    expect(unreached!.failure).toEqual({ message: `inconclusive: get_forecast (#3) answered with nothing: ${never}`, details: `attempt 1 (run R6): passed\nattempt 2 (run R7): inconclusive: ${never}` });
+    for (const c of [check, unreached]) expect(c!.failure!.details).not.toContain('failed:');
+    expect(ranOut!.failure!.details).toBe('attempt 1 (run R8): passed\nattempt 2 (run R9): failed: the agent exited with code 1');
+    // Let through, they are skipped, with no attempts to list.
+    expect(chaosJunit([{ ...results[0]!, outcomes }], { inconclusive: 'warn' }).map((c) => [!!c.skipped, !!c.failure])).toEqual([[true, false], [true, false], [true, false]]);
   });
 
   it('writes a Markdown table for a job summary', () => {

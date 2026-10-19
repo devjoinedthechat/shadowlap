@@ -472,10 +472,11 @@ write tools, which hold on any path; the rest describes the path its recording t
 through a failure needn't take). A preset's attempts are gated as they come in: by `chaos.gate`
 (`{ good, bad, risk, max }`, each optional) when the entry has one, else by the golden's `repeat`
 and `passes`. Its verdict is `passed`, `failed`, `inconclusive` (the gate ran out of attempts between
-its bounds, or the replay never reached the call, which a golden that no longer replays does) or
-`not-applicable` (the recording has no call the preset can hit, or no result it can change, such as
-a binary one or one that is empty already). An attempt stops after `chaos.timeout` seconds (default
-300) and fails: an error path can hang. `"chaos": false` leaves a golden out of `test --chaos`. Each
+its bounds, the replay never reached the call, which a golden that no longer replays does, or all
+that kept an attempt from passing is a check no attempt can decide, such as a judge with no way to
+be asked) or `not-applicable` (the recording has no call the preset can hit, or no result it can
+change, such as a binary one or one that is empty already). An attempt stops after `chaos.timeout`
+seconds (default 300) and fails: an error path can hang. `"chaos": false` leaves a golden out of `test --chaos`. Each
 attempt is a run bundled under the golden's recording, and the session and every result are kept in
 the store for the dashboard. Exit status: 1 when a preset failed, a golden couldn't be run, or (with
 `--inconclusive fail`) a preset was inconclusive; 130 or 143 on a signal.
@@ -505,12 +506,16 @@ presets: the `source` of their checks, `chaos.expect`, `--expect`, `write-limits
 states it, or null, and the `error` that kept it from running or why it was `skipped`) and, for
 each preset (`preset`, its `label`, the `verdict`, the `callNo` it hit and its `target` (`kind`,
 `name`), the `passes` and `attempts`, a `detail` sentence naming what came of it (and its
-`summary`, without the call, as the table shows it), the first failure's `reason`, the `gate` it was
-decided by, `upstreamRequests`, `spent`, and its `runs`), each attempt (`runId`, `passed`, the
-agent's `exitCode`, its `checks`, the `reason` it failed and, for an agent that exited with an
-error, `lastLine`: the error it died of, as it printed it). `--junit` writes a case per preset, and
-`--markdown` a table of them, listing under it any golden whose presets couldn't run; both state a
-`chaos.gate`'s rule, once under the table and in each case it decided.
+`summary`, without the call, as the table shows it), the `reason` it failed (its first failing
+attempt's) or is inconclusive (null when its gate ran out of attempts), the `gate` it was decided
+by, `upstreamRequests`, `spent`, and its `runs`), each attempt (`runId`, its `verdict`: `passed`,
+`failed`, or `inconclusive` when its replay never reached the call or all that kept it from passing
+is a check no attempt can decide; `passed`, true for a passed attempt only; the agent's `exitCode`,
+its `checks`, the `reason` it failed or is inconclusive and, for an agent that exited with an error,
+`lastLine`: the error it died of, as it printed it). `--junit` writes a case per preset, whose
+failure lists each attempt by its verdict, and `--markdown` a table of them, listing under it any
+golden whose presets couldn't run; both state a `chaos.gate`'s rule, once under the table and in
+each case it decided.
 
 ## bisect
 
