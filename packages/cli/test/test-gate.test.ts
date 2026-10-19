@@ -165,34 +165,37 @@ describe('shadowlap test with a gate', () => {
 describe('shadowlap test with a gate against history', () => {
   it('passes an unchanged agent after its minimum of attempts and no more, and fails one whose pass rate dropped', async () => {
     const db = join(work, 'history.db');
-    const tests = { 'goldens/reference-agent': { fork: true, gate: { baseline: 'history', min: 3 }, expect: CHECKS } };
+    // The gate as the docs give it: every figure its default, so it decides after 5 attempts.
+    const tests = { 'goldens/reference-agent': { fork: true, gate: { baseline: 'history' }, expect: CHECKS } };
     // No history yet: compared with a golden that always passes.
     const first = await shadowlapTest(tests, FIX, { db });
     expect(first.code, first.out).toBe(0);
-    expect(first.report.results[0]).toMatchObject({ verdict: 'passed', gate: { kind: 'baseline', decision: 'pass', attempts: 3, evidence: { history: null, baseline: 1 } } });
-    expect(first.out).toContain('✓ reference-agent: passed: no drop of 15 points or more from its baseline, a golden that always passes, since it has no history yet, with 95% confidence after 3 attempts');
+    expect(first.report.results[0]).toMatchObject({ verdict: 'passed', gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, decision: 'pass', attempts: 5, evidence: { history: null, baseline: 1 } } });
+    expect(first.out).toContain('✓ reference-agent: passed: no drop of 15 points or more from its baseline, a golden that always passes, since it has no history yet, with 95% confidence after 5 attempts');
     hold([['testGateHistory', first.report.results[0]!.gate], ['testGateHistoryEvidence', first.report.results[0]!.gate.evidence]]);
 
-    // The same agent again: its own history is the baseline, and three attempts settle it.
+    // The same agent again: its own history is the baseline, and its 5 attempts settle it, no more.
     const again = await shadowlapTest(tests, FIX, { db });
     expect(again.code, again.out).toBe(0);
-    expect(again.report.results[0]).toMatchObject({ verdict: 'passed', attempts: { total: 3, passed: 3 }, gate: { decision: 'pass', attempts: 3, evidence: { history: { passes: 3, attempts: 3, sessions: 1 } } } });
-    expect(again.out).not.toContain('attempt 4 of');
+    expect(again.report.results[0]).toMatchObject({ verdict: 'passed', attempts: { total: 5, passed: 5 }, gate: { decision: 'pass', attempts: 5, evidence: { history: { passes: 5, attempts: 5, sessions: 1 } } } });
+    expect(again.out).toContain('passed: no drop of 15 points or more from its baseline, 1.00 over its last session (5 of 5 attempts), with 95% confidence after 5 attempts');
+    expect(again.out).toContain('attempt 5 of up to 5');
+    expect(again.out).not.toContain('attempt 6 of');
 
     // A change that makes it email again: every attempt fails, against a history of passes.
     const broken = await shadowlapTest(tests, FORKS_AND_EMAILS, { db });
     expect(broken.code).toBe(1);
-    expect(broken.report.results[0]).toMatchObject({ verdict: 'failed', gate: { decision: 'fail', attempts: 3, evidence: { history: { passes: 6, attempts: 6, sessions: 2 } } } });
-    expect(broken.out).toContain('✗ reference-agent: failed: its pass rate dropped 15 points or more from its baseline, 1.00 over the last 2 sessions (6 of 6 attempts), with 95% confidence after 3 attempts');
+    expect(broken.report.results[0]).toMatchObject({ verdict: 'failed', gate: { decision: 'fail', attempts: 5, evidence: { history: { passes: 10, attempts: 10, sessions: 2 } } } });
+    expect(broken.out).toContain('✗ reference-agent: failed: its pass rate dropped 15 points or more from its baseline, 1.00 over the last 2 sessions (10 of 10 attempts), with 95% confidence after 5 attempts');
 
     // The history keeps each session's attempts, passed and total, and the gate's result with them.
     const store = Store.open(db);
     try {
       const results = store.listTestResults({ golden: 'goldens/reference-agent' });
       expect(results.map((x) => [x.data?.verdict, x.data?.attempts?.passed, x.data?.attempts?.total])).toEqual([
-        ['failed', 0, 3],
-        ['passed', 3, 3],
-        ['passed', 3, 3],
+        ['failed', 0, 5],
+        ['passed', 5, 5],
+        ['passed', 5, 5],
       ]);
       expect(results[0]!.data?.gate).toMatchObject({ kind: 'baseline', decision: 'fail' });
     } finally {
