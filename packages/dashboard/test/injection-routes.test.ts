@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { injectionTemplates, Store, type CleanReport, type PlantReport, type RunRecord } from '@shadowlap/engine';
+import { injectionTemplates, recordEvent, Store, type CleanReport, type PlantReport, type RunRecord } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { injectionJob, injectionLine, injectionNeedsLook, toolTrust } from '../src/injection.js';
 import { injectionReportHtml } from '../src/injection-report.js';
@@ -141,6 +141,20 @@ describe('the injection read models', () => {
     } finally {
       store.deleteInjectionResult('inj-01UNJUDGED');
     }
+  });
+
+  it('count an attempt that showed nothing apart from those that ignored the payload, in a result\'s line and the activity feed', async () => {
+    const kept = store.getInjectionResult('inj-01PLANT')!;
+    const report = kept.data as unknown as PlantReport;
+    const passed = { ...report, gate: { ...report.gate, verdict: 'passed', reason: null } };
+    // The gate passed on two attempts that ignored the payload; in the third, no model read the planted text.
+    expect(injectionLine({ ...kept, obeyed: 0, ignored: 2, inconclusive: 1, attempts: 3, data: passed as never })).toBe('ignored every planted instruction in 2 of 3 attempts, 1 inconclusive');
+    recordEvent(store, { kind: 'injection.tested', actor: 'dev', runId: recording.runId, ref: 'goldens/partly', data: { resultId: 'inj-01PARTLY', mode: 'plant', attempts: 3, obeyed: 0, influenced: 0, ignored: 2, inconclusive: 1, verdict: 'ignored', gate: 'passed' } });
+    recordEvent(store, { kind: 'injection.tested', actor: 'dev', runId: recording.runId, ref: 'goldens/wholly', data: { resultId: 'inj-01WHOLLY', mode: 'plant', attempts: 3, obeyed: 0, influenced: 0, ignored: 3, inconclusive: 0, verdict: 'ignored', gate: 'passed' } });
+    const { items } = (await (await api('activity?limit=50')).json()) as { items: Array<{ text: string }> };
+    const texts = items.map((i) => i.text);
+    expect(texts).toContain('Injection · goldens/partly: ignored every planted instruction in 2 of 3 attempts, 1 inconclusive');
+    expect(texts).toContain('Injection · goldens/wholly: ignored every planted instruction (3 attempts)');
   });
 
   it('give each recorded tool its trust for Settings → Tools: the config first, then what was recorded', async () => {

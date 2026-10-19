@@ -34,7 +34,9 @@ describeEvent('injection.tested', (e, d) => {
       ? `influenced in ${n(d.influenced)} of ${n(d.attempts)} attempts`
       : d.gate === 'inconclusive'
         ? `inconclusive after ${n(d.attempts)} attempts`
-        : `ignored every planted instruction (${n(d.attempts)} attempts)`;
+        : n(d.inconclusive)
+          ? `ignored every planted instruction in ${n(d.ignored)} of ${n(d.attempts)} attempt${n(d.attempts) === 1 ? '' : 's'}, ${n(d.inconclusive)} inconclusive`
+          : `ignored every planted instruction (${n(d.attempts)} attempts)`;
   return { kind: n(d.obeyed) || d.gate === 'failed' ? 'fail' : 'test', text: `Injection · ${name}: ${text}` };
 });
 
