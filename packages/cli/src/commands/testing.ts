@@ -243,31 +243,40 @@ export function register(program: Command): void {
           }
           // Its injection gate, once its replay passed: plant payloads in its untrusted reads, live from
           // the model call that reads them, writes stubbed, and fail it when too many attempts obey.
-          let injection: InjectionGateData | null = null;
-          if (spec?.injection && outcome.parent && !signal) {
-            if (outcome.failure) injection = { resultId: null, attempts: 0, ...noVerdicts(), allowed: { obeyed: spec.injection.obeyed, influenced: spec.injection.influenced }, passed: false, reason: null, skipped: 'the golden failed, so its injection gate did not run' };
-            else {
-              process.stderr.write(p.dim(`[shadowlap] injection gate for ${golden}: planting payloads in its untrusted reads\n`));
-              let proof: string | null = null;
-              try {
-                const gate = await injectionGate({ opts, store, parent: outcome.parent, golden, entry: spec.injection, configDir: projectDir, cwd, sessionId: session.sessionId, actor, guard: flags.guard }, (line) => process.stderr.write(`${line}\n`));
-                upstreamRequests += gate.report.cost.upstreamRequests;
-                // A signal cut the gate short: it says nothing about the golden, which gets no result.
-                if (signal) {
-                  cut = golden;
-                  break;
-                }
-                injection = gate.data;
-                const obeyed = gate.report.attempts.find((a) => a.verdict === 'obeyed');
-                proof = obeyed ? proofLine(obeyed) : null;
-              } catch (err) {
-                injection = { resultId: null, attempts: 0, ...noVerdicts(), allowed: { obeyed: spec.injection.obeyed, influenced: spec.injection.influenced }, passed: false, reason: `the injection gate could not run: ${(err as Error).message}`, skipped: null };
-              }
-              if (!injection.passed) outcome = { ...outcome, failure: { message: `injection: ${injection.reason}`, details: `${proof ? `${proof}\n` : ''}Every attempt, with its proof: shadowlap injection ${golden} --html report.html` }, kind: 'injection' };
+          // Null when a signal cut the gate short: then the golden has no result, as for its replay.
+          const gated = async (o: GoldenOutcome): Promise<{ outcome: GoldenOutcome; injection: InjectionGateData | null } | null> => {
+            if (!spec?.injection || !o.parent) return { outcome: o, injection: null };
+            const allowed = { obeyed: spec.injection.obeyed, influenced: spec.injection.influenced };
+            if (o.failure) return { outcome: o, injection: { resultId: null, attempts: 0, ...noVerdicts(), allowed, passed: false, reason: null, skipped: 'the golden failed, so its injection gate did not run' } };
+            if (signal) return null;
+            process.stderr.write(p.dim(`[shadowlap] injection gate for ${golden}: planting payloads in its untrusted reads\n`));
+            let data: InjectionGateData;
+            let proof: string | null = null;
+            try {
+              const gate = await injectionGate({ opts, store, parent: o.parent, golden, entry: spec.injection, configDir: projectDir, cwd, sessionId: session.sessionId, actor, guard: flags.guard }, (line) => process.stderr.write(`${line}\n`));
+              upstreamRequests += gate.report.cost.upstreamRequests;
+              if (signal) return null;
+              data = gate.data;
+              const obeyed = gate.report.attempts.find((a) => a.verdict === 'obeyed');
+              proof = obeyed ? proofLine(obeyed) : null;
+            } catch (err) {
+              data = { resultId: null, attempts: 0, ...noVerdicts(), allowed, passed: false, reason: `the injection gate could not run: ${(err as Error).message}`, skipped: null };
             }
+            if (data.passed) return { outcome: o, injection: data };
+            return { outcome: { ...o, failure: { message: `injection: ${data.reason}`, details: `${proof ? `${proof}\n` : ''}Every attempt, with its proof: shadowlap injection ${golden} --html report.html` }, kind: 'injection' }, injection: data };
+          };
+          const printGate = (d: InjectionGateData | null) => {
+            if (d && !d.skipped?.startsWith('the golden failed')) process.stdout.write(gateLine(d) + '\n');
+          };
+          const first = await gated(outcome);
+          if (!first) {
+            cut = golden;
+            break;
           }
+          outcome = first.outcome;
+          let injection = first.injection;
           printGolden(outcome);
-          if (injection && !injection.skipped?.startsWith('the golden failed')) process.stdout.write(gateLine(injection) + '\n');
+          printGate(injection);
           const forked = !outcome.failure && spec?.fork ? (outcome.result?.shown.ended.summary.divergence ?? null) : null;
           const takeover = forked ? takeoverAt(packDir) : null;
           const early = forked && takeover !== null && forked.callNo < takeover ? { at: forked.callNo, takeover } : null;
@@ -316,8 +325,16 @@ export function register(program: Command): void {
                 const again = replayed(await testGolden(packDir, golden, spec, ctx));
                 if (again.interrupted) process.stdout.write(p.dim(`    the replay of the updated golden was interrupted; it runs with the next test\n`));
                 else {
-                  outcome = again;
+                  // The updated golden's own injection gate, now that it replays.
+                  const regated = await gated(again);
+                  if (!regated) {
+                    cut = golden;
+                    break;
+                  }
+                  outcome = regated.outcome;
+                  injection = regated.injection;
                   printGolden(outcome, ' (updated)');
+                  printGate(injection);
                 }
               }
             }
