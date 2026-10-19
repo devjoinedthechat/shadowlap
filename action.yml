@@ -1,9 +1,12 @@
+# How the GitHub Marketplace lists the action: a name no other listing, user or organization has, a
+# description of at most 125 characters, and a badge (a Feather icon GitHub supports, and one of its
+# nine colors).
 name: Shadowlap test
-description: Replay committed agent recordings offline and fail the check when the agent's requests change.
+description: "Change safety for agents: replay committed agent runs offline, and fail the check when a request changes or a check fails."
 author: devjoinedthechat
 branding:
-  icon: git-branch
-  color: gray-dark
+  icon: repeat
+  color: green
 
 inputs:
   recordings:
