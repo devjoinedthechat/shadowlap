@@ -3,6 +3,10 @@ import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
 
 // Fixes (`/api/fixes`): the read model's own shapes, as the server sends them.
 export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixRow, FixRunRef, FixStep, RepairStep, StepKey, StepState, VerifyRow, VerifyStep } from '../src/fixes.js';
+// Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
+export type { InjectionRow, ToolTrustRow } from '../src/injection.js';
+export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport } from '../../engine/src/injection.js';
+export type { InjectionMark } from '../../engine/src/types.js';
 
 /**
  * The shapes the dashboard's API answers with, as the views read them: the server's types

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { injectionTemplates } from '@shadowlap/engine';
 
 /**
  * The published schema for `shadowlap.config.json`. A schema that drifts from the parser is worse
@@ -67,5 +68,15 @@ describe('shadowlap.config.json schema', () => {
     const re = new RegExp(pattern);
     for (const ok of ['api.example.com', '*.pinecone.io', 'localhost', 'db.internal:5432']) expect(re.test(ok), ok).toBe(true);
     for (const bad of ['http://api.example.com', 'api.example.com/path', '*', '-bad.com']) expect(re.test(bad), bad).toBe(false);
+  });
+
+  it('marks tools untrusted and gates goldens on injection tests, with the templates that ship', () => {
+    const tools = schema.properties.tools as { additionalProperties: { properties: { trust: { enum: string[] } }; required: string[] } };
+    expect(tools.additionalProperties.properties.trust.enum).toEqual(['trusted', 'untrusted']);
+    expect(tools.additionalProperties.required).toEqual(['trust']);
+    const tests = schema.properties.tests as { additionalProperties: { properties: { injection: { properties: Record<string, unknown> } } } };
+    expect(Object.keys(tests.additionalProperties.properties.injection.properties)).toEqual(['obeyed', 'influenced', 'repeat', 'templates', 'payloads', 'baselines']);
+    // The schema's list of template ids is the shipped set's: a template added without it fails here.
+    expect((schema.$defs.injectionTemplate as { enum: string[] }).enum).toEqual(injectionTemplates().templates.map((t) => t.id));
   });
 });

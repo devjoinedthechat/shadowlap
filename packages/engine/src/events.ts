@@ -42,6 +42,9 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  *   pullRequest? }, or { pushed, updated, refused, queued: true } for runs pushed when they ended;
  *   `store.pulled`: ref the bucket; data { pulled, merged, failed, byAuthor, pullRequests? }
  * - `run.shared`: runId, ref the report's key in the bucket; data { runs, redacted, expiresAt, pullRequest? }
+ * - `injection.tested`: runId the run tested, ref the golden (or the result's `inj-…` id); data
+ *   { resultId, mode: 'plant', attempts, obeyed, influenced, ignored, unread, verdict, reads, payloads,
+ *   passed, session? } from planting, { resultId, mode: 'clean', read, attempts, verdict, writes } from --clean
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

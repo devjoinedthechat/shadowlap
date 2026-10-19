@@ -65,6 +65,8 @@ export const JOB_KINDS = {
   pairs: 'pairs',
   score: 'score',
   taskUpdate: 'task-update',
+  // Injection tests: plant payloads in a run's or a golden's untrusted reads, or ask whether a read caused its writes.
+  injection: 'injection',
 } as const;
 
 export class ApiError extends Error {

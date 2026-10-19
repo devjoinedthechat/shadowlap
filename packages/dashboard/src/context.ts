@@ -17,6 +17,8 @@ export interface ProjectConfig {
   http?: Array<{ host: string; effect: string }>;
   mcp?: { effects: Record<string, string> };
   repair?: { repairer?: string; baseUrl?: string };
+  /** Tools by name: `trust` marks the reads shadowlap injection plants in (Settings → Tools' Trust column). */
+  tools?: Record<string, { trust: 'trusted' | 'untrusted' }>;
 }
 
 /**
