@@ -7,6 +7,23 @@ export function truncate(s: string, width: number): string {
   return s.length > width ? s.slice(0, width - 1) + '…' : s;
 }
 
+/**
+ * Items joined with ` · ` in at most `width` columns: as many whole items as fit, then ` · …` where
+ * the rest are left out, so a line never ends inside a word. A first item too long by itself is cut.
+ */
+export function fitItems(items: readonly string[], width: number, sep = ' · '): string {
+  const all = items.join(sep);
+  if (all.length <= width) return all;
+  const more = `${sep}…`;
+  let shown = '';
+  for (const item of items) {
+    const next = shown ? `${shown}${sep}${item}` : item;
+    if (next.length + more.length > width) break;
+    shown = next;
+  }
+  return shown ? `${shown}${more}` : truncate(all, width);
+}
+
 export function wrap(text: string, width: number): string[] {
   text = safeText(text);
   const w = Math.max(8, width);

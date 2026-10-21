@@ -7,7 +7,7 @@ import type { CallRecord, Origin, RunRecord, Store } from '@shadowlap/engine';
 import { formatDuration, formatTokens, formatUsd, shortModel, summarizeRun, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
 import { copyToClipboard } from '../clipboard.js';
 import { ago, kindFacts, loadRequest, loadResponseBytes, runLabel } from '../data.js';
-import { truncate } from '../render.js';
+import { fitItems, truncate } from '../render.js';
 import { displayOrigin, kindLabel, originColor } from '../theme.js';
 import { actionContext, ActionsView, forkMenuTitle, notRun, recordingNow, terminalActions, type Action } from './ActionsView.js';
 import { DiffView } from './DiffView.js';
@@ -276,8 +276,9 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const detailWidth = Math.max(0, innerWidth - fixedWithoutName - nameWidth);
 
   const saved = summary.tokensNotRespent.inputTokens + (summary.tokensNotRespent.cacheReadInputTokens ?? 0);
-  // The header is one line: what matters most comes first, so a narrow terminal truncates the least important part.
-  const header = [
+  // The header is one line: what matters most comes first, so a narrow terminal leaves out the least
+  // important part, whole stats at a time.
+  const headerItems = [
     `${calls.length} calls`,
     summary.byOrigin.replayed ? `${summary.byOrigin.replayed} replayed` : '',
     summary.byOrigin.live - summary.injected ? `${summary.byOrigin.live - summary.injected} ${summary.imported ? 'captured' : 'live'}` : '',
@@ -292,16 +293,17 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     run.status === 'running' ? (recording ? 'recording…' : 'interrupted') : run.status === 'completed' ? '' : run.status,
     ago(run.startedAt),
     run.codeVersion ? `@${run.codeVersion}` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  const footer = toast
-    ? ` ${toast.text}`
-    : query || filter !== 'all'
-      ? ` filter: ${[filter !== 'all' ? filter : '', query ? `/${query}` : ''].filter(Boolean).join(' ')} (${visibleCalls.length}/${calls.length}) · Esc clears`
-      : focus === 'inspector'
-        ? ' inspector: j/k scroll · PgUp/PgDn page · g/G ends · y copy · ←/h back to list'
-        : ' : actions · / search · [ ] jump · o dashboard · y copy · w write · p parent · space play · d diff · f filter · ? help';
+  ].filter(Boolean);
+  // What goes before the stats: the run's id, what it is, and its parent's id.
+  const lead = ` ${run.runId.slice(0, 10)} ${label}${run.parentRunId ? ` of ${run.parentRunId.slice(0, 10)}` : ''}`;
+  const header = fitItems(headerItems, width - lead.length - ' · '.length);
+  // The keys, as many whole hints as the width takes; a message in their place is cut where it must be.
+  const hints = query || filter !== 'all'
+    ? ` filter: ${[filter !== 'all' ? filter : '', query ? `/${query}` : ''].filter(Boolean).join(' ')} (${visibleCalls.length}/${calls.length}) · Esc clears`
+    : focus === 'inspector'
+      ? ' inspector: j/k scroll · PgUp/PgDn page · g/G ends · y copy · ←/h back to list'
+      : ' : actions · / search · [ ] jump · o dashboard · y copy · w write · p parent · space play · d diff · f filter · ? help';
+  const footer = toast ? ` ${toast.text}` : ` ${fitItems(hints.trim().split(' · '), width - 1)}`;
 
   return (
     <Box flexDirection="column" width={width} height={height}>
@@ -311,7 +313,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
           <Text bold> {run.runId.slice(0, 10)} </Text>
           <Text color={run.divergence ? 'yellow' : label === 'clean replay' ? 'cyan' : 'white'}>{label}</Text>
           {run.parentRunId ? <Text color="gray"> of {run.parentRunId.slice(0, 10)}</Text> : null}
-          <Text color="gray"> · {header}</Text>
+          {header ? <Text color="gray"> · {header}</Text> : null}
         </Text>
       </Box>
       {mode.kind === 'diff' ? (

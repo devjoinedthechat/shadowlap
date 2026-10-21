@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeConversation, normalizeResponse, Store, unpackRun } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { diffLines } from '../src/components/DiffView.js';
-import { conversationLines } from '../src/render.js';
+import { conversationLines, fitItems } from '../src/render.js';
 import { parseSse, streamView } from '../src/sse.js';
 
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent/', import.meta.url));
@@ -437,6 +437,17 @@ describe('actions palette', () => {
 });
 
 describe('render helpers', () => {
+  it('fits a line of items to the width by whole items, never ending inside a word', () => {
+    const hints = [': actions', '/ search', '[ ] jump', 'o dashboard', 'y copy'];
+    expect(fitItems(hints, 80)).toBe(': actions · / search · [ ] jump · o dashboard · y copy');
+    expect(fitItems(hints, 48)).toBe(': actions · / search · [ ] jump · …');
+    expect(fitItems(hints, 35)).toBe(': actions · / search · [ ] jump · …');
+    expect(fitItems(hints, 34)).toBe(': actions · / search · …');
+    // A first item too long for the width by itself is cut, as anything else that has to be.
+    expect(fitItems(['a very long first item', 'next'], 10)).toBe('a very lo…');
+    expect(fitItems(hints, 0)).toBe('');
+  });
+
   it('renders a conversation with roles and blocks, whatever the provider', () => {
     const text = (body: unknown) => conversationLines(normalizeConversation(body)!.turns, 60).map((l) => l.text);
     expect(text({ system: 'be brief', messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: [{ type: 'text', text: 'hello' }, { type: 'tool_use', name: 't', input: { a: 1 } }] }] })).toEqual(['system', 'be brief', '', 'user  #1', 'hi', '', 'assistant  #2', 'hello', '⚙ t {"a":1}', '']);
