@@ -76,7 +76,7 @@ export interface BlameRun extends BlameReport {
  * reads them in the order they started, as one after another would, each once all those started
  * before it have ended. Its first answer other than continue is kept: attempts still running then
  * are evidence, but nothing decides again, so a verdict once reached never reopens, and the caller
- * starts no attempt after it.
+ * starts no attempt after it (probeAttempts).
  */
 export class ProbeTally {
   private readonly outcomes: Array<boolean | undefined> = [];
@@ -86,6 +86,11 @@ export class ProbeTally {
   decided: { decision: GateDecision; at: number } | null = null;
 
   constructor(private readonly settle: (passes: number, attempts: number) => GateDecision) {}
+
+  /** How many attempts it has read: the first to start, each read once every one before it had ended. */
+  get read(): number {
+    return this.seen;
+  }
 
   /** Attempt `n` (the nth to start, from 1) ended, and passed or not. */
   add(n: number, passed: boolean): void {
@@ -102,6 +107,43 @@ export class ProbeTally {
   decidedOn(): boolean[] {
     return this.decided ? (this.outcomes.slice(0, this.decided.at) as boolean[]) : [];
   }
+}
+
+/**
+ * Runs a probe's attempts, numbered from 1 in the order they start, up to `concurrency` at once and
+ * `limit` in all, while `more()` lets another start. The tally reads them in that order, so attempt
+ * n starts only while fewer than `concurrency` attempts have started that it has not read: once that
+ * many have, the next waits for the earliest of them to end rather than start another fork it can't
+ * read yet, each live and paid for, so at most `concurrency - 1` start after the one that decides. A
+ * worker that waits is woken whenever an attempt ends, whatever ended it (the tally read more,
+ * Ctrl-C, a prefix that broke, the budget spent), and it waits only while an attempt it waits for is
+ * still running, so none waits forever.
+ */
+export async function probeAttempts(o: { concurrency: number; limit: number; tally: Pick<ProbeTally, 'read'>; more: () => boolean; attempt: (n: number) => Promise<void> }): Promise<void> {
+  let started = 0;
+  // An attempt that threw ends the probe: nothing more starts, and the error is the probe's.
+  let threw = false;
+  const waiting: Array<() => void> = [];
+  const wake = () => {
+    for (const w of waiting.splice(0)) w();
+  };
+  const open = () => !threw && started < o.limit && o.more();
+  const worker = async () => {
+    for (;;) {
+      while (open() && started - o.tally.read >= o.concurrency) await new Promise<void>((resolve) => waiting.push(resolve));
+      if (!open()) return;
+      const n = ++started;
+      try {
+        await o.attempt(n);
+      } catch (err) {
+        threw = true;
+        throw err;
+      } finally {
+        wake();
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(o.concurrency, o.limit) }, worker));
 }
 
 export async function runBlame(input: BlameInput): Promise<BlameRun> {
@@ -166,16 +208,18 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       log(`  ${p.bold(`model call #${callNo}`)} ${p.dim(`(${step} of ${steps.length})`)}`);
       const done: Array<BlameAttempt | undefined> = [];
       const tally = new ProbeTally(settle);
-      let launched = 0;
       let prefixBroken: string | null = null;
       const interventions: Interventions | undefined = Object.keys(s.fields).length ? { set: { fromCall: callNo, fields: s.fields } } : undefined;
-      const worker = async () => {
-        while (!prefixBroken && !tally.decided && launched < limit && runner.canStart()) {
-          const n = ++launched;
+      await probeAttempts({
+        concurrency: s.concurrency,
+        limit,
+        tally,
+        more: () => !prefixBroken && !tally.decided && runner.canStart(),
+        attempt: async (n) => {
           const marks = { repeat: { group: `${group}-${callNo}`, attempt: n, of: limit }, probe: { of: parent.runId, callNo, passed: false } };
           const a = await runner.attempt(target, { divergeAt: callNo, recordedWrites: true, ...(interventions ? { interventions } : {}), meta: marks });
           // Stopped by Ctrl-C part way: what it did is no evidence either way.
-          if (runner.interrupted) break;
+          if (runner.interrupted) return;
           const d = a.summary.divergence;
           // Every attempt must fork exactly at the probed model call. One that forked elsewhere ran a
           // prefix the recording doesn't hold, and its outcome says nothing about call #callNo.
@@ -191,9 +235,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
           const late = tally.decided !== null;
           tally.add(n, a.passed);
           log(`    ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}${late ? p.dim(' · ended after the probe decided') : ''}`);
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(s.concurrency, limit) }, worker));
+        },
+      });
       if (prefixBroken) throw new BlameError(prefixBroken, 'prefix');
       const attempts = done.filter((a): a is BlameAttempt => a !== undefined);
       // Interrupted or out of budget with the verdict still open: this probe proves nothing.

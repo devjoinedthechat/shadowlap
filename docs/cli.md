@@ -130,7 +130,7 @@ Finds the model call where a failed run was lost: the last one whose answer, ask
 | `--scan <n>` | Model calls past the boundary to probe too, in case rescue works again after it. Default 2 |
 | `--writes stub\|block` | What write tools do after the fork. Default `stub`; `allow` is not accepted. A write the recording made, with the same arguments, gets what it got then, an error included |
 | `--reads live\|replay` | What read tools do after the fork. Default `live` |
-| `--concurrency <n>` | Attempts of one probe running at once; the probe decides on them in the order they started, and its first verdict stands. Default 1 |
+| `--concurrency <n>` | Attempts of one probe running at once; the probe decides on them in the order they started, and its first verdict stands. One starts only while fewer than *n* have started that the probe hasn't counted, so at most *n* − 1 run past the attempt that decides. Default 1 |
 | `--budget <usd>` | Start no attempt once this much is spent on live model calls |
 | `--timeout <seconds>` | Stop an attempt after this long and count it as failed |
 | `--json` | The report as JSON on stdout ([fields](./blame.md#json)) |

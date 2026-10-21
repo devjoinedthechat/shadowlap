@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { decide, Store } from '@shadowlap/engine';
-import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext, type ScriptResult } from '@shadowlap-testing/mock-anthropic';
 import { unpricedOnly } from '../src/blame.js';
 
 /**
@@ -13,7 +13,8 @@ import { unpricedOnly } from '../src/blame.js';
  * model call it either refunds $240 (against policy) or escalates. The mock plays the model. The
  * small model decides by turns, refunding on odd decisions and escalating on even ones, so asking it
  * again can rescue the run; "big-model" always escalates; with MOCK_STUBBORN the small one always
- * refunds. The recording, the first decision, refunds.
+ * refunds. The recording, the first decision, refunds. With `hold` set, the mock keeps the next
+ * request it gets waiting before it answers: one attempt slower than the rest.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
@@ -24,8 +25,17 @@ let work: string;
 let db: string;
 let decisions = 0;
 let stubborn = false;
+/** The next request the mock gets waits `ms` before its answer; `held` counts the requests it held. */
+let hold: { ms: number; held: number } | null = null;
 
-function script(ctx: ScriptContext) {
+function script(ctx: ScriptContext): ScriptResult {
+  const result = answer(ctx);
+  if (!hold || hold.held) return result;
+  hold.held++;
+  return { ...result, delayMs: hold.ms };
+}
+
+function answer(ctx: ScriptContext): ScriptResult {
   if (JSON.stringify(ctx.request.system ?? '').includes('You play a customer')) return { message: message([text('Hi, I would like a refund on order A-1042, please.')], { stop_reason: 'end_turn' }) };
   const lastResult = JSON.stringify(ctx.request.messages.at(-1)?.content ?? '');
   switch (ctx.assistantTurns) {
@@ -59,19 +69,31 @@ beforeEach(() => {
   db = join(work, 'store.db');
   decisions = 0;
   stubborn = false;
+  hold = null;
 });
 
-function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {
+/** `interrupt`: Ctrl-C once what it printed says so; `afterInterrupt` is how long it ran on after that, ms. */
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, o: { interrupt?: (out: string) => boolean } = {}): Promise<{ code: number | null; out: string; stdout: string; afterInterrupt: number | null }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, '--db', db, ...args], { cwd: work, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', AGENT_OUTBOX: join(work, 'outbox.jsonl'), ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let stdout = '';
+    let interruptedAt: number | null = null;
+    const interrupt = () => {
+      if (interruptedAt !== null || !o.interrupt?.(out)) return;
+      interruptedAt = Date.now();
+      child.kill('SIGINT');
+    };
     child.stdout.on('data', (d: Buffer) => {
       out += d.toString();
       stdout += d.toString();
+      interrupt();
     });
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
-    child.on('exit', (code) => resolve({ code, out, stdout }));
+    child.stderr.on('data', (d: Buffer) => {
+      out += d.toString();
+      interrupt();
+    });
+    child.on('exit', (code) => resolve({ code, out, stdout, afterInterrupt: interruptedAt === null ? null : Date.now() - interruptedAt }));
   });
 }
 
@@ -291,22 +313,68 @@ describe('shadowlap blame', () => {
   it('decides a probe once with --concurrency 2 and mixed outcomes, on the attempts in the order they started', async () => {
     // The small model alternates, so two attempts at once often end one passing, one failing.
     const runId = await record();
-    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', '2', '--json']);
+    const concurrency = 2;
+    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', String(concurrency), '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as { gate: SprtGateJson; probes: Array<{ decision: string; passes: number; rescued: boolean; runs: Array<{ passed: boolean }>; rate: { decision: string; sentence: string } }> };
     expect(report.probes.length).toBeGreaterThan(0);
     for (const p of report.probes) {
-      // What it decided on: the first attempts to start, up to the one that settled it, and no more than
-      // one attempt past it (the other worker's, already running).
+      // What it decided on: the first attempts to start, up to the one that settled it. An attempt
+      // starts only while fewer than --concurrency have started that the gate hasn't read, so at most
+      // concurrency - 1 ran past the one that settled it, however long any of them took.
       const on = Number(/^\w+ · \d+ of (\d+)/.exec(p.rate.sentence)![1]);
       const prefix = p.runs.slice(0, on).map((x) => x.passed);
       const decisions = prefix.map((_, i) => decide(prefix.slice(0, i + 1).filter(Boolean).length, i + 1, { kind: 'sprt', ...report.gate }));
       expect(decisions.slice(0, -1).every((d) => d === 'continue'), JSON.stringify(prefix)).toBe(true);
       expect(decisions.at(-1)).toBe(p.decision);
       expect(p.rate.decision).toBe(p.decision);
-      expect(p.runs.length).toBeLessThanOrEqual(on + 1);
+      expect(p.runs.length).toBeLessThanOrEqual(on + concurrency - 1);
       expect(p.rescued).toBe(p.decision === 'pass');
     }
+  });
+
+  it("starts no more than --concurrency attempts the gate can't read yet while one runs slow, and decides as one after another would", async () => {
+    // Every attempt fails, so no order they end in can change the verdict: lost, as without --concurrency.
+    stubborn = true;
+    const runId = await record();
+    // The first attempt to ask the model waits 3 s for its answer: until it ends, the gate can read
+    // no attempt that started after it.
+    hold = { ms: 3_000, held: 0 };
+    const concurrency = 2;
+    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', String(concurrency), '--json']);
+    expect(r.code, r.out).toBe(0);
+    expect(hold.held).toBe(1);
+    const report = JSON.parse(r.stdout) as { outcome: string; probes: Array<{ decision: string; rescued: boolean; runs: Array<{ passed: boolean }>; rate: { sentence: string } }> };
+    expect(report.outcome).toBe('unrescuable');
+    expect(report.probes).toHaveLength(1);
+    const p = report.probes[0]!;
+    expect(p).toMatchObject({ decision: 'fail', rescued: false });
+    expect(p.rate.sentence).toMatch(/^lost · 0 of 4 (\(and 1 more that ended after it decided\) )?· rate <= 0\.49 \(95%\)/);
+    // While it ran, the other worker started an attempt only while fewer than two had started that the
+    // gate couldn't read yet, where it used to start one after another until the held one ended: at
+    // most one ran past the four decided on.
+    expect(p.runs.length).toBeLessThanOrEqual(4 + concurrency - 1);
+    expect(p.runs.every((x) => !x.passed)).toBe(true);
+  });
+
+  // On Windows a process is ended outright, never signalled, so blame never gets to report: there the
+  // stopped probe in probe-tally.test.ts is what shows no attempt waits forever.
+  it.skipIf(process.platform === 'win32')('ends promptly on Ctrl-C while an attempt waits for a slow one the gate must read first, and says nothing of the call it cut off', async () => {
+    stubborn = true;
+    const runId = await record();
+    // Held far longer than the test runs: only the interrupt can end the attempt.
+    hold = { ms: 120_000, held: 0 };
+    // Once an attempt after the first has ended, the worker that ran it waits for the held one.
+    const waiting = (out: string) => [...out.matchAll(/\battempt (\d+) {2}/g)].some((m) => Number(m[1]) >= 2);
+    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', '2', '--json', '--verbose'], {}, { interrupt: waiting });
+    expect(r.afterInterrupt, r.out).not.toBeNull();
+    expect(r.afterInterrupt!, r.out).toBeLessThan(10_000);
+    expect(r.code, r.out).toBe(1);
+    const report = JSON.parse(r.stdout) as { outcome: string; stopReason: string; probes: unknown[] };
+    expect(report).toMatchObject({ outcome: 'stopped', stopReason: 'interrupted', probes: [] });
+    // The held call's agent was stopped and its run has ended: closing the sidecar cuts the call off,
+    // and no error follows the report.
+    expect(r.out).not.toContain('[shadowlap] error:');
   });
 });
 

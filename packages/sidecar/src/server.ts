@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createServer, request as httpRequest, type ClientRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { connect as connectHttp2, createServer as createHttp2Server, type ClientHttp2Session, type Http2Server, type ServerHttp2Session } from 'node:http2';
 import { request as httpsRequest } from 'node:https';
 import { PassThrough, pipeline, Readable } from 'node:stream';
@@ -228,9 +228,10 @@ const RESPONSE_DROP = new Set([...HOP_BY_HOP, 'content-encoding', 'content-lengt
  * non-streaming request to a slow model does both, a local model writing a long answer or a
  * reasoning model at high effort. A proxy in the request path must not end a call sooner than its
  * client would; the client's own timeout still governs its request to Shadowlap. A compressed body
- * is decoded, as fetch did: the headers passed on say nothing of its encoding.
+ * is decoded, as fetch did: the headers passed on say nothing of its encoding. `inFlight` holds the
+ * request until it has ended, so whoever owns the set can end it sooner (Sidecar.close).
  */
-export function requestUpstream(url: string, method: string, headers: Record<string, string>, body: Buffer | null): Promise<Response> {
+export function requestUpstream(url: string, method: string, headers: Record<string, string>, body: Buffer | null, inFlight?: Set<ClientRequest>): Promise<Response> {
   const target = new URL(url);
   const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
   return new Promise((resolve, reject) => {
@@ -249,6 +250,11 @@ export function requestUpstream(url: string, method: string, headers: Record<str
       resolve(new Response(Readable.toWeb(decoder) as ReadableStream<Uint8Array>, { status, headers: out }));
     });
     req.on('error', reject);
+    if (inFlight) {
+      inFlight.add(req);
+      // A request closes once its response has ended, a streamed body included, or it failed.
+      req.once('close', () => inFlight.delete(req));
+    }
     req.end(body ?? undefined);
   });
 }
@@ -305,6 +311,14 @@ export class Sidecar {
   private readonly http2Sessions = new Set<ServerHttp2Session>();
   /** Upstream HTTP/2 connections, one per origin, for requests that arrived over HTTP/2. */
   private readonly upstreamHttp2 = new Map<string, ClientHttp2Session>();
+  /** Requests upstream over HTTP/1.1 that have not ended yet: a model call still waiting for its answer, a body still streaming. */
+  private readonly upstreamRequests = new Set<ClientRequest>();
+  /**
+   * Set by close() once no agent is connected. A call still being handled then is one whose agent
+   * left before its answer came: it records and reports nothing more, since nobody is left to read
+   * it and the store may close as soon as close() returns.
+   */
+  private closed = false;
 
   private constructor(opts: SidecarOptions, server: Server, url: string, token: string, http2Server: Http2Server, http2Url: string) {
     this.store = opts.store;
@@ -400,6 +414,12 @@ export class Sidecar {
     for (const session of this.http2Sessions) session.destroy();
     await Promise.all([new Promise<void>((resolve) => this.server.close(() => resolve())), new Promise<void>((resolve) => this.http2Server.close(() => resolve()))]);
     this.server.closeAllConnections?.();
+    // The servers close once every agent still connected has had its answer, so a request still
+    // upstream now is one whose agent left before its answer came (stopped by Ctrl-C mid-call):
+    // nobody is left to read it, and a slow model would keep this process running after it is done.
+    // Its call stays started and never ended, as the agent left it (`closed`).
+    this.closed = true;
+    for (const req of this.upstreamRequests) req.destroy();
   }
 
   /** Environment variables that route a child process's SDK calls through this run. */
@@ -1055,8 +1075,10 @@ export class Sidecar {
     try {
       upstreamRes = authority
         ? await this.fetchOverHttp2(upstream.replace(/(https?:\/\/[^/]+).*/, '$1'), `${upstream.replace(/https?:\/\/[^/]+/, '')}${upstreamPath}${search}`, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody, authority)
-        : await requestUpstream(upstream + upstreamPath + search, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody);
+        : await requestUpstream(upstream + upstreamPath + search, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody, this.upstreamRequests);
     } catch (err) {
+      // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
+      if (this.closed) return;
       const message = err instanceof Error ? err.message : String(err);
       const error: SerializedError = { name: 'UpstreamConnectionError', message };
       res.writeHead(502, { 'content-type': 'application/json' });
@@ -1114,6 +1136,8 @@ export class Sidecar {
     }
     if (!clientGone) res.end();
     else res.destroy();
+    // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
+    if (this.closed) return;
 
     const body = Buffer.concat(chunks);
     const contentType = responseHeaders['content-type'];
@@ -1277,9 +1301,11 @@ export class Sidecar {
     let upstream: Response;
     let bytes: Buffer;
     try {
-      upstream = await requestUpstream(url, method, headers, rawBody.length && method !== 'GET' && method !== 'HEAD' ? rawBody : null);
+      upstream = await requestUpstream(url, method, headers, rawBody.length && method !== 'GET' && method !== 'HEAD' ? rawBody : null, this.upstreamRequests);
       bytes = Buffer.from(await upstream.arrayBuffer());
     } catch (err) {
+      // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
+      if (this.closed) return;
       return fail(502, { name: 'ShadowlapUpstreamError', message: `${name}: ${err instanceof Error ? err.message : String(err)}` }, 'shadowlap_upstream_error');
     }
     const result: HttpResult = { status: upstream.status, headers: keptResponseHeaders(upstream.headers), ...decodeBody(bytes, upstream.headers.get('content-type') ?? undefined) };

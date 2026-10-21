@@ -56,7 +56,10 @@ export interface ScriptContext {
   headers: Record<string, string>;
 }
 
-export type ScriptResult = { message: MockMessage } | { status: number; body: unknown; headers?: Record<string, string> };
+export type ScriptResult = ({ message: MockMessage } | { status: number; body: unknown; headers?: Record<string, string> }) & {
+  /** Wait this long before answering, ms: one request slower than the rest, as a model can be. */
+  delayMs?: number;
+};
 export type Script = (ctx: ScriptContext) => ScriptResult;
 
 export interface MockOptions {
@@ -210,6 +213,10 @@ export async function startMockAnthropic(opts: MockOptions): Promise<MockServer>
       requestNo++;
       const assistantTurns = body.messages.filter((m) => m.role === 'assistant').length;
       const result = opts.script({ request: body, requestNo, assistantTurns, headers });
+      if (result.delayMs) {
+        await sleep(result.delayMs);
+        if (res.destroyed) return;
+      }
 
       if (!('message' in result)) {
         const bytes = Buffer.from(JSON.stringify(result.body));
