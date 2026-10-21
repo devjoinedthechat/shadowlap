@@ -310,7 +310,9 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(onBranch.code).toBe(1);
     expect(onBranch.out).toMatch(/✓ refund-over-limit: /);
     expect(onBranch.out).toMatch(/✗ refund-vip: /);
-  });
+    // It repairs two goldens together, then one at a time: alone it takes most of the default 30 s,
+    // so beside the suite's other workers it gets a limit of its own.
+  }, 90_000);
 
   it('says, when no fix repairs goldens that fail the same check either together or one at a time, how each try ended', async () => {
     await setUp({ expect: EXPECT });
