@@ -9,7 +9,7 @@ import { parseTests } from '../src/checks.js';
 import { volatileWarning } from '../src/golden-update.js';
 import { keptLine, replayedBefore } from '../src/commands/training.js';
 import { ANSWERED_BY, modelUnswitchable, resolveTarget, startTakeover, switchModel, takeoverMode, targetVia } from '../src/takeover.js';
-import { answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, testForkedAt, type LoadedTask, type TaskScore } from '../src/tasks.js';
+import { answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, testForkedAt, testInconclusive, type LoadedTask, type TaskScore } from '../src/tasks.js';
 
 /**
  * The CLI's training parts on their own: the task block under tests, the model under test and how a
@@ -361,8 +361,23 @@ describe('a golden\'s last test', () => {
     test('goldens/b', 'completed'); // fixed since
     test('goldens/c', 'completed', {}, true);
     test('goldens/d', 'failed');
+    // Failed nothing, but a check could not be decided: inconclusive, never a test that fails.
+    const undecided = { ok: false, status: 'inconclusive' as const, label: 'judge "calm" answers yes', detail: 'not judged: no recorded verdict and the test runs offline' };
+    test('goldens/f', 'completed', { checks: [undecided] });
+    // A check that failed beside it fails the test all the same.
+    test('goldens/g', 'completed', { checks: [{ ok: false, status: 'failed', label: 'escalate called 1 time', detail: 'called 0 times' }, undecided] });
+    // Two attempts in one session: the second, filed under the first, could not be judged after the
+    // first passed the count. The attempt the result shows is the test.
+    const shown = test('goldens/h', 'completed', { checks: [{ ok: true, status: 'passed', label: 'escalate called 1 time', detail: null }] });
+    test('goldens/h', 'completed', { test: { golden: 'goldens/h', session: 't', attempt: 2, of: shown.runId }, checks: [undecided] });
     const last = lastTests(store, root);
-    expect([...last.keys()].sort()).toEqual(['goldens/a', 'goldens/b', 'goldens/c', 'goldens/d']);
+    expect([...last.keys()].sort()).toEqual(['goldens/a', 'goldens/b', 'goldens/c', 'goldens/d', 'goldens/f', 'goldens/g', 'goldens/h']);
+    expect([testFailed(last.get('goldens/f'), null), testInconclusive(last.get('goldens/f'), null)]).toEqual([false, true]);
+    expect([testFailed(last.get('goldens/g'), null), testInconclusive(last.get('goldens/g'), null)]).toEqual([true, false]);
+    expect(last.get('goldens/h')!.runId).toBe(shown.runId);
+    expect([testFailed(last.get('goldens/h'), null), testInconclusive(last.get('goldens/h'), null)]).toEqual([false, false]);
+    expect(testInconclusive(last.get('goldens/a'), null)).toBe(false);
+    expect(testInconclusive(undefined, null)).toBe(false);
     expect(testFailed(last.get('goldens/a'), null)).toBe(true);
     expect(testFailed(last.get('goldens/b'), null)).toBe(false);
     // A divergence fails a golden unless it may fork.

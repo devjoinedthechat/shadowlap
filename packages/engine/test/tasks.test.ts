@@ -134,6 +134,8 @@ describe('tasks', () => {
     const status = (t: Task) => [t.status, t.note];
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: OUTCOME, testFailed: null }))).toEqual(['ready', null]);
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: OUTCOME, testFailed: true }))).toEqual(['blocked', 'its test fails']);
+    // A last test that failed nothing but could not decide a check is inconclusive, and says so: never a test that fails.
+    expect(status(describeTask({ path: 'g', golden, fields: {}, checks: OUTCOME, testFailed: false, testInconclusive: true }))).toEqual(['blocked', 'its last test is inconclusive: a check could not be decided']);
     // A test that may fork passed, but forked before the takeover: an attempt would leave the recording before the model answers.
     // Its note names the remedy, and the task the call and the test run that forked, which its row opens.
     const forked = describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 3, forkedRun: 'R' });

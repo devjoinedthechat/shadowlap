@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { INCONCLUSIVE_TEST_NOTE, Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { approx, exportPairsJob, money, readTraining, scoreDialogView, scoreModelJob, scoreNote, taskUpdate, taskUpdateJob, trainingView } from '../src/training.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
 
@@ -223,6 +223,9 @@ describe('the Training read model', () => {
       text: 'All of them reward “escalate above the limit”, so a model that learned only that would score full marks. refund-in-limit rewards the opposite once its test passes.',
       fix: { label: 'Fix it on Tests', href: '#/tests' },
     });
+    // The task that rewards the opposite failed nothing in its last test, which was inconclusive: it is settled on Tests, not fixed.
+    const unsettled = TASKS.map((t) => (t.status === 'blocked' ? { ...t, note: INCONCLUSIVE_TEST_NOTE } : t));
+    expect(trainingView({ ...readTraining(s, { tasks: unsettled, models: MODELS }), scores: SCORES }).tasks.warning).toMatchObject({ once: 'its test passes', fix: { label: 'Settle it on Tests', href: '#/tests' } });
     expect(view.tasks.rows.map((r) => [r.name, r.status.label, r.status.badge, r.href])).toEqual([
       ['refund-over-limit', 'ready', 'ok', '#/run/RUN_refund-over-limit/17'],
       ['escalate-over-limit', 'ready', 'ok', '#/run/RUN_escalate-over-limit/17'],
@@ -398,6 +401,8 @@ describe('the Training read model', () => {
     expect(taskUpdateJob({ golden: 'goldens/refund-over-limit' }, s, [inLimit, over], [])).toEqual({ title: 'Updating refund-over-limit', steps: update!.steps });
     expect(taskUpdateJob({ golden: 'goldens/refund-in-limit' }, s, [inLimit, over], [])).toEqual({ error: 'refund-in-limit is not blocked by its test forking before the takeover' });
     expect(taskUpdateJob({ golden: 'goldens/x' }, s, [task('goldens/x', 'blocked', null)], [])).toEqual({ error: 'x is not blocked by its test forking before the takeover: its test fails; fix it on Tests' });
+    // One whose last test was inconclusive failed nothing: it is settled on Tests, not fixed.
+    expect(taskUpdateJob({ golden: 'goldens/x' }, s, [task('goldens/x', 'blocked', null, { note: INCONCLUSIVE_TEST_NOTE })], [])).toEqual({ error: 'x is not blocked by its test forking before the takeover: its last test is inconclusive: a check could not be decided; settle it on Tests' });
     expect(taskUpdateJob({ golden: '../../etc' }, s, [inLimit, over], [])).toEqual({ error: '../../etc is not a golden of this project' });
     expect(taskUpdateJob({}, s, [inLimit, over], [])).toEqual({ error: 'name the golden to update' });
     expect(taskUpdateJob({ golden: '-x' }, s, [{ ...over, golden: '-x' }], [])).toEqual({ error: 'a golden path must not start with "-"' });
