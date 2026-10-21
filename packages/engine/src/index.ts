@@ -81,7 +81,7 @@ export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS,
 export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, GateOdds, GateOutcome, GateResult, SprtBounds, SprtEvidence, SprtGate, Tally } from './stats.js';
 // A golden's baseline for a gate against its history, pooled from the store's test history.
 export { attemptsOf, gateHistory, judgedUnder, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
-export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, unifiedDiff } from './repair.js';
+export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, unifiedDiff } from './repair.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
 export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole } from './verify.js';
 export type { RepeatAttempt, RepeatAttemptInput, RepeatReport } from './repeat.js';

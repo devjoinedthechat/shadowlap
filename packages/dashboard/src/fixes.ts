@@ -15,6 +15,7 @@ import {
   fixRecords,
   footprintDelta,
   formatUsd,
+  gitApplyCommand,
   GOOD_LABEL,
   noRepairerOf,
   outcomeOf,
@@ -318,7 +319,7 @@ export interface FixActions {
    * here puts in the patch alone and runs nothing from it. `files`: every file the patch changes,
    * and `diff` the patch itself, for the confirm dialog to show what goes in. `refused`: why `fix
    * apply` won't put it in (it is more than the one rewrite its repair verified); then there is no
-   * git apply command to copy either.
+   * git apply command to copy either (`gitApply`, as `gitApplyCommand` writes it).
    */
   apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; refused: string | null } | null;
   applied: boolean;
@@ -916,7 +917,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
           : {
               kind: toApply ? 'patch' : 'mark',
               argv: ['fix', 'apply', fix.fixId],
-              gitApply: toApply?.report.patch && !refused ? `git apply ${toApply.dir.replace(/\/+$/, '')}/fix.patch` : null,
+              gitApply: toApply?.report.patch && !refused ? gitApplyCommand(`${toApply.dir.replace(/\/+$/, '')}/fix.patch`) : null,
               pending: pendingText(applyLeft(fix, toApply, { pulled: pulled(toApply) })),
               pulled: pulled(toApply),
               files: toApply?.report.patch ? patchFiles(toApply.report.patch) : [],
