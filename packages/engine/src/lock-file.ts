@@ -18,6 +18,10 @@ import { processAlive } from './liveness.js';
  * fails when the name exists, so one taker gets the lock, and nobody ever reads a lock half
  * written. The holder removes the lock when it is done, if its own record is still the one there.
  *
+ * The record is JSON with `v: 2`. A later version may add fields and raise `v`, but keeps every field
+ * this one reads, with its meaning: this version reads any record with `v` of 2 or more by the
+ * fields it knows, and so judges a later version's lock as it judges its own.
+ *
  * Stale locks. A lock is stale when its holder is gone, which this machine can tell for certain of a
  * holder whose process it can ask about: one in the same table of process ids. On Linux that is the
  * same boot of the same kernel and the same process id namespace, whatever the host name (containers
@@ -277,7 +281,7 @@ function inspect(path: string): Seen | null {
   }
 }
 
-/** A lock's record as this version writes it. */
+/** A lock's record as this version writes it, and as it reads a later version's: by the fields it knows. */
 interface Record2 {
   v: 2;
   pid: number;
@@ -314,7 +318,10 @@ function parseRecord(text: string): Record2 | Record1 | null {
   if (typeof o !== 'object' || o === null) return null;
   const r = o as { [key: string]: unknown };
   if (!isPid(r.pid) || typeof r.host !== 'string') return null;
-  if (r.v !== 2 || typeof r.token !== 'string') return { v: 1, pid: r.pid, host: r.host };
+  // An earlier Shadowlap's: it had no version.
+  if (r.v === undefined) return { v: 1, pid: r.pid, host: r.host };
+  // This version's, or a later one's, read by the fields this one knows (see the header).
+  if (typeof r.v !== 'number' || !Number.isInteger(r.v) || r.v < 2 || typeof r.token !== 'string') return null;
   return {
     v: 2,
     pid: r.pid,

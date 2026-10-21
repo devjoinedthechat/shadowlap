@@ -109,6 +109,26 @@ describe('takeLock', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it('reads a later version’s record by the fields it knows, and never takes over its running holder’s lock', async () => {
+    const holder = await running(`
+      const { takeLock } = await import(${JSON.stringify(new URL('../dist/lock-file.js', import.meta.url).href)});
+      takeLock(${JSON.stringify(lock)}, { wait: 0, busy: () => new Error('busy') });
+      setInterval(() => {}, 1000);
+      process.stdout.write('up\\n');`);
+    // As a later Shadowlap writes it: a higher version, and a field this one doesn't know.
+    const later = JSON.stringify({ ...JSON.parse(readFileSync(lock, 'utf8')), v: 3, lease: 'renewed' });
+    writeFileSync(lock, later);
+    age(lock);
+    expect(() => take(300)).toThrow('busy');
+    expect(() => takeLock(lock, { wait: 50, busy, ageOut: false })).toThrow('busy');
+    expect(readFileSync(lock, 'utf8')).toBe(later);
+    // Its holder ended without removing it: taken over at once.
+    holder.kill('SIGKILL');
+    await ended(holder);
+    releaseLock(takeLock(lock, { wait: 0, busy, ageOut: false }));
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
   it.skipIf(process.platform === 'win32')('takes over a lock whose holder’s process id was given to another process', async () => {
     // A process runs under the id the lock names, but it started after the holder did (on Linux, at
     // another clock tick of this boot): the holder is gone.
