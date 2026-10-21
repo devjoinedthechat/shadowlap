@@ -1,4 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -13,6 +16,10 @@ import { EXPECTED_MODEL_CALLS, EXPECTED_TOOL_CALLS, EXPECTED_TOTAL_CALLS, refere
  * Needs a Python ≥ 3.9 with `anthropic` importable (SHADOWLAP_PYTHON overrides the interpreter).
  */
 const SCRIPT = fileURLToPath(new URL('../python/agent.py', import.meta.url));
+const CLI = fileURLToPath(new URL('../../../packages/cli/bin/shadowlap.js', import.meta.url));
+
+/** The key a request carried, in whichever header the installed SDK sent it: `x-api-key` from anthropic 1.x, a bearer token from 2.0 on. */
+const keySent = (headers: Record<string, string | undefined>) => headers['x-api-key'] ?? headers.authorization?.replace(/^Bearer /, '');
 
 function findPython(): string | null {
   const candidates = [process.env.SHADOWLAP_PYTHON, 'python3', 'python'].filter((c): c is string => !!c);
@@ -77,7 +84,7 @@ describe.skipIf(!PYTHON)('Python reference agent', () => {
     expect(summary.upstreamRequests).toBe(EXPECTED_MODEL_CALLS);
     expect(sdks).toEqual(['python']);
     expect(mock.requests).toHaveLength(EXPECTED_MODEL_CALLS);
-    expect(mock.requests[0]!.headers['x-api-key']).toBe('test-key');
+    expect(keySent(mock.requests[0]!.headers)).toBe('test-key');
     expect(JSON.stringify(store.getCalls(parent.runId))).not.toContain('test-key');
   });
 
@@ -114,5 +121,34 @@ describe.skipIf(!PYTHON)('Python reference agent', () => {
     expect(JSON.stringify(summary.divergence?.diff?.[0])).toContain('Today is 2026-09-16. Be brief.');
     expect(summary.byOrigin.blocked).toBe(1);
     expect(result.toolErrors).toEqual(['send_email: ShadowlapWriteBlocked']);
+  });
+});
+
+describe.skipIf(!PYTHON)("the key the Python SDK sends, in whichever header it sends it", () => {
+  it('reaches the provider, and never the store, a pack of the run or its exports', async () => {
+    const mock = await startMockAnthropic({ script: referenceScript });
+    const dir = mkdtempSync(join(tmpdir(), 'sl-python-key-'));
+    const KEY = 'sk-ant-python-key-0123456789';
+    try {
+      const env = { ...process.env, ANTHROPIC_API_KEY: KEY, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', PYTHONUNBUFFERED: '1', AGENT_DATE: '2026-09-16' };
+      const shadowlap = (args: string[]) => promisify(execFile)(process.execPath, [CLI, '--db', join(dir, 'store.db'), ...args], { cwd: dir, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+      const recorded = await shadowlap(['run', '--', PYTHON!, SCRIPT]);
+      const runId = /Recorded (\w{26})/.exec(recorded.stderr)?.[1] ?? '';
+      expect(runId, recorded.stderr).not.toBe('');
+      expect(mock.requests).toHaveLength(EXPECTED_MODEL_CALLS);
+      expect(mock.requests.map((r) => keySent(r.headers))).toEqual(Array(EXPECTED_MODEL_CALLS).fill(KEY));
+      await shadowlap(['pack', runId, join(dir, 'pack')]);
+      await shadowlap(['export', 'har', runId, join(dir, 'run.har')]);
+      await shadowlap(['export', 'html', runId, join(dir, 'run.html')]);
+      await shadowlap(['export', 'otel', runId, '--out', join(dir, 'trace.json')]);
+      await shadowlap(['export', 'dataset', runId, '--calls', 'model', '--out', join(dir, 'dataset.jsonl')]);
+      const files = (readdirSync(dir, { recursive: true }) as string[]).map((f) => join(dir, f)).filter((f) => statSync(f).isFile());
+      // The store with its journal, the pack's run, calls and blobs, and each export.
+      expect(files.map((f) => f.slice(dir.length + 1).split(/[\\/]/)[0])).toEqual(expect.arrayContaining(['store.db', 'pack', 'run.har', 'run.html', 'trace.json', 'dataset.jsonl']));
+      expect(files.filter((f) => readFileSync(f).includes(KEY))).toEqual([]);
+    } finally {
+      await mock.close();
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
   });
 });
