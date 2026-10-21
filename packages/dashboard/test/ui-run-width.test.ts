@@ -3,6 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CallRow } from '../ui/types.js';
+import { glued } from '../ui/format.js';
 import { bannerFor } from '../ui/run/banner.js';
 import { Inspector } from '../ui/run/Inspector.js';
 
@@ -93,5 +94,18 @@ describe('a fork made with a long flag value, as every attempt of injection --cl
     expect(topRule('.banner')).toMatch(/flex-wrap: wrap/);
     expect(topRule('.banner .why code')).toMatch(/overflow-wrap: anywhere/);
     expect(topRule('.banner .path')).toMatch(/overflow-wrap: anywhere/);
+  });
+});
+
+describe('a header line that wraps on a phone', () => {
+  // At 390 px, the fork's banner went on with "· 16 calls replayed before it" and the fix's line
+  // with "· verified 18:52": a line that starts with a separator reads as a slip.
+  it('holds each separator to the item before it, so a wrapped line never starts with one', () => {
+    expect(glued('tool #16 overridden · 16 calls replayed before it')).toBe('tool #16 overridden · 16 calls replayed before it');
+    expect(glued('3 failing runs · 1 good · opened Oct 21')).toBe('3 failing runs · 1 good · opened Oct 21');
+  });
+
+  it('sets a run’s id in the face every other id is in, where 0 and O differ', () => {
+    expect(topRule('.rtitle h1')).toMatch(/var\(--mono\)/);
   });
 });

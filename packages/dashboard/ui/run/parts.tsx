@@ -1,9 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
-import { callName, clip, jsonText, num, shortId } from '../format.js';
+import { callName, clip, glued, GLUED_SEPARATOR, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { href } from '../route.js';
@@ -69,13 +69,19 @@ function Why({ children, code }: { children: string; code?: string | readonly st
   const ref = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el) el.title = el.textContent ?? '';
+    if (el) el.title = (el.textContent ?? '').replaceAll(GLUED_SEPARATOR, ' · ');
   });
   return (
     <span className="why" ref={ref}>
-      {codeParts(children, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? p : <code key={i}>{p.code}</code>))}
+      {codeParts(children, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? glued(p) : <code key={i}>{p.code}</code>))}
     </span>
   );
+}
+
+/** A one-line JSON value with a place to break after each comma, for a pane that wraps it (a narrow window's). */
+function breakable(text: string): ReactNode[] {
+  const parts = text.split(',');
+  return parts.flatMap((part, i) => (i < parts.length - 1 ? [`${part},`, <wbr key={i} />] : [part]));
 }
 
 /** A line split around the names in it that read as code (a flag, a tool, a host), each at its first place after the one before. */
@@ -363,8 +369,7 @@ export function DiffPanel({ run }: { run: RunDetail }) {
                 <span key={i}>
                   {e.path}
                   {'\n'}
-                  {e.op === 'added' ? '  (absent)' : `  ${clip(jsonText(e.before, false), 800)}`}
-                  {'\n'}
+                  <span className="val">{e.op === 'added' ? '  (absent)' : <>{'  '}{breakable(clip(jsonText(e.before, false), 800))}</>}</span>
                 </span>
               ))
             : (d.reason ?? DIVERGED[d.type] ?? d.type)}
@@ -378,7 +383,7 @@ export function DiffPanel({ run }: { run: RunDetail }) {
                 <span key={i}>
                   {e.path}
                   {'\n'}
-                  <span className="add">{e.op === 'removed' ? '  (absent)' : `  ${clip(jsonText(e.after, false), 800)}`}</span>
+                  <span className="add">{e.op === 'removed' ? '  (absent)' : <>{'  '}{breakable(clip(jsonText(e.after, false), 800))}</>}</span>
                 </span>
               ))
             : `${callName(d.kind, d.name)}`}

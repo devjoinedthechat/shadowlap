@@ -7,6 +7,7 @@ import { ConfirmDialog, Dialog, PromptDialog } from '../components/Dialog.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { copyText } from '../dom.js';
+import { GLUED_SEPARATOR } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { addJobFooter } from '../job-actions.js';
 import { href } from '../route.js';
@@ -86,22 +87,27 @@ function FixHeader({ fix, reload }: { fix: FixDetail; reload: () => void }) {
         </div>
         <h1>{fix.title}</h1>
         <p className="pmeta">
-          <Badge tone={badge.tone}>{badge.text}</Badge> <span>{`${fix.failing} failing run${s(fix.failing)}`}</span> · <span>{`${fix.good} good`}</span> · <span>opened {fixStamp(fix.openedAt)}</span>
+          {/* Each separator is held to the item before it, so a wrapped line never starts with one. */}
+          <Badge tone={badge.tone}>{badge.text}</Badge> <span>{`${fix.failing} failing run${s(fix.failing)}`}</span>
+          {GLUED_SEPARATOR}
+          <span>{`${fix.good} good`}</span>
+          {GLUED_SEPARATOR}
+          <span>opened {fixStamp(fix.openedAt)}</span>
           {fix.verifiedAt ? (
             <>
-              {' · '}
+              {GLUED_SEPARATOR}
               <span>verified {laterStamp(fix.verifiedAt, fix.openedAt)}</span>
             </>
           ) : null}
           {fix.appliedAt ? (
             <>
-              {' · '}
+              {GLUED_SEPARATOR}
               <span>applied {laterStamp(fix.appliedAt, fix.verifiedAt ?? fix.openedAt)}</span>
             </>
           ) : null}
           {fix.source ? (
             <>
-              {' · '}
+              {GLUED_SEPARATOR}
               <span className="fxsource">{fix.source}</span>
             </>
           ) : null}

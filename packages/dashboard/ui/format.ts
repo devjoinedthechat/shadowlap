@@ -163,6 +163,12 @@ export function oneLine(s: string, max = 120): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
+/** A separator held to the item before it by a no-break space, so a wrapped line never starts with one. */
+export const GLUED_SEPARATOR = '\u00a0· ';
+
+/** Items joined by ` · ` as a line that wraps only after a separator's space, never before its dot. */
+export const glued = (text: string): string => text.replaceAll(' · ', GLUED_SEPARATOR);
+
 export function clip(s: string, max = 1500): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
