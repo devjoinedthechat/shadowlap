@@ -86,12 +86,12 @@ export function summarizeRun(run: RunRecord, allCalls: CallRecord[], notReached:
     byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
     // Model calls and tool calls alike: Shadowlap answered them itself (--fail-at), though they count as live.
     if (c.end?.meta.injected) injected++;
-    // Answered with the reason an intervention could not be applied, instead of being sent.
+    // Answered with the reason it could not be sent (an intervention it could not take, a placeholder key), instead of being sent.
     else if (c.end?.meta.refused) refused++;
     if (c.kind !== 'api') continue;
     // Offline refusals (`shadowlap test`) never reached the provider, and neither did an injected
-    // failure or a refused intervention, which Shadowlap answered itself; an imported run's calls
-    // were made somewhere else.
+    // failure or a refused call, which Shadowlap answered itself; an imported run's calls were made
+    // somewhere else.
     if (c.origin === 'live' && !imported) upstreamRequests += [c.end, ...c.attempts].filter((e) => e && !e.meta.offline && !e.meta.injected && !e.meta.refused).length;
     const u = c.end?.meta.usage;
     if (!u) continue;

@@ -439,7 +439,8 @@ export interface RunSummary {
   /** Live calls Shadowlap answered itself with `--fail-at`: model calls that reached no provider, tools that did not run. */
   injected: number;
   /**
-   * Model calls answered with the reason an intervention could not be applied to them: they reached no
+   * Calls answered with the reason they could not be sent, instead of being sent: an intervention that
+   * could not be applied to them, or a placeholder key a live call would carry. They reached no
    * provider either. `summarizeRun` always counts them; a summary built or saved elsewhere may not.
    */
   refused?: number;
