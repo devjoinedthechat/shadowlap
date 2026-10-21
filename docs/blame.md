@@ -23,6 +23,7 @@ shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'
   10 attempts · 22 upstream requests · ≈$0.093 spent · every call before a probe replayed from the recording
   oracle: the agent exits 0; issue_refund called 0 times
   rescued fork: shadowlap diff 01M3R1YKHF 01M3R1YMHF    shadowlap ui 01M3R1YMHF --call 5
+…
 ```
 
 It found the call by forking the run, not by reading it: every call before a probe came from the recording for free, and only the rest ran live, with writes fenced.

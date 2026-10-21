@@ -25,7 +25,9 @@ shadowlap run -- node testing/reference-agent/dist/main.js
 ```
 
 ```
+…
 ● Recorded 01M2NH0DMC753TA9M38B58EPQC: 30 calls (11 api, 17 tool, 2 clock/random), 11 upstream requests, ≈$0.072
+  shadowlap show 01M2NH0DMC
 ```
 
 Replay it unchanged:
@@ -35,7 +37,9 @@ shadowlap replay 01M2NH0DMC
 ```
 
 ```
+…
 ✓ Replay clean: 30/30 calls replayed (11 api, 17 tool, 2 clock/random), 0 upstream requests, 12k input tokens not re-spent (≈$0.072)
+  shadowlap show 01M2NH0F3K
 ```
 
 Change something and replay again. The agent adds `AGENT_SYSTEM_SUFFIX` to its system prompt, which changes every request:
@@ -45,6 +49,7 @@ AGENT_SYSTEM_SUFFIX="Be brief." shadowlap replay 01M2NH0DMC
 ```
 
 ```
+…
 ⑂ Forked at call 3: 2 calls replayed, then 21 live, 1 write blocked; 11 upstream requests (≈$0.072 spent, $0 saved)
   21 recorded calls left unused after the fork: #4 search_web, #6 POST /v1/messages, #7 fetch_page, …
 ✗ Diverged at call 3 (api POST /v1/messages): 2 calls replayed before divergence
@@ -52,6 +57,7 @@ AGENT_SYSTEM_SUFFIX="Be brief." shadowlap replay 01M2NH0DMC
   ~ $.system
       - "You are a research agent. Use the tools, then email a summary."
       + "You are a research agent. Use the tools, then email a summary. Be brief."
+  shadowlap show 01M2NH0G7R
 ```
 
 The `send_email` tool at the end of the run was **blocked**: writes never re-execute after a fork unless you say so. Now a late change: force one tool live, as you would after fixing it:
@@ -61,8 +67,12 @@ shadowlap replay 01M2NH0DMC --live-tool search_web --writes stub
 ```
 
 ```
+…
+⑂ Forked at call 4: 3 calls replayed, then 20 live, 1 write stubbed; 10 upstream requests (≈$0.066 spent, $0.0061 saved)
+  20 recorded calls left unused after the fork: #6 POST /v1/messages, #7 fetch_page, #8 fetch_page, …
 ✗ Diverged at call 4 (tool search_web): 3 calls replayed before divergence
   forced live by --live-tool search_web
+  shadowlap show 01M2NH0H2W
 ```
 
 `shadowlap doctor` checks the setup if anything along the way behaves differently.
@@ -98,6 +108,7 @@ Found
 
 1. Install
      pnpm add @shadowlap/sdk @shadowlap/adapters   tool effects, through your framework
+…
 ```
 
 With npm and pip, the packages are:
