@@ -1,7 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, lutimesSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LOCK_STALE_MS, releaseLock, takeLock, withLockFile } from '../src/lock-file.js';
 
@@ -248,6 +248,29 @@ describe('takeLock', () => {
     expect(existsSync(lock)).toBe(true);
     // The breaker died holding it: its guard is taken over under the guard's own guard, then the lock.
     writeFileSync(`${lock}.break`, record({ pid: GONE }));
+    withLockFile(lock, { wait: 0, busy }, () => expect(readdirSync(dir)).toEqual(['list.json.lock']));
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('waits for the last guard and never breaks it, though breakers died at every level above it', () => {
+    const guards = [`${lock}.break`, `${lock}.break.break`, `${lock}.break.break.break`];
+    const all = [lock, ...guards].map((p) => basename(p)).sort();
+    writeFileSync(lock, record({ pid: GONE }));
+    writeFileSync(guards[0]!, record({ pid: GONE }));
+    writeFileSync(guards[1]!, record({ pid: GONE }));
+    // A breaker that runs (this process, standing in for another) holds the last guard: it is waited for.
+    writeFileSync(guards[2]!, record({ pid: process.pid }));
+    expect(() => take(100)).toThrow('busy');
+    expect(readdirSync(dir).sort()).toEqual(all);
+    // That breaker died too: the last guard is still never broken, however long it is waited for.
+    writeFileSync(guards[2]!, record({ pid: GONE }));
+    age(guards[2]!);
+    const started = Date.now();
+    expect(() => take(300)).toThrow('busy');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+    expect(readdirSync(dir).sort()).toEqual(all);
+    // Deleted by hand: each guard left is broken under the one after it, and then the lock.
+    rmSync(guards[2]!);
     withLockFile(lock, { wait: 0, busy }, () => expect(readdirSync(dir)).toEqual(['list.json.lock']));
     expect(readdirSync(dir)).toEqual([]);
   });
