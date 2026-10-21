@@ -31,7 +31,7 @@ import { type GuardMode } from '../run-agent.js';
 import { serveTasks } from '../serve-tasks.js';
 import { openStore, parseChoice, parseIntArg, readStore, type GlobalOpts } from '../shared.js';
 import { resolveTarget, targetVia, type ModelTarget } from '../takeover.js';
-import { addJudge, cannotScore, keepScores, loadTasks, scoreTask, type KeptScores, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
+import { addJudge, cannotScore, keepScores, loadTasks, notStarted, scoreTask, type KeptScores, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
 import { palette as p, quoteArgv, shortId } from '../ui.js';
 
 /**
@@ -318,6 +318,11 @@ export function register(program: Command): void {
         if (budgetSpent && spent >= flags.budget!) {
           // Said once: a task the budget stopped has said it already.
           if (score.stopped !== budgetSpent) log(p.yellow(`  ${budgetSpent}`));
+          // The tasks after it start no attempt: each is reported as stopped by the budget, so the
+          // score says it fell short of them (exit 1) rather than leaving them out.
+          const rest = scorable.slice(scorable.indexOf(t) + 1);
+          if (rest.length) log(p.yellow(`  not started: ${rest.map((r) => safeLine(r.name)).join(', ')}`));
+          scores.push(...rest.map((r) => notStarted(r, target, budgetSpent)));
           break;
         }
       }

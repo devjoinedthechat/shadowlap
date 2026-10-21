@@ -649,6 +649,54 @@ describe('a task with a judge check', () => {
   }, 120_000);
 });
 
+describe('a budget spent by the judge checks of an earlier task', () => {
+  let work = '';
+  let db = '';
+  const JUDGE = { name: 'answers', question: 'Does the answer say what was done?', of: 'answer', model: 'claude-haiku-4-5' };
+  const TASKS = ['goldens/first', 'goldens/second'];
+
+  beforeAll(async () => {
+    policy = 'models';
+    ({ work, db } = workdir('sl-tasks-judge-budget-'));
+    for (const dir of TASKS) {
+      const golden = await record(work, [AGENT, '--stream']);
+      const r = await shadowlap(work, ['pack', golden, dir]);
+      expect(r.code, r.out).toBe(0);
+    }
+    // Given after the packs, the judges have no recorded verdict: every attempt asks its judge live.
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: Object.fromEntries(TASKS.map((g) => [g, { expect: { tools: { issue_refund: 0, escalate: 1 }, judge: [JUDGE] }, task: { takeover: 5, why: 'decides between refunding and escalating', rewards: 'escalate above the limit' } }])) }));
+  }, 60_000);
+  afterAll(() => {
+    if (work) rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+
+  type Report = { tasks: Array<{ task: string; spent: number; judge: { spent: number } | null; stopped: string | null; stored: string; attempts: unknown[] }> };
+
+  it('starts no attempt of a later task, says it stopped there, and exits 1', async () => {
+    // What an attempt of the first task costs, and apart, what its judge's call does.
+    const alone = await shadowlap(work, ['tasks', 'score', 'goldens/first', '--model', 'claude-haiku-4-5', '--attempts', '1', '--json']);
+    expect(alone.code, alone.out).toBe(0);
+    const first = (JSON.parse(alone.stdout) as Report).tasks[0]!;
+    expect(first.spent).toBeGreaterThan(0);
+    expect(first.judge!.spent).toBeGreaterThan(0);
+
+    // More than the first task's own calls cost, less than with its judge's: it runs its one
+    // attempt, and the budget is spent before the second starts any.
+    const r = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '1', '--budget', String(first.spent + first.judge!.spent / 2), '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = JSON.parse(r.stdout) as Report;
+    expect(report.tasks.map((t) => [t.task, t.attempts.length, t.stopped])).toEqual([
+      ['goldens/first', 1, null],
+      ['goldens/second', 0, expect.stringMatching(/^the budget of \$[\d.]+ is spent$/)],
+    ]);
+    expect(report.tasks[1]).toMatchObject({ spent: 0, judge: null, stored: 'none' });
+    // Said once, with the tasks it kept from starting.
+    expect(r.out).toMatch(/\n {2}the budget of \$[\d.]+ is spent\n {2}not started: second\n/);
+    // Not one of its attempts ran.
+    expect(withStore(db, (s) => s.allRuns().filter((run) => run.meta?.task?.golden === 'goldens/second'))).toEqual([]);
+  }, 120_000);
+});
+
 describe("a task whose golden's run id the store holds as another recording", () => {
   let work = '';
   let pack = '';

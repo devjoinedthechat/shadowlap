@@ -451,6 +451,14 @@ export async function scoreTask(
   }
 }
 
+/**
+ * A task that started no attempt, for `stopped`: the budget was spent on the tasks before it. It is
+ * reported as stopped, with nothing scored, so a score that never reached it says it fell short.
+ */
+export function notStarted(task: LoadedTask, target: ModelTarget, stopped: string): TaskScore {
+  return { task: task.golden, takeover: task.takeover!.callNo, why: task.takeover!.why, prefix: task.prefix, via: targetVia(target, task.provider), attempts: [], mean: null, spent: 0, judge: null, stopped, dropped: [], unknownModels: [] };
+}
+
 export interface KeptScores {
   /** `replaced`: the earlier score gave way to this one. `new`: there was none. `kept`: this one stopped short, and the earlier one stands. */
   outcome: 'new' | 'replaced' | 'kept' | 'none';
