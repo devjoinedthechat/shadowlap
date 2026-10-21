@@ -259,7 +259,7 @@ It replays each recording offline and fails the check when one diverges, makes a
 
 A Python agent needs its interpreter and packages installed before the action, as for any other step. The action itself needs Node 22.13 or later.
 
-Pin the action to a release tag once there is one. Until `shadowlap` is on npm, the action builds the CLI from its own source, which adds about a minute; after the release, set `version:` to install it from npm instead.
+Set `version:` to the `shadowlap` release your project uses, and the action installs that CLI from npm. Left empty, the action builds the CLI from its own source, which adds about a minute.
 
 | Input | Default | Effect |
 |---|---|---|
@@ -290,10 +290,7 @@ When a recording fails and the logs aren't enough, keep the failed replay as a f
 
 ```yaml
 - if: failure()
-  run: |
-    # Until shadowlap is on npm; after that: npm install -g shadowlap@<version>
-    git clone --depth 1 https://github.com/devjoinedthechat/shadowlap "$RUNNER_TEMP/shadowlap"
-    cd "$RUNNER_TEMP/shadowlap" && npm ci && npm run build && npm link --workspace packages/cli
+  run: npm install -g shadowlap@<version>      # the version the action step names
 - if: failure()
   run: |
     shadowlap --db replays.db test goldens/* --json report.json || true

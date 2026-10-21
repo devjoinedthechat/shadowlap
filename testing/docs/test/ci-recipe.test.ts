@@ -19,7 +19,7 @@ const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const CLI = join(ROOT, 'packages', 'cli', 'bin', 'shadowlap.js');
 const GOLDEN = join(ROOT, 'testing', 'golden', 'reference-agent');
 
-/** The `run: |` scripts of the YAML block in docs/ci.md that exports a run as HTML, in order. */
+/** The `run:` scripts of the YAML block in docs/ci.md that exports a run as HTML, in order: a `run: |` block, or a one-line `run:`. */
 function scripts(): string[] {
   const page = readFileSync(join(ROOT, 'docs', 'ci.md'), 'utf8');
   const block = [...page.matchAll(/^```yaml\n([\s\S]*?)^```/gm)].map((m) => m[1]!).find((b) => b.includes('export html'));
@@ -28,6 +28,8 @@ function scripts(): string[] {
   const indentOf = (l: string) => l.length - l.trimStart().length;
   const found: string[] = [];
   lines.forEach((line, at) => {
+    const one = /^\s*run: (?!\|)(.+)$/.exec(line);
+    if (one) found.push(one[1]!.trim());
     if (!/^\s*run: \|\s*$/.test(line)) return;
     const body: string[] = [];
     for (const l of lines.slice(at + 1)) {
@@ -158,12 +160,10 @@ function replaysOf(dir: string, pack: string) {
 }
 
 describe('the CI steps in docs/ci.md that keep a failed replay', () => {
-  it('install the CLI before they use it, from source until it is on npm', () => {
+  it('install the CLI from npm before they use it, at the version the action names', () => {
     const [install, ...rest] = scripts();
     expect(rest).toEqual([recipe()]);
-    expect(install).toContain('git clone --depth 1 https://github.com/devjoinedthechat/shadowlap "$RUNNER_TEMP/shadowlap"');
-    expect(install).toContain('npm ci && npm run build && npm link --workspace packages/cli');
-    expect(install).toMatch(/npm install -g shadowlap@<version>/);
+    expect(install).toMatch(/^npm install -g shadowlap@<version>\s+# the version the action step names$/);
   });
 
   it('read every run they need to: ls is not left at its default of 50', () => {
