@@ -71,7 +71,7 @@ Tools declare what they do to the world outside their arguments:
 
 ## The network guard
 
-Only calls that go through Shadowlap can be replayed; a tool that isn't wrapped (a direct database client, a raw `fetch`) would execute during a replay with nothing to say so. The guard closes that hole without code changes: `shadowlap run`, `replay` and `test` preload a small module into the agent process (Node through `NODE_OPTIONS --import`, Python through a `sitecustomize` on `PYTHONPATH`; other runtimes ignore both) that intercepts every outbound socket connection. The sidecar is allowed. Anything else is a side effect Shadowlap cannot replay:
+Only calls that go through Shadowlap can be replayed; a tool that isn't wrapped (a direct database client, a raw `fetch`) would execute during a replay with nothing to say so. The guard closes that hole without code changes: `shadowlap run`, `replay` and `test` preload a small module into the agent process (Node through `NODE_OPTIONS --import`, which needs Node 18.18 or later; Python through a `sitecustomize` on `PYTHONPATH`; other runtimes ignore both) that intercepts every outbound socket connection. The sidecar is allowed. Anything else is a side effect Shadowlap cannot replay:
 
 - `--guard warn` (default for `run` and `replay`): the connection proceeds, a one-line warning names the host on stderr, and the run summary lists every bypassing target with a count.
 - `--guard block` (default for `shadowlap test`): the connection is refused before any bytes leave, with an error the agent can catch (`ESHADOWLAP` in Node, `OSError` in Python).

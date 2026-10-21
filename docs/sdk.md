@@ -52,7 +52,7 @@ const requestId = await uuid();
 - A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails throws `ShadowlapInjectedFailure` without running: named `TimeoutError` with code `ETIMEDOUT` for a timeout, with `status` and `statusCode` for an HTTP status, with the given message for an error. `injected` is always `true`.
 - `now()`, `random()` and `uuid()` are asynchronous, because Node has no synchronous HTTP. Give concurrent reads a label to disambiguate them: `now('deadline')`.
 
-Node ≥ 18.18. Zero dependencies. `@shadowlap/sdk` and `@shadowlap/adapters` are ES modules: load them with `import`, or from CommonJS with `await import('@shadowlap/sdk')`; `require()` loads them on Node 20.19, 22.12 and later.
+Node ≥ 18.18, as for any Node agent under Shadowlap: `run`, `replay`, `test` and the commands that replay an agent load the guard and in-process capture into it through `--import` in `NODE_OPTIONS`, which a Node before 18.18 refuses, so the agent never starts, and the CLI says its Node is too old. Zero dependencies. `@shadowlap/sdk` and `@shadowlap/adapters` are ES modules: load them with `import`, or from CommonJS with `await import('@shadowlap/sdk')`; `require()` loads them on Node 20.19, 22.12 and later.
 
 ## Python
 

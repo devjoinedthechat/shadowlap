@@ -1,6 +1,6 @@
 # Quickstart
 
-Install the CLI. It needs Node ≥ 22.16 (and Python ≥ 3.9 only for the Python SDK).
+Install the CLI. It needs Node ≥ 22.16 (and Python ≥ 3.9 only for the Python SDK). An agent on Node needs Node ≥ 18.18.
 
 ```sh
 npm install -g shadowlap

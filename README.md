@@ -153,7 +153,7 @@ cd your-agent
 shadowlap init
 ```
 
-`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes; tools and tests use these packages:
+`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes (an agent on Node needs Node&nbsp;18.18 or later); tools and tests use these packages:
 
 ```sh
 # wrap tools (Node 18.18+)
