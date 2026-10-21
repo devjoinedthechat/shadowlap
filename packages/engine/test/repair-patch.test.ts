@@ -145,7 +145,7 @@ describe('repairPatchProblem', () => {
 
 /**
  * Each file's text after `git apply` of its patch, all in one call: what the patches really do to the
- * files. Applied as `fix apply` first applies one, with no line-ending conversion: under
+ * files. Applied to the files' bytes with no line-ending conversion, as `fix apply` applies one: under
  * core.autocrlf=true, which Git for Windows sets, git apply writes a file whose lines end with LF
  * back with CRLF.
  */

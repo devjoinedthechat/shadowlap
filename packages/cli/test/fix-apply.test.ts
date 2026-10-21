@@ -225,6 +225,40 @@ describe('fix apply of a patch from the store that is more than the change its r
     }
   });
 
+  it('refuses a patch to a file reached through a link, which could lead it out of the working tree', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    const outside = `${project}-outside`;
+    const prompts = join(project, 'prompts');
+    try {
+      // The candidate names prompts/policy.mjs, and prompts links to a folder outside the project.
+      const file = 'prompts/policy.mjs';
+      const code = `export const policy = '${BEFORE}';\n`;
+      mkdirSync(outside);
+      writeFileSync(join(outside, 'policy.mjs'), code);
+      symlinkSync(outside, prompts, process.platform === 'win32' ? 'junction' : undefined);
+      const run = makeRun(store, { labels: ['refund-over-limit'] });
+      recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
+      const dir = '.shadowlap/repairs/repair-mv9gxsdm';
+      const report = repairReport({ targets: [run], dir });
+      report.candidates = report.candidates.map((c) => (c.id === report.accepted ? { ...c, file } : c));
+      report.patch = unifiedDiff(file, code, code.replace(BEFORE, AFTER));
+      mkdirSync(join(project, dir), { recursive: true });
+      writeFileSync(join(project, dir, 'fix.patch'), report.patch);
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+      store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
+      const err = await applyFix(store, fix, options([])).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApplyError);
+      expect((err as Error).message).toBe('prompts/policy.mjs is reached through prompts, which is a link in this working tree, so the patch was not applied: apply it by hand if you mean to');
+      expect(readFileSync(join(outside, 'policy.mjs'), 'utf8')).toBe(code);
+      expect(store.getFix(fix.fixId)!.status).toBe('verified');
+    } finally {
+      store.close();
+      // The link first, then the folder it leads to, which the project's removal after the test doesn't reach.
+      rmSync(prompts, { force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it("puts a teammate's patch in and runs nothing from it, no build and no replay, until it is read", async () => {
     const store = Store.open(join(project, 'shadowlap.db'));
     try {
@@ -261,9 +295,11 @@ describe('fix apply of a patch from the store that is more than the change its r
 
 /**
  * Git for Windows sets core.autocrlf: git checks text files out with CRLF, and git apply writes a file
- * whose lines end with LF back with CRLF, every line of it. Set here in the project, on every system.
+ * whose lines end with LF back with CRLF, every line of it. A text attribute in .gitattributes does
+ * the same with core.autocrlf off, where the line ending git writes is CRLF, as Git for Windows' own
+ * is. Set here in the project, on every system.
  */
-describe('fix apply where git converts line endings (core.autocrlf, as Git for Windows sets it)', () => {
+describe('fix apply where git converts line endings (core.autocrlf, as Git for Windows sets it, or a text attribute)', () => {
   const crlf = (text: string) => text.replace(/\n/g, '\r\n');
   const agentFile = () => readFileSync(join(project, 'agent.mjs'), 'utf8');
   /** The agent checked out again, as git checks it out under core.autocrlf: every line ends with CRLF. */
@@ -281,6 +317,21 @@ describe('fix apply where git converts line endings (core.autocrlf, as Git for W
       expect(result).toMatchObject({ status: 'applied', patch: 'applied' });
       expect(agentFile()).toBe(agent.replace(BEFORE, AFTER));
       expect(status()).toBe(' M agent.mjs\n');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('puts the patch in as the repair verified it where .gitattributes says text=auto and git writes CRLF, a file with LF left with LF', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      writeFileSync(join(project, '.gitattributes'), '* text=auto\n');
+      execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: project });
+      execFileSync('git', ['config', 'core.eol', 'crlf'], { cwd: project });
+      const { fix, agent } = teammateFix(store, (own) => own);
+      const result = await applyFix(store, fix, options([]));
+      expect(result).toMatchObject({ status: 'applied', patch: 'applied' });
+      expect(agentFile()).toBe(agent.replace(BEFORE, AFTER));
     } finally {
       store.close();
     }
