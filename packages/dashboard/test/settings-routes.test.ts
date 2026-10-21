@@ -347,19 +347,22 @@ describe('the redaction preview', () => {
 
     it('ends a preview whose rule takes too long on one call, naming the rule, and answers everything else meanwhile', async () => {
       const run = slowRun();
-      Object.assign(PREVIEW_LIMITS, { softMs: 200, hardMs: 1500 });
+      // The rule runs for minutes, so only the hard limit ends the preview, 5 s after its thread opened
+      // the store: the order of the two answers below is checked within that limit, which leaves a slow
+      // machine seconds to ask the status bar's meta and answer it.
+      Object.assign(PREVIEW_LIMITS, { softMs: 200, hardMs: 5000 });
       const t0 = Date.now();
       let previewed = false;
       const preview = api(`settings/redaction/preview?run=${run.runId}`).finally(() => (previewed = true));
       await new Promise((r) => setTimeout(r, 300));
-      // The server's own thread is free: the status bar's meta answers while the preview runs, which
-      // only its hard limit stops.
+      // The server's own thread is free: meta answers while the preview runs.
       expect((await api('meta')).status).toBe(200);
       expect(previewed, 'the server answered only once the preview was stopped').toBe(false);
       const res = await preview;
       expect(res.status).toBe(422);
-      expect(await error(res)).toBe('The preview stopped after 2 s on one call. Rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.');
-      expect(Date.now() - t0).toBeLessThan(5000);
+      expect(await error(res)).toBe('The preview stopped after 5 s on one call. Rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.');
+      // Stopped at its hard limit, as the page promises, with room for a slow machine to start the thread.
+      expect(Date.now() - t0).toBeLessThan(2 * PREVIEW_LIMITS.hardMs);
     });
 
     it('says the store is busy while another command holds it, and reads it once it is free', async () => {
