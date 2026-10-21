@@ -481,6 +481,30 @@ describe('runs from a pack someone else made', () => {
   });
 });
 
+describe('an outcome that is inconclusive', () => {
+  it('is counted apart in a replay --repeat entry, and a blame its first probe left unsettled says so', () => {
+    const store = Store.open(':memory:');
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 100 }).runId;
+    store.endRun(rec, 'failed', 200);
+    // replay --repeat 3 --expect with a judge: one attempt passed, one failed a check, and one's judge could not answer.
+    const judge = 'judge "calm" answers yes';
+    const checks: RunMeta['checks'][] = [
+      [{ ok: true, status: 'passed', label: judge, detail: null }],
+      [{ ok: false, status: 'failed', label: judge, detail: 'the judge answered no' }],
+      [{ ok: false, status: 'inconclusive', label: judge, detail: "not judged: the judge's call failed: HTTP 400" }],
+    ];
+    checks.forEach((c, i) => {
+      const r = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 300 + i, meta: { repeat: { group: 'g-judge', attempt: i + 1, of: 3 }, checks: c } });
+      store.endRun(r.runId, 'completed', 400 + i);
+    });
+    store.updateRunMeta(rec, { blame: { at: 500, outcome: 'unrescuable', unsettled: true, callNo: null, confidence: 'low', rescuedRunId: null, fields: {}, oracle: [], probes: [{ callNo: 1, passes: 0, attempts: 1, rescued: false }], spent: 0 } });
+    const items = activity(store).items;
+    expect(items.find((i) => i.id === 'g:g-judge')?.text).toMatch(/· 1 of 3 passed their checks, 1 inconclusive$/);
+    expect(items.find((i) => i.id === `r:${rec}:blame`)).toMatchObject({ kind: 'blame', text: 'Blamed · not settled from the first model call' });
+    store.close();
+  });
+});
+
 describe('events as each feature records them', () => {
   /** A capture run of `models` model calls, as an import makes one. */
   const capture = (store: Store, from: string, at: number, models: number, author?: string) => {

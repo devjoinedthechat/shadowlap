@@ -498,6 +498,8 @@ function blamed(run: RunRecord): ActivityItem {
   const item = { ...base(run, `r:${run.runId}:blame`, time(b.at, run.endedAt ?? run.startedAt)), href: '#/fixes' };
   if (b.outcome === 'blamed' && b.callNo !== null) return { ...item, kind: 'blame', text: `Blamed model call #${b.callNo} · confidence ${b.confidence}` };
   if (b.outcome === 'stopped') return { ...item, kind: 'blame', text: `Blame stopped · ${plural(Array.isArray(b.probes) ? b.probes.length : 0, 'call')} probed` };
+  // Its first probe couldn't tell: nothing is settled, which is no finding that no call rescues it.
+  if (b.unsettled === true) return { ...item, kind: 'blame', text: 'Blamed · not settled from the first model call' };
   return { ...item, kind: 'blame', text: 'Blamed · no single call rescued the run' };
 }
 
@@ -518,7 +520,9 @@ function repeated(store: Store, attempts: RunRecord[], parent: RunRecord | undef
     outcome = `${plural(cut.length, 'attempt')} interrupted`;
   } else if (done.length && done.every((a) => a.meta?.checks?.length)) {
     const passed = done.filter((a) => a.meta!.checks!.every((c) => c.ok)).length;
-    outcome = `${passed} of ${done.length} passed their checks`;
+    // One that failed no check but had one that could not be decided is neither passed nor failed: counted apart.
+    const unsure = done.filter((a) => !a.meta!.checks!.some((c) => checkStatus(c) === 'failed') && a.meta!.checks!.some((c) => checkStatus(c) === 'inconclusive')).length;
+    outcome = `${passed} of ${done.length} passed their checks${unsure ? `, ${unsure} inconclusive` : ''}`;
   } else if (forkAt === null) {
     const clean = done.filter((a) => a.status === 'completed').length;
     outcome = `${clean} of ${done.length} replayed clean`;
