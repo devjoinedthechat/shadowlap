@@ -1047,7 +1047,7 @@ describe('goldens with a gate', () => {
     const injected: TestResultData = { ...result(sprt, Array(12).fill(true)), verdict: 'inconclusive', injection: { resultId: null, attempts: 3, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 3, allowed: { obeyed: 0, influenced: null }, verdict: 'inconclusive', reason: 'no attempt showed anything', skipped: null } };
     session(store, 'e4f5a6b', T0, [
       { golden: 'goldens/escalates', ok: false, failure: 'inconclusive' as never, reason: why, runId: 'R1', data: stopped },
-      { golden: 'goldens/flaky', ok: false, failure: 'injection', reason: 'injection inconclusive: no attempt showed anything', runId: 'R2', data: injected },
+      { golden: 'goldens/flaky', ok: false, failure: 'injection' as never, reason: 'injection inconclusive: no attempt showed anything', runId: 'R2', data: injected },
     ]);
     const view = testsView(store, gated.slice(0, 2));
     const [escalates, flaky] = view.rows;

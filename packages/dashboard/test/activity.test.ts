@@ -488,7 +488,7 @@ describe('an outcome that is inconclusive', () => {
     store.endRun(rec, 'failed', 200);
     // replay --repeat 3 --expect with a judge: one attempt passed, one failed a check, and one's judge could not answer.
     const judge = 'judge "calm" answers yes';
-    const checks: RunMeta['checks'][] = [
+    const checks: Array<NonNullable<RunMeta['checks']>> = [
       [{ ok: true, status: 'passed', label: judge, detail: null }],
       [{ ok: false, status: 'failed', label: judge, detail: 'the judge answered no' }],
       [{ ok: false, status: 'inconclusive', label: judge, detail: "not judged: the judge's call failed: HTTP 400" }],
