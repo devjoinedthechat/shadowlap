@@ -7,8 +7,9 @@ import { threadId } from 'node:worker_threads';
 import { processAlive } from './liveness.js';
 
 /**
- * A lock file, so that one process at a time changes a file several processes write:
- * shadowlap.config.json (the CLI and the dashboard's Settings) and the dashboard's project list. A
+ * A lock file, so that one process at a time does what two must never do at once: change
+ * shadowlap.config.json (the CLI and the dashboard's Settings), the dashboard's project list,
+ * `.shadowlap/active.json` or the agent registry, or try a repair's candidates in a working tree. A
  * lock left by a process that died is taken over without anyone's help, and a lock whose process
  * still runs never is.
  *
@@ -21,8 +22,9 @@ import { processAlive } from './liveness.js';
  * process has the holder's id, or the process that has it started after the holder did (the id was
  * given to another process since). A process that is gone can't come back to remove its lock, so a
  * lock found stale stays where it is until another process removes it. A lock written on another
- * machine (a shared folder), by an earlier Shadowlap, or by anything that doesn't say who holds it
- * can't be checked that way: it is stale once nobody has changed it for LOCK_STALE_MS.
+ * machine (a shared folder), or by anything that doesn't say who holds it, can't be checked that
+ * way: it is stale once nobody has changed it for LOCK_STALE_MS. An earlier Shadowlap's names its
+ * process but not when it started: it is stale once that process is gone, or after LOCK_STALE_MS.
  *
  * Taking over. Only a process holding `<lock>.break`, a lock taken the same way, removes a stale
  * lock, and only after reading the lock again and finding the very one it judged: the same file
@@ -45,6 +47,10 @@ import { processAlive } from './liveness.js';
  * earlier Shadowlap's, that keeps the lock longer than LOCK_STALE_MS loses it. On a file system
  * without hard links (FAT) a lock is created in place and its record written after, so a taker
  * stopped for longer than that between the two loses it too.
+ *
+ * Taking over has a limit, which costs waiting, never a second holder: Windows can't tell when a
+ * process started without PowerShell, so there a lock whose holder died, and whose id was given to
+ * a process that still runs, waits for that process to end or for someone to delete the lock.
  */
 
 /** How long a lock whose holder can't be checked stays someone's: no Shadowlap edit takes nearly this long. */
@@ -326,9 +332,11 @@ function idReused(r: Record2): boolean {
     reused = r.start !== null && now !== null && now !== r.start;
   } else if (process.platform !== 'win32' && r.born !== null) {
     // `ps` gives the second a process started in, never later than when it began to run: the holder
-    // itself never shows as starting after its own `born`.
+    // itself never shows as starting after its own `born`, and a second's margin keeps it so should
+    // the clock be set back a little while it starts. An id given again within that second is not
+    // told, and its lock waits for the process that has the id now.
     const started = psStart(r.pid);
-    reused = started !== null && started > r.born;
+    reused = started !== null && started > r.born + 1000;
   }
   if (!reused) {
     if (running.size > 100) running.clear();

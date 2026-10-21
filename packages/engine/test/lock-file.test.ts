@@ -98,6 +98,19 @@ describe('takeLock', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it.skipIf(process.platform === 'linux' || process.platform === 'win32')('never takes over a running holder’s lock because the clock was set back as it started (macOS)', async () => {
+    const holder = await running();
+    // `ps` gives the second it started in. Its own note of when it started, read from a clock set back
+    // a moment as it started, is just before that.
+    const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(holder.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } });
+    const started = Date.parse(`${ps.stdout.trim()} UTC`);
+    expect(started).toBeGreaterThan(0);
+    writeFileSync(lock, record({ pid: holder.pid, born: started - 1 }));
+    age(lock);
+    expect(() => take(300)).toThrow('busy');
+    expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ pid: holder.pid });
+  });
+
   it('takes over a lock it can’t check only once nobody has changed it for LOCK_STALE_MS', () => {
     expect(LOCK_STALE_MS).toBe(10_000);
     const cases: Array<[string, string]> = [
