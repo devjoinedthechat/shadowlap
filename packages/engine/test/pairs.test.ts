@@ -445,8 +445,9 @@ describe('reading pairs', () => {
     expect(findPairs(store).pairs.map((p) => p.id)).toEqual(pairs.map((p) => p.id));
     expect(read).not.toHaveBeenCalled();
     // Held against this machine, not a number of milliseconds: what reading each run's last request
-    // whole takes, the longest it sent, a few times over (the first look also lists the runs and their
-    // calls). Reading every request of every run would take a hundred times that.
+    // whole takes, the longest it sent, 5 to 8 times over on Node 22 and 24 (the first look also lists
+    // the runs and their calls). Reading every request of every run would take a hundred times that:
+    // under 40 times leaves room for other machines and fails it.
     const runs = store.listRuns();
     const { lasts } = timesOf({ lasts: () => runs.forEach((r) => loadApiRequest(store, store.getCalls(r.runId, { only: [N] })[0]!.requestRef!)) });
     expect(found.ms, `finding the pairs took ${times(found.ms, lasts)} reading each run's last request`).toBeLessThan(40 * lasts);

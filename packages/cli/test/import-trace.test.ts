@@ -243,7 +243,9 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     const read = readOtel(withFar);
     expect(read.traces[0]!.calls[0]).toMatchObject({ messages: [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }], output: { parts: [{ type: 'text', text: 'hello' }] } });
     expect(readOtel(without).traces[0]!.calls[0]).toEqual(read.traces[0]!.calls[0]);
-    // Held against this machine, not a number of milliseconds: about what the span takes without them.
+    // Held against this machine, not a number of milliseconds: one and a half to three times what the
+    // span takes without them, on Node 22 and 24 alike, where building an array four billion long takes
+    // far longer.
     const t = timesOf({ withFar: () => readOtel(withFar), without: () => readOtel(without) });
     expect(t.withFar, `the indexes far off took ${times(t.withFar, t.without)} the span without them`).toBeLessThan(20 * t.without);
   });
@@ -261,10 +263,11 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     const [call] = read.traces[0]!.calls;
     expect(call).toMatchObject({ kind: 'model' });
     expect((call as { messages: unknown[] }).messages).toHaveLength(n);
-    // Held against this machine, not a number of milliseconds: about what a copy of the file takes
-    // (written out and parsed again), where copying a list per entry took seconds, tens of times that.
+    // Held against this machine, not a number of milliseconds: 1.5 to 2.5 times what a copy of the file
+    // takes (written out and parsed again), on Node 22 and 24 alike. Copying a list per entry took 21
+    // seconds, over a hundred times that: under 20 times leaves room for both and fails it.
     const t = timesOf({ read: () => readOtel(docs), copy: () => JSON.parse(JSON.stringify(docs)) }, { rounds: 2 });
-    expect(t.read, `reading the trace took ${times(t.read, t.copy)} a copy of it`).toBeLessThan(10 * t.copy);
+    expect(t.read, `reading the trace took ${times(t.read, t.copy)} a copy of it`).toBeLessThan(20 * t.copy);
   });
 });
 

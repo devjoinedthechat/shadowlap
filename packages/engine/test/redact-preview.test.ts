@@ -177,7 +177,8 @@ describe('previewRedaction', () => {
     // Reading every request whole, as the preview must with a rule that sees a whole message: the square of the length.
     const slow = cpuOnce(() => previewRedaction(store, run.runId, [...rules, { kind: 'tool', name: 'nothing', path: '$.messages[0]', replace: 'x' }]));
     expect(p.rules).toEqual(slow.out.rules.slice(0, rules.length));
-    // About five times faster at 400 calls here, and the gap widens with the length; a third is the floor.
+    // About five times faster at 400 calls, on Node 22 and 24 alike, and the gap widens with the length;
+    // a third is the floor.
     expect(fast.ms, `reading each message once took ${times(fast.ms, slow.ms)} reading every request whole`).toBeLessThan(slow.ms / 3);
     // The system prompt, each user turn, and each answer once: the event that streamed it holds the
     // same string as the conversation sends back.

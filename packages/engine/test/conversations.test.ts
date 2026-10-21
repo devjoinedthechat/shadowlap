@@ -372,8 +372,9 @@ describe('a large run', () => {
     b.end();
     const calls = store.getCalls(b.runId);
     // Held against this machine, not a number of milliseconds: placing the requests reads each once,
-    // and takes a few times what reading them does. Comparing every request with every earlier
-    // conversation took several seconds, tens of times that.
+    // and takes three to five times what reading them does, on Node 22 and 24 alike. Comparing every
+    // request with every earlier conversation took several seconds, tens of times that: under 15
+    // times leaves room for other machines and fails it.
     const { read } = timesOf({ read: () => calls.forEach((c) => loadApiRequest(store, c.requestRef!)) });
     // Once: a second call finds the run's conversations worked out.
     const placed = cpuOnce(() => runConversations(store, calls, { attribute: true }));

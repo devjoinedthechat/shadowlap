@@ -111,12 +111,13 @@ describe('repairPatchProblem', () => {
     const one = (before: string, after: string, patch: string) => ({ patch, accepted: 1, candidates: [candidate({ id: 1, before, after })] });
     const hunk = (old: string[], now: string[], same: string[] = []) => ['diff --git a/agent.mjs b/agent.mjs', '--- a/agent.mjs', '+++ b/agent.mjs', `@@ -1,${same.length + old.length} +1,${same.length + now.length} @@`, ...same.map((l) => ` ${l}`), ...old.map((l) => `-${l}`), ...now.map((l) => `+${l}`), ''].join('\n');
     // Each check held against this machine, not a number of milliseconds: a pass over the patch that
-    // writes every character again takes about as long, give or take a few times. Rebuilding the hunk
-    // at every place the candidate's text appears took the square of its length: 27 seconds on the
-    // first of these, a thousand times the pass.
+    // writes every character again, which a check takes up to 5 times on Node 22 and up to 10 times on
+    // Node 24, whose pass takes a third as long. Rebuilding the hunk at every place the candidate's
+    // text appears took the square of its length: 27 seconds on the first of these, over a thousand
+    // times the pass. Under 100 times leaves room for both and fails that.
     const quick = (r: ReturnType<typeof one>) => {
       const t = timesOf({ check: () => repairPatchProblem(r), pass: () => r.patch.replace(/a/g, 'b') }, { rounds: 2 });
-      expect(t.check, `the check took ${times(t.check, t.pass)} a pass over the patch`).toBeLessThan(20 * t.pass);
+      expect(t.check, `the check took ${times(t.check, t.pass)} a pass over the patch`).toBeLessThan(100 * t.pass);
       return repairPatchProblem(r);
     };
     const not = "the lines it changes in agent.mjs are not its accepted candidate's rewrite";
