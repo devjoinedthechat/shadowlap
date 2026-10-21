@@ -178,7 +178,8 @@ export function selectRuns(store: Store, specs: readonly string[], flag: string)
 export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Array<{ fix: Pick<StoredFix, 'fixId' | 'title' | 'status'>; standing: VerdictStanding | null }> } | null): Record<string, unknown> {
   const count = (role: VerifyRole) => {
     const of = r.runs.filter((x) => x.role === role);
-    return { passed: of.filter((x) => x.verdict === 'pass').length, total: of.length };
+    // A run that is inconclusive (its gate ran out between its bounds, or an attempt could not be judged) is counted apart, never as one that failed.
+    return { passed: of.filter((x) => x.verdict === 'pass').length, inconclusive: of.filter((x) => outcomeOf(x) === 'inconclusive').length, total: of.length };
   };
   return {
     verdict: r.verdict,
@@ -193,7 +194,7 @@ export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Ar
     gate: r.gate ?? null,
     change: { fields: r.fields },
     summary: { targets: count('target'), holdout: count('holdout'), good: count('good') },
-    runs: r.runs.map((x) => ({ runId: x.runId, role: x.role, outcome: outcomeOf(x).replace(' ', '-'), passes: x.passes, attempts: x.attempts.length, decision: x.decision ?? null, rate: gateJson(x.gate), deterministic: x.deterministic, recorded: x.recorded, undecided: x.undecided ?? null, runs: x.attempts })),
+    runs: r.runs.map((x) => ({ runId: x.runId, role: x.role, outcome: outcomeOf(x).replace(' ', '-'), passes: x.passes, attempts: x.attempts.length, decision: x.decision ?? null, rate: x.undecided ? null : gateJson(x.gate), deterministic: x.deterministic, recorded: x.recorded, undecided: x.undecided ?? null, runs: x.attempts })),
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
     // Judge checks' calls, apart from the agent's: what they sent upstream and spent. Null when no judge was asked live.
     judge: r.judge ?? null,

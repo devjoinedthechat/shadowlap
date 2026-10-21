@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { decideVerify, gateResult, plain, recordBlame, recordVerdict, SPRT_DEFAULTS, Store, type SprtGate } from '@shadowlap/engine';
 import { fixDetail } from '@shadowlap/dashboard';
 import { blameReport, EXPECT, makeRun, runId, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { verifyJson } from '../src/commands/fix.js';
 import { formatFixDetail } from '../src/fix-format.js';
 
-/** `shadowlap fix show` in a terminal, from the read model its --json prints. */
+/** `shadowlap fix show` in a terminal, from the read model its --json prints, and `verify --json`. */
 describe('shadowlap fix show', () => {
   it("counts an attempt that could not be judged apart in a probe's and a verified run's tally, never as one that failed", () => {
     const store = Store.open(':memory:');
@@ -40,5 +41,28 @@ describe('shadowlap fix show', () => {
     } finally {
       store.close();
     }
+  });
+});
+
+describe('verify --json', () => {
+  it('counts an inconclusive run apart in its summary, and gives a run an unjudged attempt stopped no rate', () => {
+    const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+    const gate: SprtGate = { kind: 'sprt', ...SPRT_DEFAULTS };
+    const target = runId();
+    const good = runId();
+    const verify = verifyReport([
+      { runId: target, role: 'target', pass: true },
+      { runId: good, role: 'good', pass: true },
+    ]);
+    const kept = verify.runs[1]!;
+    verify.runs[1] = { ...kept, attempts: [kept.attempts[0]!, { ...kept.attempts[1]!, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 1, verdict: 'open', decision: 'continue', undecided: why, gate: gateResult(gate, [true], { decision: 'continue' }) };
+    verify.gate = gate;
+    Object.assign(verify, decideVerify(verify.runs, null));
+    const json = verifyJson(verify) as { verdict: string; summary: Record<string, { passed: number; inconclusive: number; total: number }>; runs: Array<{ outcome: string; rate: unknown; undecided: string | null }> };
+    expect(json.verdict).toBe('incomplete');
+    expect(json.summary).toEqual({ targets: { passed: 1, inconclusive: 0, total: 1 }, holdout: { passed: 0, inconclusive: 0, total: 0 }, good: { passed: 0, inconclusive: 1, total: 1 } });
+    // Its gate decided nothing: no rate, and so no verdict line other than the four words.
+    expect(json.runs[1]).toMatchObject({ outcome: 'inconclusive', rate: null, undecided: why });
+    expect(JSON.stringify(json)).not.toContain('undecided ·');
   });
 });
