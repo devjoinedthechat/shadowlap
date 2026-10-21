@@ -111,6 +111,25 @@ describe('pairs from verify and --repeat', () => {
     store.close();
   });
 
+  it('never takes an attempt verify could not judge for a failing one: it pairs nothing, and is counted apart', () => {
+    const store = Store.open(':memory:');
+    const target = recordRun(store, LOST, { status: 'failed' }).run;
+    const attempt = (steps: Step[], verify: NonNullable<RunMeta['verify']>, n: number) => recordRun(store, steps, { parentRunId: target.runId, codeVersion: '370712a+dirty', meta: { verify, repeat: { group: `v1-${target.runId}`, attempt: n, of: 3 } } }).run;
+    const passed = attempt(SAVED, { role: 'target', passed: true, verdict: 'passed' }, 1);
+    // All it fell short on is a judge that could not answer: it answered as a failing attempt does, but failed nothing.
+    attempt(LOST, { role: 'target', passed: false, verdict: 'inconclusive' }, 2);
+    const unjudged = findPairs(store);
+    expect(unjudged.pairs).toEqual([]);
+    expect(unjudged.sources.find((s) => s.kind === 'verify')!.why).toBe('No run both passed and failed: each passed every attempt it was judged in or none, and 1 attempt could not be judged.');
+    // An attempt that did fail makes the pair, and the source line counts the other apart.
+    const failed = attempt(LOST, { role: 'target', passed: false, verdict: 'failed' }, 3);
+    const { pairs, sources } = findPairs(store);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ rejected: { runId: failed.runId, what: 'verify attempt, failed' }, chosen: { runId: passed.runId, what: 'verify attempt, passed' } });
+    expect(sources.find((s) => s.kind === 'verify')!.why).toContain(`Target ${target.runId.slice(0, 10)} failed 1 of 3, 1 inconclusive.`);
+    store.close();
+  });
+
   it('finds the call a verify pair is about in the run it replayed, at the same point of the same path, and none when that run never got there', () => {
     const store = Store.open(':memory:');
     // Each recording is its own order, so no pair is another's; its verify's attempts are asked about that order too.

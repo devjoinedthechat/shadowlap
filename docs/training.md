@@ -16,7 +16,7 @@ A pair is two answers to the same conversation, at the same model call: one that
 | Source | Pairs | Confidence |
 |---|---|---|
 | [`blame`](./blame.md) | At the blamed call, each passing attempt's answer against the recorded one | **high**: blame asked that call again and the run passed, so that answer decided it |
-| [`verify`](./verify.md) | Per verified run, a failing attempt against a passing one, at the first model call where their answers differ | **medium**: the runs parted there, but nothing checked that this answer decided the run |
+| [`verify`](./verify.md) | Per verified run, a failing attempt against a passing one, at the first model call where their answers differ. An attempt verify could not judge (inconclusive) is neither, and pairs nothing | **medium**: the runs parted there, but nothing checked that this answer decided the run |
 | `replay --repeat` | The same, by exit status, when some attempts exited 0 and others didn't | **medium** |
 
 Identical answers count once, whichever source found them: a verify that replays a blamed run and finds the two answers blame already paired adds nothing, and the pair stays high. Answers compare by their text and tool calls, so tool-call ids, whitespace and thinking don't make two answers different. Two answers only make a pair when they answer the same conversation: attempts whose conversations parted before their answers did, as when a live read returned something else, make none, and neither does an answer that also passed, from the same point, in another attempt.
