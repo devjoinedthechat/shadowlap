@@ -108,6 +108,10 @@ export class FakeElement {
   querySelector(selector: string): FakeElement | null {
     return this.querySelectorAll(selector)[0] ?? null;
   }
+  /** No styles and no layout: a style set is kept nowhere, and every size is 0. */
+  readonly style = { setProperty: (): void => undefined, removeProperty: (): string => '', getPropertyValue: (): string => '' };
+  readonly offsetWidth = 0;
+  readonly clientWidth = 0;
   /** Laid out when it is in the page: there is no layout here. */
   getClientRects(): object[] {
     return this.isConnected ? [{}] : [];

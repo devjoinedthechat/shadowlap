@@ -37,8 +37,10 @@ onTestsChanged(paletteSourcesChanged);
 
 export function TestsPage() {
   const app = useApp();
-  const { client, tick, hasKind, actionsOff, guard, watchJob, jobs, toast, meta } = app;
-  const loaded = useLoad(() => client.tests(), 'tests', tick);
+  const { client, tick, feeds, hasKind, actionsOff, guard, watchJob, jobs, toast, meta } = app;
+  // Read again when runs or calls move, and when a session of error-path presets starts or ends:
+  // that moves only their own count, and the actions wait for one on goldens (`chaosRunning`).
+  const loaded = useLoad(() => client.tests(), 'tests', `${tick}:${feeds.chaos ?? 0}`);
   const view = loaded.data;
   const [open, setOpen] = useState<Open | null>(null);
   const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
