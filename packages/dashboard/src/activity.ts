@@ -360,7 +360,6 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   const judged = result?.data?.checks ?? null;
   // A count settled before an attempt a check could not decide keeps that attempt apart: it neither passed nor failed.
   const tally = (a: NonNullable<typeof repeated>) => `${a.passed} of ${a.total} attempts passed${a.inconclusive ? `, ${a.inconclusive} inconclusive` : ''}`;
-  // Neither passed nor failed: its gate ran out of attempts between its bounds, or a check couldn't be judged.
   // Its gate ran out of attempts, or a check could not be judged (which stops a gate before it decides), or its injection gate showed too little to say.
   if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · ${gate?.decision === 'inconclusive' ? gateTally(gate) : result.failure === 'injection' ? 'its injection test showed too little to say' : 'a check could not be judged'}` };
   if (result?.ok) {

@@ -476,10 +476,10 @@ its bounds, the replay never reached the call, which a golden that no longer rep
 that kept an attempt from passing is a check no attempt can decide, such as a judge with no way to
 be asked) or `not-applicable` (the recording has no call the preset can hit, or no result it can
 change, such as a binary one or one that is empty already). An attempt stops after `chaos.timeout`
-seconds (default 300) and fails: an error path can hang. `"chaos": false` leaves a golden out of `test --chaos`. Each
-attempt is a run bundled under the golden's recording, and the session and every result are kept in
-the store for the dashboard. Exit status: 1 when a preset failed, a golden couldn't be run, or (with
-`--inconclusive fail`) a preset was inconclusive; 130 or 143 on a signal.
+seconds (default 300) and fails: an error path can hang. `"chaos": false` leaves a golden out of
+`test --chaos`. Each attempt is a run bundled under the golden's recording, and the session and
+every result are kept in the store for the dashboard. Exit status: 1 when a preset failed, a golden
+couldn't be run, or (with `--inconclusive fail`) a preset was inconclusive; 130 or 143 on a signal.
 
 ```
 ⚡ goldens/forecast: 6 error-path presets at get_forecast (#3) and model call #4
