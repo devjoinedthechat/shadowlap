@@ -33,7 +33,7 @@ export function CallsToolbar({ counts, filter, onFilter, text, onText, inputRef 
     ...(counts.over ? ([['over', 'Overridden']] as Array<[OriginFilter, string]>) : []),
     ...(counts.inject ? ([['inject', 'Injected']] as Array<[OriginFilter, string]>) : []),
     ...(counts.fail ? ([['fail', 'Failed']] as Array<[OriginFilter, string]>) : []),
-    ['block', 'Fenced'],
+    ['block', 'Blocked'],
   ];
   return (
     <div className="toolbar">
