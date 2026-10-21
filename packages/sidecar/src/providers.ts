@@ -1,4 +1,5 @@
 import { eventStreamMessages, type Usage } from '@shadowlap/engine';
+import { PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY } from './placeholders.js';
 
 /**
  * A provider module is small and declarative: where to forward, which headers
@@ -34,6 +35,23 @@ export interface Provider {
   fingerprintHeaders: readonly string[];
   /** Lower-cased headers that are forwarded upstream but never stored. */
   credentialHeaders: readonly string[];
+  /**
+   * Where its official SDKs take a key from, when they take one from the environment. A replay's
+   * agent gets `placeholders` (each variable with its placeholder value, placeholders.ts) when the
+   * environment holds none of `credentials`, nor the files the CLI checks besides (AWS's shared
+   * files, an Anthropic profile, the Azure CLI's sign-in): see the CLI's placeholder-keys.ts. A live
+   * call that would carry one is refused, saying to set `set`. With `onlyWhereRecorded`, a replay
+   * gives one only when the recording's own environment held the key, whatever the replay: a client
+   * that signs in another way may refuse a key beside it (Azure's token provider). Absent for a
+   * provider whose clients fetch a token before they call it (Vertex AI): no placeholder stands in.
+   */
+  keys?: {
+    placeholders: Readonly<Record<string, string>>;
+    /** Variables any one of which, set and not empty, is a credential its SDKs use, which a placeholder must not replace. */
+    credentials: readonly string[];
+    set: string;
+    onlyWhereRecorded?: boolean;
+  };
   /** Header the official SDKs set to the retry attempt number (0 on the first attempt). */
   retryCountHeader?: string;
   isRetryableStatus(status: number): boolean;
@@ -118,7 +136,11 @@ export const anthropic: Provider = {
   // Every path of the API is under /v1: one that isn't comes from a client whose base URL held it.
   apiPath: (path) => (/^\/v1(\/|$)/.test(path) ? path : `/v1${path}`),
   fingerprintHeaders: ['anthropic-version', 'anthropic-beta'],
+  // The key travels as x-api-key, or as a bearer token (anthropic for Python 2.0 and later, a profile's sign-in).
   credentialHeaders: ['x-api-key', ...COMMON_CREDENTIAL_HEADERS],
+  // A profile (ANTHROPIC_PROFILE, or a config file the CLI looks for) and workload identity
+  // federation are credentials too: with a key in the environment the SDKs would use the key instead.
+  keys: { placeholders: { ANTHROPIC_API_KEY: PLACEHOLDER_KEY }, credentials: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_PROFILE', 'ANTHROPIC_FEDERATION_RULE_ID'], set: 'ANTHROPIC_API_KEY' },
   retryCountHeader: 'x-stainless-retry-count',
   isRetryableStatus: stainlessRetryable,
   extractUsage(body, contentType) {
@@ -188,6 +210,7 @@ export const openai: Provider = {
   sdkPath: '/v1',
   fingerprintHeaders: ['openai-beta'],
   credentialHeaders: ['openai-organization', 'openai-project', ...COMMON_CREDENTIAL_HEADERS],
+  keys: { placeholders: { OPENAI_API_KEY: PLACEHOLDER_KEY }, credentials: ['OPENAI_API_KEY', 'OPENAI_ADMIN_KEY'], set: 'OPENAI_API_KEY' },
   retryCountHeader: 'x-stainless-retry-count',
   isRetryableStatus: stainlessRetryable,
   extractUsage(body, contentType) {
@@ -263,6 +286,8 @@ export const gemini: Provider = {
   // The API key may also travel in the query string (?key=...); the query is forwarded but never
   // part of the call name, the fingerprint or the stored metadata.
   credentialHeaders: ['x-goog-api-key', ...COMMON_CREDENTIAL_HEADERS],
+  // Google's SDKs read either variable (GOOGLE_API_KEY first), and other libraries one or the other.
+  keys: { placeholders: { GEMINI_API_KEY: PLACEHOLDER_KEY, GOOGLE_API_KEY: PLACEHOLDER_KEY }, credentials: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], set: 'GEMINI_API_KEY' },
   isRetryableStatus: (status) => status === 408 || status === 429 || status >= 500,
   extractUsage(body, contentType) {
     if (contentType?.includes('text/event-stream')) {
@@ -301,6 +326,9 @@ export const azure: Provider = {
   env: () => ({}),
   fingerprintHeaders: ['openai-beta'],
   credentialHeaders: ['api-key', 'openai-organization', 'openai-project', ...COMMON_CREDENTIAL_HEADERS],
+  // Microsoft Entra ID is a credential too. The Node client refuses a key beside a token provider,
+  // which the environment can't show: only a recording whose environment held the key gets one.
+  keys: { placeholders: { AZURE_OPENAI_API_KEY: PLACEHOLDER_KEY }, credentials: ['AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_AD_TOKEN', 'AZURE_CLIENT_ID', 'AZURE_FEDERATED_TOKEN_FILE', 'IDENTITY_ENDPOINT', 'MSI_ENDPOINT'], set: 'AZURE_OPENAI_API_KEY', onlyWhereRecorded: true },
   retryCountHeader: 'x-stainless-retry-count',
   isRetryableStatus: stainlessRetryable,
   extractUsage: (body, contentType) => openai.extractUsage(body, contentType),
@@ -354,6 +382,15 @@ export const bedrock: Provider = {
   env: () => ({}),
   fingerprintHeaders: [],
   credentialHeaders: ['x-amz-security-token', 'x-amz-content-sha256', 'x-amz-date', 'x-amzn-trace-id', ...COMMON_CREDENTIAL_HEADERS],
+  // Every source of the AWS SDKs' default credential chain the environment can name (the CLI checks
+  // the shared files too), and a Bedrock API key. An instance role the metadata service hands out
+  // is named by none: a recording made with one keeps no AWS key in its note (keyEnv), so
+  // `shadowlap replay` gives none and leaves the role to the agent.
+  keys: {
+    placeholders: { AWS_ACCESS_KEY_ID: PLACEHOLDER_AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: PLACEHOLDER_KEY },
+    credentials: ['AWS_ACCESS_KEY_ID', 'AWS_PROFILE', 'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_BEARER_TOKEN_BEDROCK'],
+    set: 'AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY',
+  },
   isRetryableStatus: (status) => status === 408 || status === 429 || status >= 500,
   extractUsage(body, contentType) {
     if (isEventStream(contentType)) {

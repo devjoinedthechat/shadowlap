@@ -9,7 +9,8 @@ import { judgesOf, type Judged } from '../judge.js';
 import { emitJobEvent } from '../job-events.js';
 import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
-import { judgeAttempt, parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, replayPlaceholders, runUnderSidecar, testAttempt, type BeforeEnd, type GuardMode } from '../run-agent.js';
+import { placeholderKeys, placeholdersFor } from '../placeholder-keys.js';
+import { judgeAttempt, parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type BeforeEnd, type GuardMode } from '../run-agent.js';
 import { readExpect } from './fix.js';
 import { givenCommand } from './testing.js';
 import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, readStore, recordEvents, requireEnded, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
@@ -172,9 +173,10 @@ export function register(program: Command): void {
         return;
       }
       const replay: Partial<ReplayOptions> = { writes: flags.writes, reads: flags.reads, liveTools: new Set(flags.liveTool) };
-      // An agent with no key of its own for a provider the run called gets a placeholder: a clean
-      // replay needs no real key, and a placeholder never leaves this machine.
-      const env = replayPlaceholders(process.env, parentCalls);
+      // A placeholder for each provider whose key the recording's environment held and this one lacks,
+      // so a clean replay needs no real key: the agent took its key from the environment then. Anything
+      // else the agent signs in with is left to it, and the sidecar sends no call that carries one.
+      const env = placeholderKeys(process.env, { calls: parentCalls, keyEnv: parent.meta?.keyEnv }, 'replay');
       // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
       if (parent.meta?.covers?.length) replay.kinds = new Set(parent.meta.covers);
       if (flags.liveInput) replay.liveInput = true;
@@ -319,7 +321,8 @@ export function register(program: Command): void {
         }
         say(`${p.yellow('⑂')} Calibrating ${shortId(parent.runId)} (${safe(quoteArgv(parent.command.argv))}): replaying it offline until it is clean\n\n`);
         const offline = Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
-        const placeholders = replayPlaceholders(process.env, store.getCalls(parent.runId));
+        // Offline, the agent gets a placeholder for each key the environment lacks.
+        const placeholders = placeholdersFor(store, parent, 'offline');
         const proposals: Proposal[] = [];
         // The blobs this calibration's own replays wrote: the only ones it collects afterwards.
         const written = new Set<string>();

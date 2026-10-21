@@ -3,7 +3,7 @@ import { APIError } from '@anthropic-ai/sdk';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { anthropic, carriesPlaceholder, onThisMachine, REPLAY_AWS_KEY_ID, REPLAY_KEY, Sidecar } from '../src/index.js';
+import { anthropic, carriesPlaceholder, onThisMachine, PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY, Sidecar } from '../src/index.js';
 
 /**
  * The placeholder key an offline replay gives an agent with no key of its own (`shadowlap replay`,
@@ -41,7 +41,7 @@ async function liveCall(apiKey: string, o: { api: string; configured?: string })
 
 describe('a placeholder key', () => {
   it('never leaves this machine: the call is answered with why, once, and recorded as an error', async () => {
-    const { error, calls } = await liveCall(REPLAY_KEY, { api: 'https://api.placeholder.invalid' });
+    const { error, calls } = await liveCall(PLACEHOLDER_KEY, { api: 'https://api.placeholder.invalid' });
     expect(error).toBeInstanceOf(APIError);
     // 401: the SDK doesn't try again, and says what Shadowlap said.
     expect((error as APIError).status).toBe(401);
@@ -49,21 +49,21 @@ describe('a placeholder key', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.end).toMatchObject({ outcome: 'error', meta: { status: 401, error: { name: 'ShadowlapNoKey' } } });
     // Set as the provider's upstream, a host elsewhere is refused the same way.
-    expect(await liveCall(REPLAY_KEY, { api: local.url, configured: 'https://models.placeholder.invalid' })).toMatchObject({ sent: 0, error: { status: 401 } });
+    expect(await liveCall(PLACEHOLDER_KEY, { api: local.url, configured: 'https://models.placeholder.invalid' })).toMatchObject({ sent: 0, error: { status: 401 } });
   });
 
   it('goes to a server on this machine, a mock or a local model server, which asks no key of the provider’s', async () => {
-    expect(await liveCall(REPLAY_KEY, { api: 'https://api.placeholder.invalid', configured: local.url })).toMatchObject({ error: null, sent: 1 });
-    expect(await liveCall(REPLAY_KEY, { api: local.url })).toMatchObject({ error: null, sent: 1 });
+    expect(await liveCall(PLACEHOLDER_KEY, { api: 'https://api.placeholder.invalid', configured: local.url })).toMatchObject({ error: null, sent: 1 });
+    expect(await liveCall(PLACEHOLDER_KEY, { api: local.url })).toMatchObject({ error: null, sent: 1 });
     expect(await liveCall('sk-ant-a-real-key', { api: local.url })).toMatchObject({ error: null, sent: 1 });
   });
 
   it('is found in any credential header, an AWS signature or the query', () => {
-    expect(carriesPlaceholder({ 'x-api-key': REPLAY_KEY }, ['x-api-key'], '')).toBe(true);
-    expect(carriesPlaceholder({ authorization: `Bearer ${REPLAY_KEY}` }, ['authorization'], '')).toBe(true);
-    expect(carriesPlaceholder({ authorization: `AWS4-HMAC-SHA256 Credential=${REPLAY_AWS_KEY_ID}/20261021/us-east-1/bedrock/aws4_request, SignedHeaders=host, Signature=0` }, ['authorization'], '')).toBe(true);
-    expect(carriesPlaceholder({}, ['x-goog-api-key'], `?alt=sse&key=${REPLAY_KEY}`)).toBe(true);
-    expect(carriesPlaceholder({ 'x-api-key': 'sk-ant-real', 'x-other': REPLAY_KEY }, ['x-api-key'], '')).toBe(false);
+    expect(carriesPlaceholder({ 'x-api-key': PLACEHOLDER_KEY }, ['x-api-key'], '')).toBe(true);
+    expect(carriesPlaceholder({ authorization: `Bearer ${PLACEHOLDER_KEY}` }, ['authorization'], '')).toBe(true);
+    expect(carriesPlaceholder({ authorization: `AWS4-HMAC-SHA256 Credential=${PLACEHOLDER_AWS_ACCESS_KEY_ID}/20261021/us-east-1/bedrock/aws4_request, SignedHeaders=host, Signature=0` }, ['authorization'], '')).toBe(true);
+    expect(carriesPlaceholder({}, ['x-goog-api-key'], `?alt=sse&key=${PLACEHOLDER_KEY}`)).toBe(true);
+    expect(carriesPlaceholder({ 'x-api-key': 'sk-ant-real', 'x-other': PLACEHOLDER_KEY }, ['x-api-key'], '')).toBe(false);
   });
 
   it('knows a host on this machine from one elsewhere', () => {

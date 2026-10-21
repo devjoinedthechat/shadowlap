@@ -4,7 +4,8 @@ import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
 import { codeVersion, type ShadowlapConfig } from './config.js';
 import { killTree } from './kill-tree.js';
-import { agentEnv, outputDrained, placeholderAwsCredentials, providerIds, type GuardMode } from './run-agent.js';
+import { placeholderKeys } from './placeholder-keys.js';
+import { agentEnv, outputDrained, providerIds, type GuardMode } from './run-agent.js';
 
 /**
  * `shadowlap decisions --from-code`: the prompt and tools the working tree sends now, read without
@@ -86,7 +87,7 @@ export async function captureFromCode(input: CaptureInput): Promise<FromCodeCapt
       ...(input.commandFromImport ? { commandFromImport: true } : {}),
     });
     runId = run.runId;
-    const child = spawnAgent(input.argv[0]!, input.argv.slice(1), { cwd: input.cwd, env: { ...agentEnv(sidecar, run.runId, input.guard, upstreams), ...placeholderAwsCredentials(process.env, recorded) }, stdio: ['ignore', 'pipe', 'pipe'], detached: GROUP }, { url: sidecar.url, runId: run.runId });
+    const child = spawnAgent(input.argv[0]!, input.argv.slice(1), { cwd: input.cwd, env: { ...agentEnv(sidecar, run.runId, input.guard, upstreams), ...placeholderKeys(process.env, { calls: recorded, keyEnv: parent.meta?.keyEnv }, 'offline') }, stdio: ['ignore', 'pipe', 'pipe'], detached: GROUP }, { url: sidecar.url, runId: run.runId });
     let output = '';
     child.stdout!.on('data', (d: Buffer) => (output = (output + d.toString()).slice(-4000)));
     child.stderr!.on('data', (d: Buffer) => (output = (output + d.toString()).slice(-4000)));

@@ -6,12 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { startMockOpenAI, turn, type MockServer as OpenAIMock } from '@shadowlap-testing/mock-openai';
-import { placeholderKeys } from '../src/index.js';
 
 /**
- * A clean replay needs no real key, and CI no secrets: an agent recorded with its keys replays with
- * none in the environment. Its SDKs read their keys from there, and refuse to send a request without
- * one, even one the recording answers, so the replay gives them a placeholder.
+ * A clean replay needs no real key, and CI no secrets: an agent recorded with its keys in the
+ * environment replays with none there. Its SDKs read their keys from there, and refuse to send a
+ * request without one, even one the recording answers, so the replay gives them a placeholder, here
+ * for two providers in one run. Which keys a replay gets is placeholder-keys.test.ts's to show.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./keyless-agent.mjs', import.meta.url));
@@ -29,11 +29,11 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-/** The environment without any key, endpoint or Shadowlap setting of this machine's. */
+/** The environment without any key, endpoint or Shadowlap setting of this machine's, nor an Anthropic profile it signed in with. */
 function bare(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const k of Object.keys(env)) if (/^(SHADOWLAP_|ANTHROPIC_|OPENAI_|GEMINI_|GOOGLE_|AZURE_|AWS_|NODE_OPTIONS$)/.test(k)) delete env[k];
-  return { ...env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: join(dir, 'home') };
+  return { ...env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: join(dir, 'home'), ANTHROPIC_CONFIG_DIR: join(dir, 'no-profile') };
 }
 
 function run(argv: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string }> {
@@ -74,11 +74,4 @@ describe('a replay with no key in the environment', () => {
     expect(anthropic.requests.length + openai.requests.length).toBe(sent);
   });
 
-  it('gives a placeholder only for a provider the run called that has no key here', () => {
-    const calls = [{ meta: { provider: 'anthropic' } }, { meta: { provider: 'openai' } }, { meta: {} }] as never[];
-    expect(placeholderKeys({}, calls)).toEqual({ ANTHROPIC_API_KEY: expect.any(String), OPENAI_API_KEY: expect.any(String) });
-    expect(placeholderKeys({ ANTHROPIC_AUTH_TOKEN: 'token', OPENAI_API_KEY: ' ' }, calls)).toEqual({ OPENAI_API_KEY: expect.any(String) });
-    expect(placeholderKeys({}, [{ meta: { provider: 'gemini' } }, { meta: { provider: 'azure' } }, { meta: { provider: 'vertex' } }] as never[])).toEqual({ GEMINI_API_KEY: expect.any(String), AZURE_OPENAI_API_KEY: expect.any(String) });
-    expect(placeholderKeys({ GOOGLE_API_KEY: 'k' }, [{ meta: { provider: 'gemini' } }] as never[])).toEqual({});
-  });
 });

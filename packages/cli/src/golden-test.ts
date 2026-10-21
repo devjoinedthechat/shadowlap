@@ -5,7 +5,8 @@ import { oracleLabels } from './attempts.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
 import { type JunitCase } from './junit.js';
-import { providerIds, replayPlaceholders, testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
+import { placeholdersFor } from './placeholder-keys.js';
+import { providerIds, testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { withoutCommand } from './shared.js';
 import { type PackResult } from './test-report.js';
 
@@ -132,8 +133,8 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   // A recording marked `fork` may diverge on purpose; from the fork on it needs the real providers.
   const live = ctx.online || !!spec?.fork;
   const upstreams = live ? upstreamOverrides(process.env) : Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
-  // Offline, an agent with no key of its own gets a placeholder for each provider the recording called.
-  const extraEnv = live ? {} : replayPlaceholders(process.env, ctx.store.getCalls(parent.runId));
+  // Offline, its agent gets a placeholder for each key the environment lacks: nothing it sends goes live.
+  const extraEnv = live ? {} : placeholdersFor(ctx.store, parent, 'offline');
   const attempts: TestAttempt[] = [];
   // A gate decides as attempts come in, up to its limit; without one, `repeat` attempts run.
   const gate = spec?.gate ? withLimit(spec.gate, ctx.maxAttempts) : null;

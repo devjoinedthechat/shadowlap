@@ -1,10 +1,9 @@
 import { spawn } from 'node:child_process';
 import { existsSync, fstatSync, readFileSync, statSync, type BigIntStats } from 'node:fs';
-import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
-import { httpRuleMatcher, providers, REPLAY_AWS_KEY_ID, REPLAY_KEY, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
+import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { AGENT_NODE_TOO_OLD, nodeRefusesPreload, refusedPreload } from './agent-node.js';
@@ -17,6 +16,7 @@ import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { noteUnrecordedTools } from './not-recorded.js';
+import { stampKeyEnv } from './placeholder-keys.js';
 import { pushIfQueued, teamEnv } from './team.js';
 import { palette as p, shortId } from './ui.js';
 
@@ -127,53 +127,6 @@ export function recordsInput(store: Store, runId: string): void {
   store.updateRunMeta(runId, { inputs: true });
 }
 
-const AWS_CREDENTIAL_SOURCES = ['AWS_ACCESS_KEY_ID', 'AWS_PROFILE', 'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'];
-
-/**
- * AWS clients refuse to send a request without credentials, even one Shadowlap will serve from a
- * recording. An offline replay of a run with Bedrock calls gets placeholders when the environment
- * has no credential source at all, so CI needs no AWS secrets. Nothing signed with them leaves the machine.
- */
-export function placeholderAwsCredentials(env: NodeJS.ProcessEnv, calls: readonly Pick<CallRecord, 'meta'>[], home = homedir()): Record<string, string> {
-  if (!calls.some((c) => c.meta.provider === 'bedrock')) return {};
-  if (AWS_CREDENTIAL_SOURCES.some((name) => env[name])) return {};
-  const sharedFiles = [env.AWS_SHARED_CREDENTIALS_FILE || join(home, '.aws', 'credentials'), env.AWS_CONFIG_FILE || join(home, '.aws', 'config')];
-  if (sharedFiles.some((f) => existsSync(f))) return {};
-  return { AWS_ACCESS_KEY_ID: REPLAY_AWS_KEY_ID, AWS_SECRET_ACCESS_KEY: REPLAY_KEY };
-}
-
-/**
- * The variables each provider's official SDKs read their key from; a placeholder goes in the first.
- * Vertex AI's clients sign in with Google credentials, which no placeholder stands in for.
- */
-const PROVIDER_KEYS: Readonly<Record<string, readonly string[]>> = {
-  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
-  openai: ['OPENAI_API_KEY'],
-  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
-  azure: ['AZURE_OPENAI_API_KEY'],
-};
-
-/**
- * The official SDKs refuse to send a request without a key (`new OpenAI()` throws as it is built,
- * `new Anthropic()` on its first call), even one a replay serves from the recording. An offline
- * replay gives the agent a placeholder for each provider its recording called that has no key in the
- * environment, so a clean replay needs no real key. A placeholder never leaves the machine: a call
- * past a fork that would take one to another host is answered with why.
- */
-export function placeholderKeys(env: NodeJS.ProcessEnv, calls: readonly Pick<CallRecord, 'meta'>[]): Record<string, string> {
-  const called = new Set(calls.map((c) => c.meta.provider));
-  const keys: Record<string, string> = {};
-  for (const [provider, names] of Object.entries(PROVIDER_KEYS)) {
-    if (called.has(provider) && !names.some((name) => env[name]?.trim())) keys[names[0]!] = REPLAY_KEY;
-  }
-  return keys;
-}
-
-/** What an offline replay stands in for when the environment has none: the providers' keys and AWS credentials. */
-export function replayPlaceholders(env: NodeJS.ProcessEnv, calls: readonly Pick<CallRecord, 'meta'>[], home = homedir()): Record<string, string> {
-  return { ...placeholderKeys(env, calls), ...placeholderAwsCredentials(env, calls, home) };
-}
-
 export interface TestAttempt {
   ended: ReturnType<Sidecar['endRun']>;
   code: number;
@@ -228,6 +181,7 @@ export async function testAttempt(
   if (o.meta) store.updateRunMeta(run.runId, o.meta);
   // Who replayed it: `shadowlap test`'s runs show by whom on Runs, as every other run does.
   stampAuthor(store, run.runId);
+  stampKeyEnv(store, run.runId);
   recordsInput(store, run.runId);
   o.onRun?.(run.runId);
   // The agent gets a process group of its own, so stopping it also stops what it started (`npm run`,
@@ -610,6 +564,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   });
   const run = start(sidecar);
   stampAuthor(store, run.runId);
+  stampKeyEnv(store, run.runId);
   recordsInput(store, run.runId);
   process.stderr.write(p.dim(`[shadowlap] ${run.mode === 'record' ? 'recording' : 'replaying'} run ${run.runId}\n`));
   // MCP clients often start servers with a minimal environment; `shadowlap mcp` finds the sidecar through this file.
@@ -731,6 +686,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const i = next++;
       const run = start(sidecar);
       store.updateRunMeta(run.runId, { repeat: { group, attempt: i + 1, of: count }, ...newRunMeta() });
+      stampKeyEnv(store, run.runId);
       recordsInput(store, run.runId);
       emitJobEvent({ type: 'run', runId: run.runId, role: 'attempt' });
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);

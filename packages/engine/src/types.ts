@@ -247,6 +247,14 @@ export interface RunMeta {
   inputs?: boolean;
   /** The run replayed a command that came from an imported pack. */
   commandFromImport?: boolean;
+  /**
+   * The providers whose credentials the environment the run's agent started in held, each with the
+   * variables among those its SDKs read that held its key (none for a credential of another kind: a
+   * profile, AWS's shared files, an identity). Names only, never a value. `shadowlap replay` gives
+   * the agent a placeholder in those variables when the replay's environment has none (the CLI's
+   * placeholder-keys.ts): the agent took its key from the environment then, so it takes one now.
+   */
+  keyEnv?: Record<string, string[]>;
   /** One attempt of `shadowlap replay --repeat`: attempts of one invocation share the group. */
   repeat?: { group: string; attempt: number; of: number };
   /** Outcome checks from `shadowlap test` or `shadowlap blame`, as they came out for this run: a judge check's with its verdict and reason. Older runs' carry no `status`: read it with `checkStatus`. */

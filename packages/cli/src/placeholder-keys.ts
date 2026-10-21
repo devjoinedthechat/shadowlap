@@ -1,0 +1,159 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { isReservedScope, type CallRecord, type Store } from '@shadowlap/engine';
+import { providers, type Provider } from '@shadowlap/sidecar';
+
+/**
+ * Placeholder keys for a replay's agent, and the note a run keeps of the keys its environment held.
+ *
+ * A model client built the default way (`new Anthropic()`, `new OpenAI()`, Google's client) takes its
+ * key from the environment and fails before it sends anything when there is none, even on a replay
+ * that the recording answers in full. With a placeholder it sends its requests, and the recording
+ * answers them. The sidecar refuses any live call that would carry one (placeholders.ts in the
+ * sidecar), so a placeholder never goes anywhere. None replaces a credential the environment holds,
+ * of any kind the provider's SDKs read: a key, a token, a profile, an identity, a shared file.
+ *
+ * - An offline replay (`shadowlap test`, unless `--online` or the golden may fork; recorded tests;
+ *   `bisect` without `--fork`; `calibrate`; `coverage --pack`; `decisions --from-code`) gets one for
+ *   each provider its recording called. Nothing it does goes live.
+ * - `shadowlap replay`, which goes live from a fork, gets one only for a provider whose key the
+ *   recording's own environment held (`RunMeta.keyEnv`): its agent took the key from the environment
+ *   then. An agent that brought its own key (a .env file it loads, a local server's dummy key), signed
+ *   in another way (a token provider, an instance role) or ran where nothing says (an import, a run
+ *   made before runs kept the note) gets none, so a fork goes live with what the agent has.
+ * - A provider marked `onlyWhereRecorded` (Azure OpenAI) gets one only where the recording's
+ *   environment held its key, in every replay: a client that signs in with a token provider refuses
+ *   a key beside it.
+ * - What forks on purpose to run live (blame, verify and repair attempts, `--chaos`, `test --update`,
+ *   a golden that may fork) gets none: a live call needs the real key.
+ */
+
+type Env = NodeJS.ProcessEnv;
+
+const held = (env: Env, name: string) => !!env[name]?.trim();
+
+/**
+ * The folders the Anthropic SDKs look for a profile in: ANTHROPIC_CONFIG_DIR, else on Windows
+ * `%APPDATA%\Anthropic`, elsewhere `$XDG_CONFIG_HOME/anthropic` (the TypeScript SDK) and
+ * `~/.config/anthropic` (both).
+ */
+function anthropicConfigDirs(env: Env, home: string): string[] {
+  const set = env.ANTHROPIC_CONFIG_DIR?.trim();
+  if (set) return [set];
+  if (process.platform === 'win32') {
+    const appData = env.APPDATA?.trim() || (env.USERPROFILE?.trim() ? join(env.USERPROFILE.trim(), 'AppData', 'Roaming') : '');
+    return appData ? [join(appData, 'Anthropic')] : [];
+  }
+  const xdg = env.XDG_CONFIG_HOME?.trim();
+  return [...(xdg ? [join(xdg, 'anthropic')] : []), join(home, '.config', 'anthropic')];
+}
+
+/**
+ * An Anthropic profile the SDKs would sign in with when the environment holds no key: the active
+ * profile's config, `configs/<name>.json`, where `active_config` names it, or `default`.
+ */
+function anthropicProfile(env: Env, home: string): boolean {
+  return anthropicConfigDirs(env, home).some((root) => {
+    let profile = 'default';
+    try {
+      profile = readFileSync(join(root, 'active_config'), 'utf8').trim() || 'default';
+    } catch {
+      // no active profile named: the default one
+    }
+    return /^[\w.-]+$/.test(profile) && existsSync(join(root, 'configs', `${profile}.json`));
+  });
+}
+
+/** The Azure CLI signed in (a token cache, or a service principal), which Microsoft Entra ID credentials can come from. */
+function azureCliSignIn(env: Env, home: string): boolean {
+  const dir = env.AZURE_CONFIG_DIR?.trim() || join(home, '.azure');
+  return ['msal_token_cache.json', 'msal_token_cache.bin', 'service_principal_entries.json', 'service_principal_entries.bin'].some((f) => existsSync(join(dir, f)));
+}
+
+/**
+ * Whether the environment holds a credential the provider's SDKs would use, of any kind: a variable
+ * they read, set and not empty (a CI secret a pull request from a fork doesn't get is empty), or the
+ * files they read when there is none.
+ */
+export function hasCredentials(provider: Provider, env: Env, home = homedir()): boolean {
+  if (!provider.keys) return false;
+  if (provider.keys.credentials.some((name) => held(env, name))) return true;
+  if (provider.id === 'bedrock') return [env.AWS_SHARED_CREDENTIALS_FILE || join(home, '.aws', 'credentials'), env.AWS_CONFIG_FILE || join(home, '.aws', 'config')].some((f) => existsSync(f));
+  if (provider.id === 'anthropic') return anthropicProfile(env, home);
+  if (provider.id === 'azure') return azureCliSignIn(env, home);
+  return false;
+}
+
+/**
+ * The providers whose credentials the environment holds, each with the placeholder variables that
+ * hold its key (none for a credential of another kind): what a run keeps as `RunMeta.keyEnv`. Names
+ * only, never a value.
+ */
+export function keyEnvOf(env: Env, home = homedir()): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const p of providers) {
+    if (!p.keys || !hasCredentials(p, env, home)) continue;
+    out[p.id] = Object.keys(p.keys.placeholders).filter((name) => held(env, name));
+  }
+  return out;
+}
+
+/** A recording's note as it can be trusted: a pack's run says what it likes, so only providers and variables Shadowlap knows count. */
+export function keyEnvNote(value: unknown): Record<string, string[]> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const out: Record<string, string[]> = {};
+  for (const p of providers) {
+    const names = (value as Record<string, unknown>)[p.id];
+    if (!p.keys || !Array.isArray(names)) continue;
+    out[p.id] = names.filter((n): n is string => typeof n === 'string' && Object.hasOwn(p.keys!.placeholders, n));
+  }
+  return out;
+}
+
+/**
+ * The placeholders a replay's agent gets, by variable: for each provider the recording's agent called
+ * whose credentials the environment lacks. `offline` for a replay where nothing goes live; `replay`
+ * for `shadowlap replay`, which gives them only for the providers whose key the recording's note
+ * names. A provider whose calls reach the sidecar only by in-process capture (Azure OpenAI, Bedrock)
+ * gets none when capture is off, since its calls would then go straight to the provider. Gemini's go
+ * into the variable the recording's environment held its key in, when the note says, so Google's
+ * SDKs don't warn that both are set.
+ */
+export function placeholderKeys(env: Env, recording: { calls: readonly Pick<CallRecord, 'meta'>[]; keyEnv?: unknown }, mode: 'offline' | 'replay', home = homedir()): Record<string, string> {
+  const used = new Set(recording.calls.filter((c) => !isReservedScope(c.meta.scope)).map((c) => c.meta.provider));
+  const note = keyEnvNote(recording.keyEnv);
+  const out: Record<string, string> = {};
+  for (const p of providers) {
+    if (!p.keys || !used.has(p.id) || hasCredentials(p, env, home)) continue;
+    if (!p.upstream && env.SHADOWLAP_CAPTURE === 'off') continue;
+    const names = note?.[p.id];
+    if (mode === 'replay' && !names) continue;
+    if (p.keys.onlyWhereRecorded && !Object.keys(p.keys.placeholders).some((name) => names?.includes(name))) continue;
+    const alternatives = p.id === 'gemini' && names?.length ? names : Object.keys(p.keys.placeholders);
+    for (const name of alternatives) out[name] = p.keys.placeholders[name]!;
+  }
+  return out;
+}
+
+/** Placeholders for a replay of `parent`, from its calls and note in `store`. */
+export function placeholdersFor(store: Store, parent: { runId: string; meta?: { keyEnv?: unknown } | null }, mode: 'offline' | 'replay', env: Env = process.env): Record<string, string> {
+  return placeholderKeys(env, { calls: store.getCalls(parent.runId), keyEnv: parent.meta?.keyEnv }, mode);
+}
+
+/**
+ * Keeps on a run the providers whose credentials the environment held as its agent started
+ * (`keyEnv`). A replay adds its recording's note: an agent that ran on placeholders took its key
+ * from the environment all the same. Never throws: the run is what matters.
+ */
+export function stampKeyEnv(store: Store, runId: string, env: Env = process.env): void {
+  try {
+    const note = keyEnvOf(env);
+    const run = store.getRun(runId);
+    const recorded = run?.parentRunId ? keyEnvNote(store.getRun(run.parentRunId)?.meta?.keyEnv) : null;
+    for (const [id, names] of Object.entries(recorded ?? {})) note[id] = [...new Set([...(note[id] ?? []), ...names])];
+    store.updateRunMeta(runId, { keyEnv: note });
+  } catch {
+    // a run without the note replays with the keys of its environment
+  }
+}

@@ -15,7 +15,8 @@ import { register as registerTesting } from './commands/testing.js';
 import { register as registerTraining } from './commands/training.js';
 import { VERSION } from './shared.js';
 
-export { captureConfig, guardEnv, placeholderAwsCredentials, placeholderKeys, replayPlaceholders, type GuardMode } from './run-agent.js';
+export { captureConfig, guardEnv, type GuardMode } from './run-agent.js';
+export { hasCredentials, keyEnvOf, placeholderKeys } from './placeholder-keys.js';
 export { quoteArgv } from './ui.js';
 
 export async function main(argv: string[]): Promise<void> {

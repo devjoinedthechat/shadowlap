@@ -31,6 +31,7 @@ import { logActivity } from './activity.js';
 import { lastLine } from './chaos.js';
 import { type ShadowlapConfig } from './config.js';
 import { GOLDENS_FOLDER } from './goldens.js';
+import { placeholdersFor } from './placeholder-keys.js';
 import { providerIds, testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { quoteArgv } from './ui.js';
 
@@ -316,7 +317,8 @@ async function reproduce(capture: RunRecord, command: { argv: string[]; from: st
     const attempt = await testAttempt(mem, rebuilt.run, {
       cwd: o.projectDir,
       upstreams: offline,
-      extraEnv: {},
+      // Offline, the agent gets a placeholder for each key the environment lacks.
+      extraEnv: placeholdersFor(mem, rebuilt.run, 'offline'),
       writes: 'stub',
       guard: o.guard,
       normalizers: o.config.normalize,
