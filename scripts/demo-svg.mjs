@@ -1,23 +1,25 @@
 #!/usr/bin/env node
 // The README's terminal, from the real CLI: the demo project's refund agent (scripts/demo-store/
-// project/agent.mjs) recorded, replayed and blamed, then replayed again once its prompt is fixed, so
-// it forks with the diff. The models are the demo's scripted ones (scripts/demo-store/models.mjs) on
-// the mock Anthropic API in testing/, so no key is needed and nothing leaves this machine. Each command
-// runs in a pseudo-terminal (`script`, on macOS and Linux), so the colours are the CLI's own.
+// project/agent.mjs) recorded, replayed and blamed; then its prompt is fixed, which a comment line
+// at the prompt marks, and the run replayed again, so it forks with the diff. The models are the
+// demo's scripted ones (scripts/demo-store/models.mjs) on the mock Anthropic API in testing/, so no
+// key is needed and nothing leaves this machine. Each command runs in a pseudo-terminal (`script`,
+// on macOS and Linux), so the colours are the CLI's own.
 //
 //   npm run build && node scripts/demo-svg.mjs
 //
 // It writes .github/assets/readme/terminal.svg, which types each command and shows what it printed,
 // on a loop, and terminal-static.svg, the same session drawn whole, for where motion is unwanted; and
-// both again as terminal-narrow.svg and terminal-narrow-static.svg for a phone's width, with a line
-// longer than the longest command broken at a space.
+// both again as terminal-narrow.svg and terminal-narrow-static.svg for a phone's width: 47 columns,
+// so a phone shows the text at about 10 px, a command too long for them continued on a second line
+// after a backslash, as a shell takes it, and a longer line broken at the end of a clause.
 //
 // A line is shown as the CLI printed it, or left out; none is changed. Left out: the progress a
 // command prints while it works (`[shadowlap] recording run …`, blame's probes and their attempts),
 // the commands it suggests next (`shadowlap show …`), and the detail under a result (blame's
-// statistics, probe table and cost; a fork's unused calls and the run it was compared with). Any
-// other line stops the script, so a change in what the CLI prints is looked at before it is drawn.
-// Run ids carry the time they were made; the rest comes out the same on every run.
+// statistics, probe table and cost; where a fork diverged, its unused calls and the run it was
+// compared with). Any other line stops the script, so a change in what the CLI prints is looked at
+// before it is drawn. Run ids carry the time they were made; the rest comes out the same on every run.
 import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
@@ -228,6 +230,8 @@ try {
   const prompt = "'You are a support agent. Follow the refund policy.'";
   if (!source.includes(prompt)) throw new Error(`demo-svg: agent.mjs no longer has the prompt ${prompt}`);
   writeFileSync(agent, source.replace(prompt, "'You are a support agent. Follow the refund policy: escalate every refund above the limit.'"));
+  // The edit is made in an editor, between two commands: a comment line at the prompt says what it was.
+  scenes.push({ text: '# agent.mjs: escalate refunds above the limit', work: 0, lines: [] });
   const forkArgs = ['replay', id, '--expect', EXPECT];
   scenes.push({
     args: forkArgs,
@@ -235,8 +239,8 @@ try {
     lines: excerpt(
       'the replay after the fix',
       await inTerminal(forkArgs),
-      [/^Escalated: the refund of \$240 /, /^⑂ Forked at call \d+: /, /^✗ Diverged at call \d+ /, /^ {2}~ \$\.system$/, /^ {6}- "/, /^ {6}\+ "/, /^✓ \d+ checks? passed/, /^ {2}✓ issue_refund with \{"amount":240\} called 0 times$/],
-      [/^\[shadowlap\] replaying run /, /^ {2}\d+ recorded calls? left unused after the fork: /, /^ {2}compared with run \w+…, call \d+$/, SHOW],
+      [/^Escalated: the refund of \$240 /, /^⑂ Forked at call \d+: /, /^ {2}~ \$\.system$/, /^ {6}- "/, /^ {6}\+ "/, /^✓ \d+ checks? passed/, /^ {2}✓ issue_refund with \{"amount":240\} called 0 times$/],
+      [/^\[shadowlap\] replaying run /, /^ {2}\d+ recorded calls? left unused after the fork: /, /^✗ Diverged at call \d+ /, /^ {2}compared with run \w+…, call \d+$/, SHOW],
     ),
   });
 } finally {
@@ -263,8 +267,10 @@ const P = { idle: 0.25, perChar: 0.017, enter: 0.2, perLine: 0.05, readBase: 0.9
 /** When each command shows, is typed and prints, and when each of its lines arrives. */
 const timeline = [];
 let t = 0;
+/** What a scene types at the prompt: a shadowlap command, or a comment line. */
+const typed = (scene) => scene.text ?? `shadowlap ${scene.args.map(quote).join(' ')}`;
 for (const [i, scene] of scenes.entries()) {
-  const text = `shadowlap ${scene.args.map(quote).join(' ')}`;
+  const text = typed(scene);
   const typeAt = i ? t + P.idle : t;
   const typedAt = i ? typeAt + text.length * P.perChar : t;
   const outAt = typedAt + P.enter + scene.work;
@@ -284,44 +290,113 @@ const pct = (s) => `${Math.min(100, (s / TOTAL) * 100).toFixed(3)}%`;
 const fadeAt = pct(TOTAL - P.fade);
 
 /**
- * A line of runs broken at spaces into rows of at most `width` columns, as a narrow terminal would
- * show it, the rows after the first indented two past the line's own indent. Nothing is left out or
- * changed: the rows hold the line's characters in order, in their own colours.
+ * A line of runs broken into rows of at most `width` columns, as a narrow terminal would show it, the
+ * rows after the first indented two past the line's own indent. A row ends, by preference, where a
+ * clause does (a comma, semicolon or colon and the space after it) outside brackets and quotes, then
+ * at a space outside them, each only when that leaves the row at least half full; then at a comma
+ * between JSON values, then at any space. Rows are kept shorter when that spares the last one from
+ * holding a word or two alone. Nothing is left out or changed: the rows hold the line's characters in
+ * order, in their own colours.
  */
 function wrapRuns(runs, width) {
   const chars = runs.flatMap((r) => [...r.text].map((ch) => ({ ch, fg: r.fg, bold: r.bold, dim: r.dim })));
   if (chars.length <= width) return [runs];
   const indent = chars.findIndex((c) => c.ch !== ' ') + 2;
-  const rows = [];
-  let start = 0;
-  while (start < chars.length) {
-    const lead = rows.length ? indent : 0;
-    const room = width - lead;
-    let end = chars.length;
-    if (chars.length - start > room) {
-      end = start + room;
-      while (end > start && chars[end].ch !== ' ') end--;
-      if (end === start) end = start + room;
+  // How deep in brackets or a quoted string each character is.
+  const depth = [];
+  let level = 0;
+  let quoted = false;
+  for (const [i, { ch }] of chars.entries()) {
+    if (ch === '"' && chars[i - 1]?.ch !== '\\') quoted = !quoted;
+    else if (!quoted && '([{'.includes(ch)) level++;
+    else if (!quoted && ')]}'.includes(ch)) level = Math.max(0, level - 1);
+    depth.push(level + (quoted ? 1 : 0));
+  }
+  /** Where each row starts and ends, none but the last longer than `limit`. */
+  const spans = (limit) => {
+    const out = [];
+    let start = 0;
+    while (start < chars.length) {
+      const lead = out.length ? indent : 0;
+      let end = chars.length;
+      if (end - start > width - lead) {
+        const room = Math.min(width, limit) - lead;
+        // The last break of each kind within the row's room.
+        const last = { clause: -1, space: -1, json: -1, any: -1 };
+        for (let e = start + 1; e <= start + room && e < chars.length; e++) {
+          const prev = chars[e - 1].ch;
+          if (chars[e].ch === ' ') {
+            last.any = e;
+            if (!depth[e]) {
+              last.space = e;
+              if (',;:'.includes(prev)) last.clause = e;
+            }
+          } else if (prev === ',' && chars[e].ch === '"') last.json = e;
+        }
+        const full = (e) => e - start >= room / 2;
+        end = [last.clause, last.space].find(full) ?? [last.json, last.any].find((e) => e > start) ?? start + room;
+      }
+      out.push({ start, end, lead });
+      start = end;
+      while (start < chars.length && chars[start].ch === ' ') start++;
     }
+    return out;
+  };
+  const tail = (rows) => rows.at(-1).end - rows.at(-1).start;
+  let rows = spans(width);
+  for (let limit = width - 1; rows.length > 1 && tail(rows) < 16 && limit >= Math.ceil(width * 0.7); limit--) {
+    const tried = spans(limit);
+    if (tried.length === rows.length && tail(tried) > tail(rows)) rows = tried;
+  }
+  return rows.map(({ start, end, lead }) => {
     const row = lead ? [{ text: ' '.repeat(lead), fg: null, bold: false, dim: false }] : [];
     for (const c of chars.slice(start, end)) {
       const prev = row.at(-1);
       if (prev && prev.fg === c.fg && prev.bold === c.bold && prev.dim === c.dim) prev.text += c.ch;
       else row.push({ text: c.ch, fg: c.fg, bold: c.bold, dim: c.dim });
     }
-    rows.push(row);
-    start = end;
-    while (start < chars.length && chars[start].ch === ' ') start++;
+    return row;
+  });
+}
+
+/**
+ * A command as a shell shows it typed across lines: broken before a flag (else at a space) where it
+ * would pass `columns`, each row but the last ending in a backslash, the rows after the first behind
+ * the > prompt and indented two. A comment line stays whole.
+ */
+function commandRows(text, columns) {
+  if (text.startsWith('#')) return [text];
+  const rows = [];
+  let rest = text;
+  let lead = '';
+  while (2 + lead.length + rest.length > columns) {
+    const window = rest.slice(0, columns - 2 - lead.length - 2 + 1);
+    let cut = window.lastIndexOf(' --');
+    if (cut <= 0) cut = window.lastIndexOf(' ');
+    if (cut <= 0) break;
+    rows.push(`${lead}${rest.slice(0, cut)} \\`);
+    rest = rest.slice(cut + 1);
+    lead = '  ';
   }
+  rows.push(`${lead}${rest}`);
   return rows;
 }
 
-/** The session as rows of at most `columns` columns (commands are never broken), and the picture's size. */
+/** The session as rows of at most `columns` columns, and the picture's size. */
 function layout(columns) {
   const rows = [];
   for (const [i, cmd] of timeline.entries()) {
     if (i) rows.push({ kind: 'blank' });
-    rows.push({ kind: 'cmd', ...cmd });
+    // A command on several rows is typed a row at a time, in the time the whole of it takes.
+    const parts = commandRows(cmd.text, columns);
+    const perChar = (cmd.typedAt - cmd.typeAt) / parts.reduce((n, part) => n + part.length, 0);
+    let at = cmd.typeAt;
+    for (const [j, part] of parts.entries()) {
+      const end = j === parts.length - 1;
+      const typedAt = end ? cmd.typedAt : at + part.length * perChar;
+      rows.push({ kind: 'cmd', text: part, prompt: j ? '>' : '$', showAt: j ? at : cmd.showAt, typeAt: at, typedAt, outAt: end ? cmd.outAt : typedAt });
+      at = typedAt;
+    }
     for (const { line, at } of cmd.lines) {
       if (!line.length) rows.push({ kind: 'blank' });
       else for (const runs of wrapRuns(line, columns)) rows.push({ kind: 'out', runs, at });
@@ -369,7 +444,7 @@ function render({ rows, W, H }, animated) {
     const y = (top + 14.5).toFixed(1);
     if (r.kind === 'out') body.push(`<text y="${y}"${animated ? ` class="${appear(r.at)}"` : ''}>${spans(r.runs, 0)}</text>`);
     if (r.kind !== 'cmd') return;
-    body.push(`<text y="${y}"${animated ? ` class="${appear(r.showAt)}"` : ''}><tspan x="${PX}" fill="${C.prompt}">$</tspan>${spans([{ text: r.text, fg: null, bold: false, dim: false }], 2)}</text>`);
+    body.push(`<text y="${y}"${animated ? ` class="${appear(r.showAt)}"` : ''}><tspan x="${PX}" fill="${C.prompt}">${esc(r.prompt ?? '$')}</tspan>${spans([{ text: r.text, fg: null, bold: false, dim: false }], 2)}</text>`);
     // The cursor: animated, it types the command over a cover of the line's own ink; drawn whole, it waits at the last prompt.
     const x0 = PX + 2 * CW;
     const cursor = `<rect x="${x0.toFixed(1)}" y="${top + 3}" width="${CW.toFixed(1)}" height="${LH - 6}" fill="${C.cursor}"/>`;
@@ -384,7 +459,7 @@ function render({ rows, W, H }, animated) {
     );
     body.push(`<g class="c ${k}">${cursor}<rect x="${(x0 + CW).toFixed(1)}" y="${top}" width="${(W - PX - x0 - CW).toFixed(1)}" height="${LH}" fill="${C.bg}"/></g>`);
   });
-  const transcript = scenes.map((s) => [`$ shadowlap ${s.args.map(quote).join(' ')}`, ...s.lines.map(plain)].join('\n')).join('\n\n');
+  const transcript = scenes.map((s) => [`$ ${typed(s)}`, ...s.lines.map(plain)].join('\n')).join('\n\n');
   const style = [
     `text{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono","DejaVu Sans Mono",monospace;font-size:${FONT}px;fill:${C.fg};white-space:pre}`,
     ...(animated ? [...css, '@media (prefers-reduced-motion:reduce){.a{animation:none!important;opacity:1!important}.c{display:none}}'] : []),
@@ -402,9 +477,9 @@ ${body.join('\n')}
 `;
 }
 
-// The README's column, and a phone's: there, a line longer than the longest command breaks at a space.
+// The README's column, and a phone's: 47 columns, which a phone shows at about 10 px.
 const wide = layout(Infinity);
-const narrow = layout(Math.max(...timeline.map((c) => 2 + c.text.length)));
+const narrow = layout(47);
 mkdirSync(outDir, { recursive: true });
 const files = [
   ['terminal.svg', render(wide, true)],
