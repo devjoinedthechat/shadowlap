@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,6 +35,8 @@ const file = () => join(cwd, CONFIG_FILE);
 const write = (text: string) => writeFileSync(file(), text);
 const read = () => readFileSync(file(), 'utf8');
 const json = () => JSON.parse(read()) as Record<string, unknown>;
+/** A process id no process has: past macOS's ids, at the very top of Linux's, and no multiple of four, as every Windows one is. */
+const GONE = 2 ** 22 - 7;
 
 describe('readConfigFile', () => {
   it('reads a missing file as empty, with a version that says so', () => {
@@ -270,8 +272,7 @@ describe('versions and concurrent writers', () => {
   }, 10_000);
 
   it('takes over a lock whose writer is gone at once, and removes only its own lock', () => {
-    const gone = spawnSync(process.execPath, ['-e', '']).pid!;
-    writeFileSync(`${file()}.lock`, JSON.stringify({ pid: gone, host: hostname(), token: 'x' }));
+    writeFileSync(`${file()}.lock`, JSON.stringify({ pid: GONE, host: hostname(), token: 'x' }));
     const started = Date.now();
     expect(addRule(cwd, 'normalize', { path: '$.a', replace: '<A>' }).added).toBe(true);
     expect(Date.now() - started).toBeLessThan(1000);
@@ -308,8 +309,7 @@ describe('versions and concurrent writers', () => {
 
   it('keeps every rule when many processes add one at once, with a lock left by a crash in the way', async () => {
     const engine = fileURLToPath(new URL('../dist/index.js', import.meta.url));
-    const gone = spawnSync(process.execPath, ['-e', '']).pid!;
-    writeFileSync(`${file()}.lock`, JSON.stringify({ pid: gone, host: hostname(), token: 'crashed' }));
+    writeFileSync(`${file()}.lock`, JSON.stringify({ pid: GONE, host: hostname(), token: 'crashed' }));
     const script = (i: number) => `const { addRule } = await import(${JSON.stringify(`file://${engine}`)}); addRule(${JSON.stringify(cwd)}, 'normalize', { path: '$.field${i}', replace: '<F${i}>' }, { wait: 20000 });`;
     const results = await Promise.all(
       Array.from({ length: 12 }, (_, i) => new Promise<[number | null, string]>((resolve) => {

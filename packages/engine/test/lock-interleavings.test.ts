@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +28,13 @@ const ENGINE = new URL('../dist/index.js', import.meta.url).href;
 const WRITERS = 5;
 /** A schedule that takes more steps than this has stopped making progress. */
 const MAX_STEPS = 40_000;
+/**
+ * The process id of a writer that crashed: no process has it, past macOS's ids, at the very top of
+ * Linux's, and no multiple of four, as every Windows one is. Windows gives the id of a process that
+ * ended to another soon after, a writer respawned between runs among them, and the crashed writer's
+ * lock would then be a running holder's.
+ */
+const GONE = 2 ** 22 - 7;
 /** Windows starts processes and passes bytes through pipes several times slower. */
 const TIMEOUT = process.platform === 'win32' ? 300_000 : 180_000;
 
@@ -117,8 +124,6 @@ class Harness {
   readonly config = join(this.dir, CONFIG_FILE);
   readonly writers: Writer[] = [];
   private wake: (() => void) | null = null;
-  /** A process id no process has: that of one that ran and ended. */
-  readonly gone = spawnSync(process.execPath, ['-e', '']).pid!;
 
   async start(): Promise<void> {
     for (let i = 0; i < WRITERS; i++) this.writers.push(this.spawn(i));
@@ -174,10 +179,10 @@ class Harness {
   /** One interleaving: the folder set up for `scenario`, then every step picked by `seed`. Returns what went wrong. */
   async run(scenario: Scenario, seed: number): Promise<string[]> {
     for (const name of readdirSync(this.dir)) rmSync(join(this.dir, name), { recursive: true, force: true });
-    const crashed = JSON.stringify({ pid: this.gone, host: hostname(), token: 'crashed' });
+    const crashed = JSON.stringify({ pid: GONE, host: hostname(), token: 'crashed' });
     if (scenario === 'crashed writer' || scenario === 'writer killed') writeFileSync(`${this.config}.lock`, crashed);
     if (scenario === 'crashed writer and breaker') {
-      const record = (token: string) => JSON.stringify({ v: 2, pid: this.gone, host: hostname(), born: Date.now() - 1000, token, at: new Date().toISOString() });
+      const record = (token: string) => JSON.stringify({ v: 2, pid: GONE, host: hostname(), born: Date.now() - 1000, token, at: new Date().toISOString() });
       writeFileSync(`${this.config}.lock`, record('crashed-writer'));
       writeFileSync(`${this.config}.lock.break`, record('crashed-breaker'));
     }

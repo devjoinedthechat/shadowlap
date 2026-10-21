@@ -21,8 +21,12 @@ const busy = () => new Error('busy');
 const take = (wait = 0) => takeLock(lock, { wait, busy });
 /** Sets a file's times back, as if nobody had touched it for a minute. */
 const age = (path: string) => utimesSync(path, (Date.now() - 60_000) / 1000, (Date.now() - 60_000) / 1000);
-/** A process id no process has: one that ran and ended. */
-const gone = () => spawnSync(process.execPath, ['-e', '']).pid!;
+/**
+ * A process id no process has: past macOS's ids, at the very top of Linux's, and no multiple of
+ * four, as every Windows one is. One that ran and ended can be given to another process at once on
+ * Windows, which would make its lock a running holder's.
+ */
+const GONE = 2 ** 22 - 7;
 const record = (fields: Record<string, unknown>) => JSON.stringify({ v: 2, host: hostname(), born: Date.now(), token: Math.random().toString(16).slice(2), at: new Date().toISOString(), ...fields });
 
 /** A process that runs until the test ends, and its id once it has started. */
@@ -114,7 +118,7 @@ describe('takeLock', () => {
   it('takes over a lock it can’t check only once nobody has changed it for LOCK_STALE_MS', () => {
     expect(LOCK_STALE_MS).toBe(10_000);
     const cases: Array<[string, string]> = [
-      ['another machine’s', record({ pid: gone(), host: 'another-machine' })],
+      ['another machine’s', record({ pid: GONE, host: 'another-machine' })],
       ['one that doesn’t say who holds it', ''],
       ['an earlier shadowlap.config.json lock held by a running process', JSON.stringify({ pid: process.pid, host: hostname(), token: 'earlier' })],
       ['an earlier project list lock held by a running process', String(process.pid)],
@@ -127,7 +131,7 @@ describe('takeLock', () => {
       expect(readdirSync(dir), what).toEqual([]);
     }
     // An earlier lock whose process is gone, from this machine: at once.
-    for (const text of [JSON.stringify({ pid: gone(), host: hostname(), token: 'crashed' }), String(gone()), record({ pid: gone() })]) {
+    for (const text of [JSON.stringify({ pid: GONE, host: hostname(), token: 'crashed' }), String(GONE), record({ pid: GONE })]) {
       writeFileSync(lock, text);
       releaseLock(take());
       expect(readdirSync(dir)).toEqual([]);
@@ -136,7 +140,7 @@ describe('takeLock', () => {
 
   it('counts a lock from another process id namespace, another container sharing the folder, as another machine’s', () => {
     // Its process id is no process here, but this machine's process table can't say: it is another's.
-    writeFileSync(lock, record({ pid: gone(), ns: 'pid:[1]' }));
+    writeFileSync(lock, record({ pid: GONE, ns: 'pid:[1]' }));
     let namespaces = false;
     try {
       namespaces = process.platform === 'linux' && readlinkSync('/proc/self/ns/pid') !== 'pid:[1]';
@@ -153,19 +157,19 @@ describe('takeLock', () => {
 
   it('removes a stale lock only under its guard, and takes over a guard whose breaker died', () => {
     // A breaker that runs (this process, standing in for another) holds the guard: the stale lock is left to it.
-    writeFileSync(lock, record({ pid: gone() }));
+    writeFileSync(lock, record({ pid: GONE }));
     writeFileSync(`${lock}.break`, record({ pid: process.pid }));
     expect(() => take(100)).toThrow('busy');
     expect(existsSync(lock)).toBe(true);
     // The breaker died holding it: its guard is taken over under the guard's own guard, then the lock.
-    writeFileSync(`${lock}.break`, record({ pid: gone() }));
+    writeFileSync(`${lock}.break`, record({ pid: GONE }));
     withLockFile(lock, { wait: 0, busy }, () => expect(readdirSync(dir)).toEqual(['list.json.lock']));
     expect(readdirSync(dir)).toEqual([]);
   });
 
   it.skipIf(process.platform === 'win32')('never follows a link planted at the lock’s name, and removes the link alone', () => {
     const target = join(dir, 'elsewhere.txt');
-    writeFileSync(target, record({ pid: gone() }));
+    writeFileSync(target, record({ pid: GONE }));
     symlinkSync(target, lock);
     // Not a lock Shadowlap wrote, whatever it points at: it goes by its own age.
     expect(() => take(50)).toThrow('busy');
