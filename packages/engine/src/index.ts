@@ -73,7 +73,7 @@ export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat }
 export { indexSearch, MATCH_END, MATCH_START, searchCalls, searchExpression, searchIndexBehind, updateSearchIndex, type SearchHit, type SearchIndexRun } from './search.js';
 export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-notes.js';
 export { formatRepeats, summarizeRepeats } from './repeat.js';
-export { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unsettledFirst } from './blame.js';
+export { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unsettledFirst } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, ProbeVerdict } from './blame.js';
 export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, outcomeOf, runVerdict, verifyRule } from './verify.js';
 // Statistical gating: verdicts with stated error rates on attempts that vary (test's gate, verify, blame).

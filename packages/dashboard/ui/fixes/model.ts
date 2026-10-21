@@ -229,6 +229,8 @@ export interface CallCell {
   verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null;
   passes: number;
   attempts: number;
+  /** Attempts that could not be judged: neither passed nor failed. */
+  inconclusive: number;
   /** Outside the blame's scope. */
   dim: boolean;
   /** For a gap: how many calls it stands for. */
@@ -244,7 +246,7 @@ export const CALL_ROW_MAX = 18;
  * either side of each, and the first and last, with a gap for each stretch of model calls left out.
  */
 export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { cells: CallCell[]; toolsLeftOut: boolean } {
-  const cell = (c: BlameStep['callRow'][number]): CallCell => ({ callNo: c.callNo, kind: c.kind === 'api' ? 'm' : 't', verdict: c.verdict, passes: c.passes, attempts: c.attempts, dim: !c.inScope });
+  const cell = (c: BlameStep['callRow'][number]): CallCell => ({ callNo: c.callNo, kind: c.kind === 'api' ? 'm' : 't', verdict: c.verdict, passes: c.passes, attempts: c.attempts, inconclusive: c.inconclusive ?? 0, dim: !c.inScope });
   if (row.length <= max) return { cells: row.map(cell), toolsLeftOut: false };
   const models = row.filter((c) => c.kind === 'api' || c.verdict !== null);
   const keep = new Set<number>();
@@ -260,7 +262,7 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
     for (let i = 0; i < models.length && keep.size < max; i++) add(i);
   }
   const cells: CallCell[] = [];
-  const gap = (callNo: number, skipped: number): CallCell => ({ callNo, kind: 'gap', verdict: null, passes: 0, attempts: 0, dim: false, skipped });
+  const gap = (callNo: number, skipped: number): CallCell => ({ callNo, kind: 'gap', verdict: null, passes: 0, attempts: 0, inconclusive: 0, dim: false, skipped });
   let hiddenModels = 0;
   let hidden = 0;
   for (const c of row) {

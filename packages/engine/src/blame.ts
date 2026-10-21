@@ -35,6 +35,12 @@ import { safeLine } from './text.js';
 export interface BlameAttempt {
   runId: string;
   passed: boolean;
+  /**
+   * How it came out: inconclusive when all it fell short on is a check that could not be decided (a
+   * judge that could not answer, a condition it could not read), which says nothing of the answer
+   * re-asked. Absent from reports made before attempts had one.
+   */
+  verdict?: 'passed' | 'failed' | 'inconclusive';
   exitCode: number;
   /** Why the attempt failed the oracle: failed checks, a non-zero exit, a timeout. Empty when it passed. */
   failures: string[];
@@ -52,16 +58,43 @@ export interface BlameProbe {
   passes: number;
   /** The re-asked call passes often enough: the gate passed, or the fixed count was met. */
   rescued: boolean;
-  /** A gate decided the probe: what it said, inconclusive included (`rescued` is false then). Absent for a fixed count. */
+  /**
+   * A gate decided the probe: what it said, inconclusive included (`rescued` is false then). Absent
+   * for a fixed count, unless an attempt could not be judged, which makes any probe inconclusive.
+   */
   decision?: GateDecision;
   /** A gate decided the probe: its result, with the pass rate's interval and the risk (stats.ts). */
   gate?: GateResult | null;
+  /**
+   * Why an attempt of it could not be judged, when all that attempt fell short on was a check no
+   * attempt could decide: the probe stopped there, inconclusive. Null or absent otherwise.
+   */
+  undecided?: string | null;
 }
 
 export type ProbeVerdict = 'rescued' | 'lost' | 'open';
 
 /** A probe's verdict in a word: rescued, lost, or inconclusive. */
-export const probeWord = (x: Pick<BlameProbe, 'rescued' | 'decision'>): 'rescued' | 'lost' | 'inconclusive' => (x.rescued ? 'rescued' : x.decision === 'inconclusive' ? 'inconclusive' : 'lost');
+export const probeWord = (x: Pick<BlameProbe, 'rescued' | 'decision'> & { undecided?: string | null | undefined }): 'rescued' | 'lost' | 'inconclusive' => (x.rescued ? 'rescued' : x.decision === 'inconclusive' || x.undecided ? 'inconclusive' : 'lost');
+
+/** The attempts of a probe that could not be judged: neither passed nor failed. */
+const unjudged = (x: Pick<BlameProbe, 'attempts'>): number => x.attempts.filter((a) => a.verdict === 'inconclusive').length;
+
+/**
+ * A probe's tally: how many of the attempts it judged passed, then `unit` (`2 of 4`, `2 of 4
+ * passed`). An attempt that could not be judged neither passed nor failed, so it is left out and
+ * counted apart: `1 of 1 passed, an attempt not judged`, or, when no attempt was judged, `an
+ * attempt not judged`. Only the attempt that stopped a probe, or one that ended after the probe
+ * had decided, can be one.
+ */
+export function probeTally(x: Pick<BlameProbe, 'passes' | 'attempts'>, unit = ''): string {
+  const n = unjudged(x);
+  const judged = x.attempts.length - n;
+  const tally = `${x.passes} of ${judged}${unit}`;
+  if (!n) return tally;
+  const apart = `${n === 1 ? 'an attempt' : `${n} attempts`} not judged`;
+  return judged ? `${tally}, ${apart}` : apart;
+}
 
 /** The attempts a gated probe decided on: with attempts running at once, some may have ended after it decided. */
 function decidedOn(x: Pick<BlameProbe, 'passes' | 'attempts'> & { gate?: Pick<GateResult, 'passes' | 'attempts'> | null | undefined }): { passes: number; attempts: number; late: number } {
@@ -70,8 +103,9 @@ function decidedOn(x: Pick<BlameProbe, 'passes' | 'attempts'> & { gate?: Pick<Ga
 }
 
 /** A gated probe's Wilson bound, on the attempts it decided on, at the gate's confidence: `rate >= 0.34 (95%)`. */
-export function probeBound(x: Pick<BlameProbe, 'passes' | 'attempts' | 'decision'> & { gate?: Pick<GateResult, 'passes' | 'attempts'> | null | undefined }, gate: Pick<SprtGate, 'risk'> | null | undefined): string | null {
-  if (!gate || !x.decision) return null;
+export function probeBound(x: Pick<BlameProbe, 'passes' | 'attempts' | 'decision'> & { gate?: Pick<GateResult, 'passes' | 'attempts'> | null | undefined; undecided?: string | null | undefined }, gate: Pick<SprtGate, 'risk'> | null | undefined): string | null {
+  // A probe an attempt that could not be judged stopped was decided by no gate.
+  if (!gate || !x.decision || x.undecided) return null;
   const on = decidedOn(x);
   const confidence = 1 - gate.risk;
   // A report copied from elsewhere could carry counts that don't add up: no bound then.
@@ -85,8 +119,10 @@ export function probeBound(x: Pick<BlameProbe, 'passes' | 'attempts' | 'decision
  * (95%)`, `inconclusive · 7 of 20 · rate 0.18 to 0.57 (95%)`. The rule it was decided by is said
  * once, apart (`rescueRule`). A probe a fixed count decided says its tally.
  */
-export function probeFinding(x: Pick<BlameProbe, 'rescued' | 'decision' | 'passes' | 'attempts'> & { gate?: Pick<GateResult, 'passes' | 'attempts'> | null | undefined }, gate: Pick<SprtGate, 'risk'> | null | undefined): string {
-  if (!gate || !x.decision) return `${x.rescued ? 'rescued' : 'lost'} · ${x.passes} of ${x.attempts.length}`;
+export function probeFinding(x: Pick<BlameProbe, 'rescued' | 'decision' | 'passes' | 'attempts'> & { gate?: Pick<GateResult, 'passes' | 'attempts'> | null | undefined; undecided?: string | null | undefined }, gate: Pick<SprtGate, 'risk'> | null | undefined): string {
+  // An attempt that could not be judged stopped it: inconclusive, the attempt counted apart, no bound.
+  if (x.undecided) return `inconclusive · ${probeTally(x, ' passed')}`;
+  if (!gate || !x.decision) return `${x.rescued ? 'rescued' : 'lost'} · ${probeTally(x)}`;
   const on = decidedOn(x);
   const late = on.late ? ` (and ${on.late} more that ended after it decided)` : '';
   return [probeWord(x), `${on.passes} of ${on.attempts}${late}`, probeBound(x, gate)].filter(Boolean).join(' · ');
@@ -292,6 +328,13 @@ export function unrescuedWhy(r: Pick<BlameReport, 'probes' | 'needed' | 'sameAns
   if (r.sameAnswer) return { evidence: r.sameAnswer.why, look: notTheAnswer };
   const first = r.probes[0];
   if (r.failedWrite) return { evidence: `Every attempt from the first model call, #${r.failedWrite.callNo}, made ${r.failedWrite.name}'s recorded call again and failed on its error, as the recording did: ${r.failedWrite.message}.`, look: notTheAnswer };
+  // An attempt the oracle could not judge: no failure of the answer, and no probe says more until it can.
+  if (first?.undecided) {
+    return {
+      evidence: `Resampled from the first model call, #${first.callNo}: an attempt could not be judged: ${first.undecided}.`,
+      look: 'Not settled: a check could not be decided on an attempt, so no probe can say whether resampling rescues the run. Give it what decides it (a judge that can answer, a value its condition can read), and blame again.',
+    };
+  }
   const gated = !!first?.decision && !!r.gate;
   if (gated && first.decision === 'inconclusive') {
     const g = r.gate!;
@@ -306,7 +349,7 @@ export function unrescuedWhy(r: Pick<BlameReport, 'probes' | 'needed' | 'sameAns
       ? null
       : gated
         ? `Resampled from the first model call, #${first.callNo}: ${probeFinding(first, r.gate)}.`
-        : `Resampling from the first model call, #${first.callNo}, passed ${first.passes} of ${first.attempts.length} attempts, fewer than the ${r.needed} a rescue needs.`,
+        : `Resampling from the first model call, #${first.callNo}, passed ${probeTally(first, ' attempts')}, fewer than the ${r.needed} a rescue needs.`,
     look: 'The failure is not one unlucky answer: look at the prompt, the tools or the harness, or rescue with a stronger model (--model).',
   };
 }
@@ -325,7 +368,6 @@ export function notTheAnswer(r: Pick<BlameReport, 'sameAnswer' | 'failedWrite'>)
 export function formatBlame(r: BlameReport, p: Palette = plain): string {
   const lines: string[] = [];
   const call = (x: BlameProbe) => `#${x.callNo}`;
-  const rate = (x: BlameProbe) => `${x.passes} of ${x.attempts.length}`;
   const where = (x: BlameProbe) => `model call ${call(x)} (${x.step} of ${r.steps})`;
 
   if (r.outcome === 'blamed' && r.blamed) {
@@ -336,8 +378,8 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
       const after = r.lost ? `${call(r.lost)}, the next model call: ${probeFinding(r.lost, r.gate)}.` : `it is the last model call, and the recording, which kept its answer, fails.`;
       lines.push(`  The re-asked call ${call(b)}: ${probeFinding(b, r.gate)}; ${after}`);
     } else {
-      const after = r.lost ? `resampling ${call(r.lost)}, the next model call, rescued ${rate(r.lost)}.` : `it is the last model call, and the recording, which kept its answer, fails.`;
-      lines.push(`  Resampling ${call(b)} rescued ${rate(b)} attempts; ${after}`);
+      const after = r.lost?.undecided ? `${call(r.lost)}, the next model call, was inconclusive: ${probeTally(r.lost, ' passed')}.` : r.lost ? `resampling ${call(r.lost)}, the next model call, rescued ${probeTally(r.lost)}.` : `it is the last model call, and the recording, which kept its answer, fails.`;
+      lines.push(`  Resampling ${call(b)} rescued ${probeTally(b, ' attempts')}; ${after}`);
     }
   } else if (r.outcome === 'unrescuable') {
     const why = unrescuedWhy(r);
@@ -360,7 +402,7 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
         : r.confidence === 'medium' && r.lost
           ? r.lost.decision === 'inconclusive'
             ? `${call(r.lost)} was inconclusive: the run was not reliably lost there`
-            : `${call(r.lost)} still passed ${rate(r.lost)}, below the bar: the run was not reliably lost there`
+            : `${call(r.lost)} still passed ${probeTally(r.lost)}, below the bar: the run was not reliably lost there`
           : 'rescue stops cleanly at the boundary';
     lines.push(`  Confidence: ${r.confidence === 'high' ? p.green('high') : r.confidence === 'medium' ? p.yellow('medium') : p.red('low')} ${p.dim(`(${why})`)}`);
   }
@@ -376,7 +418,7 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
     lines.push('', `  ${p.bold('Probes')} ${p.dim(`(${rescueRule(r)}; ${describeRescue(r.rescue.fields)})`)}`);
     const w = Math.max(...r.probes.map((x) => String(x.callNo).length)) + 1;
     // Each probe's tally, and under a gate the Wilson bound on the attempts it decided on.
-    const tallies = r.probes.map((x) => [`${rate(x)} passed`, probeBound(x, r.gate)].filter(Boolean).join(' · '));
+    const tallies = r.probes.map((x) => [probeTally(x, ' passed'), probeBound(x, r.gate)].filter(Boolean).join(' · '));
     const tw = Math.max(14, ...tallies.map((t) => t.length));
     for (const [i, x] of r.probes.entries()) {
       const blamed = r.blamed?.callNo === x.callNo;

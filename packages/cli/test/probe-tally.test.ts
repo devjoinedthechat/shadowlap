@@ -53,6 +53,28 @@ describe('a probe tally', () => {
     expect(shuffled.decidedOn()).toEqual(inOrder.decidedOn());
   });
 
+  it('decides inconclusive at an attempt that could not be judged, on the attempts before it', () => {
+    const t = gated();
+    t.add(1, true);
+    // The third, started before the second ended, could not be judged; the second is still running.
+    t.add(3, null);
+    expect(t.decided).toBeNull();
+    t.add(2, false);
+    expect(t.decided).toEqual({ decision: 'inconclusive', at: 2 });
+    expect(t.decidedOn()).toEqual([true, false]);
+    // A verdict reached before it stands: one that ends later is only a late attempt.
+    const settled = gated();
+    settled.add(1, true);
+    settled.add(2, true);
+    settled.add(3, null);
+    expect(settled.decided).toEqual({ decision: 'pass', at: 2 });
+    // A fixed count too.
+    const counted = new ProbeTally((passes, attempts) => decideCount(passes, attempts, 5, 2));
+    counted.add(1, null);
+    expect(counted.decided).toEqual({ decision: 'inconclusive', at: 0 });
+    expect(counted.decidedOn()).toEqual([]);
+  });
+
   it('decides a fixed count the same way, and nothing before an answer', () => {
     const t = new ProbeTally((passes, attempts) => decideCount(passes, attempts, 5, 2));
     expect(t.decidedOn()).toEqual([]);

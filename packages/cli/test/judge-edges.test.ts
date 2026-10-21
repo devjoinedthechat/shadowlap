@@ -39,6 +39,7 @@ process.exit(Number(process.env.EXIT ?? 0));
 
 let mock: MockServer;
 let work: string;
+let firstRead: string | undefined;
 let agent: string[];
 let counter = 0;
 
@@ -58,6 +59,11 @@ beforeAll(async () => {
       (q) => {
         // A judge whose provider turns every request away: no verdict, so the check can't be decided.
         if (q.question.includes('unreachable')) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+        // One that answers about the first answer it reads, and turns away any other.
+        if (q.question.includes('first answer only')) {
+          firstRead ??= q.material;
+          return q.material === firstRead ? { verdict: 'no', reason: 'it reads the recorded answer' } : { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+        }
         if (q.question.includes('card')) return { verdict: 'yes', reason: `it names ${/SECRET\d+/.exec(q.material)?.[0] ?? 'no card'}` };
         if (q.question.includes('2026-10-20')) return q.material.includes('2026-10-20') ? { verdict: 'yes', reason: 'it names 2026-10-20' } : { verdict: 'no', reason: 'it names another date' };
         return q.material.includes('declined') ? { verdict: 'no', reason: 'it declines the refund' } : { verdict: 'yes', reason: 'it issues the refund' };
@@ -299,6 +305,26 @@ describe('an attempt a judge could not answer', () => {
     expect(text.out).toMatch(/attempt 1 {2}\? judge "issued" answers yes, but it is inconclusive: not judged/);
     expect(text.out).toContain('! Incomplete');
     expect(text.out).not.toMatch(/broken|Rejected|✗ judge/);
+  }, 120_000);
+});
+
+describe('a blame probe whose attempt a judge could not answer', () => {
+  it('is inconclusive, never lost: the search is not settled from the first model call', async () => {
+    config({});
+    // Each answer differs (Refund 1 issued., Refund 2 issued.): the replay as recorded reads the recorded one, which the judge answers.
+    const rec = await record({ VARIANT: 'n' });
+    const expect_ = JSON.stringify({ judge: [judge({ question: 'Did the agent issue the refund? (first answer only)' })] });
+    const b = await shadowlap(['blame', rec, '--expect', expect_, '--attempts', '2', '--passes', '1', '--concurrency', '1', '--json'], { VARIANT: 'n' });
+    const blame = JSON.parse(b.stdout) as { outcome: string; confidence: string; probes: Array<{ callNo: number; rescued: boolean; decision?: string; undecided?: string | null; runs: Array<{ passed: boolean; verdict?: string }> }> };
+    expect(blame).toMatchObject({ outcome: 'unrescuable', confidence: 'low' });
+    expect(blame.probes).toEqual([expect.objectContaining({ callNo: 1, rescued: false, decision: 'inconclusive', undecided: expect.stringMatching(/^judge "issued" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/) })]);
+    // It stopped at the attempt it could not judge, which is no failure.
+    expect(blame.probes[0]!.runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
+    const text = await shadowlap(['blame', rec, '--expect', expect_, '--attempts', '2', '--passes', '1', '--concurrency', '1'], { VARIANT: 'n' });
+    expect(text.out).toContain('? Not settled from the first model call');
+    expect(text.out).toContain('Resampled from the first model call, #1: an attempt could not be judged: judge "issued" answers yes, but it is inconclusive');
+    expect(text.out).toMatch(/inconclusive · an attempt not judged/);
+    expect(text.out).not.toMatch(/Not rescued from any model call|lost · |✗ judge/);
   }, 120_000);
 });
 

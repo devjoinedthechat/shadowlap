@@ -208,6 +208,24 @@ describe('a fix', () => {
     expect(b.cost).toEqual({ attempts: 11, upstreamRequests: 22, spent: expect.closeTo(0.11, 10), unknownModels: [] });
   });
 
+  it('shows a probe that an attempt it could not judge stopped as inconclusive, never lost, and marks that attempt apart', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api'] });
+    const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+    const report = blameReport(failing, 'unrescuable');
+    const [first] = report.probes;
+    const attempt = { ...first!.attempts[0]!, passed: false, verdict: 'inconclusive' as const, failures: [why] };
+    report.probes = [{ ...first!, attempts: [attempt], passes: 0, rescued: false, decision: 'inconclusive', undecided: why }];
+    report.lost = report.probes[0]!;
+    report.confidence = 'low';
+    const { fix } = recordBlame(store, { runId: failing, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
+    const b = fixDetail(store, fix.fixId)!.blame!;
+    expect(b).toMatchObject({ title: 'Not settled from the first model call', boundary: `Resampled from the first model call, #1: an attempt could not be judged: ${why}.` });
+    expect(b.look).toContain('Not settled: a check could not be decided on an attempt');
+    expect(b.probes).toEqual([expect.objectContaining({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1, bound: null })]);
+    expect(b.callRow[0]).toMatchObject({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1 });
+    expect(b.bundles[0]!.attempts).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
+  });
+
   it("dims the calls outside a blame's scope, tool calls included, and keeps those in it", () => {
     const run = makeRun(store, { calls: [{ kind: 'api', scope: 'agent' }, { kind: 'tool', scope: 'agent' }, { kind: 'api', scope: 'customer' }, { kind: 'tool', scope: 'agent/refunds' }, { kind: 'api', scope: 'agent' }] });
     const { fix } = blame(run, { scope: 'agent' });

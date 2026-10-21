@@ -71,7 +71,7 @@ export const SHAPES = {
   blame: { page: 'blame.md', section: 'JSON', grows: true, fields: ['runId', 'outcome', 'blamed', 'lost', 'confidence', 'contrast', 'sameAnswer', 'failedWrite', 'probes', 'oracle', 'recordedFailures', 'rescue', 'modelCalls', 'attemptsPerProbe', 'passesNeeded', 'gate', 'nonMonotone', 'cost', 'judge', 'stopReason', 'warnings', 'fix'] },
   blameCall: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'step', 'passes', 'attempts'] },
   blameContrast: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'recorded', 'rescued', 'rescuedRunId'] },
-  blameProbe: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'step', 'passes', 'attempts', 'rescued', 'decision', 'rate', 'runs'] },
+  blameProbe: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'step', 'passes', 'attempts', 'rescued', 'decision', 'rate', 'undecided', 'runs'] },
   blameFix: { page: 'blame.md', section: 'JSON', grows: true, fields: ['fixId', 'title', 'status', 'opened'] },
   verify: { page: 'verify.md', section: 'JSON', grows: true, fields: ['verdict', 'reasons', 'warnings', 'summary', 'runs', 'oracle', 'attemptsPerRun', 'passesNeeded', 'gate', 'change', 'codeVersion', 'cost', 'judge', 'stopReason', 'verifyId', 'fixes'] },
   verifyRun: { page: 'verify.md', section: 'JSON', grows: true, fields: ['runId', 'role', 'outcome', 'passes', 'attempts', 'decision', 'rate', 'deterministic', 'recorded', 'undecided', 'runs'] },

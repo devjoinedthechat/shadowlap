@@ -96,10 +96,11 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                       {p.step} of {b.steps}
                     </td>
                     <td>
-                      <Pips ok={p.passes} no={p.attempts - p.passes} />
+                      <Pips ok={p.passes} unsure={p.inconclusive} no={p.attempts - p.passes - p.inconclusive} />
                     </td>
                     <td className="num left">
-                      {p.passes} of {p.attempts}
+                      {p.passes} of {p.attempts - p.inconclusive}
+                      {p.inconclusive ? <span className="fxdim"> · {p.inconclusive} not judged</span> : null}
                       {p.bound ? <span className="fxdim"> · {p.bound}</span> : null}
                     </td>
                     <td>
@@ -214,7 +215,7 @@ function CallRow({ b }: { b: BlameStep }) {
           const tone = c.verdict === 'blamed' ? 'hot' : c.verdict === 'lost' ? 'lost' : c.verdict === 'inconclusive' ? 'unsure' : c.verdict === 'rescued' ? 'ok' : '';
           return (
             <li key={c.callNo} className={`${c.kind}${tone ? ` ${tone}` : ''}${c.dim ? ' dim' : ''}`}>
-              <span className="pp">{c.verdict ? <Pips ok={c.passes} no={c.attempts - c.passes} /> : null}</span>
+              <span className="pp">{c.verdict ? <Pips ok={c.passes} unsure={c.inconclusive} no={c.attempts - c.passes - c.inconclusive} /> : null}</span>
               <span className="pl">{c.verdict ?? ''}</span>
               <span className="nr">
                 <a className="cn" href={href.run(b.runId, c.callNo)} aria-label={`Call #${c.callNo}`} />
@@ -233,6 +234,12 @@ function CallRow({ b }: { b: BlameStep }) {
           <i className="lg block" />
           attempt failed
         </span>
+        {b.callRow.some((c) => c.inconclusive) ? (
+          <span>
+            <i className="lg unsure" />
+            attempt not judged
+          </span>
+        ) : null}
         <span>{toolsLeftOut ? 'model calls only' : 'ring: model call · dot: tool call'}</span>
         {b.scope ? <span>dimmed: outside scope {b.scope}</span> : null}
       </div>

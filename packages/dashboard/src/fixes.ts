@@ -21,6 +21,7 @@ import {
   patchFiles,
   probeBound,
   probeFinding,
+  probeTally,
   probeWord,
   recordingsOfRun,
   repairMarkdown,
@@ -182,11 +183,12 @@ export interface BlameStep {
   /** How a probe decides, its gate's rule said once: `gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts`, or `a rescue needs 2 of 5 attempts to pass`. */
   rule: string;
   /** Each probe: its tally and verdict, and under a gate the Wilson bound on the attempts it decided on (`bound`, `rate >= 0.34 (95%)`; null for a fixed count). */
-  probes: Array<{ callNo: number; step: number; passes: number; attempts: number; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; bound: string | null; blamed: boolean; href: string }>;
+  /** Each probe: `inconclusive` counts its attempts that could not be judged, neither passed nor failed. */
+  probes: Array<{ callNo: number; step: number; passes: number; attempts: number; inconclusive: number; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; bound: string | null; blamed: boolean; href: string }>;
   /** The attempts, bundled per probe. */
   bundles: Array<{ callNo: number; title: string; blamed: boolean; passes: number; attempts: Array<{ runId: string; passed: boolean; verdict: AttemptVerdict; note: string; spent: number; href: string }> }>;
   /** Every call of the run, for the row that shows where it was lost; `inScope` is false for a call outside the blame's scope. */
-  callRow: Array<{ callNo: number; kind: string; inScope: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number }>;
+  callRow: Array<{ callNo: number; kind: string; inScope: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number; inconclusive: number }>;
   cost: { attempts: number; upstreamRequests: number; spent: number; unknownModels: string[] };
   oracle: string[];
   recordedFailures: string[];
@@ -564,7 +566,8 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
   // The gate as it can be read: a malformed one reads as none, the fixed count's words then.
   const r = { ...b.report, gate: sprtGate(b.report.gate) };
   const run = store.getRun(b.runId);
-  const rate = (x: { passes: number; attempts: unknown[] }) => `${x.passes} of ${x.attempts.length}`;
+  // An attempt that could not be judged is counted apart (probeTally), never as one that failed.
+  const unsure = (x: Parameters<typeof probeTally>[0] | undefined) => x?.attempts.filter((a) => a.verdict === 'inconclusive').length ?? 0;
   const blamedCall = r.blamed?.callNo ?? null;
   let boundary: string;
   let title: string;
@@ -573,7 +576,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     boundary =
       r.gate && r.blamed.decision
         ? `The re-asked call #${r.blamed.callNo}: ${probeFinding(r.blamed, r.gate)}; ${r.lost ? `#${r.lost.callNo}, the next model call: ${probeFinding(r.lost, r.gate)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`
-        : `Resampling #${r.blamed.callNo} rescued ${rate(r.blamed)} attempts; ${r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${rate(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
+        : `Resampling #${r.blamed.callNo} rescued ${probeTally(r.blamed, ' attempts')}; ${r.lost?.undecided ? `#${r.lost.callNo}, the next model call, was inconclusive: ${probeTally(r.lost, ' passed')}.` : r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${probeTally(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
   } else if (b.outcome === 'unrescuable') {
     // Its first probe couldn't tell: not a finding that no answer lost it.
     title = unsettledFirst(r) ? 'Not settled from the first model call' : 'Not rescued from any model call';
@@ -592,14 +595,14 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
       : r.confidence === 'medium' && r.lost
         ? r.lost.decision === 'inconclusive'
           ? `#${r.lost.callNo} was inconclusive: the run was not reliably lost there`
-          : `#${r.lost.callNo} still passed ${rate(r.lost)}, below the bar: the run was not reliably lost there`
+          : `#${r.lost.callNo} still passed ${probeTally(r.lost)}, below the bar: the run was not reliably lost there`
         : 'rescue stops cleanly at the boundary';
   const probeOf = new Map(r.probes.map((x) => [x.callNo, x]));
   const verdictOf = (x: Parameters<typeof probeWord>[0] & { callNo: number }) => (x.callNo === blamedCall ? 'rescued · blamed' : probeWord(x));
   const callRow = run
     ? store.getCalls(b.runId).map((c) => {
         const p = probeOf.get(c.callNo);
-        return { callNo: c.callNo, kind: c.kind, inScope: inScope(c.meta.scope, b.scope), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0 };
+        return { callNo: c.callNo, kind: c.kind, inScope: inScope(c.meta.scope, b.scope), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0, inconclusive: unsure(p) };
       })
     : [];
   const contrast = r.contrast;
@@ -626,7 +629,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     needed: r.needed,
     attemptsPerProbe: r.attemptsPerProbe,
     rule: rescueRule(r),
-    probes: r.probes.map((x) => ({ callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length, verdict: verdictOf(x), bound: probeBound(x, r.gate), blamed: x.callNo === blamedCall, href: runHref(b.runId, x.callNo) })),
+    probes: r.probes.map((x) => ({ callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length, inconclusive: unsure(x), verdict: verdictOf(x), bound: probeBound(x, r.gate), blamed: x.callNo === blamedCall, href: runHref(b.runId, x.callNo) })),
     bundles: r.probes.map((x) => ({
       callNo: x.callNo,
       title: `blame · probe #${x.callNo}`,

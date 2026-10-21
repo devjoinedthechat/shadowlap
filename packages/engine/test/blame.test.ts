@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeBlocks, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport } from '../src/blame.js';
+import { describeBlocks, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport } from '../src/blame.js';
 import { BLAME_DEFAULTS, decide, gateResult, type SprtGate } from '../src/stats.js';
 
 /** A probe that passes `rate(i)` of `n` attempts at model call `steps[i]`. */
@@ -307,6 +307,57 @@ describe('probes decided by a gate', () => {
     const lost = gated(1, 1, [false, false, false, false]);
     expect(unsettledFirst(report({ outcome: 'unrescuable', probes: [lost] }))).toBe(false);
     expect(formatBlame(report({ outcome: 'unrescuable', probes: [lost], lost }))).toContain('Not rescued from any model call');
+  });
+
+  it('reads a probe an attempt that could not be judged stopped as inconclusive, never lost, under a gate or a count', async () => {
+    const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+    /** A probe whose attempts came out as `outcomes`, then one that could not be judged. */
+    const undecided = (callNo: number, step: number, outcomes: boolean[], gate: SprtGate | null): BlameProbe => {
+      const p = gated(callNo, step, outcomes);
+      const last = { runId: `01K5CR${callNo}Z`.padEnd(26, '0'), passed: false, verdict: 'inconclusive' as const, exitCode: 0, failures: [why], spent: 0, upstreamRequests: 1 };
+      return { ...p, rescued: false, decision: 'inconclusive', ...(gate ? { gate: gateResult(gate, outcomes, { decision: 'continue' }) } : { gate: null }), attempts: [...p.attempts.map((a) => ({ ...a, verdict: a.passed ? ('passed' as const) : ('failed' as const) })), last], undecided: why };
+    };
+    const first = undecided(1, 1, [], GATE);
+    expect(probeWord(first)).toBe('inconclusive');
+    expect(probeFinding(first, GATE)).toBe('inconclusive · an attempt not judged');
+    expect(probeBound(first, GATE)).toBeNull();
+    expect(probeFinding(undecided(1, 1, [true], null), null)).toBe('inconclusive · 1 of 1 passed, an attempt not judged');
+    // The search takes it as not rescued, and says it is not settled, with why, never that no call rescues the run.
+    const r = await searchBlame({ steps: [1, 2], probe: async (callNo, step) => (step === 1 ? first : gated(callNo, step, [false, false, false, false])), scan: 0 });
+    expect(r).toMatchObject({ outcome: 'unrescuable', confidence: 'low' });
+    const full = report({ ...r, probes: r.probes });
+    expect(unsettledFirst(full)).toBe(true);
+    expect(unrescuedWhy(full)).toEqual({ evidence: `Resampled from the first model call, #1: an attempt could not be judged: ${why}.`, look: 'Not settled: a check could not be decided on an attempt, so no probe can say whether resampling rescues the run. Give it what decides it (a judge that can answer, a value its condition can read), and blame again.' });
+    const text = formatBlame(full);
+    expect(text).toContain('? Not settled from the first model call');
+    expect(text).toMatch(/#1 +1 of 4 +an attempt not judged +inconclusive/);
+    expect(text).not.toMatch(/Not rescued from any model call|0 of 1|lost · /);
+    // As the one after the boundary, under a fixed count: inconclusive there, not lost.
+    const countedRescue = (callNo: number, step: number): BlameProbe => {
+      const { decision: _decision, ...p } = gated(callNo, step, [true, true]);
+      return { ...p, gate: null };
+    };
+    const counted = await searchBlame({ steps: [1, 2], probe: async (callNo, step) => (step === 1 ? countedRescue(callNo, step) : undecided(callNo, step, [false], null)), scan: 0 });
+    expect(counted).toMatchObject({ outcome: 'blamed', blamed: { callNo: 1 }, lost: { callNo: 2 }, confidence: 'medium' });
+    expect(formatBlame(report({ ...counted, gate: null, needed: 2, attemptsPerProbe: 5 }))).toContain('Resampling #1 rescued 2 of 2 attempts; #2, the next model call, was inconclusive: 0 of 1 passed, an attempt not judged.');
+  });
+
+  it('counts an attempt that could not be judged after its probe decided apart, never as one that failed', () => {
+    const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+    // Two straight passes rescued; a third, started before the second ended, could not be judged after it.
+    const p = gated(5, 3, [true, true]);
+    const late: BlameProbe = { ...p, attempts: [...p.attempts, { runId: '01K5CR5900000000000000000Z', passed: false, verdict: 'inconclusive', exitCode: 0, failures: [why], spent: 0, upstreamRequests: 1 }] };
+    expect(probeFinding(late, GATE)).toBe('rescued · 2 of 2 (and 1 more that ended after it decided) · rate >= 0.34 (95%)');
+    expect(probeTally(late, ' passed')).toBe('2 of 2 passed, an attempt not judged');
+    expect(formatBlame(report({ blamed: late, probes: [late] }))).toMatch(/#5 +3 of 4 +2 of 2 passed, an attempt not judged · rate >= 0\.34 \(95%\) +rescued +◂ blamed/);
+    // Under a fixed count too: the tally leaves it out of the attempts that passed or failed.
+    const { decision: _decision, gate: _gate, ...rest } = late;
+    const counted: BlameProbe = rest;
+    expect(probeFinding(counted, null)).toBe('rescued · 2 of 2, an attempt not judged');
+    const text = formatBlame(report({ blamed: counted, probes: [counted], gate: null, needed: 2, attemptsPerProbe: 5 }));
+    expect(text).toContain('Resampling #5 rescued 2 of 2 attempts, an attempt not judged; it is the last model call');
+    expect(text).toMatch(/#5 +3 of 4 +2 of 2 passed, an attempt not judged +rescued/);
+    expect(text).not.toMatch(/2 of 3|not judged passed|not judged attempts/);
   });
 
   it('keeps a clean boundary at high confidence: lost under the gate is lost, whatever the odd pass', async () => {

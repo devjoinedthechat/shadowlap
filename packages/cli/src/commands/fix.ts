@@ -145,7 +145,7 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
     sameAnswer: r.sameAnswer ?? null,
     failedWrite: r.failedWrite ?? null,
     // A probe's sentence in blame's words, as its report says it: rescued or lost, the tally, the Wilson bound and the rule.
-    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: x.gate ? { ...gateJson(x.gate)!, sentence: `${probeFinding(x, r.gate ?? null)} · ${rescueRule(r)}` } : null, runs: x.attempts })),
+    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: x.gate && !x.undecided ? { ...gateJson(x.gate)!, sentence: `${probeFinding(x, r.gate ?? null)} · ${rescueRule(r)}` } : null, undecided: x.undecided ?? null, runs: x.attempts })),
     nonMonotone: r.nonMonotone,
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
     // Judge checks' calls, apart from the agent's: what they sent upstream and spent. Null when no judge was asked live.
