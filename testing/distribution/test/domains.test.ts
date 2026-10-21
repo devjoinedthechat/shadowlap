@@ -1,6 +1,6 @@
-// The project's domain is shadowlap.ai. Every other shadowlap.<tld>, shadowlap.com among them, belongs to
-// someone else, so a link or an address there would send people to a stranger. These checks keep every
-// tracked file to the one the project has.
+// The project's domain is shadowlap.ai. Every other shadowlap.<tld> belongs to someone else, so a link
+// or an address there would send people to a stranger. These checks keep every tracked file to the one
+// the project has.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -43,7 +43,7 @@ describe('the domains the repository names', () => {
   });
 
   it('finds a link, an address or a host on another shadowlap domain, and not file and package names', () => {
-    expect(foreignDomains('see https://shadowlap.com/docs, write to security@shadowlap.com or www.shadowlap.io, or https://shadowlap.run.')).toEqual(['shadowlap.com', 'shadowlap.com', 'shadowlap.io', 'shadowlap.run']);
+    expect(foreignDomains('see https://shadowlap.dev/docs, write to security@shadowlap.dev or www.shadowlap.io, or https://shadowlap.run.')).toEqual(['shadowlap.dev', 'shadowlap.dev', 'shadowlap.io', 'shadowlap.run']);
     expect(foreignDomains('https://shadowlap.ai/docs · shadowlap.config.json · .shadowlap/shadowlap.db · @shadowlap/sdk · shadowlap.tool(effect="read") · shadowlap.mdc · shadowlap.run.id')).toEqual([]);
   });
 });
