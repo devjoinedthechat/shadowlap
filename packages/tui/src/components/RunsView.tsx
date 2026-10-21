@@ -3,7 +3,7 @@ import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, sa
 import { useEffect, useMemo, useState } from 'react';
 import type { RunNode } from '../data.js';
 import { ago } from '../data.js';
-import { truncate } from '../render.js';
+import { fitItems, truncate } from '../render.js';
 import type { OpenDashboard } from './TimelineView.js';
 import { copyToClipboard } from '../clipboard.js';
 import { TextInput } from './TextInput.js';
@@ -119,14 +119,17 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHel
   const costWidth = 9;
   const fixed = 1 + idWidth + 14 + 11 + 11 + costWidth + 9;
   const cmdWidth = Math.max(0, width - fixed);
+  // The count, then as many whole keys as the width takes: ` · …` stands for the rest.
+  const brand = ' Shadowlap ';
+  const keys = fitItems([`${visible.length}${query ? `/${nodes.length}` : ''} run${nodes.length === 1 ? '' : 's'}`, 'Enter open', 'o dashboard', '/ search', 'x delete', '? help', 'q quit'], width - brand.length);
 
   return (
     <Box flexDirection="column" width={width} height={height}>
-      <Box>
-        <Text bold> Shadowlap </Text>
-        <Text color="gray">
-          {visible.length}
-          {query ? `/${nodes.length}` : ''} run{nodes.length === 1 ? '' : 's'} · Enter open · o dashboard · / search · x delete · ? help · q quit
+      {/* One truncating Text with nested spans: sibling Texts get flex-shrunk on overflow and lose characters. */}
+      <Box height={1}>
+        <Text wrap="truncate">
+          <Text bold>{brand}</Text>
+          <Text color="gray">{keys}</Text>
         </Text>
       </Box>
       {mode.kind === 'search' ? (

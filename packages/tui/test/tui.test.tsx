@@ -96,6 +96,21 @@ describe('TUI', () => {
     store.close();
   });
 
+  it("fits the runs view's key line to the terminal by whole keys, the rest as ` · …`", async () => {
+    const { store } = goldenStore();
+    const at = async (columns: number) => {
+      const { lastFrame, unmount } = render(<App store={store} columns={columns} rows={20} />);
+      const line = (await frameWith(lastFrame, '1 run')).split('\n')[0]!;
+      unmount();
+      return line;
+    };
+    expect(await at(100)).toBe(' Shadowlap 1 run · Enter open · o dashboard · / search · x delete · ? help · q quit');
+    // One row whatever the width: whole keys, then ` · …`, never a key cut or the name squeezed.
+    expect(await at(80)).toBe(' Shadowlap 1 run · Enter open · o dashboard · / search · x delete · ? help · …');
+    expect(await at(60)).toBe(' Shadowlap 1 run · Enter open · o dashboard · / search · …');
+    store.close();
+  });
+
   it('opens a fork at its divergence and shows the diff', async () => {
     const { store, runId } = goldenStore();
     const fork = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' } });
