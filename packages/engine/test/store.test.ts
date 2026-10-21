@@ -167,7 +167,7 @@ describe('a judge check’s calls', () => {
     return run.runId;
   };
   /** What the index of judge calls holds: a run and call number per judge call. */
-  const indexed = (store: Store) => store.query(`SELECT run_id AS runId, call_no AS callNo FROM call_events INDEXED BY call_events_judge WHERE phase = 'start' AND meta ->> '$.scope' = 'shadowlap:judge'`);
+  const indexed = (store: Store) => store.query(`SELECT run_id AS runId, call_no AS callNo FROM call_events INDEXED BY call_events_judge WHERE phase = 'start' AND json_extract(meta, '$.scope') = 'shadowlap:judge'`);
 
   it('are left out of the agent’s through an index of their own, which a store from before it gets on opening', async () => {
     const path = join(mkdtempSync(join(tmpdir(), 'fp-judge-')), 's.db');
@@ -184,6 +184,14 @@ describe('a judge check’s calls', () => {
     expect([opened.countCalls(runId), opened.countAgentCalls(runId)]).toEqual([5, 3]);
     expect(indexed(opened)).toEqual([{ runId, callNo: 3 }, { runId, callNo: 5 }]);
     opened.close();
+  });
+
+  it('are indexed by a condition SQLite before 3.38 reads, as is all of the schema: no -> or ->>', () => {
+    // SQLite reads a store's whole schema before any table: one ->> in it, and the sqlite3 of Ubuntu
+    // 22.04 or macOS 12 reads nothing in the store.
+    const store = Store.open(':memory:');
+    expect(store.query(`SELECT name FROM sqlite_master WHERE sql LIKE '%->%'`)).toEqual([]);
+    store.close();
   });
 });
 

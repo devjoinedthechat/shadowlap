@@ -95,8 +95,10 @@ CREATE INDEX IF NOT EXISTS call_events_match ON call_events (run_id, kind, finge
 -- A judge check's calls (scope shadowlap:judge, judge-scope.ts), which are none of the agent's, in an
 -- index of their own: a count of a run's calls leaves them out through it instead of reading every
 -- call's metadata, which tripled the time the run list took to read. It holds a row per judge call;
--- a store from before it gets it on opening.
-CREATE INDEX IF NOT EXISTS call_events_judge ON call_events (run_id) WHERE phase = 'start' AND meta ->> '$.scope' = 'shadowlap:judge';
+-- a store from before it gets it on opening. Its condition reads the scope with json_extract, not
+-- ->>: SQLite reads the whole schema before any table, and before 3.38 (the sqlite3 of Ubuntu 22.04
+-- and macOS 12, and Python's sqlite3 built on it) it knows no ->>, so none of the store could be read.
+CREATE INDEX IF NOT EXISTS call_events_judge ON call_events (run_id) WHERE phase = 'start' AND json_extract(meta, '$.scope') = 'shadowlap:judge';
 
 CREATE TABLE IF NOT EXISTS blobs (
   hash   TEXT    PRIMARY KEY,
@@ -1179,7 +1181,7 @@ export class Store {
       // which are counted through their own index (call_events_judge, whose condition this repeats).
       countAgentCalls: db.prepare(
         `SELECT (SELECT COUNT(*) FROM call_events WHERE run_id = ? AND phase = 'start')
-              - (SELECT COUNT(*) FROM call_events WHERE run_id = ? AND phase = 'start' AND meta ->> '$.scope' = 'shadowlap:judge') AS n`,
+              - (SELECT COUNT(*) FROM call_events WHERE run_id = ? AND phase = 'start' AND json_extract(meta, '$.scope') = 'shadowlap:judge') AS n`,
       ),
       deleteRun: db.prepare(`DELETE FROM runs WHERE run_id = ?`),
     };

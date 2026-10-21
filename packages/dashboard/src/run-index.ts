@@ -93,8 +93,8 @@ SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS st
        r.meta ->> '$.author' AS author, r.meta ->> '$.ci' AS ci,
        (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start') AS calls,
        -- Through the store's index of judge calls alone (call_events_judge, whose condition this
-       -- repeats), so leaving them out reads no call's metadata.
-       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start' AND c.meta ->> '$.scope' = 'shadowlap:judge') AS judge_calls,
+       -- repeats word for word, json_extract and all), so leaving them out reads no call's metadata.
+       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start' AND json_extract(c.meta, '$.scope') = 'shadowlap:judge') AS judge_calls,
        CASE WHEN r.status = 'failed' THEN EXISTS (
          SELECT 1 FROM call_events x WHERE x.run_id = r.run_id AND x.phase = 'end' AND x.outcome = 'error' AND x.meta ->> '$.injected' = 1
        ) ELSE 0 END AS injected,
