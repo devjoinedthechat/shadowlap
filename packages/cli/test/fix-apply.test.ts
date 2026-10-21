@@ -76,36 +76,6 @@ describe('fix apply after repair --apply', () => {
   });
 });
 
-describe("fix apply of a teammate's repair, from the team store", () => {
-  it('puts the patch in, says its recordings stay on the machine that ran it, and leaves nothing to finish', async () => {
-    const store = Store.open(join(project, 'shadowlap.db'));
-    try {
-      const run = makeRun(store, { labels: ['refund-over-limit'] });
-      recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
-      const dir = '.shadowlap/repairs/repair-mv9gxsdm';
-      const report = repairReport({ targets: [run, makeRun(store, { labels: ['refund-over-limit'] })], dir });
-      // What a pull writes: the patch and the reports, never the goldens.
-      mkdirSync(join(project, dir), { recursive: true });
-      writeFileSync(join(project, dir, 'fix.patch'), report.patch!);
-      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
-      store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
-      expect(fix.status).toBe('verified');
-
-      const lines: string[] = [];
-      const result = await applyFix(store, fix, { cwd: project, goldens: 'goldens', test: true, build: null, db: join(project, 'shadowlap.db'), log: (l) => lines.push(l) });
-      expect(result).toMatchObject({ status: 'applied', patch: 'applied', goldens: [], tests: 'skipped' });
-      expect(lines.filter((l) => l.includes('is gone'))).toEqual([]);
-      expect(lines).toContain('  the 2 recordings the fixed code made stay on the machine that ran repair-mv9gxsdm, which came with a pull: commit them from there');
-      expect(store.getFix(fix.fixId)).toMatchObject({ status: 'applied', data: { applied: { patch: 'applied', goldens: [], tests: 'skipped' } } });
-      // Nothing is left to finish: a second run says it is applied.
-      const again = await applyFix(store, store.getFix(fix.fixId)!, { cwd: project, goldens: 'goldens', test: true, build: null, db: join(project, 'shadowlap.db'), log: () => undefined });
-      expect(again.status).toBe('already-applied');
-    } finally {
-      store.close();
-    }
-  });
-});
-
 /**
  * A project whose agent writes RAN when it runs, with a golden of it that apply's check of the
  * other goldens replays, and a fix verified by a repair that came with a pull. `patch` is what a
@@ -136,6 +106,54 @@ function teammateFix(store: Store, patch: (own: string) => string, o: { pulled?:
 }
 const status = () => execFileSync('git', ['status', '--porcelain'], { cwd: project, encoding: 'utf8' });
 const options = (lines: string[], build: string | null = null) => ({ cwd: project, goldens: 'goldens', test: true, build, db: join(project, 'shadowlap.db'), log: (l: string) => lines.push(l) });
+
+describe("fix apply of a teammate's repair, from the team store", () => {
+  it('puts the patch in, says its recordings stay on the machine that ran it, and leaves nothing to finish', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      const run = makeRun(store, { labels: ['refund-over-limit'] });
+      recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
+      const dir = '.shadowlap/repairs/repair-mv9gxsdm';
+      const report = repairReport({ targets: [run, makeRun(store, { labels: ['refund-over-limit'] })], dir });
+      // What a pull writes: the patch and the reports, never the goldens.
+      mkdirSync(join(project, dir), { recursive: true });
+      writeFileSync(join(project, dir, 'fix.patch'), report.patch!);
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+      store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
+      expect(fix.status).toBe('verified');
+
+      const lines: string[] = [];
+      const result = await applyFix(store, fix, { cwd: project, goldens: 'goldens', test: true, build: null, db: join(project, 'shadowlap.db'), log: (l) => lines.push(l) });
+      expect(result).toMatchObject({ status: 'applied', patch: 'applied', goldens: [], tests: 'skipped' });
+      expect(lines.filter((l) => l.includes('is gone'))).toEqual([]);
+      expect(lines).toContain('  the 2 recordings the fixed code made stay on the machine that ran repair-mv9gxsdm, which came with a pull: commit them from there');
+      expect(store.getFix(fix.fixId)).toMatchObject({ status: 'applied', data: { applied: { patch: 'applied', goldens: [], tests: 'skipped' } } });
+      // Nothing is left to finish: a second run says it is applied.
+      const again = await applyFix(store, store.getFix(fix.fixId)!, { cwd: project, goldens: 'goldens', test: true, build: null, db: join(project, 'shadowlap.db'), log: () => undefined });
+      expect(again.status).toBe('already-applied');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('names the file to read from the folder it runs in when that folder is reached through a link', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    // git names the repository by where the link leads, as it names a folder reached by a short name
+    // on Windows (C:\Users\RUNNER~1) by its long one.
+    const link = `${project}-link`;
+    try {
+      const { fix } = teammateFix(store, (own) => own);
+      symlinkSync(project, link, process.platform === 'win32' ? 'junction' : undefined);
+      const lines: string[] = [];
+      expect(await applyFix(store, fix, { ...options(lines), cwd: link })).toMatchObject({ status: 'applied', patch: 'applied' });
+      expect(lines).toContain('  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- agent.mjs), then check your goldens against it with shadowlap test');
+    } finally {
+      // The store first: if removing the link fails, the project's folder can still be removed after the test.
+      store.close();
+      rmSync(link, { force: true });
+    }
+  });
+});
 
 describe('fix apply of a patch from the store that is more than the change its repair verified', () => {
   it('refuses a patch that writes other files too, and changes nothing', async () => {
@@ -222,23 +240,6 @@ describe('fix apply of a patch from the store that is more than the change its r
       expect(lines.some((l) => l.includes("checking the project's other goldens"))).toBe(false);
       expect(lines).toContain('  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- agent.mjs), then rebuild (node -e "require(\'fs\').writeFileSync(\'BUILT\', \'\')") and check your goldens against it with shadowlap test');
     } finally {
-      store.close();
-    }
-  });
-
-  it('names the file to read from the folder it runs in when that folder is reached through a link', async () => {
-    const store = Store.open(join(project, 'shadowlap.db'));
-    // git names the repository by where the link leads, as it names a folder reached by a short name
-    // on Windows (C:\Users\RUNNER~1) by its long one.
-    const link = `${project}-link`;
-    try {
-      const { fix } = teammateFix(store, (own) => own);
-      symlinkSync(project, link, process.platform === 'win32' ? 'junction' : undefined);
-      const lines: string[] = [];
-      expect(await applyFix(store, fix, { ...options(lines), cwd: link })).toMatchObject({ status: 'applied', patch: 'applied' });
-      expect(lines).toContain('  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- agent.mjs), then check your goldens against it with shadowlap test');
-    } finally {
-      rmSync(link, { force: true });
       store.close();
     }
   });
