@@ -251,7 +251,7 @@ describe('versions and concurrent writers', () => {
   it('waits for another writer, takes over a lock left by a crash, and leaves no temporary files', () => {
     writeFileSync(`${file()}.lock`, '');
     const started = Date.now();
-    expect(() => addRule(cwd, 'normalize', { path: '$.a', replace: '<A>' })).toThrow(/being edited by another command; try again/);
+    expect(() => addRule(cwd, 'normalize', { path: '$.a', replace: '<A>' })).toThrow(/being edited by another command; try again \(if no Shadowlap command is running, delete .*shadowlap\.config\.json\.lock\)$/);
     expect(Date.now() - started).toBeGreaterThanOrEqual(1500);
     // A lock nobody touched for a while is from a writer that died holding it.
     const old = (Date.now() - 60_000) / 1000;

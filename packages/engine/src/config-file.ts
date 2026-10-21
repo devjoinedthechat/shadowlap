@@ -357,7 +357,7 @@ function notWritable(err: unknown, target: string): Error {
 function withLock<T>(target: string, wait: number, fn: () => T): T {
   let held: HeldLock;
   try {
-    held = takeLock(`${target}.lock`, { wait, busy: () => new ConfigBusyError(`${CONFIG_FILE} is being edited by another command; try again`) });
+    held = takeLock(`${target}.lock`, { wait, busy: () => new ConfigBusyError(`${CONFIG_FILE} is being edited by another command; try again (if no Shadowlap command is running, delete ${target}.lock)`) });
   } catch (err) {
     throw err instanceof ConfigBusyError ? err : notWritable(err, target);
   }

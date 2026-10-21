@@ -111,7 +111,8 @@ const LOCK_WAIT_MS = 2_000;
 
 /** Runs `fn` holding the folder's lock (see the header). */
 function underLock(dir: string, fn: () => void): void {
-  withLockFile(join(dir, '.lock'), { wait: LOCK_WAIT_MS, mode: 0o600, busy: () => new Error(`${dir} is being changed by another Shadowlap command`) }, fn);
+  const lock = join(dir, '.lock');
+  withLockFile(lock, { wait: LOCK_WAIT_MS, mode: 0o600, busy: () => new Error(`${dir} is being changed by another Shadowlap command (if none is running, delete ${lock})`) }, fn);
 }
 
 /** Removes files left by agents whose process is gone (a CLI that was killed can't clean up). Called holding the folder's lock. */

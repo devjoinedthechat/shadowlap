@@ -11,7 +11,7 @@ import { processAlive } from './liveness.js';
  * shadowlap.config.json (the CLI and the dashboard's Settings), the dashboard's project list,
  * `.shadowlap/active.json` or the agent registry, or try a repair's candidates in a working tree and
  * hand its fix over. A lock left by a process that died is taken over without anyone's help, and a
- * lock whose process still runs never is.
+ * lock whose process still runs never is (on Windows, see the last paragraph).
  *
  * Taking it. The taker writes its record (process id, machine, when its process started, and a
  * token no other lock has) to a file of its own, then links that file to the lock's name. A link
@@ -27,15 +27,16 @@ import { processAlive } from './liveness.js';
  * lock found stale stays where it is until another process removes it.
  *
  * A lock this machine can't check that way goes by its age: one written on another machine, or in a
- * container with process ids of its own, that shares the folder, and one that doesn't say who holds
- * it. A lock held for a moment, as all are but a repair's, is stale once nobody has changed it for
- * LOCK_STALE_MS. A lock held for minutes, a repair's, takes `ageOut: false` and never goes stale that
- * way: it waits for its holder to remove it, or for someone to delete it. So two repairs in a folder
- * shared with a container or another machine are kept apart too, as far as the folder's file system
- * creates a file only when its name is free (local disks, NFS and SMB do), and a repair that died
- * over there leaves a lock to delete by hand. An earlier Shadowlap's lock names its process but not
- * when it started: it is stale once that process is gone from a machine with its host name, or by
- * its age.
+ * container with process ids of its own, that shares the folder; one that doesn't say who holds it;
+ * and one whose holder's id is taken where when that process started can't be read (on Windows,
+ * which needs PowerShell for it). A lock held for a moment, as all are but a repair's, is stale once
+ * nobody has changed it for LOCK_STALE_MS. A lock held for minutes, a repair's, takes `ageOut: false`
+ * and never goes stale that way: it waits for its holder to remove it, or for someone to delete it.
+ * So two repairs in a folder shared with a container or another machine are kept apart too, as far
+ * as the folder's file system creates a file only when its name is free (local disks, NFS and SMB
+ * do), and a repair that died over there leaves a lock to delete by hand. An earlier Shadowlap's lock
+ * names its process but not when it started: it is stale once that process is gone from a machine
+ * with its host name, or by its age.
  *
  * Taking over. Only a process holding `<lock>.break`, a lock taken the same way, removes a stale
  * lock, and only after reading the lock again and finding the very one it judged: the same file
@@ -54,15 +55,18 @@ import { processAlive } from './liveness.js';
  * below is only needed after a process died at the level above, and the last level is waited for,
  * never broken.
  *
- * The one assumption is on the locks judged by their age: a holder on another machine or in another
- * container, or an earlier Shadowlap's, that keeps one longer than LOCK_STALE_MS loses it. No
- * Shadowlap edit takes nearly that long, and a repair's lock, the one held for minutes, is never
- * judged so. On a file system without hard links (FAT) a lock is created in place and its record
- * written after, so a taker stopped for longer than that between the two loses it too.
+ * The one assumption is on the locks judged by their age: a holder that keeps one longer than
+ * LOCK_STALE_MS loses it. That is a holder on another machine or in another container, an earlier
+ * Shadowlap's, or on Windows any holder of a lock held for a moment; no Shadowlap edit takes nearly
+ * that long, and a repair's lock, the one held for minutes, is never judged by its age. On a file
+ * system without hard links (FAT) a lock is created in place and its record written after, so a
+ * taker stopped for longer than that between the two loses it too.
  *
- * Taking over has a limit, which costs waiting, never a second holder: Windows can't tell when a
- * process started without PowerShell, so there a lock whose holder died, and whose id was given to
- * a process that still runs, waits for that process to end or for someone to delete the lock.
+ * Windows. A lock whose holder's id no process has is taken over at once, as anywhere. One whose id
+ * a process has can't be told from one whose holder died and whose id was given to another process
+ * since, which Windows can do soon after a process ends: a lock held for a moment is taken over once
+ * nobody has changed it for LOCK_STALE_MS, and a repair's waits for that process to end or for
+ * someone to delete the lock, as the message refusing a second repair says.
  */
 
 /** How long a lock whose holder can't be checked stays someone's: no Shadowlap edit takes nearly this long. */
@@ -335,8 +339,10 @@ function stale(seen: Seen, ageOut: boolean, now: number = Date.now()): boolean {
   // This process: another of its threads may hold it; this thread knows whether it does.
   if (r.pid === process.pid) return r.tid === threadId && !holding.has(seen.content);
   if (!processAlive(r.pid)) return true;
-  // Its id is taken. Asked only of a lock held this long: the answer costs a `ps` on macOS.
-  return old && idReused(r);
+  // Its id is taken, by the holder or by a process given it since. Asked only of a lock held this
+  // long, since the answer costs a `ps` on macOS; where it can't be told, the lock goes by its age.
+  if (!old) return false;
+  return idReused(r) ?? aged;
 }
 
 /**
@@ -353,29 +359,31 @@ function here(r: Record2): boolean {
   return r.host === hostname() && r.ns === s.ns;
 }
 
-/** Holders of locks seen running lately, by token: asked again after a second, not on every try. */
-const running = new Map<string, number>();
+/** What was found of holders whose id is taken, by their lock's token: asked again after a second, not on every try. */
+const asked = new Map<string, { at: number; reused: boolean | null }>();
 
-/** Whether the process that has the holder's id now started after the holder did. False when that can't be told (Windows). */
-function idReused(r: Record2): boolean {
-  const asked = running.get(r.token);
-  if (asked !== undefined && Date.now() - asked < 1000) return false;
-  let reused = false;
+/**
+ * Whether the process that has the holder's id now started after the holder did. Null when that
+ * can't be told: on Windows, where when a process started can't be read without PowerShell, and
+ * where the process can't be read (another user's, with /proc mounted to hide it, or no `ps`).
+ */
+function idReused(r: Record2): boolean | null {
+  const before = asked.get(r.token);
+  if (before && Date.now() - before.at < 1000) return before.reused;
+  let reused: boolean | null = null;
   if (process.platform === 'linux') {
     const now = linuxStart(r.pid);
-    reused = r.start !== null && now !== null && now !== r.start;
+    if (r.start !== null && now !== null) reused = now !== r.start;
   } else if (process.platform !== 'win32' && r.born !== null) {
     // `ps` gives the second a process started in, never later than when it began to run: the holder
     // itself never shows as starting after its own `born`, and a second's margin keeps it so should
     // the clock be set back a little while it starts. An id given again within that second is not
     // told, and its lock waits for the process that has the id now.
     const started = psStart(r.pid);
-    reused = started !== null && started > r.born + 1000;
+    if (started !== null) reused = started > r.born + 1000;
   }
-  if (!reused) {
-    if (running.size > 100) running.clear();
-    running.set(r.token, Date.now());
-  }
+  if (asked.size > 100) asked.clear();
+  asked.set(r.token, { at: Date.now(), reused });
   return reused;
 }
 

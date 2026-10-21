@@ -179,6 +179,22 @@ describe('takeLock', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it('goes by its age when it can’t tell a running holder from a process given its id since, as on Windows, unless the lock is held for minutes', async () => {
+    const other = await running();
+    // No note of when its holder started, as where that can't be read: whatever has the id may be the holder.
+    const text = record({ pid: other.pid, born: null, start: null });
+    writeFileSync(lock, text);
+    // Fresh: its holder's, most likely.
+    expect(() => take(50)).toThrow('busy');
+    age(lock);
+    // Held for minutes, as a repair's: it waits.
+    expect(() => takeLock(lock, { wait: 50, busy, ageOut: false })).toThrow('busy');
+    expect(readFileSync(lock, 'utf8')).toBe(text);
+    // Held for a moment: taken over once nobody has changed it for LOCK_STALE_MS.
+    releaseLock(take());
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
   it('tells this machine on Linux by its boot and process id namespace, whatever the host name, and elsewhere by its host name', () => {
     // Another boot, or another process id namespace (a container with process ids of its own, sharing
     // the folder), under this host name: no process here has its id, which says nothing of its holder.
