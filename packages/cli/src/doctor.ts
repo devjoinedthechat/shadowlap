@@ -2,11 +2,12 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SCHEMA_VERSION, Store, judgeTarget, loadApiRequest, retirementOf, toolDefinitions, type CallRecord } from '@shadowlap/engine';
+import { JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, judgeTarget, loadApiRequest, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
-import { closestName, judgeChecksOf, pathsNamed, storedCalls, toolsNamed, unreadPaths, type NamedPath, type NamedTool, type RecordedCalls, type TestEntry } from './checks.js';
-import { CONFIG_FILE, configPath as configFile, defaultDbPath, loadConfig, loadTests } from './config.js';
+import { closestName, evaluateChecks, JUDGE_KEYS, judgeChecksOf, pathsNamed, storedCalls, storedCheckInput, toolsNamed, unreadPaths, type JudgeCheck, type JudgeVerdict, type NamedPath, type NamedTool, type RecordedCalls, type TestEntry } from './checks.js';
+import { CONFIG_FILE, configPath as configFile, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from './config.js';
 import { expandRecordings, testsKeyFor } from './goldens.js';
+import { cannotJudge, heldVerdict, liveJudge } from './judge.js';
 
 /**
  * `shadowlap doctor`: the environment, the store and the configuration, checked the way support
@@ -178,13 +179,26 @@ export function runDoctor(options: DoctorOptions): Check[] {
       if (gates) parts.push(`${gates} injection gate${gates === 1 ? '' : 's'}`);
       push('config', 'ok', `${configPath}: ${parts.join(', ')}`);
       if (tests.length) {
-        // What goes wrong reading the packs says nothing about the config, which parsed.
+        // Each pack the entries apply to is read once, for the rules and the judge checks alike:
+        // reading one unpacks it into a store of its own and checks every blob's hash.
+        const packs = readTestPacks(cwd, tests);
         try {
-          checks.push(...checkRules(cwd, tests, dbPath));
-        } catch (err) {
-          push('check rules', 'warn', `the tools the checks name could not be held against their recordings: ${err instanceof Error ? err.message : String(err)}`);
+          // What goes wrong reading the packs says nothing about the config, which parsed.
+          try {
+            checks.push(...checkRules(cwd, tests, dbPath, packs));
+          } catch (err) {
+            push('check rules', 'warn', `the tools the checks name could not be held against their recordings: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          checks.push(...judgeRetirements(tests));
+          checks.push(...judgeKeys(tests, env));
+          try {
+            checks.push(...judgeVerdicts(cwd, tests, env, packs));
+          } catch (err) {
+            push('judge verdicts', 'warn', `the goldens' recorded judge verdicts could not be read: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        } finally {
+          closePacks(packs);
         }
-        checks.push(...judgeRetirements(tests));
       }
     } catch (err) {
       push('config', 'fail', `${configPath}: ${err instanceof Error ? err.message : String(err)}`, 'Fix the JSON; shadowlap normalize ls / redact ls print what is loaded.');
@@ -248,15 +262,6 @@ interface Held {
 }
 
 /**
- * Rules under `tests` held against every recording there is: the packs the entries apply to and the
- * store's newest runs, read without changing either. A tool a rule names that no recording called
- * or offered its model is most likely misspelt, or renamed since, and a rule on it checks nothing;
- * one the agent has but no recording called yet is left alone (a rule that guards against a call,
- * on a golden that never makes it, is what it should be). A value a rule reads that no recorded call
- * of its tool has (a misspelt `result.totl`) fails the rule, or leaves a condition undecided. An
- * entry with checks and no pack is named too. The home for later checks on checks.
- */
-/**
  * The judge checks whose model retires, by the table that ships with Shadowlap. A judge asked a
  * model its provider has shut down gets no verdict, so its checks read not judged wherever a replay
  * forks or a golden is packed; and the retirement notices on recordings leave a judge's calls out,
@@ -276,8 +281,11 @@ export function judgeRetirements(entries: readonly TestEntry[], now = Date.now()
   return out;
 }
 
-export function checkRules(cwd: string, entries: readonly TestEntry[], dbPath?: string): Check[] {
-  const out: Check[] = [];
+/**
+ * The packs each entry under `tests` applies to, by the entry's key: a pack an entry's pattern
+ * matches belongs to the entry `shadowlap test` reads its checks from (the most specific).
+ */
+function packsByEntry(cwd: string, entries: readonly TestEntry[]): Map<string, string[]> {
   const byKey = new Map<string, string[]>();
   for (const e of entries) {
     let dirs: string[] = [];
@@ -294,22 +302,186 @@ export function checkRules(cwd: string, entries: readonly TestEntry[], dbPath?: 
       byKey.set(key, list);
     }
   }
+  return byKey;
+}
+
+/** The packs the entries under `tests` apply to, each read once, for every check that holds the config against them. */
+export interface TestPacks {
+  /** The packs each entry applies to, by the entry's key (packsByEntry). */
+  byKey: Map<string, string[]>;
+  /**
+   * Each pack that could be read, by its directory: its run, in a store of its own in memory. A
+   * pack that can't be read is left out: shadowlap test reports it.
+   */
+  read: Map<string, { run: RunRecord; store: Store }>;
+}
+
+/** Reads every pack the entries apply to, once each. The caller closes them (closePacks). */
+export function readTestPacks(cwd: string, entries: readonly TestEntry[]): TestPacks {
+  const packs: TestPacks = { byKey: packsByEntry(cwd, entries), read: new Map() };
+  for (const dir of new Set([...packs.byKey.values()].flat())) {
+    try {
+      packs.read.set(dir, packRecording(resolve(cwd, dir)));
+    } catch {
+      // a pack that can't be read: shadowlap test reports it
+    }
+  }
+  return packs;
+}
+
+export function closePacks(packs: TestPacks): void {
+  for (const { store } of packs.read.values()) store.close();
+}
+
+/** `fn` over the packs: those given, or read here and closed after. */
+function withPacks<T>(cwd: string, entries: readonly TestEntry[], given: TestPacks | undefined, fn: (packs: TestPacks) => T): T {
+  if (given) return fn(given);
+  const packs = readTestPacks(cwd, entries);
+  try {
+    return fn(packs);
+  } finally {
+    closePacks(packs);
+  }
+}
+
+/** `a`, `a and b`, `a, b and c`. */
+function inWords(list: readonly string[]): string {
+  return list.length < 2 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} and ${list.at(-1)}`;
+}
+
+/** Check names as a sentence names them: `"a"`, `"a" and "b"`. */
+const quotedList = (list: readonly string[]) => inWords(list.map((n) => `"${n}"`));
+
+/** The variables a provider's key is read from, as a fix names them: `ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)`. */
+const keyNames = (provider: JudgeProvider) => `${JUDGE_KEYS[provider][0]}${JUDGE_KEYS[provider].length > 1 ? ` (or ${JUDGE_KEYS[provider].slice(1).join(' or ')})` : ''}`;
+
+/** Whether a judge can be asked live from this environment: a key for its provider, or an upstream set for it. */
+function askable(provider: JudgeProvider, env: NodeJS.ProcessEnv): boolean {
+  return !('why' in liveJudge(provider, upstreamOverrides(env), env));
+}
+
+/**
+ * The judge checks no judge can be asked for from this environment: no key for the provider of
+ * their model and no upstream set for it (SHADOWLAP_UPSTREAM_<PROVIDER>, or the SDK base URL a run
+ * would use). Packing, `test --update`, a golden that forks, and blame, verify, repair and tasks
+ * score ask a judge live where the recording holds no verdict for the very request; without a way
+ * to ask, each such check reads not judged (inconclusive), as every check does offline. One warning
+ * per provider, naming its checks.
+ */
+export function judgeKeys(entries: readonly TestEntry[], env: NodeJS.ProcessEnv): Check[] {
+  const byProvider = new Map<JudgeProvider, string[]>();
+  for (const e of entries) {
+    for (const j of judgeChecksOf(e.spec)) {
+      const target = judgeTarget(j.model);
+      if (!target || askable(target.provider, env)) continue;
+      const list = byProvider.get(target.provider) ?? [];
+      list.push(`judge "${j.name}" in tests["${e.recording}"]`);
+      byProvider.set(target.provider, list);
+    }
+  }
+  return [...byProvider].map(([provider, checks]) => {
+    const shown = checks.length > 3 ? `${checks.slice(0, 3).join(', ')} and ${checks.length - 3} more` : inWords(checks);
+    return {
+      name: 'judge key',
+      verdict: 'warn' as const,
+      detail: `no key for ${provider} in this environment (${JUDGE_KEYS[provider].join(' or ')}), so ${shown} can't be asked live: packing, test --update, a golden that forks, blame, verify, repair and tasks score read ${checks.length === 1 ? 'it' : 'each'} not judged (inconclusive) wherever its verdict isn't recorded, as a test offline does`,
+      fix: `Set ${keyNames(provider)} where judges are asked, or SHADOWLAP_UPSTREAM_${provider.toUpperCase()} to a server that answers for ${provider}. A clean replay of a golden that holds the verdict needs no key.`,
+    };
+  });
+}
+
+/**
+ * The judge checks of a golden that a clean replay of it would want a verdict for and not find: each
+ * one that applies to the recording, read as `shadowlap test` reads a clean replay's checks, from
+ * the recorded calls with the verdicts the recording holds. A judge under a `when` whose condition
+ * never held there is not applicable, and asks for no verdict (`test --update` records none for
+ * it); one whose condition can't be told is inconclusive whatever a judge would say, and `check
+ * rules` names the value it can't read. A verdict given to an older form of the judge's request
+ * answers none, since a replay sends the request as it is now: `older` names those.
+ */
+function wantedVerdicts(store: Store, calls: CallRecord[], entry: TestEntry, judges: readonly JudgeCheck[]): { none: JudgeCheck[]; older: JudgeCheck[] } {
+  const verdicts = new Map<string, JudgeVerdict>();
+  const older = new Set<string>();
+  for (const j of judges) {
+    const held = heldVerdict(store, calls, j);
+    if (!held) continue;
+    if ((calls.find((c) => c.callNo === held.callNo)?.meta.judge?.v ?? 1) === JUDGE_REQUEST_VERSION) verdicts.set(j.name, held);
+    else older.add(j.name);
+  }
+  // A judge check that applies and has no verdict is inconclusive with its judge's outcome; under a
+  // `when` that never held, or couldn't be told, its result carries none. What the agent printed
+  // decides no condition, and no judge result here.
+  const results = evaluateChecks(entry.spec, storedCheckInput(store, calls, ''), { judgeVerdicts: verdicts });
+  const wanting = new Set(results.flatMap((r) => (r.judge && r.status === 'inconclusive' ? [r.judge.name] : [])));
+  return { none: judges.filter((j) => wanting.has(j.name) && !older.has(j.name)), older: judges.filter((j) => wanting.has(j.name) && older.has(j.name)) };
+}
+
+/**
+ * Goldens that hold no recorded verdict for a judge check that applies to them. `shadowlap test` runs
+ * offline, so a clean replay is judged only from its recording: each such check reads not judged
+ * (inconclusive) and fails the run unless inconclusive verdicts warn. A judge under a `when` whose
+ * condition never held in the golden is not applicable there and needs none (wantedVerdicts). A
+ * verdict given to an older form of the judge's request counts as none, since a replay sends the
+ * request as it is now. One warning per golden, naming the checks, with the command that records
+ * them; a golden whose run did not complete is never judged, and says so instead.
+ */
+export function judgeVerdicts(cwd: string, entries: readonly TestEntry[], env: NodeJS.ProcessEnv, packs?: TestPacks): Check[] {
+  return withPacks(cwd, entries, packs, ({ byKey, read }) => {
+    const out: Check[] = [];
+    for (const [key, dirs] of byKey) {
+      const entry = entries.find((e) => e.recording === key);
+      const judges = entry ? judgeChecksOf(entry.spec) : [];
+      if (!entry || !judges.length) continue;
+      for (const dir of dirs) {
+        const pack = read.get(dir);
+        if (!pack) continue; // a pack that can't be read: shadowlap test reports it
+        const { run, store } = pack;
+        const { none, older } = wantedVerdicts(store, store.getCalls(run.runId), entry, judges);
+        if (!none.length && !older.length) continue;
+        const missing = [...none, ...older];
+        const parts = [none.length ? `no recorded verdict for judge${none.length === 1 ? '' : 's'} ${quotedList(none.map((j) => j.name))}` : '', older.length ? `${none.length ? 'and only ' : 'only '}a verdict given to an older form of the judge's request for ${quotedList(older.map((j) => j.name))}, which a replay no longer sends` : ''].filter(Boolean);
+        const cannot = cannotJudge(run);
+        if (cannot) {
+          out.push({ name: 'judge verdicts', verdict: 'warn', detail: `${dir} holds ${parts.join(' ')}, and ${cannot}`, fix: `Pack a run of it that completed, then record the verdicts: shadowlap test ${quoteArgv([dir])} --update.` });
+          continue;
+        }
+        // The keys --update needs, for the judges it would ask.
+        const providers = [...new Set(missing.map((j) => judgeTarget(j.model)?.provider).filter((x): x is JudgeProvider => !!x && !askable(x, env)))];
+        out.push({
+          name: 'judge verdicts',
+          verdict: 'warn',
+          detail: `${dir} holds ${parts.join(' ')}, so a test of it, which runs offline, reads ${missing.length === 1 ? 'it' : 'them'} not judged (inconclusive) and fails unless --inconclusive warn`,
+          fix: `Record ${missing.length === 1 ? 'it' : 'them'}${providers.length ? ` with ${providers.map(keyNames).join(' and ')} set` : ''}: shadowlap test ${quoteArgv([dir])} --update asks the judge live once and keeps its call in the golden.`,
+        });
+      }
+    }
+    return out;
+  });
+}
+
+/**
+ * Rules under `tests` held against every recording there is: the packs the entries apply to
+ * (`packs`, or read here) and the store's newest runs, read without changing either. A tool a rule
+ * names that no recording called or offered its model is most likely misspelt, or renamed since, and
+ * a rule on it checks nothing; one the agent has but no recording called yet is left alone (a rule
+ * that guards against a call, on a golden that never makes it, is what it should be). A value a rule
+ * reads that no recorded call of its tool has (a misspelt `result.totl`) fails the rule, or leaves a
+ * condition undecided. An entry with checks and no pack is named too. The home for later checks on
+ * checks.
+ */
+export function checkRules(cwd: string, entries: readonly TestEntry[], dbPath?: string, packs?: TestPacks): Check[] {
+  return withPacks(cwd, entries, packs, (p) => rulesAgainst(entries, p, dbPath));
+}
+
+function rulesAgainst(entries: readonly TestEntry[], { byKey, read }: TestPacks, dbPath: string | undefined): Check[] {
+  const out: Check[] = [];
   const stores: Store[] = [];
   try {
     const held: Held[] = [];
     const hold = (store: Store, calls: CallRecord[], everyRequest: boolean) => held.push({ calls, input: storedCalls(store), offered: offeredTools(store, calls, everyRequest) });
-    const packs = [...new Set([...byKey.values()].flat())];
-    let packsRead = 0;
-    for (const dir of packs) {
-      try {
-        const { run, store } = packRecording(resolve(cwd, dir));
-        stores.push(store);
-        hold(store, store.getCalls(run.runId), true);
-        packsRead++;
-      } catch {
-        // a pack that can't be read: shadowlap test reports it
-      }
-    }
+    // The packs are read already (readTestPacks); a pack that can't be read is not among them.
+    for (const { run, store } of read.values()) hold(store, store.getCalls(run.runId), true);
+    const packsRead = read.size;
     let runsRead = 0;
     if (dbPath && existsSync(dbPath)) {
       const store = Store.open(dbPath);

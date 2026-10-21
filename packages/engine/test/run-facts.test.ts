@@ -237,16 +237,38 @@ describe('what a run did unrecorded', () => {
 });
 
 describe('show --json', () => {
-  it('is the run, its summary and its calls as stored', () => {
+  it('is the run, its summary and its calls as stored, and its untrusted reads', () => {
     const store = Store.open(':memory:');
     const b = RunBuilder.start(store);
     b.model({ messages: [user('x')] }, [text('y')]);
     b.end();
     const run = store.getRun(b.runId)!;
     const out = showJson(store, run);
-    expect(Object.keys(out)).toEqual(['run', 'summary', 'calls']);
+    expect(Object.keys(out)).toEqual(['run', 'summary', 'calls', 'untrusted']);
     expect(out.calls).toEqual(store.getCalls(b.runId));
     expect(out.summary).toEqual(summarizeRun(run, store.getCalls(b.runId), [], [], {}));
+    expect(out.untrusted).toEqual([]);
+    store.close();
+  });
+
+  it('lists the untrusted reads as shadowlap injection finds them, the config marking a tool either way', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    b.tool('fetch_page', { url: 'https://example.com' }, 'a page', { meta: { trust: 'untrusted', trustFrom: 'sdk' } });
+    b.tool('web_search', { q: 'x' }, ['r'], { meta: { mcp: { transport: 'stdio', server: 'search' }, trust: 'untrusted', trustFrom: 'mcp' } });
+    b.tool('read_inbox', {}, [], {});
+    b.tool('send_email', { to: 'team@example.com' }, 'sent', { effect: 'write', meta: { trust: 'untrusted', trustFrom: 'sdk' } });
+    b.end();
+    const run = store.getRun(b.runId)!;
+    // A write is no place to plant, and a read nothing marks is trusted.
+    expect(showJson(store, run).untrusted).toEqual([
+      { callNo: 1, name: 'fetch_page', from: 'sdk' },
+      { callNo: 2, name: 'web_search', from: 'mcp' },
+    ]);
+    expect(showJson(store, run, { tools: { read_inbox: { trust: 'untrusted' }, web_search: { trust: 'trusted' } } }).untrusted).toEqual([
+      { callNo: 1, name: 'fetch_page', from: 'sdk' },
+      { callNo: 3, name: 'read_inbox', from: 'config' },
+    ]);
     store.close();
   });
 });

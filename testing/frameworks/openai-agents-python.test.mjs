@@ -2,6 +2,7 @@
 // with shadowlap.adapters.openai_agents.function_tool and a RunContextWrapper first parameter.
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
+import { untrustedReads } from '../../packages/engine/dist/index.js';
 import { startHarness, toolTrace } from './harness.mjs';
 import { findPython, pythonAgent } from './python.mjs';
 
@@ -23,6 +24,15 @@ describe('OpenAI Agents SDK (Python) with shadowlap.adapters.openai_agents', { s
     assert.match(recorded.value.output, /ops/); // the context still reached the tool
     assert.deepEqual(toolTrace(recorded.calls), ['search_web:read:live:ok', 'send_email:write:live:ok']);
     assert.deepEqual(h.store.getJson(recorded.calls.find((c) => c.name === 'search_web').requestRef), { args: { query: 'shadowlap' } });
+  });
+
+  it('passes trust on to shadowlap.tool: the untrusted read is recorded so, where shadowlap injection plants', () => {
+    const meta = Object.fromEntries(recorded.calls.filter((c) => c.kind === 'tool').map((c) => [c.name, c.meta]));
+    assert.equal(meta.search_web.trust, 'untrusted');
+    assert.equal(meta.search_web.trustFrom, 'sdk');
+    // A tool that doesn't say is sent no mark, and the agents SDK never sees the keyword.
+    assert.equal(meta.send_email.trust, undefined);
+    assert.deepEqual(untrustedReads(recorded.calls).reads.map((r) => [r.name, r.effect, r.from]), [['search_web', 'read', 'sdk']]);
   });
 
   it('replays without executing either tool', async () => {

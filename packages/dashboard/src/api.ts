@@ -1,4 +1,4 @@
-import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
@@ -273,7 +273,7 @@ export function provenance(store: Store, idOrPrefix: string, options: ReadOption
 }
 
 /** `shadowlap show <run> --json` as the CLI prints it, for Copy show --json. */
-export function showRunJson(store: Store, idOrPrefix: string, options: ReadOptions = {}): ReturnType<typeof runShowJson> | null {
+export function showRunJson(store: Store, idOrPrefix: string, options: ReadOptions & { tools?: ToolTrust } = {}): ReturnType<typeof runShowJson> | null {
   const run = lookupRun(store, idOrPrefix);
   return run ? runShowJson(store, run, options) : null;
 }

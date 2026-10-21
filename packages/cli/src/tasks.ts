@@ -14,6 +14,7 @@ import {
   estimateCost,
   formatDivergence,
   goldenPaths,
+  isJudgeCall,
   isModelRequest,
   oneSided,
   parseTaskFields,
@@ -22,6 +23,7 @@ import {
   takeoverRefusal,
   type CallRecord,
   type Golden,
+  type JudgeSummary,
   type OneSided,
   type Price,
   type ReadPolicy,
@@ -224,8 +226,10 @@ export interface ScoredAttempt {
   runId: string;
   score: number;
   checks: ScoredCheck[];
-  /** USD spent on the attempt's live model calls, priced as the model that answered each; the model under test's answers cost 0 on this machine. */
+  /** USD spent on the attempt's live model calls, priced as the model that answered each; the model under test's answers cost 0 on this machine. A judge check's calls are not among them. */
   spent: number;
+  /** What its judge checks' calls did and cost, apart from `spent`; null without a judge call. */
+  judge: JudgeSummary | null;
   exitCode: number;
   ms: number;
 }
@@ -239,8 +243,10 @@ export interface TaskScore {
   via: string;
   attempts: ScoredAttempt[];
   mean: number | null;
-  /** What every attempt of the task cost, one that stopped before it was scored included. */
+  /** What every attempt of the task cost, one that stopped before it was scored included; its judge checks' calls are `judge`. */
   spent: number;
+  /** What the judge checks' calls of every attempt did and cost, apart from `spent`; null without a judge call. The budget counts both. */
+  judge: JudgeSummary | null;
   /** Why it stopped short: the golden didn't replay up to the takeover, the budget, an interrupt. */
   stopped: string | null;
   /** What translating the conversation for the model left out (thinking blocks, a server tool). */
@@ -288,13 +294,14 @@ export function answeredBy(c: CallRecord): string | null {
 /**
  * What an attempt's live model calls cost, priced as the model that answered each. A model on this
  * machine answers for nothing; the provider's own calls (an embedding, a token count) are priced as
- * any other. `unknown` collects the models with no price.
+ * any other. A judge check's calls are left out: the run's summary prices them apart (`judge`), as
+ * every report does. `unknown` collects the models with no price.
  */
 export function attemptCost(calls: readonly CallRecord[], target: ModelTarget, prices: Record<string, Price> | undefined, unknown: Set<string>): number {
   let spent = 0;
   for (const c of calls) {
     const usage = c.end?.meta.usage;
-    if (c.kind !== 'api' || c.origin !== 'live' || !usage) continue;
+    if (c.kind !== 'api' || c.origin !== 'live' || !usage || isJudgeCall(c)) continue;
     const fromTakeover = typeof c.end?.meta.headers?.[ANSWERED_BY] === 'string';
     if (fromTakeover && target.local) continue;
     const model = answeredBy(c);
@@ -306,12 +313,29 @@ export function attemptCost(calls: readonly CallRecord[], target: ModelTarget, p
   return spent;
 }
 
+/** Two parts of what judge checks' calls did and cost, as one. */
+export function addJudge(a: JudgeSummary | null, b: JudgeSummary | null | undefined): JudgeSummary | null {
+  if (!b) return a;
+  if (!a) return { ...b, unknownModels: [...b.unknownModels] };
+  return {
+    calls: a.calls + b.calls,
+    replayed: a.replayed + b.replayed,
+    live: a.live + b.live,
+    notAsked: a.notAsked + b.notAsked,
+    upstreamRequests: a.upstreamRequests + b.upstreamRequests,
+    spent: a.spent + b.spent,
+    saved: a.saved + b.saved,
+    unknownModels: [...new Set([...a.unknownModels, ...b.unknownModels])],
+  };
+}
+
 /**
  * Scores one task: `settings.attempts` attempts, each a replay of the golden that the model under
  * test takes over at the takeover call. Every attempt is a run in the store, marked with what it
  * scored, or why it stopped before it could be scored. The first attempt runs on its own: a model
  * that doesn't answer, or a golden that forks before its takeover, stops the task after one attempt
- * whatever the concurrency. `spentBefore` counts toward the budget.
+ * whatever the concurrency. `spentBefore` counts toward the budget, and so does what the task's
+ * judge checks cost, which is reported apart (`judge`).
  */
 export async function scoreTask(
   opts: GlobalOpts,
@@ -340,7 +364,7 @@ export async function scoreTask(
     await takeover.close();
     throw err;
   }
-  const result: TaskScore = { task: task.golden, takeover: k, why: settings.takeover !== undefined ? 'asked for' : task.takeover!.why, prefix: task.pack!.calls.filter((c) => c.callNo < k).length, via, attempts: [], mean: null, spent: 0, stopped: null, dropped: [], unknownModels: [] };
+  const result: TaskScore = { task: task.golden, takeover: k, why: settings.takeover !== undefined ? 'asked for' : task.takeover!.why, prefix: task.pack!.calls.filter((c) => c.callNo < k).length, via, attempts: [], mean: null, spent: 0, judge: null, stopped: null, dropped: [], unknownModels: [] };
   const unknown = new Set<string>();
   const of = settings.of ?? settings.attempts;
   let spent = 0;
@@ -365,7 +389,13 @@ export async function scoreTask(
       const n = (settings.first ?? 1) + launched++;
       const a = await runner.attempt(target_, { divergeAt: k });
       const cost = attemptCost(a.calls, target, runner.config.prices, unknown);
-      if (!runner.interrupted) spent += cost;
+      // A judge check's calls go to the judge, never to the model under test: what they cost is
+      // reported apart from the attempt's, and counts against the budget all the same.
+      const judge = a.summary.judge ?? null;
+      if (!runner.interrupted) {
+        spent += cost;
+        result.judge = addJudge(result.judge, judge);
+      }
       const stop = (reason: string) => {
         result.stopped ??= reason;
         mark(a.run.runId, n, { stopped: reason });
@@ -405,7 +435,7 @@ export async function scoreTask(
       const exit: ScoredCheck = { check: EXIT_LABEL, pass: a.code === 0, detail: a.code === 0 ? null : a.failures.find((f) => /exited|timed out/.test(f)) ?? `the agent exited with code ${a.code}` };
       const checks: ScoredCheck[] = [exit, ...scoredChecks(a.checks)];
       const score = attemptScore(checks.map((c) => ({ ok: c.pass })));
-      const scored: ScoredAttempt = { attempt: n, runId: a.run.runId, score, checks, spent: cost, exitCode: a.code, ms: a.ms };
+      const scored: ScoredAttempt = { attempt: n, runId: a.run.runId, score, checks, spent: cost, judge, exitCode: a.code, ms: a.ms };
       result.attempts.push(scored);
       mark(a.run.runId, n, { score }, a.checks.length ? { checks: a.checks } : {});
       onAttempt(scored, task);
@@ -413,7 +443,7 @@ export async function scoreTask(
     };
     const canStart = () => {
       if (!runner.canStart()) return false;
-      if (settings.budget !== null && session.spentBefore + spent >= settings.budget) {
+      if (settings.budget !== null && session.spentBefore + spent + (result.judge?.spent ?? 0) >= settings.budget) {
         budgetSpent = true;
         return false;
       }
@@ -438,6 +468,14 @@ export async function scoreTask(
   }
 }
 
+/**
+ * A task that started no attempt, for `stopped`: the budget was spent on the tasks before it. It is
+ * reported as stopped, with nothing scored, so a score that never reached it says it fell short.
+ */
+export function notStarted(task: LoadedTask, target: ModelTarget, stopped: string): TaskScore {
+  return { task: task.golden, takeover: task.takeover!.callNo, why: task.takeover!.why, prefix: task.prefix, via: targetVia(target, task.provider), attempts: [], mean: null, spent: 0, judge: null, stopped, dropped: [], unknownModels: [] };
+}
+
 export interface KeptScores {
   /** `replaced`: the earlier score gave way to this one. `new`: there was none. `kept`: this one stopped short, and the earlier one stands. */
   outcome: 'new' | 'replaced' | 'kept' | 'none';
@@ -449,7 +487,7 @@ export interface KeptScores {
  * Keeps a model's scores on a task. A score that ran every attempt it was asked for replaces what the
  * model scored there before; one that stopped short (the budget, an interrupt, a model that stopped
  * answering) is kept only when there was nothing before, so a cut-short re-score never wipes a whole
- * one.
+ * one. Each attempt keeps what its judge checks cost apart from its own spend, as it reports them.
  */
 export function keepScores(store: Store, target: ModelTarget, score: TaskScore, session: string, asked: number): KeptScores {
   const before = store.listTaskScores().filter((r) => r.model === target.model && r.baseUrl === target.scoreBase && r.golden === score.task);
@@ -460,7 +498,7 @@ export function keepScores(store: Store, target: ModelTarget, score: TaskScore, 
     target.model,
     target.scoreBase,
     score.task,
-    score.attempts.map((a) => ({ attempt: a.attempt, runId: a.runId, score: a.score, checks: a.checks.map((c) => ({ label: c.check, ok: c.pass, detail: c.detail })), spent: a.spent, via: score.via, session, at })),
+    score.attempts.map((a) => ({ attempt: a.attempt, runId: a.runId, score: a.score, checks: a.checks.map((c) => ({ label: c.check, ok: c.pass, detail: c.detail })), spent: a.spent, judgeSpent: a.judge?.spent ?? null, via: score.via, session, at })),
   );
   return { outcome: before.length ? 'replaced' : 'new', before };
 }

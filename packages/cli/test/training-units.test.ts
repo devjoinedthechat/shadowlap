@@ -9,7 +9,7 @@ import { parseTests } from '../src/checks.js';
 import { volatileWarning } from '../src/golden-update.js';
 import { keptLine, replayedBefore } from '../src/commands/training.js';
 import { ANSWERED_BY, modelUnswitchable, resolveTarget, startTakeover, switchModel, takeoverMode, targetVia } from '../src/takeover.js';
-import { answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, testForkedAt, testInconclusive, type LoadedTask, type TaskScore } from '../src/tasks.js';
+import { addJudge, answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, testForkedAt, testInconclusive, type LoadedTask, type TaskScore } from '../src/tasks.js';
 
 /**
  * The CLI's training parts on their own: the task block under tests, the model under test and how a
@@ -443,7 +443,7 @@ describe('keeping a model\'s scores', () => {
   it('replaces them with a whole re-score, and keeps them when a re-score stops short', () => {
     const store = Store.open(':memory:');
     const target = resolveTarget({ model: 'weak-model' }, {});
-    const score = (n: number, value: number): TaskScore => ({ task: 'goldens/g', takeover: 5, why: 'w', prefix: 4, via: 'Anthropic API', attempts: Array.from({ length: n }, (_, i) => ({ attempt: i + 1, runId: `run-${value}-${i + 1}`, score: value, checks: [], spent: 0, exitCode: 0, ms: 1 })), mean: value, spent: 0, stopped: null, dropped: [], unknownModels: [] });
+    const score = (n: number, value: number): TaskScore => ({ task: 'goldens/g', takeover: 5, why: 'w', prefix: 4, via: 'Anthropic API', attempts: Array.from({ length: n }, (_, i) => ({ attempt: i + 1, runId: `run-${value}-${i + 1}`, score: value, checks: [], spent: 0, judge: null, exitCode: 0, ms: 1 })), mean: value, spent: 0, judge: null, stopped: null, dropped: [], unknownModels: [] });
     const rows = () => store.listTaskScores().map((r: TaskScoreRow) => [r.attempt, r.runId, r.score]);
     // Stopped short with nothing before it: what it has is kept.
     expect(keepScores(store, target, score(1, 0.25), 's1', 4).outcome).toBe('new');
@@ -458,7 +458,7 @@ describe('keeping a model\'s scores', () => {
   });
 
   it('says what it replaced or kept in words that count right', () => {
-    const score = (n: number): TaskScore => ({ task: 'goldens/g', takeover: 5, why: 'w', prefix: 4, via: 'Anthropic API', attempts: Array.from({ length: n }, (_, i) => ({ attempt: i + 1, runId: `run-${i}`, score: 1, checks: [], spent: 0, exitCode: 0, ms: 1 })), mean: 1, spent: 0, stopped: null, dropped: [], unknownModels: [] });
+    const score = (n: number): TaskScore => ({ task: 'goldens/g', takeover: 5, why: 'w', prefix: 4, via: 'Anthropic API', attempts: Array.from({ length: n }, (_, i) => ({ attempt: i + 1, runId: `run-${i}`, score: 1, checks: [], spent: 0, judge: null, exitCode: 0, ms: 1 })), mean: 1, spent: 0, judge: null, stopped: null, dropped: [], unknownModels: [] });
     const before = [{ score: 0.5 }, { score: 0.25 }] as TaskScoreRow[];
     expect(keptLine(score(1), { outcome: 'replaced', before }, 1)).toBe('g: replaced 2 earlier attempts (0.38) with this one');
     expect(keptLine(score(3), { outcome: 'replaced', before: before.slice(0, 1) }, 3)).toBe('g: replaced 1 earlier attempt (0.50) with these 3');
@@ -474,8 +474,8 @@ describe('keeping a model\'s scores', () => {
 });
 
 describe('which model answered, and what it cost', () => {
-  const live = (callNo: number, o: { model?: string; answered?: string; usage?: { inputTokens: number; outputTokens: number }; origin?: string; name?: string }) =>
-    ({ runId: 'r', callNo, kind: 'api', name: o.name ?? 'POST /v1/messages', fingerprint: 'f', occurrence: 1, origin: o.origin ?? 'live', effect: null, requestRef: null, meta: { provider: 'anthropic' }, at: 1, end: { runId: 'r', callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: { provider: 'anthropic', ...(o.model ? { model: o.model } : {}), ...(o.usage ? { usage: o.usage } : {}), headers: o.answered ? { [ANSWERED_BY]: o.answered } : {} }, at: 2 }, attempts: [] }) as unknown as CallRecord;
+  const live = (callNo: number, o: { model?: string; answered?: string; usage?: { inputTokens: number; outputTokens: number }; origin?: string; name?: string; scope?: string }) =>
+    ({ runId: 'r', callNo, kind: 'api', name: o.name ?? 'POST /v1/messages', fingerprint: 'f', occurrence: 1, origin: o.origin ?? 'live', effect: null, requestRef: null, meta: { provider: 'anthropic', ...(o.scope ? { scope: o.scope } : {}) }, at: 1, end: { runId: 'r', callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: { provider: 'anthropic', ...(o.model ? { model: o.model } : {}), ...(o.usage ? { usage: o.usage } : {}), headers: o.answered ? { [ANSWERED_BY]: o.answered } : {} }, at: 2 }, attempts: [] }) as unknown as CallRecord;
   const usage = { inputTokens: 1_000_000, outputTokens: 0 };
 
   it('is the model the takeover upstream says answered, else the model the request named', () => {
@@ -496,5 +496,24 @@ describe('which model answered, and what it cost', () => {
     const local = new Set<string>();
     expect(attemptCost([live(5, { model: 'small-model', answered: 'my-finetune', usage })], resolveTarget({ model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1' }), undefined, local)).toBe(0);
     expect(local.size).toBe(0);
+  });
+
+  it("leaves a judge check's calls out of what the attempt cost: they are reported apart", () => {
+    const judge = live(7, { model: 'claude-haiku-4-5', usage, scope: 'shadowlap:judge' });
+    const unknown = new Set<string>();
+    // The model scored, $1, and a judge asked about it, priced apart; one with no price isn't named here either.
+    expect(attemptCost([live(5, { model: 'small-model', answered: 'claude-haiku-4-5', usage }), judge, live(8, { model: 'judge-without-a-price', usage, scope: 'shadowlap:judge' })], resolveTarget({ model: 'claude-haiku-4-5' }, {}), undefined, unknown)).toBeCloseTo(1);
+    expect(unknown.size).toBe(0);
+    // A model on this machine costs nothing, and the judge's call is still not the provider's own.
+    expect(attemptCost([live(5, { model: 'small-model', answered: 'my-finetune', usage }), judge], resolveTarget({ model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1' }), undefined, unknown)).toBe(0);
+  });
+
+  it("adds up what judge checks' calls did and cost over attempts", () => {
+    const one = { calls: 1, replayed: 0, live: 1, notAsked: 0, upstreamRequests: 1, spent: 0.002, saved: 0, unknownModels: [] };
+    const two = { calls: 2, replayed: 1, live: 1, notAsked: 0, upstreamRequests: 1, spent: 0.001, saved: 0.002, unknownModels: ['openai:my-judge'] };
+    expect(addJudge(null, null)).toBeNull();
+    expect(addJudge(null, one)).toEqual(one);
+    expect(addJudge(one, undefined)).toBe(one);
+    expect(addJudge(addJudge(one, two), two)).toEqual({ calls: 5, replayed: 2, live: 3, notAsked: 0, upstreamRequests: 3, spent: expect.closeTo(0.004, 6), saved: expect.closeTo(0.004, 6), unknownModels: ['openai:my-judge'] });
   });
 });

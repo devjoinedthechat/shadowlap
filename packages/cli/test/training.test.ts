@@ -6,9 +6,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { normalizeResponse, Store } from '@shadowlap/engine';
-import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { agentCallsOf, estimateCost, judgeCallsOf, normalizeResponse, Store, type CallRecord } from '@shadowlap/engine';
+import { message, startMockAnthropic, text, toolUse, withJudge, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
 import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer, type ScriptContext as OpenAIContext } from '@shadowlap-testing/mock-openai';
+import { ANSWERED_BY } from '../src/takeover.js';
+import { answeredBy } from '../src/tasks.js';
+import { departures } from './json-shapes.js';
 
 /**
  * Training through the CLI: preference pairs exported from a real blame, goldens scored as tasks by
@@ -72,7 +75,8 @@ let lists: Server;
 let listsUrl = '';
 
 beforeAll(async () => {
-  anthropic = await startMockAnthropic({ script: anthropicScript, eventDelayMs: () => 0 });
+  // A judge check's question is answered as a judge answers (yes, with a reason), every other request by the agent's script.
+  anthropic = await startMockAnthropic({ script: withJudge((q) => ({ verdict: 'yes', reason: `it says: ${q.material.slice(0, 40)}` }), anthropicScript), eventDelayMs: () => 0 });
   openai = await startMockOpenAI({ script: openaiScript });
   lists = createServer((req, res) => {
     const body = req.url?.startsWith('/v1/models') ? { data: [{ id: 'claude-good', type: 'model' }, { id: 'claude-haiku-4-5', type: 'model' }] } : req.url === '/api/tags' ? { models: [{ name: 'qwen2.5:7b' }] } : null;
@@ -557,6 +561,141 @@ describe('shadowlap tasks', () => {
     expect(r.out).toContain('skipped goldens/budget is not a task: its checks only cap tokens and cost');
     // A golden that isn't a task was skipped, so not every task named was scored.
     expect(r.code).toBe(1);
+  }, 120_000);
+});
+
+describe('a task with a judge check', () => {
+  let work = '';
+  let db = '';
+  const JUDGE = { name: 'answers', question: 'Does the answer say what was done?', of: 'answer', model: 'claude-haiku-4-5' };
+
+  beforeAll(async () => {
+    policy = 'models';
+    ({ work, db } = workdir('sl-tasks-judge-'));
+    const golden = await record(work, [AGENT, '--stream']);
+    const r = await shadowlap(work, ['pack', golden, 'goldens/refund-over-limit']);
+    expect(r.code, r.out).toBe(0);
+    // Given after the pack, the judge has no recorded verdict: every attempt asks it live.
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund-over-limit': { expect: { tools: { issue_refund: 0, escalate: 1 }, judge: [JUDGE] }, task: { takeover: 5, why: 'decides between refunding and escalating', rewards: 'escalate above the limit' } } } }));
+  }, 60_000);
+  afterAll(() => {
+    if (work) rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+
+  type Judge = { calls: number; replayed: number; live: number; notAsked: number; upstreamRequests: number; spent: number; saved: number; unknownModels: string[] };
+  type Report = { spent: number; judge: Judge | null; tasks: Array<{ spent: number; judge: Judge | null; stopped: string | null; attempts: Array<{ run: string; spent: number; judge: Judge | null; checks: Array<{ check: string; pass: boolean }> }> }> };
+  /** What a list of calls cost live, each priced as the model that answered it. */
+  const priced = (calls: readonly CallRecord[]) => calls.filter((c) => c.kind === 'api' && c.origin === 'live').reduce((n, c) => n + (estimateCost(answeredBy(c), c.end?.meta.usage) ?? 0), 0);
+
+  it("reports what its judge's calls cost apart from each attempt's, and the budget counts both", async () => {
+    const r = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '2', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as Report;
+    const task = report.tasks[0]!;
+    expect(task.attempts).toHaveLength(2);
+    for (const a of task.attempts) {
+      // The judge's verdict scores the attempt like any check; its call went to the judge, not to the model scored.
+      expect(a.checks.find((c) => c.check.startsWith('judge "answers"'))).toMatchObject({ pass: true });
+      const calls = withStore(db, (s) => s.getCalls(a.run));
+      expect(judgeCallsOf(calls).map((c) => [c.end?.meta.model, c.end?.meta.headers?.[ANSWERED_BY] ?? null])).toEqual([['claude-haiku-4-5', null]]);
+      // What the attempt's own calls cost, and apart, what its judge's call cost.
+      expect(a.spent).toBeGreaterThan(0);
+      expect(a.spent).toBeCloseTo(priced(agentCallsOf(calls)), 12);
+      expect(a.judge).toMatchObject({ calls: 1, replayed: 0, live: 1, notAsked: 0, upstreamRequests: 1, unknownModels: [] });
+      expect(a.judge!.spent).toBeGreaterThan(0);
+      expect(a.judge!.spent).toBeCloseTo(priced(judgeCallsOf(calls)), 12);
+    }
+    // Summed for the task and the whole score, each apart from its `spent`.
+    const [one, two] = task.attempts as [Report['tasks'][number]['attempts'][number], Report['tasks'][number]['attempts'][number]];
+    expect(task.spent).toBeCloseTo(one.spent + two.spent, 12);
+    expect(task.judge).toMatchObject({ calls: 2, live: 2, upstreamRequests: 2, spent: expect.closeTo(one.judge!.spent + two.judge!.spent, 12) });
+    expect(report.spent).toBeCloseTo(task.spent, 12);
+    expect(report.judge).toEqual(task.judge);
+    expect(departures('tasksScoreJudge', report.judge)).toEqual({ missing: [], extra: [] });
+    expect(r.out).toMatch(/\n {2}judge: 2 calls · 2 live \(≈\$[\d.]+\) · 2 upstream requests, apart from the cost above\n/);
+    // Each attempt's score keeps both, apart, for the dashboard's model cards.
+    expect(withStore(db, (s) => s.listTaskScores().map((x) => [x.runId, x.spent, x.judgeSpent]))).toEqual(task.attempts.map((a) => [a.run, expect.closeTo(a.spent, 12), expect.closeTo(a.judge!.spent, 12)]));
+
+    // A budget the attempt's own calls stay under, but not with its judge's: the second attempt never starts.
+    const cut = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '2', '--budget', String(one.spent + one.judge!.spent / 2), '--json']);
+    expect(cut.code, cut.out).toBe(1);
+    const stopped = (JSON.parse(cut.stdout) as Report).tasks[0]!;
+    expect(stopped.attempts).toHaveLength(1);
+    expect(stopped.stopped).toMatch(/^the budget of \$[\d.]+ is spent$/);
+    expect(stopped.judge).toMatchObject({ calls: 1, live: 1 });
+  }, 120_000);
+
+  it("answers a training loop with the judge's calls apart from what the attempt cost", async () => {
+    const token = 'tok-' + 'j'.repeat(20);
+    const child = spawn(process.execPath, [CLI, 'tasks', 'serve'], { cwd: work, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_TASKS_TOKEN: token, AGENT_OUTBOX: join(work, 'outbox.jsonl') }, stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+      const url = await new Promise<string>((resolve, reject) => {
+        let out = '';
+        child.stdout!.on('data', (d: Buffer) => {
+          out += d.toString();
+          const m = /on (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
+          if (m) resolve(m[1]!);
+        });
+        child.on('exit', () => reject(new Error(`tasks serve exited: ${out}`)));
+      });
+      const res = await fetch(`${url}/v1/tasks/refund-over-limit/attempts`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5' }) });
+      const body = (await res.json()) as { run: string; spent: number; judge?: Judge };
+      expect(res.status, JSON.stringify(body)).toBe(200);
+      const calls = withStore(db, (s) => s.getCalls(body.run));
+      expect(body.spent).toBeCloseTo(priced(agentCallsOf(calls)), 12);
+      expect(body.judge).toMatchObject({ calls: 1, live: 1, upstreamRequests: 1, spent: expect.closeTo(priced(judgeCallsOf(calls)), 12) });
+      expect(body.judge!.spent).toBeGreaterThan(0);
+    } finally {
+      child.kill('SIGTERM');
+    }
+  }, 120_000);
+});
+
+describe('a budget spent by the judge checks of an earlier task', () => {
+  let work = '';
+  let db = '';
+  const JUDGE = { name: 'answers', question: 'Does the answer say what was done?', of: 'answer', model: 'claude-haiku-4-5' };
+  const TASKS = ['goldens/first', 'goldens/second'];
+
+  beforeAll(async () => {
+    policy = 'models';
+    ({ work, db } = workdir('sl-tasks-judge-budget-'));
+    for (const dir of TASKS) {
+      const golden = await record(work, [AGENT, '--stream']);
+      const r = await shadowlap(work, ['pack', golden, dir]);
+      expect(r.code, r.out).toBe(0);
+    }
+    // Given after the packs, the judges have no recorded verdict: every attempt asks its judge live.
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: Object.fromEntries(TASKS.map((g) => [g, { expect: { tools: { issue_refund: 0, escalate: 1 }, judge: [JUDGE] }, task: { takeover: 5, why: 'decides between refunding and escalating', rewards: 'escalate above the limit' } }])) }));
+  }, 60_000);
+  afterAll(() => {
+    if (work) rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+
+  type Report = { tasks: Array<{ task: string; spent: number; judge: { spent: number } | null; stopped: string | null; stored: string; attempts: unknown[] }> };
+
+  it('starts no attempt of a later task, says it stopped there, and exits 1', async () => {
+    // What an attempt of the first task costs, and apart, what its judge's call does.
+    const alone = await shadowlap(work, ['tasks', 'score', 'goldens/first', '--model', 'claude-haiku-4-5', '--attempts', '1', '--json']);
+    expect(alone.code, alone.out).toBe(0);
+    const first = (JSON.parse(alone.stdout) as Report).tasks[0]!;
+    expect(first.spent).toBeGreaterThan(0);
+    expect(first.judge!.spent).toBeGreaterThan(0);
+
+    // More than the first task's own calls cost, less than with its judge's: it runs its one
+    // attempt, and the budget is spent before the second starts any.
+    const r = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '1', '--budget', String(first.spent + first.judge!.spent / 2), '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = JSON.parse(r.stdout) as Report;
+    expect(report.tasks.map((t) => [t.task, t.attempts.length, t.stopped])).toEqual([
+      ['goldens/first', 1, null],
+      ['goldens/second', 0, expect.stringMatching(/^the budget of \$[\d.]+ is spent$/)],
+    ]);
+    expect(report.tasks[1]).toMatchObject({ spent: 0, judge: null, stored: 'none' });
+    // Said once, with the tasks it kept from starting.
+    expect(r.out).toMatch(/\n {2}the budget of \$[\d.]+ is spent\n {2}not started: second\n/);
+    // Not one of its attempts ran.
+    expect(withStore(db, (s) => s.allRuns().filter((run) => run.meta?.task?.golden === 'goldens/second'))).toEqual([]);
   }, 120_000);
 });
 

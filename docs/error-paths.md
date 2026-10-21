@@ -166,6 +166,12 @@ verdict, the attempts and their runs. Each attempt is a run of its own, bundled 
 it forked as blame's probes are, so Runs lists the recording and `shadowlap show` on an attempt
 opens the error path the agent took.
 
+The store also names the process running each session until the session ends, as it does for a
+test session. So the [dashboard](./dashboard.md) reads presets started in a terminal as running, and
+while they run on goldens, the jobs that replay or rewrite the goldens, such as Run tests, Update
+golden and Find the commit, wait for them and name the command. A session whose process
+was killed holds nothing up: it reads as one that did not finish.
+
 ## Limits
 
 - **One place per preset.** The presets hit the first read and the model call after it. A failure

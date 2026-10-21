@@ -1,4 +1,5 @@
 import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { liveChaosSession } from './chaos.js';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -368,6 +369,11 @@ export interface TestsView {
    * this one. The actions that replay or rewrite the goldens wait for it, as the server does.
    */
   running: TestsSessionView | null;
+  /**
+   * Error-path presets on goldens (`test --chaos`) running now, wherever they were started: they
+   * replay the goldens' packs, so the same actions wait for them too, as the server does.
+   */
+  chaosRunning: { id: string; command: string; startedAt: number } | null;
   commands: {
     /** Copy CI command. */
     ci: string;
@@ -1101,6 +1107,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
   const diverged = divergences.map((d) => d.golden);
   const patterns = testPatterns(goldens, folder);
   const live = liveTestSession(store);
+  const presets = liveChaosSession(store);
   return {
     empty: goldens.length === 0,
     goldens: goldens.length,
@@ -1112,6 +1119,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     inconclusive,
     diverged,
     running: live ? sessionView(store, live) : null,
+    chaosRunning: presets ? { id: presets.sessionId, command: presets.command.join(' '), startedAt: presets.startedAt } : null,
     commands: {
       ci: `shadowlap test ${patterns.map(shellWord).join(' ')} --junit report.xml`,
       inCi: `shadowlap test ${patterns.map(shellWord).join(' ')} --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"`,

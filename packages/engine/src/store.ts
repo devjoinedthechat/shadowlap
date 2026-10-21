@@ -56,7 +56,7 @@ interface SqliteDatabase {
 /** A value a read model's query binds. */
 export type SqlValue = null | number | bigint | string | Uint8Array;
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 const GZIP_THRESHOLD = 512;
 
 const SCHEMA = `
@@ -299,6 +299,8 @@ CREATE TABLE IF NOT EXISTS task_scores (
   via       TEXT,
   session   TEXT    NOT NULL,
   at        INTEGER NOT NULL,
+  -- v5: what the attempt's judge checks cost, apart from spent; NULL without a judge call.
+  judge_spent REAL,
   PRIMARY KEY (model, base_url, golden, attempt)
 );
 
@@ -524,6 +526,16 @@ CREATE TRIGGER IF NOT EXISTS change_counts_chaos_sessions_insert AFTER INSERT ON
 CREATE TRIGGER IF NOT EXISTS change_counts_chaos_sessions_update AFTER UPDATE ON chaos_sessions BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'chaos'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_chaos_results_insert AFTER INSERT ON chaos_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'chaos'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_chaos_results_delete AFTER DELETE ON chaos_results BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'chaos'; END;
+
+-- v5: error-path presets. The process running each session of presets not ended yet, as
+-- test_session_owners does for test sessions, so a session still running (in a terminal, from
+-- another dashboard) is told from one whose process was killed. The row goes when the session ends
+-- or is deleted.
+CREATE TABLE IF NOT EXISTS chaos_session_owners (
+  session_id  TEXT    PRIMARY KEY REFERENCES chaos_sessions(session_id) ON DELETE CASCADE,
+  pid         INTEGER NOT NULL,
+  host        TEXT    NOT NULL
+);
 `;
 
 // ---- Decisions: the shapes of the decision tables ----
@@ -849,6 +861,12 @@ export interface ChaosResultData {
   spent?: number;
 }
 
+export type NewChaosSession = Partial<Pick<ChaosSession, 'sessionId' | 'startedAt' | 'revision' | 'actor'>> &
+  Pick<ChaosSession, 'command' | 'presets'> & {
+    /** The process running it, until it ends: this one unless given; null names none (a session recorded elsewhere). */
+    owner?: RunOwner | null;
+  };
+
 export type NewChaosResult = Partial<Pick<ChaosResult, 'at' | 'golden' | 'callNo' | 'passes' | 'attempts' | 'data'>> & Pick<ChaosResult, 'sessionId' | 'runId' | 'preset' | 'verdict'>;
 
 // ---- Team store (v4): the shapes of the team tables ----
@@ -1074,8 +1092,13 @@ export interface TaskScoreRow {
   /** The share of the task's checks the attempt passed, from 0 to 1. */
   score: number;
   checks: Array<{ label: string; ok: boolean; detail: string | null }>;
-  /** USD spent on the attempt's live model calls (0 on a model that isn't a paid API). */
+  /** USD spent on the attempt's live model calls (0 on a model that isn't a paid API); its judge checks' are `judgeSpent`. */
   spent: number;
+  /**
+   * USD its judge checks' calls cost, apart from `spent` (v5): they ask the judge, never the model
+   * scored. Null without a judge call, and for a score a v4 build kept, whose `spent` counted them.
+   */
+  judgeSpent: number | null;
   /** Where the model ran, in words: `Anthropic API`, `Ollama, on this machine`. */
   via: string | null;
   /** The `tasks score` invocation that made it. */
@@ -1261,6 +1284,13 @@ export class Store {
       db.exec(`CREATE TABLE IF NOT EXISTS search_rows (run_id TEXT NOT NULL, doc INTEGER NOT NULL)`);
       db.exec(`CREATE INDEX IF NOT EXISTS search_rows_run ON search_rows (run_id)`);
       if (!mapped) db.exec(`INSERT INTO search_rows (run_id, doc) SELECT run_id, rowid FROM search_docs`);
+      // v5: who runs each session of error-path presets (chaos_session_owners). Additive: the SCHEMA
+      // above creates the table, and a session a v4 build left without an end names no process, so
+      // it reads as one that did not finish, as a test session from before its owner was kept does.
+      // And what each scored attempt's judge checks cost, apart from its own spend: a score a v4
+      // build kept has none, its spend having counted them.
+      const scoreColumns = db.prepare(`PRAGMA table_info(task_scores)`).all().map((r) => String(r.name));
+      if (!scoreColumns.includes('judge_spent')) db.exec(`ALTER TABLE task_scores ADD COLUMN judge_spent REAL`);
       db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
       db.exec('COMMIT');
     } catch (err) {
@@ -1719,12 +1749,12 @@ export class Store {
   }
 
   /** A model's scores on one task, replacing whatever it scored there before. */
-  replaceTaskScores(model: string, baseUrl: string | null, golden: string, rows: Array<Omit<TaskScoreRow, 'model' | 'baseUrl' | 'golden'>>): void {
+  replaceTaskScores(model: string, baseUrl: string | null, golden: string, rows: Array<Omit<TaskScoreRow, 'model' | 'baseUrl' | 'golden' | 'judgeSpent'> & { judgeSpent?: number | null }>): void {
     const base = baseUrl ?? '';
     this.transaction(() => {
       this.db.prepare(`DELETE FROM task_scores WHERE model = ? AND base_url = ? AND golden = ?`).run(model, base, golden);
-      const insert = this.db.prepare(`INSERT INTO task_scores (model, base_url, golden, attempt, run_id, score, checks, spent, via, session, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-      for (const r of rows) insert.run(model, base, golden, r.attempt, r.runId, r.score, JSON.stringify(r.checks), r.spent, r.via, r.session, r.at);
+      const insert = this.db.prepare(`INSERT INTO task_scores (model, base_url, golden, attempt, run_id, score, checks, spent, via, session, at, judge_spent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      for (const r of rows) insert.run(model, base, golden, r.attempt, r.runId, r.score, JSON.stringify(r.checks), r.spent, r.via, r.session, r.at, r.judgeSpent ?? null);
     });
   }
 
@@ -1742,6 +1772,7 @@ export class Store {
         score: Number(r.score),
         checks: JSON.parse(String(r.checks)) as TaskScoreRow['checks'],
         spent: Number(r.spent),
+        judgeSpent: r.judge_spent === null || r.judge_spent === undefined ? null : Number(r.judge_spent),
         via: r.via === null ? null : String(r.via),
         session: String(r.session),
         at: Number(r.at),
@@ -1964,7 +1995,7 @@ export class Store {
   // ---- error-path presets (v4): test --chaos sessions and each preset's result ----
 
   /** Starts a session; finishChaosSession fills in its totals. */
-  startChaosSession(input: Partial<Pick<ChaosSession, 'sessionId' | 'startedAt' | 'revision' | 'actor'>> & Pick<ChaosSession, 'command' | 'presets'>): ChaosSession {
+  startChaosSession(input: NewChaosSession): ChaosSession {
     const session: ChaosSession = {
       sessionId: input.sessionId ?? ulidNow(),
       startedAt: input.startedAt ?? Date.now(),
@@ -1982,6 +2013,9 @@ export class Store {
     this.db
       .prepare(`INSERT INTO chaos_sessions (session_id, started_at, ended_at, command, revision, actor, presets) VALUES (?, ?, NULL, ?, ?, ?, ?)`)
       .run(session.sessionId, session.startedAt, JSON.stringify(session.command), session.revision, session.actor, JSON.stringify(session.presets));
+    // Who runs it, until it ends (chaosSessionOwner).
+    const owner = input.owner === undefined ? currentOwner() : input.owner;
+    if (owner) this.db.prepare(`INSERT OR REPLACE INTO chaos_session_owners (session_id, pid, host) VALUES (?, ?, ?)`).run(session.sessionId, owner.pid, owner.host);
     return session;
   }
 
@@ -1990,6 +2024,17 @@ export class Store {
     this.db
       .prepare(`UPDATE chaos_sessions SET ended_at = ?, passed = ?, failed = ?, inconclusive = ?, upstream_requests = ?, interrupted = ? WHERE session_id = ?`)
       .run(totals.endedAt ?? Date.now(), totals.passed, totals.failed, totals.inconclusive, totals.upstreamRequests, totals.interrupted ? 1 : 0, sessionId);
+    this.db.prepare(`DELETE FROM chaos_session_owners WHERE session_id = ?`).run(sessionId);
+  }
+
+  /**
+   * The process running a session of presets that hasn't ended, for `recorderGone` to ask; null once
+   * it ended, and for a session no process here was named for (one a v4 store kept, or one recorded
+   * elsewhere).
+   */
+  chaosSessionOwner(sessionId: string): RunOwner | null {
+    const row = this.db.prepare(`SELECT pid, host FROM chaos_session_owners WHERE session_id = ?`).get(sessionId);
+    return row ? { pid: Number(row.pid), host: String(row.host) } : null;
   }
 
   getChaosSession(sessionId: string): ChaosSession | null {

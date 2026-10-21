@@ -2,10 +2,13 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
-import { defaultDbPath, loadConfig } from '../src/config.js';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { JUDGE_SCOPE, judgeAskId, packRun, Store } from '@shadowlap/engine';
+import { startMockOpenAI, turn as openaiTurn, withJudge as openaiJudge, type MockServer as OpenAIMock } from '@shadowlap-testing/mock-openai';
+import { Sidecar } from '@shadowlap/sidecar';
+import { defaultDbPath, loadConfig, loadTests } from '../src/config.js';
 import { formatDoctor, pythonCheck, runDoctor } from '../src/doctor.js';
+import { askJudges } from '../src/judge.js';
 
 const guardDir = fileURLToPath(new URL('../guard/', import.meta.url));
 const plain = { green: (s: string) => s, yellow: (s: string) => s, red: (s: string) => s, dim: (s: string) => s };
@@ -102,5 +105,161 @@ describe('a judge check whose model retires', () => {
       'judge "explains" in tests["goldens/b"]: claude-sonnet-4-5-20250929 retires on the Claude API on November 30, 2026, in 42 days; Anthropic recommends claude-sonnet-5-5',
     ]);
     expect(checks[0]).toMatchObject({ name: 'judge model', verdict: 'warn', fix: 'Give it another model, such as claude-sonnet-5-5, then record its verdicts again: shadowlap test goldens/a --update. Source: https://platform.claude.com/docs/en/about-claude/model-deprecations' });
+  });
+});
+
+describe('a judge check no judge can be asked for here', () => {
+  it('is named per provider when the environment has no key for it, and not once a key or an upstream is set', async () => {
+    const { parseTests } = await import('../src/checks.js');
+    const { judgeKeys } = await import('../src/doctor.js');
+    const judge = (name: string, model: string) => ({ name, question: 'Does the reply say why?', model });
+    const entries = parseTests({
+      'goldens/a': { expect: { judge: [judge('explains', 'claude-haiku-4-5'), judge('cites', 'gpt-4.1-mini')] } },
+      'goldens/b': { expect: { when: [{ if: { tool: 'x' }, then: { judge: [judge('explains', 'anthropic:claude-haiku-4-5')] } }] } },
+    });
+    const none = judgeKeys(entries, {});
+    expect(none).toEqual([
+      {
+        name: 'judge key',
+        verdict: 'warn',
+        detail: 'no key for anthropic in this environment (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN), so judge "explains" in tests["goldens/a"] and judge "explains" in tests["goldens/b"] can\'t be asked live: packing, test --update, a golden that forks, blame, verify, repair and tasks score read each not judged (inconclusive) wherever its verdict isn\'t recorded, as a test offline does',
+        fix: 'Set ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) where judges are asked, or SHADOWLAP_UPSTREAM_ANTHROPIC to a server that answers for anthropic. A clean replay of a golden that holds the verdict needs no key.',
+      },
+      {
+        name: 'judge key',
+        verdict: 'warn',
+        detail: 'no key for openai in this environment (OPENAI_API_KEY), so judge "cites" in tests["goldens/a"] can\'t be asked live: packing, test --update, a golden that forks, blame, verify, repair and tasks score read it not judged (inconclusive) wherever its verdict isn\'t recorded, as a test offline does',
+        fix: 'Set OPENAI_API_KEY where judges are asked, or SHADOWLAP_UPSTREAM_OPENAI to a server that answers for openai. A clean replay of a golden that holds the verdict needs no key.',
+      },
+    ]);
+    // A key for one provider, or an upstream set for the other (a mock, a server of your own), and it can be asked.
+    expect(judgeKeys(entries, { ANTHROPIC_AUTH_TOKEN: 't' }).map((c) => c.detail)).toEqual([expect.stringMatching(/^no key for openai /)]);
+    expect(judgeKeys(entries, { ANTHROPIC_API_KEY: 'k', SHADOWLAP_UPSTREAM_OPENAI: 'http://127.0.0.1:9' })).toEqual([]);
+    expect(judgeKeys(entries, { ANTHROPIC_API_KEY: '  ', OPENAI_API_KEY: 'k' }).map((c) => c.detail)).toEqual([expect.stringMatching(/^no key for anthropic /)]);
+  });
+});
+
+describe('a golden that holds no recorded verdict for a judge check', () => {
+  let mock: OpenAIMock;
+  beforeAll(async () => {
+    mock = await startMockOpenAI({ script: openaiJudge(() => ({ verdict: 'yes', reason: 'it says so' }), () => ({ turn: openaiTurn('not a judge request') })) });
+  });
+  afterAll(async () => {
+    await mock.close();
+  });
+
+  it('is named with the checks it lacks and the command that records them, and so is one whose run never completed', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'fp-doctor-'));
+    const finishes = { name: 'finishes', question: 'Did it finish?', of: 'output' as const, model: 'gpt-4.1-mini', pass: 'yes' as const };
+    const sources = { ...finishes, name: 'sources', question: 'Does it name its sources?' };
+    const kept = { ...finishes, name: 'kept', question: 'Did it keep the summary?' };
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { openai: mock.url } });
+    const command = { argv: ['node', 'agent.mjs'], cwd: dir };
+    try {
+      // A golden asked one judge as it asks now, and another by an older form of the request.
+      const research = sidecar.startRun({ mode: 'record', command });
+      await askJudges([kept], { calls: [], output: 'Done.\n' }, { sidecar, store, runId: research.runId, upstreams: { openai: mock.url }, env: {} });
+      const old = await fetch(`${sidecar.url}/r/${research.runId}/openai/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-shadowlap-scope': JUDGE_SCOPE, 'x-shadowlap-judge': sidecar.judgeToken, 'x-shadowlap-judge-check': 'finishes', 'x-shadowlap-judge-ask': judgeAskId(finishes), 'x-shadowlap-judge-version': '1' },
+        body: JSON.stringify({ model: 'gpt-4.1-mini', messages: [{ role: 'system', content: 'Older instructions: reply with the verdict JSON.' }, { role: 'user', content: 'Question: Did it finish?\n\n<material>\nDone.\n</material>' }] }),
+      });
+      expect(old.status).toBe(200);
+      sidecar.endRun(research.runId, 'completed');
+      packRun(store, research.runId, join(dir, 'goldens', 'research'));
+      // And one whose agent failed: no replay of it is ever judged.
+      const broken = sidecar.startRun({ mode: 'record', command });
+      sidecar.endRun(broken.runId, 'failed');
+      packRun(store, broken.runId, join(dir, 'goldens', 'broken'));
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/research': { expect: { judge: [kept, finishes, sources] } }, 'goldens/broken': { expect: { judge: [kept] } }, 'goldens/plain': { expect: { tools: { send_email: 0 } } } } }));
+    const { judgeVerdicts } = await import('../src/doctor.js');
+    const checks = judgeVerdicts(dir, loadTests(dir), {});
+    expect(checks).toEqual([
+      {
+        name: 'judge verdicts',
+        verdict: 'warn',
+        detail: 'goldens/research holds no recorded verdict for judge "sources" and only a verdict given to an older form of the judge\'s request for "finishes", which a replay no longer sends, so a test of it, which runs offline, reads them not judged (inconclusive) and fails unless --inconclusive warn',
+        fix: 'Record them with OPENAI_API_KEY set: shadowlap test goldens/research --update asks the judge live once and keeps its call in the golden.',
+      },
+      {
+        name: 'judge verdicts',
+        verdict: 'warn',
+        detail: 'goldens/broken holds no recorded verdict for judge "kept", and the run did not complete (its agent exited with an error), and no replay of it is judged',
+        fix: 'Pack a run of it that completed, then record the verdicts: shadowlap test goldens/broken --update.',
+      },
+    ]);
+    // With a way to ask the judge, the command alone records them.
+    expect(judgeVerdicts(dir, loadTests(dir), { OPENAI_API_KEY: 'k' })[0]!.fix).toBe('Record them: shadowlap test goldens/research --update asks the judge live once and keeps its call in the golden.');
+
+    // doctor says both, and so does its JSON.
+    const all = runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' });
+    const json = JSON.parse(JSON.stringify(all)) as Array<{ name: string; verdict: string; detail: string; fix?: string }>;
+    expect(json.filter((c) => c.name === 'judge verdicts').map((c) => c.detail.split(' holds ')[0])).toEqual(['goldens/research', 'goldens/broken']);
+    expect(json.find((c) => c.name === 'judge key')).toMatchObject({ verdict: 'warn', detail: expect.stringContaining('no key for openai'), fix: expect.stringContaining('Set OPENAI_API_KEY') });
+    expect(formatDoctor(all, plain)).toContain('! judge verdicts');
+  });
+});
+
+describe('a judge check under a when', () => {
+  /** A golden of tool calls alone, packed at goldens/<name>: each call with its arguments and its result. */
+  function packTools(name: string, calls: Array<[tool: string, args: unknown, result: unknown]>): void {
+    const store = Store.open(':memory:');
+    try {
+      const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+      calls.forEach(([tool, args, result], i) => {
+        const id = { kind: 'tool' as const, name: tool, fingerprint: (i + 1).toString(16).padStart(64, '0'), occurrence: 1 };
+        store.appendCallStart({ runId: run.runId, callNo: i + 1, ...id, origin: 'live', effect: 'read', requestRef: store.putJson({ args }), meta: {}, at: i + 1 });
+        store.appendCallEnd(id, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putJson({ result }), outcome: 'ok', meta: {}, at: i + 1 });
+      });
+      store.endRun(run.runId, 'completed');
+      packRun(store, run.runId, join(dir, 'goldens', name));
+    } finally {
+      store.close();
+    }
+  }
+
+  it('wants a verdict only where its condition held in the golden: under one that never held, or can\'t be told, it is not judged at all', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'fp-doctor-'));
+    // Packed before the judge checks were added: neither holds a verdict.
+    packTools('refund', [['lookup_order', { order_id: 'A-1' }, { total: 240 }]]);
+    packTools('small', [['lookup_order', { order_id: 'A-2' }, { total: 40 }]]);
+    const judge = (name: string) => ({ name, question: `Does the reply ${name}?`, model: 'gpt-4.1-mini' });
+    writeFileSync(
+      join(dir, 'shadowlap.config.json'),
+      JSON.stringify({
+        tests: {
+          'goldens/*': {
+            expect: {
+              when: [
+                // No golden deletes a file: a test reads this judge not applicable in both, and --update records it nowhere.
+                { if: { tool: 'delete_file' }, then: { judge: [judge('says-what-it-deleted')] } },
+                // Held in refund alone: a test of it reads the judge not judged.
+                { if: { tool: 'lookup_order', result: { total: { '>': 100 } } }, then: { judge: [judge('explains-escalation')] } },
+                // No result has a currency, so whether it held can't be told: inconclusive whatever a judge says.
+                { if: { tool: 'lookup_order', result: { currency: 'EUR' } }, then: { judge: [judge('names-the-currency')] } },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    const { judgeVerdicts } = await import('../src/doctor.js');
+    expect(judgeVerdicts(dir, loadTests(dir), {})).toEqual([
+      {
+        name: 'judge verdicts',
+        verdict: 'warn',
+        detail: 'goldens/refund holds no recorded verdict for judge "explains-escalation", so a test of it, which runs offline, reads it not judged (inconclusive) and fails unless --inconclusive warn',
+        fix: 'Record it with OPENAI_API_KEY set: shadowlap test goldens/refund --update asks the judge live once and keeps its call in the golden.',
+      },
+    ]);
+    // So doctor says it of refund alone; the condition it can't read is the check rules' to name.
+    const all = runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' });
+    expect(all.filter((c) => c.name === 'judge verdicts').map((c) => c.detail.split(' holds ')[0])).toEqual(['goldens/refund']);
+    expect(all.find((c) => c.name === 'check rules' && c.detail.includes('result.currency'))).toMatchObject({ verdict: 'warn' });
   });
 });

@@ -1,7 +1,7 @@
 """An OpenAI Agents SDK agent run by Runner with a scripted Model (no API): the model asks for
 search_web, then send_email, then answers. Tools use shadowlap.adapters.openai_agents.function_tool,
-with the run context as the first parameter. QUERY changes the search so a replay forks.
-Prints a JSON summary."""
+with the run context as the first parameter; search_web brings outside text in, so it is marked
+trust="untrusted". QUERY changes the search so a replay forks. Prints a JSON summary."""
 
 import asyncio
 import json
@@ -46,7 +46,7 @@ class ScriptedModel(Model):
         raise NotImplementedError
 
 
-@function_tool(effect="read")
+@function_tool(effect="read", trust="untrusted")
 async def search_web(ctx: RunContextWrapper[Deps], query: str) -> str:
     """Search the web."""
     executed.append("search_web")

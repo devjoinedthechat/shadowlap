@@ -41,6 +41,8 @@
     // These render the shell's dialogs and palette, or ask through the page's client.
     "packages/dashboard/test/ui-dialog-tab.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
-    "packages/dashboard/test/ui-client-cache.test.ts"
+    "packages/dashboard/test/ui-client-cache.test.ts",
+    // This renders the Tests page.
+    "packages/dashboard/test/ui-tests-chaos.test.ts"
   ]
 }

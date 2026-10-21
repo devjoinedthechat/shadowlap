@@ -31,6 +31,7 @@ import {
   type RunRecord,
   type ShowJson,
   type Store,
+  type ToolTrust,
 } from '@shadowlap/engine';
 import { modelResolver, runLabel } from '@shadowlap/tui/data';
 
@@ -594,7 +595,7 @@ export function runProvenance(store: Store, run: RunRecord, options: ProvenanceO
   };
 }
 
-/** `shadowlap show <run> --json`, exactly as the CLI prints it, without starting the CLI. */
-export function runShowJson(store: Store, run: RunRecord, options: { prices?: Record<string, Price> } = {}): ShowJson {
-  return showJson(store, run, { ...(options.prices ? { prices: options.prices } : {}), modelOf: modelResolver(store) });
+/** `shadowlap show <run> --json`, exactly as the CLI prints it, without starting the CLI: `tools` is the project's config's, as the CLI reads it. */
+export function runShowJson(store: Store, run: RunRecord, options: { prices?: Record<string, Price>; tools?: ToolTrust } = {}): ShowJson {
+  return showJson(store, run, { ...(options.prices ? { prices: options.prices } : {}), ...(options.tools ? { tools: options.tools } : {}), modelOf: modelResolver(store) });
 }

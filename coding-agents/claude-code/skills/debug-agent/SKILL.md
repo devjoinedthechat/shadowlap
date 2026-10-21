@@ -13,7 +13,7 @@ This project records its agent's runs with Shadowlap: `shadowlap run -- <command
 ## Find the run
 
 - `shadowlap ls --json` lists runs, newest first, with their `status`, `labels` and where each forked (`forkedAt`). `shadowlap ls --label bug --json` keeps the runs labelled `bug`.
-- `shadowlap show <run> --json` prints the run, its summary and every call. One call's request as sent and response as received: `shadowlap show <run> --request <call>` and `shadowlap show <run> --response <call>`, with a call number from `show`.
+- `shadowlap show <run> --json` prints the run, its summary, every call, and its untrusted reads (`untrusted`: the reads of tools marked untrusted, whose text could carry a prompt injection). One call's request as sent and response as received: `shadowlap show <run> --request <call>` and `shadowlap show <run> --response <call>`, with a call number from `show`.
 - `shadowlap search <words> --json` finds prompts, responses, tool arguments and tool results across runs. It exits 1 when nothing matches.
 - `shadowlap fix ls --json` lists the failures already being fixed: where each run was lost and how far its fix got.
 
