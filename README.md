@@ -43,7 +43,7 @@ Shadowlap records your agent's model calls and the tools you wrap, then replays 
   </picture>
 </p>
 
-<p align="center"><sub>The real CLI against the demo's scripted models: lines&nbsp;left&nbsp;out&nbsp;or&nbsp;wrapped,&nbsp;none&nbsp;changed (<a href="scripts/demo-svg.mjs">source</a>).</sub></p>
+<p align="center"><sub>The real CLI against the demo's scripted models: lines&nbsp;left&nbsp;out&nbsp;or&nbsp;wrapped,&nbsp;none&nbsp;changed&nbsp;(<a href="scripts/demo-svg.mjs">source</a>).</sub></p>
 
 ## From failure to proof
 
@@ -96,7 +96,7 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
   </picture>
 </p>
 
-<p align="center"><sub>The same fix in the dashboard. A&nbsp;scripted&nbsp;model&nbsp;stands&nbsp;in&nbsp;for&nbsp;Claude (<a href="scripts/readme-shots.mjs">source</a>).</sub></p>
+<p align="center"><sub>The same fix in the dashboard. A&nbsp;scripted&nbsp;model&nbsp;stands&nbsp;in&nbsp;for&nbsp;Claude&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub></p>
 
 `shadowlap verify` gives a fix you wrote yourself the same [proof](docs/verify.md), and exits 1 unless it accepts the&nbsp;fix.
 
