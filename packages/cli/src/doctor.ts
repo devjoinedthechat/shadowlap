@@ -115,7 +115,13 @@ export function runDoctor(options: DoctorOptions): Check[] {
   push('node', nodeOk ? 'ok' : 'fail', `${nodeVersion} (shadowlap ${options.version})`, nodeOk ? undefined : `Shadowlap needs ${needs}, whose built-in SQLite has full-text search; install a current Node LTS.`);
   const sqliteWhy = (options.sqlite ?? defaultSqlite)();
   const sqliteOk = sqliteWhy === null;
-  push('sqlite', sqliteOk ? 'ok' : 'fail', sqliteWhy ?? 'built-in SQLite with full-text search', sqliteOk ? undefined : `Use ${needs}: every store has a full-text index.`);
+  // A Node in range whose SQLite has no full-text search (or none at all) is a build without it,
+  // which another version of Node wouldn't mend: an official build has it.
+  const noSqlite = sqliteWhy?.startsWith('node:sqlite unavailable') ?? false;
+  const lacks = noSqlite ? 'this Node has no built-in SQLite' : "this Node's SQLite has no full-text search, which the store's index needs";
+  const mend = nodeOk ? 'Use an official Node build' : `Use ${needs}`;
+  const sqliteFix = nodeOk ? `${noSqlite ? 'This Node was built without its SQLite' : "This Node build's SQLite has no full-text search"}, which every store needs: use an official Node build.` : `Use ${needs}: every store has a full-text index.`;
+  push('sqlite', sqliteOk ? 'ok' : 'fail', sqliteWhy ?? 'built-in SQLite with full-text search', sqliteOk ? undefined : sqliteFix);
 
   // Guard files and Python
   const guardDir = options.guardDir ?? fileURLToPath(new URL('../guard/', import.meta.url));
@@ -131,8 +137,8 @@ export function runDoctor(options: DoctorOptions): Check[] {
   if (!existsSync(dbPath)) {
     push('store', 'ok', `${dbPath} (not created yet; the first shadowlap run creates it)`);
   } else if (!sqliteOk) {
-    // Opening it would fail for the Node, not for the file: never call it damaged.
-    push('store', 'warn', `${dbPath}: not read, as this Node's SQLite can't open a store`, `Use ${needs}, then run shadowlap doctor again.`);
+    // Its index is what this Node can't open, not the file: never call it damaged.
+    push('store', 'warn', `${dbPath}: not read: ${lacks}`, `${mend}, then run shadowlap doctor again.`);
   } else {
     try {
       const store = Store.open(dbPath);
