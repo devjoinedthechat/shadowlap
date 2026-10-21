@@ -909,8 +909,8 @@ export function verifyFields(change: Pick<DecisionsChange, 'model' | 'fields'>, 
  * Verifies the runs with a write, stop or judged change, as `shadowlap verify` would: each under its
  * own checks (a golden's from the config, those of the recording a run named by id comes from, or
  * `--expect`), one verify per set of checks, each run in the role its recording plays under them (a
- * run that fails them must now pass; one that passes must keep passing). With `blocked`, nothing
- * runs: the verdict is not-run, with why, and the commands.
+ * run that fails them must now pass; one that passes must keep passing), and each with the rule that
+ * decided it. With `blocked`, nothing runs: the verdict is not-run, with why, and the commands.
  */
 export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; flagged: DecisionTarget[]; fields: Record<string, unknown>; from: string[] | null; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; prices: Record<string, Price> | undefined; budget: number | null; log: (line: string) => void; blocked?: string | null }): Promise<DecisionsVerify> {
   const { flagged, settings: s, log } = input;
@@ -957,8 +957,8 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
     out.spent += report.spent;
     out.upstreamRequests += report.upstreamRequests;
     out.reasons.push(...report.reasons);
-    // In verify --json's words: fixed, not-fixed, kept, broken, unsettled.
-    for (const r of report.runs) out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, bound: r.gate && !r.deterministic ? wilsonBound(r.gate) : null });
+    // In verify --json's words: fixed, not-fixed, kept, broken, unsettled, inconclusive.
+    for (const r of report.runs) out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, bound: r.gate && !r.deterministic ? wilsonBound(r.gate) : null, rule });
     if (report.verdict === 'rejected') out.verdict = 'rejected';
     else if (report.verdict === 'incomplete' && out.verdict !== 'rejected') out.verdict = 'incomplete';
   }

@@ -310,18 +310,19 @@ describe('shadowlap decisions', () => {
     expect(first).toMatchObject({ verdict: 'incomplete', rule, runs: [{ runId: one, role: 'good', outcome: 'inconclusive', passes: 5, attempts: 7, bound: BOUND_5_OF_7 }] });
     expect(first.reasons).toEqual([`good run ${one.slice(0, 10)} inconclusive: 5 of 7 passed · ${BOUND_5_OF_7}, between the gate's bounds when its attempts ran out`]);
 
-    // The other run settles under other figures; the session stays incomplete while the first is inconclusive, and names both rules.
+    // The other run settles under other figures; the session stays incomplete while the first is inconclusive, and each
+    // run keeps the rule that decided it, so its tally and bound read under their own rule: none is stated for both.
     const other = await shadowlap(['decisions', '--verify', session.decisionsId!, two, '--gate', '{"bad":0.1,"max":4}']);
     expect(other.code, other.out).toBe(0);
-    expect(other.stdout).toContain('gate: tells 90%+ from 10%- at <= 5% risk, up to 4 attempts');
-    expect(other.stdout).toMatch(new RegExp(`${two.slice(0, 10)}  kept  2 of 2 passed · rate >= 0\\.34 \\(95%\\)`));
+    const otherRule = 'gate: tells 90%+ from 10%- at <= 5% risk, up to 4 attempts';
+    expect(other.stdout).toContain(`  ${otherRule}\n  ${two.slice(0, 10)}  kept  2 of 2 passed · rate >= 0.34 (95%)\n`);
     const store = Store.open(db);
     try {
       const kept = store.getDecisionSession(session.decisionsId!)!.data.verify as NonNullable<DecisionsReport['verify']>;
-      expect(kept).toMatchObject({ verdict: 'incomplete', rule: `${rule}; gate: tells 90%+ from 10%- at <= 5% risk, up to 4 attempts` });
-      expect(kept.runs.map((x) => [x.runId, x.outcome])).toEqual([
-        [one, 'inconclusive'],
-        [two, 'kept'],
+      expect(kept).toMatchObject({ verdict: 'incomplete', rule: null });
+      expect(kept.runs.map((x) => [x.runId, x.outcome, x.bound, x.rule])).toEqual([
+        [one, 'inconclusive', BOUND_5_OF_7, rule],
+        [two, 'kept', 'rate >= 0.34 (95%)', otherRule],
       ]);
     } finally {
       store.close();
@@ -351,9 +352,9 @@ describe('shadowlap decisions', () => {
     try {
       const kept = after.getDecisionSession(session.decisionsId!)!.data.verify as NonNullable<DecisionsReport['verify']>;
       expect(kept).toMatchObject({ verdict: 'accepted', rule: verifyGate });
-      expect(kept.runs.map((x) => [x.runId, x.outcome, x.passes, x.attempts, x.bound])).toEqual([
-        [one, 'kept', 12, 12, 'rate >= 0.76 (95%)'],
-        [two, 'kept', 12, 12, 'rate >= 0.76 (95%)'],
+      expect(kept.runs.map((x) => [x.runId, x.outcome, x.passes, x.attempts, x.bound, x.rule])).toEqual([
+        [one, 'kept', 12, 12, 'rate >= 0.76 (95%)', verifyGate],
+        [two, 'kept', 12, 12, 'rate >= 0.76 (95%)', verifyGate],
       ]);
     } finally {
       after.close();

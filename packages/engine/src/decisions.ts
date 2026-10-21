@@ -640,18 +640,40 @@ export interface DecisionsVerify {
   /** The verdicts kept (one per check the runs are judged by). */
   verifyIds: string[];
   /**
-   * Each run verified: its role, how it came out (fixed, kept, broken, still failing, unsettled),
-   * passes and attempts, and under a gate the Wilson bound of its pass rate (`rate >= 0.76 (95%)`;
-   * null for a clean replay or a fixed count, absent from sessions kept before it was).
+   * Each run verified: its role, how it came out (fixed, kept, broken, still failing, unsettled,
+   * inconclusive), passes and attempts, under a gate the Wilson bound of its pass rate (`rate >= 0.76
+   * (95%)`; null for a clean replay or a fixed count, absent from sessions kept before it was), and
+   * the `rule` it was decided by (absent from sessions kept before runs carried it: `rule` below).
    */
-  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; bound?: string | null }>;
-  /** The rule its runs were decided by, said once: `gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`, or a fixed count's `4 of 5 attempts must pass`. Absent from sessions kept before it was. */
+  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; bound?: string | null; rule?: string | null }>;
+  /**
+   * The rule its runs were decided by, said once: `gate: tells 90%+ from 70%- at <= 5% risk, up to
+   * 80 attempts`, or a fixed count's `4 of 5 attempts must pass`. Null when a session's runs were
+   * decided by different rules (verified again later under other figures): each run's own says which.
+   * Absent from sessions kept before it was.
+   */
   rule?: string | null;
   /** The command that verifies them again. */
   commands: string[];
   spent: number;
   upstreamRequests: number;
   reasons: string[];
+}
+
+/**
+ * Runs by the rule that decided them, in the order they first come, so a report states each rule
+ * once over its own runs: a run with no rule of its own (kept before runs carried theirs) takes
+ * `fallback`, the rule its verify stated.
+ */
+export function byRule<T>(runs: readonly T[], ruleOf: (run: T) => string | null | undefined, fallback: string | null = null): Array<{ rule: string | null; runs: T[] }> {
+  const groups = new Map<string | null, T[]>();
+  for (const run of runs) {
+    const rule = ruleOf(run) ?? fallback;
+    const group = groups.get(rule);
+    if (group) group.push(run);
+    else groups.set(rule, [run]);
+  }
+  return [...groups].map(([rule, of]) => ({ rule, runs: of }));
 }
 
 /**
