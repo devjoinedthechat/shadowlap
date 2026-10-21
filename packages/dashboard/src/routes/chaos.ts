@@ -23,11 +23,13 @@ export const CHAOS_JOB_KIND = 'chaos';
 
 const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
-// The activity feed: a session of presets, by how they came out; on one run, it opens that run.
+// The activity feed: a session of presets, by how they came out; on one run, it opens that run. One
+// with an inconclusive preset and no failure reads in amber, as a test session's does.
 describeEvent('chaos.session', (e, d) => {
   const failed = count(d.failed);
-  const parts = [`${count(d.passed)} passed`, `${failed} failed`, ...(count(d.inconclusive) ? [`${count(d.inconclusive)} inconclusive`] : [])];
-  return { kind: failed ? 'fail' : 'test', text: `Error-path presets ${d.interrupted === true ? 'stopped' : 'ran'} · ${parts.join(', ')}`, href: e.runId ? `#/run/${e.runId}` : '#/tests' };
+  const inconclusive = count(d.inconclusive);
+  const parts = [`${count(d.passed)} passed`, `${failed} failed`, ...(inconclusive ? [`${inconclusive} inconclusive`] : [])];
+  return { kind: failed ? 'fail' : inconclusive ? 'warn' : 'test', text: `Error-path presets ${d.interrupted === true ? 'stopped' : 'ran'} · ${parts.join(', ')}`, href: e.runId ? `#/run/${e.runId}` : '#/tests' };
 });
 
 export function register(router: Router, ctx: RouteContext): void {
