@@ -91,17 +91,20 @@ describe('a probe tally', () => {
 /** Lets every attempt that can move on do so: what is left waits on an attempt still running. */
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
+/** How an attempt ends: passed or failed, null when it could not be judged, or unread, as Ctrl-C ends one. */
+type Ending = boolean | null | 'unread';
+
 /**
  * A probe whose attempts the test ends one by one: `end(n, passed)` ends attempt n as blame does (the
- * tally reads it), `end(n, null)` unread, as Ctrl-C does. `stop()` stands for whatever stops new
- * attempts: an interrupt, a prefix that broke, the budget spent.
+ * tally reads it, null for one that could not be judged), `end(n, 'unread')` unread, as Ctrl-C does.
+ * `stop()` stands for whatever stops new attempts: an interrupt, a prefix that broke, the budget spent.
  */
 function probe(concurrency: number) {
   const tally = gated();
   const started: number[] = [];
   /** How many attempts the gate had read as each started. */
   const readAtStart: number[] = [];
-  const running = new Map<number, (passed: boolean | null) => void>();
+  const running = new Map<number, (ending: Ending) => void>();
   let stopped = false;
   let ended = false;
   const done = probeAttempts({
@@ -113,9 +116,9 @@ function probe(concurrency: number) {
       new Promise<void>((resolve) => {
         started.push(n);
         readAtStart.push(tally.read);
-        running.set(n, (passed) => {
+        running.set(n, (ending) => {
           running.delete(n);
-          if (passed !== null) tally.add(n, passed);
+          if (ending !== 'unread') tally.add(n, ending);
           resolve();
         });
       }),
@@ -127,12 +130,52 @@ function probe(concurrency: number) {
     done,
     ended: () => ended,
     stop: () => (stopped = true),
-    end: async (n: number, passed: boolean | null) => {
-      running.get(n)!(passed);
+    end: async (n: number, ending: Ending) => {
+      running.get(n)!(ending);
       await settle();
     },
   };
 }
+
+/** Ends each attempt of the probe `steps[n - 1]` steps after it started, as `outcomes[n - 1]`, until the probe has ended. */
+async function runOut(x: ReturnType<typeof probe>, outcomes: ReadonlyArray<boolean | null>, steps: readonly number[]): Promise<void> {
+  const left = new Map<number, number>();
+  for (let step = 0; !x.ended(); step++) {
+    await settle();
+    for (const n of x.started) if (!left.has(n)) left.set(n, steps[n - 1]!);
+    for (const [n, l] of left) {
+      if (l === 0) continue;
+      left.set(n, l - 1);
+      if (l === 1) await x.end(n, outcomes[n - 1]!);
+    }
+    expect(step).toBeLessThan(10_000);
+  }
+}
+
+/**
+ * The verdict one attempt after another reaches on the same outcomes in the same order, and the
+ * attempt that reached it: the gate's, or inconclusive on the attempts before the first that could
+ * not be judged.
+ */
+function oneAfterAnother(outcomes: ReadonlyArray<boolean | null>): { decided: { decision: GateDecision; at: number }; by: number } {
+  let passes = 0;
+  for (let i = 1; i <= outcomes.length; i++) {
+    const o = outcomes[i - 1];
+    if (o === null) return { decided: { decision: 'inconclusive', at: i - 1 }, by: i };
+    if (o) passes++;
+    const d = decide(passes, i, GATE);
+    if (d !== 'continue') return { decided: { decision: d, at: i }, by: i };
+  }
+  throw new Error(`the gate decides by attempt ${GATE.max}`);
+}
+
+/** A seeded generator: the same attempts, outcomes and endings every run. */
+function seeded(seed: number): () => number {
+  return () => (seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) / 2 ** 31;
+}
+
+/** How long each attempt runs, in steps: now and then one runs far longer than the rest. */
+const durations = (random: () => number) => Array.from({ length: GATE.max }, () => (random() < 0.2 ? 20 + Math.floor(random() * 40) : 1 + Math.floor(random() * 4)));
 
 describe("a probe's attempts at once", () => {
   it('starts none past --concurrency that the gate cannot read: while the first runs slow, the others wait for it', async () => {
@@ -160,43 +203,63 @@ describe("a probe's attempts at once", () => {
   });
 
   it('runs at most concurrency - 1 past the attempt that decides, to the verdict one after another reaches, whatever order they end in', async () => {
-    // A seeded generator: the same attempts, outcomes and endings every run.
-    let seed = 7;
-    const random = () => ((seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) / 2 ** 31);
+    const random = seeded(7);
     for (let round = 0; round < 120; round++) {
       const concurrency = 1 + (round % 4);
       const rate = [0.05, 0.5, 0.9][round % 3]!;
       const outcomes = Array.from({ length: GATE.max }, () => random() < rate);
-      // How long each attempt runs, in steps: now and then one runs far longer than the rest.
-      const steps = Array.from({ length: GATE.max }, () => (random() < 0.2 ? 20 + Math.floor(random() * 40) : 1 + Math.floor(random() * 4)));
+      const steps = durations(random);
       const x = probe(concurrency);
-      const left = new Map<number, number>();
-      for (let step = 0; !x.ended(); step++) {
-        await settle();
-        for (const n of x.started) if (!left.has(n)) left.set(n, steps[n - 1]!);
-        for (const [n, l] of left) {
-          if (l === 0) continue;
-          left.set(n, l - 1);
-          if (l === 1) await x.end(n, outcomes[n - 1]!);
-        }
-        expect(step).toBeLessThan(10_000);
-      }
-      // The verdict one after another reaches, on the same outcomes in the same order.
-      let one: { decision: GateDecision; at: number } | null = null;
-      for (let i = 1; !one && i <= GATE.max; i++) {
-        const d = decide(outcomes.slice(0, i).filter(Boolean).length, i, GATE);
-        if (d !== 'continue') one = { decision: d, at: i };
-      }
-      expect(x.tally.decided, `round ${round}`).toEqual(one);
-      expect(x.started.length, `round ${round}`).toBeLessThanOrEqual(one!.at + concurrency - 1);
+      await runOut(x, outcomes, steps);
+      const one = oneAfterAnother(outcomes);
+      expect(x.tally.decided, `round ${round}`).toEqual(one.decided);
+      expect(x.started.length, `round ${round}`).toBeLessThanOrEqual(one.by + concurrency - 1);
       // None started while concurrency attempts had started that the gate had not read.
       x.started.forEach((n, i) => expect(n - 1 - x.readAtStart[i]!, `round ${round}, attempt ${n}`).toBeLessThan(concurrency));
     }
   });
 
+  it('starts none once an attempt that could not be judged is read, and wakes the worker that waited to read it', async () => {
+    const x = probe(2);
+    await settle();
+    // The second could not be judged and ends while the first still runs: the gate can't read it yet, so nothing starts.
+    await x.end(2, null);
+    expect(x.started).toEqual([1, 2]);
+    expect(x.tally.decided).toBeNull();
+    // The first passes: the gate reads it, then the second, which stops the probe inconclusive on the first alone.
+    await x.end(1, true);
+    expect(x.tally.decided).toEqual({ decision: 'inconclusive', at: 1 });
+    expect(x.ended()).toBe(true);
+    await x.done;
+    expect(x.started).toEqual([1, 2]);
+  });
+
+  it('stops where one after another would at an attempt that could not be judged, at most concurrency - 1 past it, whatever order they end in', async () => {
+    const random = seeded(11);
+    let stoppedUnjudged = 0;
+    for (let round = 0; round < 120; round++) {
+      const concurrency = 1 + (round % 4);
+      const rate = [0.05, 0.5, 0.9][round % 3]!;
+      // Now and then an attempt can't be judged, such as one whose judge's call failed.
+      const outcomes = Array.from({ length: GATE.max }, () => (random() < 0.12 ? null : random() < rate));
+      const steps = durations(random);
+      const x = probe(concurrency);
+      await runOut(x, outcomes, steps);
+      const one = oneAfterAnother(outcomes);
+      expect(x.tally.decided, `round ${round}`).toEqual(one.decided);
+      expect(x.tally.decidedOn(), `round ${round}`).toEqual(outcomes.slice(0, one.decided.at));
+      expect(x.started.length, `round ${round}`).toBeLessThanOrEqual(one.by + concurrency - 1);
+      x.started.forEach((n, i) => expect(n - 1 - x.readAtStart[i]!, `round ${round}, attempt ${n}`).toBeLessThan(concurrency));
+      if (outcomes[one.by - 1] === null) stoppedUnjudged++;
+    }
+    // The rounds hold both kinds of ending: a gate's verdict and an attempt that could not be judged.
+    expect(stoppedUnjudged).toBeGreaterThan(10);
+    expect(stoppedUnjudged).toBeLessThan(110);
+  });
+
   it('wakes an attempt waiting on a slow one when Ctrl-C, a broken prefix or the budget stops the probe, so none waits forever', async () => {
     // Ctrl-C ends the slow attempt unread; a broken prefix and the budget let the gate read it.
-    for (const ending of [null, false] as const) {
+    for (const ending of ['unread', false] as const) {
       const x = probe(2);
       await settle();
       await x.end(2, false);
