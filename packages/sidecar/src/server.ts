@@ -313,6 +313,12 @@ export class Sidecar {
   private readonly upstreamHttp2 = new Map<string, ClientHttp2Session>();
   /** Requests upstream over HTTP/1.1 that have not ended yet: a model call still waiting for its answer, a body still streaming. */
   private readonly upstreamRequests = new Set<ClientRequest>();
+  /**
+   * Set by close() once no agent is connected. A call still being handled then is one whose agent
+   * left before its answer came: it records and reports nothing more, since nobody is left to read
+   * it and the store may close as soon as close() returns.
+   */
+  private closed = false;
 
   private constructor(opts: SidecarOptions, server: Server, url: string, token: string, http2Server: Http2Server, http2Url: string) {
     this.store = opts.store;
@@ -411,6 +417,8 @@ export class Sidecar {
     // The servers close once every agent still connected has had its answer, so a request still
     // upstream now is one whose agent left before its answer came (stopped by Ctrl-C mid-call):
     // nobody is left to read it, and a slow model would keep this process running after it is done.
+    // Its call stays started and never ended, as the agent left it (`closed`).
+    this.closed = true;
     for (const req of this.upstreamRequests) req.destroy();
   }
 
@@ -1069,6 +1077,8 @@ export class Sidecar {
         ? await this.fetchOverHttp2(upstream.replace(/(https?:\/\/[^/]+).*/, '$1'), `${upstream.replace(/https?:\/\/[^/]+/, '')}${upstreamPath}${search}`, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody, authority)
         : await requestUpstream(upstream + upstreamPath + search, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody, this.upstreamRequests);
     } catch (err) {
+      // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
+      if (this.closed) return;
       const message = err instanceof Error ? err.message : String(err);
       const error: SerializedError = { name: 'UpstreamConnectionError', message };
       res.writeHead(502, { 'content-type': 'application/json' });
@@ -1126,6 +1136,8 @@ export class Sidecar {
     }
     if (!clientGone) res.end();
     else res.destroy();
+    // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
+    if (this.closed) return;
 
     const body = Buffer.concat(chunks);
     const contentType = responseHeaders['content-type'];
@@ -1292,6 +1304,8 @@ export class Sidecar {
       upstream = await requestUpstream(url, method, headers, rawBody.length && method !== 'GET' && method !== 'HEAD' ? rawBody : null, this.upstreamRequests);
       bytes = Buffer.from(await upstream.arrayBuffer());
     } catch (err) {
+      // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
+      if (this.closed) return;
       return fail(502, { name: 'ShadowlapUpstreamError', message: `${name}: ${err instanceof Error ? err.message : String(err)}` }, 'shadowlap_upstream_error');
     }
     const result: HttpResult = { status: upstream.status, headers: keptResponseHeaders(upstream.headers), ...decodeBody(bytes, upstream.headers.get('content-type') ?? undefined) };

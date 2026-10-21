@@ -356,19 +356,22 @@ describe('shadowlap blame', () => {
     expect(p.runs.every((x) => !x.passed)).toBe(true);
   });
 
-  it('ends promptly on Ctrl-C while an attempt waits for a slow one the gate must read first', async () => {
+  it('ends promptly on Ctrl-C while an attempt waits for a slow one the gate must read first, and says nothing of the call it cut off', async () => {
     stubborn = true;
     const runId = await record();
     // Held far longer than the test runs: only the interrupt can end the attempt.
     hold = { ms: 120_000, held: 0 };
     // Once an attempt after the first has ended, the worker that ran it waits for the held one.
     const waiting = (out: string) => [...out.matchAll(/\battempt (\d+) {2}/g)].some((m) => Number(m[1]) >= 2);
-    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', '2', '--json'], {}, { interrupt: waiting });
+    const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', '2', '--json', '--verbose'], {}, { interrupt: waiting });
     expect(r.afterInterrupt, r.out).not.toBeNull();
     expect(r.afterInterrupt!, r.out).toBeLessThan(10_000);
     expect(r.code, r.out).toBe(1);
     const report = JSON.parse(r.stdout) as { outcome: string; stopReason: string; probes: unknown[] };
     expect(report).toMatchObject({ outcome: 'stopped', stopReason: 'interrupted', probes: [] });
+    // The held call's agent was stopped and its run has ended: closing the sidecar cuts the call off,
+    // and no error follows the report.
+    expect(r.out).not.toContain('[shadowlap] error:');
   });
 });
 
