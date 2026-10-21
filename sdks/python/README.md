@@ -23,7 +23,7 @@ Record and replay with the `shadowlap` CLI, from npm (Node 22.16 or later, not 2
 ```sh
 npm install -g shadowlap
 shadowlap run -- python agent.py    # record a run, with your usual key
-shadowlap replay <run>              # replay it: 0 upstream requests, no real key
+shadowlap replay <run>              # a clean replay: 0 upstream requests, no real key
 ```
 
 Model calls need no code changes: `shadowlap run` routes the Anthropic, OpenAI and Gemini SDKs through its sidecar, and captures Azure OpenAI, Vertex AI and Bedrock clients inside the process. Outside Shadowlap every wrapper is a passthrough, so decorated tools ship unchanged.

@@ -34,7 +34,7 @@ pip install shadowlap
 ```sh
 # record a run, with your usual key
 shadowlap run -- node agent.mjs
-# replay it: 0 upstream requests, no real key
+# a clean replay: 0 upstream requests, no real key
 shadowlap replay <run>
 # step through it in your browser
 shadowlap dashboard

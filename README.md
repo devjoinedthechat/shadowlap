@@ -187,7 +187,7 @@ Then record, replay and look:
 ```sh
 # record, with your usual key
 shadowlap run -- node agent.mjs
-# replay offline, with no real key
+# replay it; a clean replay needs no real key
 shadowlap replay <run>
 # step through it in your browser
 shadowlap dashboard
