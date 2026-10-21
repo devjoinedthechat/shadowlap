@@ -332,6 +332,32 @@ describe('shadowlap decisions', () => {
     expect(warned.code, warned.out).toBe(0);
     expect(warned.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
     expect(warned.stdout).toContain(`  ${rule}\n  ${one.slice(0, 10)}  inconclusive  5 of 7 passed · ${BOUND_5_OF_7}\n`);
+    // And --verify: the same run, counted afresh, inconclusive again, and let through.
+    const again = ['--', process.execPath, FLAKY, join(cwd, `flaky-${one}-again.count`), process.execPath, AGENT];
+    const warnedAgain = await shadowlap(['decisions', '--verify', session.decisionsId!, one, '--gate', gate, '--inconclusive', 'warn', ...again]);
+    expect(warnedAgain.code, warnedAgain.out).toBe(0);
+    expect(warnedAgain.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
+    expect(warnedAgain.stdout).toContain(`  ${rule}\n  ${one.slice(0, 10)}  inconclusive  5 of 7 passed · ${BOUND_5_OF_7}\n`);
+
+    // Verified again as the dashboard's Verify the changed runs verifies it, every run the session flagged with
+    // no count and no gate of its own, by the command each was recorded with: verify's own gate settles both, the
+    // session reads accepted, and it states that one rule.
+    const settled = await shadowlap(['decisions', '--verify', session.decisionsId!, '--json']);
+    expect(settled.code, settled.out).toBe(0);
+    const verifyGate = 'gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts';
+    const byGate = { role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' };
+    expect(json<{ verify: NonNullable<DecisionsReport['verify']> }>(settled).verify).toMatchObject({ verdict: 'accepted', rule: verifyGate, runs: [{ runId: one, ...byGate }, { runId: two, ...byGate }] });
+    const after = Store.open(db);
+    try {
+      const kept = after.getDecisionSession(session.decisionsId!)!.data.verify as NonNullable<DecisionsReport['verify']>;
+      expect(kept).toMatchObject({ verdict: 'accepted', rule: verifyGate });
+      expect(kept.runs.map((x) => [x.runId, x.outcome, x.passes, x.attempts, x.bound])).toEqual([
+        [one, 'kept', 12, 12, 'rate >= 0.76 (95%)'],
+        [two, 'kept', 12, 12, 'rate >= 0.76 (95%)'],
+      ]);
+    } finally {
+      after.close();
+    }
   }, 180_000);
 
   it('asks the goldens a pack holds, named as test names them, and warns about a model that retires', async () => {

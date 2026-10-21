@@ -166,6 +166,21 @@ describe('shadowlap migrate', () => {
     expect(warned.code, warned.out).toBe(0);
     expect(warned.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
     expect(warned.stdout).toMatch(/goldens\/research +inconclusive · verified · 5 of 7 · rate 0\.36 to 0\.92 \(95%\)\n  gate: tells 90%\+ from 50%- at <= 5% risk, up to 7 attempts\n/);
+
+    // The inconclusive migration verified again as the dashboard's Verify the changed runs verifies it: no count and
+    // no gate of its own, the golden's own command. Verify's own gate keeps the run, and What still passes says so.
+    const settled = await shadowlap(['decisions', '--verify', unsettled.migrateId!, '--json']);
+    expect(settled.code, settled.out).toBe(0);
+    const kept = { runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' } };
+    expect(json<{ kind: string; verify: MigrateReport['decisions']['verify']; passes: MigrateReport['passes']['runs'] }>(settled)).toMatchObject({ kind: 'migrate', verify: { verdict: 'accepted', rule: gate }, passes: [kept] });
+    const store = Store.open(db);
+    try {
+      const session = store.getDecisionSession(unsettled.migrateId!)!.data as unknown as Pick<MigrateReport, 'passes' | 'decisions'>;
+      expect(session.passes).toEqual({ verdict: 'accepted', runs: [kept] });
+      expect(session.decisions.verify).toMatchObject({ verdict: 'accepted', rule: gate });
+    } finally {
+      store.close();
+    }
   }, 240_000);
 
   it('sets what the new model refuses to what it takes, by the provider page, and says why', async () => {
