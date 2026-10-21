@@ -29,8 +29,11 @@ const NOT_FIXED = {
   'no-calls': 'the replay made no calls, which is not an outcome check',
   error: 'it could not be replayed',
   inconclusive: 'its verdict is inconclusive, neither passed nor failed: more attempts settle it, not a fix',
-  injection: 'its injection gate failed: the agent obeyed text planted in what it reads, which is fixed in its prompt or its code, or the gate showed too little to say, and its reason says why; a fix on failure fixes neither. shadowlap injection <golden> --html report.html shows every attempt',
+  injection: 'its injection gate failed: the agent obeyed text planted in what it reads, which is fixed in its prompt or its code, not by a fix on failure. shadowlap injection <golden> --html report.html shows every attempt',
 };
+
+/** Why a golden whose injection gate is inconclusive gets no fix: it showed too little to say, which no fix changes. */
+const INJECTION_INCONCLUSIVE = 'its injection gate is inconclusive, neither passed nor failed: it showed too little to say, as its reason says, and a fix on failure changes none of that. shadowlap injection <golden> --html report.html shows every attempt';
 
 /**
  * The models with no price, when a cost check that couldn't be judged for want of one is the only
@@ -74,6 +77,8 @@ export function planFixes(report) {
       // A check that could not be decided, whatever else failed: no replay passes while it stays so.
       const undecided = inconclusiveChecks(r.checks);
       if (undecided.length && (r.failure === 'check' || r.failure === 'inconclusive')) return { result: r, skip: undecidedSkip(r, undecided) };
+      // An injection gate that showed too little to say is inconclusive, never one the agent failed.
+      if (r.failure === 'injection' && verdictOf(r) === 'inconclusive') return { result: r, skip: INJECTION_INCONCLUSIVE };
       if (r.failure !== 'check') return { result: r, skip: NOT_FIXED[r.failure] ?? 'not an outcome check' };
       if (!r.expect) return { result: r, skip: 'its checks are not under "tests" in shadowlap.config.json' };
       const unpriced = unpricedOnly(r.checks);
