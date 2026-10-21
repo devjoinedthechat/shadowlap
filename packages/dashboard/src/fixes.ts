@@ -788,6 +788,8 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
       return sum / n;
     };
     const now = mean((a) => a.footprint.inputTokens);
+    // A run an attempt it could not judge stopped was decided by no gate: no bound, as verify's report has none.
+    const rate = rateOf(x.gate);
     return {
       role: ROLE[x.role],
       runId: x.runId,
@@ -797,7 +799,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
       inconclusive: x.attempts.filter((a) => attemptVerdictOf(a) === 'inconclusive').length,
       deterministic: x.deterministic,
       outcome: outcomeOf(x),
-      rate: rateOf(x.gate),
+      rate: rate && x.undecided ? { ...rate, bound: null } : rate,
       note: failure ? shortFailure(failure) : x.undecided ? 'an attempt could not be judged' : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
       tokens: now === null ? null : { recorded: x.recorded.footprint.inputTokens, now },
       cost: n ? { recorded: x.recorded.footprint.cost, now: mean((a) => a.footprint.cost) } : null,

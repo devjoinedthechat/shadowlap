@@ -22,6 +22,18 @@ const unpriced = (models: readonly string[]) => (models.length ? ` (no price for
 
 const mark = (x: FixStep, p: Palette) => (x.state === 'done' ? p.green('✓') : x.state === 'no' ? p.red('✗') : p.dim('·'));
 
+/**
+ * A probe's or a verified run's tally: the attempts that passed of those judged, then `unit` (`2 of
+ * 4 passed`), and those that could not be judged (all they fell short on is a check no attempt could
+ * decide) apart, never as failures: `1 of 1 passed, an attempt not judged`.
+ */
+function tally(x: { passes: number; attempts: number; inconclusive: number }, unit = ''): string {
+  const judged = x.attempts - x.inconclusive;
+  if (!x.inconclusive) return `${x.passes} of ${x.attempts}${unit}`;
+  const apart = `${x.inconclusive === 1 ? 'an attempt' : `${x.inconclusive} attempts`} not judged`;
+  return judged ? `${x.passes} of ${judged}${unit}, ${apart}` : apart;
+}
+
 /** A repair's outcome in words, as `shadowlap repair` prints it. */
 const OUTCOME: Record<NonNullable<FixDetail['repair']>['outcome'], string> = { fixed: 'fixed', 'not-fixed': 'not fixed', 'no-diagnosis': 'no fix to try', stopped: 'stopped' };
 
@@ -75,7 +87,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     if (b.probes.length) {
       out.push(`  ${p.dim(`probes: ${b.rule}; ${b.rescue}`)}`);
       // Each probe's tally with the Wilson bound its gate decided on; the rule is the line above.
-      const rows = b.probes.map((x) => [`#${x.callNo}`, `${x.step} of ${b.steps}`, `${x.passes} of ${x.attempts} passed${x.bound ? ` · ${x.bound}` : ''}`, x.verdict]);
+      const rows = b.probes.map((x) => [`#${x.callNo}`, `${x.step} of ${b.steps}`, `${tally(x, ' passed')}${x.bound ? ` · ${x.bound}` : ''}`, x.verdict]);
       out.push(table(rows, '    '));
     }
     out.push(p.dim(`  ${b.cost.attempts} attempt${s(b.cost.attempts)} · ${b.cost.upstreamRequests} upstream requests · ≈${formatUsd(b.cost.spent)} spent${unpriced(b.cost.unknownModels)}`));
@@ -115,7 +127,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
       out.push(`  ${badge}  ${one(v.code, 40)}  ${v.headline}${v.counts ? '' : p.dim(" (doesn't count)")}`);
       if (v.note) out.push(`    ${v.counts ? p.red(one(v.note, 200)) : p.yellow(one(v.note, 200))}`);
       out.push(p.dim(`    ${one(v.oracle, 200)}`));
-      const rows = v.rows.map((x) => [x.role, x.runId.slice(0, 10), x.outcome, x.deterministic ? 'clean replay' : `${x.passes} of ${x.attempts}${x.rate?.bound ? ` · ${x.rate.bound}` : ''}`, x.note === 'clean replay' ? '' : one(x.note, 70)]);
+      const rows = v.rows.map((x) => [x.role, x.runId.slice(0, 10), x.outcome, x.deterministic && !x.inconclusive ? 'clean replay' : `${tally(x)}${x.rate?.bound ? ` · ${x.rate.bound}` : ''}`, x.note === 'clean replay' ? '' : one(x.note, 70)]);
       if (rows.length) out.push(table(rows, '    '));
       const delta = v.tokens ? `${Math.round(v.tokens.before).toLocaleString('en-US')} → ${Math.round(v.tokens.after).toLocaleString('en-US')} input tokens per run (${v.tokens.change})` : '';
       out.push(p.dim(`    ${v.attempts} attempt${s(v.attempts)} · ${v.upstreamRequests} upstream requests · ≈${formatUsd(v.spent)} spent${unpriced(v.unknownModels)}${delta ? ` · ${delta}` : ''}`));

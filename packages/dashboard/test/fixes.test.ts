@@ -381,6 +381,23 @@ describe('a fix', () => {
     expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: attempt, passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
   });
 
+  it('gives no bound for a run an attempt it could not judge stopped under a gate, as verify gives none', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    const { fix } = blame(failing);
+    const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+    const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
+    const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }]);
+    const kept = report.runs[1]!;
+    // Two attempts passed, and the third could not be judged: the gate decided nothing.
+    report.runs[1] = { ...kept, attempts: [kept.attempts[0]!, kept.attempts[1]!, { ...kept.attempts[2]!, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 2, verdict: 'open', undecided: why, gate: gateResult(gate, [true, true], { decision: 'continue' }) };
+    report.gate = gate;
+    Object.assign(report, decideVerify(report.runs, null));
+    recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: NOW });
+    const row = fixDetail(store, fix.fixId)!.verify[0]!.rows[1]!;
+    expect(row).toMatchObject({ outcome: 'inconclusive', attempts: 3, passes: 2, inconclusive: 1, rate: { decision: 'continue', bound: null } });
+  });
+
   it("lists a verdict under another check with why it doesn't count, and leaves the steps as they were", () => {
     const run = makeRun(store, { labels: ['refund-bug'] });
     const { fix } = blame(run);

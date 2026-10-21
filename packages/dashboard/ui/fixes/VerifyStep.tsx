@@ -66,7 +66,8 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
                 <td>
                   <Pips ok={x.passes} unsure={x.inconclusive} no={x.attempts - x.passes - x.inconclusive} />{' '}
                   <span className="fxof">
-                    {x.passes} of {x.attempts}
+                    {x.passes} of {x.attempts - x.inconclusive}
+                    {x.inconclusive ? <span className="fxdim"> · {x.inconclusive} not judged</span> : null}
                     {x.rate?.bound ? <span className="fxdim"> · {x.rate.bound}</span> : null}
                   </span>
                 </td>
