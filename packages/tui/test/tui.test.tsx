@@ -163,6 +163,30 @@ describe('TUI', () => {
 });
 
 describe('ease of use', () => {
+  it('shows every origin whole in its column, overridden too, with a space before the outcome', async () => {
+    const { store, runId } = goldenStore();
+    const fork = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    for (const c of store.getCalls(runId).slice(0, 6)) {
+      const { end, attempts, ...start } = c;
+      void attempts;
+      const origin = c.callNo === 4 ? 'overridden' : c.callNo === 5 ? 'stubbed' : 'replayed';
+      store.appendCallStart({ ...start, runId: fork.runId, origin });
+      if (end) store.appendCallEnd(c, { ...end, runId: fork.runId });
+    }
+    store.endRun(fork.runId, 'completed');
+    for (const columns of [64, 80, 120]) {
+      const { lastFrame, unmount } = render(<App store={store} runId={fork.runId} columns={columns} rows={20} />);
+      const frame = await frameWith(lastFrame, '#4');
+      unmount();
+      const row = (n: number) => frame.split('\n').find((l) => new RegExp(`[ >!]#${n} `).test(l)) ?? '';
+      expect(row(4), `${columns} columns`).toMatch(/ overridden +ok /);
+      expect(row(5)).toMatch(/ stubbed +ok /);
+      expect(row(3)).toMatch(/ replayed +ok /);
+      expect(frame).not.toMatch(/overridde(ok|ERR)/);
+    }
+    store.close();
+  });
+
   it('summarizes the run in the header, focuses panes, filters, and jumps between notable calls', async () => {
     const { store, runId } = goldenStore();
     const fork = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' } });

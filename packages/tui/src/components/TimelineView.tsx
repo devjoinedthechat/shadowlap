@@ -270,8 +270,11 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const innerWidth = listWidth - 2;
   // Runs that use scopes (parallel branches, sub-agents) get a column naming each call's.
   const longestScope = useMemo(() => calls.reduce((n, c) => Math.max(n, scopeOf(c).length), 0), [calls]);
-  const scopeWidth = longestScope && innerWidth >= 1 + 6 + 5 + 9 + 4 + 8 + 8 ? Math.min(12, longestScope + 1) : 0;
-  const fixedWithoutName = 1 + 6 + 5 + scopeWidth + 9 + 4;
+  // The origin's cell holds the run's longest whole (`overridden`, where a call is), and a space
+  // before the outcome: a label is never cut into the word after it.
+  const originWidth = useMemo(() => calls.reduce((n, c) => Math.max(n, displayOrigin(c).length + 1), 9), [calls]);
+  const scopeWidth = longestScope && innerWidth >= 1 + 6 + 5 + originWidth + 4 + 8 + 8 ? Math.min(12, longestScope + 1) : 0;
+  const fixedWithoutName = 1 + 6 + 5 + scopeWidth + originWidth + 4;
   const nameWidth = Math.max(8, Math.min(18, innerWidth - fixedWithoutName));
   const detailWidth = Math.max(0, innerWidth - fixedWithoutName - nameWidth);
 
@@ -375,7 +378,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
                   <Text color="gray">{(kindLabel[c.kind] ?? c.kind).padEnd(5).slice(0, 5)}</Text>
                   {scopeWidth ? <Text color="magenta">{truncate(scopeOf(c), scopeWidth - 1).padEnd(scopeWidth)}</Text> : null}
                   <Text bold={sel}>{truncate(shortCallName(c.kind, c.name), nameWidth - 1).padEnd(nameWidth)}</Text>
-                  <Text color={originColor[displayOrigin(c)]}>{displayOrigin(c).padEnd(9).slice(0, 9)}</Text>
+                  <Text color={originColor[displayOrigin(c)]}>{displayOrigin(c).padEnd(originWidth)}</Text>
                   <Text color={c.end?.outcome === 'error' ? 'red' : 'gray'}>{outcome.padEnd(4)}</Text>
                   {detailWidth >= 4 ? <Text color="gray">{truncate(rowDetail(store, c, modelOf), detailWidth)}</Text> : null}
                 </Box>
