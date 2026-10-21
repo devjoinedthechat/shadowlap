@@ -16,7 +16,7 @@ Settings → Store's **Set up the store**, or **Set up the team store** in the p
 terminal:
 
 ```sh
-shadowlap store set s3://northwind-agent-runs/support-agent --check   # 1. connect your bucket
+shadowlap store set s3://<bucket>/<project> --check                   # 1. connect your bucket
 shadowlap push --all                                                  # 2. every run on this machine
 shadowlap store ci --provider github                                  # 3. a CI step that pushes test runs
 git add shadowlap.config.json && git commit -m "Use the team store"   # 4. bring your team

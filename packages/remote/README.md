@@ -6,7 +6,7 @@ It comes with the [`shadowlap` CLI](https://www.npmjs.com/package/shadowlap):
 
 ```sh
 npm install -g shadowlap
-shadowlap store set s3://northwind-agent-runs/support-agent --check
+shadowlap store set s3://<bucket>/<project> --check
 shadowlap push --all
 shadowlap pull
 shadowlap share <run>
