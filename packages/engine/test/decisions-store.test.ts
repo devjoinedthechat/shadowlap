@@ -45,6 +45,25 @@ describe('decision sessions', () => {
     store.close();
   });
 
+  it("finds the judge verdicts every session of a run kept, the newest first, however many sessions there are", () => {
+    const store = Store.open(':memory:');
+    const side = (verdict: 'yes' | 'no' | null, request: string | null, reason: string) => ({ status: verdict === null ? 'inconclusive' : verdict === 'yes' ? 'passed' : 'failed', verdict, reason, source: verdict === null ? null : 'live', cost: 0, request });
+    const judged = (recorded: ReturnType<typeof side>, now: ReturnType<typeof side>) => ({ runId: '01RUNA', rank: 2, decisions: [{ callNo: 1, judge: null }, { callNo: 2 }, { callNo: 30, judge: [{ name: 'fences', of: 'answer', model: 'claude-haiku-4-5', pass: 'yes', recorded, now, changed: null }] }] });
+    const keep = (n: number, data: Record<string, unknown>) => store.putDecisionSession({ sessionId: `dc-01M5000000000000000000${String(n).padStart(4, '0')}`, kind: 'decisions', at: n, change: 'the model m', actor: null, revision: null, data: {}, runs: [{ runId: '01RUNA', golden: null, rank: 2, changed: 1, data }] });
+    // The oldest session holds the only verdict for request d-old; 30 later sessions hold others, or none.
+    keep(1, judged(side('yes', 'd-recorded', 'it says so, as first asked'), side('no', 'd-old', 'it no longer says so')));
+    for (let n = 2; n <= 31; n++) keep(n, judged(side('yes', 'd-recorded', `it says so, asked ${n}`), side(null, `d-${n}`, 'not judged: the budget of $0.01 is spent')));
+    keep(32, { runId: '01RUNA', decisions: 'not a list' });
+    const found = store.decisionJudgeVerdicts('01RUNA');
+    // A side not judged is no verdict; every session's is read, the newest first, past the 20 decisionsOfRun reads.
+    expect(found.filter((v) => v.request === 'd-recorded').map((v) => v.reason).slice(0, 2)).toEqual(['it says so, asked 31', 'it says so, asked 30']);
+    expect(found.filter((v) => v.request === 'd-recorded')).toHaveLength(31);
+    expect(found.find((v) => v.request === 'd-old')).toEqual({ request: 'd-old', verdict: 'no', reason: 'it no longer says so' });
+    expect(found.some((v) => v.request.startsWith('d-2'))).toBe(false);
+    expect(store.decisionJudgeVerdicts('01RUNB')).toEqual([]);
+    store.close();
+  });
+
   it('adds its tables to a store made before them', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sl-decisions-store-'));
     dirs.push(dir);

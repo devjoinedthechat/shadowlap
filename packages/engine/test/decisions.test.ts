@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, majorityRank, modelFamily, sameModel, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
+import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, type DecisionJudge, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
 import type { Effect } from '../src/types.js';
 
 /**
@@ -281,6 +281,7 @@ describe('formatDecisions', () => {
       notes: ["Later steps are judged in the recorded run's state."],
       warnings: [],
       verify: null,
+      judge: null,
       remedies: [],
       stopReason: null,
     };
@@ -308,5 +309,133 @@ describe('formatDecisions', () => {
     // Runs that hold no model call still say so.
     const empty = formatDecisions({ ...report, runs: [{ ...sameRun, steps: 0, asked: 0, counts: { ...none }, decisions: [] }], counts: { ...none }, flagged: [] });
     expect(empty.split('\n')[0]).toBe('✓ Nothing to ask: the runs hold no model call, under the prompt and tools in the working tree');
+  });
+});
+
+describe('a text-only change a judge check reads', () => {
+  const recorded: ModelDecision = { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'A manager will review your refund: it is over the limit.', handover: null };
+  const now: ModelDecision = { ...recorded, text: 'A manager will review your refund.' };
+  const side = (status: 'passed' | 'failed' | 'inconclusive', o: Partial<DecisionJudge['now']> = {}): DecisionJudge['now'] => ({ status, verdict: status === 'passed' ? 'yes' : status === 'failed' ? 'no' : null, reason: status === 'inconclusive' ? 'not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)' : `it ${status}`, source: status === 'inconclusive' ? null : 'live', cost: status === 'inconclusive' ? null : 0.0024, request: status === 'inconclusive' ? null : 'f'.repeat(32), ...o });
+  const check = (r: DecisionJudge['recorded'], n: DecisionJudge['now']): DecisionJudge => ({ name: 'explains-escalation', of: 'answer', model: 'claude-haiku-4-5', pass: 'yes', recorded: r, now: n, changed: r.status === 'inconclusive' || n.status === 'inconclusive' ? null : r.status !== n.status });
+
+  it('ranks 2 when a check comes out otherwise for the new words, ahead of the text, and stays text only when none does', () => {
+    const text = compareDecisions(recorded, now, () => null);
+    expect(text.rank).toBe(5);
+    const fails = promoteByJudge(text, [check(side('passed', { source: 'recording', cost: 0 }), side('failed'))]);
+    expect(fails.rank).toBe(2);
+    expect(fails.changes.map((c) => [c.rank, c.kind, c.before, c.after])).toEqual([
+      [2, 'judge', 'passed', 'failed'],
+      [5, 'text', recorded.text, now.text],
+    ]);
+    expect(fails.changes[0]!.detail).toBe('judge "explains-escalation" fails what it says now, which passed as recorded');
+    expect(promoteByJudge(text, [check(side('failed'), side('passed'))]).changes[0]!.detail).toBe('judge "explains-escalation" passes what it says now, which failed as recorded');
+    // As recorded, or not judged: a text-only change still, which no verdict it lacks may raise.
+    expect(promoteByJudge(text, [check(side('passed'), side('passed'))])).toEqual(text);
+    expect(promoteByJudge(text, [check(side('passed'), side('inconclusive'))])).toEqual(text);
+    // A change in what the agent does keeps its own rank.
+    const stops = compareDecisions(recorded, { ...now, stop: 'tools', tools: [{ name: 'escalate', args: {} }] }, () => 'write');
+    expect(promoteByJudge(stops, [check(side('passed'), side('failed'))])).toEqual(stops);
+    expect(RANK_LABELS[2]).toBe('it stops, hands over or is judged differently');
+  });
+
+  it('says how its checks came out, for a cell, and when a step waits on a judge', () => {
+    const asRecorded = check(side('passed'), side('passed'));
+    const notJudged = check(side('passed'), side('inconclusive'));
+    const otherwise = check(side('passed'), side('failed'));
+    // One sample: its own checks say.
+    const once = (judge: DecisionJudge[] | null, rank: 2 | 5 | null, unjudged = 0) => ({ judge, majority: rank, samples: { asked: 1, answered: 1, changed: rank ? 1 : 0, unjudged, ranks: [rank ?? 0] } });
+    expect(judgedOutcome(once(null, null))).toBeNull();
+    expect(judgedOutcome(once([asRecorded], 5))).toBe('unchanged');
+    expect(judgeOpen(once([asRecorded, notJudged], 5, 1))).toBe(true);
+    expect(judgedOutcome(once([asRecorded, notJudged], 5, 1))).toBe('inconclusive');
+    expect(judgeOpen(once([notJudged, otherwise], 2))).toBe(false);
+    expect(judgedOutcome(once([notJudged, otherwise], 2))).toBe('changed');
+    // Three samples: one came out otherwise, in fewer than half of them, and the judge could not judge the other two. Shown or not, they keep the step waiting.
+    const minority = { judge: [otherwise], majority: 5 as const, samples: { asked: 3, answered: 3, changed: 3, unjudged: 2, ranks: [2, 5, 5] } };
+    expect(judgeOpen(minority)).toBe(true);
+    expect(judgedOutcome(minority)).toBe('inconclusive');
+    // Behind a read changed in another sample, too.
+    expect(judgeOpen({ majority: 5, samples: { asked: 2, answered: 2, changed: 2, unjudged: 1, ranks: [3, 5] } })).toBe(true);
+    // Flagged by most of its samples: what the one not judged would make of its words changes nothing.
+    const flagged = { ...minority, majority: 2 as const, samples: { ...minority.samples, unjudged: 1, ranks: [2, 2, 5] } };
+    expect(judgeOpen(flagged)).toBe(false);
+    expect(judgedOutcome(flagged)).toBe('changed');
+    // A session kept before samples counted them waits on nothing.
+    expect(judgeOpen({ majority: 5, samples: { asked: 1, answered: 1, changed: 1, ranks: [5] } })).toBe(false);
+  });
+
+  it('shows the most consequential sample, and of text-only ones, one a judge could not judge', () => {
+    const asRecorded = [check(side('passed'), side('passed'))];
+    const notJudged = [check(side('passed'), side('inconclusive'))];
+    const otherwise = [check(side('passed'), side('failed'))];
+    expect(unjudgedSample(notJudged)).toBe(true);
+    expect(unjudgedSample(asRecorded)).toBe(false);
+    expect(unjudgedSample(null)).toBe(false);
+    // Raised to rank 2 by one check, whatever the other could not say.
+    expect(unjudgedSample([...otherwise, ...notJudged])).toBe(false);
+    expect(shownSample([])).toBe(-1);
+    // The first sample came out as recorded and the second was not judged: the second shows the step, which never reads as judged.
+    expect(shownSample([{ rank: 5, judge: asRecorded }, { rank: 5, judge: notJudged }])).toBe(1);
+    expect(shownSample([{ rank: 5, judge: notJudged }, { rank: 5, judge: asRecorded }])).toBe(0);
+    // A judged change, or any other more consequential one, comes first.
+    expect(shownSample([{ rank: 5, judge: notJudged }, { rank: 2, judge: otherwise }])).toBe(1);
+    expect(shownSample([{ rank: 1, judge: null }, { rank: 5, judge: notJudged }])).toBe(0);
+    // Else the first of the most consequential, a sample that decided as recorded last.
+    expect(shownSample([{ rank: null, judge: null }, { rank: 5, judge: asRecorded }, { rank: 5, judge: asRecorded }])).toBe(1);
+  });
+
+  it('shows each check beside the step, says the run is judged otherwise, and what judging cost apart from asking', () => {
+    const promoted = promoteByJudge(compareDecisions(recorded, now, () => null), [check(side('passed', { source: 'recording', cost: 0 }), side('failed'))]);
+    const view = (d: ModelDecision) => decisionView(d, () => null);
+    const step = (callNo: number, o: { rank: 2 | 5; changes: typeof promoted.changes; judge: DecisionJudge[] }) => ({ callNo, step: callNo, scope: null, rank: o.rank, majority: o.rank, changes: o.changes, recorded: view(recorded), now: view(now), samples: { asked: 1, answered: 1, changed: 1, ranks: [o.rank] }, model: { recorded: 'claude-opus-5', asked: 'claude-opus-5' }, tokens: { before: null, after: null }, cost: { before: null, after: null, spent: 0.001 }, thinkingStripped: 0, error: null, judge: o.judge });
+    const counts = { 1: 0, 2: 1, 3: 0, 4: 0, 5: 0, same: 10, untouched: 0, notAsked: 0 };
+    const run = { runId: '01K1AAAAAAAAAAAAAAAAAAAAAA', golden: 'goldens/refund', steps: 11, asked: 11, rank: 2 as const, majority: 2 as const, counts, cost: { before: null, after: null, spent: 0.01 }, tokens: { before: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, after: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }, thinkingStripped: 0, refused: null, decisions: [step(30, { rank: 2, changes: promoted.changes, judge: promoted.changes.length ? [check(side('passed', { source: 'recording', cost: 0 }), side('failed', { reason: 'it no longer says why' }))] : [] })], warnings: [] };
+    const report: DecisionsReport = {
+      decisionsId: null,
+      kind: 'decisions',
+      at: 0,
+      change: { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' },
+      command: 'shadowlap decisions goldens/refund --model claude-haiku-4-5',
+      samples: 1,
+      runs: [run],
+      counts,
+      flagged: [run.runId],
+      cost: { before: null, after: null, spent: 0.01, upstreamRequests: 11, unknownModels: [] },
+      tokens: { before: run.tokens.before, after: run.tokens.after },
+      retirements: [],
+      notes: [],
+      warnings: [],
+      verify: null,
+      judge: { steps: 1, changed: 1, inconclusive: 0, spent: 0.0024, upstreamRequests: 1, unknownModels: [] },
+      remedies: [],
+      stopReason: null,
+    };
+    const text = formatDecisions(report);
+    expect(text.split('\n')[0]).toBe('✗ 1 of 1 run is judged otherwise, under the model claude-haiku-4-5');
+    expect(text).toContain('1 changed, most: rank 2 (it stops, hands over or is judged differently)');
+    expect(text).toMatch(/#30 +step 30 +rank 2 +judge "explains-escalation" fails what it says now, which passed as recorded/);
+    expect(text).toContain('judge "explains-escalation" passed → failed · it no longer says why (judged live, ≈$0.0024)');
+    expect(text).toContain('  judging: 1 upstream request · ≈$0.0024 spent');
+    // A write as well: both are said.
+    const write = { ...run, runId: '01K1BBBBBBBBBBBBBBBBBBBBBB', rank: 1 as const, majority: 1 as const, decisions: [{ ...run.decisions[0]!, rank: 1 as const, majority: 1 as const, changes: [{ rank: 1 as const, kind: 'write-removed' as const, tool: 'send_email', effect: 'write' as const, before: {}, after: null, detail: 'send_email is no longer called' }], judge: null }] };
+    expect(formatDecisions({ ...report, runs: [run, write], flagged: [run.runId, write.runId] }).split('\n')[0]).toBe('✗ 2 of 2 runs decide a write or when to stop differently, or are judged otherwise, under the model claude-haiku-4-5');
+    // As recorded, and not judged: each says so.
+    const same = formatDecisions({ ...report, flagged: [], runs: [{ ...run, rank: 5, majority: 5, decisions: [{ ...run.decisions[0]!, rank: 5, majority: 5, changes: [promoted.changes[1]!], judge: [check(side('passed', { source: 'recording', cost: 0, reason: 'it says why' }), side('passed', { source: 'kept', cost: 0, reason: 'it says why' }))] }] }] });
+    expect(same).toContain('judge "explains-escalation" passed, as recorded · it says why (asked before and kept, free)');
+    const open = formatDecisions({ ...report, flagged: [], runs: [{ ...run, rank: 5, majority: 5, decisions: [{ ...run.decisions[0]!, rank: 5, majority: 5, changes: [promoted.changes[1]!], judge: [check(side('passed', { source: 'recording', cost: 0 }), side('inconclusive'))] }] }] });
+    expect(open).toContain('judge "explains-escalation" inconclusive · not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)');
+    // With samples, how many of them a judge could not judge, the one shown or not.
+    const sampled = formatDecisions({ ...report, samples: 3, flagged: [], runs: [{ ...run, rank: 2, majority: 5, decisions: [{ ...run.decisions[0]!, majority: 5, samples: { asked: 3, answered: 3, changed: 3, unjudged: 2, ranks: [2, 5, 5] } }] }] });
+    expect(sampled).toMatch(/#30 +step 30 +rank 2 +judge "explains-escalation" fails what it says now, which passed as recorded · in 3 of 3 samples, fewer than half: not flagged, 2 of them not judged/);
+  });
+
+  it('calls judging free only when no judge request went upstream: a judge with no price is no free call', () => {
+    const report = { decisionsId: null, kind: 'decisions', at: 0, change: { model: 'mock-terse', fields: {}, from: null, fromCode: null, text: 'the model mock-terse' }, command: 'shadowlap decisions goldens/refund --model mock-terse', samples: 1, runs: [], counts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0 }, flagged: [], cost: { before: null, after: null, spent: 0, upstreamRequests: 0, unknownModels: [] }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, retirements: [], notes: [], warnings: [], verify: null, remedies: [], stopReason: null } satisfies Omit<DecisionsReport, 'judge'>;
+    const judging = (judge: DecisionsReport['judge']) => formatDecisions({ ...report, judge }).split('\n').find((l) => l.startsWith('  judging:'));
+    expect(judging({ steps: 1, changed: 0, inconclusive: 0, spent: 0, upstreamRequests: 1, unknownModels: ['claude-mock-judge-9'] })).toBe('  judging: 1 upstream request · ≈$0 spent (no price for claude-mock-judge-9)');
+    expect(judging({ steps: 1, changed: 0, inconclusive: 0, spent: 0.0012, upstreamRequests: 2, unknownModels: ['claude-mock-judge-9'] })).toBe('  judging: 2 upstream requests · ≈$0.0012 spent (no price for claude-mock-judge-9)');
+    // Every verdict from the recording or kept: nothing went upstream.
+    expect(judging({ steps: 1, changed: 0, inconclusive: 0, spent: 0, upstreamRequests: 0, unknownModels: [] })).toBe('  judging: 0 upstream requests · free');
+    expect(judging(null)).toBeUndefined();
   });
 });

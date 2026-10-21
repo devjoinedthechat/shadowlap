@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { canonicalize, claudeTakes, escapeMaterial, JUDGE_INSTRUCTIONS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgePrompt, judgeRequest, judgeTarget, MATERIAL_LIMIT, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, readVerdict, Store, VERDICT_SCHEMA, type JudgeMaterial } from '../src/index.js';
+import { canonicalize, claudeTakes, escapeMaterial, JUDGE_INSTRUCTIONS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgedAnswers, judgeMaterial, judgePrompt, judgeRequest, judgeTarget, MATERIAL_LIMIT, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, readVerdict, Store, VERDICT_SCHEMA, type JudgeMaterial } from '../src/index.js';
 import { assistant, RunBuilder, text, toolResult, toolUse, user } from './run-fixtures.js';
 
 /** Judge checks: the request a judge is sent, the verdict read back, and what it reads of a run. */
@@ -293,6 +293,50 @@ describe('what a judge reads', () => {
     const store = Store.open(':memory:');
     expect(judgeMaterial(store, [], 'answer')).toEqual({ missing: 'the run has no model response to judge' });
     expect(judgeMaterial(store, [], 'run')).toEqual({ missing: 'the run has no conversation to judge' });
+  });
+});
+
+describe('an answer given in place of a recorded one', () => {
+  const given = (said: string) => ({ bytes: Buffer.from(JSON.stringify({ type: 'message', role: 'assistant', content: [{ type: 'text', text: said }], stop_reason: 'end_turn' })), contentType: 'application/json', provider: 'anthropic' });
+
+  it('is what a judge of the answer reads at the final answer, and a judge of the run where its answer ends the conversation', () => {
+    const store = Store.open(':memory:');
+    const calls = store.getCalls(refundRun(store, { judge: true }));
+    const models = calls.filter((c) => c.kind === 'api' && c.meta.scope !== JUDGE_SCOPE).map((c) => c.callNo);
+    const final = models.at(-1)!;
+    // The judge's own call is no answer of the agent's; what the agent printed is no model call's.
+    expect([...judgedAnswers(store, calls, 'answer')]).toEqual([final]);
+    expect([...judgedAnswers(store, calls, 'run')]).toEqual([final]);
+    expect([...judgedAnswers(store, calls, 'output')]).toEqual([]);
+
+    const answers = new Map([[final, given('Your refund is on hold; we wrote to ana@example.com.')]]);
+    // Read as a recorded answer is: with the project's redaction rules applied.
+    expect(judgeMaterial(store, calls, 'answer', { answers, redact: [{ pattern: 'email', replace: '<email>' }] })).toEqual({ text: 'Your refund is on hold; we wrote to <email>.', redactions: 1, normalized: false, cut: 0 });
+    const recorded = judgeMaterial(store, calls, 'run');
+    const changed = judgeMaterial(store, calls, 'run', { answers });
+    if ('missing' in recorded || 'missing' in changed) throw new Error('no material');
+    // The run as recorded, with that answer instead.
+    expect(changed.text.split('\n')).toEqual(recorded.text.split('\n').map((line) => (line.startsWith('assistant: A manager will review') ? 'assistant: Your refund is on hold; we wrote to ana@example.com.' : line)));
+
+    // An earlier answer is read in the requests after it, as the agent sent it back: one given in its place changes nothing a judge reads.
+    const earlier = new Map([[models[0]!, given('Something else entirely.')]]);
+    expect(judgeMaterial(store, calls, 'run', { answers: earlier })).toEqual(recorded);
+    expect(judgeMaterial(store, calls, 'answer', { answers: earlier })).toEqual(judgeMaterial(store, calls, 'answer'));
+  });
+
+  it('reads the last call of each conversation as given for a judge of the run, and only the run\'s last for a judge of the answer', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    const one = b.model({ model: 'claude-sonnet-5', messages: [user('Ticket 1: a broken mug.')] }, [text('Refunded ticket 1.')]);
+    const two = b.model({ model: 'claude-sonnet-5', messages: [user('Ticket 2: a late parcel.')] }, [text('Apologised for ticket 2.')]);
+    const calls = store.getCalls(b.end());
+    expect([...judgedAnswers(store, calls, 'run')].sort()).toEqual([one, two]);
+    expect([...judgedAnswers(store, calls, 'answer')]).toEqual([two]);
+    const m = judgeMaterial(store, calls, 'run', { answers: new Map([[one, given('Refused ticket 1.')]]) });
+    if ('missing' in m) throw new Error(m.missing);
+    expect(m.text).toContain('assistant: Refused ticket 1.');
+    expect(m.text).toContain('assistant: Apologised for ticket 2.');
+    expect(m.text).not.toContain('Refunded ticket 1.');
   });
 });
 

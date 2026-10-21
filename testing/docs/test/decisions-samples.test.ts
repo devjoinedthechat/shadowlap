@@ -1,17 +1,18 @@
 // docs/decisions.md shows what `shadowlap decisions` and `migrate` print on the reference agent: a model
-// switch on its golden, the prompt the working tree sends, and a migration. Readers match their own
-// output against these, so they must be real. This records the reference agent on a Claude model that
-// retires, packs it as goldens/research in a project whose config names that model, runs the three
-// commands the page shows against the mock, and finds each sample's lines in what they print, run and
-// session ids masked. The retirement notice says how many days are left, which changes every day:
-// its line is masked too, and the engine's tests hold its words.
+// switch on its golden, the prompt the working tree sends, a migration, and a prompt that rewords the
+// final answer a judge check reads. Readers match their own output against these, so they must be
+// real. This records the reference agent on a Claude model that retires, packs it as goldens/research
+// in a project whose config names that model, runs the commands the page shows against the mock, and
+// finds each sample's lines in what they print, run and session ids masked; the judged sample runs in
+// a project of its own, whose golden has the judge check. The retirement notice says how many days
+// are left, which changes every day: its line is masked too, and the engine's tests hold its words.
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { startMockAnthropic, withJudge, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -43,12 +44,13 @@ const within = (whole: string, part: string) => `\n${whole}\n`.includes(`\n${par
 
 let mock: MockServer;
 let dir: string;
-const printed: Record<'model' | 'prompt' | 'migrate', string> = { model: '', prompt: '', migrate: '' };
+let judged: string;
+const printed: Record<'model' | 'prompt' | 'migrate' | 'judged', string> = { model: '', prompt: '', migrate: '', judged: '' };
 
-function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; stdout: string; out: string }> {
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, cwd: string = dir): Promise<{ code: number | null; stdout: string; out: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
-      cwd: dir,
+      cwd,
       env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(dir, 'home'), AGENT_MODEL: 'claude-sonnet-4-5-20250929', ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -61,7 +63,8 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code:
 }
 
 beforeAll(async () => {
-  mock = await startMockAnthropic({ script: referenceScript, eventDelayMs: () => 0 });
+  // The judge says whether what it reads still says that forks fence writes.
+  mock = await startMockAnthropic({ script: withJudge((q) => (q.material.includes('forks fence writes') ? { verdict: 'yes', reason: 'It says that forks fence writes.' } : { verdict: 'no', reason: 'It no longer says that forks fence writes.' }), referenceScript), eventDelayMs: () => 0 });
   dir = mkdtempSync(join(tmpdir(), 'sl-decisions-samples-'));
   // A project that names its model in a file of its own, for migrate's config change.
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
@@ -81,8 +84,17 @@ beforeAll(async () => {
   const model = await shadowlap(['decisions', 'goldens/*', '--model', 'claude-haiku-4-5']);
   const prompt = await shadowlap(['decisions', runId.slice(0, 10), '--from-code'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' });
   const migrate = await shadowlap(['migrate', '--to', 'claude-haiku-4-5']);
-  for (const [r, name] of [[model, 'decisions --model'], [prompt, 'decisions --from-code'], [migrate, 'migrate']] as const) expect(r.code, `${name}\n${r.out}`).toBe(0);
-  Object.assign(printed, { model: model.stdout, prompt: prompt.stdout, migrate: migrate.stdout });
+  // A golden whose final answer a judge check reads, in a project of its own.
+  judged = join(dir, 'judged');
+  mkdirSync(join(judged, 'goldens'), { recursive: true });
+  writeFileSync(join(judged, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/research': { expect: { judge: [{ name: 'fences', question: 'Does the final answer say that forks fence writes?', of: 'answer', model: 'claude-haiku-4-5' }] } } } }));
+  const judgedRun = await shadowlap(['run', '--', process.execPath, AGENT], {}, judged);
+  expect(judgedRun.code, judgedRun.out).toBe(0);
+  const judgedPack = await shadowlap(['pack', /recording run (\w{26})/.exec(judgedRun.out)![1]!, 'goldens/research'], {}, judged);
+  expect(judgedPack.code, judgedPack.out).toBe(0);
+  const short = await shadowlap(['decisions', 'goldens/research', '--from-code'], { AGENT_SYSTEM_SUFFIX: 'Keep the final answer short.' }, judged);
+  for (const [r, name] of [[model, 'decisions --model'], [prompt, 'decisions --from-code'], [migrate, 'migrate'], [short, 'decisions --from-code, judged']] as const) expect(r.code, `${name}\n${r.out}`).toBe(0);
+  Object.assign(printed, { model: model.stdout, prompt: prompt.stdout, migrate: migrate.stdout, judged: short.stdout });
 }, 180_000);
 
 afterAll(async () => {
@@ -99,6 +111,11 @@ describe('docs/decisions.md shows what the commands print', () => {
   it('the prompt in the working tree: the report as it starts', () => {
     const sample = mask(sampleAfter('shadowlap decisions 01M58VT1J5 --from-code'));
     expect(within(mask(printed.prompt), sample), `the page shows:\n${sample}\n\nthe CLI prints:\n${mask(printed.prompt)}`).toBe(true);
+  });
+
+  it('a prompt that rewords the final answer a judge check reads: the report as it starts', () => {
+    const sample = mask(sampleAfter('shadowlap decisions goldens/research --from-code'));
+    expect(within(mask(printed.judged), sample), `the page shows:\n${sample}\n\nthe CLI prints:\n${mask(printed.judged)}`).toBe(true);
   });
 
   it('a migration: its four blocks and the config change', () => {

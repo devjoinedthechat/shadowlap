@@ -4,7 +4,7 @@ import { commandIsImported, importedCommandSource, type DecisionRemedy, type Dec
 import { judgeRecording } from './attempts.js';
 import { specFor } from './checks.js';
 import { loadConfig, loadTests } from './config.js';
-import { codeChangeNeeded, DecisionsError, verifyFields, verifyFlagged, type DecisionsSettings, type DecisionTarget } from './decisions.js';
+import { codeChangeNeeded, DecisionsError, storeTarget, verifyFields, verifyFlagged, type DecisionsSettings, type DecisionTarget } from './decisions.js';
 import { importGolden } from './golden-test.js';
 import { rawExpectFor } from './goldens.js';
 import { passesOf, type MigrateRunPass } from './migrate.js';
@@ -13,10 +13,11 @@ import { openStore, type GlobalOpts } from './shared.js';
 /**
  * `shadowlap decisions --verify <session>`: verify the runs a kept session flagged, without asking
  * their model calls again: the dashboard's "Verify the changed runs". Each run is verified as
- * `--then-verify` verifies it: under its golden's checks from the config (one verify per set of
- * checks), in the role its recording plays under them, with the session's change (its model, the
- * fields it set and those migrate sent in place of what the new model refuses, at the models it
- * changed from). What it finds is kept in the session.
+ * `--then-verify` verifies it: under its checks from the config, its golden's, or for a run named by
+ * id those of the recording it comes from (one verify per set of checks), in the role its recording
+ * plays under them, with the session's change (its model, the fields it set and those migrate sent
+ * in place of what the new model refuses, at the models it changed from). What it finds is kept in
+ * the session.
  */
 
 export interface SessionVerify {
@@ -41,17 +42,24 @@ function findSession(store: Store, id: string): ReturnType<Store['getDecisionSes
 
 /**
  * Verify's findings for the runs verified now, over what an earlier verify of the session found for
- * the others. Accepted only when every run was fixed or kept: a run an earlier verify left
- * inconclusive or unsettled keeps the session incomplete until a verify settles it.
+ * the others. Accepted only when every run was fixed or kept: a run verify didn't settle, whichever
+ * verify took it, leaves the session incomplete until a verify settles it, one whose attempts stopped
+ * early (unsettled) as well as one whose gate ran out of attempts between its bounds or that an
+ * attempt it could not judge stopped (inconclusive). Each run keeps the rule that decided it, so its
+ * tally and bound read under their own rule: the session's `rule` is that rule when one decided every
+ * run it keeps, else null.
  */
 export function mergeVerify(previous: DecisionsVerify | null, now: DecisionsVerify): DecisionsVerify {
   if (!previous || previous.verdict === 'not-run') return now;
   if (now.verdict === 'not-run' && !now.runs.length) return { ...previous, reasons: [...previous.reasons, ...now.reasons] };
   const fresh = new Set(now.runs.map((r) => r.runId));
-  const runs = [...previous.runs.filter((r) => !fresh.has(r.runId)), ...now.runs];
+  // A run kept before runs carried their rule was decided by the one its verify stated.
+  const ruled = (v: DecisionsVerify) => v.runs.map((r) => ({ ...r, rule: r.rule ?? v.rule ?? null }));
+  const runs = [...ruled(previous).filter((r) => !fresh.has(r.runId)), ...ruled(now)];
   const settled = runs.every((r) => r.outcome === 'fixed' || r.outcome === 'kept');
   const verdict: DecisionsVerify['verdict'] = runs.some((r) => r.outcome === 'broken' || r.outcome === 'not-fixed') ? 'rejected' : !settled || now.verdict === 'incomplete' ? 'incomplete' : 'accepted';
-  return { verdict, verifyIds: [...previous.verifyIds, ...now.verifyIds], runs, rule: now.rule ?? previous.rule ?? null, commands: [...previous.commands, ...now.commands], spent: previous.spent + now.spent, upstreamRequests: previous.upstreamRequests + now.upstreamRequests, reasons: [...previous.reasons, ...now.reasons] };
+  const rules = new Set(runs.map((r) => r.rule));
+  return { verdict, verifyIds: [...previous.verifyIds, ...now.verifyIds], runs, rule: rules.size === 1 ? [...rules][0]! : null, commands: [...previous.commands, ...now.commands], spent: previous.spent + now.spent, upstreamRequests: previous.upstreamRequests + now.upstreamRequests, reasons: [...previous.reasons, ...now.reasons] };
 }
 
 export async function verifySession(input: { opts: GlobalOpts; sessionId: string; runs: readonly string[]; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; budget: number | null; yes: boolean; log: (line: string) => void }): Promise<SessionVerify> {
@@ -73,9 +81,9 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
     const change: Pick<DecisionsChange, 'model' | 'fields' | 'from'> = { model: report?.change?.model ?? null, fields: report?.change?.fields ?? {}, from: report?.change?.from ?? null };
     const named = (id: string, given: string) => id === given || (given.length >= 6 && id.startsWith(given));
     const missing = input.runs.filter((r) => !flagged.some((id) => named(id, r)));
-    if (missing.length) throw new DecisionsError(`${missing.join(', ')}: no run ${session.sessionId} flagged has that id (it flags the runs whose writes or stops change: ${flagged.map((id) => id.slice(0, 10)).join(', ') || 'none'})`);
+    if (missing.length) throw new DecisionsError(`${missing.join(', ')}: no run ${session.sessionId} flagged has that id (it flags the runs with a write, stop or judged change: ${flagged.map((id) => id.slice(0, 10)).join(', ') || 'none'})`);
     const chosen = input.runs.length ? flagged.filter((id) => input.runs.some((r) => named(id, r))) : flagged;
-    if (!chosen.length) throw new DecisionsError(`no run in ${session.sessionId} decides a write or when to stop differently: there is nothing to verify`);
+    if (!chosen.length) throw new DecisionsError(`no run in ${session.sessionId} has a write, stop or judged change: there is nothing to verify`);
 
     // Each run as the session asked it: a golden from its pack, with its checks from the config.
     const goldenOf = new Map(session.runRows.map((r) => [r.runId, r.golden]));
@@ -92,7 +100,7 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
       }
       const run = store.getRun(runId);
       if (!run) throw new DecisionsError(`${runId.slice(0, 10)}, which ${session.sessionId} names, is no longer in the store`);
-      return { run, golden: null, spec: null, expect: null };
+      return storeTarget(store, run, cwd);
     };
     const targets = chosen.map(targetOf);
     // A run from someone's pack runs its recorded command only with a yes; a golden runs its pack's, as test runs it.

@@ -18,6 +18,8 @@ import { departures } from './json-shapes.js';
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
+/** Runs the agent, failing every third time (flaky-agent.mjs). */
+const FLAKY = fileURLToPath(new URL('./flaky-agent.mjs', import.meta.url));
 const FROM = 'claude-sonnet-4-5-20250929';
 
 let mock: MockServer;
@@ -94,7 +96,7 @@ describe('shadowlap migrate', () => {
     expect(report.changes).toMatchObject({ runs: 1, flagged: 1 });
     expect(report.changes.steps).toEqual([{ runId, golden: 'goldens/research', callNo: callOf('send_email'), rank: 1, detail: 'send_email is called with other arguments', recorded: expect.stringContaining('send_email('), now: expect.stringContaining('send_email('), arguments: ['send_email.body: "Replay works." → "Replay works; forks fence writes."'] }]);
     // A fixed count (--attempts 2) decided it: its tally, and no Wilson bound, which a gate's verdict shows.
-    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 2, attempts: 2, bound: null, undecided: null } }] });
+    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 2, attempts: 2, bound: null, rule: '2 of 2 attempts must pass', undecided: null } }] });
     expect(report.decisions.verify?.rule).toBe('2 of 2 attempts must pass');
     expect(report.costs.perRun.after!).toBeLessThan(report.costs.perRun.before!);
     expect(report.costs.checking.verify).toBeGreaterThan(0);
@@ -133,6 +135,58 @@ describe('shadowlap migrate', () => {
     expect(text.code, text.out).toBe(0);
     const blocks = ['What changes', 'What still passes', 'What it costs', 'What to set', 'The config change'].map((b) => text.stdout.indexOf(`\n${b}\n`));
     expect(blocks.every((at, i) => at > 0 && (i === 0 || at > blocks[i - 1]!))).toBe(true);
+  }, 240_000);
+
+  it("verifies through verify's own gate unless a fixed count is given, and states its verdict as the tally, the bound and the rule", async () => {
+    const gate = 'gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts';
+    const r = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = json<MigrateReport>(r);
+    // No count given: a run that always passes is kept after the 12 attempts the gate needs, not 4 of 5.
+    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', rule: gate, undecided: null } }] });
+    expect(report.decisions.verify).toMatchObject({ verdict: 'accepted', rule: gate });
+    expect(report.decisions.verify!.commands[0]).not.toMatch(/--attempts|--passes|--gate/);
+    expect(report.command).not.toMatch(/--attempts|--passes|--gate/);
+    expect(report.pullRequest.body).toContain('- goldens/research: passed (kept, verified · 12 of 12 · rate >= 0.76 (95%))');
+    expect(report.pullRequest.body).toContain(`Verified by \`shadowlap verify\`, ${gate}.`);
+    const text = formatMigrate(report).replace(/\x1b\[[0-9;]*m/g, '');
+    expect(text).toMatch(/goldens\/research +passed · kept, verified · 12 of 12 · rate >= 0\.76 \(95%\)\n  gate: tells 90%\+ from 70%- at <= 5% risk, up to 80 attempts\n/);
+    // A session verified again under other figures holds runs different rules decided: each rule is stated once, with its runs.
+    const shortGate = 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts';
+    const other = { ...report.passes.runs[0]!, runId: '01M5000000000000000000000X', golden: 'goldens/other', verdict: 'inconclusive' as const, outcome: 'inconclusive', tally: { passes: 5, attempts: 7, bound: 'rate 0.36 to 0.92 (95%)', rule: shortGate } };
+    const two: MigrateReport = { ...report, decisions: { ...report.decisions, verify: { ...report.decisions.verify!, rule: null } }, passes: { verdict: 'incomplete', runs: [report.passes.runs[0]!, other] } };
+    expect(formatMigrate(two).replace(/\x1b\[[0-9;]*m/g, '')).toContain(`  ${gate}: goldens/research\n  ${shortGate}: goldens/other\n`);
+    expect(pullRequestBody(two).body).toContain(`Verified by \`shadowlap verify\`, each run under the rule that decided it:\n\n- goldens/research: ${gate}\n- goldens/other: ${shortGate}\n`);
+
+    // A gate that runs out between its bounds leaves the run inconclusive, and the report, unless --inconclusive warn
+    // lets it pass. The command verify runs fails every third time: seven attempts can't tell that run from one
+    // passing half the time or one passing 90%.
+    const flaky = ['--', process.execPath, FLAKY, join(cwd, 'flaky.count'), process.execPath, AGENT];
+    const short = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--json', ...flaky]);
+    expect(short.code, short.out).toBe(1);
+    const unsettled = json<MigrateReport>(short);
+    expect(unsettled.passes).toEqual({ verdict: 'incomplete', runs: [{ runId, golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 5, attempts: 7, bound: 'rate 0.36 to 0.92 (95%)', rule: 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts', undecided: null } }] });
+    expect(unsettled.decisions.verify?.rule).toBe('gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts');
+    expect(unsettled.command).toContain(`--gate '{"bad":0.5,"max":7}'`);
+    const warned = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--inconclusive', 'warn', ...flaky]);
+    expect(warned.code, warned.out).toBe(0);
+    expect(warned.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
+    expect(warned.stdout).toMatch(/goldens\/research +inconclusive · verified · 5 of 7 · rate 0\.36 to 0\.92 \(95%\)\n  gate: tells 90%\+ from 50%- at <= 5% risk, up to 7 attempts\n/);
+
+    // The inconclusive migration verified again as the dashboard's Verify the changed runs verifies it: no count and
+    // no gate of its own, the golden's own command. Verify's own gate keeps the run, and What still passes says so.
+    const settled = await shadowlap(['decisions', '--verify', unsettled.migrateId!, '--json']);
+    expect(settled.code, settled.out).toBe(0);
+    const kept = { runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', rule: gate, undecided: null } };
+    expect(json<{ kind: string; verify: MigrateReport['decisions']['verify']; passes: MigrateReport['passes']['runs'] }>(settled)).toMatchObject({ kind: 'migrate', verify: { verdict: 'accepted', rule: gate }, passes: [kept] });
+    const store = Store.open(db);
+    try {
+      const session = store.getDecisionSession(unsettled.migrateId!)!.data as unknown as Pick<MigrateReport, 'passes' | 'decisions'>;
+      expect(session.passes).toEqual({ verdict: 'accepted', runs: [kept] });
+      expect(session.decisions.verify).toMatchObject({ verdict: 'accepted', rule: gate });
+    } finally {
+      store.close();
+    }
   }, 240_000);
 
   it('sets what the new model refuses to what it takes, by the provider page, and says why', async () => {
@@ -199,7 +253,7 @@ describe('shadowlap migrate', () => {
     const r = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '--expect', expect_, '-y', '--attempts', '2', '--json']);
     expect(r.code, r.out).toBe(1);
     const report = json<MigrateReport>(r);
-    expect(report.passes).toEqual({ verdict: 'rejected', runs: [{ runId, golden: 'goldens/research', verdict: 'failed', outcome: 'broken', verified: true, tally: { passes: 0, attempts: 1, bound: null, undecided: null } }] });
+    expect(report.passes).toEqual({ verdict: 'rejected', runs: [{ runId, golden: 'goldens/research', verdict: 'failed', outcome: 'broken', verified: true, tally: { passes: 0, attempts: 1, bound: null, rule: '2 of 2 attempts must pass', undecided: null } }] });
   }, 240_000);
 
   it('migrates the goldens from a fresh store, as CI has one, running their commands as test runs them', async () => {
@@ -233,7 +287,7 @@ describe("migrate's first line", () => {
       decisions: { runs: runs.map((_, i) => ({ runId: `R${i}` })), counts: { ...emptyCounts(), notAsked: o.notAsked ?? 0 }, verify: null, cost: { unknownModels: [] } },
       changes: { runs: runs.length, flagged: o.flagged ?? 0, steps: [] },
       passes: { verdict: o.verdict ?? 'not-run', runs: runs.map((x, i) => ({ runId: `R${i}`, golden: `goldens/g${i}`, tally: null, ...x })) },
-      costs: { perRun: { before: 0.01, after: 0.01 }, total: { before: null, after: null }, tokensPerRun: { before: 1, after: 1 }, checking: { decisions: 0, verify: 0 } },
+      costs: { perRun: { before: 0.01, after: 0.01 }, total: { before: null, after: null }, tokensPerRun: { before: 1, after: 1 }, checking: { decisions: 0, judge: 0, verify: 0 } },
       set: { flags: [], fields: [], given: {} },
       configChange: null,
       retirements: [],
@@ -250,7 +304,7 @@ describe("migrate's first line", () => {
     // Nothing flagged in the steps asked, but one run was never asked.
     const unasked = report([{ verdict: 'passed', outcome: 'unchanged', verified: false }, { verdict: 'inconclusive', outcome: 'not-asked', verified: false }], { notAsked: 3 });
     expect(first(unasked)).toBe('! Not settled: claude-old → claude-new, 2 runs, 1 inconclusive');
-    expect(formatMigrate(unasked)).toContain('\n  no write and no stop decision changes in the steps asked\n');
+    expect(formatMigrate(unasked)).toContain('\n  no write, stop or judged change in the steps asked\n');
     // A run its verify left inconclusive.
     expect(first(report([{ verdict: 'inconclusive', outcome: 'inconclusive', verified: true }], { verdict: 'incomplete', flagged: 1 }))).toBe('! Not settled: claude-old → claude-new, 1 run, 1 inconclusive');
   });
@@ -259,7 +313,7 @@ describe("migrate's first line", () => {
     expect(first(report([kept], { verdict: 'accepted', flagged: 1 }))).toBe('✓ claude-new keeps every run passing: claude-old → claude-new, 1 run');
     // A run that failed as recorded is not one the switch keeps passing.
     expect(first(report([kept, { verdict: 'failed', outcome: 'unchanged', verified: false }], { verdict: 'accepted', flagged: 1 }))).toBe('✓ claude-new keeps every run that passed passing: claude-old → claude-new, 2 runs');
-    expect(first(report([{ verdict: 'passed', outcome: 'unchanged', verified: false }]))).toBe('✓ No write or stop decision changes under claude-new: claude-old → claude-new, 1 run');
+    expect(first(report([{ verdict: 'passed', outcome: 'unchanged', verified: false }]))).toBe('✓ No write, stop or judged change under claude-new: claude-old → claude-new, 1 run');
     expect(first(report([{ verdict: 'failed', outcome: 'broken', verified: true }, { verdict: 'inconclusive', outcome: 'not-asked', verified: false }], { verdict: 'rejected', flagged: 1 }))).toBe('✗ claude-new breaks runs: claude-old → claude-new, 2 runs, 1 inconclusive');
   });
 
@@ -268,13 +322,13 @@ describe("migrate's first line", () => {
     const verify = (passes: number, attempts: number): DecisionsVerify => ({ verdict: 'incomplete', verifyIds: [], runs: [{ runId: 'R0', role: 'good', outcome: 'inconclusive', passes, attempts, bound: null, undecided: why }], rule: null, commands: [], spent: 0, upstreamRequests: 0, reasons: [] });
     const run = { runId: 'R0', golden: 'goldens/g0', decisions: [] } as unknown as DecisionRun;
     const [pass] = passesOf([run], ['R0'], verify(2, 3), () => true);
-    expect(pass).toEqual({ runId: 'R0', golden: 'goldens/g0', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 2, attempts: 3, bound: null, undecided: why } });
+    expect(pass).toEqual({ runId: 'R0', golden: 'goldens/g0', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 2, attempts: 3, bound: null, rule: null, undecided: why } });
     const r = { ...report([pass!], { verdict: 'incomplete', flagged: 1 }), command: 'shadowlap migrate --to claude-new' };
-    expect(formatMigrate(r)).toContain('inconclusive · inconclusive, verified · 2 of 2, attempt 3 not judged\n');
-    expect(pullRequestBody(r).body).toContain('\n- goldens/g0: inconclusive (inconclusive, verified · 2 of 2, attempt 3 not judged)\n');
+    expect(formatMigrate(r)).toContain('inconclusive · verified · 2 of 2, attempt 3 not judged\n');
+    expect(pullRequestBody(r).body).toContain('\n- goldens/g0: inconclusive (verified · 2 of 2, attempt 3 not judged)\n');
     // Its first attempt: nothing was judged before it.
     const [alone] = passesOf([run], ['R0'], verify(0, 1), () => true);
-    expect(formatMigrate({ ...r, passes: { verdict: 'incomplete', runs: [alone!] } })).toContain('inconclusive · inconclusive, verified · attempt 1 not judged\n');
+    expect(formatMigrate({ ...r, passes: { verdict: 'incomplete', runs: [alone!] } })).toContain('inconclusive · verified · attempt 1 not judged\n');
     expect(formatMigrate(r)).not.toMatch(/2 of 3|0 of 1/);
   });
 });

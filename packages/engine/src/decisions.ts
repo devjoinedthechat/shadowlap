@@ -5,7 +5,7 @@ import { applyNormalizers, rewriteText } from './normalize.js';
 import { isReservedScope } from './judge-scope.js';
 import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
-import { plain } from './report.js';
+import { aboutUsd, plain } from './report.js';
 import { normalizeResponse } from './responses.js';
 import { safeLine } from './text.js';
 import type { CallRecord, Effect, Normalizer } from './types.js';
@@ -19,10 +19,17 @@ import type { RetirementNotice } from './model-retirements.js';
  * or hands over. Ranked by consequence, using the run's effects to tell a write from a read:
  *
  *   1  a write tool added, removed or called with other arguments
- *   2  when the agent stops or hands over
+ *   2  when the agent stops or hands over, or a judge check reads its words otherwise
  *   3  a read tool added or removed
  *   4  other arguments to a read
  *   5  text only
+ *
+ * Text only means the same actions in other words. When a judge check of the run reads those words
+ * (its final answer, or the run as a whole where the answer ends a conversation), the CLI asks the
+ * judge about the recorded words and the new ones, and a check that comes out otherwise raises the
+ * step to rank 2 (promoteByJudge): what the agent hands back passes or fails a check the project
+ * wrote, as when it stops or hands over differently, but no write changed, and a judge's verdict is a
+ * model's reading, which can be wrong.
  *
  * A tool no recording gives an effect ranks as a write: nothing says it doesn't act on the world.
  * Arguments and text are compared after the project's normalizers, so an id or a timestamp made anew
@@ -56,7 +63,7 @@ export interface ModelDecision {
 
 export type DecisionRank = 1 | 2 | 3 | 4 | 5;
 
-export type DecisionChangeKind = 'write-added' | 'write-removed' | 'write-arguments' | 'write-order' | 'stops' | 'handover' | 'read-added' | 'read-removed' | 'read-arguments' | 'text';
+export type DecisionChangeKind = 'write-added' | 'write-removed' | 'write-arguments' | 'write-order' | 'stops' | 'handover' | 'judge' | 'read-added' | 'read-removed' | 'read-arguments' | 'text';
 
 export interface DecisionChange {
   rank: DecisionRank;
@@ -65,7 +72,7 @@ export interface DecisionChange {
   tool: string | null;
   /** What the tool does, by the run's effects; `unknown` counts as a write. */
   effect: Effect | 'unknown' | null;
-  /** The recorded side and the new one: arguments, a stop, a handover, the order of writes, text. */
+  /** The recorded side and the new one: arguments, a stop, a handover, the order of writes, text, a judge check's status. */
   before: unknown;
   after: unknown;
   /** The change in a few words: `send_email is no longer called`. */
@@ -81,7 +88,7 @@ export interface DecisionComparison {
 /** What a rank means, as reports and pages say it. */
 export const RANK_LABELS: Record<DecisionRank, string> = {
   1: 'a write changed',
-  2: 'it stops or hands over differently',
+  2: 'it stops, hands over or is judged differently',
   3: 'a read added or removed',
   4: 'a read asked differently',
   5: 'text only',
@@ -422,10 +429,17 @@ export interface DecisionStep {
   /** The changes of the sample that showed it. */
   changes: DecisionChange[];
   recorded: DecisionView;
-  /** The new decision: the sample with the most consequential change, or the first. Null when no answer came. */
+  /**
+   * The new decision: the sample with the most consequential change, or the first; among text-only
+   * ones, one whose words a judge check could not judge. Null when no answer came.
+   */
   now: DecisionView | null;
-  /** How often it changed: samples asked, answered, and how many of those decided differently, with each one's rank (0: the same). */
-  samples: { asked: number; answered: number; changed: number; ranks: number[] };
+  /**
+   * How often it changed: samples asked, answered, and how many of those decided differently, with
+   * each one's rank (0: the same); and `unjudged`, the text-only samples whose words a judge check
+   * reads but could not judge (judgeOpen), absent from sessions kept before judges read them.
+   */
+  samples: { asked: number; answered: number; changed: number; ranks: number[]; unjudged?: number };
   model: { recorded: string | null; asked: string | null };
   /**
    * As recorded, and the new answer's in a run like the recorded one (estimatedTokens): its input
@@ -439,6 +453,130 @@ export interface DecisionStep {
   thinkingStripped: number;
   /** Why it was not asked, or why no sample was answered; null when one was. */
   error: string | null;
+  /**
+   * The judge checks that read its words, for a text-only change (`now`'s): each one's verdict on the
+   * recorded words and on the new ones. Null when no check read them: another change, no judge check
+   * that reads this answer, or a session kept before judges read text-only steps.
+   */
+  judge?: DecisionJudge[] | null;
+}
+
+/** A judge check's verdict on one side of a text-only step: the words as recorded, or the new ones. */
+export interface DecisionJudgeSide {
+  /** passed or failed by the judge's verdict; inconclusive when it got none, which never passes. */
+  status: 'passed' | 'failed' | 'inconclusive';
+  verdict: 'yes' | 'no' | null;
+  /** The judge's sentence for its verdict, or why it is inconclusive (`not judged: …`). */
+  reason: string;
+  /**
+   * Where the verdict came from: the recording's own judge call for the very request (`recording`),
+   * an earlier ask of it that was kept (`kept`), or the judge, asked now (`live`); null when not judged.
+   */
+  source: 'recording' | 'kept' | 'live' | null;
+  /** USD it cost now: 0 when free, null for a judge model with no price. */
+  cost: number | null;
+  /** A digest of the judge's request, by which the very same request is answered again from this verdict, free; null when none was made. */
+  request: string | null;
+}
+
+/** A judge check that reads a text-only step's words: its verdict on the recorded words and on the new ones. */
+export interface DecisionJudge {
+  name: string;
+  /** What it reads: the final answer, or the run as recorded with this answer in place of the recorded one. */
+  of: 'answer' | 'run';
+  model: string;
+  /** The answer that passes. */
+  pass: 'yes' | 'no';
+  recorded: DecisionJudgeSide;
+  now: DecisionJudgeSide;
+  /** Whether the check comes out otherwise for the new words: null when either side is inconclusive. */
+  changed: boolean | null;
+}
+
+/**
+ * What judging the text-only steps came to over a report, and what it cost, apart from asking. Its
+ * steps fall in three parts: those that wait on a judge, those a check came out otherwise for, and
+ * those every check came out as recorded for.
+ */
+export interface DecisionsJudged {
+  /** Steps with a text-only change a judge check reads. */
+  steps: number;
+  /** Of those, the steps a check came out otherwise for (raised to rank 2) that wait on no judge. */
+  changed: number;
+  /** Of those, the steps that wait on a judge (judgeOpen): a sample's words could not be judged, why in the warnings. */
+  inconclusive: number;
+  /** What the judge's calls made now cost, and their upstream requests; models with no price. */
+  spent: number;
+  upstreamRequests: number;
+  unknownModels: string[];
+}
+
+/**
+ * A text-only comparison with what its judge checks found: a check that comes out otherwise (passed
+ * as recorded, failed now, or the other way) is a change of rank 2, ahead of the text, and the step
+ * takes it. Any other comparison, and one no check came out otherwise for, as it is.
+ */
+export function promoteByJudge(c: DecisionComparison, judges: readonly DecisionJudge[]): DecisionComparison {
+  if (c.rank !== 5) return c;
+  const changed = judges.filter((j) => j.changed);
+  if (!changed.length) return c;
+  const promoted: DecisionChange[] = changed.map((j) => ({
+    rank: 2,
+    kind: 'judge',
+    tool: null,
+    effect: null,
+    before: j.recorded.status,
+    after: j.now.status,
+    detail: `judge "${j.name}" ${j.now.status === 'failed' ? 'fails' : 'passes'} what it says now, which ${j.recorded.status} as recorded`,
+  }));
+  return { rank: 2, changes: [...promoted, ...c.changes].sort((a, b) => a.rank - b.rank) };
+}
+
+/**
+ * A text-only sample whose words a judge check reads but could not judge: none of its checks came out
+ * otherwise, and one got no verdict, so what it would make of them is open.
+ */
+export function unjudgedSample(judged: readonly DecisionJudge[] | null | undefined): boolean {
+  return !!judged?.length && !judged.some((j) => j.changed) && judged.some((j) => j.changed === null);
+}
+
+/**
+ * The sample a step shows, by its place among those answered: the first with the most consequential
+ * change (each sample's rank after its judge checks, promoteByJudge); of text-only ones, the first
+ * whose words a judge could not judge, so a step never reads as judged while a sample of it was not.
+ * -1 when none was answered.
+ */
+export function shownSample(samples: ReadonlyArray<{ rank: DecisionRank | null; judge: readonly DecisionJudge[] | null }>): number {
+  let shown = -1;
+  samples.forEach((s, i) => {
+    const a = samples[shown];
+    if (!a || (s.rank ?? 9) - (a.rank ?? 9) < 0 || ((s.rank ?? 9) === (a.rank ?? 9) && unjudgedSample(s.judge) && !unjudgedSample(a.judge))) shown = i;
+  });
+  return shown;
+}
+
+/**
+ * Whether a step waits on a judge: a judge check reads the words of a text-only sample of it that it
+ * could not judge (no key for its provider, the budget spent), and the step's samples don't flag it
+ * without them. A verdict it never got might read the words otherwise and flag the run, so a run
+ * nothing else flags settles nothing while one of its steps waits.
+ */
+export function judgeOpen(step: Pick<DecisionStep, 'majority' | 'samples'>): boolean {
+  return (step.samples.unjudged ?? 0) > 0 && !(step.majority !== null && step.majority <= 2);
+}
+
+/**
+ * How a step's judge checks came out, for a cell: it waits on a judge (judgeOpen), else a check came
+ * out otherwise for the new words, else every one came out as recorded; null when none read it.
+ */
+export function judgedOutcome(step: Pick<DecisionStep, 'judge' | 'majority' | 'samples'>): 'changed' | 'inconclusive' | 'unchanged' | null {
+  if (judgeOpen(step)) return 'inconclusive';
+  const judges = step.judge ?? null;
+  if (!judges?.length) return null;
+  if (judges.some((j) => j.changed)) return 'changed';
+  // A step kept before its samples counted the words not judged: its own checks say.
+  if (judges.some((j) => j.changed === null)) return 'inconclusive';
+  return 'unchanged';
 }
 
 /**
@@ -502,21 +640,44 @@ export interface DecisionsVerify {
   /** The verdicts kept (one per check the runs are judged by). */
   verifyIds: string[];
   /**
-   * Each run verified: its role, how it came out (fixed, not-fixed, kept, broken, inconclusive, unsettled),
-   * passes and attempts, and under a gate the Wilson bound of its pass rate (`rate >= 0.76 (95%)`;
-   * null for a clean replay or a fixed count, absent from sessions kept before it was). `undecided`
-   * says why its last attempt could not be judged (a judge that could not answer, a condition it
-   * could not read), which stopped it, inconclusive: that attempt, among `attempts`, neither passed
-   * nor failed, and there is no bound. Null otherwise, absent from sessions kept before it was.
+   * Each run verified: its role, how it came out (fixed, not-fixed, kept, broken, inconclusive,
+   * unsettled), passes and attempts, under a gate the Wilson bound of its pass rate (`rate >= 0.76
+   * (95%)`; null for a clean replay or a fixed count, absent from sessions kept before it was), and
+   * the `rule` it was decided by (absent from sessions kept before runs carried it: `rule` below).
+   * `undecided` says why its last attempt could not be judged (a judge that could not answer, a
+   * condition it could not read), which stopped it, inconclusive: that attempt, among `attempts`,
+   * neither passed nor failed, and there is no bound. Null otherwise, absent from sessions kept
+   * before it was.
    */
-  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; bound?: string | null; undecided?: string | null }>;
-  /** The rule its runs were decided by, said once: `gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`, or a fixed count's `4 of 5 attempts must pass`. Absent from sessions kept before it was. */
+  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; bound?: string | null; undecided?: string | null; rule?: string | null }>;
+  /**
+   * The rule its runs were decided by, said once: `gate: tells 90%+ from 70%- at <= 5% risk, up to
+   * 80 attempts`, or a fixed count's `4 of 5 attempts must pass`. Null when a session's runs were
+   * decided by different rules (verified again later under other figures): each run's own says which.
+   * Absent from sessions kept before it was.
+   */
   rule?: string | null;
   /** The command that verifies them again. */
   commands: string[];
   spent: number;
   upstreamRequests: number;
   reasons: string[];
+}
+
+/**
+ * Runs by the rule that decided them, in the order they first come, so a report states each rule
+ * once over its own runs: a run with no rule of its own (kept before runs carried theirs) takes
+ * `fallback`, the rule its verify stated.
+ */
+export function byRule<T>(runs: readonly T[], ruleOf: (run: T) => string | null | undefined, fallback: string | null = null): Array<{ rule: string | null; runs: T[] }> {
+  const groups = new Map<string | null, T[]>();
+  for (const run of runs) {
+    const rule = ruleOf(run) ?? fallback;
+    const group = groups.get(rule);
+    if (group) group.push(run);
+    else groups.set(rule, [run]);
+  }
+  return [...groups].map(([rule, of]) => ({ rule, runs: of }));
 }
 
 /**
@@ -560,6 +721,8 @@ export interface DecisionsReport {
   notes: string[];
   warnings: string[];
   verify: DecisionsVerify | null;
+  /** What the judge checks that read text-only steps found, and what judging cost; null when no check read a step. */
+  judge: DecisionsJudged | null;
   /** What `migrate` changed so the new model takes the requests; empty for `decisions`, which sends the change as given. */
   remedies: DecisionRemedy[];
   /** Why it stopped before every step was asked (the budget, Ctrl-C), or null. */
@@ -644,7 +807,7 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
         : r.counts.untouched
           ? `${p.green('✓')} ${p.bold('Nothing to ask')}: the change leaves every request as recorded`
           : `${p.green('✓')} ${p.bold('Nothing to ask')}: the runs hold no model call`
-    : r.flagged.length ? `${p.red('✗')} ${p.bold(`${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`)} decide${r.flagged.length === 1 ? 's' : ''} a write or when to stop differently` : changed ? `${p.yellow('!')} ${p.bold('No write and no stop changes')}: ${changed} decision${changed === 1 ? '' : 's'} differ in reads or text` : `${refused ? p.yellow('!') : p.green('✓')} ${p.bold('The same decisions')} at every step asked`;
+    : r.flagged.length ? `${p.red('✗')} ${p.bold(`${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`)} ${flaggedFor(r)}` : changed ? `${p.yellow('!')} ${p.bold('No write and no stop changes')}: ${changed} decision${changed === 1 ? '' : 's'} differ in reads or text` : `${refused ? p.yellow('!') : p.green('✓')} ${p.bold('The same decisions')} at every step asked`;
   const why = !refused ? '' : asked ? `; ${unasked} (why below)` : ' (why below)';
   lines.push(`${head}, under ${safeLine(r.change.text)}${why}`);
   const ranks = ([1, 2, 3, 4, 5] as const).filter((k) => r.counts[k]).map((k) => `${r.counts[k]} rank ${k}`);
@@ -667,11 +830,15 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
       const colour = s.rank <= 1 ? p.red : s.rank === 2 ? p.yellow : (x: string) => x;
       // A write or stop change most samples don't show is the model's own variation until shown otherwise.
       const minority = s.rank <= 2 && (s.majority === null || s.majority > 2);
-      const often = r.samples > 1 ? p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples${minority ? ', fewer than half: not flagged' : ''}`) : '';
+      // With samples, how many of them a judge could not judge: the sample shown need not be one.
+      const unjudged = s.samples.unjudged ?? 0;
+      const notJudged = r.samples > 1 && unjudged ? `, ${unjudged} of them not judged` : '';
+      const often = r.samples > 1 ? p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples${minority ? ', fewer than half: not flagged' : ''}${notJudged}`) : '';
       lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${colour(`rank ${s.rank}`)}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.rank])}${often}`);
       lines.push(`         ${p.dim('recorded')} ${decisionLine(s.recorded)}`);
       lines.push(`         ${p.dim('now     ')} ${decisionLine(s.now)}${stepDelta(s) ? p.dim(`  ${stepDelta(s)}`) : ''}`);
       for (const c of s.changes.filter((x) => x.kind === 'write-arguments' || x.kind === 'read-arguments')) for (const d of argsDelta(c.before, c.after)) lines.push(`         ${p.dim(`${c.tool}.`)}${d}`);
+      for (const j of s.judge ?? []) lines.push(`         ${p.dim(`judge "${safeLine(j.name)}"`)} ${judgeWords(j, p)}`);
     }
     if (run.cost.before !== null || run.cost.after !== null) {
       const tokens = `${thousands(tokenTotal(run.tokens.before))} → ${thousands(tokenTotal(run.tokens.after))} input tokens`;
@@ -693,5 +860,39 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
   const unpriced = r.cost.unknownModels.length ? ` (no price for ${r.cost.unknownModels.map(safeLine).join(', ')})` : '';
   const perRun = r.cost.before !== null && r.cost.after !== null ? ` · per run ≈${formatUsd(r.cost.before)} → ≈${formatUsd(r.cost.after)} (${pct(r.cost.before, r.cost.after)})` : '';
   lines.push(p.dim(`  asking: ${r.cost.upstreamRequests} upstream request${r.cost.upstreamRequests === 1 ? '' : 's'} · ≈${formatUsd(r.cost.spent)} spent${unpriced}${perRun}${r.stopReason ? ` · stopped: ${safeLine(r.stopReason)}` : ''}`));
+  // The judge's calls apart from the agent's: free only when none went upstream, as a judge with no price is no free call.
+  const j = r.judge;
+  if (j) lines.push(p.dim(`  judging: ${j.upstreamRequests} upstream request${j.upstreamRequests === 1 ? '' : 's'} · ${j.upstreamRequests ? `${aboutUsd(j.spent)} spent${j.unknownModels.length ? ` (no price for ${j.unknownModels.map(safeLine).join(', ')})` : ''}` : 'free'}`));
   return lines.join('\n');
+}
+
+/**
+ * What the flagged runs do, for the headline: decide a write or when to stop differently, are judged
+ * otherwise (a judge check comes out otherwise for what a text-only step says), or both.
+ */
+function flaggedFor(r: Pick<DecisionsReport, 'runs' | 'flagged'>): string {
+  const flagging = r.runs.filter((x) => r.flagged.includes(x.runId)).flatMap((x) => x.decisions.filter((s) => s.majority !== null && s.majority <= 2));
+  const judged = flagging.some((s) => s.changes.some((c) => c.kind === 'judge'));
+  const acted = flagging.some((s) => s.changes.some((c) => c.rank <= 2 && c.kind !== 'judge')) || !judged;
+  const one = r.flagged.length === 1;
+  const otherwise = `${one ? 'is' : 'are'} judged otherwise`;
+  return acted ? `decide${one ? 's' : ''} a write or when to stop differently${judged ? `, or ${otherwise}` : ''}` : otherwise;
+}
+
+/** Where a judge's verdict came from, and what it cost. */
+function sourceWords(side: DecisionJudgeSide): string {
+  if (side.source === 'recording') return 'from the recording, free';
+  if (side.source === 'kept') return 'asked before and kept, free';
+  return `judged live, ${side.cost === null ? 'no price for its model' : aboutUsd(side.cost)}`;
+}
+
+/** A judge check on a text-only step, after its name: `passed → failed · its reason (judged live, ≈$0.0004)`. */
+function judgeWords(j: DecisionJudge, p: Palette): string {
+  if (j.changed === null) {
+    const why = j.now.status === 'inconclusive' ? safeLine(j.now.reason) : `the recorded words: ${safeLine(j.recorded.reason)}`;
+    return `${p.yellow('inconclusive')} ${p.dim(`· ${why}`)}`;
+  }
+  const status = (s: DecisionJudgeSide['status']) => (s === 'passed' ? p.green(s) : p.red(s));
+  const said = `${j.now.reason ? ` · ${safeLine(j.now.reason)}` : ''} (${sourceWords(j.now)})`;
+  return j.changed ? `${status(j.recorded.status)} → ${status(j.now.status)}${p.dim(said)}` : `${status(j.now.status)}, as recorded${p.dim(said)}`;
 }

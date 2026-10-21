@@ -1,4 +1,5 @@
-import { applyNormalizers, canonicalize, estimateCost, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeRules, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, readVerdict, type CallRecord, type ClockMode, type ClockReference, type JudgeProvider, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
+import { createHash } from 'node:crypto';
+import { applyNormalizers, canonicalize, estimateCost, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeRules, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, readVerdict, type CallRecord, type ClockMode, type ClockReference, type GivenAnswer, type JudgeMaterial, type JudgeProvider, type JudgeRequest, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
 import { providers, Sidecar } from '@shadowlap/sidecar';
 import { JUDGE_KEYS, judgeChecksOf, notJudgedWhy, type EvaluateOptions, type JudgeCheck, type JudgeVerdict, type TestSpec } from './checks.js';
 import type { ShadowlapConfig } from './config.js';
@@ -64,11 +65,14 @@ export interface JudgeRunContext {
 /**
  * What the material of a judge check comes from: a run's calls, what its agent printed (null for a
  * recording, which keeps none), and the dates replay matching masks in that run (matchedClockOf).
+ * `answers` gives answers in place of the ones calls recorded, by call number: the decision diff's
+ * new answer at a step, judged in the recorded run's state.
  */
 export interface JudgeMaterialSource {
   calls: CallRecord[];
   output: string | null;
   clock?: ClockReference;
+  answers?: ReadonlyMap<number, GivenAnswer>;
 }
 
 /** A run's calls and output as the material of its judge checks, with the dates matching masks in it under `clock`. */
@@ -79,7 +83,7 @@ export function materialOf(store: Store, runId: string, output: string | null, c
 
 /** What a check's judge reads in `material`, with the project's rules: its redactions, then what matching masks. */
 function materialFor(store: Store, j: JudgeCheck, material: JudgeMaterialSource, o: { redact?: readonly Normalizer[] | undefined; normalize?: readonly Normalizer[] | undefined }): ReturnType<typeof judgeMaterial> {
-  return judgeMaterial(store, material.calls, j.of, { output: material.output, redact: o.redact ?? [], ...(o.normalize?.length ? { normalize: o.normalize } : {}), ...(material.clock !== undefined ? { clock: material.clock } : {}) });
+  return judgeMaterial(store, material.calls, j.of, { output: material.output, redact: o.redact ?? [], ...(o.normalize?.length ? { normalize: o.normalize } : {}), ...(material.clock !== undefined ? { clock: material.clock } : {}), ...(material.answers?.size ? { answers: material.answers } : {}) });
 }
 
 /**
@@ -154,19 +158,51 @@ function whyNotAnswered(store: Store, runId: string, j: JudgeCheck, request: { b
   return `the recording's verdict was given on other material${where}, and ${cannot}`;
 }
 
-/** One judge check, asked through the sidecar: its verdict, or why it has none. */
-async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: JudgeRunContext): Promise<JudgeVerdict | { why: string }> {
+/** A judge check's request, made from what it reads, before it is sent. */
+export interface PreparedJudge {
+  target: { provider: JudgeProvider; model: string };
+  request: JudgeRequest;
+  material: JudgeMaterial;
+}
+
+/**
+ * The request a judge check sends about `material`, read from `store` with the project's rules (its
+ * redactions, then what matching masks), or why there is none: its model has no provider Shadowlap
+ * knows, a rule can't be applied (nothing is sent unmasked), or the run holds nothing it reads.
+ */
+export function prepareJudge(store: Store, j: JudgeCheck, material: JudgeMaterialSource, o: { redact?: readonly Normalizer[] | undefined; normalize?: readonly Normalizer[] | undefined }): PreparedJudge | { why: string } {
   const target = judgeTarget(j.model);
   if (!target) return { why: `Shadowlap can't tell which provider serves ${j.model}` };
   let m: ReturnType<typeof judgeMaterial>;
   try {
-    m = materialFor(ctx.store, j, material, ctx);
+    m = materialFor(store, j, material, o);
   } catch (err) {
     // A redaction rule that can't be applied: nothing is sent unmasked.
     return { why: `what it reads could not be made: ${(err as Error).message}` };
   }
   if ('missing' in m) return { why: m.missing };
-  const request = judgeRequest(target, j, m);
+  return { target, request: judgeRequest(target, j, m), material: m };
+}
+
+/** A judge's request as a digest: the same digest is the very same request, which gets the same verdict. */
+export function judgeRequestDigest(r: Pick<JudgeRequest, 'provider' | 'path' | 'body'>): string {
+  return createHash('sha256').update(canonicalize({ provider: r.provider, path: r.path, body: r.body })).digest('hex').slice(0, 32);
+}
+
+/** One judge check, asked through the sidecar: its verdict, or why it has none. */
+async function askJudge(j: JudgeCheck, material: JudgeMaterialSource, ctx: JudgeRunContext): Promise<JudgeVerdict | { why: string }> {
+  const prepared = prepareJudge(ctx.store, j, material, ctx);
+  if ('why' in prepared) return prepared;
+  return askPreparedJudge(j, prepared, ctx);
+}
+
+/**
+ * A judge check's prepared request, asked through the sidecar that has `ctx.runId` open: answered from
+ * the run's recording when it holds the very request, else live where the judge can be asked (its
+ * key, or an upstream for its provider), else by no one, with why.
+ */
+export async function askPreparedJudge(j: JudgeCheck, prepared: PreparedJudge, ctx: JudgeRunContext): Promise<JudgeVerdict | { why: string }> {
+  const { target, request, material: m } = prepared;
   const live = liveJudge(target.provider, ctx.upstreams, ctx.env);
   const provider = providers.find((p) => p.id === target.provider);
   // Asked live, the judge goes to its provider as the environment names it, or to the provider itself:

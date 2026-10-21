@@ -87,12 +87,37 @@ describe('the decision read models', () => {
   it("draws a run's row as its model calls in call order, each with its rank", () => {
     const run = decisionSession(store, 'dc-01M5000000000000000000000A')!;
     expect(run.matrix).toEqual([
-      { runId: refunded, golden: 'goldens/refund', title: 'goldens/refund', rank: 1, cells: [{ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2 }, { callNo: 3, step: 3, rank: 4, majority: 4, changed: 2, answered: 2 }, { callNo: 5, step: 5, rank: 1, majority: 1, changed: 2, answered: 2 }] },
-      { runId: failed, golden: null, title: failed.slice(0, 10), rank: 2, cells: [{ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2 }, { callNo: 3, step: 3, rank: 0, majority: 0, changed: 0, answered: 2 }, { callNo: 5, step: 5, rank: 2, majority: 2, changed: 2, answered: 2 }] },
+      { runId: refunded, golden: 'goldens/refund', title: 'goldens/refund', rank: 1, cells: [{ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 3, step: 3, rank: 4, majority: 4, changed: 2, answered: 2, judge: null }, { callNo: 5, step: 5, rank: 1, majority: 1, changed: 2, answered: 2, judge: null }] },
+      { runId: failed, golden: null, title: failed.slice(0, 10), rank: 2, cells: [{ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 3, step: 3, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 5, step: 5, rank: 2, majority: 2, changed: 2, answered: 2, judge: null }] },
     ]);
-    expect(decisionRow({ ...(run.runs as DecisionRun[])[0]!, decisions: [step(2, null, { samples: { asked: 1, answered: 0, changed: 0, ranks: [] }, error: 'HTTP 529' })] }).cells).toEqual([{ callNo: 2, step: 2, rank: null, majority: null, changed: 0, answered: 0 }]);
+    expect(decisionRow({ ...(run.runs as DecisionRun[])[0]!, decisions: [step(2, null, { samples: { asked: 1, answered: 0, changed: 0, ranks: [] }, error: 'HTTP 529' })] }).cells).toEqual([{ callNo: 2, step: 2, rank: null, majority: null, changed: 0, answered: 0, judge: null }]);
     // A write changed in 1 of 3 samples: drawn split, its majority the same.
-    expect(decisionRow({ ...(run.runs as DecisionRun[])[0]!, decisions: [step(4, 1, { majority: null, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } })] }).cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3 }]);
+    expect(decisionRow({ ...(run.runs as DecisionRun[])[0]!, decisions: [step(4, 1, { majority: null, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } })] }).cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3, judge: null }]);
+  });
+
+  it('marks a text-only change a judge check read: raised to rank 2 when it came out otherwise, inconclusive while it waits on the judge', () => {
+    const side = (status: 'passed' | 'failed' | 'inconclusive') => ({ status, verdict: status === 'passed' ? ('yes' as const) : status === 'failed' ? ('no' as const) : null, reason: status === 'inconclusive' ? 'not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)' : 'r', source: status === 'inconclusive' ? null : ('live' as const), cost: status === 'inconclusive' ? null : 0.001, request: null });
+    const judged = (now: 'passed' | 'failed' | 'inconclusive') => [{ name: 'fences', of: 'answer' as const, model: 'claude-haiku-4-5', pass: 'yes' as const, recorded: side('passed'), now: side(now), changed: now === 'inconclusive' ? null : now !== 'passed' }];
+    const base = (decisionSession(store, 'dc-01M5000000000000000000000A')!.runs as DecisionRun[])[0]!;
+    const samples = (ranks: number[], unjudged: number) => ({ asked: ranks.length, answered: ranks.length, changed: ranks.filter((r) => r).length, unjudged, ranks });
+    const cells = decisionRow({
+      ...base,
+      decisions: [
+        step(9, 2, { judge: judged('failed'), samples: samples([2, 2], 0) }),
+        step(10, 5, { judge: judged('passed'), samples: samples([5, 5], 0) }),
+        step(11, 5, { judge: judged('inconclusive'), samples: samples([5, 5], 2) }),
+        step(12, 5),
+        // One sample came out otherwise, the other could not be judged: not flagged without it, so the cell waits on the judge.
+        step(13, 2, { majority: 5, judge: judged('failed'), samples: samples([2, 5], 1) }),
+      ],
+    }).cells;
+    expect(cells.map((c) => [c.callNo, c.rank, c.judge])).toEqual([
+      [9, 2, 'changed'],
+      [10, 5, 'unchanged'],
+      [11, 5, 'inconclusive'],
+      [12, 5, null],
+      [13, 2, 'inconclusive'],
+    ]);
   });
 
   it('fills a migrate session\'s decisions in from its runs, and finds a run\'s decisions newest first', () => {
@@ -200,6 +225,19 @@ describe('the decision routes', () => {
       const res = await startJob(dash, body);
       expect(res.status, JSON.stringify(body)).toBe(400);
       expect(((await res.json()) as { error: string }).error).toBe(error);
+    }
+  });
+
+  it("leaves each run it verifies to verify's own gate: no job gives a count or a gate of its own", async () => {
+    const jobs = [
+      { kind: 'decisions', goldens: 'all', model: 'claude-sonnet-5-5', thenVerify: true },
+      { kind: 'migrate', to: 'claude-haiku-4-5' },
+      { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A' },
+      { kind: 'decisions-verify', sessionId: 'mg-01M5000000000000000000000B' },
+    ];
+    for (const body of jobs) {
+      expect((await startJob(dash, body)).status, JSON.stringify(body)).toBe(202);
+      expect(spawned.at(-1)!.filter((a) => ['--attempts', '--passes', '--gate', '--inconclusive'].includes(a)), JSON.stringify(body)).toEqual([]);
     }
   });
 
