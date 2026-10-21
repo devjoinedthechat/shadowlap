@@ -72,6 +72,8 @@ At the end, the report lists recorded calls the replay never made. Harmless afte
 
 **A Node agent behind a proxy records no model calls, and its model client fails with "Request was cancelled" or "fetch failed".** Its `fetch` goes through a dispatcher it set itself, undici's `ProxyAgent`, which sends every request to the proxy, the sidecar's loopback address too, where the proxy can't reach it. Use `EnvHttpProxyAgent` instead: it takes the proxy from `HTTP_PROXY` and `HTTPS_PROXY` (or its options) and honours the `NO_PROXY` that `shadowlap run` sets. Tools, the clock and recorded input never go through it.
 
+**A Node agent never starts: `node: --import= is not allowed in NODE_OPTIONS`, and the CLI says the agent's Node is too old for Shadowlap's guard.** Shadowlap loads its guard and in-process capture into a Node agent through `--import` in `NODE_OPTIONS`, which Node takes from 18.18 on. Run the agent on Node 18.18 or later. A version manager can give the project an older Node than the one `shadowlap` runs on: `node --version` in the agent's folder says which it gets.
+
 **I replayed a run recorded on another machine and it diverges.** Paths in prompts, hostnames in tool arguments, locale-formatted dates. Normalize them, or read them through the SDK.
 
 ## Getting help

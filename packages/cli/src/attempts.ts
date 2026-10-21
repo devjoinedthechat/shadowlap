@@ -2,6 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import { checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
+import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
@@ -247,6 +248,18 @@ export class AttemptRunner {
     this.running.delete(child);
     // Whatever the agent left running in its group goes with it.
     if (GROUP) killTree(child, 'SIGKILL', { group: true });
+    // An agent on a Node before 18.18 never started: its Node refused the preload and exited 9, as it
+    // would in every attempt. None is kept, counted or judged; the command stops and says why.
+    if (code === 9 && !timedOut && !this.interrupted && this.store.countCalls(run.runId) === 0) {
+      await outputDrained(child);
+      if (refusedPreload(output)) {
+        this.sidecar.endRun(run.runId, 'failed');
+        this.store.deleteRun(run.runId);
+        this.stopReason = AGENT_NODE_TOO_OLD;
+        for (const other of this.running) killTree(other, 'SIGKILL', { group: GROUP });
+        throw new Error(AGENT_NODE_TOO_OLD);
+      }
+    }
     const status: Exclude<RunStatus, 'running'> = timedOut || this.interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
     // Judge checks once the agent has exited, while the run is open: an attempt is a fork, so its
     // judge runs live, through the judge's own upstream (never a model under test), and is recorded.

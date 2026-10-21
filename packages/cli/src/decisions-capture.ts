@@ -1,9 +1,10 @@
 import { applyNormalizers, BUILTIN_STRIPPED_KEYS, isReservedScope, loadApiRequest, maskClock, multipartView, promptOf, samePrompt, stripKeysDeep, structuralDiff, withoutPrompt, type CallRecord, type Normalizer, type RequestPrompt, type RunRecord, type Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
+import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
 import { codeVersion, type ShadowlapConfig } from './config.js';
 import { killTree } from './kill-tree.js';
-import { agentEnv, placeholderAwsCredentials, providerIds, type GuardMode } from './run-agent.js';
+import { agentEnv, outputDrained, placeholderAwsCredentials, providerIds, type GuardMode } from './run-agent.js';
 
 /**
  * `shadowlap decisions --from-code`: the prompt and tools the working tree sends now, read without
@@ -111,6 +112,12 @@ export async function captureFromCode(input: CaptureInput): Promise<FromCodeCapt
     }
     if (GROUP) killTree(child, 'SIGKILL', { group: true });
     sidecar.endRun(run.runId, stopped ? 'crashed' : 'completed');
+    // An agent on a Node before 18.18 never started: its Node refused the preload and exited 9, as it
+    // would for every run, so none can be read here.
+    if (!stopped && (await exited) === 9 && store.countCalls(run.runId) === 0) {
+      await outputDrained(child);
+      if (refusedPreload(output)) throw new Error(AGENT_NODE_TOO_OLD);
+    }
     const replay = store.getRun(run.runId);
     const sent = store.getCalls(run.runId).filter((c) => c.kind === 'api' && c.requestRef);
     if (!sent.length) {

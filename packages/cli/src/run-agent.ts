@@ -7,6 +7,7 @@ import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary,
 import { httpRuleMatcher, providers, REPLAY_AWS_KEY_ID, REPLAY_KEY, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta, stampAuthor } from './activity.js';
+import { AGENT_NODE_TOO_OLD, nodeRefusesPreload, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
@@ -274,6 +275,11 @@ export async function testAttempt(
   process.off('SIGTERM', forward);
   // Whatever the agent left running in its group goes with it.
   if (group) kill('SIGKILL');
+  // An agent on a Node before 18.18 never started either: its Node refused the preload and exited 9.
+  if (!notStarted && !timedOut && !interrupted && code === 9 && store.countCalls(run.runId) === 0) {
+    await outputDrained(child);
+    if (refusedPreload(output)) notStarted = { notFound: false, message: AGENT_NODE_TOO_OLD };
+  }
   if (timedOut) output += `\n[shadowlap] stopped after ${formatDuration(o.timeoutMs!)}\n`;
   if (interrupted) output += `\n[shadowlap] interrupted (${interrupted})\n`;
   // Judge checks are asked once the agent has exited, through this sidecar while the run is open, so
@@ -641,6 +647,11 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   });
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);
+  // An agent on a Node before 18.18 never started either: its Node refused the preload and exited 9.
+  // Its words went to the terminal unless a check captured them, so that Node is asked again.
+  if (!notStarted && !interrupted && code === 9 && store.countCalls(run.runId) === 0 && (tee ? refusedPreload(tee.all()) : nodeRefusesPreload(argv[0]!, { ...process.env, ...guardEnv(guard) }, process.cwd()))) {
+    notStarted = { notFound: false, message: AGENT_NODE_TOO_OLD };
+  }
 
   const status: Exclude<RunStatus, 'running'> = interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
   // Only while it still names this run: another run that started here since has written its own.
@@ -713,8 +724,10 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
   let next = 0;
   // Attempts of this invocation, so the dashboard can show them as one bundle.
   const group = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  // Attempts whose Node refused the preload (Node before 18.18), as every attempt's would: none ran.
+  const refused: string[] = [];
   const worker = async () => {
-    while (!stopped && next < count) {
+    while (!stopped && !refused.length && next < count) {
       const i = next++;
       const run = start(sidecar);
       store.updateRunMeta(run.runId, { repeat: { group, attempt: i + 1, of: count }, ...newRunMeta() });
@@ -754,6 +767,12 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
         output = shown.all();
         stdout = shown.stdout();
       }
+      // Streamed to the terminal, the Node's words can't be read here: that Node is asked again.
+      if (!stopped && !stoppedBySignal && code === 9 && store.countCalls(run.runId) === 0 && (streaming && !tee ? nodeRefusesPreload(argv[0]!, { ...process.env, ...guardEnv(guard) }, process.cwd()) : refusedPreload(output))) {
+        sidecar.endRun(run.runId, 'failed');
+        refused.push(run.runId);
+        continue;
+      }
       const status: Exclude<RunStatus, 'running'> = stopped || stoppedBySignal ? 'crashed' : code === 0 ? 'completed' : 'failed';
       if (extra.beforeEnd) await extra.beforeEnd(sidecar, store, run, { code, interrupted: stopped || stoppedBySignal, stdout });
       const ended = sidecar.endRun(run.runId, status);
@@ -769,10 +788,13 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
   await Promise.all(Array.from({ length: Math.min(concurrency, count) }, worker));
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);
+  // Nothing ran in them, so they are not kept, and no report is made of the attempts.
+  for (const runId of refused) store.deleteRun(runId);
   await sidecar.close();
   store.close();
   // Team store: attempts someone pushed while they were recording go to the store now that they have ended.
   await pushIfQueued(teamEnv(opts.db));
   await telemetry().flush();
+  if (refused.length) throw new Error(AGENT_NODE_TOO_OLD);
   return results.filter(Boolean);
 }
