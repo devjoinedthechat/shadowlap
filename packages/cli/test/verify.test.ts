@@ -146,7 +146,8 @@ describe('shadowlap verify', () => {
     expect(r.stdout).toMatch(/target +\w{10} +fixed +12 of 12 passed · rate >= 0\.76 \(95%\) +forked at #1/);
     expect(r.stdout).toContain("Its gate decides after each attempt (gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts); a clean replay settles it in one.");
     expect(r.stdout).not.toMatch(/at least|at most|of the time|% confidence/);
-    expect(r.stdout).toMatch(/per run, as it would run live: [\d,]+ → [\d,]+ input tokens/);
+    // The mock's token counts grow with every answer it gave in this file, so the figures can be any size.
+    expect(r.stdout).toMatch(/per run, as it would run live: [\d.,]+[kM]? → [\d.,]+[kM]? input tokens/);
   });
 
   it('settles runs that replay clean with one free attempt each', async () => {
@@ -236,7 +237,6 @@ describe('shadowlap verify', () => {
     expect((await shadowlap(['verify', '--keeps', 'label:nothing'])).out).toContain('no run has the label "nothing"');
   });
 
-  // Last: its 36 attempts raise the token counts the mock answers with, which tests above print.
   it('verifies runs at once with --concurrency, each run\'s attempts one after another, so none runs past its gate\'s verdict', async () => {
     const { failed, heldOut, good } = await runs();
     // The first attempt to ask the model waits 2 s for its answer, holding back its own run alone.
