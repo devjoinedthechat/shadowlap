@@ -204,3 +204,62 @@ describe('a golden that holds no recorded verdict for a judge check', () => {
     expect(formatDoctor(all, plain)).toContain('! judge verdicts');
   });
 });
+
+describe('a judge check under a when', () => {
+  /** A golden of tool calls alone, packed at goldens/<name>: each call with its arguments and its result. */
+  function packTools(name: string, calls: Array<[tool: string, args: unknown, result: unknown]>): void {
+    const store = Store.open(':memory:');
+    try {
+      const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+      calls.forEach(([tool, args, result], i) => {
+        const id = { kind: 'tool' as const, name: tool, fingerprint: (i + 1).toString(16).padStart(64, '0'), occurrence: 1 };
+        store.appendCallStart({ runId: run.runId, callNo: i + 1, ...id, origin: 'live', effect: 'read', requestRef: store.putJson({ args }), meta: {}, at: i + 1 });
+        store.appendCallEnd(id, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putJson({ result }), outcome: 'ok', meta: {}, at: i + 1 });
+      });
+      store.endRun(run.runId, 'completed');
+      packRun(store, run.runId, join(dir, 'goldens', name));
+    } finally {
+      store.close();
+    }
+  }
+
+  it('wants a verdict only where its condition held in the golden: under one that never held, or can\'t be told, it is not judged at all', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'fp-doctor-'));
+    // Packed before the judge checks were added: neither holds a verdict.
+    packTools('refund', [['lookup_order', { order_id: 'A-1' }, { total: 240 }]]);
+    packTools('small', [['lookup_order', { order_id: 'A-2' }, { total: 40 }]]);
+    const judge = (name: string) => ({ name, question: `Does the reply ${name}?`, model: 'gpt-4.1-mini' });
+    writeFileSync(
+      join(dir, 'shadowlap.config.json'),
+      JSON.stringify({
+        tests: {
+          'goldens/*': {
+            expect: {
+              when: [
+                // No golden deletes a file: a test reads this judge not applicable in both, and --update records it nowhere.
+                { if: { tool: 'delete_file' }, then: { judge: [judge('says-what-it-deleted')] } },
+                // Held in refund alone: a test of it reads the judge not judged.
+                { if: { tool: 'lookup_order', result: { total: { '>': 100 } } }, then: { judge: [judge('explains-escalation')] } },
+                // No result has a currency, so whether it held can't be told: inconclusive whatever a judge says.
+                { if: { tool: 'lookup_order', result: { currency: 'EUR' } }, then: { judge: [judge('names-the-currency')] } },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    const { judgeVerdicts } = await import('../src/doctor.js');
+    expect(judgeVerdicts(dir, loadTests(dir), {})).toEqual([
+      {
+        name: 'judge verdicts',
+        verdict: 'warn',
+        detail: 'goldens/refund holds no recorded verdict for judge "explains-escalation", so a test of it, which runs offline, reads it not judged (inconclusive) and fails unless --inconclusive warn',
+        fix: 'Record it with OPENAI_API_KEY set: shadowlap test goldens/refund --update asks the judge live once and keeps its call in the golden.',
+      },
+    ]);
+    // So doctor says it of refund alone; the condition it can't read is the check rules' to name.
+    const all = runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' });
+    expect(all.filter((c) => c.name === 'judge verdicts').map((c) => c.detail.split(' holds ')[0])).toEqual(['goldens/refund']);
+    expect(all.find((c) => c.name === 'check rules' && c.detail.includes('result.currency'))).toMatchObject({ verdict: 'warn' });
+  });
+});

@@ -4,7 +4,7 @@ import { basename, delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, judgeTarget, loadApiRequest, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
-import { closestName, JUDGE_KEYS, judgeChecksOf, pathsNamed, storedCalls, toolsNamed, unreadPaths, type JudgeCheck, type NamedPath, type NamedTool, type RecordedCalls, type TestEntry } from './checks.js';
+import { closestName, evaluateChecks, JUDGE_KEYS, judgeChecksOf, pathsNamed, storedCalls, storedCheckInput, toolsNamed, unreadPaths, type JudgeCheck, type JudgeVerdict, type NamedPath, type NamedTool, type RecordedCalls, type TestEntry } from './checks.js';
 import { CONFIG_FILE, configPath as configFile, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from './config.js';
 import { expandRecordings, testsKeyFor } from './goldens.js';
 import { cannotJudge, heldVerdict, liveJudge } from './judge.js';
@@ -391,12 +391,39 @@ export function judgeKeys(entries: readonly TestEntry[], env: NodeJS.ProcessEnv)
 }
 
 /**
- * Goldens that hold no recorded verdict for one of their judge checks. `shadowlap test` runs offline,
- * so a clean replay is judged only from its recording: each such check reads not judged
- * (inconclusive) and fails the run unless inconclusive verdicts warn. A verdict given to an older
- * form of the judge's request counts as none, since a replay sends the request as it is now. One
- * warning per golden, naming the checks, with the command that records them; a golden whose run did
- * not complete is never judged, and says so instead.
+ * The judge checks of a golden that a clean replay of it would want a verdict for and not find: each
+ * one that applies to the recording, read as `shadowlap test` reads a clean replay's checks, from
+ * the recorded calls with the verdicts the recording holds. A judge under a `when` whose condition
+ * never held there is not applicable, and asks for no verdict (`test --update` records none for
+ * it); one whose condition can't be told is inconclusive whatever a judge would say, and `check
+ * rules` names the value it can't read. A verdict given to an older form of the judge's request
+ * answers none, since a replay sends the request as it is now: `older` names those.
+ */
+function wantedVerdicts(store: Store, calls: CallRecord[], entry: TestEntry, judges: readonly JudgeCheck[]): { none: JudgeCheck[]; older: JudgeCheck[] } {
+  const verdicts = new Map<string, JudgeVerdict>();
+  const older = new Set<string>();
+  for (const j of judges) {
+    const held = heldVerdict(store, calls, j);
+    if (!held) continue;
+    if ((calls.find((c) => c.callNo === held.callNo)?.meta.judge?.v ?? 1) === JUDGE_REQUEST_VERSION) verdicts.set(j.name, held);
+    else older.add(j.name);
+  }
+  // A judge check that applies and has no verdict is inconclusive with its judge's outcome; under a
+  // `when` that never held, or couldn't be told, its result carries none. What the agent printed
+  // decides no condition, and no judge result here.
+  const results = evaluateChecks(entry.spec, storedCheckInput(store, calls, ''), { judgeVerdicts: verdicts });
+  const wanting = new Set(results.flatMap((r) => (r.judge && r.status === 'inconclusive' ? [r.judge.name] : [])));
+  return { none: judges.filter((j) => wanting.has(j.name) && !older.has(j.name)), older: judges.filter((j) => wanting.has(j.name) && older.has(j.name)) };
+}
+
+/**
+ * Goldens that hold no recorded verdict for a judge check that applies to them. `shadowlap test` runs
+ * offline, so a clean replay is judged only from its recording: each such check reads not judged
+ * (inconclusive) and fails the run unless inconclusive verdicts warn. A judge under a `when` whose
+ * condition never held in the golden is not applicable there and needs none (wantedVerdicts). A
+ * verdict given to an older form of the judge's request counts as none, since a replay sends the
+ * request as it is now. One warning per golden, naming the checks, with the command that records
+ * them; a golden whose run did not complete is never judged, and says so instead.
  */
 export function judgeVerdicts(cwd: string, entries: readonly TestEntry[], env: NodeJS.ProcessEnv, packs?: TestPacks): Check[] {
   return withPacks(cwd, entries, packs, ({ byKey, read }) => {
@@ -409,15 +436,7 @@ export function judgeVerdicts(cwd: string, entries: readonly TestEntry[], env: N
         const pack = read.get(dir);
         if (!pack) continue; // a pack that can't be read: shadowlap test reports it
         const { run, store } = pack;
-        const calls = store.getCalls(run.runId);
-        const none: JudgeCheck[] = [];
-        const older: JudgeCheck[] = [];
-        for (const j of judges) {
-          const held = heldVerdict(store, calls, j);
-          const call = held ? calls.find((c) => c.callNo === held.callNo) : undefined;
-          if (!held) none.push(j);
-          else if ((call?.meta.judge?.v ?? 1) !== JUDGE_REQUEST_VERSION) older.push(j);
-        }
+        const { none, older } = wantedVerdicts(store, store.getCalls(run.runId), entry, judges);
         if (!none.length && !older.length) continue;
         const missing = [...none, ...older];
         const parts = [none.length ? `no recorded verdict for judge${none.length === 1 ? '' : 's'} ${quotedList(none.map((j) => j.name))}` : '', older.length ? `${none.length ? 'and only ' : 'only '}a verdict given to an older form of the judge's request for ${quotedList(older.map((j) => j.name))}, which a replay no longer sends` : ''].filter(Boolean);
