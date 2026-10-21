@@ -1,14 +1,15 @@
-import { cpuUsage } from 'node:process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { recordBlame, Store } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { times, timesOf } from '../../engine/test/timing.js';
 import { fixBundles } from '../src/fixes.js';
 
 /**
  * The Forks view's bundles at scale: a recording replayed 2,000 times (a golden CI replays on every
  * push), in a store that keeps 400 verdicts and 60 repairs about other runs. The view asks again on
- * every change while it is open, so each read is bounded by the CPU time it takes, and the reports
- * the store keeps whole are read once for each change to fixes, not on every poll.
+ * every change while it is open, so the reports the store keeps whole are read once for each change
+ * to fixes, not on every poll, and each read's CPU time is held against a plain read of the store's
+ * runs on the same machine.
  */
 
 const REPLAYS = 2000;
@@ -18,14 +19,6 @@ const REPAIRS = 60;
 let store: Store;
 let root: string;
 let quiet: string;
-
-/** CPU milliseconds `fn` takes, which a busy machine inflates far less than wall-clock time. */
-function cpuMs(fn: () => void): number {
-  const before = cpuUsage();
-  fn();
-  const used = cpuUsage(before);
-  return (used.user + used.system) / 1000;
-}
 
 beforeAll(() => {
   store = Store.open(':memory:');
@@ -63,23 +56,34 @@ afterAll(() => {
 describe('the Forks view’s bundles at scale', () => {
   it('bundles a family of 2,000 replays, and reads the reports once until fixes change', () => {
     const verdicts = vi.spyOn(store, 'listVerdicts');
-    let bundles: ReturnType<typeof fixBundles> = null;
-    const first = cpuMs(() => (bundles = fixBundles(store, root)));
+    const bundles = fixBundles(store, root);
     expect(bundles!.filter((b) => b.kind === 'blame').map((b) => b.title)).toEqual(['blame · probe #1', 'blame · probe #5', 'blame · probe #7']);
     expect(bundles!.filter((b) => b.kind === 'verify').map((b) => [b.title, b.verdict, b.href])).toEqual([['verify · target', 'accepted', '#/run/' + root]]);
     // Polled while nothing changes: the reports are not read again.
-    const again = cpuMs(() => {
-      for (let i = 0; i < 10; i++) fixBundles(store, root);
-    });
+    for (let i = 0; i < 10; i++) fixBundles(store, root);
     expect(verdicts).toHaveBeenCalledTimes(1);
     // A fix changes: they are read once more.
-    store.putVerdict({ verifyId: 'vf-late', at: 30_000, verdict: 'rejected', repairId: null, candidate: null, report: verifyReport([{ runId: makeRun(store, {}), role: 'target', pass: false }]), expect: EXPECT, command: 'shadowlap verify --fixes w' });
+    const other = makeRun(store, {});
+    let late = 0;
+    const change = () => store.putVerdict({ verifyId: `vf-late-${late++}`, at: 30_000 + late, verdict: 'rejected', repairId: null, candidate: null, report: verifyReport([{ runId: other, role: 'target', pass: false }]), expect: EXPECT, command: 'shadowlap verify --fixes w' });
+    change();
     fixBundles(store, root);
     expect(verdicts).toHaveBeenCalledTimes(2);
     verdicts.mockRestore();
-    console.log(`fixBundles over ${REPLAYS} replays, ${VERDICTS} verdicts and ${REPAIRS} repairs: ${first.toFixed(0)} ms CPU the first time, ${(again / 10).toFixed(0)} ms each after`);
-    expect(first).toBeLessThan(2_000);
-    expect(again / 10).toBeLessThan(1_000);
+    // Held against this machine, not a number of milliseconds: a poll costs about 4 times what a plain
+    // read of every run's row does (the family's 2,000 replays among them), on Node 22 and 24 alike,
+    // and the read after a change, which reads every report again, 5 to 8 times.
+    const t = timesOf({
+      poll: () => fixBundles(store, root),
+      changed: () => {
+        change();
+        return fixBundles(store, root);
+      },
+      runs: () => store.query('SELECT * FROM runs'),
+    });
+    console.log(`fixBundles over ${REPLAYS} replays, ${VERDICTS} verdicts and ${REPAIRS} repairs: ${t.changed.toFixed(1)} ms CPU after a change to fixes, ${t.poll.toFixed(1)} ms a poll; a read of every run ${t.runs.toFixed(1)} ms`);
+    expect(t.poll, `a poll took ${times(t.poll, t.runs)} a read of every run`).toBeLessThan(20 * t.runs);
+    expect(t.changed, `a read after a change took ${times(t.changed, t.runs)} a read of every run`).toBeLessThan(25 * t.runs);
   });
 
   it('answers a family with no attempt in it without reading a blame or a report', () => {

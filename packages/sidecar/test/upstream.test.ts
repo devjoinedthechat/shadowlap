@@ -26,6 +26,7 @@ async function serve(handler: Parameters<typeof createServer>[1]): Promise<strin
 describe('requestUpstream', () => {
   it('sends the body and headers, and streams the response as it arrives', async () => {
     const seen: string[] = [];
+    let finish = () => {};
     const url = await serve((req, res) => {
       let body = '';
       req.on('data', (d) => (body += d));
@@ -33,19 +34,19 @@ describe('requestUpstream', () => {
         seen.push(`${req.method} ${req.headers['x-test']} ${req.headers['content-length']} ${body}`);
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.write('data: one\n\n');
-        setTimeout(() => res.end('data: two\n\n'), 150);
+        // The rest only once the test has read the first event.
+        finish = () => res.end('data: two\n\n');
       });
     });
-    const started = Date.now();
     const res = await requestUpstream(`${url}/v1/chat/completions`, 'POST', { 'x-test': 'yes' }, Buffer.from('{"a":1}'));
     expect(seen).toEqual(['POST yes 7 {"a":1}']);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/event-stream');
     const reader = res.body!.getReader();
+    // The first event is readable before the server has finished: it finishes only after this read.
     const first = await reader.read();
-    // The first event is readable before the server has finished.
     expect(new TextDecoder().decode(first.value)).toBe('data: one\n\n');
-    expect(Date.now() - started).toBeLessThan(150);
+    finish();
     let rest = '';
     for (let r = await reader.read(); !r.done; r = await reader.read()) rest += new TextDecoder().decode(r.value);
     expect(rest).toBe('data: two\n\n');

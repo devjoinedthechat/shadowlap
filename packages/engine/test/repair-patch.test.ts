@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyEdit, patchFiles, REPAIR_FILE_LIMIT, repairPatchProblem, unifiedDiff, type RepairCandidate } from '../src/repair.js';
+import { times, timesOf } from './timing.js';
 
 /**
  * A repair's patch, as `shadowlap fix apply` checks it before `git apply` puts it in: the change its
@@ -109,11 +110,15 @@ describe('repairPatchProblem', () => {
   it('reads a patch from the store in time that grows with its length alone, and refuses one larger than a repair writes', () => {
     const one = (before: string, after: string, patch: string) => ({ patch, accepted: 1, candidates: [candidate({ id: 1, before, after })] });
     const hunk = (old: string[], now: string[], same: string[] = []) => ['diff --git a/agent.mjs b/agent.mjs', '--- a/agent.mjs', '+++ b/agent.mjs', `@@ -1,${same.length + old.length} +1,${same.length + now.length} @@`, ...same.map((l) => ` ${l}`), ...old.map((l) => `-${l}`), ...now.map((l) => `+${l}`), ''].join('\n');
+    // Each check held against this machine, not a number of milliseconds: a pass over the patch that
+    // writes every character again, which a check takes up to 5 times on Node 22 and up to 10 times on
+    // Node 24, whose pass takes a third as long. Rebuilding the hunk at every place the candidate's
+    // text appears took the square of its length: 27 seconds on the first of these, over a thousand
+    // times the pass. Under 100 times leaves room for both and fails that.
     const quick = (r: ReturnType<typeof one>) => {
-      const t = performance.now();
-      const problem = repairPatchProblem(r);
-      expect(performance.now() - t).toBeLessThan(1000);
-      return problem;
+      const t = timesOf({ check: () => repairPatchProblem(r), pass: () => r.patch.replace(/a/g, 'b') }, { rounds: 2 });
+      expect(t.check, `the check took ${times(t.check, t.pass)} a pass over the patch`).toBeLessThan(100 * t.pass);
+      return repairPatchProblem(r);
     };
     const not = "the lines it changes in agent.mjs are not its accepted candidate's rewrite";
     // About 1 MB of context holding the candidate's text on every line: every line was a place to try it.

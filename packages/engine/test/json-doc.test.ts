@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { contextFree, isJsonText, reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from '../src/json-doc.js';
 import { applyNormalizers, compilePattern, type RewriteObserver } from '../src/normalize.js';
 import type { Normalizer } from '../src/types.js';
+import { times, timesOf } from './timing.js';
 
 /**
  * The JSON document a copy writes, held to a reference of this file's own: the document parsed, and
@@ -136,13 +137,18 @@ describe('rewriteJsonDocument', () => {
     expect(out.length).toBe(deep.length - 'bob@example.com'.length + '<EMAIL>'.length);
     expect(out).toContain('"mail <EMAIL>"');
     const rows = JSON.stringify({ result: Array.from({ length: 200_000 }, (_, i) => ({ id: i, card: 4_000_000_000_000_000 + i, owner: `u${i}@example.com` })) });
+    const rules: Normalizer[] = [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/\\d{16}/', replace: '<CARD>' }];
     let numbers = 0;
-    const started = performance.now();
-    const masked = rewriteJsonDocument(rows, [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/\\d{16}/', replace: '<CARD>' }], null, { unmasked: () => numbers++ })!;
-    expect(performance.now() - started).toBeLessThan(5_000);
+    const masked = rewriteJsonDocument(rows, rules, null, { unmasked: () => numbers++ })!;
     expect(numbers).toBe(200_000);
     expect(masked).not.toMatch(/@example/);
     expect(masked).toContain('"card":4000000000000000');
+    // Held against this machine, not a number of milliseconds: one pass, which takes 4 to 5 times what
+    // a copy of the document takes (parsed, and written again) on Node 22, and 6 to 9 times on Node 24,
+    // whose copy is faster. A reader that went back over the text for each value would take the square
+    // of its length: under 50 times leaves room for both and fails it.
+    const t = timesOf({ rewrite: () => rewriteJsonDocument(rows, rules, null, { unmasked: () => {} }), copy: () => JSON.stringify(JSON.parse(rows)) }, { rounds: 2 });
+    expect(t.rewrite, `rewriting the document took ${times(t.rewrite, t.copy)} a copy of it`).toBeLessThan(50 * t.copy);
   });
 
   it('is null for text that is no JSON document, which a copy masks as text', () => {

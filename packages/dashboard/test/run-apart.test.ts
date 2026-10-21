@@ -109,13 +109,17 @@ describe('what a copy of a run would mask, on its Provenance', () => {
   it('leaves it uncounted, saying why, when a rule takes too long, and answers everything else meanwhile', async () => {
     const run = recording();
     modelCall(run.runId, 1, `${'a'.repeat(40)}!`);
-    Object.assign(PREVIEW_LIMITS, { softMs: 200, hardMs: 1000 });
+    // The rule runs for minutes, so only the hard limit ends the count, 5 s after its thread opened the
+    // store: the order of the two answers below is checked within that limit, which leaves a slow
+    // machine seconds to ask meta and answer it.
+    Object.assign(PREVIEW_LIMITS, { softMs: 200, hardMs: 5000 });
     const d = await serve([EMAIL, SLOW]);
-    const asked = api(d, `runs/${run.runId}/provenance`);
+    let counted = false;
+    const asked = api(d, `runs/${run.runId}/provenance`).finally(() => (counted = true));
     await new Promise((r) => setTimeout(r, 300));
-    const t0 = Date.now();
+    // The server's own thread is free: it answers while the count runs.
     expect((await api(d, 'meta')).status).toBe(200);
-    expect(Date.now() - t0).toBeLessThan(500);
+    expect(counted, 'the server answered only once the count was over').toBe(false);
     const res = await asked;
     expect(res.status).toBe(200);
     const p = (await res.json()) as { mask: { rules: number; values: number | null; why?: string } };
@@ -182,16 +186,20 @@ describe('the HTML download', () => {
   it('is stopped when a rule takes too long, naming the rule, and the server answers meanwhile', async () => {
     const run = recording();
     modelCall(run.runId, 1, `${'a'.repeat(40)}!`);
-    EXPORT_LIMITS.hardMs = 1000;
+    // The rule runs for minutes, so only the hard limit ends the file, 5 s after its thread opened the
+    // store: the order of the two answers below is checked within that limit, which leaves a slow
+    // machine seconds to ask meta and answer it.
+    EXPORT_LIMITS.hardMs = 5000;
     const d = await serve([EMAIL, SLOW]);
-    const asked = api(d, `runs/${run.runId}/export`);
+    let made = false;
+    const asked = api(d, `runs/${run.runId}/export`).finally(() => (made = true));
     await new Promise((r) => setTimeout(r, 300));
-    const t0 = Date.now();
+    // The server's own thread is free: it answers while the file is made.
     expect((await api(d, 'meta')).status).toBe(200);
-    expect(Date.now() - t0).toBeLessThan(500);
+    expect(made, 'the server answered only once the file was stopped').toBe(false);
     const res = await asked;
     expect(res.status).toBe(422);
-    expect(await error(res)).toBe('Making the HTML file took longer than 1 s, so it was stopped. Redaction rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text: write it without the outer repeat.');
+    expect(await error(res)).toBe('Making the HTML file took longer than 5 s, so it was stopped. Redaction rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text: write it without the outer repeat.');
   });
 
   it('waits for a run still recording, and for a thread when every one is busy', async () => {

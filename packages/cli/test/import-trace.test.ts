@@ -8,6 +8,7 @@ import { fetchLangfuseTrace, readLangfuse } from '../src/import-langfuse.js';
 import { fetchLangsmithRuns, readLangsmith } from '../src/import-langsmith.js';
 import { parseOtlpFile, readOtel } from '../src/import-otel.js';
 import { dialectOf, importTrace, messagesOf, outputOf, type Trace } from '../src/import-trace.js';
+import { times, timesOf } from '../../engine/test/timing.js';
 
 /**
  * Traces as their sources write them: OTLP JSON in each generation of the GenAI conventions, a
@@ -217,8 +218,8 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
 
   it('ignores a flattened attribute whose index no conversation reaches, rather than building an array that long', () => {
     const attr = (key: string, value: string) => ({ key, value: { stringValue: value } });
-    const started = Date.now();
-    const read = readOtel([
+    const far = [attr('gen_ai.prompt.0.tool_calls.4294967294.name', 'x'), attr('gen_ai.prompt.4294967294.role', 'user'), attr('gen_ai.prompt.99999999999999999999.content', 'far'), attr('gen_ai.completion.0.tool_calls.1001.name', 'y')];
+    const file = (reaching: boolean) => [
       {
         resourceSpans: [
           {
@@ -229,17 +230,7 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
                     traceId: 't',
                     spanId: 's',
                     name: 'openai.chat',
-                    attributes: [
-                      attr('llm.request.type', 'chat'),
-                      attr('gen_ai.system', 'openai'),
-                      attr('gen_ai.prompt.0.role', 'user'),
-                      attr('gen_ai.prompt.0.content', 'hi'),
-                      attr('gen_ai.prompt.0.tool_calls.4294967294.name', 'x'),
-                      attr('gen_ai.prompt.4294967294.role', 'user'),
-                      attr('gen_ai.prompt.99999999999999999999.content', 'far'),
-                      attr('gen_ai.completion.0.tool_calls.1001.name', 'y'),
-                      attr('gen_ai.completion.0.content', 'hello'),
-                    ],
+                    attributes: [attr('llm.request.type', 'chat'), attr('gen_ai.system', 'openai'), attr('gen_ai.prompt.0.role', 'user'), attr('gen_ai.prompt.0.content', 'hi'), ...(reaching ? far : []), attr('gen_ai.completion.0.content', 'hello')],
                   },
                 ],
               },
@@ -247,9 +238,16 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
           },
         ],
       },
-    ]);
-    expect(Date.now() - started).toBeLessThan(1000);
+    ];
+    const [withFar, without] = [file(true), file(false)];
+    const read = readOtel(withFar);
     expect(read.traces[0]!.calls[0]).toMatchObject({ messages: [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }], output: { parts: [{ type: 'text', text: 'hello' }] } });
+    expect(readOtel(without).traces[0]!.calls[0]).toEqual(read.traces[0]!.calls[0]);
+    // Held against this machine, not a number of milliseconds: one and a half to three times what the
+    // span takes without them, on Node 22 and 24 alike, where building an array four billion long takes
+    // far longer.
+    const t = timesOf({ withFar: () => readOtel(withFar), without: () => readOtel(without) });
+    expect(t.withFar, `the indexes far off took ${times(t.withFar, t.without)} the span without them`).toBeLessThan(20 * t.without);
   });
 
   it('reads a trace of many spans, and many log records for one span, in time that grows with the file', () => {
@@ -259,13 +257,17 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     const spans: Array<Record<string, unknown>> = Array.from({ length: n }, (_, i) => ({ traceId: 't', spanId: `s${i}`, name: 'step' }));
     spans[0] = { traceId: 't', spanId: 's0', name: 'chat', attributes: [{ key: 'gen_ai.operation.name', value: { stringValue: 'chat' } }] };
     const logRecords = Array.from({ length: n }, () => ({ traceId: 't', spanId: 's0', eventName: 'gen_ai.user.message', body: { kvlistValue: { values: [{ key: 'content', value: { stringValue: 'hi' } }] } } }));
-    const started = Date.now();
-    const read = readOtel([{ resourceSpans: [{ scopeSpans: [{ spans }] }] }, { resourceLogs: [{ scopeLogs: [{ logRecords }] }] }]);
-    expect(Date.now() - started).toBeLessThan(3000);
+    const docs = [{ resourceSpans: [{ scopeSpans: [{ spans }] }] }, { resourceLogs: [{ scopeLogs: [{ logRecords }] }] }];
+    const read = readOtel(docs);
     expect(read.spans).toBe(n);
     const [call] = read.traces[0]!.calls;
     expect(call).toMatchObject({ kind: 'model' });
     expect((call as { messages: unknown[] }).messages).toHaveLength(n);
+    // Held against this machine, not a number of milliseconds: 1.5 to 2.5 times what a copy of the file
+    // takes (written out and parsed again), on Node 22 and 24 alike. Copying a list per entry took 21
+    // seconds, over a hundred times that: under 20 times leaves room for both and fails it.
+    const t = timesOf({ read: () => readOtel(docs), copy: () => JSON.parse(JSON.stringify(docs)) }, { rounds: 2 });
+    expect(t.read, `reading the trace took ${times(t.read, t.copy)} a copy of it`).toBeLessThan(20 * t.copy);
   });
 });
 

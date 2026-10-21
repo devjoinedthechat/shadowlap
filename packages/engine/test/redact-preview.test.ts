@@ -4,6 +4,7 @@ import { applyNormalizers, parsePath, rewriteText, type RewriteObserver } from '
 import { REDACTION_EXPORTS, clipChange, jsonPath, matchedAs, previewRedaction, redactArgv, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
 import type { Normalizer, RunMeta } from '../src/types.js';
+import { cpuOnce, times } from './timing.js';
 
 const cmd = { argv: ['node', 'agent.js'], cwd: '/tmp' };
 const API = { kind: 'api' as const, name: 'POST /v1/messages' };
@@ -170,16 +171,15 @@ describe('previewRedaction', () => {
     });
     store.endRun(run.runId, 'completed');
     const rules = [EMAIL, CARD, USER];
-    let started = performance.now();
-    const p = previewRedaction(store, run.runId, rules);
-    const fast = performance.now() - started;
+    // Each in CPU time, which another process on the machine does not inflate as it does the clock's.
+    const fast = cpuOnce(() => previewRedaction(store, run.runId, rules));
+    const p = fast.out;
     // Reading every request whole, as the preview must with a rule that sees a whole message: the square of the length.
-    started = performance.now();
-    const whole = previewRedaction(store, run.runId, [...rules, { kind: 'tool', name: 'nothing', path: '$.messages[0]', replace: 'x' }]);
-    const slow = performance.now() - started;
-    expect(p.rules).toEqual(whole.rules.slice(0, rules.length));
-    // About seven times faster at 400 calls here, and the gap widens with the length; a third is the floor.
-    expect(fast).toBeLessThan(slow / 3);
+    const slow = cpuOnce(() => previewRedaction(store, run.runId, [...rules, { kind: 'tool', name: 'nothing', path: '$.messages[0]', replace: 'x' }]));
+    expect(p.rules).toEqual(slow.out.rules.slice(0, rules.length));
+    // About five times faster at 400 calls, on Node 22 and 24 alike, and the gap widens with the length;
+    // a third is the floor.
+    expect(fast.ms, `reading each message once took ${times(fast.ms, slow.ms)} reading every request whole`).toBeLessThan(slow.ms / 3);
     // The system prompt, each user turn, and each answer once: the event that streamed it holds the
     // same string as the conversation sends back.
     expect(p).toMatchObject({ calls: 400, partial: null });

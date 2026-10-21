@@ -265,11 +265,14 @@ describe('reference agent: record, replay, fork', () => {
       expect(retried.end?.outcome).toBe('ok');
 
       const before = mock.requests.length;
-      const t0 = Date.now();
       const replay = await ran(sidecar, { mode: 'replay', parentRunId: rec.run.runId, command });
       expect(replay.summary.divergence).toBeNull();
       expect(mock.requests).toHaveLength(before);
-      expect(Date.now() - t0).toBeLessThan(2000); // no backoff waits on replay
+      // The SDK was answered at once, never with the 429: it asked once for each call, so nothing
+      // waited out a backoff.
+      const replayed = store.getCalls(replay.run.runId);
+      expect(replayed).toHaveLength(EXPECTED_TOTAL_CALLS);
+      expect(replayed.filter((c) => c.attempts.length > 0)).toEqual([]);
     } finally {
       script = referenceScript;
     }

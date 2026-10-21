@@ -154,6 +154,47 @@ describe('Store', () => {
   });
 });
 
+describe('a judge check’s calls', () => {
+  /** Five calls: none in a scope, two in the agent's own scopes, and two in the judge's. */
+  const record = (store: Store) => {
+    const run = store.createRun({ mode: 'record', command: cmd });
+    [undefined, 'triage', 'shadowlap:judge', 'shadowlap:judged', 'shadowlap:judge'].forEach((scope, i) => {
+      const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: String(i).padStart(64, 'f'), occurrence: 1 };
+      store.appendCallStart({ runId: run.runId, callNo: i + 1, ...id, origin: 'live', effect: null, requestRef: null, meta: scope ? { scope } : {}, at: i });
+      // The scope is the request's: an answer that names one is not counted by it.
+      store.appendCallEnd(id, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: null, outcome: 'ok', meta: { scope: 'shadowlap:judge' }, at: i });
+    });
+    return run.runId;
+  };
+  /** What the index of judge calls holds: a run and call number per judge call. */
+  const indexed = (store: Store) => store.query(`SELECT run_id AS runId, call_no AS callNo FROM call_events INDEXED BY call_events_judge WHERE phase = 'start' AND json_extract(meta, '$.scope') = 'shadowlap:judge'`);
+
+  it('are left out of the agent’s through an index of their own, which a store from before it gets on opening', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'fp-judge-')), 's.db');
+    const store = Store.open(path);
+    const runId = record(store);
+    expect([store.countCalls(runId), store.countAgentCalls(runId)]).toEqual([5, 3]);
+    expect(indexed(store)).toEqual([{ runId, callNo: 3 }, { runId, callNo: 5 }]);
+    store.close();
+    const { DatabaseSync } = await import('node:sqlite');
+    const before = new DatabaseSync(path);
+    before.exec('DROP INDEX call_events_judge');
+    before.close();
+    const opened = Store.open(path);
+    expect([opened.countCalls(runId), opened.countAgentCalls(runId)]).toEqual([5, 3]);
+    expect(indexed(opened)).toEqual([{ runId, callNo: 3 }, { runId, callNo: 5 }]);
+    opened.close();
+  });
+
+  it('are indexed by a condition SQLite before 3.38 reads, as is all of the schema: no -> or ->>', () => {
+    // SQLite reads a store's whole schema before any table: one ->> in it, and the sqlite3 of Ubuntu
+    // 22.04 or macOS 12 reads nothing in the store.
+    const store = Store.open(':memory:');
+    expect(store.query(`SELECT name FROM sqlite_master WHERE sql LIKE '%->%'`)).toEqual([]);
+    store.close();
+  });
+});
+
 describe('request manifests', () => {
   it('chunks conversations so shared messages are stored once', () => {
     const store = Store.open(':memory:');

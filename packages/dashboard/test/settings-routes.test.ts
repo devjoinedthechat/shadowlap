@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { NO_COMMAND, Store, storeApiRequest, type CallMeta, type RunMeta } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type Dashboard, type JobView } from '../src/index.js';
 import { PREVIEW_LIMITS } from '../src/redaction-preview.js';
+import { cpuOnceAsync, times, timesOf } from '../../engine/test/timing.js';
 
 /**
  * Settings over HTTP: each tab's read, the edits to shadowlap.config.json (checked as the CLI checks
@@ -314,7 +315,7 @@ describe('the redaction preview', () => {
       expect((await get<View>(`settings/redaction/preview?run=${run.runId}`)).preview).toMatchObject({ calls: 1, partial: { read: 1, of: 12, stopped: 'bytes' } });
     });
 
-    it('reads a 40 MB tool result on its thread, within its heap and well within its time', async () => {
+    it('reads a 40 MB tool result on its thread, within its heap, in a small multiple of what parsing it takes', async () => {
       writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/\\b(?:\\d[ -]?){13,16}\\b/', replace: '<CARD>' }] }));
       const run = recording();
       // Rows of small values, an address in every hundredth: a document a tree of its values would take past the thread's 512 MB.
@@ -330,27 +331,38 @@ describe('the redaction preview', () => {
       store.appendCallStart({ runId: run.runId, callNo: 1, ...id, origin: 'live', effect: 'read', requestRef: store.putJson({ args: {} }), meta: {}, at: 1 });
       store.appendCallEnd(id, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putBlob(Buffer.from(body)), outcome: 'ok', meta: {}, at: 2 });
       type View = { preview: { calls: number; total: number; partial: unknown } };
-      const started = performance.now();
-      const v = await get<View>(`settings/redaction/preview?run=${run.runId}`);
-      // Every row read before the soft limit (5 s), on a machine running other suites too.
-      expect(v.preview).toMatchObject({ calls: 1, partial: null, total: Math.ceil(rows.length / 100) });
-      expect(performance.now() - started).toBeLessThan(PREVIEW_LIMITS.softMs);
+      // However slow the machine: a single call is read whole (the soft limit stops a preview between
+      // calls), and the hard limit, which would end it, is out of the way. Its time is held below.
+      PREVIEW_LIMITS.hardMs = 50_000;
+      const read = await cpuOnceAsync(() => get<View>(`settings/redaction/preview?run=${run.runId}`));
+      // Every row read, within the thread's heap.
+      expect(read.out.preview).toMatchObject({ calls: 1, partial: null, total: Math.ceil(rows.length / 100) });
+      // Held against this machine, not a number of milliseconds: in CPU time, the preview's thread and
+      // the server's together, 7 to 8 times what parsing the document takes on Node 22 and 8 to 11
+      // times on Node 24, whose parse is faster (a parse builds the tree of values the preview never
+      // builds). Under 50 times leaves room for both, and fails a preview that went back over the text.
+      const { parse } = timesOf({ parse: () => JSON.parse(body) }, { rounds: 2 });
+      expect(read.ms, `the preview took ${times(read.ms, parse)} parsing the document`).toBeLessThan(50 * parse);
     }, 60_000);
 
     it('ends a preview whose rule takes too long on one call, naming the rule, and answers everything else meanwhile', async () => {
       const run = slowRun();
-      Object.assign(PREVIEW_LIMITS, { softMs: 200, hardMs: 1500 });
+      // The rule runs for minutes, so only the hard limit ends the preview, 5 s after its thread opened
+      // the store: the order of the two answers below is checked within that limit, which leaves a slow
+      // machine seconds to ask the status bar's meta and answer it.
+      Object.assign(PREVIEW_LIMITS, { softMs: 200, hardMs: 5000 });
       const t0 = Date.now();
-      const preview = api(`settings/redaction/preview?run=${run.runId}`);
+      let previewed = false;
+      const preview = api(`settings/redaction/preview?run=${run.runId}`).finally(() => (previewed = true));
       await new Promise((r) => setTimeout(r, 300));
-      // The server's own thread is free: the status bar's meta answers at once.
-      const m0 = Date.now();
+      // The server's own thread is free: meta answers while the preview runs.
       expect((await api('meta')).status).toBe(200);
-      expect(Date.now() - m0).toBeLessThan(500);
+      expect(previewed, 'the server answered only once the preview was stopped').toBe(false);
       const res = await preview;
       expect(res.status).toBe(422);
-      expect(await error(res)).toBe('The preview stopped after 2 s on one call. Rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.');
-      expect(Date.now() - t0).toBeLessThan(5000);
+      expect(await error(res)).toBe('The preview stopped after 5 s on one call. Rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.');
+      // Stopped at its hard limit, as the page promises, with room for a slow machine to start the thread.
+      expect(Date.now() - t0).toBeLessThan(2 * PREVIEW_LIMITS.hardMs);
     });
 
     it('says the store is busy while another command holds it, and reads it once it is free', async () => {

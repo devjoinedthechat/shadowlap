@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { conversationRequestFor, runCache, runConversations, Store } from '../src/index.js';
+import { conversationRequestFor, loadApiRequest, runCache, runConversations, Store } from '../src/index.js';
 import { assistant, batchRun, closingBatch, message, RunBuilder, SYSTEM, text, toolResult, toolUse, TOOLS, usage, user } from './run-fixtures.js';
+import { cpuOnce, times, timesOf } from './timing.js';
 
 const conv = (store: Store, runId: string) => {
   const calls = store.getCalls(runId);
@@ -370,11 +371,15 @@ describe('a large run', () => {
     for (let i = 0; i < 20_000; i++) b.model({ messages: [user(`Classify ticket ${i}: the blender broke on day ${i % 30}.`)] }, [text(i % 2 ? 'refund' : 'repair')]);
     b.end();
     const calls = store.getCalls(b.runId);
-    const started = performance.now();
-    const r = runConversations(store, calls, { attribute: true });
-    // Comparing every request with every earlier conversation took seconds here; the indexes take a fraction of one.
-    expect(performance.now() - started).toBeLessThan(3000);
-    expect(r.conversations).toHaveLength(20_000);
+    // Held against this machine, not a number of milliseconds: placing the requests reads each once,
+    // and takes three to five times what reading them does, on Node 22 and 24 alike. Comparing every
+    // request with every earlier conversation took several seconds, tens of times that: under 15
+    // times leaves room for other machines and fails it.
+    const { read } = timesOf({ read: () => calls.forEach((c) => loadApiRequest(store, c.requestRef!)) });
+    // Once: a second call finds the run's conversations worked out.
+    const placed = cpuOnce(() => runConversations(store, calls, { attribute: true }));
+    expect(placed.ms, `placing them took ${times(placed.ms, read)} reading every request once`).toBeLessThan(15 * read);
+    expect(placed.out.conversations).toHaveLength(20_000);
     store.close();
   }, 60_000);
 });

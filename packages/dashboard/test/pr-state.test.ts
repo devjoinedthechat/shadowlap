@@ -173,9 +173,10 @@ describe.skipIf(process.platform === 'win32')('a fix’s pull request on the das
   let plantedId: string;
 
   beforeAll(async () => {
-    // gh that says the pull request was merged, after a moment, and notes each time it is asked.
+    // gh that says the pull request was merged, once a test lets it (or ten seconds on), and notes each
+    // time it is asked.
     bin = mkdtempSync(join(tmpdir(), 'sl-pr-gh-'));
-    writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '%s\\n' "$@" >> "${join(bin, 'asked')}"\nprintf '%s\\n' "\${GH_SERVER_TOKEN:-none}" >> "${join(bin, 'tokens')}"\nsleep 0.3\necho '{"state":"MERGED"}'\n`);
+    writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '%s\\n' "$@" >> "${join(bin, 'asked')}"\nprintf '%s\\n' "\${GH_SERVER_TOKEN:-none}" >> "${join(bin, 'tokens')}"\ni=0\nwhile [ ! -e "${join(bin, 'answer')}" ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i + 1)); done\necho '{"state":"MERGED"}'\n`);
     chmodSync(join(bin, 'gh'), 0o755);
     path = process.env.PATH;
     process.env.PATH = `${bin}${delimiter}${process.env.PATH}`;
@@ -213,10 +214,9 @@ describe.skipIf(process.platform === 'win32')('a fix’s pull request on the das
   });
 
   it('answers at once, then shows the pull request merged once gh says so', async () => {
-    const started = Date.now();
+    // gh answers only once this test lets it, after the page has: the page didn't wait for it.
     expect(sourceOf(await fixes(dash), fixId)).toBe('from CI · PR #138');
-    // gh takes its time; the page didn't wait for it.
-    expect(Date.now() - started).toBeLessThan(300);
+    writeFileSync(join(bin, 'answer'), '');
     for (let i = 0; i < 100 && store.getFix(fixId)!.data.source?.pr?.state !== 'merged'; i++) await new Promise((r) => setTimeout(r, 50));
     expect(store.getFix(fixId)!.data.source?.pr).toMatchObject({ url: PR, number: 138, state: 'merged' });
     expect(sourceOf(await fixes(dash), fixId)).toBe('from CI · PR #138 merged');

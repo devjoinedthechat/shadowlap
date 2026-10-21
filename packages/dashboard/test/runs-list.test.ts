@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import type { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store, summarizeRun, storedModelResolver } from '@shadowlap/engine';
 import { loadRunIndex } from '../src/run-index.js';
 import { countRuns, deleteRuns, labelRuns, listRunsPage, recentRuns, runsByDay, runsByDayOptions, runsPageOptions, type RunRow, type RunType } from '../src/runs-list.js';
@@ -442,6 +443,21 @@ describe('what the index works out about a run', () => {
     }
   });
 
+  it('classifies a replay by the agent’s calls: a judge check’s are none of what it reproduced', () => {
+    const local = Store.open(':memory:');
+    try {
+      const judge = { code: 'l', scope: 'shadowlap:judge' };
+      // A recording that failed after four calls, judged twice after them; its replay served every
+      // one of the agent's calls and failed the same way, with no judge asked.
+      const rec = addRun(local, { startedAt: NOW - DAY, status: 'failed', calls: [...[...'llll'].map((code) => ({ code })), judge, judge] });
+      const reproduced = addRun(local, { parent: rec, startedAt: NOW - HOUR, status: 'failed', calls: 'rrrr' });
+      expect(loadRunIndex(local).byId.get(rec)).toMatchObject({ calls: 6, agentCalls: 4 });
+      expect(byId(listRunsPage(local).runs).get(reproduced)).toMatchObject({ kind: 'clean', label: 'clean replay' });
+    } finally {
+      local.close();
+    }
+  });
+
   it('says a test that left its golden offline diverged, whatever its checks', () => {
     const local = Store.open(':memory:');
     try {
@@ -489,6 +505,27 @@ describe('the run index', () => {
       here.close();
       other.close();
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the run index’s query', () => {
+  it('counts each run’s calls and leaves a judge check’s out without reading a call: both through an index', () => {
+    const local = Store.open(':memory:');
+    try {
+      addRun(local, { startedAt: NOW, calls: [{ code: 'l' }, { code: 'l', scope: 'shadowlap:judge' }] });
+      const query = vi.spyOn(local, 'query');
+      expect(loadRunIndex(local).runs[0]).toMatchObject({ calls: 2, agentCalls: 1 });
+      const sql = query.mock.calls.map(([q]) => q).find((q) => /\bFROM runs r\b/.test(q))!;
+      const db = (local as unknown as { db: DatabaseSync }).db;
+      const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all().map((step) => String(step.detail));
+      // Per run, its calls from the primary key's index alone (a covering index: no call is read),
+      // and its judge calls from the index that holds them and no other call.
+      expect(plan.filter((step) => step.startsWith('SEARCH c '))).toEqual([expect.stringMatching(/ USING COVERING INDEX /), expect.stringMatching(/ USING INDEX call_events_judge /)]);
+      // Nothing else in it reads every call either: the runs are the one table it goes through whole.
+      expect(plan.filter((step) => step.startsWith('SCAN '))).toEqual(['SCAN r']);
+    } finally {
+      local.close();
     }
   });
 });
