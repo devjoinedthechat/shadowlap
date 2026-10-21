@@ -100,16 +100,12 @@ Found
      pnpm add @shadowlap/sdk @shadowlap/adapters   tool effects, through your framework
 ```
 
-With npm and pip, the packages are:
+With npm and pip, the packages are the SDK (tools, clock and randomness, on Node 18 or later), the framework adapters, recorded tests for Vitest and node:test, and the Python package (its SDK, adapters and pytest plugin, on Python 3.9 or later):
 
 ```sh
-# tools, clock and randomness (Node 18+)
 npm install @shadowlap/sdk
-# framework adapters, next to the SDK
 npm install @shadowlap/adapters
-# recorded tests: Vitest, node:test
 npm install -D @shadowlap/test
-# Python 3.9+: SDK, adapters, pytest plugin
 pip install shadowlap
 ```
 
