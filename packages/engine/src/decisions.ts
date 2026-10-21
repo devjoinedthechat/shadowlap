@@ -429,10 +429,17 @@ export interface DecisionStep {
   /** The changes of the sample that showed it. */
   changes: DecisionChange[];
   recorded: DecisionView;
-  /** The new decision: the sample with the most consequential change, or the first. Null when no answer came. */
+  /**
+   * The new decision: the sample with the most consequential change, or the first; among text-only
+   * ones, one whose words a judge check could not judge. Null when no answer came.
+   */
   now: DecisionView | null;
-  /** How often it changed: samples asked, answered, and how many of those decided differently, with each one's rank (0: the same). */
-  samples: { asked: number; answered: number; changed: number; ranks: number[] };
+  /**
+   * How often it changed: samples asked, answered, and how many of those decided differently, with
+   * each one's rank (0: the same); and `unjudged`, the text-only samples whose words a judge check
+   * reads but could not judge (judgeOpen), absent from sessions kept before judges read them.
+   */
+  samples: { asked: number; answered: number; changed: number; ranks: number[]; unjudged?: number };
   model: { recorded: string | null; asked: string | null };
   /**
    * As recorded, and the new answer's in a run like the recorded one (estimatedTokens): its input
@@ -486,13 +493,17 @@ export interface DecisionJudge {
   changed: boolean | null;
 }
 
-/** What judging the text-only steps came to over a report, and what it cost, apart from asking. */
+/**
+ * What judging the text-only steps came to over a report, and what it cost, apart from asking. Its
+ * steps fall in three parts: those that wait on a judge, those a check came out otherwise for, and
+ * those every check came out as recorded for.
+ */
 export interface DecisionsJudged {
-  /** Text-only steps a judge check read. */
+  /** Steps with a text-only change a judge check reads. */
   steps: number;
-  /** Of those, the steps a check came out otherwise for: raised to rank 2. */
+  /** Of those, the steps a check came out otherwise for (raised to rank 2) that wait on no judge. */
   changed: number;
-  /** Steps a judge check reads that could not be judged, each check's why in the step. */
+  /** Of those, the steps that wait on a judge (judgeOpen): a sample's words could not be judged, why in the warnings. */
   inconclusive: number;
   /** What the judge's calls made now cost, and their upstream requests; models with no price. */
   spent: number;
@@ -521,11 +532,49 @@ export function promoteByJudge(c: DecisionComparison, judges: readonly DecisionJ
   return { rank: 2, changes: [...promoted, ...c.changes].sort((a, b) => a.rank - b.rank) };
 }
 
-/** How a step's judge checks came out, for a cell: a check came out otherwise, one could not be judged, or every one as recorded; null when none read it. */
-export function judgedOutcome(step: Pick<DecisionStep, 'judge'>): 'changed' | 'inconclusive' | 'unchanged' | null {
+/**
+ * A text-only sample whose words a judge check reads but could not judge: none of its checks came out
+ * otherwise, and one got no verdict, so what it would make of them is open.
+ */
+export function unjudgedSample(judged: readonly DecisionJudge[] | null | undefined): boolean {
+  return !!judged?.length && !judged.some((j) => j.changed) && judged.some((j) => j.changed === null);
+}
+
+/**
+ * The sample a step shows, by its place among those answered: the first with the most consequential
+ * change (each sample's rank after its judge checks, promoteByJudge); of text-only ones, the first
+ * whose words a judge could not judge, so a step never reads as judged while a sample of it was not.
+ * -1 when none was answered.
+ */
+export function shownSample(samples: ReadonlyArray<{ rank: DecisionRank | null; judge: readonly DecisionJudge[] | null }>): number {
+  let shown = -1;
+  samples.forEach((s, i) => {
+    const a = samples[shown];
+    if (!a || (s.rank ?? 9) - (a.rank ?? 9) < 0 || ((s.rank ?? 9) === (a.rank ?? 9) && unjudgedSample(s.judge) && !unjudgedSample(a.judge))) shown = i;
+  });
+  return shown;
+}
+
+/**
+ * Whether a step waits on a judge: a judge check reads the words of a text-only sample of it that it
+ * could not judge (no key for its provider, the budget spent), and the step's samples don't flag it
+ * without them. A verdict it never got might read the words otherwise and flag the run, so a run
+ * nothing else flags settles nothing while one of its steps waits.
+ */
+export function judgeOpen(step: Pick<DecisionStep, 'majority' | 'samples'>): boolean {
+  return (step.samples.unjudged ?? 0) > 0 && !(step.majority !== null && step.majority <= 2);
+}
+
+/**
+ * How a step's judge checks came out, for a cell: it waits on a judge (judgeOpen), else a check came
+ * out otherwise for the new words, else every one came out as recorded; null when none read it.
+ */
+export function judgedOutcome(step: Pick<DecisionStep, 'judge' | 'majority' | 'samples'>): 'changed' | 'inconclusive' | 'unchanged' | null {
+  if (judgeOpen(step)) return 'inconclusive';
   const judges = step.judge ?? null;
   if (!judges?.length) return null;
   if (judges.some((j) => j.changed)) return 'changed';
+  // A step kept before its samples counted the words not judged: its own checks say.
   if (judges.some((j) => j.changed === null)) return 'inconclusive';
   return 'unchanged';
 }
@@ -755,7 +804,10 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
       const colour = s.rank <= 1 ? p.red : s.rank === 2 ? p.yellow : (x: string) => x;
       // A write or stop change most samples don't show is the model's own variation until shown otherwise.
       const minority = s.rank <= 2 && (s.majority === null || s.majority > 2);
-      const often = r.samples > 1 ? p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples${minority ? ', fewer than half: not flagged' : ''}`) : '';
+      // With samples, how many of them a judge could not judge: the sample shown need not be one.
+      const unjudged = s.samples.unjudged ?? 0;
+      const notJudged = r.samples > 1 && unjudged ? `, ${unjudged} of them not judged` : '';
+      const often = r.samples > 1 ? p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples${minority ? ', fewer than half: not flagged' : ''}${notJudged}`) : '';
       lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${colour(`rank ${s.rank}`)}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.rank])}${often}`);
       lines.push(`         ${p.dim('recorded')} ${decisionLine(s.recorded)}`);
       lines.push(`         ${p.dim('now     ')} ${decisionLine(s.now)}${stepDelta(s) ? p.dim(`  ${stepDelta(s)}`) : ''}`);

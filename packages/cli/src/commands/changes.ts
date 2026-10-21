@@ -1,5 +1,5 @@
 import { Command, InvalidArgumentError } from 'commander';
-import { commandIsImported, formatDecisions, hasRecordedCommand, SPRT_DEFAULTS, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
+import { commandIsImported, formatDecisions, hasRecordedCommand, judgeOpen, SPRT_DEFAULTS, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { verifySession } from '../decisions-verify.js';
 import { attemptRule, parseFields, readExpectJson } from './fix.js';
@@ -76,15 +76,16 @@ function inconclusiveExit(mode: 'fail' | 'warn', why: string | null): number {
 
 /**
  * Why a decisions report settles nothing, or null: it stopped early, a run could not be asked, a run
- * it doesn't flag has a text-only change a judge check reads that could not be judged (it might be
- * judged otherwise, which would flag it), verify didn't settle the runs it took.
+ * it doesn't flag has a step that waits on a judge (judgeOpen: a text-only change a judge check reads
+ * could not be judged, in any sample, and might be judged otherwise, which would flag it), verify
+ * didn't settle the runs it took.
  */
 export function decisionsInconclusive(r: DecisionsReport): string | null {
   if (r.stopReason) return `it stopped before every step was asked: ${r.stopReason}`;
   // A run that could not be asked at all (a --from-code change that is more than a prompt, a model that refused every step) is no preview of it.
   const unasked = r.runs.filter((x) => x.refused || (x.steps > 0 && x.asked === 0 && x.counts.notAsked > 0));
   if (unasked.length) return `${unasked.length} run${unasked.length === 1 ? '' : 's'} could not be asked`;
-  const unjudged = r.runs.filter((x) => !r.flagged.includes(x.runId) && x.decisions.some((s) => s.judge?.some((j) => j.changed === null)));
+  const unjudged = r.runs.filter((x) => !r.flagged.includes(x.runId) && x.decisions.some((s) => judgeOpen(s)));
   if (unjudged.length) return `${unjudged.length} run${unjudged.length === 1 ? ' has' : 's have'} a text-only change a judge check reads that could not be judged`;
   if (r.verify?.verdict === 'incomplete') return 'verify did not settle every run it took';
   if (r.verify?.verdict === 'not-run' && r.verify.reasons.length) return `verify did not run: ${r.verify.reasons[0]}`;

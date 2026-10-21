@@ -37,9 +37,10 @@ export interface DecisionCell {
   changed: number;
   answered: number;
   /**
-   * For a text-only change a judge check reads: `changed` when a check comes out otherwise for the
-   * new words (the cell ranks 2), `inconclusive` when one could not be judged, `unchanged` when every
-   * one came out as recorded; null when no check read it.
+   * For a text-only change a judge check reads (judgedOutcome): `inconclusive` when the step waits on
+   * a judge (the words of a sample could not be judged, and its samples don't flag it without them),
+   * else `changed` when a check comes out otherwise for the new words (the cell ranks 2), `unchanged`
+   * when every one came out as recorded; null when no check read it.
    */
   judge: 'changed' | 'inconclusive' | 'unchanged' | null;
 }

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { argsDelta, formatUsd, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store } from '@shadowlap/engine';
+import { argsDelta, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -51,7 +51,7 @@ export interface MigrateRunPass {
   golden: string | null;
   /** passed, failed or inconclusive: what the run's outcome comes to. */
   verdict: Verdict;
-  /** kept, broken, fixed, not-fixed, unsettled, inconclusive (verified, in verify's own words); unchanged (no write, stop or judged change, so not re-run); not-asked; not-judged (a text-only change a judge check reads could not be judged). */
+  /** kept, broken, fixed, not-fixed, unsettled, inconclusive (verified, in verify's own words); unchanged (no write, stop or judged change, so not re-run); not-asked; not-judged (it waits on a judge: a text-only change a judge check reads could not be judged). */
   outcome: string;
   verified: boolean;
   /** A run verify took: its passes of its attempts and, under a gate, the Wilson bound of its pass rate (null for a clean replay or a fixed count). Null for a run it didn't. */
@@ -106,11 +106,14 @@ const tallyWords = (x: Pick<MigrateRunPass, 'tally'>): string => (x.tally ? ` ·
 /** How verify found a run, after its verdict: `kept, verified · 12 of 12 · rate >= 0.76 (95%)`; an outcome that is the verdict word (inconclusive) is said once. */
 const verifiedWords = (x: Pick<MigrateRunPass, 'verdict' | 'outcome' | 'tally'>): string => `${x.outcome === x.verdict ? '' : `${x.outcome}, `}verified${tallyWords(x)}`;
 
-/** The changes besides writes, stops and judged ones, counted: `1 read added or removed, 2 text only (1 judged as recorded)`. */
+/** The changes besides writes, stops and judged ones, counted: `1 read added or removed, 2 text only (1 judged as recorded, 1 not judged)`. */
 function besides(r: Pick<MigrateReport, 'decisions'>): string {
   const c = r.decisions.counts;
-  const judged = r.decisions.runs.flatMap((x) => x.decisions).filter((s) => s.rank === 5 && s.judge?.length && s.judge.every((j) => j.changed === false)).length;
-  return [c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only${judged ? ` (${judged} judged as recorded)` : ''}`].filter(Boolean).join(', ');
+  const text = r.decisions.runs.flatMap((x) => x.decisions).filter((s) => s.rank === 5);
+  const judged = text.filter((s) => !judgeOpen(s) && s.judge?.length && s.judge.every((j) => j.changed === false)).length;
+  const open = text.filter((s) => judgeOpen(s)).length;
+  const how = [judged ? `${judged} judged as recorded` : '', open ? `${open} not judged` : ''].filter(Boolean).join(', ');
+  return [c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only${how ? ` (${how})` : ''}`].filter(Boolean).join(', ');
 }
 
 /** Files the project tracks or would (not ignored), with text, outside recordings and the store. */
@@ -303,8 +306,9 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
 /**
  * How each run fares: a run verified by verify's outcome; a run with no write, stop or judged change
  * by how its recording fares under its checks (it is not re-run); a run some step of which got no
- * answer, that was flagged and not verified, or with a text-only change a judge check reads that
- * could not be judged (it might read it otherwise), is inconclusive.
+ * answer, that was flagged and not verified, or with a step that waits on a judge (judgeOpen: the
+ * words of a sample a judge check reads could not be judged, and might read otherwise), is
+ * inconclusive.
  */
 export function passesOf(runs: readonly DecisionRun[], flagged: readonly string[], verify: DecisionsVerify | null, recorded: (runId: string) => boolean | null): MigrateRunPass[] {
   const verified = new Map((verify?.runs ?? []).map((r) => [r.runId, r]));
@@ -314,7 +318,7 @@ export function passesOf(runs: readonly DecisionRun[], flagged: readonly string[
     const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked);
     if (unanswered) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-asked', verified: false, tally: null };
     if (flagged.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false, tally: null };
-    if (r.decisions.some((x) => x.judge?.some((j) => j.changed === null))) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-judged', verified: false, tally: null };
+    if (r.decisions.some((x) => judgeOpen(x))) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-judged', verified: false, tally: null };
     const passed = recorded(r.runId);
     return { runId: r.runId, golden: r.golden, verdict: passed === true ? 'passed' : passed === false ? 'failed' : 'inconclusive', outcome: 'unchanged', verified: false, tally: null };
   });

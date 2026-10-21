@@ -49,6 +49,8 @@ export class TextJudge {
   spent = 0;
   upstreamRequests = 0;
   readonly unknownModels = new Set<string>();
+  /** A judge read what a check reads, with the project's rules applied, and gave a verdict: now, before, or in the recording. */
+  read = false;
   private memory: Store | null = null;
   private sidecar: Sidecar | null = null;
   private context: Promise<JudgeRunContext> | null = null;
@@ -119,6 +121,12 @@ export class TextJudge {
   }
 
   private async ask(run: RunRecord, calls: CallRecord[], j: JudgeCheck, material: JudgeMaterialSource, prepared: PreparedJudge, request: string): Promise<DecisionJudgeSide> {
+    const side = await this.verdictOf(run, calls, j, material, prepared, request);
+    if (side.verdict !== null) this.read = true;
+    return side;
+  }
+
+  private async verdictOf(run: RunRecord, calls: CallRecord[], j: JudgeCheck, material: JudgeMaterialSource, prepared: PreparedJudge, request: string): Promise<DecisionJudgeSide> {
     // The recording's own judge call for this very request, compared as a replay compares it.
     const held = heldVerdict(this.store, calls, j, { material, redact: this.config.redact, normalize: this.config.normalize, redactions: run.meta?.redactions ?? [] });
     if (held) return judged(j, held.verdict, held.reason, 'recording', 0, request);

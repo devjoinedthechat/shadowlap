@@ -14,6 +14,7 @@ import {
   hasRecordedCommand,
   isReservedScope,
   JUDGED_IN_RECORDED_STATE,
+  judgeOpen,
   loadApiRequest,
   majorityRank,
   modelFamily,
@@ -35,6 +36,8 @@ import {
   rewriteText,
   sameModel,
   setRequestFields,
+  shownSample,
+  unjudgedSample,
   describeGate,
   SPRT_DEFAULTS,
   switchModel,
@@ -750,13 +753,22 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
   return { spent, upstreamRequests, unknownModels, stopReason };
 }
 
+/** Why a judge check got no verdict on a sample's words: the side it got none for, `not judged: ` left off. */
+function notJudgedWhy(j: DecisionJudge): string {
+  return (j.now.status === 'inconclusive' ? j.now.reason : j.recorded.reason).replace(/^not judged: /, '');
+}
+
 /** A step as the report shows it, from its answers, its values masked by the redaction rules. */
 function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopReason: string | null, samples: number, m: Mask): DecisionStep {
   const recordedView = decisionView(plan.recorded, plan.effectOf);
   const answered = plan.answers.flatMap((a, i) => (a.decision ? [{ a, i }] : []));
-  // A text-only answer a judge check reads otherwise is raised to rank 2 (promoteByJudge).
-  const compared = answered.map(({ a, i }) => ({ a, judge: plan.judged.get(i) ?? null, c: promoteByJudge(compareDecisions(plan.recorded, a.decision!, plan.effectOf), plan.judged.get(i) ?? []) }));
-  const worst = [...compared].sort((x, y) => (x.c.rank ?? 9) - (y.c.rank ?? 9))[0];
+  // A text-only answer a judge check reads otherwise is raised to rank 2 (promoteByJudge); one it could not judge waits on it.
+  const compared = answered.map(({ a, i }) => {
+    const judge = plan.judged.get(i) ?? null;
+    return { a, judge, unjudged: unjudgedSample(judge), c: promoteByJudge(compareDecisions(plan.recorded, a.decision!, plan.effectOf), judge ?? []) };
+  });
+  // The most consequential sample shows the step; of text-only ones, one a judge could not judge (shownSample).
+  const worst = compared[shownSample(compared.map((x) => ({ rank: x.c.rank, judge: x.judge })))];
   const ranks = compared.map((x) => x.c.rank ?? 0);
   const before = tokensOf(plan.recordedUsage);
   // In a run like the recorded one: the first answer's whole input, split as the recorded call's was, and the samples' mean output.
@@ -776,7 +788,7 @@ function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopRe
     changes: (worst?.c.changes ?? []).map((c) => maskChange(c, m)),
     recorded: maskView(recordedView, m),
     now: worst ? maskView(decisionView(worst.a.decision!, plan.effectOf), m) : null,
-    samples: { asked: plan.untouched || plan.skip ? 0 : samples, answered: answered.length, changed: compared.filter((x) => x.c.rank !== null).length, ranks },
+    samples: { asked: plan.untouched || plan.skip ? 0 : samples, answered: answered.length, changed: compared.filter((x) => x.c.rank !== null).length, unjudged: compared.filter((x) => x.unjudged).length, ranks },
     model: { recorded: plan.recordedModel, asked: plan.untouched || plan.skip ? null : plan.askedModel },
     tokens: { before, after },
     cost: { before: estimateCost(plan.recordedModel, plan.recordedUsage ?? undefined, prices), after: after ? estimateCost(model, usageOf(after), prices) : null, spent },
@@ -1031,11 +1043,18 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     }
     const warnings: string[] = [];
     const runs: DecisionRun[] = [];
+    // Why the steps that wait on a judge (judgeOpen) got no verdict, from every sample of them a judge could not judge.
+    const notJudged = new Set<string>();
     for (const t of input.targets) {
       const mine = planned.filter((x) => x.target === t);
       const runWarnings = [...(captures.get(t.run.runId)?.notes ?? [])].map(mask.text);
       const refusal = refusedRuns.get(t.run.runId) ?? null;
-      runs.push(runOf(t, mine, mine.map((plan) => stepOf(plan, config.prices, asked.stopReason, s.samples, mask)), runWarnings, refusal === null ? null : mask.text(refusal)));
+      const steps = mine.map((plan) => stepOf(plan, config.prices, asked.stopReason, s.samples, mask));
+      steps.forEach((step, k) => {
+        if (!judgeOpen(step)) return;
+        for (const judged of mine[k]!.judged.values()) if (unjudgedSample(judged)) for (const j of judged) if (j.changed === null) notJudged.add(mask.text(notJudgedWhy(j)));
+      });
+      runs.push(runOf(t, mine, steps, runWarnings, refusal === null ? null : mask.text(refusal)));
     }
     const counts = emptyCounts();
     for (const r of runs) for (const k of Object.keys(counts) as Array<keyof DecisionCounts>) counts[k] += r.counts[k];
@@ -1063,18 +1082,29 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     for (const m of s.from ?? []) if (!use.some((u) => sameModel(u.model, m))) warnings.push(`--from ${m}: no model call of the runs was made with it (they use ${use.map((u) => u.model).join(', ') || 'no named model'})`);
     const minority = allSteps.filter((x) => x.rank !== null && x.rank <= 2 && !(x.majority !== null && x.majority <= 2)).length;
     if (minority) notes.push(`${minority} step${minority === 1 ? '' : 's'} had a write, stop or judged change in fewer than half ${minority === 1 ? 'its' : 'their'} samples: listed, not flagged, as a model's own variation.`);
-    // Text-only changes a judge check reads were judged; the rest are counted.
-    const judgedSteps = allSteps.filter((x) => x.judge?.length);
-    const otherwise = judgedSteps.filter((x) => x.judge!.some((j) => j.changed)).length;
-    const unjudged = judgedSteps.filter((x) => x.judge!.some((j) => j.changed === null));
-    if (judgedSteps.length) notes.push(`A judge check of the runs read the words of ${judgedSteps.length} text-only step${judgedSteps.length === 1 ? '' : 's'}, as recorded and as answered now: ${otherwise ? `${otherwise} came out otherwise, rank 2, as a changed stop is` : 'every check came out as recorded'}.`);
-    if (unjudged.length) warnings.push(`${unjudged.length} text-only step${unjudged.length === 1 ? '' : 's'} a judge check reads could not be judged: ${[...new Set(unjudged.flatMap((x) => x.judge!.filter((j) => j.changed === null).map((j) => (j.now.status === 'inconclusive' ? j.now.reason : j.recorded.reason).replace(/^not judged: /, ''))))].slice(0, 3).join('; ')}`);
-    if (allSteps.some((x) => x.rank === 5 && !x.judge?.length)) notes.push(judgedSteps.length ? 'Text-only changes no judge check reads are counted, not judged.' : 'Text-only changes are counted, not judged.');
+    // The steps whose text-only change a judge check reads, in three parts: those that wait on a judge
+    // (judgeOpen), those a check came out otherwise for, and those every check came out as recorded for.
+    // Only what was judged is said to have come out as anything.
+    const judgedSteps = allSteps.filter((x) => x.judge?.length || judgeOpen(x));
+    const waiting = judgedSteps.filter((x) => judgeOpen(x));
+    const otherwise = judgedSteps.filter((x) => !judgeOpen(x) && x.judge?.some((j) => j.changed));
+    const asRecorded = judgedSteps.length - waiting.length - otherwise.length;
+    if (judgedSteps.length) {
+      const parts = [
+        otherwise.length ? `${otherwise.length} came out otherwise for the new words (rank 2, as a changed stop is)` : '',
+        asRecorded ? (asRecorded === judgedSteps.length ? 'every check came out as recorded' : `${asRecorded} as recorded`) : '',
+        waiting.length ? `${waiting.length} could not be judged (the warnings say why)` : '',
+      ].filter(Boolean);
+      notes.push(`A judge check of the runs reads the words of ${judgedSteps.length} text-only step${judgedSteps.length === 1 ? '' : 's'}: ${parts.join(', ')}.`);
+    }
+    if (waiting.length) warnings.push(`${waiting.length} text-only step${waiting.length === 1 ? '' : 's'} a judge check reads could not be judged: ${[...notJudged].slice(0, 3).join('; ')}`);
+    if (allSteps.some((x) => x.rank === 5 && !x.judge?.length && !judgeOpen(x))) notes.push(judgedSteps.length ? 'Text-only changes no judge check reads are counted, not judged.' : 'Text-only changes are counted, not judged.');
     if (outputJudges.length) notes.push(`The judge check${outputJudges.length === 1 ? '' : 's'} ${outputJudges.map((n) => `"${n}"`).join(', ')} read${outputJudges.length === 1 ? 's' : ''} what the agent printed, which asking a model call again doesn't make: verify judges ${outputJudges.length === 1 ? 'it' : 'them'}.`);
     if (s.samples === 1 && (counts[1] || counts[2] || counts[3] || counts[4])) notes.push('Each step was asked once, and a model varies from one answer to the next: --samples 3 says how often a decision changes.');
     if (s.fromCode) notes.push('Nothing ran to read the prompt: each run was replayed offline under the working tree, its model calls matched without their prompt and tools.');
-    // What a judge check reads goes to its model: the same rules masked it first (decisions-judge.ts).
-    if (rules.length) notes.push(`The project's redaction rules masked the values this report shows${judgedSteps.length ? ', and what each judge check read' : ''}, as they mask every copy of a run that leaves the machine.`);
+    // What a judge reads goes to its model: the same rules masked it first (decisions-judge.ts). Said
+    // only when a judge read something, now, before, or in the recording.
+    if (rules.length) notes.push(`The project's redaction rules masked the values this report shows${judge.read ? ', and what each judge check read' : ''}, as they mask every copy of a run that leaves the machine.`);
     for (const plan of planned) if (plan.skip) warnings.push(`#${plan.call.callNo} of ${shortId(plan.target.run.runId)} not asked: ${mask.text(plan.skip)}`);
     const failures = allSteps.filter((x) => !x.samples.answered && x.samples.asked && x.error);
     if (failures.length) warnings.push(`${failures.length} step${failures.length === 1 ? '' : 's'} got no answer: ${[...new Set(failures.map((x) => x.error))].slice(0, 3).join('; ')}`);
@@ -1111,7 +1141,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
       notes,
       warnings,
       verify: null,
-      judge: judgedSteps.length || judge.upstreamRequests || judge.spent ? { steps: judgedSteps.length, changed: otherwise, inconclusive: unjudged.length, spent: judge.spent, upstreamRequests: judge.upstreamRequests, unknownModels: [...judge.unknownModels] } : null,
+      judge: judgedSteps.length || judge.upstreamRequests || judge.spent ? { steps: judgedSteps.length, changed: otherwise.length, inconclusive: waiting.length, spent: judge.spent, upstreamRequests: judge.upstreamRequests, unknownModels: [...judge.unknownModels] } : null,
       remedies: remedies.list(),
       stopReason: asked.stopReason,
     };

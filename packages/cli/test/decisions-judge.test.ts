@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { emptyCounts, NO_TOKENS, Store, type DecisionJudge, type DecisionRun, type DecisionsReport } from '@shadowlap/engine';
+import { emptyCounts, judgeOpen, NO_TOKENS, Store, type DecisionJudge, type DecisionRun, type DecisionsReport } from '@shadowlap/engine';
 import { judgeRequests, startMockAnthropic, withJudge, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
+import { decisionsInconclusive } from '../src/commands/changes.js';
 import { passesOf, type MigrateReport } from '../src/migrate.js';
 import { departures } from './json-shapes.js';
 
@@ -14,8 +15,8 @@ import { departures } from './json-shapes.js';
  * Text-only changes judged by the decision diff: the reference agent's golden carries judge checks
  * on its final answer and on its run, which say whether it tells the user that forks fence writes.
  * The mock plays the agent's model and its judge: `mock-terse` words the final answer without it,
- * `mock-wordy` with it in other words (decision-rules.ts in the reference agent), and the judge says
- * yes only when what it reads says it.
+ * `mock-wordy` with it in other words, `mock-mixed` one way and then the other (decision-rules.ts in
+ * the reference agent), and the judge says yes only when what it reads says it.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
@@ -133,8 +134,9 @@ describe('a text-only change a judge check reads', () => {
     expect(report.judge).toMatchObject({ steps: 1, changed: 1, inconclusive: 0, upstreamRequests: 2, unknownModels: [] });
     expect(report.judge!.spent).toBeGreaterThan(0);
     expect(report.cost.upstreamRequests).toBe(11);
-    expect(report.notes).toContain('A judge check of the runs read the words of 1 text-only step, as recorded and as answered now: 1 came out otherwise, rank 2, as a changed stop is.');
+    expect(report.notes).toContain('A judge check of the runs reads the words of 1 text-only step: 1 came out otherwise for the new words (rank 2, as a changed stop is).');
     expect(report.notes).toContain('The judge check "printed" reads what the agent printed, which asking a model call again doesn\'t make: verify judges it.');
+    expect(step.samples).toEqual({ asked: 1, answered: 1, changed: 1, unjudged: 0, ranks: [2] });
     expect(report.notes.join('\n')).not.toMatch(/counted, not judged/);
     const shapes = [departures('decisions', report), departures('decisionsStep', step), departures('decisionsDifference', step.changes[0]), departures('decisionsJudge', judged[0]), departures('decisionsJudgeSide', judged[0]!.now), departures('decisionsJudged', report.judge)];
     expect(shapes.flatMap((x) => [...x.missing, ...x.extra])).toEqual([]);
@@ -182,7 +184,7 @@ describe('a text-only change a judge check reads', () => {
       ['fences', 'passed', 'passed', 'live', false],
       ['run-fences', 'passed', 'passed', 'live', false],
     ]);
-    expect(report.notes).toContain('A judge check of the runs read the words of 1 text-only step, as recorded and as answered now: every check came out as recorded.');
+    expect(report.notes).toContain('A judge check of the runs reads the words of 1 text-only step: every check came out as recorded.');
   }, 120_000);
 
   it("masks what the judge reads with the project's redaction rules before it is sent, and says so", async () => {
@@ -243,17 +245,22 @@ describe('a text-only change a judge check reads', () => {
 describe('a judge check that cannot be asked', () => {
   it('leaves the step text only and inconclusive, saying why, which fails the preview unless --inconclusive warn', async () => {
     // The judge is OpenAI's, and this machine has no key for it: neither the pack nor the preview can ask it.
-    const p = await project('no-key', [{ ...ANSWER, model: 'gpt-5-mini' }]);
+    const p = await project('no-key', [{ ...ANSWER, model: 'gpt-5-mini' }], { redact: [{ pattern: '/deterministically/', replace: '<masked>' }] });
     const asked = judgeRequests(mock.requests).length;
     const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--json']);
     expect(r.code, r.out).toBe(1);
     const report = json<DecisionsReport>(r);
     const why = 'not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)';
     const step = report.runs[0]!.decisions[0]!;
-    expect(step).toMatchObject({ rank: 5, judge: [{ name: 'fences', changed: null, recorded: { status: 'inconclusive', verdict: null, reason: why, source: null }, now: { status: 'inconclusive', reason: why, source: null } }] });
+    expect(step).toMatchObject({ rank: 5, samples: { answered: 1, unjudged: 1 }, judge: [{ name: 'fences', changed: null, recorded: { status: 'inconclusive', verdict: null, reason: why, source: null }, now: { status: 'inconclusive', reason: why, source: null } }] });
     expect(report.flagged).toEqual([]);
     expect(report.judge).toMatchObject({ steps: 1, changed: 0, inconclusive: 1, upstreamRequests: 0 });
     expect(report.warnings).toContain('1 text-only step a judge check reads could not be judged: no recorded verdict and no key for openai (OPENAI_API_KEY)');
+    // No judge read anything: the notes say it could not be judged, never that it came out as recorded, and that
+    // the redaction rules masked what the report shows, not what a judge read.
+    expect(report.notes).toContain('A judge check of the runs reads the words of 1 text-only step: 1 could not be judged (the warnings say why).');
+    expect(report.notes.join('\n')).not.toMatch(/came out as recorded|what each judge check read/);
+    expect(report.notes).toContain("The project's redaction rules masked the values this report shows, as they mask every copy of a run that leaves the machine.");
     expect(judgeRequests(mock.requests).length).toBe(asked);
     const warned = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--inconclusive', 'warn']);
     expect(warned.code, warned.out).toBe(0);
@@ -265,11 +272,60 @@ describe('a judge check that cannot be asked', () => {
     expect(json<MigrateReport>(m).passes.runs).toMatchObject([{ verdict: 'inconclusive', outcome: 'not-judged', verified: false }]);
   }, 180_000);
 
-  it('reads a run as inconclusive in migrate while a text-only step a judge reads is not judged, and as its recording when judged the same', () => {
-    const side = (status: 'passed' | 'inconclusive') => ({ status, verdict: status === 'passed' ? ('yes' as const) : null, reason: status === 'passed' ? 'it says so' : 'not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)', source: status === 'passed' ? ('live' as const) : null, cost: status === 'passed' ? 0.001 : null, request: null });
-    const check = (now: 'passed' | 'inconclusive'): DecisionJudge => ({ name: 'fences', of: 'answer', model: 'gpt-5-mini', pass: 'yes', recorded: side('passed'), now: side(now), changed: now === 'passed' ? false : null });
-    const run = (judge: DecisionJudge[]): DecisionRun => ({ runId: '01A', golden: 'goldens/research', steps: 1, asked: 1, rank: 5, majority: 5, counts: { ...emptyCounts(), 5: 1 }, cost: { before: null, after: null, spent: 0 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, warnings: [], decisions: [{ callNo: 30, step: 11, scope: null, rank: 5, majority: 5, changes: [], recorded: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'a' }, now: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'b' }, samples: { asked: 1, answered: 1, changed: 1, ranks: [5] }, model: { recorded: 'm', asked: 'n' }, tokens: { before: null, after: null }, cost: { before: null, after: null, spent: 0 }, thinkingStripped: 0, error: null, judge }] });
-    expect(passesOf([run([check('inconclusive')])], [], null, () => true)).toMatchObject([{ verdict: 'inconclusive', outcome: 'not-judged', verified: false, tally: null }]);
-    expect(passesOf([run([check('passed')])], [], null, () => true)).toMatchObject([{ verdict: 'passed', outcome: 'unchanged' }]);
+  it('reads a run as inconclusive in migrate while a step of it waits on a judge, and as its recording when judged the same', () => {
+    const side = (status: 'passed' | 'failed' | 'inconclusive') => ({ status, verdict: status === 'passed' ? ('yes' as const) : status === 'failed' ? ('no' as const) : null, reason: status === 'inconclusive' ? 'not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)' : 'it says so', source: status === 'inconclusive' ? null : ('live' as const), cost: status === 'inconclusive' ? null : 0.001, request: null });
+    const check = (now: 'passed' | 'failed' | 'inconclusive'): DecisionJudge => ({ name: 'fences', of: 'answer', model: 'gpt-5-mini', pass: 'yes', recorded: side('passed'), now: side(now), changed: now === 'inconclusive' ? null : now !== 'passed' });
+    const run = (judge: DecisionJudge[], samples: { ranks: number[]; unjudged: number; majority: 2 | 5 }): DecisionRun => ({ runId: '01A', golden: 'goldens/research', steps: 1, asked: 1, rank: Math.min(...samples.ranks) as 2 | 5, majority: samples.majority, counts: { ...emptyCounts(), 5: 1 }, cost: { before: null, after: null, spent: 0 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, warnings: [], decisions: [{ callNo: 30, step: 11, scope: null, rank: Math.min(...samples.ranks) as 2 | 5, majority: samples.majority, changes: [], recorded: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'a' }, now: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'b' }, samples: { asked: samples.ranks.length, answered: samples.ranks.length, changed: samples.ranks.length, unjudged: samples.unjudged, ranks: samples.ranks }, model: { recorded: 'm', asked: 'n' }, tokens: { before: null, after: null }, cost: { before: null, after: null, spent: 0 }, thinkingStripped: 0, error: null, judge }] });
+    expect(passesOf([run([check('inconclusive')], { ranks: [5], unjudged: 1, majority: 5 })], [], null, () => true)).toMatchObject([{ verdict: 'inconclusive', outcome: 'not-judged', verified: false, tally: null }]);
+    expect(passesOf([run([check('passed')], { ranks: [5], unjudged: 0, majority: 5 })], [], null, () => true)).toMatchObject([{ verdict: 'passed', outcome: 'unchanged' }]);
+    // Three samples: the one shown came out otherwise, in fewer than half of them, and the judge could not judge the other two, which might flag it.
+    const hidden = run([check('failed')], { ranks: [2, 5, 5], unjudged: 2, majority: 5 });
+    expect(judgeOpen(hidden.decisions[0]!)).toBe(true);
+    expect(passesOf([hidden], [], null, () => true)).toMatchObject([{ verdict: 'inconclusive', outcome: 'not-judged' }]);
+    expect(decisionsInconclusive({ stopReason: null, runs: [hidden], flagged: [], verify: null } as unknown as DecisionsReport)).toBe('1 run has a text-only change a judge check reads that could not be judged');
   });
+});
+
+describe('judging text-only changes, more ways', () => {
+  it('stops judging once --budget is spent, and says what it could not judge, never that it came out as recorded', async () => {
+    const p = await project('budget', [ANSWER, RUN]);
+    const asked = judgeRequests(mock.requests).length;
+    // Asking mock-wordy, which has no price, spends nothing; the first live judge call spends the budget, so the second is not made.
+    const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-wordy', '--budget', '0.0001', '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = json<DecisionsReport>(r);
+    expect(judgeRequests(mock.requests).length - asked).toBe(1);
+    const step = report.runs[0]!.decisions[0]!;
+    expect(step.judge!.map((j) => [j.name, j.now.source, j.now.status, j.changed])).toEqual([
+      ['fences', 'live', 'passed', false],
+      ['run-fences', null, 'inconclusive', null],
+    ]);
+    expect(step.judge![1]!.now.reason).toBe('not judged: the budget of $0.00 is spent');
+    expect(step).toMatchObject({ rank: 5, samples: { unjudged: 1 } });
+    expect(report.stopReason).toBeNull();
+    expect(report.flagged).toEqual([]);
+    expect(report.judge).toMatchObject({ steps: 1, changed: 0, inconclusive: 1, upstreamRequests: 1 });
+    expect(report.notes).toContain('A judge check of the runs reads the words of 1 text-only step: 1 could not be judged (the warnings say why).');
+    expect(report.notes.join('\n')).not.toMatch(/came out as recorded/);
+    expect(report.warnings).toContain('1 text-only step a judge check reads could not be judged: the budget of $0.00 is spent');
+    expect(decisionsInconclusive(report)).toBe('1 run has a text-only change a judge check reads that could not be judged');
+  }, 120_000);
+
+  it('waits on the judge when it could not judge some samples of a step, whichever sample shows the step', async () => {
+    const p = await project('mixed', [ANSWER]);
+    // mock-mixed words one sample tersely and the other as recorded in other words; the first judged spends the budget,
+    // so the second is not judged. Whichever comes first, the step's flag waits on the words the judge never read.
+    const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-mixed', '--samples', '2', '--budget', '0.0001', '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = json<DecisionsReport>(r);
+    const step = report.runs[0]!.decisions[0]!;
+    expect(step.samples).toMatchObject({ asked: 2, answered: 2, changed: 2, unjudged: 1 });
+    expect(step.samples.ranks.slice().sort()).toEqual(step.samples.ranks.includes(2) ? [2, 5] : [5, 5]);
+    expect(judgeOpen(step)).toBe(true);
+    expect(report.flagged).toEqual([]);
+    expect(report.judge).toMatchObject({ steps: 1, changed: 0, inconclusive: 1, upstreamRequests: 1 });
+    expect(report.notes).toContain('A judge check of the runs reads the words of 1 text-only step: 1 could not be judged (the warnings say why).');
+    expect(report.warnings).toContain('1 text-only step a judge check reads could not be judged: the budget of $0.00 is spent');
+    expect(decisionsInconclusive(report)).toBe('1 run has a text-only change a judge check reads that could not be judged');
+  }, 120_000);
 });

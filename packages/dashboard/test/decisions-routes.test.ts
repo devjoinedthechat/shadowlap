@@ -95,16 +95,28 @@ describe('the decision read models', () => {
     expect(decisionRow({ ...(run.runs as DecisionRun[])[0]!, decisions: [step(4, 1, { majority: null, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } })] }).cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3, judge: null }]);
   });
 
-  it('marks a text-only change a judge check read: raised to rank 2 when it came out otherwise, inconclusive when it could not be judged', () => {
+  it('marks a text-only change a judge check read: raised to rank 2 when it came out otherwise, inconclusive while it waits on the judge', () => {
     const side = (status: 'passed' | 'failed' | 'inconclusive') => ({ status, verdict: status === 'passed' ? ('yes' as const) : status === 'failed' ? ('no' as const) : null, reason: status === 'inconclusive' ? 'not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)' : 'r', source: status === 'inconclusive' ? null : ('live' as const), cost: status === 'inconclusive' ? null : 0.001, request: null });
     const judged = (now: 'passed' | 'failed' | 'inconclusive') => [{ name: 'fences', of: 'answer' as const, model: 'claude-haiku-4-5', pass: 'yes' as const, recorded: side('passed'), now: side(now), changed: now === 'inconclusive' ? null : now !== 'passed' }];
     const base = (decisionSession(store, 'dc-01M5000000000000000000000A')!.runs as DecisionRun[])[0]!;
-    const cells = decisionRow({ ...base, decisions: [step(9, 2, { judge: judged('failed') }), step(10, 5, { judge: judged('passed') }), step(11, 5, { judge: judged('inconclusive') }), step(12, 5)] }).cells;
+    const samples = (ranks: number[], unjudged: number) => ({ asked: ranks.length, answered: ranks.length, changed: ranks.filter((r) => r).length, unjudged, ranks });
+    const cells = decisionRow({
+      ...base,
+      decisions: [
+        step(9, 2, { judge: judged('failed'), samples: samples([2, 2], 0) }),
+        step(10, 5, { judge: judged('passed'), samples: samples([5, 5], 0) }),
+        step(11, 5, { judge: judged('inconclusive'), samples: samples([5, 5], 2) }),
+        step(12, 5),
+        // One sample came out otherwise, the other could not be judged: not flagged without it, so the cell waits on the judge.
+        step(13, 2, { majority: 5, judge: judged('failed'), samples: samples([2, 5], 1) }),
+      ],
+    }).cells;
     expect(cells.map((c) => [c.callNo, c.rank, c.judge])).toEqual([
       [9, 2, 'changed'],
       [10, 5, 'unchanged'],
       [11, 5, 'inconclusive'],
       [12, 5, null],
+      [13, 2, 'inconclusive'],
     ]);
   });
 

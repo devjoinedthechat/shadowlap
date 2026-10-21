@@ -24,12 +24,16 @@ import { message, text, thinking, toolUse, type MockMessage, type ScriptContext,
  * - `mock-terse` and `mock-wordy` word the final answer their own way and play every other turn as
  *   recorded: a text-only change. The terse answer no longer says that forks fence writes; the wordy
  *   one still does, in other words.
+ * - `mock-mixed` words the final answer as `mock-terse` does the first time it is asked, as
+ *   `mock-wordy` does the next, and so on in turn: samples whose words a judge reads both ways.
  *
  * Every other request plays the scenario as recorded.
  */
 
 /** How many times `mock-coin` was asked at each turn. */
 const coinAsked = new Map<number, number>();
+/** How many times `mock-mixed` was asked for the final answer. */
+let mixedAsked = 0;
 
 const NO_EMAIL = /\bDo not email the summary\b/;
 const SHORT_ANSWER = /\bKeep the final answer short\b/;
@@ -82,9 +86,10 @@ export function decisionRules(ctx: ScriptContext, turns: readonly MockMessage[])
     if (emails && n % 3 === 1) return answer(message([text('Sending the summary.'), toolUse('send_email', { to: 'team@example.com', subject: 'Research summary', body: 'Replay works; forks fence writes.' }, 'toolu_coin_email')], { input_tokens: turn.usage.input_tokens, output_tokens: turn.usage.output_tokens }));
     return answer({ ...turn });
   }
-  if (model === 'mock-terse' || model === 'mock-wordy') {
+  if (model === 'mock-terse' || model === 'mock-wordy' || model === 'mock-mixed') {
     if (ctx.assistantTurns !== turns.length - 1) return answer({ ...turn });
-    const said = model === 'mock-terse' ? 'Done. Recorded runs replay deterministically.' : 'All done. In short: recorded runs replay deterministically, and forks fence writes.';
+    const terse = model === 'mock-terse' || (model === 'mock-mixed' && ++mixedAsked % 2 === 1);
+    const said = terse ? 'Done. Recorded runs replay deterministically.' : 'All done. In short: recorded runs replay deterministically, and forks fence writes.';
     return answer(message([text(said)], { stop_reason: 'end_turn', input_tokens: turn.usage.input_tokens, output_tokens: turn.usage.output_tokens }));
   }
   if (model === 'claude-haiku-4-5' || model === 'mock-small') {

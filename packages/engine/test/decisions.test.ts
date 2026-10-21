@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, majorityRank, modelFamily, promoteByJudge, RANK_LABELS, sameModel, type DecisionJudge, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
+import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, type DecisionJudge, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
 import type { Effect } from '../src/types.js';
 
 /**
@@ -338,12 +338,50 @@ describe('a text-only change a judge check reads', () => {
     expect(RANK_LABELS[2]).toBe('it stops, hands over or is judged differently');
   });
 
-  it('says how its checks came out, for a cell', () => {
-    expect(judgedOutcome({ judge: null })).toBeNull();
-    expect(judgedOutcome({})).toBeNull();
-    expect(judgedOutcome({ judge: [check(side('passed'), side('passed'))] })).toBe('unchanged');
-    expect(judgedOutcome({ judge: [check(side('passed'), side('passed')), check(side('passed'), side('inconclusive'))] })).toBe('inconclusive');
-    expect(judgedOutcome({ judge: [check(side('passed'), side('inconclusive')), check(side('passed'), side('failed'))] })).toBe('changed');
+  it('says how its checks came out, for a cell, and when a step waits on a judge', () => {
+    const asRecorded = check(side('passed'), side('passed'));
+    const notJudged = check(side('passed'), side('inconclusive'));
+    const otherwise = check(side('passed'), side('failed'));
+    // One sample: its own checks say.
+    const once = (judge: DecisionJudge[] | null, rank: 2 | 5 | null, unjudged = 0) => ({ judge, majority: rank, samples: { asked: 1, answered: 1, changed: rank ? 1 : 0, unjudged, ranks: [rank ?? 0] } });
+    expect(judgedOutcome(once(null, null))).toBeNull();
+    expect(judgedOutcome(once([asRecorded], 5))).toBe('unchanged');
+    expect(judgeOpen(once([asRecorded, notJudged], 5, 1))).toBe(true);
+    expect(judgedOutcome(once([asRecorded, notJudged], 5, 1))).toBe('inconclusive');
+    expect(judgeOpen(once([notJudged, otherwise], 2))).toBe(false);
+    expect(judgedOutcome(once([notJudged, otherwise], 2))).toBe('changed');
+    // Three samples: one came out otherwise, in fewer than half of them, and the judge could not judge the other two. Shown or not, they keep the step waiting.
+    const minority = { judge: [otherwise], majority: 5 as const, samples: { asked: 3, answered: 3, changed: 3, unjudged: 2, ranks: [2, 5, 5] } };
+    expect(judgeOpen(minority)).toBe(true);
+    expect(judgedOutcome(minority)).toBe('inconclusive');
+    // Behind a read changed in another sample, too.
+    expect(judgeOpen({ majority: 5, samples: { asked: 2, answered: 2, changed: 2, unjudged: 1, ranks: [3, 5] } })).toBe(true);
+    // Flagged by most of its samples: what the one not judged would make of its words changes nothing.
+    const flagged = { ...minority, majority: 2 as const, samples: { ...minority.samples, unjudged: 1, ranks: [2, 2, 5] } };
+    expect(judgeOpen(flagged)).toBe(false);
+    expect(judgedOutcome(flagged)).toBe('changed');
+    // A session kept before samples counted them waits on nothing.
+    expect(judgeOpen({ majority: 5, samples: { asked: 1, answered: 1, changed: 1, ranks: [5] } })).toBe(false);
+  });
+
+  it('shows the most consequential sample, and of text-only ones, one a judge could not judge', () => {
+    const asRecorded = [check(side('passed'), side('passed'))];
+    const notJudged = [check(side('passed'), side('inconclusive'))];
+    const otherwise = [check(side('passed'), side('failed'))];
+    expect(unjudgedSample(notJudged)).toBe(true);
+    expect(unjudgedSample(asRecorded)).toBe(false);
+    expect(unjudgedSample(null)).toBe(false);
+    // Raised to rank 2 by one check, whatever the other could not say.
+    expect(unjudgedSample([...otherwise, ...notJudged])).toBe(false);
+    expect(shownSample([])).toBe(-1);
+    // The first sample came out as recorded and the second was not judged: the second shows the step, which never reads as judged.
+    expect(shownSample([{ rank: 5, judge: asRecorded }, { rank: 5, judge: notJudged }])).toBe(1);
+    expect(shownSample([{ rank: 5, judge: notJudged }, { rank: 5, judge: asRecorded }])).toBe(0);
+    // A judged change, or any other more consequential one, comes first.
+    expect(shownSample([{ rank: 5, judge: notJudged }, { rank: 2, judge: otherwise }])).toBe(1);
+    expect(shownSample([{ rank: 1, judge: null }, { rank: 5, judge: notJudged }])).toBe(0);
+    // Else the first of the most consequential, a sample that decided as recorded last.
+    expect(shownSample([{ rank: null, judge: null }, { rank: 5, judge: asRecorded }, { rank: 5, judge: asRecorded }])).toBe(1);
   });
 
   it('shows each check beside the step, says the run is judged otherwise, and what judging cost apart from asking', () => {
@@ -386,5 +424,8 @@ describe('a text-only change a judge check reads', () => {
     expect(same).toContain('judge "explains-escalation" passed, as recorded · it says why (asked before and kept, free)');
     const open = formatDecisions({ ...report, flagged: [], runs: [{ ...run, rank: 5, majority: 5, decisions: [{ ...run.decisions[0]!, rank: 5, majority: 5, changes: [promoted.changes[1]!], judge: [check(side('passed', { source: 'recording', cost: 0 }), side('inconclusive'))] }] }] });
     expect(open).toContain('judge "explains-escalation" inconclusive · not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)');
+    // With samples, how many of them a judge could not judge, the one shown or not.
+    const sampled = formatDecisions({ ...report, samples: 3, flagged: [], runs: [{ ...run, rank: 2, majority: 5, decisions: [{ ...run.decisions[0]!, majority: 5, samples: { asked: 3, answered: 3, changed: 3, unjudged: 2, ranks: [2, 5, 5] } }] }] });
+    expect(sampled).toMatch(/#30 +step 30 +rank 2 +judge "explains-escalation" fails what it says now, which passed as recorded · in 3 of 3 samples, fewer than half: not flagged, 2 of them not judged/);
   });
 });
