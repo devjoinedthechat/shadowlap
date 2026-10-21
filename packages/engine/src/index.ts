@@ -75,7 +75,7 @@ export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-
 export { formatRepeats, summarizeRepeats } from './repeat.js';
 export { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, ProbeVerdict } from './blame.js';
-export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, outcomeOf, runVerdict, verifyRule } from './verify.js';
+export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
 // Statistical gating: verdicts with stated error rates on attempts that vary (test's gate, verify, blame).
 export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decisionWord, describeGate, dropProbability, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, verdictLine, wilson, wilsonBound } from './stats.js';
 export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, GateOdds, GateOutcome, GateResult, SprtBounds, SprtEvidence, SprtGate, Tally } from './stats.js';

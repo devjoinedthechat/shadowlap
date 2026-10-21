@@ -328,6 +328,10 @@ describe('an attempt a judge could not answer', () => {
     expect(text.out).toMatch(/attempt 1 {2}\? judge "issued" answers yes, but it is inconclusive: not judged/);
     expect(text.out).toContain('! Incomplete');
     expect(text.out).not.toMatch(/broken|Rejected|✗ judge/);
+    // Under its gate, the run's line gives no tally: the gate decided nothing.
+    const gated = await shadowlap(['verify', '--keeps', rec, '--expect', unanswered, '--set', 'max_tokens=99'], { VARIANT: 'plain' });
+    expect(gated.out).toMatch(new RegExp(`^ {2}good {6}${rec.slice(0, 10)} {2}inconclusive$`, 'm'));
+    expect(gated.out).not.toContain('0 of 0');
   }, 120_000);
 });
 

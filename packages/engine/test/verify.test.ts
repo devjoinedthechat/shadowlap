@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CallRecord } from '../src/types.js';
 import { gateResult, type SprtGate } from '../src/stats.js';
-import { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateVerdict, outcomeOf, runVerdict, verifyRule, type VerifiedRun, type VerifyReport, type VerifyRole } from '../src/verify.js';
+import { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule, type VerifiedRun, type VerifyReport, type VerifyRole } from '../src/verify.js';
 
 const fp = (inputTokens: number, cost: number | null = inputTokens / 1e6) => ({ inputTokens, outputTokens: 10, cost });
 
@@ -91,6 +91,22 @@ describe('a run an attempt of which could not be judged', () => {
     expect(text).toMatch(/held-out +01K5HELD00 +inconclusive +attempt 1 not judged +judge "issued" answers yes, but it is inconclusive/);
     expect(text).toMatch(/good +01K5GOOD00 +inconclusive +2 of 2 passed, attempt 3 not judged +judge "issued" answers yes/);
     expect(text).not.toMatch(/not fixed|broken|Rejected/);
+  });
+
+  it('is marked in amber among the reasons, where what the change failed is red', () => {
+    const tag = (name: string) => (s: string) => `<${name}>${s}</${name}>`;
+    const palette = { green: tag('green'), red: tag('red'), yellow: tag('yellow'), dim: (s: string) => s, bold: (s: string) => s, cyan: (s: string) => s };
+    // A target run the change did not fix, a good run it could not judge, and a held-out run the budget left open.
+    const runs = [run('target', [false, false]), undecided('good', [true, true], '01K5GOOD'), { ...run('holdout', [true], { id: '01K5HELD' }), verdict: 'open' as const }];
+    const d = decideVerify(runs, 'the budget ran out');
+    const text = formatVerify({ ...d, runs, attemptsPerRun: 5, needed: 4, oracle: ['the agent exits 0'], fields: {}, codeVersion: null, attempts: 5, spent: 0, upstreamRequests: 10, unknownModels: [], stopReason: 'the budget ran out', replayWarnings: [] }, palette);
+    expect(text).toContain('<red>·</red> target run 01K5TARGET not fixed: 0 of 2 passed');
+    expect(text).toContain(`<yellow>·</yellow> good run 01K5GOOD00 inconclusive: attempt 3 could not be judged: ${why}`);
+    expect(text).toContain('<yellow>·</yellow> 1 run not settled: the budget ran out');
+    expect(d.reasons.filter(unsettledReason)).toEqual([`good run 01K5GOOD00 inconclusive: attempt 3 could not be judged: ${why}`, '1 run not settled: the budget ran out']);
+    expect(unsettledReason('1 run not settled: the budget ran out')).toBe(true);
+    expect(unsettledReason('held-out run 01K5HELD00 inconclusive: 7 of 12 passed · rate 0.32 to 0.81 (95%), between the gate\'s bounds when its attempts ran out')).toBe(true);
+    expect(unsettledReason('good run 01K5GOOD00 broken: 0 of 1 passed')).toBe(false);
   });
 });
 

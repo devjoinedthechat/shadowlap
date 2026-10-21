@@ -376,6 +376,9 @@ describe('a fix', () => {
       ['target', 'fixed', 4, 4, 0, 'forked at #1'],
       ['good', 'inconclusive', 1, 0, 1, 'an attempt could not be judged'],
     ]);
+    // Its reason is one the step shows in amber, never with what the change failed.
+    expect(v.reasons).toEqual([expect.stringMatching(/^good run \w+ inconclusive: attempt 1 could not be judged: judge "issued" answers yes/)]);
+    expect(v.unsettled).toEqual(v.reasons);
     // The Forks view under the good run: the attempt reads inconclusive, never failed.
     const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
     expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: attempt, passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);

@@ -150,6 +150,14 @@ function tally(r: VerifiedRun): string {
   return `${r.passes} of ${r.attempts.length} passed${bound ? ` · ${bound}` : ''}`;
 }
 
+/**
+ * Whether a reason `decideVerify` gives says a run is inconclusive or not settled, rather than that the
+ * change failed it: a report marks it in amber, as it does the run's outcome, never in red.
+ */
+export function unsettledReason(reason: string): boolean {
+  return /^(?:target|held-out|good) run \S+ inconclusive: /.test(reason) || /^\d+ runs? not settled\b/.test(reason);
+}
+
 export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | null): VerifyDecision {
   const reasons: string[] = [];
   for (const r of runs) {
@@ -271,7 +279,8 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
   const sentence = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : (parts[0] ?? 'no runs');
   const head = r.verdict === 'accepted' ? `${p.green('✓')} ${p.bold('Accepted')}` : r.verdict === 'rejected' ? `${p.red('✗')} ${p.bold('Rejected')}` : `${p.yellow('!')} ${p.bold('Incomplete')}`;
   lines.push(`${head}: the change ${sentence}`);
-  for (const reason of r.reasons) lines.push(`  ${p.red('·')} ${safeLine(reason)}`);
+  // What the change failed in red; a run it could not settle, inconclusive or not settled, in amber.
+  for (const reason of r.reasons) lines.push(`  ${unsettledReason(reason) ? p.yellow('·') : p.red('·')} ${safeLine(reason)}`);
 
   lines.push('', p.dim(`  ${verifyRule(r)}`));
 

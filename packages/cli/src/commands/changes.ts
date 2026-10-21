@@ -1,5 +1,5 @@
 import { Command, InvalidArgumentError } from 'commander';
-import { commandIsImported, formatDecisions, hasRecordedCommand, SPRT_DEFAULTS, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
+import { commandIsImported, formatDecisions, hasRecordedCommand, SPRT_DEFAULTS, unsettledReason, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { verifySession } from '../decisions-verify.js';
 import { attemptRule, parseFields, readExpectJson } from './fix.js';
@@ -302,7 +302,8 @@ function verifyLines(v: DecisionsVerify, what: string | null): string {
   // The last attempt of a run it could not judge stopped it: neither passed nor failed, so said apart.
   const tally = (x: DecisionsVerify['runs'][number]) => (x.undecided ? `${x.attempts > 1 ? `${x.passes} of ${x.attempts - 1} passed, ` : ''}attempt ${x.attempts} not judged` : `${x.passes} of ${x.attempts} passed`);
   for (const x of v.runs) lines.push(`  ${x.runId.slice(0, 10)}  ${x.outcome}  ${p.dim(`${tally(x)}${x.bound ? ` · ${x.bound}` : ''}`)}`);
-  for (const reason of v.reasons) lines.push(`  ${p.red('·')} ${reason}`);
+  // What the change failed in red; a run verify could not settle, inconclusive or not settled, in amber.
+  for (const reason of v.reasons) lines.push(`  ${unsettledReason(reason) ? p.yellow('·') : p.red('·')} ${reason}`);
   for (const c of v.commands) lines.push(p.dim(`  ${c}`));
   return lines.join('\n') + '\n';
 }

@@ -98,9 +98,10 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       if (s.gate && result.attempts.length) result.gate = gateResult(s.gate, result.attempts.filter((x) => x.verdict !== 'inconclusive').map((x) => x.passed), { clean: result.deterministic && !result.undecided, decision: result.decision ?? 'continue' });
       if (result.verdict === 'fail') failed = true;
       const o = outcomeOf(result);
-      // The tally and the Wilson bound beside the outcome; the rule was said once, above.
+      // The tally and the Wilson bound beside the outcome; the rule was said once, above. A run an
+      // attempt it could not judge stopped has neither: its gate decided nothing, and its attempt's line says why.
       const g = result.gate;
-      const said = g && !result.deterministic && result.decision !== 'continue' ? p.dim(` · ${[`${g.passes} of ${g.attempts}`, wilsonBound(g)].filter(Boolean).join(' · ')}`) : '';
+      const said = g && !result.deterministic && !result.undecided && result.decision !== 'continue' ? p.dim(` · ${[`${g.passes} of ${g.attempts}`, wilsonBound(g)].filter(Boolean).join(' · ')}`) : '';
       log(`  ${label}  ${!result.attempts.length ? p.yellow('not started') : o === 'fixed' || o === 'kept' ? p.green(o) : o === 'unsettled' || o === 'inconclusive' ? p.yellow(o) : p.red(o)}${said}`);
     };
 

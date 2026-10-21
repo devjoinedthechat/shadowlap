@@ -51,6 +51,7 @@ import {
   type VerifyOutcome,
   unrescuedWords,
   unsettledFirst,
+  unsettledReason,
 } from '@shadowlap/engine';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -307,6 +308,8 @@ export interface VerifyStep {
   spent: number;
   unknownModels: string[];
   reasons: string[];
+  /** Those of `reasons` that say a run is inconclusive or not settled, not that the change failed it: shown in amber, the rest in red. */
+  unsettled: string[];
   warnings: string[];
   command: string;
   repairId: string | null;
@@ -835,6 +838,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
     spent: r.spent,
     unknownModels: r.unknownModels,
     reasons: r.reasons,
+    unsettled: r.reasons.filter(unsettledReason),
     warnings: [...r.warnings, ...(r.replayWarnings ?? [])],
     command: v.command,
     repairId: v.repairId,

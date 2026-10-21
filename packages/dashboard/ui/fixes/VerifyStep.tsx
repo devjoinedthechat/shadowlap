@@ -36,8 +36,11 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
       <Verdict v={v} />
       {v.verdict !== 'accepted' && v.reasons.length ? (
         <ul className="fxwarn bad">
+          {/* What the change failed in red; a run it could not settle, inconclusive or not settled, in amber. */}
           {v.reasons.map((r) => (
-            <li key={r}>{r}</li>
+            <li key={r} className={v.unsettled.includes(r) ? 'unsure' : undefined}>
+              {r}
+            </li>
           ))}
         </ul>
       ) : null}
