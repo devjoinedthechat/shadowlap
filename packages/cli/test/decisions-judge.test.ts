@@ -68,11 +68,14 @@ const json = <T,>(r: { stdout: string; out: string }): T => {
   }
 };
 
-/** A project whose golden, goldens/research, is judged by these checks; packed, so it holds the verdicts the judge could give. */
-async function project(name: string, judge: unknown[]): Promise<{ dir: string; runId: string; final: number }> {
+/**
+ * A project whose golden, goldens/research, is judged by these checks; packed, so it holds the verdicts the judge could give.
+ * `config` adds to shadowlap.config.json.
+ */
+async function project(name: string, judge: unknown[], config: Record<string, unknown> = {}): Promise<{ dir: string; runId: string; final: number }> {
   const dir = join(root, name);
   mkdirSync(join(dir, 'goldens'), { recursive: true });
-  writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/research': { expect: { judge } } } }));
+  writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ ...config, tests: { 'goldens/research': { expect: { judge } } } }));
   const rec = await shadowlap(dir, ['run', '--', process.execPath, AGENT]);
   expect(rec.code, rec.out).toBe(0);
   const runId = /recording run (\w{26})/.exec(rec.out)![1]!;
@@ -180,6 +183,21 @@ describe('a text-only change a judge check reads', () => {
       ['run-fences', 'passed', 'passed', 'live', false],
     ]);
     expect(report.notes).toContain('A judge check of the runs read the words of 1 text-only step, as recorded and as answered now: every check came out as recorded.');
+  }, 120_000);
+
+  it("masks what the judge reads with the project's redaction rules before it is sent, and says so", async () => {
+    const masked = await project('redacted', [ANSWER], { redact: [{ pattern: '/deterministically/', replace: '<masked>' }] });
+    const asked = judgeRequests(mock.requests).length;
+    const r = await shadowlap(masked.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = json<DecisionsReport>(r);
+    // Only the new words were sent, masked: the recorded words' verdict is the golden's own, read the same way when it was packed.
+    expect(judgeRequests(mock.requests).slice(asked).map((q) => q.material)).toEqual(['Done. Recorded runs replay <masked>.']);
+    const step = report.runs[0]!.decisions[0]!;
+    expect(step).toMatchObject({ rank: 2, now: { text: 'Done. Recorded runs replay <masked>.' } });
+    expect(step.judge!.map((j) => [j.recorded.source, j.now.source, j.changed])).toEqual([['recording', 'live', true]]);
+    expect(report.notes).toContain("The project's redaction rules masked the values this report shows, and what each judge check read, as they mask every copy of a run that leaves the machine.");
+    expect(r.stdout).not.toContain('deterministically');
   }, 120_000);
 
   it('judges a run from the store by the tests entry of the recording it comes from', async () => {

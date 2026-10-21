@@ -100,7 +100,7 @@ The steps don't depend on each other: step 9 is asked with the conversation as r
 
 `--samples <n>` asks each step *n* times and reports how often its decision changed (*in 2 of 3 samples*), which tells a changed policy from a model's own variation. A step flags its run only when more than half its samples show a write, stop or judged change; one fewer samples show is listed with how often, and *not flagged*, and the report counts such steps. A judge reads each sample's words. With one sample and a change, the report says so.
 
-The report shows what the project's [redaction rules](./normalizers-and-redaction.md) leave of a value: the arguments, texts and errors it holds are masked as every copy of a run that leaves the machine is (a pull request body, a comment on one), while the comparison reads the values themselves.
+The report shows what the project's [redaction rules](./normalizers-and-redaction.md) leave of a value: the arguments, texts and errors it holds are masked as every copy of a run that leaves the machine is (a pull request body, a comment on one), while the comparison reads the values themselves. What a judge check reads goes to its model, so it is masked the same way before it is sent, and the report's notes say so.
 
 ## The prompt your code sends
 

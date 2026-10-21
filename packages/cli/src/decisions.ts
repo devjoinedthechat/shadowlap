@@ -1073,7 +1073,8 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     if (outputJudges.length) notes.push(`The judge check${outputJudges.length === 1 ? '' : 's'} ${outputJudges.map((n) => `"${n}"`).join(', ')} read${outputJudges.length === 1 ? 's' : ''} what the agent printed, which asking a model call again doesn't make: verify judges ${outputJudges.length === 1 ? 'it' : 'them'}.`);
     if (s.samples === 1 && (counts[1] || counts[2] || counts[3] || counts[4])) notes.push('Each step was asked once, and a model varies from one answer to the next: --samples 3 says how often a decision changes.');
     if (s.fromCode) notes.push('Nothing ran to read the prompt: each run was replayed offline under the working tree, its model calls matched without their prompt and tools.');
-    if (rules.length) notes.push("The project's redaction rules masked the values this report shows, as they mask every copy of a run that leaves the machine.");
+    // What a judge check reads goes to its model: the same rules masked it first (decisions-judge.ts).
+    if (rules.length) notes.push(`The project's redaction rules masked the values this report shows${judgedSteps.length ? ', and what each judge check read' : ''}, as they mask every copy of a run that leaves the machine.`);
     for (const plan of planned) if (plan.skip) warnings.push(`#${plan.call.callNo} of ${shortId(plan.target.run.runId)} not asked: ${mask.text(plan.skip)}`);
     const failures = allSteps.filter((x) => !x.samples.answered && x.samples.asked && x.error);
     if (failures.length) warnings.push(`${failures.length} step${failures.length === 1 ? '' : 's'} got no answer: ${[...new Set(failures.map((x) => x.error))].slice(0, 3).join('; ')}`);
