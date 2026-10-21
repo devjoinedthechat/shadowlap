@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -373,6 +375,63 @@ describe('judging text-only changes, more ways', () => {
     expect(report.runs[0]!.decisions[0]!.judge!.map((j) => [j.name, j.recorded.source, j.recorded.status, j.now.source, j.now.status])).toEqual([['fences', 'live', 'passed', 'live', 'failed']]);
     expect(report.flagged).toEqual([p.runId]);
     expect(report.verify).toMatchObject({ verdict: 'rejected', runs: [{ runId: p.runId, outcome: 'broken', passes: 0, attempts: 1 }] });
+  }, 180_000);
+
+  // Windows has no Ctrl-C to send a child process.
+  it.skipIf(process.platform === 'win32')('starts no verify after a Ctrl-C while the judge is asked, and says why it did not', async () => {
+    const p = await project('interrupted', [ANSWER]);
+    // A way to the mock that holds the judge's request until the Ctrl-C has landed.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let judging = () => {};
+    const asking = new Promise<void>((resolve) => (judging = resolve));
+    const proxy = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        void (async () => {
+          const body = Buffer.concat(chunks);
+          if (body.includes('<material>')) {
+            judging();
+            await held;
+          }
+          const up = await fetch(`${mock.url}${req.url ?? '/'}`, { method: req.method ?? 'POST', headers: { 'content-type': 'application/json' }, body });
+          res.writeHead(up.status, { 'content-type': up.headers.get('content-type') ?? 'application/json' });
+          res.end(Buffer.from(await up.arrayBuffer()));
+        })();
+      });
+    });
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    try {
+      const upstream = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+      const child = spawn(process.execPath, [CLI, '--db', join(p.dir, 'store.db'), 'decisions', 'goldens/*', '--model', 'mock-terse', '--then-verify', '--attempts', '1', '--json'], {
+        cwd: p.dir,
+        env: { ...process.env, ...NO_OTHER_PROVIDER, SHADOWLAP_UPSTREAM_ANTHROPIC: upstream, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(p.dir, 'home') },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let out = '';
+      let stdout = '';
+      child.stdout.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
+      child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+      const exited = new Promise<number | null>((resolve) => child.on('exit', resolve));
+      await asking;
+      child.kill('SIGINT');
+      // The signal lands while the judge's answer is held; then the answer comes.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      release();
+      const code = await exited;
+      expect(code, out).toBe(1);
+      const report = json<DecisionsReport>({ stdout, out });
+      // The judge's answer still counts: the run is flagged. Verify, which would run the agent, did not start.
+      expect(report.flagged).toEqual([p.runId]);
+      expect(report.verify).toMatchObject({ verdict: 'not-run', runs: [], reasons: ['it was interrupted before verify started'] });
+      expect(report.verify!.commands).toHaveLength(1);
+      expect(decisionsInconclusive(report)).toBe('verify did not run: it was interrupted before verify started');
+    } finally {
+      release();
+      proxy.closeAllConnections();
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
+    }
   }, 180_000);
 
   it('judges no text-only change of a run that did not complete, which fails whatever a judge says', async () => {

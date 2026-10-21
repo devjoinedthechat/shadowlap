@@ -1173,7 +1173,8 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
         prices: config.prices,
         budget: s.budget === null ? null : Math.max(0, s.budget - asked.spent - judge.spent),
         log,
-        blocked: codeChangeNeeded(report.remedies, s.model),
+        // A Ctrl-C while the judge was asked starts no verify: what it would run is said, with the commands.
+        blocked: interrupted ? 'it was interrupted before verify started' : codeChangeNeeded(report.remedies, s.model),
       });
       if (report.verify.verdict === 'not-run' && !report.verify.reasons.length) report.notes.push('No run has a write, stop or judged change, so none needs verify.');
     }
