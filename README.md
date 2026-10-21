@@ -7,8 +7,8 @@
 
 <p align="center">
   <b>Change safety for agents.</b><br>
-  Record,&nbsp;replay&nbsp;and&nbsp;fork&nbsp;AI&nbsp;agent&nbsp;runs: reproduce&nbsp;a&nbsp;failure&nbsp;exactly,<br>
-  find&nbsp;the&nbsp;call&nbsp;that&nbsp;lost&nbsp;the&nbsp;run, and&nbsp;prove&nbsp;your&nbsp;fix&nbsp;holds&nbsp;before&nbsp;it&nbsp;ships.
+  Record, replay and fork AI agent runs: reproduce&nbsp;a&nbsp;failure&nbsp;exactly,<br>
+  find the call that lost the&nbsp;run, and&nbsp;prove&nbsp;your&nbsp;fix holds before&nbsp;it&nbsp;ships.
 </p>
 
 <p align="center">
@@ -34,14 +34,16 @@ Shadowlap records your agent's model calls and the tools you wrap, then replays 
 
 <p align="center">
   <picture>
-    <source media="(max-width: 600px) and (prefers-reduced-motion: reduce)" srcset=".github/assets/readme/terminal-narrow-static.svg">
-    <source media="(max-width: 600px)" srcset=".github/assets/readme/terminal-narrow.svg">
+    <source media="(max-width: 600px) and (prefers-reduced-motion: reduce)" srcset=".github/assets/readme/terminal-narrow-static.svg" width="434">
+    <source media="(max-width: 600px)" srcset=".github/assets/readme/terminal-narrow.svg" width="434">
+    <source media="(max-width: 1279px) and (prefers-reduced-motion: reduce)" srcset=".github/assets/readme/terminal-medium-static.svg" width="637">
+    <source media="(max-width: 1279px)" srcset=".github/assets/readme/terminal-medium.svg" width="637">
     <source media="(prefers-reduced-motion: reduce)" srcset=".github/assets/readme/terminal-static.svg">
     <img src=".github/assets/readme/terminal.svg" alt="A terminal session: shadowlap run records a support agent that refunds a $240 order; shadowlap replay reproduces it with 0 upstream requests; shadowlap blame finds the run was lost at model call #5; after a prompt fix, the replay forks with the diff of the system prompt and the check passes." width="880">
   </picture>
 </p>
 
-<p align="center"><sub>The real CLI on the demo's support agent and scripted models, with lines left out but none changed (<a href="scripts/demo-svg.mjs">source</a>).</sub></p>
+<p align="center"><sub>The real CLI against the demo's scripted models: lines&nbsp;left&nbsp;out&nbsp;or&nbsp;wrapped, none&nbsp;changed (<a href="scripts/demo-svg.mjs">source</a>).</sub></p>
 
 ## From failure to proof
 
@@ -52,15 +54,17 @@ One order, start to finish, against the demo's scripted models. The support agen
 [Blame](docs/blame.md) asks model calls again, each from a fork that replays everything before it, and names the last one whose new answer can still save the run. A passing run never calls `issue_refund` for&nbsp;$240:
 
 ```console
-$ shadowlap blame 01M5FHTP9E --expect @refund-check.json
+$ shadowlap blame 01M5FP0KRV --expect @refund-check.json
 …
 ⑂ The run was lost at model call #5 (3 of 5)
+…
 
-  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, …)
+  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts; resample the probed call)
     #1  1 of 5  4 of 8 passed · rate >= 0.22 (95%)  rescued
     #5  3 of 5  4 of 8 passed · rate >= 0.22 (95%)  rescued  ◂ blamed
     #7  4 of 5  0 of 4 passed · rate <= 0.49 (95%)  lost
     #9  5 of 5  0 of 4 passed · rate <= 0.49 (95%)  lost
+…
 ```
 
 ### Prove the fix
@@ -81,9 +85,16 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
 …
 ```
 
-<p align="center"><img src=".github/assets/readme/dashboard-fix.png" alt="The Shadowlap Fixes page for 'issue_refund called with amount 240', applied: blame found the runs were lost at model call #5, repair proposed the prompt change, and verify's verdict is that every failing run is fixed and every good run kept." width="880"></p>
+`--repairer anthropic` needs the Anthropic SDK beside the CLI: <code>npm&nbsp;install&nbsp;-g&nbsp;@anthropic-ai/sdk</code>.
 
-<p align="center"><sub>The same fix in the dashboard, with a scripted model standing in for Claude (<a href="scripts/readme-shots.mjs">source</a>).</sub></p>
+<p align="center">
+  <picture>
+    <source media="(max-width: 600px)" srcset=".github/assets/readme/dashboard-fix-phone.png">
+    <img src=".github/assets/readme/dashboard-fix.png" alt="The Shadowlap Fixes page for 'issue_refund called with amount 240', applied: blame found the runs were lost at model call #5, repair proposed the prompt change, and verify's verdict is that every failing run is fixed and every good run kept." width="880">
+  </picture>
+</p>
+
+<p align="center"><sub>The same fix in the dashboard. A&nbsp;scripted&nbsp;model&nbsp;stands&nbsp;in&nbsp;for&nbsp;Claude (<a href="scripts/readme-shots.mjs">source</a>).</sub></p>
 
 `shadowlap verify` gives a fix you wrote yourself the same [proof](docs/verify.md), and exits 1 unless it accepts the&nbsp;fix.
 
@@ -92,15 +103,15 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
 Apply the fix blame opened: the patch goes in, the fixed runs become goldens, and their tests&nbsp;run.
 
 ```console
-$ shadowlap fix apply fx-01M5FHTTJ1
-⑂ Applying fx-01M5FHTTJ1 · issue_refund called with amount 240
-  …
+$ shadowlap fix apply fx-01M5FP0R4Q
+⑂ Applying fx-01M5FP0R4Q · issue_refund called with amount 240
+…
     3 passed, 0 failed · 0 upstream requests
-✓ fx-01M5FHTTJ1 applied: the patch is in the working tree,
+✓ fx-01M5FP0R4Q applied: the patch is in the working tree,
   3 of 3 goldens copied to goldens/, shadowlap test passed
 ```
 
-Commit the goldens with the fix. In CI, `shadowlap test` replays them offline and fails on a changed request, a live call, an error exit or a failed [check](docs/checks.md). On GitHub, add one step after checkout, Node 22 and your build ([workflow](docs/ci.md#github-actions)):
+Commit the goldens with the fix. In CI, `shadowlap test` replays them offline and fails on a changed request, a live call, an error exit or a failed [check](docs/checks.md). On GitHub, add one step after your checkout, Node and build steps ([workflow](docs/ci.md#github-actions)):
 
 ```yaml
 - uses: devjoinedthechat/shadowlap@main
@@ -115,19 +126,19 @@ With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix fo
 The demo's ticket agent handles the same order from a support ticket. Before you move it to another model, [`decisions`](docs/decisions.md) asks its recorded model calls again under that model. No tool runs; changes are ranked, writes first:
 
 ```console
-$ shadowlap decisions 01M5FHV6DT --model claude-haiku-4-5
+$ shadowlap decisions 01M5FP149X --model claude-haiku-4-5
 …
 ✗ 1 of 1 run decides a write or when to stop differently, under the model claude-haiku-4-5
   14 steps asked: 1 rank 1, 13 the same · no tool ran
 
-01M5FHV6DT  14 of 14 model calls asked · 1 changed, most: rank 1 (a write changed)
+01M5FP149X  14 of 14 model calls asked · 1 changed, most: rank 1 (a write changed)
   #17   step 8  rank 1  issue_refund is no longer called
          recorded issue_refund({"order_id":"A-1042","amount":240})
          now      queue_status({"team":"refunds-tier2"})  −8 tokens · −<$0.001
-  …
+…
 ```
 
-<code>decisions&nbsp;--from-code</code> previews a prompt edit in your code the same way, and <code>shadowlap&nbsp;migrate</code> verifies and prices a model&nbsp;switch.
+`shadowlap decisions --from-code` previews a prompt edit in your code the same way, and `shadowlap migrate` verifies and prices a model&nbsp;switch.
 
 ## Quickstart
 
@@ -139,7 +150,9 @@ cd your-agent
 shadowlap init
 ```
 
-`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes. Wrap each tool once with its effect, or it runs again on every replay. The SDKs need Node 18 or later, Python 3.9 or&nbsp;later:
+`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes. Wrap each tool once with its effect, or it runs again on every replay.
+
+`@shadowlap/sdk` wraps tools and `@shadowlap/adapters` wraps them in your framework, both on Node 18 or later. `@shadowlap/test`, a dev dependency, records tests in Vitest or node:test, on Node 22.13 or later like the CLI. For Python 3.9 or later, one package holds all three:
 
 ```sh
 npm install @shadowlap/sdk
@@ -148,16 +161,12 @@ npm install -D @shadowlap/test
 pip install shadowlap
 ```
 
-```ts
-import {
-  tool,
-} from '@shadowlap/sdk';
+Wrap each tool where you define it. Outside Shadowlap the wrapper is a passthrough, so it ships unchanged:
 
-export const issueRefund = tool(
-  'issue_refund',
-  { effect: 'write' },
-  refund,
-);
+```ts
+import { tool } from '@shadowlap/sdk';
+
+export const issueRefund = tool('issue_refund', { effect: 'write' }, refund);
 ```
 
 ```python
@@ -167,7 +176,7 @@ from shadowlap import tool
 def lookup_order(order_id): ...
 ```
 
-Outside Shadowlap the wrapper is a passthrough, so it ships unchanged. Then record, replay and look:
+Then record, replay and look:
 
 ```sh
 # record, with your usual key
@@ -182,32 +191,37 @@ shadowlap dashboard
 
 `shadowlap dashboard` opens your runs on 127.0.0.1. Fork from any call, or compare two runs side by side.
 
-<p align="center"><img src=".github/assets/readme/dashboard-fork.png" alt="The Shadowlap dashboard on a fork of the ticket agent's refund run: forked at call 17 after the lookup_policy result was overridden, the recorded and the new request side by side, and a strip of calls replayed, overridden, live and blocked." width="880"></p>
+<p align="center">
+  <picture>
+    <source media="(max-width: 600px)" srcset=".github/assets/readme/dashboard-fork-phone.png">
+    <img src=".github/assets/readme/dashboard-fork.png" alt="The Shadowlap dashboard on a fork of the ticket agent's refund run: forked at call 17 after the lookup_policy result was overridden, the request as recorded and as sent, and a strip of calls replayed, overridden, live and blocked." width="880">
+  </picture>
+</p>
 
-<p align="center"><sub>What if the ticket agent's <code>lookup_policy</code> had returned the EU limit? It forks at call&nbsp;17.</sub></p>
+<p align="center"><sub>What if <code>lookup_policy</code> had returned the EU limit? It&nbsp;forks&nbsp;at&nbsp;call&nbsp;17.</sub></p>
 
-`shadowlap ui` shows your runs in the terminal, with conversation, request, response and meta tabs for each call. Its `:` menu lists the what-ifs for the call in front of&nbsp;you:
+`shadowlap ui` shows your runs in the terminal, with conversation, request, response and meta tabs for each call. Press `:` for the what-ifs at the call in front of&nbsp;you:
 
 ```text
- 01M5FHV8XF fork @17 of 01M5FHV6DT · 32 calls · 15 replayed · 14 live · 2 blocked · …
-╭──────────────────────────────────────────────────────────────────────────────────────────────╮
-│ Actions                                                                                      │
-│ At #16 · lookup_policy · pure tool                                                           │
-│ > o Override this tool’s result                                   --override 16=…            │
-│   t Answer with a tool error                                      --fail-at 16=timeout       │
-│   l Force lookup_policy live                                      --live-tool lookup_policy  │
-│   a Diverge here                                                  --diverge-at 16            │
-│ The whole run                                                                                │
-│   e Repeat the replay and compare                                 --repeat 5                 │
-│   s Stub the writes                                               --writes stub              │
-│   b Find the commit that changed it                               bisect --good …            │
-│ ────────────────────────                                                                     │
-│   r Replay this run (clean if nothing changed)                    replay                     │
-│   p Pack this run to a directory (redaction rules applied)        pack                       │
-│ The agent gets this instead of the recorded result. Calls before it replay.                  │
-│ Enter or the letter to run · Esc to close                                                    │
-╰──────────────────────────────────────────────────────────────────────────────────────────────╯
- : actions · / search · [ ] jump · o dashboard · y copy · w write · p parent · space play · …
+ 01M5FP16T0 fork @17 of 01M5FP149X · 32 calls · 15 replayed · 14 live · 2 blocked · 1 overridden…
+╭───────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Actions                                                                                       │
+│ At #16 · lookup_policy · pure tool                                                            │
+│ > o Override this tool’s result                                    --override 16=…            │
+│   t Answer with a tool error                                       --fail-at 16=timeout       │
+│   l Force lookup_policy live                                       --live-tool lookup_policy  │
+│   a Diverge here                                                   --diverge-at 16            │
+│ The whole run                                                                                 │
+│   e Repeat the replay and compare                                  --repeat 5                 │
+│   s Stub the writes                                                --writes stub              │
+│   b Find the commit that changed it                                bisect --good …            │
+│ ────────────────────────                                                                      │
+│   r Replay this run (clean if nothing changed)                     replay                     │
+│   p Pack this run to a directory (redaction rules applied)         pack                       │
+│ The agent gets this instead of the recorded result. Calls before it replay.                   │
+│ Enter or the letter to run · Esc to close                                                     │
+╰───────────────────────────────────────────────────────────────────────────────────────────────╯
+ : actions · / search · [ ] jump · o dashboard · y copy · w write · p parent · space play · d di…
 ```
 
 ## How it works
@@ -230,22 +244,22 @@ shadowlap run -- node agent.mjs
 
 ## Integrations
 
-- **[Providers](docs/providers.md)** Anthropic, OpenAI and compatible servers (Ollama, vLLM, OpenRouter, Groq), Gemini, Azure&nbsp;OpenAI, Vertex&nbsp;AI, Amazon&nbsp;Bedrock
-- **[SDKs](docs/sdk.md)** TypeScript and Python; any other language over the [wire protocol](docs/protocol.md)
-- **[Frameworks](docs/frameworks.md)** Vercel&nbsp;AI&nbsp;SDK, OpenAI&nbsp;Agents&nbsp;SDK, Mastra, LangChain and LangGraph, the Anthropic tool runner; in Python, OpenAI&nbsp;Agents&nbsp;SDK, LangChain and LangGraph, CrewAI, Pydantic&nbsp;AI
-- **[Test suites](docs/testing.md)** pytest, Vitest and node:test: a test records once, then replays offline
-- **[MCP](docs/mcp.md)** Servers over stdio or Streamable HTTP, behind <code>shadowlap&nbsp;mcp</code>
-- **[CI](docs/ci.md)** The GitHub Action; JUnit, JSON and Markdown reports for any other CI
-- **[Coding agents](docs/agents.md)** Claude Code, Cursor and Codex drive the CLI through its JSON; <code>shadowlap&nbsp;skill&nbsp;install</code> adds the plugin or the&nbsp;rule
-- **[Imports](docs/cli.md#import)** HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse, LangSmith
-- **[Exports](docs/cli.md#export-html)** Packs, one-file HTML reports, HAR, OpenTelemetry, eval datasets, preference&nbsp;pairs
+- **[Providers](docs/providers.md):** Anthropic, OpenAI and compatible servers (Ollama, vLLM, OpenRouter, Groq), Gemini, Azure&nbsp;OpenAI, Vertex&nbsp;AI, Amazon&nbsp;Bedrock
+- **[SDKs](docs/sdk.md):** TypeScript and Python; any other language over the [wire protocol](docs/protocol.md)
+- **[Frameworks](docs/frameworks.md):** Vercel&nbsp;AI&nbsp;SDK, OpenAI&nbsp;Agents&nbsp;SDK, Mastra, LangChain and LangGraph, the Anthropic tool runner; in Python, OpenAI&nbsp;Agents&nbsp;SDK, LangChain and LangGraph, CrewAI, Pydantic&nbsp;AI
+- **[Test suites](docs/testing.md):** pytest, Vitest and node:test; a test records once, then replays offline
+- **[MCP](docs/mcp.md):** servers over stdio or Streamable HTTP, behind <code>shadowlap&nbsp;mcp</code>
+- **[CI](docs/ci.md):** the GitHub Action; JUnit, JSON and Markdown reports for any other CI
+- **[Coding agents](docs/agents.md):** Claude Code, Cursor and Codex drive the CLI through its JSON; <code>shadowlap&nbsp;skill&nbsp;install</code> adds the plugin or the&nbsp;rule
+- **[Imports](docs/cli.md#import):** HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse, LangSmith
+- **[Exports](docs/cli.md#export-html):** packs, one-file HTML reports, HAR, OpenTelemetry, eval datasets, preference&nbsp;pairs
 
 ## Security
 
 - **Local only.** The sidecar and the dashboard listen on 127.0.0.1 behind a session token; recordings stay in your project, readable&nbsp;only&nbsp;by&nbsp;you.
 - **Keys pass through** to the provider and are never stored; a clean replay needs no real&nbsp;key.
-- **Masked on the way out.** Your redaction rules mask packs, exports, share links and what repair shows its model; a push to your own bucket sends runs as&nbsp;recorded.
-- **No telemetry** unless `SHADOWLAP_TELEMETRY_URL` names a collector, and never prompts or tool data ([every field](docs/telemetry.md)); `DO_NOT_TRACK=1` turns it&nbsp;off.
+- **Masked on the way out.** Your redaction rules mask packs, exports, share links and what repair shows its model. Runs you push to your own bucket go as recorded,&nbsp;unmasked.
+- **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector of yours; it never sends prompts or tool data ([every field](docs/telemetry.md)), and `DO_NOT_TRACK=1` turns it&nbsp;off.
 
 [SECURITY.md](SECURITY.md) lists every check and how to report a vulnerability.
 
@@ -253,7 +267,7 @@ shadowlap run -- node agent.mjs
 
 | Topic | Pages |
 |:---|:---|
-| Start | [Introduction](docs/index.md)&nbsp;· [How&nbsp;it&nbsp;works](docs/how-it-works.md)&nbsp;· [Why&nbsp;did&nbsp;my&nbsp;replay&nbsp;diverge?](docs/troubleshooting.md) |
+| Start | [Introduction](docs/index.md)&nbsp;· [How&nbsp;it&nbsp;works](docs/how-it-works.md)&nbsp;· [Why did my replay diverge?](docs/troubleshooting.md) |
 | Recording | [SDKs](docs/sdk.md)&nbsp;· [Frameworks](docs/frameworks.md)&nbsp;· [Providers](docs/providers.md)&nbsp;· [MCP&nbsp;servers](docs/mcp.md)&nbsp;· [Production&nbsp;traffic](docs/gateways.md) |
 | Fixes | [Blame](docs/blame.md)&nbsp;· [Repair](docs/repair.md)&nbsp;· [Verify](docs/verify.md)&nbsp;· [Gating](docs/gating.md)&nbsp;· [Decisions](docs/decisions.md) |
 | Tests | [CI&nbsp;mode](docs/ci.md)&nbsp;· [Checks](docs/checks.md)&nbsp;· [Test&nbsp;suites](docs/testing.md)&nbsp;· [Injection&nbsp;tests](docs/injection.md)&nbsp;· [Error&nbsp;paths](docs/error-paths.md)&nbsp;· [Coverage](docs/coverage.md) |

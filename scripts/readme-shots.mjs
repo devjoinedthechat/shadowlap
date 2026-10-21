@@ -16,9 +16,11 @@
 //
 // It writes into .github/assets/readme/:
 //
-//   dashboard-fork.png   the override fork, with the request that changed
-//   dashboard-fix.png    the fix: the call blame found, the prompt repair proposed, and verify's
-//                        verdict on every failing and good run
+//   dashboard-fork.png         the override fork, with the request that changed and the strip of calls
+//   dashboard-fix.png          the fix: the call blame found, the prompt repair proposed, and verify's
+//                              verdict on every failing and good run
+//   dashboard-fork-phone.png   the same pages in the dashboard's phone layout: the fork down to its
+//   dashboard-fix-phone.png    strip of calls, the fix down to verify's verdict
 //
 // and what each command of the story printed into <folder>/samples/, where the README's console
 // examples come from: blame, repair, fix apply, decisions and the override. Without a folder the
@@ -31,10 +33,11 @@
 // never this machine's; and as a first-time user sees it, with no team store set up: a `store` in
 // the project's shadowlap.config.json is taken out while it runs, and the file put back as it was.
 // Each picture is taken with headless Chrome at twice the pixels (CHROME=/path/to/chrome chooses
-// the browser): the page beside the sidebar and above the status bar of a 1280 by 800 window, in the
-// README terminal's frame (rounded corners, transparent outside them, and a hairline edge). The
-// dashboard is dark only. Run ids, dates and durations differ from run to run; the rest comes out
-// the same.
+// the browser): on a desktop, the page beside the sidebar of a 1280 by 800 window; on a phone, the
+// page 390 px wide, top bar included, as a touch screen shows it. Each ends under a part of the page,
+// never through one, and above the status bar. It is in the README terminal's frame (rounded corners,
+// transparent outside them, and a hairline edge). The dashboard is dark only. Run ids, dates and
+// durations differ from run to run; the rest comes out the same.
 import { execFileSync, spawn } from 'node:child_process';
 import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
@@ -279,7 +282,7 @@ try {
   const text = (s) => `document.body.innerText.includes(${JSON.stringify(s)})`;
   const shots = [
     {
-      file: 'dashboard-fork.png',
+      name: 'dashboard-fork',
       open: `/run/${runs.override}`,
       async ready() {
         await until(`!!document.querySelector('.banner.fork') && !!document.querySelector('.cells')`, 'the fork’s banner and calls');
@@ -287,50 +290,70 @@ try {
         await evaluate(`[...document.querySelectorAll('.banner.fork button')].find((b) => b.textContent.trim() === 'Show diff')?.click()`);
         await until(`!!document.querySelector('.diffpanel')`, 'the fork’s diff');
       },
+      // Down to the strip of the calls the fork made.
+      end: { desktop: 'section.strip', phone: 'section.strip' },
     },
     {
-      file: 'dashboard-fix.png',
+      name: 'dashboard-fix',
       open: `/fixes/${runs.refundFix}`,
       async ready() {
         await until(`${text('Every failing run fixed')} && ${text('Lost at model call')}`, 'the fix’s verdict');
       },
+      // Down to verify's table of runs; on a phone, where that table scrolls sideways, to its verdict.
+      end: { desktop: '.verdict ~ section.panel.tscroll', phone: '.verdict' },
     },
   ];
   mkdirSync(outDir, { recursive: true });
   // A desktop window: narrower, the dashboard stacks what sits side by side here. The picture is the
-  // part beside the sidebar, above the status bar, so the README's column shows its text at four
-  // fifths of its size, where the whole window would shrink it to two thirds.
-  const W = 1280;
-  const H = 800;
-  for (const shot of shots) {
-    await send('Emulation.setDefaultBackgroundColorOverride', {});
-    await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 2, mobile: false });
-    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
-    await send('Page.navigate', { url: `${origin}/#token=${token}&open=${shot.open}` });
-    await shot.ready();
-    await evaluate('document.fonts.ready.then(() => true)');
-    await wait(700);
-    const clip = await evaluate(`(() => {
-      const side = document.querySelector('aside.side').getBoundingClientRect();
-      const status = document.querySelector('footer.status').getBoundingClientRect();
-      return { x: Math.ceil(side.right), y: 0, width: ${W} - Math.ceil(side.right), height: Math.floor(status.top) };
-    })()`);
-    const { data } = await send('Page.captureScreenshot', { format: 'png', clip: { ...clip, scale: 1 } });
-    const png = await framed(data, clip);
-    const file = join(outDir, shot.file);
-    writeFileSync(file, png);
-    const bytes = statSync(file).size;
-    console.log(`wrote ${relative(root, file)}: ${clip.width * 2}×${clip.height * 2}, ${(bytes / 1024).toFixed(0)} KB`);
-    if (bytes > MAX_BYTES) throw new Error(`readme-shots: ${shot.file} is ${(bytes / 1024).toFixed(0)} KB, over the ${MAX_BYTES / 1024} KB a README picture may weigh`);
+  // part beside the sidebar, so the README's column shows its text at four fifths of its size, where
+  // the whole window would shrink it to two thirds. A phone: the dashboard's phone layout, top bar
+  // included, as a touch screen shows it (no keyboard help), in a window tall enough that the picture
+  // ends above the status bar. The frame's corners are those of the README terminal shown beside it:
+  // the wide one on a desktop, the narrow one on a phone.
+  const sizes = [
+    { size: 'desktop', suffix: '', width: 1280, height: 800, mobile: false, radius: (w) => w / 80 },
+    { size: 'phone', suffix: '-phone', width: 390, height: 1200, mobile: true, radius: (w) => w / 36 },
+  ];
+  for (const s of sizes) {
+    for (const shot of shots) {
+      const file = `${shot.name}${s.suffix}.png`;
+      const end = shot.end[s.size];
+      await send('Emulation.setDefaultBackgroundColorOverride', {});
+      await send('Emulation.setDeviceMetricsOverride', { width: s.width, height: s.height, deviceScaleFactor: 2, mobile: s.mobile });
+      await send('Emulation.setTouchEmulationEnabled', s.mobile ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
+      await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
+      await send('Page.navigate', { url: `${origin}/#token=${token}&open=${shot.open}` });
+      await shot.ready();
+      await evaluate('document.fonts.ready.then(() => true)');
+      await wait(700);
+      // The picture ends under a part of the page, never through one: 24 px under it, or just above
+      // what follows it, whichever comes first.
+      const clip = await evaluate(`(() => {
+        const part = document.querySelector(${JSON.stringify(end)});
+        if (!part) return null;
+        let next = part.nextElementSibling;
+        while (next && !next.getBoundingClientRect().height) next = next.nextElementSibling;
+        const bottom = Math.floor(Math.min(part.getBoundingClientRect().bottom + 24, next ? next.getBoundingClientRect().top - 1 : Infinity));
+        if (bottom > document.querySelector('footer.status').getBoundingClientRect().top) return { under: true };
+        const left = ${s.mobile} ? 0 : Math.ceil(document.querySelector('aside.side').getBoundingClientRect().right);
+        return { x: left, y: 0, width: ${s.width} - left, height: bottom };
+      })()`);
+      if (!clip) fail(`${file}: the page has no ${end}`);
+      if (clip.under) fail(`${file}: ${end} ends under the status bar of a ${s.width} by ${s.height} window`);
+      const { data } = await send('Page.captureScreenshot', { format: 'png', clip: { ...clip, scale: 1 } });
+      const png = await framed(data, clip, Math.round(s.radius(clip.width)));
+      writeFileSync(join(outDir, file), png);
+      const bytes = statSync(join(outDir, file)).size;
+      console.log(`wrote ${relative(root, join(outDir, file))}: ${clip.width * 2}×${clip.height * 2}, ${(bytes / 1024).toFixed(0)} KB`);
+      if (bytes > MAX_BYTES) throw new Error(`readme-shots: ${file} is ${(bytes / 1024).toFixed(0)} KB, over the ${MAX_BYTES / 1024} KB a README picture may weigh`);
+    }
   }
 
   /**
-   * The picture in the terminal picture's frame: corners rounded to the radius that one shows at the
-   * README's width, transparent outside them, and a hairline edge in its colour, so the pictures
-   * match on a light page and a dark one.
+   * The picture in the terminal picture's frame: corners rounded, transparent outside them, and a
+   * hairline edge in its colour, so the pictures match on a light page and a dark one.
    */
-  async function framed(data, { width, height }) {
-    const radius = Math.round(width / 80);
+  async function framed(data, { width, height }, radius) {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: false });
     await send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
     await send('Page.navigate', { url: 'about:blank' });

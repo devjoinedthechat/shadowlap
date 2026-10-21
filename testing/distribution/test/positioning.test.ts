@@ -19,7 +19,7 @@ describe('the name of the job', () => {
   it('is the README’s first line, and the mechanism comes next', () => {
     const header = /<p align="center">\s*<b>([^<]+)<\/b><br>\s*([^\n]+)/.exec(read('README.md'));
     expect(header?.[1]).toBe(`${LINE}.`);
-    // As it reads: the spaces inside a clause are non-breaking, so a phone breaks the line between clauses.
+    // As it reads: a few of its spaces are non-breaking, so a phone breaks the line between clauses.
     expect(header?.[2]?.replace(/&nbsp;/g, ' ')).toMatch(/^Record, replay and fork AI agent runs/);
   });
 

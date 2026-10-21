@@ -26,6 +26,6 @@ await generateText({ model, tools, prompt: 'Order A-1042: the customer asks for 
 | LangChain and LangGraph | `withEffect` from `@shadowlap/adapters/langchain` |
 | Anthropic tool runner | `withEffect` from `@shadowlap/adapters/anthropic` |
 
-Only the framework's input is recorded, never its context objects. The adapters carry no framework dependencies, and each one but `withEffectV0` (Mastra 0.x) is tested in CI against the framework itself.
+Only the framework's input is recorded, never its context objects. The adapters carry no framework dependencies, and each one but `withEffectV0` (Mastra 0.x) is tested in CI against the framework itself. Node 18 or later, like the SDK.
 
 [Frameworks](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/frameworks.md) shows each adapter in use, with the versions it is tested against.

@@ -62,6 +62,32 @@ describe('the terminal UI section', () => {
     expect(footer!.startsWith(shown), `the README shows "${shown}"; the TUI renders "${footer}"`).toBe(true);
     expect(shown.split('·').length, 'the README footer shows too little of the real one').toBeGreaterThanOrEqual(footer!.split('·').length - 3);
   });
+
+  it('is one frame at one width, header and footer as the TUI cuts them at it', () => {
+    const frame = /```text\n([\s\S]*?)\n```/.exec(readme.slice(readme.indexOf('## Dashboard and terminal UI')))?.[1];
+    expect(frame, 'no terminal UI frame in the README').toBeDefined();
+    const lines = frame!.split('\n');
+    const width = [...lines[1]!].length;
+    expect(lines[1]).toMatch(/^╭─+╮$/);
+    expect(lines.filter((l) => [...l].length !== width), 'lines narrower or wider than the frame').toEqual([]);
+  });
+});
+
+// The terminal comes in three widths, and a narrower one is drawn at its own width, never stretched
+// to the column: a width on its <source> says how wide, and goes stale when npm run demo draws it anew.
+describe('the README pictures', () => {
+  it('are files here, and a source with a width is as wide as its picture', () => {
+    const tags = [...readme.matchAll(/<(?:source|img)\b[^>]*>/g)].map((m) => m[0]);
+    const local = tags.map((tag) => ({ tag, path: /(?:srcset|src)="(\.github\/[^"]+)"/.exec(tag)?.[1] })).filter((t) => t.path);
+    expect(local.length).toBeGreaterThan(10);
+    expect(local.filter((t) => !existsSync(join(root, t.path!))).map((t) => t.path), 'pictures the README names that are not here').toEqual([]);
+    const sized = local.filter((t) => t.tag.startsWith('<source') && / width="\d+"/.test(t.tag));
+    expect(sized.length).toBeGreaterThan(0);
+    for (const { tag, path } of sized) {
+      const svg = readFileSync(join(root, path!), 'utf8');
+      expect(/ width="(\d+)"/.exec(tag)![1], path).toBe(/<svg\b[^>]* width="(\d+)"/.exec(svg)?.[1]);
+    }
+  });
 });
 
 /** A heading's anchor as GitHub makes it: lower case, punctuation dropped, spaces as hyphens. */

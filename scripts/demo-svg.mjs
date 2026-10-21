@@ -9,10 +9,11 @@
 //   npm run build && node scripts/demo-svg.mjs
 //
 // It writes .github/assets/readme/terminal.svg, which types each command and shows what it printed,
-// on a loop, and terminal-static.svg, the same session drawn whole, for where motion is unwanted; and
-// both again as terminal-narrow.svg and terminal-narrow-static.svg for a phone's width: 47 columns,
-// so a phone shows the text at about 10 px, a command too long for them continued on a second line
-// after a backslash, as a shell takes it, and a longer line broken at the end of a clause.
+// on a loop, and terminal-static.svg, the same session drawn whole, for where motion is unwanted.
+// Both come again in 80 columns, terminal-medium.svg and terminal-medium-static.svg, for a tablet or
+// a narrow window, and in 47, terminal-narrow.svg and terminal-narrow-static.svg, for a phone, which
+// shows them at about 10 px. A command too long for the width goes on in a second line after a
+// backslash, as a shell takes it, and a longer line breaks at the end of a clause.
 //
 // A line is shown as the CLI printed it, or left out; none is changed. Left out: the progress a
 // command prints while it works (`[shadowlap] recording run …`, blame's probes and their attempts),
@@ -185,10 +186,10 @@ try {
   const runId = /recording run (\w{26})/.exec(recorded)?.[1];
   if (!runId) throw new Error(`demo-svg: no run was recorded:\n${recorded}`);
   const id = runId.slice(0, 10);
-  scenes.push({ args: recordArgs, work: 0.7, lines: excerpt('run', recorded, [/^Refunded \$240 for A-1042 /, /^● Recorded \w{26}: /], [/^\[shadowlap\] recording run /, SHOW]) });
+  scenes.push({ args: recordArgs, work: 0.35, lines: excerpt('run', recorded, [/^Refunded \$240 for A-1042 /, /^● Recorded \w{26}: /], [/^\[shadowlap\] recording run /, SHOW]) });
 
   const replayArgs = ['replay', id];
-  scenes.push({ args: replayArgs, work: 0.35, lines: excerpt('replay', await inTerminal(replayArgs), [/^Refunded \$240 for A-1042 /, /^✓ Replay clean: /], [/^\[shadowlap\] replaying run /, SHOW]) });
+  scenes.push({ args: replayArgs, work: 0.2, lines: excerpt('replay', await inTerminal(replayArgs), [/^Refunded \$240 for A-1042 /, /^✓ Replay clean: /], [/^\[shadowlap\] replaying run /, SHOW]) });
 
   // Asked again at the decision, the model escalates every other time: the rescue blame looks for.
   models.control.refund = 'alternate';
@@ -197,7 +198,7 @@ try {
   models.control.refund = 'refund';
   scenes.push({
     args: blameArgs,
-    work: 1.1,
+    work: 0.5,
     lines: excerpt(
       'blame',
       blamed,
@@ -235,7 +236,7 @@ try {
   const forkArgs = ['replay', id, '--expect', EXPECT];
   scenes.push({
     args: forkArgs,
-    work: 0.5,
+    work: 0.3,
     lines: excerpt(
       'the replay after the fix',
       await inTerminal(forkArgs),
@@ -259,10 +260,13 @@ const C = { bg: '#0e0f0b', edge: '#25261d', fg: '#eeede6', dim: '#8d8b7b', promp
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const fillOf = (run) => (run.fg ? C[run.fg] : run.dim ? C.dim : C.fg);
 
-// Pacing, in seconds: the prompt waiting, typing, the command working, its lines arriving, time to
-// read, and the whole session held at the end. The first command is typed already, so the picture is
-// never empty: a page that shows its first frame, or a capture of one, shows a command at work.
-const P = { idle: 0.25, perChar: 0.017, enter: 0.2, perLine: 0.05, readBase: 0.9, readPerLine: 0.12, end: 6.5, fade: 0.4 };
+// Pacing, in seconds: the prompt waiting, typing, the command working, its lines arriving (all at
+// once, as a block), a moment before the next command, and the whole session held at the end. It is
+// typed fast, so all of it is on screen within six seconds of the picture loading and stays there for
+// twenty-two before the loop starts again: a reader who scrolls to it late still sees the whole
+// session. The first command is typed already, so the picture is never empty: a page that shows its
+// first frame, or a capture of one, shows a command at work.
+const P = { idle: 0.15, perChar: 0.01, enter: 0.1, perLine: 0, readBase: 0.25, readPerLine: 0.03, end: 22, fade: 0.4 };
 
 /** When each command shows, is typed and prints, and when each of its lines arrives. */
 const timeline = [];
@@ -477,16 +481,20 @@ ${body.join('\n')}
 `;
 }
 
-// The README's column, and a phone's: 47 columns, which a phone shows at about 10 px.
+// The README's column on a wide screen; 80 columns for a tablet or a narrow window, where GitHub's
+// column is narrower and the README picks the medium picture; and 47 for a phone.
 const wide = layout(Infinity);
+const medium = layout(80);
 const narrow = layout(47);
 mkdirSync(outDir, { recursive: true });
 const files = [
   ['terminal.svg', render(wide, true)],
   ['terminal-static.svg', render(wide, false)],
+  ['terminal-medium.svg', render(medium, true)],
+  ['terminal-medium-static.svg', render(medium, false)],
   ['terminal-narrow.svg', render(narrow, true)],
   ['terminal-narrow-static.svg', render(narrow, false)],
 ];
 for (const [name, svg] of files) writeFileSync(join(outDir, name), svg);
 const shown = timeline.at(-1).lines.at(-1).at;
-console.log(`wrote ${files.map(([name, svg]) => `${relative(root, join(outDir, name))} (${(Buffer.byteLength(svg) / 1024).toFixed(0)} KB)`).join(', ')}: ${scenes.length} commands, ${wide.rows.length} rows of ${wide.cols} columns (narrow: ${narrow.rows.length} of ${narrow.cols}), a ${TOTAL.toFixed(1)} s loop, the whole session shown from ${shown.toFixed(1)} s to ${(TOTAL - P.fade).toFixed(1)} s`);
+console.log(`wrote ${files.map(([name, svg]) => `${relative(root, join(outDir, name))} (${(Buffer.byteLength(svg) / 1024).toFixed(0)} KB)`).join(', ')}: ${scenes.length} commands, ${wide.rows.length} rows of ${wide.cols} columns (medium: ${medium.rows.length} of ${medium.cols}, narrow: ${narrow.rows.length} of ${narrow.cols}), a ${TOTAL.toFixed(1)} s loop, the whole session shown from ${shown.toFixed(1)} s to ${(TOTAL - P.fade).toFixed(1)} s`);
