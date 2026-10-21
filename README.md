@@ -113,7 +113,7 @@ $ shadowlap fix apply fx-01M5FYD8YZ
   3 of 3 goldens copied to goldens/, shadowlap test passed
 ```
 
-Commit the goldens with the fix. In CI, `shadowlap test` replays them offline, with no secrets, and fails on a changed request, a live call, an error exit or a failed [check](docs/checks.md). On GitHub, add one step after your checkout, Node and build steps ([workflow](docs/ci.md#github-actions)):
+Commit the goldens with the fix. In CI, `shadowlap test` replays them offline, with no real key, and fails on a changed request, a live call, an error exit or a failed [check](docs/checks.md). On GitHub, add one step after your checkout, Node and build steps ([workflow](docs/ci.md#github-actions)):
 
 ```yaml
 - uses: devjoinedthechat/shadowlap@v0.1.0

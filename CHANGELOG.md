@@ -23,7 +23,7 @@ The first release: record, replay and fork AI agent runs, find the call that los
 #### Replay and fork
 
 - **A clean replay makes no upstream requests.** Calls match by what they ask, `(kind, fingerprint, occurrence)`, never by the order they arrive in, so parallel calls replay in any order.
-- **A clean replay needs no real key.** An agent with no key for a provider the run called gets a placeholder, which the sidecar never sends to a provider, so CI needs no secrets.
+- **A clean replay needs no real key.** An agent with no key for a provider the run called gets a placeholder, which the sidecar never sends to a provider.
 - **A fork at the first changed request**, with a structural diff against the closest recorded call and a normalizer hint when the change is a date or an id. After it, model calls and `read` tools run live and `write` tools are blocked or stubbed (`--writes`). A network guard reports or refuses connections that bypass Shadowlap (`--guard`).
 - **Fewer false forks.** Dates and times near a run's start match across days, and `shadowlap calibrate` replays offline until clean, proposing a normalizer for each value the agent makes anew on every run.
 - **What-ifs at call *k*:** `--override` a tool result, `--inject` an instruction, `--set` a request field, switch the `--model`, force a tool live (`--live-tool`) or a call (`--diverge-at`), apply a changed prompt from a later call (`--prompt-from`), and answer a model call with an HTTP failure (`--fail-at`), which sends nothing upstream.

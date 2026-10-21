@@ -51,7 +51,7 @@ The conversation tab needs no state reconstruction: every model request carries 
 | `x` | Delete the selected run (runs view; asks first). A run still recording, or one a replay in progress reads from, stays, and the reason is shown |
 | `?`, `Esc`/`q` | Help; back / quit |
 
-The header line summarizes the run: calls, how many replayed, ran live, were blocked or stubbed, tokens saved and what they were worth, the approximate cost of the live calls, wall time, status, age and revision. A run that is still recording is tailed live. The layout follows terminal resizes; the minimum is 60×12.
+The header line summarizes the run: calls, how many replayed, ran live, were blocked or stubbed, tokens saved and what they were worth, the approximate cost of the live calls, wall time, status, age and revision. A run that is still recording is tailed live. The layout follows terminal resizes; the minimum is 60×12. In a terminal too narrow for all of the header or the keys in the footer, what fits is shown whole, in order, and ` · …` stands for the rest.
 
 ## Cost, model and stop reason
 
