@@ -4,9 +4,9 @@ import type { Store } from './store.js';
 import type { CallRecord, RunRecord, RunSummary } from './types.js';
 
 /**
- * `shadowlap show <run> --json`: the run, its summary and every call as stored. Coding agents and
- * scripts read this shape, so it is built in one place: the CLI prints it, and the dashboard
- * serves it without starting the CLI.
+ * `shadowlap show <run> --json`: the run, its summary and every call as stored, and its untrusted
+ * reads (callNo, name, from). Coding agents and scripts read this shape, so it is built in one
+ * place: the CLI prints it, and the dashboard serves it without starting the CLI.
  */
 export interface ShowJson {
   run: RunRecord;

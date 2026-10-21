@@ -29,8 +29,8 @@ import { bisectChoices, bisectJob, gatePreview, liveTestSession, normalizeAndTes
  * The goldens are the packs on disk, as the CLI lists them (`DashboardOptions.goldens`); a request
  * naming any other is refused. Jobs that replay or rewrite those packs (Find the commit on a golden
  * among them) run one at a time in a project (`testsBusy`), and none starts while a test session, or
- * a session of error-path presets on goldens, started elsewhere runs (`sessionBusy`): a second is
- * refused with a 409 that names the one running.
+ * a session of error-path presets on goldens, runs, wherever it was started (`sessionBusy`): a second
+ * is refused with a 409 that names the one running.
  */
 
 /** The folder the project keeps its goldens in. */
@@ -76,10 +76,11 @@ export function testsBusy(jobs: ReadonlyArray<{ kind: string; args?: readonly st
 }
 
 /**
- * Why such a job waits for a session running outside this dashboard's jobs (a terminal, another
- * dashboard), named by its command; null when none runs. A test session counts, and so do the
- * error-path presets on goldens (`test --chaos`), which replay their packs too. The store keeps each
- * session's process, so one whose process was killed holds nothing up.
+ * Why such a job waits for a session running now, wherever it was started (a terminal, another
+ * dashboard, a job of this one, which `testsBusy` names first), named by its command; null when none
+ * runs. A test session counts, and so do the error-path presets on goldens (`test --chaos`), which
+ * replay their packs too. The store keeps each session's process, so one whose process was killed
+ * holds nothing up.
  */
 export function sessionBusy(store: Store, verb: string): string | null {
   const live = liveTestSession(store) ?? liveChaosSession(store);

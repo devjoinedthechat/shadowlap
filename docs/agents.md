@@ -7,7 +7,7 @@ Claude Code, Cursor, Codex and other coding agents can debug an agent with Shado
 | To | Run | Reads |
 |---|---|---|
 | Find runs | `shadowlap ls --json [--label bug]` | Run ids, whether each forked and where, labels; whether a run has a command to re-run, came from a pack or a capture, or is an attempt with check results ([fields](./cli.md#ls)) |
-| Read a run | `shadowlap show <run> --json` | The summary (calls by origin, divergence, cost) and every call |
+| Read a run | `shadowlap show <run> --json` | The summary (calls by origin, divergence, cost), every call, and the reads of tools marked untrusted, whose text could carry a prompt injection ([fields](./cli.md#show)) |
 | Read one call | `shadowlap show <run> --request <n>` / `--response <n>` | The request as sent, the response as received |
 | Search what runs recorded | `shadowlap search <words> --json` | Matching prompts, responses, tool arguments and results |
 | Check a change | `shadowlap replay <run> --strict --summary-json out.json` | Exit code 1 on divergence or an early end; the summary in `out.json` |

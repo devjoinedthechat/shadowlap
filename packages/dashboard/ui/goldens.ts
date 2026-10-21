@@ -84,9 +84,9 @@ export function testsBusy(jobs: ReadonlyArray<FamilyJob>, verb: string, projectI
 }
 
 /**
- * Why a Tests action waits for a test session, or error-path presets on goldens, started outside
- * this dashboard's jobs (a terminal, another dashboard), as the server says it: by its command. Null
- * when none runs.
+ * Why a Tests action waits for a test session, or error-path presets on goldens, running wherever it
+ * was started (a terminal, another dashboard, a job, which `testsBusy` names first), as the server
+ * says it: by its command. Null when none runs.
  */
 export function sessionWait(view: (Pick<TestsView, 'running'> & Partial<Pick<TestsView, 'chaosRunning'>>) | null, verb: string): string | null {
   const live = view?.running ?? view?.chaosRunning;
