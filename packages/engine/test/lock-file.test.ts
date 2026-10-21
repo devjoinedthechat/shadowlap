@@ -133,6 +133,8 @@ describe('takeLock', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  // Windows can't read when a process started without PowerShell, so there this lock goes by its age,
+  // as one whose holder's start can't be read does (tested below).
   it.skipIf(process.platform === 'win32')('takes over a lock whose holder’s process id was given to another process', async () => {
     // A process runs under the id the lock names, but it started after the holder did (on Linux, at
     // another clock tick of this boot): the holder is gone.
@@ -279,6 +281,7 @@ describe('takeLock', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  // Creating a symbolic link takes a privilege Windows may not grant, and Node has no O_NOFOLLOW there.
   it.skipIf(process.platform === 'win32')('never follows a link planted at the lock’s name, and removes the link alone', () => {
     const target = join(dir, 'elsewhere.txt');
     writeFileSync(target, record({ pid: GONE }));
