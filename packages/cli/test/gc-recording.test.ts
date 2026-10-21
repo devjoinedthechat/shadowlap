@@ -99,17 +99,14 @@ describe('gc while another process records', () => {
       });
     });
 
-    // Every few milliseconds, as a dashboard deleting runs or a calibration finishing would.
+    // Every few milliseconds, as a dashboard deleting runs or a calibration finishing would: for 800 ms
+    // and six times at least, however long each takes on this machine.
     const store = Store.open(dbPath());
-    let looked = 0;
-    const until = Date.now() + 800;
-    while (Date.now() < until) {
+    for (let looked = 0, until = Date.now() + 800; looked < 6 || Date.now() < until; looked++) {
       const gc = store.gcBlobs();
       expect(gc).toMatchObject({ removed: 0, recording: [expect.any(String)] });
-      looked++;
     }
     store.close();
-    expect(looked).toBeGreaterThan(5);
 
     const r = await cli(['gc', '--older-than', '30', '--json']);
     expect(r.code, r.err).toBe(0);
