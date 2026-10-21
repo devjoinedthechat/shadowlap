@@ -18,6 +18,13 @@ export interface Provider {
    */
   sdkPath?: string;
   /**
+   * A request's path as the provider's API names it, for a client that reads the base URL `env` sets
+   * as one that already holds part of the path: the Vercel AI SDK's Anthropic provider takes
+   * ANTHROPIC_BASE_URL for an API root ending in `/v1` and sends `/messages`, where the official SDKs
+   * send `/v1/messages`. The call is recorded, matched and forwarded under the path this returns.
+   */
+  apiPath?(path: string): string;
+  /**
    * A request's path as it identifies the call, when part of it names where the call was made rather
    * than what it asks: Vertex AI's `/projects/<project>/locations/<region>`, so a recording replays
    * in a teammate's project or in CI's. The call keeps its full path as its name.
@@ -108,6 +115,8 @@ export const anthropic: Provider = {
   id: 'anthropic',
   upstream: 'https://api.anthropic.com',
   env: (baseUrl) => ({ ANTHROPIC_BASE_URL: baseUrl }),
+  // Every path of the API is under /v1: one that isn't comes from a client whose base URL held it.
+  apiPath: (path) => (/^\/v1(\/|$)/.test(path) ? path : `/v1${path}`),
   fingerprintHeaders: ['anthropic-version', 'anthropic-beta'],
   credentialHeaders: ['x-api-key', ...COMMON_CREDENTIAL_HEADERS],
   retryCountHeader: 'x-stainless-retry-count',

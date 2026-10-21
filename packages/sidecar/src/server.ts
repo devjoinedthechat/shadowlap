@@ -643,8 +643,8 @@ export class Sidecar {
     if (head === 'http') return this.proxyHttp(req, res, rest.slice(head.length) || '/', url.search, pinned);
     const provider = head ? this.providers.get(head) : undefined;
     if (!provider) throw new HttpError(404, `unknown route ${rest}`);
-    const subpath = rest.slice(head.length) || '/';
-    return this.proxy(req, res, provider, subpath, url.search, pinned);
+    const sent = rest.slice(head.length) || '/';
+    return this.proxy(req, res, provider, provider.apiPath?.(sent) ?? sent, url.search, pinned);
   }
 
   private async handleApi(req: IncomingMessage, res: ServerResponse, rest: string, url: URL, pinned?: string): Promise<void> {

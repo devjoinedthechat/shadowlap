@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../src/config.js';
+import { loadConfig, upstreamOverrides } from '../src/config.js';
 
 /** loadConfig's lists of rules: checked when a command first reads them, and otherwise plain properties. */
 let cwd: string;
@@ -42,5 +42,16 @@ describe('loadConfig', () => {
 
   it('reads a missing file as no rules', () => {
     expect(loadConfig(cwd)).toEqual({ normalize: [], redact: [] });
+  });
+});
+
+describe('upstreamOverrides', () => {
+  it('forwards to the base URLs set for the SDKs, each a root the API\'s paths go under', () => {
+    // The official SDKs take ANTHROPIC_BASE_URL for the root; the Vercel AI SDK's provider for the root plus /v1.
+    expect(upstreamOverrides({ ANTHROPIC_BASE_URL: 'https://gateway.example/anthropic' })).toEqual({ anthropic: 'https://gateway.example/anthropic' });
+    expect(upstreamOverrides({ ANTHROPIC_BASE_URL: 'https://gateway.example/anthropic/v1/' })).toEqual({ anthropic: 'https://gateway.example/anthropic' });
+    expect(upstreamOverrides({ OPENAI_BASE_URL: 'http://127.0.0.1:11434/v1' })).toEqual({ openai: 'http://127.0.0.1:11434' });
+    expect(upstreamOverrides({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:4000/t/0123456789abcdef0123456789abcdef/r/run/anthropic' })).toEqual({});
+    expect(upstreamOverrides({ ANTHROPIC_BASE_URL: 'https://gateway.example/v1', SHADOWLAP_UPSTREAM_ANTHROPIC: 'http://127.0.0.1:9999' })).toEqual({ anthropic: 'http://127.0.0.1:9999' });
   });
 });

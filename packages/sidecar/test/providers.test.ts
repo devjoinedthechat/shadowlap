@@ -21,6 +21,13 @@ describe('anthropic usage', () => {
     ]);
     expect(anthropic.extractUsage(body, SSE)).toEqual({ inputTokens: 100, outputTokens: 42 });
   });
+
+  it('names a path sent under a base URL that held the /v1 as the API does', () => {
+    // The Vercel AI SDK's Anthropic provider sends `${ANTHROPIC_BASE_URL}/messages`; the official SDKs `/v1/messages`.
+    expect(anthropic.apiPath?.('/messages')).toBe('/v1/messages');
+    expect(anthropic.apiPath?.('/messages/batches/msgbatch_1')).toBe('/v1/messages/batches/msgbatch_1');
+    for (const path of ['/v1/messages', '/v1/messages/count_tokens', '/v1/models', '/v1']) expect(anthropic.apiPath?.(path)).toBe(path);
+  });
 });
 
 describe('openai usage', () => {

@@ -9,6 +9,7 @@
     "test": "node --test --test-concurrency=1 --test-timeout=60000 --test-reporter=spec"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.85",
     "@anthropic-ai/bedrock-sdk": "0.33.6",
     "@anthropic-ai/sdk": "0.126.0",
     "@anthropic-ai/vertex-sdk": "0.19.9",

@@ -147,11 +147,12 @@ Results are recorded as JSON. A tool that returns a Pydantic model, a dataclass 
 
 ## Tested against
 
-Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a stand-in: record, a replay that executes nothing, and a fork that blocks the write, through the framework's own tool path (`generateText` with the AI SDK's mock model, the Agents SDK's `FunctionTool.invoke`, Mastra's `createTool`, LangGraph's `ToolNode`, the Anthropic tool runner end to end through the sidecar, a Pydantic AI `Agent` with `FunctionModel`, the Python Agents SDK's `Runner` with a scripted model, a compiled LangGraph graph in Python, CrewAI's `BaseTool.run`). Versions are pinned in `testing/frameworks/package.json` and the Frameworks workflow, and re-tested weekly against the latest releases, on Linux, macOS and Windows.
+Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a stand-in: record, a replay that executes nothing, and a fork that blocks the write, through the framework's own tool path (`generateText` with the AI SDK's mock model, the Agents SDK's `FunctionTool.invoke`, Mastra's `createTool`, LangGraph's `ToolNode`, the Anthropic tool runner end to end through the sidecar, a Pydantic AI `Agent` with `FunctionModel`, the Python Agents SDK's `Runner` with a scripted model, a compiled LangGraph graph in Python, CrewAI's `BaseTool.run`). An agent on the AI SDK's Anthropic provider runs under `shadowlap run` as written, with no base URL in its code: `@ai-sdk/anthropic` reads `ANTHROPIC_BASE_URL` as a root that ends in `/v1` and sends `/messages` under it, and the sidecar takes that as the API's `/v1/messages`. Versions are pinned in `testing/frameworks/package.json` and the Frameworks workflow, and re-tested weekly against the latest releases, on Linux, macOS and Windows.
 
 | Framework | Pinned version |
 |---|---|
 | Vercel AI SDK (`ai`) | 7.0.103 |
+| Its Anthropic provider (`@ai-sdk/anthropic`) | 4.0.85 |
 | OpenAI Agents SDK (`@openai/agents`) | 0.18.0 |
 | Mastra (`@mastra/core`) | 1.67.0 (`withEffectV0` for 0.x: a unit test of 0.x's tool shape) |
 | LangChain / LangGraph (`@langchain/core`, `@langchain/langgraph`) | 1.2.11 / 1.4.15 |

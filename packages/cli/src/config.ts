@@ -173,10 +173,12 @@ export function codeVersion(cwd: string): string | null {
 /**
  * Base URLs a user already sets for a provider's SDK. `shadowlap run` replaces them with the sidecar
  * for the agent, so the sidecar forwards to them: an OpenAI-compatible server in OPENAI_BASE_URL
- * stays the upstream. A value that is itself a Shadowlap sidecar (a nested run) is ignored.
+ * stays the upstream. A value that is itself a Shadowlap sidecar (a nested run) is ignored. An
+ * ANTHROPIC_BASE_URL that ends in /v1, as the Vercel AI SDK's Anthropic provider reads it, is a root
+ * plus /v1: the sidecar forwards each Anthropic call under /v1, whichever SDK sent it.
  */
 const SDK_BASE_URLS: Array<[string, string, (v: string) => string]> = [
-  ['ANTHROPIC_BASE_URL', 'anthropic', (v) => v],
+  ['ANTHROPIC_BASE_URL', 'anthropic', (v) => v.replace(/\/v1\/?$/, '')],
   ['OPENAI_BASE_URL', 'openai', (v) => v.replace(/\/v1\/?$/, '')],
   ['GOOGLE_GEMINI_BASE_URL', 'gemini', (v) => v],
 ];

@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http';
 import OpenAI from 'openai';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
+import { message, startMockAnthropic, text } from '@shadowlap-testing/mock-anthropic';
 import { Sidecar, sdkBasesFromEnvironment } from '../src/index.js';
 
 /**
@@ -78,6 +79,46 @@ describe('an SDK base URL with no /v1 under it', () => {
     expect(sdkBasesFromEnvironment({ OPENAI_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai/' })).toEqual({ openai: 'https://generativelanguage.googleapis.com/v1beta/openai' });
     for (const OPENAI_BASE_URL of [undefined, '', 'http://localhost:11434/v1', 'https://openrouter.ai/api/v1/', 'http://127.0.0.1:4000/t/0123456789abcdef0123456789abcdef/openai/v1', 'not a url', 'file:///tmp/x']) {
       expect(sdkBasesFromEnvironment({ OPENAI_BASE_URL })).toEqual({});
+    }
+  });
+});
+
+/**
+ * The Vercel AI SDK's Anthropic provider reads ANTHROPIC_BASE_URL as an API root that ends in /v1, and
+ * sends `/messages` under it: the call reaches the API at /v1/messages, under the name the official
+ * SDKs' calls have, and replays from the recording.
+ */
+describe('an Anthropic base URL read as one that holds the /v1', () => {
+  it('reaches /v1/messages, is named POST /v1/messages, and replays', async () => {
+    const mock = await startMockAnthropic({ script: () => ({ message: message([text('escalated')]) }) });
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    // As @ai-sdk/anthropic sends it: `${baseURL}/messages`.
+    const ask = async (runId: string) => {
+      const res = await fetch(`${sidecar.envFor(runId).ANTHROPIC_BASE_URL}/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 64, messages: [{ role: 'user', content: 'Refund order A-1042.' }] }),
+      });
+      return { status: res.status, body: (await res.json()) as { content?: Array<{ text: string }> } };
+    };
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command: { argv: ['a'], cwd: '.' } });
+      const recorded = await ask(rec.runId);
+      sidecar.endRun(rec.runId, 'completed');
+      expect(recorded.status).toBe(200);
+      expect(recorded.body.content?.[0]?.text).toBe('escalated');
+      expect(mock.requests).toHaveLength(1);
+      expect(store.getCalls(rec.runId).map((c) => c.name)).toEqual(['POST /v1/messages']);
+
+      const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['a'], cwd: '.' } });
+      expect((await ask(rep.runId)).body.content?.[0]?.text).toBe('escalated');
+      expect(sidecar.endRun(rep.runId, 'completed').summary.divergence).toBeNull();
+      expect(mock.requests).toHaveLength(1);
+    } finally {
+      await sidecar.close();
+      store.close();
+      await mock.close();
     }
   });
 });
