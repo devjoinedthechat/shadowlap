@@ -126,7 +126,7 @@ With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix fo
 
 ### Change models and prompts safely
 
-The demo's second agent, `refund_agent.mjs`, handles the same order from support ticket T-8812. Before you move it to another model, [`decisions`](docs/decisions.md) asks its recorded model calls again under that model. No tool runs, and changes are ranked, writes first. Under Haiku, the agent no longer issues the&nbsp;refund:
+The demo's second agent, `refund_agent.mjs`, handles the same order from support ticket T-8812. Before you move it to another model, [`decisions`](docs/decisions.md) asks its recorded model calls again under that model. No tool runs, and changes are ranked, writes first. Under the demo's scripted Haiku, the agent no longer issues the&nbsp;refund:
 
 ```console
 $ shadowlap decisions 01M5FYDVBW --model claude-haiku-4-5
