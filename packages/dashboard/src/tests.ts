@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -1297,7 +1297,8 @@ export interface BisectChoices {
   target: { kind: 'golden'; golden: string } | { kind: 'run'; runId: string };
   /**
    * The run failed: bisect looks for where it started failing, from a good commit up to its own.
-   * Otherwise it passed, and bisect looks for the first commit after its own that changes what it does.
+   * Otherwise it passed, and bisect looks for the first commit after its own that changes what it does;
+   * or it is inconclusive, neither passed nor failed, and `unavailable` says so.
    */
   failed: boolean;
   /** A commit where it still worked, to offer first: the newest revision before it where its golden, or a run of its command, passed. */
@@ -1335,8 +1336,11 @@ const clean = (rev: string | null): rev is string => !!rev && !rev.endsWith('+di
 
 const exitFailed = (run: RunRecord) => run.status === 'failed' || run.status === 'crashed';
 
+/** A check of the run's own that failed: one that could not be decided (inconclusive) is no failure. */
+const checkFailed = (run: RunRecord) => !!run.meta?.checks?.some((c) => checkStatus(c) === 'failed');
+
 function runFailed(run: RunRecord): boolean {
-  return exitFailed(run) || !!run.meta?.checks?.some((c) => !c.ok);
+  return exitFailed(run) || checkFailed(run);
 }
 
 /**
@@ -1363,6 +1367,9 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   // exited 0 with no check of its own failed: that check is the one it failed.
   const blamed = !ofGolden && !runFailed(run) ? blamedCheck(store, run) : null;
   const failed = result ? verdictOfResult(result) === 'failed' : runFailed(run) || (ofGolden && !!run.divergence) || blamed !== null;
+  // A run that failed nothing, with a check of its own that could not be decided: neither passed nor
+  // failed, as a golden that came out inconclusive is, so there is no failure to find either.
+  const undecided = !result && !failed ? (run.meta?.checks ?? []).find((c) => checkStatus(c) === 'inconclusive') : undefined;
   let revisions: BisectChoices['revisions'];
   let sameRecording: string | null = null;
   let passedHere: string | null = null;
@@ -1395,7 +1402,7 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   const fork = !ofGolden && failed;
   // The check a forked replay is judged by: the run's own `--expect` when a check of it failed, else
   // the one blame found it failing. A golden's checks come from the config, as the CLI finds them.
-  const expect = fork ? (run.meta?.checks?.some((c) => !c.ok) && plainObject(run.meta.expect) ? run.meta.expect : blamed) : null;
+  const expect = fork ? (checkFailed(run) && plainObject(run.meta?.expect) ? run.meta.expect : blamed) : null;
   // A run that passed is the good end itself; bisect then looks up to HEAD. One that failed only
   // blame's check leaves the good one to be chosen: how other runs exited says nothing about it.
   const good = !failed ? (clean(run.codeVersion) ? run.codeVersion : null) : ofGolden ? (sameRecording ?? passedHere) : blamed !== null ? null : (revisions.find((r) => r.failed < r.runs)?.rev ?? null);
@@ -1405,6 +1412,7 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   // A test replay a signal cut short has no result: it says nothing about its golden either way.
   else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden}: find the commit from the golden on Tests`;
   else if (unsure) unavailable = `${golden} came out inconclusive in this replay's session, neither passed nor failed, so there is no failure to find the commit of: Tests says what settles it`;
+  else if (undecided) unavailable = `this run is inconclusive, neither passed nor failed: a check could not be decided (${undecided.label}), so there is no failure to find the commit of`;
   else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run ${withoutCommand(run)}, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
   // Someone else chose its command, and bisect would run it at every commit: the CLI asks first, which a job can't.
   else if (!ofGolden && commandIsImported(run)) unavailable = `this run came from ${importedCommandSource(run)}: bisect would run its command at every commit. Replay it with your own command first (shadowlap replay ${run.runId} -- <command>), and find the commit from that run`;

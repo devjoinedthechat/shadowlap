@@ -868,6 +868,20 @@ describe('Find the commit from a run', () => {
     store.close();
   });
 
+  it('tells a run whose only check that did not pass is inconclusive apart: no failure to find from it', () => {
+    const store = Store.open(':memory:');
+    const { make } = history(store);
+    const judge = { ok: false, status: 'inconclusive', label: 'judge "calm" answers yes', detail: 'not judged: no recorded verdict and no key for gemini' };
+    const unsure = make('fff6666', T0 + 5 * DAY, 'completed', { expect: { judge: [{ name: 'calm', question: 'Is the reply calm?', of: 'answer', model: 'gemini-3-flash' }] }, checks: [judge] } as never);
+    const c = bisectChoices(store, unsure, { goldens: [] })!;
+    expect(c).toMatchObject({ failed: false, fork: false, expect: null, args: null, unavailable: 'this run is inconclusive, neither passed nor failed: a check could not be decided (judge "calm" answers yes), so there is no failure to find the commit of' });
+    expect(bisectJob(store, [], { runId: unsure, good: 'bbb2222' })).toEqual({ error: c.unavailable });
+    // A check that failed beside it is a failure all the same, judged by the run's own --expect.
+    const failing = make('fff6666', T0 + 6 * DAY, 'completed', { expect: { tools: { send_email: 1 } }, checks: [{ ok: false, status: 'failed', label: 'send_email called 1 time', detail: 'called 0 times' }, judge] } as never);
+    expect(bisectChoices(store, failing, { goldens: [] })).toMatchObject({ failed: true, fork: true, expect: { tools: { send_email: 1 } }, unavailable: null });
+    store.close();
+  });
+
   it('offers where the recording that failed last passed, and says a golden that may fork costs tokens', () => {
     const store = Store.open(':memory:');
     const at = (n: number, revision: string, ok: boolean, goldenRunId: string, golden = 'goldens/f') => {
