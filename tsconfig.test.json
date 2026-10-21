@@ -7,6 +7,7 @@
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false,
+    "inlineSources": false,
     // Tests index fixtures they built themselves; a wrong index fails the assertion anyway, and
     // writing `x![0]` everywhere would add noise without safety. Every other strict check applies.
     "noUncheckedIndexedAccess": false,
