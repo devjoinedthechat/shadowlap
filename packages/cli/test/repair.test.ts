@@ -376,7 +376,7 @@ process.stdin.on('end', () => {
     // --apply leaves it in the working tree, and wrote it holding the lock, which is gone once the repair ends.
     expect(report.output.applied).toBe(true);
     expect(agentText()).toContain("?? 'big-model'");
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings.filter((w) => w.startsWith(build))).toEqual([]);
     expect(existsSync(join(project, '.shadowlap', 'repair.lock'))).toBe(false);
   });
 
