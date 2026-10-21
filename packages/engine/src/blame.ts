@@ -424,7 +424,8 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
   }
 
   if (r.probes.length) {
-    lines.push('', `  ${p.bold('Probes')} ${p.dim(`(${rescueRule(r)}; ${describeRescue(r.rescue.fields)})`)}`);
+    // The rule, then what each probe changes under it, so each fits an 80-column terminal.
+    lines.push('', `  ${p.bold('Probes')} ${p.dim(`(${rescueRule(r)};`)}`, `          ${p.dim(`${describeRescue(r.rescue.fields)})`)}`);
     const w = Math.max(...r.probes.map((x) => String(x.callNo).length)) + 1;
     // Each probe's tally, and under a gate the Wilson bound on the attempts it decided on.
     const tallies = r.probes.map((x) => [probeTally(x, ' passed'), probeBound(x, r.gate)].filter(Boolean).join(' · '));

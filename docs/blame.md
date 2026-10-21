@@ -14,7 +14,8 @@ shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'
   At #5  the recording   issue_refund({"order_id":"A-1042","amount":240})
          a rescued fork  "Above the limit.", escalate({"reason":"refund of $240 is above $100"})
 
-  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts; resample the probed call)
+  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts;
+          resample the probed call)
     #1  1 of 4  2 of 2 passed · rate >= 0.34 (95%)  rescued
     #5  3 of 4  3 of 4 passed · rate >= 0.30 (95%)  rescued  ◂ blamed
     #7  4 of 4  0 of 4 passed · rate <= 0.49 (95%)  lost

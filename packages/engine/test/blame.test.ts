@@ -283,7 +283,8 @@ describe('probes decided by a gate', () => {
     const text = formatBlame(report({ ...r, probes: r.probes }));
     expect(text).toContain('The re-asked call #2: rescued · 2 of 2 · rate >= 0.34 (95%); #3, the next model call: inconclusive · 7 of 20 · rate 0.18 to 0.57 (95%).');
     expect(text).toContain('Confidence: medium (#3 was inconclusive: the run was not reliably lost there)');
-    expect(text).toContain('Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts; resample the probed call)');
+    // The rule, and under it what a probe changes: each line fits an 80-column terminal.
+    expect(text).toContain('  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts;\n          resample the probed call)');
     expect(text).toMatch(/#3 +3 of 4 +7 of 20 passed · rate 0\.18 to 0\.57 \(95%\) +inconclusive/);
     expect(text).toMatch(/#2 +2 of 4 +2 of 2 passed · rate >= 0\.34 \(95%\) +rescued +◂ blamed/);
     expect(text).not.toMatch(/at least|at most|of the time/);

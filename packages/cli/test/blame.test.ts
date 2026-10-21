@@ -122,7 +122,8 @@ describe('shadowlap blame', () => {
     // Each probe is decided by blame's gate, which tells a rescue at 60% or more from lost at 10% or
     // less, 5% risk each: each says its verdict, its tally and the Wilson bound, the rule once.
     expect(r.stdout).toMatch(new RegExp(`The re-asked call #${decision}: rescued · \\d of \\d · rate >= 0\\.\\d\\d \\(95%\\); #${last}, the next model call: lost · 0 of 4 · rate <= 0\\.49 \\(95%\\)\\.`));
-    expect(r.stdout).toContain('Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts; resample the probed call)');
+    // The rule, and under it what a probe changes: each line fits an 80-column terminal.
+    expect(r.stdout).toContain('  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts;\n          resample the probed call)');
     expect(r.stdout).not.toMatch(/at least|at most|of the time/);
     expect(r.stdout).toContain('Confidence: high');
     expect(r.stdout).toContain('issue_refund({"order_id":"A-1042","amount":240})');
