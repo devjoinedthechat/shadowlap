@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS call_events (
   PRIMARY KEY (run_id, call_no, phase, attempt)
 );
 CREATE INDEX IF NOT EXISTS call_events_match ON call_events (run_id, kind, fingerprint, occurrence);
+-- A judge check's calls (scope shadowlap:judge, judge-scope.ts), which are none of the agent's, in an
+-- index of their own: a count of a run's calls leaves them out through it instead of reading every
+-- call's metadata, which tripled the time the run list took to read. It holds a row per judge call;
+-- a store from before it gets it on opening.
+CREATE INDEX IF NOT EXISTS call_events_judge ON call_events (run_id) WHERE phase = 'start' AND meta ->> '$.scope' = 'shadowlap:judge';
 
 CREATE TABLE IF NOT EXISTS blobs (
   hash   TEXT    PRIMARY KEY,
@@ -1170,8 +1175,12 @@ export class Store {
       eventsForRun: db.prepare(`SELECT * FROM call_events WHERE run_id = ? ORDER BY call_no ASC, phase DESC, attempt ASC`),
       maxCallNo: db.prepare(`SELECT COALESCE(MAX(call_no), 0) AS n FROM call_events WHERE run_id = ?`),
       countCalls: db.prepare(`SELECT COUNT(*) AS n FROM call_events WHERE run_id = ? AND phase = 'start'`),
-      // The agent's calls: every call but a judge check's (scope `shadowlap:judge`, judge-scope.ts).
-      countAgentCalls: db.prepare(`SELECT COUNT(*) AS n FROM call_events WHERE run_id = ? AND phase = 'start' AND COALESCE(meta ->> '$.scope', '') <> 'shadowlap:judge'`),
+      // The agent's calls: every call but a judge check's (scope `shadowlap:judge`, judge-scope.ts),
+      // which are counted through their own index (call_events_judge, whose condition this repeats).
+      countAgentCalls: db.prepare(
+        `SELECT (SELECT COUNT(*) FROM call_events WHERE run_id = ? AND phase = 'start')
+              - (SELECT COUNT(*) FROM call_events WHERE run_id = ? AND phase = 'start' AND meta ->> '$.scope' = 'shadowlap:judge') AS n`,
+      ),
       deleteRun: db.prepare(`DELETE FROM runs WHERE run_id = ?`),
     };
   }
@@ -2700,7 +2709,7 @@ export class Store {
 
   /** The agent's calls in a run: every call but a judge check's, which are none of the agent's. */
   countAgentCalls(runId: string): number {
-    return Number(this.stmts.countAgentCalls.get(runId)?.n ?? 0);
+    return Number(this.stmts.countAgentCalls.get(runId, runId)?.n ?? 0);
   }
 
   appendCallStart(row: CallStartRow): void {

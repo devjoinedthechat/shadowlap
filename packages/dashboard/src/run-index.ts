@@ -92,7 +92,9 @@ SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS st
        r.meta -> '$.test' AS test, r.meta -> '$.checks' AS checks, r.meta -> '$.blame' AS blame, r.meta -> '$.chaos' AS chaos,
        r.meta ->> '$.author' AS author, r.meta ->> '$.ci' AS ci,
        (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start') AS calls,
-       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start' AND COALESCE(c.meta ->> '$.scope', '') <> 'shadowlap:judge') AS agent_calls,
+       -- Through the store's index of judge calls alone (call_events_judge, whose condition this
+       -- repeats), so leaving them out reads no call's metadata.
+       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start' AND c.meta ->> '$.scope' = 'shadowlap:judge') AS judge_calls,
        CASE WHEN r.status = 'failed' THEN EXISTS (
          SELECT 1 FROM call_events x WHERE x.run_id = r.run_id AND x.phase = 'end' AND x.outcome = 'error' AND x.meta ->> '$.injected' = 1
        ) ELSE 0 END AS injected,
@@ -240,7 +242,7 @@ function readRunIndex(store: Store): RunIndex {
       startedAt: Number(row.started),
       endedAt: num(row.ended),
       calls: Number(row.calls),
-      agentCalls: Number(row.agent_calls),
+      agentCalls: Number(row.calls) - Number(row.judge_calls),
       meta: readMeta(row),
       injected: Number(row.injected) === 1,
       offline: Number(row.offline) === 1,
