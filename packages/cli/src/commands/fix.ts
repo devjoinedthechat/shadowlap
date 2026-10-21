@@ -12,7 +12,7 @@ import { blameCommand, recordRepairFix, recordVerifyFix, repairCommand, verifyCo
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
 import { confirmImportedCommand, missingStoreNote, parseChoice, parseIntArg, readStore, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
-import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
+import { ago, clauses, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 import { runVerify } from '../verify.js';
 import { HandOverError, RepairError, runRepair, splitHoldout } from '../repair.js';
 import { parseRepairer, type Repairer } from '../repairer.js';
@@ -725,7 +725,7 @@ function registerFixes(program: Command): void {
             ...(result.goldens.length ? [`${result.goldens.filter((g) => g.copied).length} of ${result.goldens.length} golden${result.goldens.length === 1 ? '' : 's'} copied to ${flags.goldens}`] : []),
             ...(result.tests !== 'skipped' ? [`shadowlap test ${result.tests}`] : []),
           ];
-          process.stdout.write(`${result.tests === 'failed' ? p.red('✗') : p.green('✓')} ${shortFixId(found.fixId)} ${result.again ? 'finished applying' : 'applied'}: ${what.join(', ')}\n`);
+          process.stdout.write(`${clauses(`${result.tests === 'failed' ? p.red('✗') : p.green('✓')} ${shortFixId(found.fixId)} ${result.again ? 'finished applying' : 'applied'}: `, what)}\n`);
           if (result.tests === 'failed') process.stdout.write(p.dim(`  the fix stays applied; once the test passes, run shadowlap fix apply ${shortFixId(found.fixId)} again\n`));
           if (result.update) {
             const n = result.outdated.length;

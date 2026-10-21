@@ -542,7 +542,8 @@ export function commitTitle(c: Pick<RepairCandidate, 'strategy'>): string {
   return t ? t[0]!.toUpperCase() + t.slice(1) : 'Repair the agent instructions';
 }
 
-function verifiedLine(v: VerifyReport): string {
+/** What verify found, by role: `fixes 2 of 2 target runs, 1 of 1 held-out, keeps 1 of 1 good`. */
+function verifiedCounts(v: VerifyReport): string {
   const count = (role: VerifiedRun['role']) => {
     const of = v.runs.filter((x) => x.role === role);
     return { of: of.length, ok: of.filter((x) => x.verdict === 'pass').length };
@@ -550,8 +551,11 @@ function verifiedLine(v: VerifyReport): string {
   const t = count('target');
   const h = count('holdout');
   const g = count('good');
-  const parts = [t.of ? `fixes ${t.ok} of ${t.of} target run${t.of === 1 ? '' : 's'}` : '', h.of ? `${h.ok} of ${h.of} held-out` : '', g.of ? `keeps ${g.ok} of ${g.of} good` : ''].filter(Boolean);
-  return `${parts.join(', ')}, ${eachRun(v)}`;
+  return [t.of ? `fixes ${t.ok} of ${t.of} target run${t.of === 1 ? '' : 's'}` : '', h.of ? `${h.ok} of ${h.of} held-out` : '', g.of ? `keeps ${g.ok} of ${g.of} good` : ''].filter(Boolean).join(', ');
+}
+
+function verifiedLine(v: VerifyReport): string {
+  return `${verifiedCounts(v)}, ${eachRun(v)}`;
 }
 
 export function formatRepair(r: RepairReport, p: Palette = plain): string {
@@ -561,7 +565,8 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
     lines.push(`${p.green('✓')} ${p.bold(`Fixed: ${commitTitle(accepted)}`)}`);
     lines.push(`  ${p.dim(`${safeLine(accepted.file)} · ${safeLine(accepted.surface)}`)}`);
     lines.push(`  ${p.red(`- ${one(accepted.before, 200)}`)}`, `  ${p.green(`+ ${one(accepted.after, 200)}`)}`);
-    if (accepted.verify) lines.push('', `  Verified: ${verifiedLine(accepted.verify)}`);
+    // The counts, then how each run was decided, under them: each half fits an 80-column terminal.
+    if (accepted.verify) lines.push('', `  Verified: ${verifiedCounts(accepted.verify)},`, `            ${eachRun(accepted.verify)}`);
   } else {
     const head = r.outcome === 'stopped' ? `${p.yellow('!')} ${p.bold('Stopped')}` : r.outcome === 'no-diagnosis' ? `${p.yellow('!')} ${p.bold('No fix to try')}` : `${p.red('✗')} ${p.bold('Not fixed')}`;
     lines.push(`${head}${r.why ? `: ${safeLine(r.why)}` : ''}`);
