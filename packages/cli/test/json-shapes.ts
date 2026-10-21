@@ -71,10 +71,10 @@ export const SHAPES = {
   blame: { page: 'blame.md', section: 'JSON', grows: true, fields: ['runId', 'outcome', 'blamed', 'lost', 'confidence', 'contrast', 'sameAnswer', 'failedWrite', 'probes', 'oracle', 'recordedFailures', 'rescue', 'modelCalls', 'attemptsPerProbe', 'passesNeeded', 'gate', 'nonMonotone', 'cost', 'judge', 'stopReason', 'warnings', 'fix'] },
   blameCall: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'step', 'passes', 'attempts'] },
   blameContrast: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'recorded', 'rescued', 'rescuedRunId'] },
-  blameProbe: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'step', 'passes', 'attempts', 'rescued', 'decision', 'rate', 'runs'] },
+  blameProbe: { page: 'blame.md', section: 'JSON', grows: true, fields: ['callNo', 'step', 'passes', 'attempts', 'rescued', 'decision', 'rate', 'undecided', 'runs'] },
   blameFix: { page: 'blame.md', section: 'JSON', grows: true, fields: ['fixId', 'title', 'status', 'opened'] },
   verify: { page: 'verify.md', section: 'JSON', grows: true, fields: ['verdict', 'reasons', 'warnings', 'summary', 'runs', 'oracle', 'attemptsPerRun', 'passesNeeded', 'gate', 'change', 'codeVersion', 'cost', 'judge', 'stopReason', 'verifyId', 'fixes'] },
-  verifyRun: { page: 'verify.md', section: 'JSON', grows: true, fields: ['runId', 'role', 'outcome', 'passes', 'attempts', 'decision', 'rate', 'deterministic', 'recorded', 'runs'] },
+  verifyRun: { page: 'verify.md', section: 'JSON', grows: true, fields: ['runId', 'role', 'outcome', 'passes', 'attempts', 'decision', 'rate', 'deterministic', 'recorded', 'undecided', 'runs'] },
   verifySummary: { page: 'verify.md', section: 'JSON', grows: true, fields: ['targets', 'holdout', 'good'] },
   repair: { page: 'repair.md', section: 'JSON', grows: true, fields: ['outcome', 'why', 'targets', 'holdout', 'good', 'heldOutAutomatically', 'oracle', 'repairer', 'noRepairer', 'diagnosis', 'anchors', 'candidates', 'accepted', 'patch', 'cost', 'output', 'warnings', 'repairId', 'verifyId', 'fixes'] },
   repairTarget: { page: 'repair.md', section: 'JSON', grows: true, fields: ['runId', 'outcome', 'callNo', 'step', 'steps', 'rescuedRunId', 'rescuedBy', 'reused', 'recorded', 'rescued', 'note'] },
@@ -172,7 +172,7 @@ export const SHAPES = {
   chaos: { section: 'Error-path presets', fields: ['version', 'session', 'revision', 'presets', 'passed', 'failed', 'inconclusive', 'notApplicable', 'interrupted', 'results'] },
   chaosRecording: { section: 'Error-path presets', list: 'each recording', fields: ['golden', 'runId', 'outcomes', 'judge', 'rule', 'error', 'skipped'] },
   chaosPreset: { section: 'Error-path presets', list: 'each preset', fields: ['preset', 'label', 'verdict', 'callNo', 'target', 'passes', 'attempts', 'detail', 'summary', 'reason', 'runs', 'gate', 'upstreamRequests', 'spent'] },
-  chaosRun: { section: 'Error-path presets', list: 'each attempt', fields: ['runId', 'passed', 'exitCode', 'checks', 'reason', 'lastLine'] },
+  chaosRun: { section: 'Error-path presets', list: 'each attempt', fields: ['runId', 'verdict', 'passed', 'exitCode', 'checks', 'reason', 'lastLine'] },
 } as const satisfies Record<string, Shape>;
 
 export type ShapeName = keyof typeof SHAPES;

@@ -8,9 +8,13 @@ export interface ReportResult {
   /** `fork` goldens pass on their checks from wherever they diverge; `replay` ones must replay exactly. */
   mode?: 'replay' | 'fork';
   ok: boolean;
+  /** How it came out, whatever CI made of it (absent from reports made before results had one). */
+  verdict?: 'passed' | 'failed' | 'inconclusive';
   failure?: 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'inconclusive' | 'injection' | null;
+  /** The message of its failure, or why it is inconclusive. */
+  message?: string | null;
   runId?: string | null;
-  runs?: Array<{ runId: string; ok: boolean }>;
+  runs?: Array<{ runId: string; ok: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' }>;
   expect?: Record<string, unknown> | null;
   /** The checks of the attempt shown, each with why it failed, its `status` (absent from reports made before checks had one), and a judge check's judge. */
   checks?: Array<{ ok: boolean; label: string; detail: string | null; status?: 'passed' | 'failed' | 'inconclusive' | 'not-applicable'; judge?: { name: string } }> | null;
@@ -38,6 +42,10 @@ export interface OtherGoldens {
   diverging: string[];
   /** Failed before the fix too. */
   failing: string[];
+  /** Neither passed nor failed under the fix, which says nothing of what it changes. */
+  inconclusive?: string[];
+  /** Inconclusive before the fix, and fail under it. */
+  unsettled?: string[];
   /** May fork, so they run live from where they diverge and were not replayed. */
   unreplayed: string[];
   /** Would have been replayed, but the replay with the fix could not run. */
@@ -110,6 +118,7 @@ export function cannotFix(workdir: string, env: NodeJS.ProcessEnv): string | nul
 export function repairEnv(workdir: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 export function refreshGoldens(options: { cli: string; workdir: string; members: FixPlan[]; unfixed?: FixPlan[]; unfixedWhy?: string | null; results?: ReportResult[]; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; env: NodeJS.ProcessEnv; scratch: string }): BranchState;
 export function goldenNote(golden: GoldenState): string;
+export function otherOnBranch(before: ReportResult, now: ReportResult | undefined): 'diverging' | 'failing' | 'inconclusive' | 'unsettled' | null;
 export function branchNote(state: { goldens: GoldenState[]; others?: OtherGoldens; checked?: boolean; why?: string | null }): string;
 export function cannotPush(workdir: string): string | null;
 export function forkPullRequest(env: NodeJS.ProcessEnv, read?: (path: string) => string): boolean;

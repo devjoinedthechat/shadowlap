@@ -21,6 +21,7 @@ import {
   patchFiles,
   probeBound,
   probeFinding,
+  probeTally,
   probeWord,
   recordingsOfRun,
   repairMarkdown,
@@ -48,7 +49,9 @@ import {
   type VerdictStanding,
   type VerifiedRun,
   type VerifyOutcome,
+  unrescuedWords,
   unsettledFirst,
+  unsettledReason,
 } from '@shadowlap/engine';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -182,11 +185,12 @@ export interface BlameStep {
   /** How a probe decides, its gate's rule said once: `gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts`, or `a rescue needs 2 of 5 attempts to pass`. */
   rule: string;
   /** Each probe: its tally and verdict, and under a gate the Wilson bound on the attempts it decided on (`bound`, `rate >= 0.34 (95%)`; null for a fixed count). */
-  probes: Array<{ callNo: number; step: number; passes: number; attempts: number; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; bound: string | null; blamed: boolean; href: string }>;
+  /** Each probe: `inconclusive` counts its attempts that could not be judged, neither passed nor failed. */
+  probes: Array<{ callNo: number; step: number; passes: number; attempts: number; inconclusive: number; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; bound: string | null; blamed: boolean; href: string }>;
   /** The attempts, bundled per probe. */
-  bundles: Array<{ callNo: number; title: string; blamed: boolean; passes: number; attempts: Array<{ runId: string; passed: boolean; note: string; spent: number; href: string }> }>;
+  bundles: Array<{ callNo: number; title: string; blamed: boolean; passes: number; attempts: Array<{ runId: string; passed: boolean; verdict: AttemptVerdict; note: string; spent: number; href: string }> }>;
   /** Every call of the run, for the row that shows where it was lost; `inScope` is false for a call outside the blame's scope. */
-  callRow: Array<{ callNo: number; kind: string; inScope: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number }>;
+  callRow: Array<{ callNo: number; kind: string; inScope: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number; inconclusive: number }>;
   cost: { attempts: number; upstreamRequests: number; spent: number; unknownModels: string[] };
   oracle: string[];
   recordedFailures: string[];
@@ -260,10 +264,16 @@ export interface VerifyRow {
   href: string;
   attempts: number;
   passes: number;
+  /** Attempts that could not be judged (all they fell short on is a check that could not be decided): neither passed nor failed. */
+  inconclusive: number;
   /** The first attempt replayed clean, so it settled the run. */
   deterministic: boolean;
   outcome: ReturnType<typeof outcomeOf>;
-  /** Decided by a gate: what it said, the pass rate's Wilson interval at the confidence it decided at, and its bound as the Attempts column shows it (`rate >= 0.76 (95%)`). Null for a fixed count. */
+  /**
+   * Decided by a gate: what it said, the pass rate's Wilson interval at the confidence it decided at,
+   * and its bound as the Attempts column shows it (`rate >= 0.76 (95%)`). Null for a fixed count, and
+   * for a run an attempt it could not judge stopped before its gate decided anything.
+   */
   rate: { decision: string; lo: number; hi: number; confidence: number; sentence: string; bound: string | null } | null;
   /** Where it went: where it forked, or why it failed. */
   note: string;
@@ -298,6 +308,8 @@ export interface VerifyStep {
   spent: number;
   unknownModels: string[];
   reasons: string[];
+  /** Those of `reasons` that say a run is inconclusive or not settled, not that the change failed it: shown in amber, the rest in red. */
+  unsettled: string[];
   warnings: string[];
   command: string;
   repairId: string | null;
@@ -338,7 +350,8 @@ export interface FixDetail extends FixRow {
   actions: FixActions;
   /** The blame the Blame step shows (the latest that found a call, else the latest), and every blame, newest first. */
   blame: BlameStep | null;
-  blames: Array<{ blameId: string; runId: string; at: number; outcome: StoredBlame['outcome']; lostAt: number | null; confidence: string }>;
+  /** Every blame, newest first: `unsettled` for one that placed the failure on no call only because its first probe couldn't tell. */
+  blames: Array<{ blameId: string; runId: string; at: number; outcome: StoredBlame['outcome']; unsettled?: true; lostAt: number | null; confidence: string }>;
   /** The repair the Repair step shows (the latest accepted that counts, else the latest accepted, else the latest), and every repair, newest first. */
   repair: RepairStep | null;
   repairs: Array<{ repairId: string; at: number; outcome: RepairOutcome; accepted: boolean; title: string }>;
@@ -458,7 +471,8 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const r = b.report;
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
     if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: `lost at #${r.blamed.callNo}`, title: `Lost at model call #${r.blamed.callNo}`, meta: `confidence ${r.confidence} · ${cost}` };
-    else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'todo', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
+    // Its first probe couldn't tell: not settled, never a finding that no call rescues the run.
+    else if (b.outcome === 'unrescuable') blame = unsettledFirst(r) ? { key: 'blame', n: '01', state: 'todo', short: 'not settled', title: 'Not settled from the first model call', meta: cost } : { key: 'blame', n: '01', state: 'todo', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
     else blame = { key: 'blame', n: '01', state: 'todo', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
   }
 
@@ -485,7 +499,11 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const meta = [earlier ? `${earlier} earlier change${s(earlier)} rejected` : kept ? 'every failing run fixed, every good run kept' : 'every failing run fixed', ...(later ? [`${later} later change${s(later)} rejected`] : [])].join(' · ');
     verify = { key: 'verify', n: '03', state: 'done', short: `${held} of ${runs.length} held`, title: `${held} of ${runs.length} run${s(runs.length)} held`, meta };
   } else if (rejected.length) verify = { key: 'verify', n: '03', state: 'no', short: 'rejected', title: 'Rejected', meta: `${rejected.length} change${s(rejected.length)} rejected` };
-  else if (counting(rec).length) verify = { key: 'verify', n: '03', state: 'todo', short: 'not settled', title: 'Not settled', meta: 'a verify stopped before every run settled' };
+  else if (counting(rec).length) {
+    // A run it took is inconclusive (its gate ran out of attempts, or an attempt could not be judged), or the verify stopped first.
+    const unsure = counting(rec).some((x) => x.report.runs.some((run) => outcomeOf(run) === 'inconclusive'));
+    verify = { key: 'verify', n: '03', state: 'todo', short: 'not settled', title: 'Not settled', meta: unsure ? 'a run it verified is inconclusive' : 'a verify stopped before every run settled' };
+  }
   else if (rec.verdicts.length) {
     const why = rec.standing.get(rec.verdicts.at(-1)!.verifyId)?.why;
     verify = { key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: why === 'another-check' ? 'verified only under another check' : why === 'already-passing' ? 'verified only on runs that already passed' : 'no verdict on its runs yet' };
@@ -562,7 +580,8 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
   // The gate as it can be read: a malformed one reads as none, the fixed count's words then.
   const r = { ...b.report, gate: sprtGate(b.report.gate) };
   const run = store.getRun(b.runId);
-  const rate = (x: { passes: number; attempts: unknown[] }) => `${x.passes} of ${x.attempts.length}`;
+  // An attempt that could not be judged is counted apart (probeTally), never as one that failed.
+  const unsure = (x: Parameters<typeof probeTally>[0] | undefined) => x?.attempts.filter((a) => a.verdict === 'inconclusive').length ?? 0;
   const blamedCall = r.blamed?.callNo ?? null;
   let boundary: string;
   let title: string;
@@ -571,14 +590,16 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     boundary =
       r.gate && r.blamed.decision
         ? `The re-asked call #${r.blamed.callNo}: ${probeFinding(r.blamed, r.gate)}; ${r.lost ? `#${r.lost.callNo}, the next model call: ${probeFinding(r.lost, r.gate)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`
-        : `Resampling #${r.blamed.callNo} rescued ${rate(r.blamed)} attempts; ${r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${rate(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
+        : `Resampling #${r.blamed.callNo} rescued ${probeTally(r.blamed, ' attempts')}; ${r.lost?.undecided ? `#${r.lost.callNo}, the next model call, was inconclusive: ${probeTally(r.lost, ' passed')}.` : r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${probeTally(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
   } else if (b.outcome === 'unrescuable') {
     // Its first probe couldn't tell: not a finding that no answer lost it.
     title = unsettledFirst(r) ? 'Not settled from the first model call' : 'Not rescued from any model call';
     boundary = unrescuedWhy(r).evidence ?? 'No probe rescued the run.';
   } else {
     title = 'Stopped before the search finished';
-    boundary = `${r.stopReason ? `Stopped: ${r.stopReason}. ` : ''}${r.blamed ? `So far: rescued up to #${r.blamed.callNo}${r.lost ? `, lost from #${r.lost.callNo}` : ''}.` : 'No probe had settled.'}`;
+    // The probe past the last rescue lost the run there, or could not tell, which is no loss.
+    const after = r.lost ? (probeWord(r.lost) === 'inconclusive' ? `, inconclusive at #${r.lost.callNo}` : `, lost from #${r.lost.callNo}`) : '';
+    boundary = `${r.stopReason ? `Stopped: ${r.stopReason}. ` : ''}${r.blamed ? `So far: rescued up to #${r.blamed.callNo}${after}.` : 'No probe had settled.'}`;
   }
   const confidenceWhy =
     r.confidence === 'low'
@@ -590,14 +611,14 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
       : r.confidence === 'medium' && r.lost
         ? r.lost.decision === 'inconclusive'
           ? `#${r.lost.callNo} was inconclusive: the run was not reliably lost there`
-          : `#${r.lost.callNo} still passed ${rate(r.lost)}, below the bar: the run was not reliably lost there`
+          : `#${r.lost.callNo} still passed ${probeTally(r.lost)}, below the bar: the run was not reliably lost there`
         : 'rescue stops cleanly at the boundary';
   const probeOf = new Map(r.probes.map((x) => [x.callNo, x]));
   const verdictOf = (x: Parameters<typeof probeWord>[0] & { callNo: number }) => (x.callNo === blamedCall ? 'rescued · blamed' : probeWord(x));
   const callRow = run
     ? store.getCalls(b.runId).map((c) => {
         const p = probeOf.get(c.callNo);
-        return { callNo: c.callNo, kind: c.kind, inScope: inScope(c.meta.scope, b.scope), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0 };
+        return { callNo: c.callNo, kind: c.kind, inScope: inScope(c.meta.scope, b.scope), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0, inconclusive: unsure(p) };
       })
     : [];
   const contrast = r.contrast;
@@ -624,13 +645,13 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     needed: r.needed,
     attemptsPerProbe: r.attemptsPerProbe,
     rule: rescueRule(r),
-    probes: r.probes.map((x) => ({ callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length, verdict: verdictOf(x), bound: probeBound(x, r.gate), blamed: x.callNo === blamedCall, href: runHref(b.runId, x.callNo) })),
+    probes: r.probes.map((x) => ({ callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length, inconclusive: unsure(x), verdict: verdictOf(x), bound: probeBound(x, r.gate), blamed: x.callNo === blamedCall, href: runHref(b.runId, x.callNo) })),
     bundles: r.probes.map((x) => ({
       callNo: x.callNo,
       title: `blame · probe #${x.callNo}`,
       blamed: x.callNo === blamedCall,
       passes: x.passes,
-      attempts: x.attempts.map((a) => ({ runId: a.runId, passed: a.passed, note: a.passed ? (a.runId === contrast?.rescuedRunId ? rescuedNote : 'passed') : shortFailure(a.failures[0]), spent: a.spent, href: runHref(a.runId) })),
+      attempts: x.attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: a.passed ? (a.runId === contrast?.rescuedRunId ? rescuedNote : 'passed') : attemptNote(false, a.failures[0], undefined, attemptVerdictOf(a)), spent: a.spent, href: runHref(a.runId) })),
     })),
     callRow,
     cost: { attempts: r.attempts, upstreamRequests: r.upstreamRequests, spent: r.spent, unknownModels: r.unknownModels },
@@ -717,7 +738,7 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
     rule: v ? eachRun({ ...v, gate: sprtGate(v.gate) }) : null,
     lost: rep.targets.map((t) => ({
       runId: t.runId,
-      at: t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? 'not rescued from any model call' : (t.note ?? t.outcome),
+      at: t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : (t.note ?? t.outcome),
       href: fixHref(fixId, 'blame'),
     })),
     diagnosis: rep.diagnosis,
@@ -778,16 +799,19 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
       return sum / n;
     };
     const now = mean((a) => a.footprint.inputTokens);
+    // A run an attempt it could not judge stopped was decided by no gate: no rate, as verify's JSON has none.
+    const rate = x.undecided ? null : rateOf(x.gate);
     return {
       role: ROLE[x.role],
       runId: x.runId,
       href: runHref(x.runId),
       attempts: n,
       passes: x.passes,
+      inconclusive: x.attempts.filter((a) => attemptVerdictOf(a) === 'inconclusive').length,
       deterministic: x.deterministic,
       outcome: outcomeOf(x),
-      rate: rateOf(x.gate),
-      note: failure ? shortFailure(failure) : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
+      rate,
+      note: failure ? shortFailure(failure) : x.undecided ? 'an attempt could not be judged' : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
       tokens: now === null ? null : { recorded: x.recorded.footprint.inputTokens, now },
       cost: n ? { recorded: x.recorded.footprint.cost, now: mean((a) => a.footprint.cost) } : null,
     };
@@ -814,6 +838,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
     spent: r.spent,
     unknownModels: r.unknownModels,
     reasons: r.reasons,
+    unsettled: r.reasons.filter(unsettledReason),
     warnings: [...r.warnings, ...(r.replayWarnings ?? [])],
     command: v.command,
     repairId: v.repairId,
@@ -926,7 +951,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
       applied: fix.status === 'applied',
     },
     blame: b ? blameStep(store, b) : null,
-    blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, lostAt: x.report.blamed?.callNo ?? null, confidence: x.report.confidence })),
+    blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, confidence: x.report.confidence })),
     repair: p ? repairStep(rec, p, fix.fixId, pulled(p)) : null,
     repairs: [...rec.repairs].reverse().map((x) => {
       const c = acceptedCandidate(x);
@@ -1079,7 +1104,7 @@ export function needsLookFixes(store: Store, options: { limit?: number } = {}): 
     const rec = fixRecords(store, fix);
     if (fix.status === 'open') {
       const b = shownBlame(rec);
-      const where = b?.outcome === 'blamed' && b.report.blamed ? `lost at model call #${b.report.blamed.callNo}` : b?.outcome === 'unrescuable' ? 'not rescued from any model call' : 'blame stopped early';
+      const where = b?.outcome === 'blamed' && b.report.blamed ? `lost at model call #${b.report.blamed.callNo}` : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
       // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
       const elsewhere = noAnswerLost(b);
       open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : rec.repairs.length ? 'no fix found yet' : 'no fix yet'}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
@@ -1130,6 +1155,8 @@ export interface RunBlame {
   blameId: string;
   at: number;
   outcome: StoredBlame['outcome'];
+  /** It placed the failure on no call only because its first probe couldn't tell: not settled, never "not rescued". Absent otherwise. */
+  unsettled?: true;
   lostAt: number | null;
   step: number | null;
   steps: number;
@@ -1186,8 +1213,8 @@ function askedAgain(blocks: ReadonlyArray<{ type: string; name?: string }>): str
 
 function runBlame(b: StoredBlame, fixId: string | null): RunBlame {
   const r = b.report;
-  const what = b.outcome === 'blamed' ? `asked again, ${askedInstead(r.contrast?.recorded ?? [], r.contrast?.rescued ?? [])}` : b.outcome === 'unrescuable' ? 'not rescued from any model call' : 'blame stopped early';
-  return { blameId: b.blameId, at: b.at, outcome: b.outcome, lostAt: r.blamed?.callNo ?? null, step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
+  const what = b.outcome === 'blamed' ? `asked again, ${askedInstead(r.contrast?.recorded ?? [], r.contrast?.rescued ?? [])}` : b.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(r)) : 'blame stopped early';
+  return { blameId: b.blameId, at: b.at, outcome: b.outcome, ...(unsettledFirst(r) ? { unsettled: true as const } : {}), lostAt: r.blamed?.callNo ?? null, step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
 }
 
 /** How a run takes part in Fixes, for its page and the Forks view; null when it doesn't. */
@@ -1240,6 +1267,8 @@ export function fixForRun(store: Store, runId: string): FixForRun | null {
 export interface FixBundleAttempt {
   runId: string;
   passed: boolean;
+  /** Passed, failed, or inconclusive: all it fell short on is a check that could not be decided, so it is neither. */
+  verdict: AttemptVerdict;
   /** "passed", "issue_refund called", "passed · called escalate". */
   note: string;
   href: string;
@@ -1313,9 +1342,23 @@ function storedReports(store: Store): { verdicts: StoredVerdict[]; repairs: Stor
   return read;
 }
 
-/** A failed attempt's first failure, from its run when the report kept none. */
-function attemptNote(passed: boolean, failure: string | undefined, run: RunRecord | undefined): string {
+type AttemptVerdict = 'passed' | 'failed' | 'inconclusive';
+
+/** An attempt's verdict as blame or verify kept it, or, for one kept before attempts had one, by whether it passed. */
+function attemptVerdictOf(a: { passed: boolean; verdict?: string | undefined }): AttemptVerdict {
+  return a.verdict === 'inconclusive' ? 'inconclusive' : a.passed ? 'passed' : 'failed';
+}
+
+/**
+ * A failed attempt's first failure, from its run when the report kept none; for one that could not be
+ * judged, the check that could not be decided, said as such: never as a failure.
+ */
+function attemptNote(passed: boolean, failure: string | undefined, run: RunRecord | undefined, verdict: AttemptVerdict = passed ? 'passed' : 'failed'): string {
   if (passed) return 'passed';
+  if (verdict === 'inconclusive') {
+    const label = failure?.split(', but it is inconclusive')[0] ?? run?.meta?.checks?.find((c) => !c.ok)?.label;
+    return `inconclusive${label ? `: ${shortFailure(label)}` : ''}`;
+  }
   if (failure) return shortFailure(failure);
   const check = run?.meta?.checks?.find((c) => !c.ok);
   return check ? shortFailure(check.label) : run?.status === 'crashed' ? 'interrupted' : 'failed';
@@ -1376,7 +1419,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
           verdict: null,
           role: null,
           passes: attempts.filter((a) => a.passed).length,
-          attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
+          attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
           spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
           at: startedAt(attempts.map((a) => a.runId), b.at),
           href: fix ? fixHref(fix.fixId, 'blame') : runHref(r.runId, blamedCall),
@@ -1403,7 +1446,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       verdict,
       role: ROLE[x.role],
       passes: attempts.filter((a) => a.passed).length,
-      attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, note: attemptNote(a.passed, a.failures[0], family.get(a.runId)), href: runHref(a.runId), rescued: false })),
+      attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: false })),
       spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
       at: startedAt(attempts.map((a) => a.runId), at),
       href,
@@ -1455,6 +1498,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
     const rescuedRunId = lost?.rescuedRunId ?? null;
     const fix = g.kind === 'blame' ? fixOfRun(store, g.parent.runId) : null;
     const passed = (r: RunRecord) => (g.kind === 'blame' ? r.meta?.probe?.passed === true : r.meta?.verify?.passed === true);
+    const verdict = (r: RunRecord) => attemptVerdictOf({ passed: passed(r), verdict: g.kind === 'blame' ? r.meta?.probe?.verdict : r.meta?.verify?.verdict });
     out.push({
       kind: g.kind,
       key,
@@ -1466,7 +1510,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       verdict: null,
       role: g.role,
       passes: g.runs.filter(passed).length,
-      attempts: g.runs.map((r) => ({ runId: r.runId, passed: passed(r), note: attemptNote(passed(r), undefined, r), href: runHref(r.runId), rescued: r.runId === rescuedRunId })),
+      attempts: g.runs.map((r) => ({ runId: r.runId, passed: passed(r), verdict: verdict(r), note: attemptNote(passed(r), undefined, r, verdict(r)), href: runHref(r.runId), rescued: r.runId === rescuedRunId })),
       spent: 0,
       at: Math.min(...g.runs.map((r) => r.startedAt)),
       href: fix ? fixHref(fix.fixId, 'blame') : runHref(g.parent.runId, blamed ? g.callNo : null),

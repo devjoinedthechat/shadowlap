@@ -61,6 +61,9 @@ describe('pairs from blame', () => {
       [true, 0, 'No attempt that passed at #5 is in the store any more.'],
       [true, 0, 'Not rescued from any model call: no other answer made the run pass, so there is none to prefer.'],
     ]);
+    // One whose first probe couldn't tell is not settled, never a finding that no answer passes.
+    store.updateRunMeta(run.runId, { blame: { at: 1, outcome: 'unrescuable', unsettled: true, callNo: null, confidence: 'low', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } });
+    expect(findPairs(store).sources.find((s) => s.runId === run.runId)?.why).toBe('Not settled from the first model call: blame could not tell whether another answer makes the run pass, so there is none to prefer yet.');
     store.close();
   });
 
@@ -106,6 +109,25 @@ describe('pairs from verify and --repeat', () => {
     expect(verify[1]!.why).toContain(`Target ${target.runId.slice(0, 10)} failed 1 of 3.`);
     expect(verify[1]!.why).toContain('1 answer left out: the same answer, from the same point, also passed (or failed) elsewhere.');
     expect(countPairs(pairs)).toEqual({ all: 1, high: 0, medium: 1 });
+    store.close();
+  });
+
+  it('never takes an attempt verify could not judge for a failing one: it pairs nothing, and is counted apart', () => {
+    const store = Store.open(':memory:');
+    const target = recordRun(store, LOST, { status: 'failed' }).run;
+    const attempt = (steps: Step[], verify: NonNullable<RunMeta['verify']>, n: number) => recordRun(store, steps, { parentRunId: target.runId, codeVersion: '370712a+dirty', meta: { verify, repeat: { group: `v1-${target.runId}`, attempt: n, of: 3 } } }).run;
+    const passed = attempt(SAVED, { role: 'target', passed: true, verdict: 'passed' }, 1);
+    // All it fell short on is a judge that could not answer: it answered as a failing attempt does, but failed nothing.
+    attempt(LOST, { role: 'target', passed: false, verdict: 'inconclusive' }, 2);
+    const unjudged = findPairs(store);
+    expect(unjudged.pairs).toEqual([]);
+    expect(unjudged.sources.find((s) => s.kind === 'verify')!.why).toBe('No run both passed and failed: each passed every attempt it was judged in or none, and 1 attempt could not be judged.');
+    // An attempt that did fail makes the pair, and the source line counts the other apart.
+    const failed = attempt(LOST, { role: 'target', passed: false, verdict: 'failed' }, 3);
+    const { pairs, sources } = findPairs(store);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ rejected: { runId: failed.runId, what: 'verify attempt, failed' }, chosen: { runId: passed.runId, what: 'verify attempt, passed' } });
+    expect(sources.find((s) => s.kind === 'verify')!.why).toContain(`Target ${target.runId.slice(0, 10)} failed 1 of 3, 1 inconclusive.`);
     store.close();
   });
 

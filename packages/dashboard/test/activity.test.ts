@@ -337,6 +337,32 @@ describe('a test session', () => {
     store.close();
   });
 
+  it('counts an attempt a check could not decide after the count was settled apart, never as one that failed', () => {
+    const store = Store.open(':memory:');
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 1 }).runId;
+    store.endRun(rec, 'completed', 2);
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: 100 });
+    const label = 'judge "issued" answers yes';
+    const attempt = (golden: string, at: number, status: 'passed' | 'failed' | 'inconclusive') => {
+      const check = { ok: status === 'passed', status, label, detail: status === 'passed' ? null : status === 'failed' ? 'the judge answered no' : "not judged: the judge's call failed: HTTP 400" };
+      const r = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: at, meta: { test: { golden, session: session.sessionId }, checks: [check] } });
+      store.endRun(r.runId, 'completed', at + 5);
+      return r.runId;
+    };
+    // met needed one pass of three: its first attempt passed, and its second could not be judged.
+    const met = [attempt('goldens/met', 110, 'passed'), attempt('goldens/met', 120, 'inconclusive')];
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/met', ok: true, runId: met[0]!, at: 130, data: { verdict: 'passed', attempts: { total: 2, passed: 1, required: 1, runs: met, inconclusive: 1 } } });
+    // lost needed all three: its first failed, and its second could not be judged.
+    const lost = [attempt('goldens/lost', 200, 'failed'), attempt('goldens/lost', 210, 'inconclusive')];
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/lost', ok: false, failure: 'check', reason: `0 of 2 attempts passed, 1 inconclusive, 3 needed. Attempt 1: check failed: ${label}, but the judge answered no`, runId: lost[0]!, at: 220, data: { verdict: 'failed', attempts: { total: 2, passed: 0, required: 3, runs: lost, inconclusive: 1 } } });
+    const tests = activity(store).items.filter((i) => i.kind === 'test' || i.kind === 'fail');
+    expect(tests.map((i) => [i.kind, i.text])).toEqual([
+      ['fail', 'Test failed · lost · 0 of 2 attempts passed, 1 inconclusive, 3 needed'],
+      ['test', 'Test passed · met · 1 of 2 attempts passed, 1 inconclusive'],
+    ]);
+    store.close();
+  });
+
   it('tells a golden by what its result says, now that every result keeps its attempts: a gate by its evidence, an inconclusive one apart', () => {
     const store = Store.open(':memory:');
     const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 1 }).runId;
@@ -363,6 +389,12 @@ describe('a test session', () => {
     const unsure = replay('goldens/flaky', 190);
     const outcomes = [...Array(16).fill(true), false, false, false, false];
     store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/flaky', ok: false, failure: 'inconclusive', reason: 'inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', runId: unsure, at: 200, data: { mode: 'fork', attempts: { total: 20, passed: 16, required: null, runs: [unsure] }, verdict: 'inconclusive', gate: gateResult(SPRT, outcomes) } });
+    // Gated, but a check its third attempt could not decide stopped it: its gate decided nothing.
+    const stopped = replay('goldens/stopped', 202);
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/stopped', ok: false, failure: 'inconclusive', reason: 'check inconclusive: judge "calm" answers yes, but not judged', runId: stopped, at: 204, data: { mode: 'fork', attempts: { total: 3, passed: 2, required: null, runs: [stopped], inconclusive: 1 }, verdict: 'inconclusive', gate: gateResult(SPRT, [true, true], { decision: 'continue' }) } });
+    // Gated and passed, then its injection gate showed too little to say.
+    const planted = replay('goldens/planted', 206);
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/planted', ok: false, failure: 'injection', reason: 'injection inconclusive: no attempt showed anything', runId: planted, at: 208, data: { mode: 'fork', attempts: { total: 12, passed: 12, required: null, runs: [planted] }, verdict: 'inconclusive', gate: gateResult(SPRT, Array(12).fill(true)) } });
     recordEvent(store, { kind: 'test.session', ref: session.sessionId, data: { passed: 2, failed: 2, inconclusive: 1, goldens: 5 }, at: 210 });
     recordEvent(store, { kind: 'test.session', ref: 'S2', data: { passed: 4, failed: 0, inconclusive: 1, goldens: 5 }, at: 220 });
     recordEvent(store, { kind: 'blame.done', runId: rec, ref: 'fx-01K5CQ4N7G8M2XWQH6V3T9RB1D', data: { outcome: 'unrescuable', callNo: null, confidence: 'low', title: 'Refunds above the limit', unsettled: true }, at: 230 });
@@ -379,6 +411,9 @@ describe('a test session', () => {
     expect(line(passes)).toEqual(['test', `Test passed · gated-pass · 12 of 12 passed · rate >= 0.76 (95%) · pass^5 1.00 · ${rule}`]);
     expect(line(fails)).toEqual(['fail', `Test failed · gated-fail · 0 of 3 passed · rate <= 0.56 (95%) · ${rule}`]);
     expect(line(unsure)).toEqual(['warn', `Test inconclusive · flaky · 16 of 20 passed · rate 0.58 to 0.92 (95%) · pass^5 0.28 · ${rule}`]);
+    // Never a gate's evidence for a golden whose gate is not what is inconclusive.
+    expect(line(stopped)).toEqual(['warn', 'Test inconclusive · stopped · a check could not be judged']);
+    expect(line(planted)).toEqual(['warn', 'Test inconclusive · planted · its injection test showed too little to say']);
     expect(JSON.stringify(items)).not.toContain('needed');
     expect(JSON.stringify(items)).not.toContain('null');
     expect(items.find((i) => i.at === 210)).toMatchObject({ kind: 'fail', text: 'Tests ran · 2 passed, 2 failed, 1 inconclusive' });
@@ -468,6 +503,30 @@ describe('runs from a pack someone else made', () => {
     // Paging still works through them.
     const first = activity(store, { limit: 1 });
     expect(activity(store, { limit: 50, before: first.next }).items.length).toBe(items.length - 1);
+    store.close();
+  });
+});
+
+describe('an outcome that is inconclusive', () => {
+  it('is counted apart in a replay --repeat entry, and a blame its first probe left unsettled says so', () => {
+    const store = Store.open(':memory:');
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 100 }).runId;
+    store.endRun(rec, 'failed', 200);
+    // replay --repeat 3 --expect with a judge: one attempt passed, one failed a check, and one's judge could not answer.
+    const judge = 'judge "calm" answers yes';
+    const checks: Array<NonNullable<RunMeta['checks']>> = [
+      [{ ok: true, status: 'passed', label: judge, detail: null }],
+      [{ ok: false, status: 'failed', label: judge, detail: 'the judge answered no' }],
+      [{ ok: false, status: 'inconclusive', label: judge, detail: "not judged: the judge's call failed: HTTP 400" }],
+    ];
+    checks.forEach((c, i) => {
+      const r = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 300 + i, meta: { repeat: { group: 'g-judge', attempt: i + 1, of: 3 }, checks: c } });
+      store.endRun(r.runId, 'completed', 400 + i);
+    });
+    store.updateRunMeta(rec, { blame: { at: 500, outcome: 'unrescuable', unsettled: true, callNo: null, confidence: 'low', rescuedRunId: null, fields: {}, oracle: [], probes: [{ callNo: 1, passes: 0, attempts: 1, rescued: false }], spent: 0 } });
+    const items = activity(store).items;
+    expect(items.find((i) => i.id === 'g:g-judge')?.text).toMatch(/· 1 of 3 passed their checks, 1 inconclusive$/);
+    expect(items.find((i) => i.id === `r:${rec}:blame`)).toMatchObject({ kind: 'blame', text: 'Blamed · not settled from the first model call' });
     store.close();
   });
 });

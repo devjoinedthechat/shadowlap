@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { kindFacts } from '@shadowlap/tui/data';
-import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
+import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, unrescuedWords, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
 import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
@@ -187,14 +187,14 @@ export function register(program: Command): void {
           blame.outcome === 'blamed' && Number.isInteger(blame.callNo)
             ? `lost at model call #${blame.callNo} (${safe(String(blame.confidence))} confidence)${typeof blame.rescuedRunId === 'string' ? `, rescued by ${safe(shortId(blame.rescuedRunId))}` : ''}`
             : blame.outcome === 'unrescuable'
-              ? 'not rescued from any model call'
+              ? unrescuedWords(blame.unsettled === true)
               : 'stopped before it finished';
         head.push(`  ${p.yellow('⑂')} blame: ${found}${Number.isFinite(blame.at) ? p.dim(` · ${ago(blame.at)}`) : ''}`);
       }
       const probe = run.meta?.probe;
-      if (probe && Number.isInteger(probe.callNo) && typeof probe.of === 'string') head.push(p.dim(`  an attempt of shadowlap blame ${safe(shortId(probe.of))}, forked at model call #${probe.callNo}: ${probe.passed ? 'passed' : 'failed'}`));
+      if (probe && Number.isInteger(probe.callNo) && typeof probe.of === 'string') head.push(p.dim(`  an attempt of shadowlap blame ${safe(shortId(probe.of))}, forked at model call #${probe.callNo}: ${probe.passed ? 'passed' : probe.verdict === 'inconclusive' ? 'inconclusive, a check could not be decided' : 'failed'}`));
       const verify = run.meta?.verify;
-      if (verify) head.push(p.dim(`  an attempt of shadowlap verify, replaying a ${verify.role === 'good' ? 'good run' : verify.role === 'holdout' ? 'held-out failing run' : 'failing run'}: ${verify.passed ? 'passed' : 'failed'}`));
+      if (verify) head.push(p.dim(`  an attempt of shadowlap verify, replaying a ${verify.role === 'good' ? 'good run' : verify.role === 'holdout' ? 'held-out failing run' : 'failing run'}: ${verify.passed ? 'passed' : verify.verdict === 'inconclusive' ? 'inconclusive, a check could not be decided' : 'failed'}`));
       // An error-path preset's attempt: what was played in where; the preset's verdict is the session's (test --chaos).
       const chaos = run.meta?.chaos;
       if (chaos && isChaosPreset(chaos.preset) && Number.isInteger(chaos.callNo)) {

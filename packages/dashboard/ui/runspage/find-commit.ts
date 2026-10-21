@@ -19,6 +19,18 @@ export function bisectRequest(runId: string, choices: Pick<BisectChoices, 'bad'>
   return { runId, good: good.trim(), bad: bisectUpTo(choices) };
 }
 
+/**
+ * How the runs at a commit went, as a choice in the dialog says it: `3 passed`, `1 of 3 failed`, and
+ * a golden's inconclusive results counted apart, neither passed nor failed: `1 of 3 inconclusive`,
+ * `1 of 3 failed, 1 inconclusive`.
+ */
+export function revisionTally(r: Pick<BisectChoices['revisions'][number], 'runs' | 'failed' | 'inconclusive'>): string {
+  const unsure = r.inconclusive ?? 0;
+  if (!r.failed && !unsure) return `${r.runs} passed`;
+  if (!r.failed) return `${unsure} of ${r.runs} inconclusive`;
+  return `${r.failed} of ${r.runs} failed${unsure ? `, ${unsure} inconclusive` : ''}`;
+}
+
 /** The command the dialog shows, as the job will run it. */
 export function bisectCommand(runId: string, choices: Pick<BisectChoices, 'bad' | 'target' | 'fork'>, good: string): string {
   const what = choices.target.kind === 'golden' ? choices.target.golden : shortId(runId);

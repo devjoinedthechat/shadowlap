@@ -37,7 +37,7 @@ export interface BannerInput {
   flagCall?: { kind: string; name: string; attempts: number; input?: boolean } | null;
   /** A fork blame rescued its parent with: the call it asked again. */
   rescued: { callNo: number | null } | null;
-  blame: { callNo: number | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; short?: string | null } | null;
+  blame: { callNo: number | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; unsettled?: boolean; short?: string | null } | null;
   notRecorded: { hosts: ReadonlyArray<{ target: string; count: number | null; action: string | null }>; tools: readonly string[] } | null;
   /** Each check, with its `status` when the server says (passed, failed, inconclusive, not-applicable). */
   checks: ReadonlyArray<{ label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
@@ -297,8 +297,9 @@ export function bannerFor(i: BannerInput): Banner | null {
   if (i.failed === false) return null;
   const failure = failureText(i);
   if (!failure) return null;
-  // Blame ran but placed the failure on no call: no answer asked again saved the run, or it stopped first.
-  const unplaced = b ? (b.outcome === 'stopped' ? 'blame stopped before it found the call' : 'blame found no call whose answer, asked again, saves the run') : null;
+  // Blame ran but placed the failure on no call: no answer asked again saved the run, its first probe
+  // couldn't tell (not settled, which is no finding that none saves it), or it stopped first.
+  const unplaced = b ? (b.outcome === 'stopped' ? 'blame stopped before it found the call' : b.unsettled ? 'blame not settled from the first model call' : 'blame found no call whose answer, asked again, saves the run') : null;
   // Blame needs a run that fails again as recorded: one with no model call, or one stopped, never does.
   const unblamable = i.modelCalls === 0 ? 'no model call to blame' : i.status === 'crashed' && !failedCheck ? 'blame needs a run that ended on its own' : null;
   const state = i.fix ? (i.fix.status === 'open' ? `no fix yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unplaced ?? unblamable ?? 'not blamed yet');

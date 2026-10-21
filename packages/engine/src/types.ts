@@ -252,11 +252,14 @@ export interface RunMeta {
   /** Outcome checks from `shadowlap test` or `shadowlap blame`, as they came out for this run: a judge check's with its verdict and reason. Older runs' carry no `status`: read it with `checkStatus`. */
   checks?: StoredCheck[];
   /** One attempt of a `shadowlap blame` probe: the run blamed, the model call forced live, and whether the attempt passed. */
-  probe?: { of: string; callNo: number; passed: boolean };
+  probe?: { of: string; callNo: number; passed: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' };
   /** The last `shadowlap blame` of this run. */
   blame?: BlameRecord;
-  /** One attempt of `shadowlap verify`: the role its recording played, and whether the attempt passed. */
-  verify?: { role: 'target' | 'holdout' | 'good'; passed: boolean };
+  /**
+   * One attempt of `shadowlap verify`: the role its recording played, whether the attempt passed and
+   * its verdict, inconclusive when all it fell short on is a check that could not be decided.
+   */
+  verify?: { role: 'target' | 'holdout' | 'good'; passed: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' };
   /** Labels people gave the run: `bug`, `good`, `refund-flow`. */
   labels?: string[];
   /** Notes on the run, or on one of its calls. */
@@ -346,6 +349,12 @@ export interface NotRecorded {
 export interface BlameRecord {
   at: number;
   outcome: 'blamed' | 'unrescuable' | 'stopped';
+  /**
+   * True when it placed the failure on no call only because its first probe could not tell (blame.ts
+   * `unsettledFirst`): `unrescuable` then means not settled, never that no call rescues the run.
+   * Absent otherwise, and from blames kept before it was.
+   */
+  unsettled?: boolean;
   /** The model call whose recorded answer lost the run, or null. */
   callNo: number | null;
   confidence: 'high' | 'medium' | 'low';

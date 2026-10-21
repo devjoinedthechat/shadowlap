@@ -269,6 +269,11 @@ export interface TaskInput {
   /** Whether the golden's test fails: true, false, or null when that isn't known. */
   testFailed: boolean | null;
   /**
+   * Its last test was inconclusive: it failed nothing, but a check could not be decided. Neither
+   * passed nor failed, so it blocks the task with a note of its own, never as a test that fails.
+   */
+  testInconclusive?: boolean;
+  /**
    * The call the golden's last test forked at, when its test may fork (`fork` in its tests entry)
    * and it did. A model takes over only where the recording still replays, so a fork before the
    * takeover blocks the task as a failing test does. Null or absent when it didn't fork.
@@ -422,6 +427,7 @@ export function describeTask(input: TaskInput): Task {
   if (!hasRecordedCommand(golden.run)) return { ...task, status: 'blocked', note: NO_COMMAND_NOTE };
   if (task.scopes.length > 1) return { ...task, status: 'not-a-task', note: `its model calls are made in more than one scope (${task.scopes.map(scopeName).join(', ')}), and scoring can't yet send only ${task.scope === null ? "one scope's" : `${task.scope}'s`} to the model under test` };
   if (input.testFailed === true) return { ...task, status: 'blocked', note: 'its test fails' };
+  if (input.testInconclusive === true) return { ...task, status: 'blocked', note: INCONCLUSIVE_TEST_NOTE };
   // A fork at the takeover changes nothing: the model under test answers that call anyway.
   if (input.forkedAt != null && input.forkedAt < k) return { ...task, status: 'blocked', note: forkNote(input.forkedAt), fork: { callNo: input.forkedAt, runId: input.forkedRun ?? null } };
   return task;
@@ -431,6 +437,9 @@ export function describeTask(input: TaskInput): Task {
 export function forkNote(callNo: number): string {
   return `its test forks at #${callNo}, before the takeover: update the golden`;
 }
+
+/** Why a task whose golden's last test was inconclusive is blocked: neither passed nor failed, so its checks are no reward yet. */
+export const INCONCLUSIVE_TEST_NOTE = 'its last test is inconclusive: a check could not be decided';
 
 /** Why a golden packed from a capture is blocked: its test can't run, and how to give it a command. */
 export const NO_COMMAND_NOTE = 'it was imported from a capture and has no command to run: replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run';

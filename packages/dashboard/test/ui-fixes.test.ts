@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyText, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
+import { applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -202,7 +202,7 @@ describe('the working tree', () => {
 });
 
 describe('the Blame step', () => {
-  const call = (callNo: number, kind: 'api' | 'tool', verdict: BlameStep['callRow'][number]['verdict'] = null): BlameStep['callRow'][number] => ({ callNo, kind, inScope: true, verdict, passes: verdict ? 2 : 0, attempts: verdict ? 4 : 0 });
+  const call = (callNo: number, kind: 'api' | 'tool', verdict: BlameStep['callRow'][number]['verdict'] = null): BlameStep['callRow'][number] => ({ callNo, kind, inScope: true, verdict, passes: verdict ? 2 : 0, attempts: verdict ? 4 : 0, inconclusive: 0 });
 
   it('lines up every call of a short run', () => {
     const row = [call(1, 'api', 'rescued'), call(2, 'tool'), call(3, 'api', 'blamed'), call(4, 'tool'), call(5, 'api', 'lost')];
@@ -287,7 +287,7 @@ describe('the Verify step', () => {
 
 describe('the Forks view’s bundles', () => {
   const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: 'R', title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, passes: 1, attempts: [], spent: 0, at: 0, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
-  const attempt = (runId: string, passed: boolean, rescued = false) => ({ runId, passed, note: passed ? 'passed' : 'failed', href: `#/run/${runId}`, rescued });
+  const attempt = (runId: string, passed: boolean, rescued = false, verdict: 'passed' | 'failed' | 'inconclusive' = passed ? 'passed' : 'failed') => ({ runId, passed, verdict, note: passed ? 'passed' : verdict === 'inconclusive' ? 'inconclusive: judge "issued" answers yes' : 'failed', href: `#/run/${runId}`, rescued });
 
   it('leaves out every attempt they list but the rescued fork, which shows as a fork', () => {
     const b = bundle({ attempts: [attempt('A', true, true), attempt('B', false)] });
@@ -325,6 +325,14 @@ describe('the Forks view’s bundles', () => {
     const money = (usd: number) => `≈$${usd.toFixed(3)}`;
     expect(bundleLine(bundle({ attempts: [attempt('A', true), attempt('B', false)], passes: 1, spent: 0.032 }), money)).toBe('2 attempts, 1 passed · ≈$0.032');
     expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('1 attempt, 1 passed · repair candidate 3 accepted');
+  });
+
+  it('marks an attempt that could not be judged apart from one that failed, and counts it apart', () => {
+    const unsure = attempt('C', false, false, 'inconclusive');
+    expect([attempt('A', true), attempt('B', false), unsure].map(attemptMark)).toEqual([undefined, 'no', 'unsure']);
+    // An attempt kept before attempts had a verdict reads as whether it passed.
+    expect(attemptMark({ passed: false })).toBe('no');
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree incomplete');
   });
 });
 
@@ -418,6 +426,11 @@ describe('the job drawer', () => {
   it('ends a blame, a repair and a fix apply on how they came out', () => {
     expect(jobStatus(job('blame', 0, { outcome: 'blamed', blamed: { callNo: 5 } }), [])).toEqual({ text: 'lost at #5 · exit 0', tone: 'ok' });
     expect(jobStatus(job('blame', 0, { outcome: 'unrescuable', blamed: null }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
+    // Its first probe couldn't tell, and nothing else was found: not settled, never "not rescued".
+    const unsettled = { outcome: 'unrescuable', blamed: null, sameAnswer: null, failedWrite: null, probes: [{ callNo: 1, decision: 'inconclusive' }] };
+    expect(jobStatus(job('blame', 0, unsettled), [])).toEqual({ text: 'not settled · exit 0', tone: 'warn' });
+    expect(jobStatus(job('blame', 0, { ...unsettled, failedWrite: { name: 'post_digest', message: 'channel_not_found', callNo: 1 } }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
+    expect(jobStatus(job('blame', 0, { ...unsettled, probes: [{ callNo: 1, decision: 'fail' }] }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
     expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped early · exit 1', tone: 'err' });
     expect(jobStatus(job('repair', 0, { outcome: 'fixed' }), [])).toEqual({ text: 'fixed · exit 0', tone: 'ok' });
     expect(jobStatus(job('repair', 1, { outcome: 'not-fixed' }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });

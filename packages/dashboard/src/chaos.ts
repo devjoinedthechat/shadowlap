@@ -1,4 +1,4 @@
-import { CHAOS_PRESETS, isChaosPreset, parsePresets, PRESET_LABELS, presetHits, type ChaosResult, type ChaosSession, type ChaosVerdict, type Store } from '@shadowlap/engine';
+import { CHAOS_PRESETS, isChaosPreset, parsePresets, PRESET_LABELS, presetHits, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type Store } from '@shadowlap/engine';
 
 /**
  * Error-path presets as the dashboard shows them: the results `test --chaos` and `replay --chaos`
@@ -26,8 +26,12 @@ export interface ChaosCell {
   attempts: number;
   detail: string;
   reason: string | null;
-  /** Each attempt's run: open one to see the error path the agent took. */
-  runs: Array<{ runId: string; passed: boolean; exitCode: number }>;
+  /**
+   * Each attempt's run, open one to see the error path the agent took, with its verdict: inconclusive
+   * when it said nothing of that path (the replay never reached the call, or only a check no attempt
+   * can decide kept it from passing), never failed.
+   */
+  runs: Array<{ runId: string; verdict: AttemptVerdict; passed: boolean; exitCode: number }>;
   gate: Record<string, unknown> | null;
   at: number;
   sessionId: string;
@@ -74,8 +78,24 @@ const order = (preset: string) => {
   return i < 0 ? CHAOS_PRESETS.length : i;
 };
 
+type AttemptVerdict = Exclude<ChaosVerdict, 'not-applicable'>;
+type KeptAttempt = NonNullable<ChaosResultData['runs']>[number];
+
+/**
+ * An attempt's verdict as it was kept, or, for a result kept before attempts had one, as it was
+ * decided then: one that passed passed; the last attempt of a preset inconclusive for a reason of
+ * its own, which the result keeps (a gate that ran out of attempts keeps none), is the attempt that
+ * never played the preset in or that a check no attempt can decide held back; any other failed.
+ */
+function attemptVerdict(x: KeptAttempt, r: ChaosResult, last: boolean): AttemptVerdict {
+  if (x.verdict === 'passed' || x.verdict === 'failed' || x.verdict === 'inconclusive') return x.verdict;
+  if (x.passed) return 'passed';
+  return last && r.verdict === 'inconclusive' && typeof r.data?.reason === 'string' ? 'inconclusive' : 'failed';
+}
+
 function cellOf(r: ChaosResult): ChaosCell {
   const d = r.data ?? {};
+  const runs = d.runs ?? [];
   return {
     preset: r.preset,
     label: isChaosPreset(r.preset) ? PRESET_LABELS[r.preset] : r.preset,
@@ -86,7 +106,7 @@ function cellOf(r: ChaosResult): ChaosCell {
     attempts: r.attempts,
     detail: d.detail ?? '',
     reason: d.reason ?? null,
-    runs: (d.runs ?? []).map((x) => ({ runId: x.runId, passed: x.passed, exitCode: x.exitCode })),
+    runs: runs.map((x, i) => ({ runId: x.runId, verdict: attemptVerdict(x, r, i === runs.length - 1), passed: x.passed, exitCode: x.exitCode })),
     gate: d.gate ?? null,
     at: r.at,
     sessionId: r.sessionId,

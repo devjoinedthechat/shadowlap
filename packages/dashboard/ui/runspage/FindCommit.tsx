@@ -6,7 +6,7 @@ import { shortId } from '../format.js';
 import { sentence } from '../normalize.js';
 import { useApp } from '../state.js';
 import type { BisectChoices } from '../types.js';
-import { bisectCommand, bisectRequest, bisectUpTo } from './find-commit.js';
+import { bisectCommand, bisectRequest, bisectUpTo, revisionTally } from './find-commit.js';
 
 /**
  * Find the commit, from the calendar: the first failure on the days picked is where it started
@@ -57,7 +57,7 @@ export function FindCommitDialog({ runId, choices, onClose }: { runId: string; c
             >
               {choices.revisions.map((r) => (
                 <option key={r.rev} value={r.rev}>
-                  {r.rev.slice(0, 12)} · {new Date(r.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {r.failed ? `${r.failed} of ${r.runs} failed` : `${r.runs} passed`}
+                  {r.rev.slice(0, 12)} · {new Date(r.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {revisionTally(r)}
                 </option>
               ))}
               <option value={'\u0000'}>Another commit…</option>

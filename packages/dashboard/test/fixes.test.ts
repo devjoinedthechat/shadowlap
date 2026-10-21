@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BLAME_DEFAULTS, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
-import { fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
+import { fixBundles, fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
 
 let store: Store;
 beforeEach(() => {
@@ -208,6 +208,54 @@ describe('a fix', () => {
     expect(b.cost).toEqual({ attempts: 11, upstreamRequests: 22, spent: expect.closeTo(0.11, 10), unknownModels: [] });
   });
 
+  it('shows a probe that an attempt it could not judge stopped as inconclusive, never lost, and marks that attempt apart', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api'] });
+    const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+    const report = blameReport(failing, 'unrescuable');
+    const [first] = report.probes;
+    const attempt = { ...first!.attempts[0]!, passed: false, verdict: 'inconclusive' as const, failures: [why] };
+    report.probes = [{ ...first!, attempts: [attempt], passes: 0, rescued: false, decision: 'inconclusive', undecided: why }];
+    report.lost = report.probes[0]!;
+    report.confidence = 'low';
+    const { fix } = recordBlame(store, { runId: failing, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
+    const b = fixDetail(store, fix.fixId)!.blame!;
+    expect(b).toMatchObject({ title: 'Not settled from the first model call', boundary: `Resampled from the first model call, #1: an attempt could not be judged: ${why}.` });
+    expect(b.look).toContain('Not settled: a check could not be decided on an attempt');
+    expect(b.probes).toEqual([expect.objectContaining({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1, bound: null })]);
+    expect(b.callRow[0]).toMatchObject({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1 });
+    expect(b.bundles[0]!.attempts).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
+    // Wherever the blame is summed up, it is not settled, never "not rescued".
+    expect(fixList(store).fixes[0]!.steps[0]).toMatchObject({ state: 'todo', short: 'not settled', title: 'Not settled from the first model call' });
+    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not settled from the first model call · no fix yet');
+    expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, short: 'not settled from the first model call' });
+    expect(fixDetail(store, fix.fixId)!.blames).toEqual([expect.objectContaining({ outcome: 'unrescuable', unsettled: true })]);
+  });
+
+  it('still says a blame whose first probe lost the run was not rescued from any model call', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const { fix } = blame(failing, { outcome: 'unrescuable' });
+    expect(fixList(store).fixes[0]!.steps[0]).toMatchObject({ short: 'not rescued', title: 'Not rescued from any model call' });
+    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not rescued from any model call · no fix yet');
+    expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', short: 'not rescued from any model call' });
+    expect(fixForRun(store, failing)?.blame).not.toHaveProperty('unsettled');
+  });
+
+  it('says a blame that stopped reached an inconclusive probe, never that the run was lost there', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api'] });
+    const report = blameReport(failing, 'stopped');
+    const [rescued] = report.probes;
+    const unsure = { ...rescued!, callNo: 5, step: 3, passes: 1, rescued: false, decision: 'inconclusive' as const };
+    report.probes = [rescued!, unsure];
+    report.lost = unsure;
+    const { fix } = recordBlame(store, { runId: failing, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
+    const b = fixDetail(store, fix.fixId)!.blame!;
+    expect(b.boundary).toBe('Stopped: the budget of $0.05 is spent. So far: rescued up to #1, inconclusive at #5.');
+    expect(b.probes.map((x) => [x.callNo, x.verdict])).toEqual([
+      [1, 'rescued · blamed'],
+      [5, 'inconclusive'],
+    ]);
+  });
+
   it("dims the calls outside a blame's scope, tool calls included, and keeps those in it", () => {
     const run = makeRun(store, { calls: [{ kind: 'api', scope: 'agent' }, { kind: 'tool', scope: 'agent' }, { kind: 'api', scope: 'customer' }, { kind: 'tool', scope: 'agent/refunds' }, { kind: 'api', scope: 'agent' }] });
     const { fix } = blame(run, { scope: 'agent' });
@@ -309,6 +357,52 @@ describe('a fix', () => {
     expect(rejected.rows[2]).toMatchObject({ runId: good, attempts: 2, passes: 0, tokens: { recorded: 4_329, now: 5_193 } });
     expect(rejected.tokens).toMatchObject({ change: expect.stringMatching(/^\+/) });
     expect(rejected.attempts).toBe(10);
+  });
+
+  it('shows a run whose attempt could not be judged as inconclusive, never broken, and marks that attempt apart', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    const { fix } = blame(failing);
+    const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+    // The good run's one attempt: the agent exited 0 and failed no check, but its judge could not answer.
+    const attempt = makeRun(store, { mode: 'replay', parent: good, status: 'completed', meta: { verify: { role: 'good', passed: false, verdict: 'inconclusive' } } });
+    const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }]);
+    report.runs[1] = { ...report.runs[1]!, attempts: [{ ...report.runs[1]!.attempts[0]!, runId: attempt, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 0, verdict: 'open', undecided: why };
+    Object.assign(report, decideVerify(report.runs, null));
+    recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: NOW });
+    const v = fixDetail(store, fix.fixId)!.verify[0]!;
+    expect([v.verdict, v.headline]).toEqual(['incomplete', 'Not every run settled']);
+    expect(v.rows.map((r) => [r.role, r.outcome, r.attempts, r.passes, r.inconclusive, r.note])).toEqual([
+      ['target', 'fixed', 4, 4, 0, 'forked at #1'],
+      ['good', 'inconclusive', 1, 0, 1, 'an attempt could not be judged'],
+    ]);
+    // Its reason is one the step shows in amber, never with what the change failed.
+    expect(v.reasons).toEqual([expect.stringMatching(/^good run \w+ inconclusive: attempt 1 could not be judged: judge "issued" answers yes/)]);
+    expect(v.unsettled).toEqual(v.reasons);
+    // The Forks view under the good run: the attempt reads inconclusive, never failed.
+    const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
+    expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: attempt, passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
+    // The fix's Verify step says why it is not settled: a run it verified is inconclusive, not a verify that stopped.
+    expect(fixDetail(store, fix.fixId)!.steps[2]).toMatchObject({ state: 'todo', short: 'not settled', meta: 'a run it verified is inconclusive' });
+  });
+
+  it('gives no rate for a run an attempt it could not judge stopped under a gate, as verify gives none', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    const { fix } = blame(failing);
+    const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+    const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
+    const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }]);
+    const kept = report.runs[1]!;
+    // Two attempts passed, and the third could not be judged: the gate decided nothing.
+    report.runs[1] = { ...kept, attempts: [kept.attempts[0]!, kept.attempts[1]!, { ...kept.attempts[2]!, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 2, verdict: 'open', undecided: why, gate: gateResult(gate, [true, true], { decision: 'continue' }) };
+    report.gate = gate;
+    Object.assign(report, decideVerify(report.runs, null));
+    recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: NOW });
+    const row = fixDetail(store, fix.fixId)!.verify[0]!.rows[1]!;
+    // Its gate decided nothing, so there is no rate, nor a sentence with a word that is no verdict.
+    expect(row).toMatchObject({ outcome: 'inconclusive', attempts: 3, passes: 2, inconclusive: 1, rate: null });
+    expect(JSON.stringify(fixDetail(store, fix.fixId))).not.toContain('undecided');
   });
 
   it("lists a verdict under another check with why it doesn't count, and leaves the steps as they were", () => {

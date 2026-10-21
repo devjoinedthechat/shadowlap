@@ -787,7 +787,12 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
     const source: PairSource = { key: `blame:${run.runId}`, kind: 'blame', runId: run.runId, runIds: [run.runId], label: `blame · ${runName(run)}`, confidence: 'high', made: 0, attempts: attempts.length, callNo: blame.callNo, why: '', at: blame.at };
     sources.push(source);
     if (blame.outcome !== 'blamed' || blame.callNo === null) {
-      source.why = blame.outcome === 'unrescuable' ? 'Not rescued from any model call: no other answer made the run pass, so there is none to prefer.' : 'The search stopped before it settled, so no call was blamed.';
+      source.why =
+        blame.outcome === 'unrescuable'
+          ? blame.unsettled === true
+            ? 'Not settled from the first model call: blame could not tell whether another answer makes the run pass, so there is none to prefer yet.'
+            : 'Not rescued from any model call: no other answer made the run pass, so there is none to prefer.'
+          : 'The search stopped before it settled, so no call was blamed.';
       continue;
     }
     const k = blame.callNo;
@@ -860,12 +865,17 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
     const scope = agentScope(r, store, byId, [...byRun.keys()], attempts);
     const mixed: string[] = [];
     const n = { same: 0, paths: 0, ambiguous: 0, elsewhere: 0, scoped: 0 };
+    let undecided = 0;
     for (const [runId, list] of byRun) {
-      const failing = list.filter((a) => a.meta?.verify?.passed === false);
+      // An attempt verify could not judge (a judge that could not answer, a condition it could not
+      // read) neither passed nor failed: it is no answer to prefer another to, and is counted apart.
+      const unsure = list.filter((a) => a.meta?.verify?.verdict === 'inconclusive');
+      const failing = list.filter((a) => a.meta?.verify?.passed === false && a.meta.verify.verdict !== 'inconclusive');
       const passing = list.filter((a) => a.meta?.verify?.passed === true);
+      undecided += unsure.length;
       if (!failing.length || !passing.length) continue;
       const role = list[0]!.meta?.verify?.role ?? 'target';
-      mixed.push(`${role === 'holdout' ? 'held-out' : role} ${short(runId)} failed ${failing.length} of ${list.length}`);
+      mixed.push(`${role === 'holdout' ? 'held-out' : role} ${short(runId)} failed ${failing.length} of ${list.length}${unsure.length ? `, ${unsure.length} inconclusive` : ''}`);
       if ('several' in scope) {
         n.scoped++;
         continue;
@@ -882,7 +892,8 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
       n.elsewhere += added.elsewhere;
       if (source.callNo === null && pairs.length > before) source.callNo = pairs[before]!.callNo;
     }
-    source.why = whyContrast(mixed, n, 'several' in scope ? scope.several : [], source.made, 'No run both passed and failed: each passed every attempt or none.');
+    const none = undecided ? `No run both passed and failed: each passed every attempt it was judged in or none, and ${plural(undecided, 'attempt')} could not be judged.` : 'No run both passed and failed: each passed every attempt or none.';
+    source.why = whyContrast(mixed, n, 'several' in scope ? scope.several : [], source.made, none);
   }
   nameVerifies(sources, verifyVersions);
   nameBlames(sources);

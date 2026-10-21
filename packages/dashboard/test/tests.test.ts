@@ -195,6 +195,9 @@ describe('the Tests screen', () => {
     expect(over).toMatchObject({ modeLabel: 'fork ×5', modeHint: 'allowed to fork; passes on its checks, 5 of 5 attempts', checks: ['issue_refund called 0 times', 'escalate called 1 time'], last: { line: '5 of 5 attempts passed both checks' } });
     const attempts = (n: number) => resultLine({ sessionId: 's', golden: 'g', at: T0, revision: null, ok: true, failure: null, reason: null, runId: null, goldenRunId: null, data: { attempts: { total: 3, passed: 3, required: 3, runs: [] }, checks: Array.from({ length: n }, (_, i) => ({ ok: true, label: `check ${i}`, detail: null })) } }, []);
     expect([attempts(0), attempts(1), attempts(3)]).toEqual(['3 of 3 attempts passed', '3 of 3 attempts passed the check', '3 of 3 attempts passed all 3 checks']);
+    // A count met before an attempt a check could not decide: that attempt is counted apart, never as one that failed.
+    const met = resultLine({ sessionId: 's', golden: 'g', at: T0, revision: null, ok: true, failure: null, reason: null, runId: null, goldenRunId: null, data: { verdict: 'passed', attempts: { total: 2, passed: 1, required: 1, runs: [], inconclusive: 1 }, checks: [{ ok: true, label: 'check 0', detail: null }] } }, []);
+    expect(met).toBe('1 of 2 attempts passed the check · 1 inconclusive');
     expect(over!.history[1]).toMatchObject({ result: 'fail', note: '4 of 5 attempts passed, 5 needed. Attempt 2: check failed: issue_refund called 0 times, but called 1 time', runId: null });
     store.close();
   });
@@ -467,9 +470,9 @@ describe('the Tests screen', () => {
     expect(f!.bisect).toEqual({ good: 'bbb2222', bad: 'ddd4444', args: ['bisect', 'goldens/x', '--good', 'bbb2222', '--bad', 'ddd4444'], live: true });
     // The dialog offers each commit it was tested at before, newest first, with how it did there.
     expect(f!.revisions).toEqual([
-      { rev: 'ccc3333', at: T0 + 2 * DAY + 1, result: 'pass', sameChecks: true },
-      { rev: 'bbb2222', at: T0 + DAY + 1, result: 'pass', sameChecks: true },
-      { rev: 'aaa1111', at: T0 + 1, result: 'pass', sameChecks: true },
+      { rev: 'ccc3333', at: T0 + 2 * DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true },
+      { rev: 'bbb2222', at: T0 + DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true },
+      { rev: 'aaa1111', at: T0 + 1, result: 'pass', verdict: 'passed', sameChecks: true },
     ]);
     store.close();
   });
@@ -488,7 +491,7 @@ describe('the Tests screen', () => {
     const [f] = testsView(store, [x]).failures;
     // No pass under today's check: the page asks for a good commit, offering aaa1111 as passed under other checks.
     expect(f!.bisect).toBeNull();
-    expect(f!.revisions).toEqual([{ rev: 'aaa1111', at: T0 + 1, result: 'pass', sameChecks: false }]);
+    expect(f!.revisions).toEqual([{ rev: 'aaa1111', at: T0 + 1, result: 'pass', verdict: 'passed', sameChecks: false }]);
     store.close();
   });
 
@@ -811,6 +814,42 @@ describe('Find the commit from a run', () => {
     store.close();
   });
 
+  it('tells a golden that came out inconclusive apart: never failed at its commit, and no failure to find from its replay', () => {
+    const store = Store.open(':memory:');
+    const x: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] };
+    const undecided = 'check inconclusive: judge "calm" answers yes, but not judged: no recorded verdict and no key for gemini';
+    const day = (n: number, revision: string, verdict: 'passed' | 'failed' | 'inconclusive') => {
+      const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision, startedAt: T0 + n * DAY });
+      const replay = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: revision, startedAt: T0 + n * DAY, meta: { test: { golden: 'goldens/x', session: s.sessionId } } });
+      store.endRun(replay.runId, 'completed', T0 + n * DAY + 1);
+      const why = verdict === 'failed' ? { failure: 'check' as const, reason: 'check failed: send_email called 0 times, but called 1 time' } : verdict === 'inconclusive' ? { failure: 'inconclusive' as const, reason: undecided } : {};
+      store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: verdict === 'passed', ...why, runId: replay.runId, revision, goldenRunId: 'REC', at: T0 + n * DAY + 1, data: { mode: 'replay', verdict } });
+      store.finishTestSession(s.sessionId, { passed: verdict === 'passed' ? 1 : 0, failed: verdict === 'failed' ? 1 : 0, upstreamRequests: 0, endedAt: T0 + n * DAY + 2 });
+      return replay.runId;
+    };
+    day(0, 'aaa1111', 'passed');
+    const unsure = day(1, 'bbb2222', 'inconclusive');
+    const failing = day(2, 'ccc3333', 'failed');
+    // Tests' dialog: the commit where it was inconclusive is offered as such, never as one where it failed.
+    const [f] = testsView(store, [x]).failures;
+    expect(f!.revisions.map((r) => [r.rev, r.result, r.verdict])).toEqual([
+      ['bbb2222', 'fail', 'inconclusive'],
+      ['aaa1111', 'pass', 'passed'],
+    ]);
+    // The run page's: each commit before the failing replay counts its golden's results by verdict.
+    const choices = bisectChoices(store, failing, { goldens: [x] })!;
+    expect(choices).toMatchObject({ target: { kind: 'golden', golden: 'goldens/x' }, failed: true, good: 'aaa1111', bad: 'ccc3333', unavailable: null });
+    expect(choices.revisions.map((r) => [r.rev, r.runs, r.failed, r.inconclusive])).toEqual([
+      ['bbb2222', 1, 0, 1],
+      ['aaa1111', 1, 0, 0],
+    ]);
+    // The inconclusive replay itself neither passed nor failed: there is no failure to find the commit of.
+    const from = bisectChoices(store, unsure, { goldens: [x] })!;
+    expect(from).toMatchObject({ failed: false, args: null, unavailable: "goldens/x came out inconclusive in this replay's session, neither passed nor failed, so there is no failure to find the commit of: Tests says what settles it" });
+    expect(bisectJob(store, [x], { runId: unsure, good: 'aaa1111' })).toEqual({ error: from.unavailable });
+    store.close();
+  });
+
   it('judges each replay by the check blame found a run failing, though it exited 0', () => {
     const store = Store.open(':memory:');
     const { make } = history(store);
@@ -826,6 +865,20 @@ describe('Find the commit from a run', () => {
     // A run that failed a check given with its own --expect is judged by that one.
     const own = make('fff6666', T0 + 6 * DAY, 'completed', { expect: { tools: { send_email: 1 } }, checks: [{ ok: false, label: 'send_email called 1 time' }] } as never);
     expect(bisectChoices(store, own, { goldens: [] })).toMatchObject({ failed: true, fork: true, expect: { tools: { send_email: 1 } }, unavailable: null });
+    store.close();
+  });
+
+  it('tells a run whose only check that did not pass is inconclusive apart: no failure to find from it', () => {
+    const store = Store.open(':memory:');
+    const { make } = history(store);
+    const judge = { ok: false, status: 'inconclusive', label: 'judge "calm" answers yes', detail: 'not judged: no recorded verdict and no key for gemini' };
+    const unsure = make('fff6666', T0 + 5 * DAY, 'completed', { expect: { judge: [{ name: 'calm', question: 'Is the reply calm?', of: 'answer', model: 'gemini-3-flash' }] }, checks: [judge] } as never);
+    const c = bisectChoices(store, unsure, { goldens: [] })!;
+    expect(c).toMatchObject({ failed: false, fork: false, expect: null, args: null, unavailable: 'this run is inconclusive, neither passed nor failed: a check could not be decided (judge "calm" answers yes), so there is no failure to find the commit of' });
+    expect(bisectJob(store, [], { runId: unsure, good: 'bbb2222' })).toEqual({ error: c.unavailable });
+    // A check that failed beside it is a failure all the same, judged by the run's own --expect.
+    const failing = make('fff6666', T0 + 6 * DAY, 'completed', { expect: { tools: { send_email: 1 } }, checks: [{ ok: false, status: 'failed', label: 'send_email called 1 time', detail: 'called 0 times' }, judge] } as never);
+    expect(bisectChoices(store, failing, { goldens: [] })).toMatchObject({ failed: true, fork: true, expect: { tools: { send_email: 1 } }, unavailable: null });
     store.close();
   });
 
@@ -999,6 +1052,30 @@ describe('goldens with a gate', () => {
       ['A test failed: drops', 'failed', '#/tests'],
       ['A test is inconclusive: flaky', 'inconclusive', '#/tests'],
     ]);
+    store.close();
+  });
+
+  it('says a gated golden a check could not decide is inconclusive for the check, never for a gate that ran out', () => {
+    const store = Store.open(':memory:');
+    const why = 'check inconclusive: judge "calm" answers yes, but not judged: the judge\'s call failed: HTTP 400';
+    // Two attempts passed, and the third could not be judged: test stops there, and its gate decided nothing.
+    const stopped: TestResultData = { mode: 'fork', attempts: { total: 3, passed: 2, required: null, runs: [], inconclusive: 1 }, verdict: 'inconclusive', gate: gateResult(sprt, [true, true], { decision: 'continue' }) };
+    // One whose replay passed its gate, and whose injection gate showed too little to say.
+    const injected: TestResultData = { ...result(sprt, Array(12).fill(true)), verdict: 'inconclusive', injection: { resultId: null, attempts: 3, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 3, allowed: { obeyed: 0, influenced: null }, verdict: 'inconclusive', reason: 'no attempt showed anything', skipped: null } };
+    session(store, 'e4f5a6b', T0, [
+      { golden: 'goldens/escalates', ok: false, failure: 'inconclusive' as never, reason: why, runId: 'R1', data: stopped },
+      { golden: 'goldens/flaky', ok: false, failure: 'injection' as never, reason: 'injection inconclusive: no attempt showed anything', runId: 'R2', data: injected },
+    ]);
+    const view = testsView(store, gated.slice(0, 2));
+    const [escalates, flaky] = view.rows;
+    // A result kept with the gate the check stopped before it decided: no gate shows, as it decided nothing.
+    expect(escalates!.last).toMatchObject({ verdict: 'inconclusive', line: why, gate: null });
+    expect(view.inconclusive).toEqual([expect.objectContaining({ golden: 'goldens/escalates', reason: why, gate: null }), expect.objectContaining({ golden: 'goldens/flaky', reason: 'injection inconclusive: no attempt showed anything', gate: null })]);
+    expect(flaky!.last).toMatchObject({ verdict: 'inconclusive', line: 'injection inconclusive: no attempt showed anything' });
+    // Its title and its history cell say what is inconclusive, never a gate that ran out of attempts.
+    expect(view.verdict).toMatchObject({ state: 'inconclusive', inconclusive: 2, title: 'escalates inconclusive: a check could not be judged' });
+    expect(escalates!.history.map((c) => c.note)).toEqual([why]);
+    expect(failingTests(store, { goldens: gated.slice(0, 2) }).map((t) => t.line)).toEqual(['injection inconclusive: no attempt showed anything', why]);
     store.close();
   });
 

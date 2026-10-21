@@ -75,7 +75,7 @@ function normalizeBlame(v: unknown): BlameView | null {
   if (!isObject(v)) return null;
   const modelCall = isObject(v.modelCall) && int(v.modelCall.k) !== null && int(v.modelCall.m) !== null ? { k: int(v.modelCall.k)!, m: int(v.modelCall.m)! } : null;
   const outcome = v.outcome === 'blamed' || v.outcome === 'unrescuable' || v.outcome === 'stopped' ? v.outcome : null;
-  return { callNo: int(v.callNo), modelCall, confidence: str(v.confidence), rescuedRunId: str(v.rescuedRunId), scope: str(v.scope), outcome, short: str(v.short) };
+  return { callNo: int(v.callNo), modelCall, confidence: str(v.confidence), rescuedRunId: str(v.rescuedRunId), scope: str(v.scope), outcome, ...(v.unsettled === true ? { unsettled: true } : {}), short: str(v.short) };
 }
 
 const FIX_ROLES = ['failing', 'good', 'probe', 'rescued', 'verify', 'unblamed'];
@@ -100,7 +100,7 @@ export function normalizeFix(v: unknown): { fix: FixView | null; role: string | 
     const k = int(b.step);
     const m = int(b.steps);
     const outcome = b.outcome === 'blamed' || b.outcome === 'unrescuable' || b.outcome === 'stopped' ? b.outcome : null;
-    blame = { callNo: int(b.lostAt), modelCall: k !== null && m !== null && k >= 1 && k <= m ? { k, m } : null, confidence: str(b.confidence), rescuedRunId: str(b.rescuedRunId), scope: null, outcome, short: str(b.short) };
+    blame = { callNo: int(b.lostAt), modelCall: k !== null && m !== null && k >= 1 && k <= m ? { k, m } : null, confidence: str(b.confidence), rescuedRunId: str(b.rescuedRunId), scope: null, outcome, ...(b.unsettled === true ? { unsettled: true } : {}), short: str(b.short) };
   }
   return { fix, role, blame, expect: role === 'unblamed' && v.expect !== undefined && v.expect !== null ? v.expect : undefined };
 }

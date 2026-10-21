@@ -5,7 +5,7 @@ import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, todayTestsLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, localTitle } from '../ui/runspage/bulk.js';
-import { bisectCommand, bisectRequest } from '../ui/runspage/find-commit.js';
+import { bisectCommand, bisectRequest, revisionTally } from '../ui/runspage/find-commit.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
 import { fileHead, FILE_FORMATS, HEAD_BYTES, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, pickedFormat, redateTrace, sampleTrace, tooLargeNote } from '../ui/runspage/imports.js';
 import { OTEL_SAMPLE, type OtlpTrace } from '../ui/runspage/sample-otel.js';
@@ -33,6 +33,8 @@ describe('the Overview’s words', () => {
     // Today's blame line, in the words Needs a look uses for the same fix.
     expect(blameWords({ outcome: 'blamed', lostAt: 7 })).toBe('lost at #7');
     expect(blameWords({ outcome: 'unrescuable', lostAt: null })).toBe('not rescued from any model call');
+    // One whose first probe couldn't tell is not settled, never a finding that no call rescues the run.
+    expect(blameWords({ outcome: 'unrescuable', unsettled: true, lostAt: null })).toBe('not settled from the first model call');
     expect(blameWords({ outcome: 'stopped', lostAt: null })).toBe('blame stopped early');
     expect(blameWords({ outcome: null, lostAt: null })).toBe('not placed yet');
     expect(testsKpi(null, 0)).toEqual({ value: '—', note: 'no goldens yet', failing: false });
@@ -294,6 +296,8 @@ describe('the Runs page’s requests and words', () => {
     const theirs = { ...own, bad: null };
     expect(bisectRequest(run, theirs, '2ef20ae')).toEqual({ runId: run, good: '2ef20ae', bad: 'HEAD' });
     expect(bisectCommand(run, { ...theirs, target: { kind: 'golden', golden: 'goldens/refund-flow' }, fork: false }, '')).toBe('shadowlap bisect goldens/refund-flow --good <commit> --bad HEAD');
+    // How the runs at each commit went: a golden's inconclusive results are counted apart, never as failures.
+    expect([{ runs: 3, failed: 0 }, { runs: 3, failed: 1 }, { runs: 3, failed: 0, inconclusive: 1 }, { runs: 3, failed: 1, inconclusive: 1 }].map(revisionTally)).toEqual(['3 passed', '1 of 3 failed', '1 of 3 inconclusive', '1 of 3 failed, 1 inconclusive']);
   });
 
   it('says on the local tag what is only on this machine: the run, or attempts Push sends with it', () => {

@@ -75,9 +75,9 @@ export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat }
 export { indexSearch, MATCH_END, MATCH_START, searchCalls, searchExpression, searchIndexBehind, updateSearchIndex, type SearchHit, type SearchIndexRun } from './search.js';
 export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-notes.js';
 export { formatRepeats, summarizeRepeats } from './repeat.js';
-export { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unsettledFirst } from './blame.js';
+export { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, ProbeVerdict } from './blame.js';
-export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, outcomeOf, runVerdict, verifyRule } from './verify.js';
+export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
 // Statistical gating: verdicts with stated error rates on attempts that vary (test's gate, verify, blame).
 export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decisionWord, describeGate, dropProbability, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, verdictLine, wilson, wilsonBound } from './stats.js';
 export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, GateOdds, GateOutcome, GateResult, SprtBounds, SprtEvidence, SprtGate, Tally } from './stats.js';
@@ -110,7 +110,7 @@ export type { ShowJson } from './show.js';
 // translation that lets a model of another provider take over a recorded conversation.
 export { contextLine, countPairs, findPairs, pairRows, PAIR_FORMATS, PAIR_SHAPES } from './pairs.js';
 export type { Pair, PairAnswer, PairConfidence, PairFormat, PairRowsOptions, PairSource, PairSourceKind, PairsResult } from './pairs.js';
-export { answersNothing, attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, goldenPaths, isModelRequest, isPack, isRecordedInput, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
+export { answersNothing, attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, goldenPaths, isModelRequest, isPack, isRecordedInput, INCONCLUSIVE_TEST_NOTE, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
 export type { Golden, OneSided, Takeover, Task, TaskCheck, TaskFields, TaskInput, TaskStatus } from './tasks.js';
 export { anthropicBase, choiceTarget, endpointVia, isLoopback, listingInput, listModelChoices, mainRefusal, modelReach, ollamaBase, openAIBase, OFFICIAL, refusedLine } from './models.js';
 // A rule the config already has, for a value a divergence shows (test --update, Training's Update the golden).

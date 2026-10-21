@@ -139,7 +139,7 @@ describe('shadowlap blame', () => {
       const blame = after.getRun(runId)!.meta!.blame!;
       expect(blame).toMatchObject({ outcome: 'blamed', callNo: decision, confidence: 'high', fields: {}, oracle: ['the agent exits 0', 'issue_refund called 0 times'] });
       const rescued = after.getRun(blame.rescuedRunId!)!;
-      expect(rescued.meta?.probe).toEqual({ of: runId, callNo: decision, passed: true });
+      expect(rescued.meta?.probe).toEqual({ of: runId, callNo: decision, passed: true, verdict: 'passed' });
       expect(rescued.divergence).toMatchObject({ type: 'forced', callNo: decision });
       const fenced = after.getCalls(rescued.runId).filter((c) => c.name === 'escalate');
       expect(fenced.map((c) => c.origin)).toEqual(['stubbed']);

@@ -68,7 +68,7 @@ interface PresetJson {
   detail: string;
   summary: string;
   reason: string | null;
-  runs: Array<{ runId: string; passed: boolean; exitCode: number; lastLine: string | null }>;
+  runs: Array<{ runId: string; verdict: string; passed: boolean; exitCode: number; reason: string | null; lastLine: string | null }>;
   gate: Record<string, number>;
 }
 interface ReportJson {
@@ -222,11 +222,25 @@ describe('test --chaos', () => {
     // so the preset is no failure of the agent's, and no gate runs on for it.
     const judge = { name: 'calm', question: 'Does the final answer stay calm?', model: 'gemini-2.5-flash' };
     config({ 'goldens/forecast': { chaos: { presets: ['timeout'], expect: { judge: [judge] }, gate: { good: 0.9, bad: 0.5, risk: 0.1, max: 6 } } } });
-    const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'undecided.json'], { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' });
+    const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'undecided.json', '--junit', 'undecided.xml'], { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' });
     expect(r.code, r.out).toBe(1);
-    const p = byPreset(report('undecided.json'));
+    const out = report('undecided.json');
+    const p = byPreset(out);
     expect(p.timeout).toMatchObject({ verdict: 'inconclusive', attempts: 1, passes: 0 });
     expect(p.timeout!.reason).toMatch(/^check inconclusive: judge "calm" answers yes, but not judged: /);
+    // Its attempt is inconclusive too, wherever it shows: the JSON, the store and, under the default
+    // --inconclusive fail, the JUnit case's failure, which lists each attempt by its own verdict.
+    const [attempt] = p.timeout!.runs;
+    expect(attempt).toMatchObject({ verdict: 'inconclusive', passed: false, reason: p.timeout!.reason });
+    const xml = readFileSync(join(work, 'undecided.xml'), 'utf8');
+    expect(xml).toContain(`<![CDATA[attempt 1 (run ${attempt!.runId}): inconclusive: check inconclusive: judge "calm" answers yes, but not judged: `);
+    expect(xml).not.toContain('failed:');
+    const store = Store.open(db());
+    try {
+      expect(store.listChaosResults({ sessionId: out.session })[0]!.data?.runs?.map((x) => x.verdict)).toEqual(['inconclusive']);
+    } finally {
+      store.close();
+    }
   }, 180_000);
 
   it('gates each preset as attempts come in: a sequential test stops as soon as it can say', async () => {
@@ -320,6 +334,14 @@ describe('replay --chaos', () => {
     const plain = await shadowlap(['replay', recording, '--chaos', '--presets', 'empty']);
     expect(plain.code, plain.out).toBe(0);
     expect(plain.stdout).toContain("Each preset was judged on the agent exiting 0 alone: no checks say what an error path must do.\nSay it with --expect, such as --expect '{\"tools\":{\"issue_refund\":\"<= 1\"}}'.");
+
+    // A command that never makes the call the preset hits plays nothing in: inconclusive, and so is its attempt, never failed.
+    const never = await shadowlap(['replay', recording, '--chaos', '--presets', 'timeout', '--summary-json', 'never.json', '--', process.execPath, '-e', '']);
+    expect(never.code, never.out).toBe(1);
+    const n = byPreset(report('never.json'));
+    expect(n.timeout).toMatchObject({ verdict: 'inconclusive', attempts: 1, passes: 0, reason: expect.stringContaining('so the preset was never played in') });
+    expect(n.timeout!.runs).toEqual([expect.objectContaining({ verdict: 'inconclusive', passed: false, reason: n.timeout!.reason })]);
+    expect(never.stdout).toMatch(/\? tool timeout\s+inconclusive\s+timed out: the replay/);
   }, 120_000);
 
   it('prints what docs/cli.md says', () => {

@@ -1,4 +1,4 @@
-import { agentCallsOf, attemptsToPass, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, normalizeResponse, probeFinding, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
+import { agentCallsOf, attemptsToPass, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, normalizeResponse, probeFinding, probeTally, searchBlame, unsettledFirst, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -76,10 +76,12 @@ export interface BlameRun extends BlameReport {
  * reads them in the order they started, as one after another would, each once all those started
  * before it have ended. Its first answer other than continue is kept: attempts still running then
  * are evidence, but nothing decides again, so a verdict once reached never reopens, and the caller
- * starts no attempt after it (probeAttempts).
+ * starts no attempt after it (probeAttempts). An attempt that could not be judged (null) decides the
+ * probe inconclusive when its turn comes, on the attempts before it: no attempt after it would say
+ * more.
  */
 export class ProbeTally {
-  private readonly outcomes: Array<boolean | undefined> = [];
+  private readonly outcomes: Array<boolean | null | undefined> = [];
   private seen = 0;
   private passes = 0;
   /** The first answer other than continue, and after how many attempts (by the order they started); null until then. */
@@ -92,10 +94,14 @@ export class ProbeTally {
     return this.seen;
   }
 
-  /** Attempt `n` (the nth to start, from 1) ended, and passed or not. */
-  add(n: number, passed: boolean): void {
+  /** Attempt `n` (the nth to start, from 1) ended, and passed or not, or (null) could not be judged. */
+  add(n: number, passed: boolean | null): void {
     this.outcomes[n - 1] = passed;
     while (!this.decided && this.seen < this.outcomes.length && this.outcomes[this.seen] !== undefined) {
+      if (this.outcomes[this.seen] === null) {
+        this.decided = { decision: 'inconclusive', at: this.seen };
+        break;
+      }
       if (this.outcomes[this.seen]) this.passes++;
       this.seen++;
       const d = this.settle(this.passes, this.seen);
@@ -230,10 +236,11 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
               ? `An attempt at model call #${callNo} forked at call ${d.callNo} instead:\n\n${formatDivergence(d)}\n\nThe calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
               : `An attempt at model call #${callNo} never reached it: the agent took another path through calls the recording holds. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`;
           }
-          store.updateRunMeta(a.run.runId, { probe: { ...marks.probe, passed: a.passed }, ...(a.checks.length ? { checks: a.checks } : {}) });
-          done[n - 1] = { runId: a.run.runId, passed: a.passed, exitCode: a.code, failures: a.failures, spent: a.summary.cost.spent, upstreamRequests: a.summary.upstreamRequests };
+          store.updateRunMeta(a.run.runId, { probe: { ...marks.probe, passed: a.passed, verdict: a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
+          done[n - 1] = { runId: a.run.runId, passed: a.passed, verdict: a.verdict, exitCode: a.code, failures: a.failures, spent: a.summary.cost.spent, upstreamRequests: a.summary.upstreamRequests };
           const late = tally.decided !== null;
-          tally.add(n, a.passed);
+          // An attempt that all it fell short on is a check that could not be decided says nothing of the answer re-asked.
+          tally.add(n, a.verdict === 'inconclusive' ? null : a.passed);
           log(`    ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}${late ? p.dim(' · ended after the probe decided') : ''}`);
         },
       });
@@ -245,10 +252,14 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       const decision = decided.decision;
       const passes = attempts.filter((a) => a.passed).length;
       const rescued = decision === 'pass';
+      // An attempt that could not be judged stopped the probe, inconclusive, whatever decides it: with
+      // why. One that ended after a gate or a count had decided it is only a late attempt.
+      const stopper = attempts.find((a) => a.verdict === 'inconclusive');
+      const undecided = decision === 'inconclusive' ? (stopper?.failures[0] ?? null) : null;
       // The gate's result rests on the attempts it decided on: the first to start, up to the one that settled it.
-      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(s.gate ? { decision, gate: gateResult(s.gate, tally.decidedOn(), { decision }) } : {}) };
+      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(s.gate ? { decision, gate: gateResult(s.gate, tally.decidedOn(), { decision: undecided ? 'continue' : decision }) } : undecided ? { decision } : {}), ...(undecided ? { undecided } : {}) };
       // Under a gate, its verdict word, tally and Wilson bound; the rule was said once, above.
-      const words = s.gate ? probeFinding(found, s.gate) : `${rescued ? 'rescued' : 'lost'}: ${passes} of ${attempts.length} passed`;
+      const words = s.gate || undecided ? probeFinding(found, s.gate) : `${rescued ? 'rescued' : 'lost'}: ${probeTally(found, ' passed')}`;
       log(`    ${rescued ? p.green(words) : decision === 'inconclusive' ? p.yellow(words) : p.red(words)}`);
       return found;
     };
@@ -323,6 +334,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       blame: {
         at: Date.now(),
         outcome: report.outcome,
+        // Placed on no call only because its first probe couldn't tell: what reads this record says so.
+        ...(unsettledFirst(report) ? { unsettled: true } : {}),
         callNo: report.blamed?.callNo ?? null,
         confidence: report.confidence,
         rescuedRunId: contrast?.rescuedRunId ?? null,
@@ -367,10 +380,11 @@ export function inconclusiveChecks(a: { checks: readonly StoredCheck[] }): Store
   return a.checks.filter((c) => checkStatus(c) === 'inconclusive');
 }
 
-/** One attempt in a line: its verdict, what ran live, what it cost, how long it took and its run. */
-export function describeAttempt(a: Attempt): string {
+/** One attempt in a line: its verdict (one only an undecided check held back is inconclusive, never failed), what ran live, what it cost, how long it took and its run. */
+export function describeAttempt(a: Pick<Attempt, 'passed' | 'verdict' | 'failures' | 'summary' | 'ms' | 'run'>): string {
   const cost = a.summary.cost.spent ? ` · ≈${formatUsd(a.summary.cost.spent)}` : '';
-  const verdict = a.passed ? p.green('✓ passed') : `${p.red('✗')} ${a.failures[0] ?? 'failed'}${a.failures.length > 1 ? p.dim(` (+${a.failures.length - 1} more)`) : ''}`;
+  const mark = a.verdict === 'inconclusive' ? p.yellow('?') : p.red('✗');
+  const verdict = a.passed ? p.green('✓ passed') : `${mark} ${a.failures[0] ?? a.verdict}${a.failures.length > 1 ? p.dim(` (+${a.failures.length - 1} more)`) : ''}`;
   return `${verdict}${p.dim(` · ${a.summary.byOrigin.live} live${cost} · ${formatDuration(a.ms)} · ${shortId(a.run.runId)}`)}`;
 }
 

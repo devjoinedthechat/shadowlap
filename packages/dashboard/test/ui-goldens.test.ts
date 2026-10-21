@@ -317,10 +317,10 @@ describe('the buttons under a divergence', () => {
 
 describe('Find the commit’s dialog', () => {
   const revisions = [
-    { rev: 'ddd4444', at: T, result: 'fail' as const, sameChecks: true, subject: 'Send the user id with every request' },
-    { rev: 'ccc3333', at: T - 60_000, result: 'pass' as const, sameChecks: true, subject: 'Escalate refunds above the limit' },
-    { rev: 'bbb2222', at: T - 120_000, result: 'pass' as const, sameChecks: false, subject: null },
-    { rev: 'aaa1111', at: T - 180_000, result: 'pass' as const, sameChecks: true, subject: 'Initial support agent' },
+    { rev: 'ddd4444', at: T, result: 'fail' as const, verdict: 'failed' as const, sameChecks: true, subject: 'Send the user id with every request' },
+    { rev: 'ccc3333', at: T - 60_000, result: 'pass' as const, verdict: 'passed' as const, sameChecks: true, subject: 'Escalate refunds above the limit' },
+    { rev: 'bbb2222', at: T - 120_000, result: 'pass' as const, verdict: 'passed' as const, sameChecks: false, subject: null },
+    { rev: 'aaa1111', at: T - 180_000, result: 'pass' as const, verdict: 'passed' as const, sameChecks: true, subject: 'Initial support agent' },
   ];
 
   it('offers each commit the golden was tested at by its subject, as the mock words it, starting on the newest that passed', () => {
@@ -332,6 +332,14 @@ describe('Find the commit’s dialog', () => {
       { value: 'aaa1111', label: 'aaa1111 · Initial support agent' },
     ]);
     expect(c.initial).toBe('ccc3333');
+  });
+
+  it('says inconclusive, never failed, at a commit where the golden came out neither passed nor failed', () => {
+    // Its gate ran out of attempts between its bounds at bbb2222: no pass to start from there, and no failure either.
+    const unsure = [revisions[0]!, { ...revisions[1]!, result: 'fail' as const, verdict: 'inconclusive' as const }, revisions[3]!];
+    const c = revisionChoices(unsure);
+    expect(c.options.map((o) => o.label)).toEqual(['ddd4444 · Send the user id with every request · failed here', 'ccc3333 · Escalate refunds above the limit · inconclusive here', 'aaa1111 · Initial support agent']);
+    expect(c.initial).toBe('aaa1111');
   });
 
   it('starts on an older commit than the one a search already failed at', () => {
@@ -463,12 +471,15 @@ describe('the Update golden dialog', () => {
 
 describe('the palette', () => {
   it('lists each golden by how it did last, from any page, and Update goldens… when any diverged', () => {
-    const entries = testsPalette(view({ rows: [...view().rows, row('broken', { last: { result: null, verdict: null, failure: null, line: "can't be read: no run.json", at: null, updated: false, gate: null }, error: 'no run.json' }), row('new-one', { last: { result: null, verdict: null, failure: null, line: 'not run yet', at: null, updated: false, gate: null } })] }), { update: true });
+    // A golden whose gate ran out of attempts between its bounds reads as not passing (`result`), and is inconclusive, never failing.
+    const unsure = row('refund-flaky', { last: { result: 'fail', verdict: 'inconclusive', failure: 'inconclusive', line: 'inconclusive · 16 of 20 passed', at: T, updated: false, gate: null } });
+    const entries = testsPalette(view({ rows: [...view().rows, unsure, row('broken', { last: { result: null, verdict: null, failure: null, line: "can't be read: no run.json", at: null, updated: false, gate: null }, error: 'no run.json' }), row('new-one', { last: { result: null, verdict: null, failure: null, line: 'not run yet', at: null, updated: false, gate: null } })] }), { update: true });
     expect(entries.map((e) => [e.group, e.label, e.hint, e.to])).toEqual([
       ['Actions', 'Update goldens…', 'shadowlap test --update', '#/tests?update'],
       ['Tests', 'refund-over-limit', 'passing', '#/tests'],
       ['Tests', 'refund-in-limit', 'failing', '#/tests'],
       ['Tests', 'escalate-over-limit', 'passing', '#/tests'],
+      ['Tests', 'refund-flaky', 'inconclusive', '#/tests'],
       ['Tests', 'broken', 'can’t be read', '#/tests'],
       ['Tests', 'new-one', 'not run yet', '#/tests'],
     ]);

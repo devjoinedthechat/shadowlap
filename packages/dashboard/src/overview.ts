@@ -74,7 +74,8 @@ export interface TodayPanel {
    * the runs it probed, each with how its blame came out (null while it is still probing), where
    * it was lost, and the fix it belongs to.
    */
-  blame: { probes: number; attempts: number; runs: Array<{ runId: string; outcome: BlameOutcome | null; lostAt: number | null; title: string | null; fixId: string | null }> };
+  /** Each blamed run's outcome; `unsettled` when it placed the failure on no call only because its first probe couldn't tell. */
+  blame: { probes: number; attempts: number; runs: Array<{ runId: string; outcome: BlameOutcome | null; unsettled?: true; lostAt: number | null; title: string | null; fixId: string | null }> };
 }
 
 /** How a blame came out (`meta.blame.outcome`): it found the model call that lost the run, no model call rescued it, or it stopped before the search finished. */
@@ -373,7 +374,8 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
         const run = index.byId.get(runId);
         const fix = fixOfRun(store, runId);
         const outcome = run?.meta.blame?.outcome;
-        return { runId, outcome: outcome === 'blamed' || outcome === 'unrescuable' || outcome === 'stopped' ? outcome : null, lostAt: run ? lostAt(classifiable(run)) : null, title: fix?.title ?? null, fixId: fix?.fixId ?? null };
+        // Placed on no call only because its first probe couldn't tell: not settled, not "not rescued".
+        return { runId, outcome: outcome === 'blamed' || outcome === 'unrescuable' || outcome === 'stopped' ? outcome : null, ...(run?.meta.blame?.unsettled ? { unsettled: true as const } : {}), lostAt: run ? lostAt(classifiable(run)) : null, title: fix?.title ?? null, fixId: fix?.fixId ?? null };
       }),
     },
   };

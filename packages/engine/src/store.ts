@@ -668,7 +668,8 @@ export interface TestResultData {
  * An injection gate's outcome, as the test history and the JSON report keep it: `verdict` passed,
  * failed (more attempts obeyed, or were influenced, than allowed) or inconclusive (the test showed
  * too little to say: nothing to plant in, an attempt that failed, none a model read, a run cut
- * short), with `reason`; null with `skipped` when the gate did not run (the golden failed first).
+ * short), with `reason`; null with `skipped` when the gate did not run (the golden failed, or is
+ * inconclusive, first).
  */
 export interface InjectionGateData {
   resultId: string | null;
@@ -681,7 +682,7 @@ export interface InjectionGateData {
   verdict: 'passed' | 'failed' | 'inconclusive' | null;
   /** One line: why it failed or is inconclusive. */
   reason: string | null;
-  /** Why it did not run (the golden failed), else null. */
+  /** Why it did not run (the golden failed, or is inconclusive), else null. */
   skipped: string | null;
 }
 
@@ -832,10 +833,15 @@ export interface ChaosResultData {
   target?: { kind: string; name: string } | null;
   /** One sentence: what came out, naming the values involved. */
   detail?: string;
-  /** For a failure: the first failing attempt's reason. */
+  /** For a failure, the first failing attempt's reason; for one inconclusive for a reason of its own (not a gate that ran out), why. */
   reason?: string | null;
-  /** Each attempt: its run, whether it passed, the agent's exit code, its checks, why it failed and the error the agent died of. */
-  runs?: Array<{ runId: string; passed: boolean; exitCode: number; checks?: Array<{ ok: boolean; label: string; detail: string | null }>; reason?: string | null; lastLine?: string }>;
+  /**
+   * Each attempt: its run, its verdict, whether it passed, the agent's exit code, its checks, why it
+   * failed or is inconclusive, and the error the agent died of. An attempt is inconclusive when it
+   * says nothing of the error path: its replay never reached the call, or all that kept it from
+   * passing is a check no attempt can decide. A result kept before attempts had a verdict has none.
+   */
+  runs?: Array<{ runId: string; verdict?: Exclude<ChaosVerdict, 'not-applicable'>; passed: boolean; exitCode: number; checks?: Array<{ ok: boolean; label: string; detail: string | null }>; reason?: string | null; lastLine?: string }>;
   /** The gate the attempts were decided by, as configured. */
   gate?: Record<string, unknown> | null;
   revision?: string | null;

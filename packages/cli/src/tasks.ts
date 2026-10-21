@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import {
   attemptScore,
   chatShapeOf,
+  checkStatus,
   CLOUD_ADVICE,
   CLOUDS,
   commandIsImported,
@@ -77,24 +78,40 @@ export function taskChecks(spec: TestSpec | null): TaskCheck[] {
 /**
  * The newest finished `shadowlap test` run of each golden kept in the store (`meta.test`), by the
  * golden's path in the project: read once for every golden. A test still running says nothing yet,
- * so the one before it counts. `shadowlap test` keeps its runs only in a store it is given (`--db`).
+ * so the one before it counts. Of a golden replayed more than once in a session, the attempt its
+ * result shows counts: the others are filed under it (`meta.test.of`), and one a check could not
+ * decide after its count was settled says nothing of how it came out. `shadowlap test` keeps its
+ * runs only in a store it is given (`--db`).
  */
 export function lastTests(store: Store | null, root: string): Map<string, RunRecord> {
   const out = new Map<string, RunRecord>();
   if (!store) return out;
   for (const run of store.allRuns()) {
     // Newest first: the first finished run of a golden is its last test.
-    if (!run.meta?.test || run.status === 'running') continue;
+    if (!run.meta?.test || run.status === 'running' || run.meta.test.of) continue;
     const golden = projectPath(root, run.meta.test.golden);
     if (!out.has(golden)) out.set(golden, run);
   }
   return out;
 }
 
-/** Whether a golden's last test failed: it didn't complete, a check failed, or it diverged without being allowed to fork. Null when it never ran. */
+/**
+ * Whether a golden's last test failed: it didn't complete, a check failed, or it diverged without
+ * being allowed to fork. A check that could not be decided is no failure (`testInconclusive`). Null
+ * when it never ran.
+ */
 export function testFailed(last: RunRecord | undefined, spec: TestSpec | null): boolean | null {
   if (!last) return null;
-  return last.status !== 'completed' || (last.meta?.checks ?? []).some((c) => !c.ok) || (!!last.divergence && !spec?.fork);
+  return last.status !== 'completed' || (last.meta?.checks ?? []).some((c) => checkStatus(c) === 'failed') || (!!last.divergence && !spec?.fork);
+}
+
+/**
+ * Whether a golden's last test was inconclusive: it failed nothing, and a check could not be decided
+ * (a judge with no verdict and no way to ask it, a condition it could not read). Neither passed nor
+ * failed, so its checks are no reward yet. False when it failed or never ran.
+ */
+export function testInconclusive(last: RunRecord | undefined, spec: TestSpec | null): boolean {
+  return testFailed(last, spec) === false && (last?.meta?.checks ?? []).some((c) => checkStatus(c) === 'inconclusive');
 }
 
 /** Where a golden's last test forked, when its test may fork (`fork` in its tests entry) and did; null otherwise. */
@@ -140,7 +157,7 @@ export function loadTasks(root: string, store: Store | null): TaskList {
     }
     const last = tests.get(golden);
     const forkedAt = pack ? testForkedAt(last, spec) : null;
-    const task = describeTask({ path: golden, golden: pack, fields: key === null ? {} : (fields.get(key) ?? {}), checks: taskChecks(spec), testFailed: pack ? testFailed(last, spec) : null, forkedAt, forkedRun: forkedAt !== null ? (last?.runId ?? null) : null, ...(pack && store ? { ancestors: ancestorsOf(store, pack.run) } : {}) });
+    const task = describeTask({ path: golden, golden: pack, fields: key === null ? {} : (fields.get(key) ?? {}), checks: taskChecks(spec), testFailed: pack ? testFailed(last, spec) : null, testInconclusive: !!pack && testInconclusive(last, spec), forkedAt, forkedRun: forkedAt !== null ? (last?.runId ?? null) : null, ...(pack && store ? { ancestors: ancestorsOf(store, pack.run) } : {}) });
     return { ...task, ...(unreadable ? { note: `its pack can't be read: ${unreadable}` } : {}), spec, dir, pack };
   });
   return { tasks, oneSided: oneSided(tasks) };

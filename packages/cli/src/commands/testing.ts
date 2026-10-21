@@ -167,7 +167,8 @@ function passedLine(o: GoldenOutcome): string {
         : `${replayed}/${replayed + s.notReached.length} replayed`,
     `${formatTokens(s.tokensNotRespent.inputTokens)} input tokens not re-spent`,
     ...(r.shown.checks?.length ? [statusTally(r.shown.checks)] : []),
-    ...(r.attempts.length > 1 && !r.gate ? [`${r.passed}/${r.attempts.length} attempts passed`] : []),
+    // An attempt a check could not decide, after the count was met, is counted apart: it did not fail.
+    ...(r.attempts.length > 1 && !r.gate ? [`${r.passed}/${r.attempts.length} attempts passed${r.inconclusive ? ` (${r.inconclusive} inconclusive)` : ''}`] : []),
   ].join(', ');
 }
 
@@ -338,7 +339,8 @@ export function register(program: Command): void {
           const gated = async (o: GoldenOutcome): Promise<{ outcome: GoldenOutcome; injection: InjectionGateData | null } | null> => {
             if (!spec?.injection || !o.parent) return { outcome: o, injection: null };
             const allowed = { obeyed: spec.injection.obeyed, influenced: spec.injection.influenced };
-            if (o.failure) return { outcome: o, injection: { resultId: null, attempts: 0, ...noVerdicts(), allowed, verdict: null, reason: null, skipped: 'the golden failed, so its injection gate did not run' } };
+            // Its replay did not pass: failed, or inconclusive, which is no failure, and says so here too.
+            if (o.failure) return { outcome: o, injection: { resultId: null, attempts: 0, ...noVerdicts(), allowed, verdict: null, reason: null, skipped: `the golden ${verdictOf(o) === 'inconclusive' ? 'is inconclusive' : 'failed'}, so its injection gate did not run` } };
             if (signal) return null;
             process.stderr.write(p.dim(`[shadowlap] injection gate for ${golden}: planting payloads in its untrusted reads\n`));
             let data: InjectionGateData;

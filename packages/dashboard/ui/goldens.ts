@@ -101,13 +101,13 @@ export function runningTests<T extends { kind?: string | undefined; done: boolea
 /**
  * The commits Find the commit's dialog offers as good ones, newest first, as the mock words them:
  * `c91d0f4 · Escalate refunds above the limit`, with how the golden did there when it didn't pass
- * under today's checks. `initial` is the one to start on: the newest that passed under them, older
+ * under today's checks: failed, inconclusive (neither passed nor failed), or passed under others. `initial` is the one to start on: the newest that passed under them, older
  * than `tried` when a search from that one named no first bad commit (it already failed there); ''
  * when none is known, for the dialog to ask for any commit.
  */
 export function revisionChoices(revisions: readonly BisectRevision[], tried: string | null = null): { options: Array<{ value: string; label: string }>; initial: string } {
   const options = revisions.map((r) => {
-    const how = r.result === 'fail' ? ' · failed here' : r.sameChecks ? '' : ' · passed under other checks';
+    const how = r.verdict === 'inconclusive' ? ' · inconclusive here' : r.result === 'fail' ? ' · failed here' : r.sameChecks ? '' : ' · passed under other checks';
     return { value: r.rev, label: `${revLabel(r.rev)} · ${r.subject || shortDate(r.at)}${how}` };
   });
   const at = tried ? revisions.findIndex((r) => r.rev === tried || r.rev.startsWith(tried) || tried.startsWith(r.rev)) : -1;
@@ -451,7 +451,8 @@ export interface TestsPaletteEntry {
  */
 export function testsPalette(view: TestsView | null, o: { update: boolean }): TestsPaletteEntry[] {
   if (!view || view.empty) return [];
-  const out: TestsPaletteEntry[] = view.rows.map((r) => ({ group: 'Tests', label: r.name, mono: true, hint: r.last.result === 'fail' ? 'failing' : r.last.result === 'pass' ? 'passing' : r.error ? 'can’t be read' : 'not run yet', to: href.tests() }));
+  // An inconclusive golden is neither passing nor failing, as Tests marks it.
+  const out: TestsPaletteEntry[] = view.rows.map((r) => ({ group: 'Tests', label: r.name, mono: true, hint: r.last.verdict === 'inconclusive' ? 'inconclusive' : r.last.result === 'fail' ? 'failing' : r.last.result === 'pass' ? 'passing' : r.error ? 'can’t be read' : 'not run yet', to: href.tests() }));
   if (view.diverged.length && o.update) out.unshift({ group: 'Actions', label: 'Update goldens…', hint: 'shadowlap test --update', mono: false, to: TESTS_UPDATE_HASH });
   return out;
 }

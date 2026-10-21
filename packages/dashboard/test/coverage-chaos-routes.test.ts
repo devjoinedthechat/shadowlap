@@ -218,8 +218,8 @@ describe('the activity feed', () => {
     const page = await getJson<{ items: Array<{ kind: string; text: string; href?: string }> }>('activity?limit=10');
     expect(page.items.find((i) => i.text.startsWith('Coverage read'))).toMatchObject({ kind: 'test', text: 'Coverage read · 1 behaviour without a golden · 1 golden packed · 1 not packed', href: '#/tests' });
     expect(page.items.find((i) => i.text === 'Error-path presets ran · 1 passed, 1 failed')).toMatchObject({ kind: 'fail', href: '#/tests' });
-    // A session on one run, stopped part way: it opens the run.
-    expect(page.items.find((i) => i.text === 'Error-path presets stopped · 2 passed, 0 failed, 1 inconclusive')).toMatchObject({ kind: 'test', href: `#/run/${golden}` });
+    // A session on one run, stopped part way: it opens the run, in amber for its inconclusive preset.
+    expect(page.items.find((i) => i.text === 'Error-path presets stopped · 2 passed, 0 failed, 1 inconclusive')).toMatchObject({ kind: 'warn', href: `#/run/${golden}` });
   });
 });
 

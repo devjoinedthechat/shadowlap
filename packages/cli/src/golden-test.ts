@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { agentCallsOf, decide, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { agentCallsOf, decide, decideCount, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { oracleLabels } from './attempts.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
@@ -69,7 +69,10 @@ export class ReplayInterrupted extends Error {
 export interface RecordingOutcome {
   spec: TestSpec | null;
   attempts: TestAttempt[];
-  /** The attempt the result shows: the last that passed when it passed, else the first that failed (or couldn't be judged). */
+  /**
+   * The attempt the result shows: the last that passed when it passed; for an inconclusive one the
+   * attempt a check could not decide, when one stopped it; else the first that failed.
+   */
   shown: TestAttempt;
   passed: number;
   /** Attempts that had to pass, out of `repeat`; null when a gate decided. */
@@ -80,10 +83,15 @@ export interface RecordingOutcome {
   /**
    * How it came out. Inconclusive: its gate ran out of attempts between its bounds, or what kept it
    * from passing is a check that could not be decided (a judge with no verdict and no way to ask the
-   * judge, a condition it can't read), which fails the run all the same unless inconclusive verdicts warn.
+   * judge, a condition it can't read), which fails the run all the same unless inconclusive verdicts
+   * warn. Test stops at an attempt a check could not decide, as no attempt after it would decide it
+   * either: a fixed count the attempts before it already settled keeps their verdict, passed or failed.
    */
   verdict: 'passed' | 'failed' | 'inconclusive';
-  /** A golden with a gate: what the gate decided, and why. */
+  /**
+   * A golden with a gate: what the gate decided, and why. Null without one, and for one an attempt a
+   * check could not decide stopped before its gate decided: the gate said nothing, and `failure` says why.
+   */
   gate: GateResult | null;
   /** Attempts a check couldn't judge: no evidence either way. */
   inconclusive: number;
@@ -187,10 +195,16 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   const required = gate ? null : (spec?.passes ?? 1);
   const judged = attempts.filter((a) => attemptVerdict(a) !== 'inconclusive');
   const carried = carry ? carry.outcomes : [];
-  const result = gate ? gateResult(gate, [...carried, ...judged.map((a) => !a.failure)], { history: ctx.history ?? null, clean, decision: unjudged ? 'continue' : decision, carried: carried.length }) : null;
-  const verdict: RecordingOutcome['verdict'] = unjudged ? 'inconclusive' : gate ? (decision === 'pass' ? 'passed' : decision === 'fail' ? 'failed' : 'inconclusive') : passed >= required! ? 'passed' : 'failed';
-  const unjudgedAttempt = attempts.find((a) => attemptVerdict(a) === 'inconclusive');
-  const shown = verdict === 'passed' ? attempts.filter((a) => !a.failure).at(-1)! : (unjudgedAttempt ?? attempts.find((a) => a.failure) ?? attempts.at(-1)!);
+  // An attempt a check could not decide stopped the golden. A gate stops as soon as it decides, so
+  // that attempt came while it was still open: the golden is inconclusive, and its gate decided
+  // nothing. A fixed count runs its attempts whatever they settle, so the ones judged before that
+  // attempt may have settled it already (enough passed, or too many failed for the attempts left to
+  // make up): their verdict stands, as an attempt that says nothing either way changes no settled count.
+  const undecided = unjudged > 0 && (gate !== null || decideCount(passed, judged.length, repeat, required!) === 'continue');
+  const result = gate && !undecided ? gateResult(gate, [...carried, ...judged.map((a) => !a.failure)], { history: ctx.history ?? null, clean, decision, carried: carried.length }) : null;
+  const verdict: RecordingOutcome['verdict'] = undecided ? 'inconclusive' : gate ? (decision === 'pass' ? 'passed' : decision === 'fail' ? 'failed' : 'inconclusive') : passed >= required! ? 'passed' : 'failed';
+  const unjudgedAttempt = undecided ? attempts.find((a) => attemptVerdict(a) === 'inconclusive') : undefined;
+  const shown = verdict === 'passed' ? attempts.filter((a) => !a.failure).at(-1)! : (unjudgedAttempt ?? attempts.find((a) => attemptVerdict(a) === 'failed') ?? attempts.find((a) => a.failure) ?? attempts.at(-1)!);
   if (attempts.length > 1 && !interrupted) fileUnder(ctx.store, attempts, shown, testMeta);
   let failure: JunitCase['failure'];
   const each = () =>
@@ -215,11 +229,12 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
     };
   } else if (!gate && verdict === 'failed') {
     const f = shown.failure!;
+    // An attempt a check could not decide after the count was lost is counted apart, never as failed.
     failure =
       attempts.length === 1
         ? f
         : {
-            message: `${passed} of ${attempts.length} attempts passed, ${required} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
+            message: `${passed} of ${attempts.length} attempts passed${unjudged ? `, ${unjudged} inconclusive` : ''}, ${required} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
             details: `${each()}\n\n${f.details}`,
           };
   }
@@ -249,7 +264,8 @@ export function carryFor(store: Store, golden: string, o: { goldenRunId: string;
   const last: TestResult | undefined = store.listTestResults({ golden, limit: 2 }).find((r) => r.sessionId !== o.session);
   if (!last) return { why: 'it has no result to continue yet' };
   const g = last.data?.gate;
-  if (!g) return { why: 'its last result had no gate' };
+  // An attempt a check could not decide stopped it before its gate decided anything: there is no gate to continue.
+  if (!g) return { why: last.data?.attempts?.inconclusive ? 'a check could not be decided in its last result, which stopped it before its gate decided' : 'its last result had no gate' };
   if (g.decision !== 'inconclusive') return { why: `its last result ${g.decision === 'pass' ? 'passed' : g.decision === 'fail' ? 'failed' : 'did not finish'}, so there is nothing to continue` };
   if (last.goldenRunId !== o.goldenRunId) return { why: 'it was re-recorded since its last result' };
   if (!judgedUnder(last, o.checks)) return { why: 'its checks changed since its last result' };
@@ -515,14 +531,15 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     output: o.failure && r ? outputTail(r.shown.output) : null,
     seconds: o.seconds,
     runId: s?.runId ?? null,
-    runs: r ? r.attempts.map((a) => ({ runId: a.ended.summary.runId, ok: !a.failure })) : [],
+    runs: r ? r.attempts.map((a) => ({ runId: a.ended.summary.runId, ok: !a.failure, verdict: attemptVerdict(a) })) : [],
     goldenRunId: o.parent?.runId ?? null,
     calls: s ? callsOf(s) : null,
     upstreamRequests: r ? upstreamOf(r.attempts) : null,
     tokensNotRespent: s ? notRespentOf(s) : null,
     divergence: s?.divergence ? { type: s.divergence.type, callNo: s.divergence.callNo, kind: s.divergence.kind, name: s.divergence.name, ...(s.divergence.recorded !== undefined ? { recorded: s.divergence.recorded } : {}) } : null,
     checks: r?.shown.checks ?? null,
-    attempts: r && (r.attempts.length > 1 || r.gate) ? { total: r.attempts.length, passed: r.passed, required: r.required } : null,
+    // A gated golden has them whether or not its gate decided; an attempt a check could not decide counts neither way.
+    attempts: r && (r.attempts.length > 1 || r.gate || o.spec?.gate) ? { total: r.attempts.length, passed: r.passed, inconclusive: r.inconclusive, required: r.required } : null,
     gate: r?.gate ?? null,
     expect: extra.expect,
     updated: extra.updated ?? null,
@@ -540,12 +557,13 @@ export function formatChecks(checks: CheckResult[]): string {
  * The golden as a JUnit test case. An inconclusive one is a failure, or, when inconclusive verdicts
  * warn, skipped: neither passed nor failed. A gated golden's output starts with its gate's verdict
  * line (the verdict word, the tally, the Wilson bound and the rule) and pass^k, which CI dashboards
- * show beside the case.
+ * show beside the case; one an attempt a check could not decide stopped has none, as its gate
+ * decided nothing: its message and details say why it is inconclusive.
  */
 export function junitCase(o: GoldenOutcome, mode: InconclusiveMode = 'fail'): JunitCase {
   const checks = o.result?.shown.checks;
   const failure = o.failure && checks?.length ? { ...o.failure, details: `${formatChecks(checks)}\n\n${o.failure.details}` } : o.failure;
-  const gate = o.result?.gate;
+  const gate = o.result?.gate && o.result.gate.decision !== 'continue' ? o.result.gate : null;
   // A golden that passed with a check that did not apply says so where a CI's view of the case shows
   // it: a plain pass would claim more than was checked.
   const notAll = !failure && checks?.some((c) => c.status !== 'passed') ? `${formatChecks(checks)}\n\n` : '';

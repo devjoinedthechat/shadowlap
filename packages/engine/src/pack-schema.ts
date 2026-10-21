@@ -161,6 +161,7 @@ function validateBlame(b: unknown, where: string): void {
   if (!isObject(b)) fail(where, 'must be an object');
   int(b.at, `${where}.at`);
   oneOf(b.outcome, BLAME_OUTCOMES, `${where}.outcome`);
+  if (b.unsettled !== undefined && typeof b.unsettled !== 'boolean') fail(`${where}.unsettled`, 'must be true or false');
   if (b.callNo !== null) int(b.callNo, `${where}.callNo`, 1);
   oneOf(b.confidence, CONFIDENCES, `${where}.confidence`);
   if (b.rescuedRunId !== null && (typeof b.rescuedRunId !== 'string' || !ULID.test(b.rescuedRunId))) fail(`${where}.rescuedRunId`, 'must be a run id or null');

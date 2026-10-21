@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -234,7 +234,10 @@ export interface BisectMiss {
 export interface BisectRevision {
   rev: string;
   at: number;
+  /** An inconclusive result reads as `fail`: it didn't pass. */
   result: 'pass' | 'fail';
+  /** How it did there, inconclusive told apart: the dialog never says it failed where it was inconclusive. */
+  verdict: GoldenVerdict;
   /** Tested under the checks the golden has now: a pass under other checks may be a commit where it already fails them. */
   sameChecks: boolean;
   /** The commit's subject, when the project's git has the commit (added by the route). */
@@ -490,7 +493,8 @@ function divergenceOf(r: TestResult): DivergenceReport | null {
 /** Why a result failed, in a few words: `diverged at call 1`, `check failed: send_email called 0 times`, `inconclusive after 40 attempts`. */
 export function shortReason(r: TestResult): string {
   if (r.ok) return 'passed';
-  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate ? `inconclusive after ${r.data.gate.attempts} attempts` : 'inconclusive: a check could not be judged';
+  // Its gate ran out of attempts; else a check could not be judged (which stops a gate before it decides), or its injection gate showed too little.
+  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate?.decision === 'inconclusive' ? `inconclusive after ${r.data.gate.attempts} attempts` : r.failure === 'injection' ? 'inconclusive: its injection test showed too little to say' : 'inconclusive: a check could not be judged';
   const reason = r.reason ?? 'failed';
   if (r.failure === 'diverged') {
     const d = r.data?.divergence;
@@ -531,8 +535,9 @@ export function gateVerdictLine(g: GateResult): string {
 /** The line under a golden's last result: what it did, or why it failed; `normalizers` are the config's now. */
 export function resultLine(r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
   const data = r.data ?? {};
-  // A gate's verdict is its verdict line, passed, failed or inconclusive, with pass^k beside it.
-  if (data.gate && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit')) return [gateVerdictLine(data.gate), formatPassK(data.gate)].filter(Boolean).join(' · ');
+  // A gate's verdict is its verdict line, passed, failed or inconclusive, with pass^k beside it; a gate
+  // an attempt a check could not decide stopped decided nothing, and the result's reason says why.
+  if (data.gate && data.gate.decision !== 'continue' && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit')) return [gateVerdictLine(data.gate), formatPassK(data.gate)].filter(Boolean).join(' · ');
   if (!r.ok) {
     if (r.failure === 'diverged') {
       const d = divergenceOf(r);
@@ -554,9 +559,11 @@ export function resultLine(r: TestResult, checks: readonly string[], normalizers
     parts.push(n ? `${n === 1 ? 'check' : 'checks'} passed` : data.calls ? `${data.calls.replayed}/${data.calls.total} replayed` : 'exited 0');
     return parts.join(' · ');
   }
-  // Every result keeps its attempts now; one attempt reads as the replay it was.
+  // Every result keeps its attempts now; one attempt reads as the replay it was. One a check could
+  // not decide, after the count was met, is counted apart: it neither passed nor failed.
   if (data.attempts && data.attempts.total > 1) {
     parts.push(`${data.attempts.passed} of ${data.attempts.total} attempts passed ${n === 1 ? 'the check' : n === 2 ? 'both checks' : n ? `all ${n} checks` : ''}`.trim());
+    if (data.attempts.inconclusive) parts.push(`${data.attempts.inconclusive} inconclusive`);
   } else if (data.divergence) {
     parts.push(`${data.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${data.divergence.callNo}`);
     if (n) parts.push(`${plural(n, 'check')} passed`);
@@ -654,11 +661,13 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
 
 /**
  * What a result's gate decided, as the screen shows it: the tally, what an attempt cost, and for an
- * inconclusive one, Run more attempts with twice the limit.
+ * inconclusive one, Run more attempts with twice the limit. Null when it decided nothing: an attempt
+ * a check could not decide stopped it first (a result kept before test left such a gate out keeps
+ * one still going, which no verdict word names).
  */
 export function gateResultView(r: TestResult, golden: string): GateResultView | null {
   const g = r.data?.gate;
-  if (!g) return null;
+  if (!g || g.decision === 'continue') return null;
   // What this session's own attempts cost, the agent's calls and its judges' alike (each forked
   // attempt asks its judges live): carried-over ones were paid for before.
   const agent = r.data?.spent;
@@ -793,7 +802,7 @@ function bisectRevisions(history: readonly TestResult[], failed: TestResult, che
   return [...out.values()]
     .sort((a, b) => b.r.at - a.r.at)
     .slice(0, DIALOG_REVISIONS)
-    .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', sameChecks: underChecks(r, checks) }));
+    .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', verdict: verdictOfResult(r), sameChecks: underChecks(r, checks) }));
 }
 
 /** What Find the commit said about a golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
@@ -1018,7 +1027,10 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     if (!latest || latest.ok) continue;
     // Neither passed nor failed: nothing to bisect or fix, only attempts to add.
     if (verdictOfResult(latest) === 'inconclusive') {
-      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: latest.data?.gate ? gateVerdictLine(latest.data.gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: row.last.gate, failure: latest.failure });
+      // Its gate ran out of attempts between its bounds; or a check, or its injection gate, is what is
+      // inconclusive (an attempt a check could not decide stopped its gate, which decided nothing).
+      const gate = latest.data?.gate?.decision === 'inconclusive' ? latest.data.gate : null;
+      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: gate ? gateVerdictLine(gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: gate ? row.last.gate : null, failure: latest.failure });
       continue;
     }
     const past = store.listTestResults({ golden: row.path, limit: 1000 });
@@ -1285,7 +1297,8 @@ export interface BisectChoices {
   target: { kind: 'golden'; golden: string } | { kind: 'run'; runId: string };
   /**
    * The run failed: bisect looks for where it started failing, from a good commit up to its own.
-   * Otherwise it passed, and bisect looks for the first commit after its own that changes what it does.
+   * Otherwise it passed, and bisect looks for the first commit after its own that changes what it does;
+   * or it is inconclusive, neither passed nor failed, and `unavailable` says so.
    */
   failed: boolean;
   /** A commit where it still worked, to offer first: the newest revision before it where its golden, or a run of its command, passed. */
@@ -1294,9 +1307,11 @@ export interface BisectChoices {
   bad: string | null;
   /**
    * Revisions to choose a good one from, newest first: where its golden or its command ran before it,
-   * and how those runs went; `subject` is the commit's, once the project's git was asked (commits-here.ts).
+   * and how those runs went: `failed`, and for a golden's results `inconclusive`, counted apart, an
+   * inconclusive result being neither passed nor failed; `subject` is the commit's, once the
+   * project's git was asked (commits-here.ts).
    */
-  revisions: Array<{ rev: string; at: number; runs: number; failed: number; subject?: string | null }>;
+  revisions: Array<{ rev: string; at: number; runs: number; failed: number; inconclusive?: number; subject?: string | null }>;
   /**
    * The check bisect judges each replay by (`--expect`), for a run blame found failing it: the check
    * of the fix it fails in. A run that exited 0 and kept no failed check of its own failed only that
@@ -1321,8 +1336,11 @@ const clean = (rev: string | null): rev is string => !!rev && !rev.endsWith('+di
 
 const exitFailed = (run: RunRecord) => run.status === 'failed' || run.status === 'crashed';
 
+/** A check of the run's own that failed: one that could not be decided (inconclusive) is no failure. */
+const checkFailed = (run: RunRecord) => !!run.meta?.checks?.some((c) => checkStatus(c) === 'failed');
+
 function runFailed(run: RunRecord): boolean {
-  return exitFailed(run) || !!run.meta?.checks?.some((c) => !c.ok);
+  return exitFailed(run) || checkFailed(run);
 }
 
 /**
@@ -1343,15 +1361,20 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   const own = committed(run.codeVersion);
   // A test replay failed when its golden did in that session (a golden that may fork diverges by design).
   const result = ofGolden ? store.listTestResults({ sessionId: run.meta!.test!.session, golden: golden!, limit: 1 })[0] : undefined;
+  // Its golden came out inconclusive there: neither passed nor failed, so no failure to find.
+  const unsure = result !== undefined && verdictOfResult(result) === 'inconclusive';
   // A run in a fix as failing its check (blame found it so, or a repair or verify did), though it
   // exited 0 with no check of its own failed: that check is the one it failed.
   const blamed = !ofGolden && !runFailed(run) ? blamedCheck(store, run) : null;
-  const failed = result ? !result.ok : runFailed(run) || (ofGolden && !!run.divergence) || blamed !== null;
+  const failed = result ? verdictOfResult(result) === 'failed' : runFailed(run) || (ofGolden && !!run.divergence) || blamed !== null;
+  // A run that failed nothing, with a check of its own that could not be decided: neither passed nor
+  // failed, as a golden that came out inconclusive is, so there is no failure to find either.
+  const undecided = !result && !failed ? (run.meta?.checks ?? []).find((c) => checkStatus(c) === 'inconclusive') : undefined;
   let revisions: BisectChoices['revisions'];
   let sameRecording: string | null = null;
   let passedHere: string | null = null;
   if (ofGolden) {
-    const at = new Map<string, { rev: string; at: number; runs: number; failed: number }>();
+    const at = new Map<string, { rev: string; at: number; runs: number; failed: number; inconclusive: number }>();
     for (const r of store.listTestResults({ golden: golden!, limit: 10_000 })) {
       if (r.at >= before || !clean(r.revision) || r.revision === own) continue;
       // Newest first: the first pass of the recording this replay failed on, under the checks the
@@ -1360,9 +1383,11 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
       const counts = r.ok && underChecks(r, source!.checks);
       if (!sameRecording && counts && result?.goldenRunId && r.goldenRunId === result.goldenRunId) sameRecording = r.revision;
       if (!passedHere && counts) passedHere = r.revision;
-      const row = at.get(r.revision) ?? { rev: r.revision, at: r.at, runs: 0, failed: 0 };
+      const row = at.get(r.revision) ?? { rev: r.revision, at: r.at, runs: 0, failed: 0, inconclusive: 0 };
       row.runs++;
-      if (!r.ok) row.failed++;
+      const verdict = verdictOfResult(r);
+      if (verdict === 'failed') row.failed++;
+      else if (verdict === 'inconclusive') row.inconclusive++;
       row.at = Math.max(row.at, r.at);
       at.set(r.revision, row);
     }
@@ -1377,7 +1402,7 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   const fork = !ofGolden && failed;
   // The check a forked replay is judged by: the run's own `--expect` when a check of it failed, else
   // the one blame found it failing. A golden's checks come from the config, as the CLI finds them.
-  const expect = fork ? (run.meta?.checks?.some((c) => !c.ok) && plainObject(run.meta.expect) ? run.meta.expect : blamed) : null;
+  const expect = fork ? (checkFailed(run) && plainObject(run.meta?.expect) ? run.meta.expect : blamed) : null;
   // A run that passed is the good end itself; bisect then looks up to HEAD. One that failed only
   // blame's check leaves the good one to be chosen: how other runs exited says nothing about it.
   const good = !failed ? (clean(run.codeVersion) ? run.codeVersion : null) : ofGolden ? (sameRecording ?? passedHere) : blamed !== null ? null : (revisions.find((r) => r.failed < r.runs)?.rev ?? null);
@@ -1386,6 +1411,8 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   if (run.status === 'running') unavailable = 'this run is still recording';
   // A test replay a signal cut short has no result: it says nothing about its golden either way.
   else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden}: find the commit from the golden on Tests`;
+  else if (unsure) unavailable = `${golden} came out inconclusive in this replay's session, neither passed nor failed, so there is no failure to find the commit of: Tests says what settles it`;
+  else if (undecided) unavailable = `this run is inconclusive, neither passed nor failed: a check could not be decided (${undecided.label}), so there is no failure to find the commit of`;
   else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run ${withoutCommand(run)}, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
   // Someone else chose its command, and bisect would run it at every commit: the CLI asks first, which a job can't.
   else if (!ofGolden && commandIsImported(run)) unavailable = `this run came from ${importedCommandSource(run)}: bisect would run its command at every commit. Replay it with your own command first (shadowlap replay ${run.runId} -- <command>), and find the commit from that run`;

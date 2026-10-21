@@ -358,18 +358,22 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   const attempts = result?.data?.attempts;
   const repeated = !gate && attempts && attempts.total > 1 ? attempts : null;
   const judged = result?.data?.checks ?? null;
-  // Neither passed nor failed: its gate ran out of attempts between its bounds, or a check couldn't be judged.
-  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · ${gate ? gateTally(gate) : 'a check could not be judged'}` };
+  // A count settled before an attempt a check could not decide keeps that attempt apart: it neither passed nor failed.
+  const tally = (a: NonNullable<typeof repeated>) => `${a.passed} of ${a.total} attempts passed${a.inconclusive ? `, ${a.inconclusive} inconclusive` : ''}`;
+  // Its gate ran out of attempts, or a check could not be judged (which stops a gate before it decides), or its injection gate showed too little to say.
+  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · ${gate?.decision === 'inconclusive' ? gateTally(gate) : result.failure === 'injection' ? 'its injection test showed too little to say' : 'a check could not be judged'}` };
   if (result?.ok) {
-    const how = gate ? gateTally(gate) : repeated ? `${repeated.passed} of ${repeated.total} attempts passed` : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
+    const how = gate ? gateTally(gate) : repeated ? tally(repeated) : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
     return { ...item, kind: 'test', text: `Test passed · ${golden} · ${how}` };
   }
   if (result && gate) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${gateTally(gate)}` };
-  if (result && repeated) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${repeated.passed} of ${repeated.total} attempts passed${typeof repeated.required === 'number' ? `, ${repeated.required} needed` : ''}` };
+  if (result && repeated) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${tally(repeated)}${typeof repeated.required === 'number' ? `, ${repeated.required} needed` : ''}` };
   const diverged = d && d.type !== 'forced' ? `diverged at call ${d.callNo}${drifted ? `, ${drifted}` : ''}` : null;
   if (result) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${result.failure === 'diverged' && diverged ? diverged : shortReason(result)}` };
-  const reason = diverged ?? (checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : checks?.inconclusive ? `check inconclusive: ${checks.inconclusive}` : null);
+  const reason = diverged ?? (checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : null);
   if (reason) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${reason}` };
+  // All it fell short on is a check that could not be decided: neither passed nor failed, as test says it.
+  if (checks?.inconclusive) return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · check inconclusive: ${checks.inconclusive}` };
   const detail = checks ? checks.text : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
   return { ...item, kind: 'test', text: `Test passed · ${golden} · ${detail}` };
 }
@@ -495,6 +499,8 @@ function blamed(run: RunRecord): ActivityItem {
   const item = { ...base(run, `r:${run.runId}:blame`, time(b.at, run.endedAt ?? run.startedAt)), href: '#/fixes' };
   if (b.outcome === 'blamed' && b.callNo !== null) return { ...item, kind: 'blame', text: `Blamed model call #${b.callNo} · confidence ${b.confidence}` };
   if (b.outcome === 'stopped') return { ...item, kind: 'blame', text: `Blame stopped · ${plural(Array.isArray(b.probes) ? b.probes.length : 0, 'call')} probed` };
+  // Its first probe couldn't tell: nothing is settled, which is no finding that no call rescues it.
+  if (b.unsettled === true) return { ...item, kind: 'blame', text: 'Blamed · not settled from the first model call' };
   return { ...item, kind: 'blame', text: 'Blamed · no single call rescued the run' };
 }
 
@@ -515,7 +521,9 @@ function repeated(store: Store, attempts: RunRecord[], parent: RunRecord | undef
     outcome = `${plural(cut.length, 'attempt')} interrupted`;
   } else if (done.length && done.every((a) => a.meta?.checks?.length)) {
     const passed = done.filter((a) => a.meta!.checks!.every((c) => c.ok)).length;
-    outcome = `${passed} of ${done.length} passed their checks`;
+    // One that failed no check but had one that could not be decided is neither passed nor failed: counted apart.
+    const unsure = done.filter((a) => !a.meta!.checks!.some((c) => checkStatus(c) === 'failed') && a.meta!.checks!.some((c) => checkStatus(c) === 'inconclusive')).length;
+    outcome = `${passed} of ${done.length} passed their checks${unsure ? `, ${unsure} inconclusive` : ''}`;
   } else if (forkAt === null) {
     const clean = done.filter((a) => a.status === 'completed').length;
     outcome = `${clean} of ${done.length} replayed clean`;

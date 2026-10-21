@@ -127,6 +127,12 @@ describe('Run blame and Find the commit', () => {
     expect(live.command('…')).toBe('shadowlap bisect 01M50J6C69 --good … --fork');
     // A golden's replay bisects the golden.
     expect(bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' } })).command('x1')).toBe('shadowlap bisect goldens/research --good x1 --bad d2e8a1f');
+    // Its results at a commit are counted by verdict: one that was inconclusive there failed nothing.
+    const counted = bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' }, revisions: [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0, inconclusive: 1 }, { rev: 'a7b3c2e', at: 0, runs: 2, failed: 1, inconclusive: 1 }] }));
+    expect(counted.choices).toEqual([
+      { value: 'c91d0f4', label: 'c91d0f4 · 3 runs, 1 inconclusive' },
+      { value: 'a7b3c2e', label: 'a7b3c2e · 2 runs, 1 failed, 1 inconclusive' },
+    ]);
   });
 
   it('names each commit by its subject, and judges a run blame found failing by that check, when the server says', () => {

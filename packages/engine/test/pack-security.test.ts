@@ -136,14 +136,19 @@ describe('unpack: a pack is untrusted input', () => {
       [{ ...blame, outcome: 'maybe' }, /meta\.blame\.outcome: must be one of/],
       [{ ...blame, probes: [{ callNo: 2 }] }, /meta\.blame\.probes\[0\]\.passes: must be an integer/],
       [{ ...blame, rescuedRunId: '../x' }, /meta\.blame\.rescuedRunId: must be a run id or null/],
+      [{ ...blame, outcome: 'unrescuable', unsettled: 'yes' }, /meta\.blame\.unsettled: must be true or false/],
       ['blamed', /meta\.blame: must be an object/],
     ];
     for (const [b, message] of cases) rejects(withBlame(b), message);
-    // The record blame writes imports.
+    // The record blame writes imports, one not settled from its first model call too.
     const store = Store.open(':memory:');
     const run = store.getRun(unpackRun(store, withBlame({ ...blame, scope: 'triage' })).imported[0]!)!;
     expect(run.meta?.blame).toEqual({ ...blame, scope: 'triage' });
     store.close();
+    const unsettled = { ...blame, outcome: 'unrescuable', callNo: null, unsettled: true };
+    const other = Store.open(':memory:');
+    expect(other.getRun(unpackRun(other, withBlame(unsettled)).imported[0]!)!.meta?.blame).toEqual(unsettled);
+    other.close();
   });
 
   it('rejects a pack whose calls need blobs it does not contain', () => {

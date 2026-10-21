@@ -34,9 +34,13 @@ export interface PackResult {
   /** The last lines the agent printed, for a failure. */
   output: string | null;
   seconds: number;
-  /** The replay shown (the passing attempt, or the one that failed), and every attempt's run. */
+  /**
+   * The replay shown (the passing attempt, or the one that failed), and every attempt's run: `ok` for
+   * one that passed, and its `verdict`, inconclusive when all it fell short on is a check that could
+   * not be decided (the attempt test stops at, as no attempt after it would decide it either).
+   */
   runId: string | null;
-  runs: Array<{ runId: string; ok: boolean }>;
+  runs: Array<{ runId: string; ok: boolean; verdict: 'passed' | 'failed' | 'inconclusive' }>;
   /** The recording that was replayed. */
   goldenRunId: string | null;
   calls: { total: number; replayed: number; live: number; blocked: number; stubbed: number } | null;
@@ -46,9 +50,17 @@ export interface PackResult {
   divergence: { type: DivergenceType; callNo: number; kind: string; name: string; recorded?: number } | null;
   /** Outcome checks from shadowlap.config.json for the attempt shown: the first failure, or the last pass. Each has its `status` (passed, failed, inconclusive, not-applicable), and a judge check's its judge's `reason` and `judge`. Null without checks. */
   checks: StoredCheck[] | null;
-  /** For a recording that repeats, or one with a gate: how many attempts ran, passed and had to pass (null with a gate). */
-  attempts: { total: number; passed: number; required: number | null } | null;
-  /** A golden with a gate: its figures, its decision and sentence, the interval, pass^k and the evidence path (stats.ts). */
+  /**
+   * For a recording that repeats, or one with a gate: how many attempts ran, passed, were
+   * inconclusive (a check could not decide them: neither passed nor failed) and had to pass (null
+   * with a gate). Reports made before attempts were counted apart have no `inconclusive`.
+   */
+  attempts: { total: number; passed: number; inconclusive?: number; required: number | null } | null;
+  /**
+   * A golden with a gate: its figures, its decision and sentence, the interval, pass^k and the
+   * evidence path (stats.ts). Null for one an attempt a check could not decide stopped before its
+   * gate decided anything: its message says why it is inconclusive.
+   */
   gate: GateResult | null;
   /** Its checks as written under `tests` in the config (`expect`), for tools that act on a failed check, such as the GitHub Action's fix on failure. */
   expect: Record<string, unknown> | null;
@@ -122,7 +134,8 @@ function passedLabel(r: PackResult): string {
   const parts = [r.updated ? 'updated' : r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${r.divergence.callNo}` : 'clean'];
   if (r.checks?.length) parts.push(statusTally(r.checks));
   if (r.gate) return `${r.gate.sentence}${passKAfter(r.gate)} · ${parts.join(', ')}`;
-  if (r.attempts) parts.push(`${r.attempts.passed}/${r.attempts.total} attempts`);
+  // An attempt a check could not decide passed nothing and failed nothing: counted apart.
+  if (r.attempts) parts.push(`${r.attempts.passed}/${r.attempts.total} attempts${r.attempts.inconclusive ? ` (${r.attempts.inconclusive} inconclusive)` : ''}`);
   return parts.join(', ');
 }
 
@@ -183,7 +196,9 @@ export function markdownReport(report: TestReport): string {
     const unsure = report.results.filter((r) => verdictOf(r) === 'inconclusive');
     const unjudged = unsure.some((r) => r.checks?.some((c) => checkStatus(c) === 'inconclusive'));
     const injected = unsure.some((r) => r.injection?.verdict === 'inconclusive');
-    const gated = unsure.some((r) => r.gate) || (!unjudged && !injected);
+    // A gate that ran out of attempts: not one an attempt a check could not decide stopped first,
+    // which decided nothing, nor one that passed a golden its injection gate then left inconclusive.
+    const gated = unsure.some((r) => r.gate?.decision === 'inconclusive') || (!unjudged && !injected);
     const causes = [
       ...(unjudged ? ['a check could not be decided, such as a judge check with no recorded verdict and no way to ask the judge, or a condition whose value the run does not have: it never passes, but the agent failed no check'] : []),
       ...(gated ? ["neither verdict holds at the gate's stated risk after the most attempts it runs"] : []),

@@ -36,8 +36,11 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
       <Verdict v={v} />
       {v.verdict !== 'accepted' && v.reasons.length ? (
         <ul className="fxwarn bad">
+          {/* What the change failed in red; a run it could not settle, inconclusive or not settled, in amber. */}
           {v.reasons.map((r) => (
-            <li key={r}>{r}</li>
+            <li key={r} className={v.unsettled.includes(r) ? 'unsure' : undefined}>
+              {r}
+            </li>
           ))}
         </ul>
       ) : null}
@@ -64,9 +67,10 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
                   </a>
                 </td>
                 <td>
-                  <Pips ok={x.passes} no={x.attempts - x.passes} />{' '}
+                  <Pips ok={x.passes} unsure={x.inconclusive} no={x.attempts - x.passes - x.inconclusive} />{' '}
                   <span className="fxof">
-                    {x.passes} of {x.attempts}
+                    {x.passes} of {x.attempts - x.inconclusive}
+                    {x.inconclusive ? <span className="fxdim"> · {x.inconclusive} not judged</span> : null}
                     {x.rate?.bound ? <span className="fxdim"> · {x.rate.bound}</span> : null}
                   </span>
                 </td>

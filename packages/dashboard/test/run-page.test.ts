@@ -227,6 +227,9 @@ describe('the run page: header and banners', () => {
     // Without a scope, every model call counts.
     store.updateRunMeta(b.runId, { blame: { ...blame, scope: undefined as never } });
     expect(runDetail(store, b.runId)!.blame!.modelCall).toEqual({ k: 3, m: 4 });
+    // One that placed the failure on no call because its first probe couldn't tell says so.
+    store.updateRunMeta(b.runId, { blame: { ...blame, outcome: 'unrescuable', callNo: null, rescuedRunId: null, unsettled: true } });
+    expect(runDetail(store, b.runId)!.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, callNo: null });
     store.close();
   });
 

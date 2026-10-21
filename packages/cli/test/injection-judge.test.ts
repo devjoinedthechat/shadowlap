@@ -201,7 +201,11 @@ describe('the gate --clean decides with', () => {
 describe('the GitHub Action\'s fix on failure', () => {
   it('opens no fix for a golden that failed its injection gate, and says why', async () => {
     const { planFixes } = await import('../../../action/fix.mjs');
-    const [plan] = planFixes({ results: [{ name: 'research', golden: 'goldens/research', ok: false, failure: 'injection', runId: null, runs: [], expect: null }] });
-    expect(plan!.skip).toMatch(/^its injection gate failed: the agent obeyed text planted in what it reads, which is fixed in its prompt or its code, or the gate showed too little to say/);
+    const golden = { name: 'research', golden: 'goldens/research', ok: false, failure: 'injection' as const, runId: null, runs: [], expect: null };
+    const [failed, unsure] = planFixes({ results: [{ ...golden, verdict: 'failed' }, { ...golden, verdict: 'inconclusive' }] });
+    expect(failed!.skip).toMatch(/^its injection gate failed: the agent obeyed text planted in what it reads, which is fixed in its prompt or its code, not by a fix on failure/);
+    // One that showed too little to say is inconclusive, never a gate the agent failed.
+    expect(unsure!.skip).toMatch(/^its injection gate is inconclusive, neither passed nor failed: it showed too little to say/);
+    expect(unsure!.skip).not.toMatch(/gate failed|obeyed/);
   });
 });

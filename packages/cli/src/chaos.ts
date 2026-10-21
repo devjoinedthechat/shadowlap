@@ -51,6 +51,13 @@ import { usageOf, telemetry } from './shared.js';
 
 export interface PresetRun {
   runId: string;
+  /**
+   * How the attempt came out: passed, failed, or inconclusive when it says nothing of the agent's
+   * error path (the replay never reached the call, so the preset was never played in, or all that
+   * kept it from passing is a check no attempt can decide).
+   */
+  verdict: Exclude<ChaosVerdict, 'not-applicable'>;
+  /** True for a passed attempt only. */
   passed: boolean;
   exitCode: number;
   checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
@@ -304,24 +311,24 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
         unreached = s.divergence
           ? `the replay forked at call ${s.divergence.callNo}, before it reached #${target.callNo}, so the preset was never played in: the recording no longer replays as far as that (shadowlap test says why)`
           : `the replay never reached #${target.callNo}, so the preset was never played in`;
-        runs.push({ runId: s.runId, passed: false, exitCode: attempt.code, checks: attempt.checks, reason: unreached, lastLine: null });
+        runs.push({ runId: s.runId, verdict: 'inconclusive', passed: false, exitCode: attempt.code, checks: attempt.checks, reason: unreached, lastLine: null });
         break;
       }
       // A check no attempt can decide (a judge with no verdict, a condition it can't read) says nothing
       // of the agent's error path, and won't on the next attempt either: inconclusive, with why.
       if (attemptVerdict(attempt) === 'inconclusive') {
         unreached = attempt.failure!.message;
-        runs.push({ runId: s.runId, passed: false, exitCode: attempt.code, checks: attempt.checks, reason: unreached, lastLine: null });
+        runs.push({ runId: s.runId, verdict: 'inconclusive', passed: false, exitCode: attempt.code, checks: attempt.checks, reason: unreached, lastLine: null });
         break;
       }
       const passed = !attempt.failure;
       if (passed) passes++;
-      runs.push({ runId: s.runId, passed, exitCode: attempt.code, checks: attempt.checks, reason: attempt.failure?.message ?? null, lastLine: attempt.kind === 'exit' ? lastLine(attempt.output) : null });
+      runs.push({ runId: s.runId, verdict: passed ? 'passed' : 'failed', passed, exitCode: attempt.code, checks: attempt.checks, reason: attempt.failure?.message ?? null, lastLine: attempt.kind === 'exit' ? lastLine(attempt.output) : null });
       decision = 'kind' in gate ? decide(passes, runs.length, gate) : decideFixed(passes, runs.length, gate);
     }
     if (interrupted && decision === 'continue') break;
     const verdict: ChaosVerdict = unreached ? 'inconclusive' : decision === 'pass' ? 'passed' : decision === 'fail' ? 'failed' : 'inconclusive';
-    const firstFail = runs.find((r) => !r.passed);
+    const firstFail = runs.find((r) => r.verdict === 'failed');
     const checks = runs.at(-1)?.checks?.length ?? 0;
     // Under a gate, the Wilson bound beside the tally; the rule is said once, under the table.
     const sprt = 'kind' in gate && gate.kind === 'sprt' ? gate : null;
@@ -369,7 +376,7 @@ function record(ctx: ChaosContext, parent: RunRecord, o: PresetOutcome): PresetO
       callNo: o.callNo,
       passes: o.passes,
       attempts: o.attempts,
-      data: { target: o.target, detail: o.detail, reason: o.reason, runs: o.runs.map((r) => ({ runId: r.runId, passed: r.passed, exitCode: r.exitCode, ...(r.checks ? { checks: r.checks } : {}), reason: r.reason, ...(r.lastLine ? { lastLine: r.lastLine } : {}) })), gate: o.gate as Record<string, unknown>, upstreamRequests: o.upstreamRequests, spent: o.spent },
+      data: { target: o.target, detail: o.detail, reason: o.reason, runs: o.runs.map((r) => ({ runId: r.runId, verdict: r.verdict, passed: r.passed, exitCode: r.exitCode, ...(r.checks ? { checks: r.checks } : {}), reason: r.reason, ...(r.lastLine ? { lastLine: r.lastLine } : {}) })), gate: o.gate as Record<string, unknown>, upstreamRequests: o.upstreamRequests, spent: o.spent },
     });
   } catch (err) {
     process.stderr.write(`[shadowlap] the ${o.label} result was not kept: ${(err as Error).message}\n`);
@@ -439,7 +446,7 @@ export function formatPresets(name: string, outcomes: readonly PresetOutcome[], 
     const word = VERDICT_WORDS[o.verdict];
     const verdict = o.verdict === 'passed' ? p.green(word) : o.verdict === 'failed' ? p.red(word) : o.verdict === 'inconclusive' ? p.yellow(word) : p.dim(word);
     lines.push(`  ${mark} ${o.label.padEnd(width)}  ${verdict}${' '.repeat(words - word.length + 2)}${o.verdict === 'not-applicable' ? p.dim(safeLine(o.summary)) : safeLine(o.summary)}`);
-    const said = o.verdict === 'failed' ? o.runs.find((r) => !r.passed)?.lastLine : null;
+    const said = o.verdict === 'failed' ? o.runs.find((r) => r.verdict === 'failed')?.lastLine : null;
     if (said) lines.push(p.dim(`      ${safeLine(said)}`));
   }
   const rule = recordingRule(outcomes);
@@ -461,11 +468,16 @@ export function chaosTotals(r: ChaosReport, upstreamRequests: number, spent: num
   return `${parts.join(', ')} · ${plural(upstreamRequests, 'upstream request')}${spent ? ` · ≈${formatUsd(spent)} spent` : ''}`;
 }
 
+/** One attempt as a JUnit failure's details list it, by its own verdict: `attempt 2 (run 01J…): inconclusive: <why>`. */
+const attemptLine = (run: PresetRun, i: number) => `attempt ${i + 1} (run ${run.runId}): ${run.verdict === 'passed' ? 'passed' : `${run.verdict}${run.reason ? `: ${run.reason}` : ''}`}`;
+
 /**
  * Each preset of each recording as a JUnit case: a failed one fails, and an inconclusive one fails
  * when CI counts it as failing, else is skipped: neither passed nor failed, as a golden's case is. A
  * CI shows each case on its own, so one a sequential gate decided states the gate's rule after its
- * tally and Wilson bound, in its message and its output.
+ * tally and Wilson bound, in its message and its output. A failure's details list each attempt by
+ * its own verdict: an attempt that never played the preset in, or that only a check no attempt can
+ * decide kept from passing, is inconclusive there too, whatever CI makes of the preset.
  */
 export function chaosJunit(results: readonly ChaosRecordingResult[], o: { inconclusive: 'fail' | 'warn' }): JunitCase[] {
   return results.flatMap((r) => {
@@ -476,7 +488,7 @@ export function chaosJunit(results: readonly ChaosRecordingResult[], o: { inconc
       const said = rule ? `${x.detail} · ${rule}` : x.detail;
       const message = `${VERDICT_WORDS[x.verdict]}: ${said}`;
       const fails = x.verdict === 'failed' || (x.verdict === 'inconclusive' && o.inconclusive === 'fail');
-      const verdict = fails ? { failure: { message, details: x.runs.map((run, i) => `attempt ${i + 1} (run ${run.runId}): ${run.passed ? 'passed' : `failed: ${run.reason ?? ''}`}`).join('\n') } } : x.verdict === 'inconclusive' ? { skipped: { message } } : {};
+      const verdict = fails ? { failure: { message, details: x.runs.map(attemptLine).join('\n') } } : x.verdict === 'inconclusive' ? { skipped: { message } } : {};
       return { name: x.label, classname, timeSeconds: 0, ...verdict, systemOut: said };
     });
   });

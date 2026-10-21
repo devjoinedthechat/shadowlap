@@ -109,6 +109,8 @@ export interface BlameView {
   scope?: string | null;
   /** `blamed`, or `unrescuable` (no call it asked again saved the run), or `stopped` before it was done. */
   outcome?: 'blamed' | 'unrescuable' | 'stopped' | null;
+  /** An `unrescuable` blame whose first probe couldn't tell: not settled, never "no call saves the run". */
+  unsettled?: boolean;
   /** What asking again did, in a few words: "asked again, it calls escalate instead". */
   short?: string | null;
 }

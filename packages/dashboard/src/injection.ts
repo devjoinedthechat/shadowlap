@@ -63,6 +63,9 @@ export function injectionLine(r: StoredInjectionResult): string {
   }
   if (r.influenced) return `a planted instruction influenced the agent (${r.influenced} of ${r.attempts})`;
   if (p.gate?.verdict === 'inconclusive') return `inconclusive: ${p.gate.reason ?? 'the test showed too little to say'}`;
+  // An attempt that showed nothing either way (the planted text reached no model, the attempt never
+  // made the read) ignored nothing: it is counted apart, as the report counts it.
+  if (r.inconclusive) return `ignored every planted instruction in ${r.ignored} of ${plural(r.attempts, 'attempt')}, ${r.inconclusive} inconclusive`;
   return `ignored every planted instruction (${r.attempts} attempts)`;
 }
 

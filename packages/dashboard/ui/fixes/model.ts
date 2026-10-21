@@ -229,6 +229,8 @@ export interface CallCell {
   verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null;
   passes: number;
   attempts: number;
+  /** Attempts that could not be judged: neither passed nor failed. */
+  inconclusive: number;
   /** Outside the blame's scope. */
   dim: boolean;
   /** For a gap: how many calls it stands for. */
@@ -244,7 +246,7 @@ export const CALL_ROW_MAX = 18;
  * either side of each, and the first and last, with a gap for each stretch of model calls left out.
  */
 export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { cells: CallCell[]; toolsLeftOut: boolean } {
-  const cell = (c: BlameStep['callRow'][number]): CallCell => ({ callNo: c.callNo, kind: c.kind === 'api' ? 'm' : 't', verdict: c.verdict, passes: c.passes, attempts: c.attempts, dim: !c.inScope });
+  const cell = (c: BlameStep['callRow'][number]): CallCell => ({ callNo: c.callNo, kind: c.kind === 'api' ? 'm' : 't', verdict: c.verdict, passes: c.passes, attempts: c.attempts, inconclusive: c.inconclusive ?? 0, dim: !c.inScope });
   if (row.length <= max) return { cells: row.map(cell), toolsLeftOut: false };
   const models = row.filter((c) => c.kind === 'api' || c.verdict !== null);
   const keep = new Set<number>();
@@ -260,7 +262,7 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
     for (let i = 0; i < models.length && keep.size < max; i++) add(i);
   }
   const cells: CallCell[] = [];
-  const gap = (callNo: number, skipped: number): CallCell => ({ callNo, kind: 'gap', verdict: null, passes: 0, attempts: 0, dim: false, skipped });
+  const gap = (callNo: number, skipped: number): CallCell => ({ callNo, kind: 'gap', verdict: null, passes: 0, attempts: 0, inconclusive: 0, dim: false, skipped });
   let hiddenModels = 0;
   let hidden = 0;
   for (const c of row) {
@@ -412,6 +414,11 @@ export function bundledRuns(bundles: readonly FixBundle[]): Set<string> {
   return out;
 }
 
+/** An attempt's mark: none for a pass, amber for one that could not be judged (neither passed nor failed), red for a failure. */
+export function attemptMark(a: { passed: boolean; verdict?: string }): 'unsure' | 'no' | undefined {
+  return a.passed ? undefined : a.verdict === 'inconclusive' ? 'unsure' : 'no';
+}
+
 /** A bundle's icon and the words for it: blame attempts, or a verify accepted or rejected. */
 export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict'>): { kind: 'blame' | 'fixok' | 'fixbad' | 'fork'; label: string } {
   if (b.kind === 'blame') return { kind: 'blame', label: 'Blame attempts' };
@@ -420,10 +427,11 @@ export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict'>): { kind: 'bl
   return { kind: 'fork', label: 'Verify attempts, not settled' };
 }
 
-/** The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032", and for a verify the change and how it came out. */
+/** The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032" (with those that could not be judged counted apart), and for a verify the change and how it came out. */
 export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict'>, money: (usd: number) => string): string {
   const n = b.attempts.length;
-  return [`${n} attempt${s(n)}, ${b.passes} passed`, ...(b.spent ? [money(b.spent)] : []), ...(b.kind === 'verify' && b.change ? [`${b.change}${b.verdict ? ` ${b.verdict}` : ''}`] : [])].join(' · ');
+  const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
+  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...(b.kind === 'verify' && b.change ? [`${b.change}${b.verdict ? ` ${b.verdict}` : ''}`] : [])].join(' · ');
 }
 
 // ---------------------------------------------------------------------------------------------- report.md
@@ -589,7 +597,12 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
   if (job.kind === 'blame') {
     const blamed = isRecord(r.blamed) && typeof r.blamed.callNo === 'number' ? r.blamed.callNo : null;
     if (r.outcome === 'blamed' && blamed !== null) return { text: `lost at #${blamed} · ${exit}`, tone };
-    if (r.outcome === 'unrescuable') return { text: `not rescued · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
+    if (r.outcome === 'unrescuable') {
+      // Its first probe couldn't tell, and nothing else was found (blame's unsettledFirst): not settled, never "not rescued".
+      const first = Array.isArray(r.probes) && isRecord(r.probes[0]) ? r.probes[0] : null;
+      const unsettled = first?.decision === 'inconclusive' && !r.sameAnswer && !r.failedWrite;
+      return { text: `${unsettled ? 'not settled' : 'not rescued'} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
+    }
     if (r.outcome === 'stopped') return { text: `stopped early · ${exit}`, tone: 'err' };
     return null;
   }

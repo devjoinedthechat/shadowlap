@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CallRecord } from '../src/types.js';
 import { gateResult, type SprtGate } from '../src/stats.js';
-import { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateVerdict, outcomeOf, runVerdict, verifyRule, type VerifiedRun, type VerifyReport, type VerifyRole } from '../src/verify.js';
+import { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule, type VerifiedRun, type VerifyReport, type VerifyRole } from '../src/verify.js';
 
 const fp = (inputTokens: number, cost: number | null = inputTokens / 1e6) => ({ inputTokens, outputTokens: 10, cost });
 
@@ -63,6 +63,50 @@ describe('decideVerify', () => {
     ]);
     const bad = decideVerify([run('good', [true], { deterministic: true, recorded: false, id: '01K5BAD' })], null);
     expect(bad.warnings).toEqual([expect.stringContaining('good run 01K5BAD000 fails as recorded')]);
+  });
+});
+
+describe('a run an attempt of which could not be judged', () => {
+  const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+  /** A run whose attempts came out as `outcomes`, then one all that kept from passing was a check that could not be decided. */
+  const undecided = (role: VerifyRole, outcomes: boolean[], id: string): VerifiedRun => {
+    const r = run(role, outcomes, { id });
+    const last = { runId: `01M${outcomes.length}`.padEnd(26, '0'), passed: false, verdict: 'inconclusive' as const, exitCode: 0, failures: [why], forkedAt: 3, spent: 0.01, upstreamRequests: 2, footprint: fp(1000) };
+    return { ...r, attempts: [...r.attempts.map((a) => ({ ...a, verdict: a.passed ? ('passed' as const) : ('failed' as const) })), last], verdict: 'open', undecided: why };
+  };
+
+  it('is inconclusive, never a failure: the change is incomplete, not rejected, and the report says why', () => {
+    const good = undecided('good', [true, true], '01K5GOOD');
+    expect(outcomeOf(good)).toBe('inconclusive');
+    const d = decideVerify([run('target', [true, true, true, true]), good], null);
+    expect(d).toMatchObject({ verdict: 'incomplete', reasons: [`good run 01K5GOOD00 inconclusive: attempt 3 could not be judged: ${why}`] });
+    // A run that failed still rejects the change.
+    expect(decideVerify([run('target', [false, false]), good], null).verdict).toBe('rejected');
+  });
+
+  it('is counted apart in the first line, its tally left without the attempt that was not judged', () => {
+    const runs = [run('target', [true, true, true, true]), undecided('holdout', [], '01K5HELD'), undecided('good', [true, true], '01K5GOOD')];
+    const text = formatVerify({ ...decideVerify(runs, null), runs, attemptsPerRun: 5, needed: 4, oracle: ['the agent exits 0', 'judge "issued" answers yes'], fields: {}, codeVersion: null, attempts: 8, spent: 0, upstreamRequests: 16, unknownModels: [], stopReason: null, replayWarnings: [] });
+    expect(text).toContain('! Incomplete: the change fixes 1 of 1 target run, 0 of 1 held-out run (1 inconclusive) and keeps 0 of 1 good run (1 inconclusive)');
+    expect(text).toMatch(/held-out +01K5HELD00 +inconclusive +attempt 1 not judged +judge "issued" answers yes, but it is inconclusive/);
+    expect(text).toMatch(/good +01K5GOOD00 +inconclusive +2 of 2 passed, attempt 3 not judged +judge "issued" answers yes/);
+    expect(text).not.toMatch(/not fixed|broken|Rejected/);
+  });
+
+  it('is marked in amber among the reasons, where what the change failed is red', () => {
+    const tag = (name: string) => (s: string) => `<${name}>${s}</${name}>`;
+    const palette = { green: tag('green'), red: tag('red'), yellow: tag('yellow'), dim: (s: string) => s, bold: (s: string) => s, cyan: (s: string) => s };
+    // A target run the change did not fix, a good run it could not judge, and a held-out run the budget left open.
+    const runs = [run('target', [false, false]), undecided('good', [true, true], '01K5GOOD'), { ...run('holdout', [true], { id: '01K5HELD' }), verdict: 'open' as const }];
+    const d = decideVerify(runs, 'the budget ran out');
+    const text = formatVerify({ ...d, runs, attemptsPerRun: 5, needed: 4, oracle: ['the agent exits 0'], fields: {}, codeVersion: null, attempts: 5, spent: 0, upstreamRequests: 10, unknownModels: [], stopReason: 'the budget ran out', replayWarnings: [] }, palette);
+    expect(text).toContain('<red>·</red> target run 01K5TARGET not fixed: 0 of 2 passed');
+    expect(text).toContain(`<yellow>·</yellow> good run 01K5GOOD00 inconclusive: attempt 3 could not be judged: ${why}`);
+    expect(text).toContain('<yellow>·</yellow> 1 run not settled: the budget ran out');
+    expect(d.reasons.filter(unsettledReason)).toEqual([`good run 01K5GOOD00 inconclusive: attempt 3 could not be judged: ${why}`, '1 run not settled: the budget ran out']);
+    expect(unsettledReason('1 run not settled: the budget ran out')).toBe(true);
+    expect(unsettledReason('held-out run 01K5HELD00 inconclusive: 7 of 12 passed · rate 0.32 to 0.81 (95%), between the gate\'s bounds when its attempts ran out')).toBe(true);
+    expect(unsettledReason('good run 01K5GOOD00 broken: 0 of 1 passed')).toBe(false);
   });
 });
 

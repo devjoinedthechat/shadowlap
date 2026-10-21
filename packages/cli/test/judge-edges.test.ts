@@ -39,6 +39,10 @@ process.exit(Number(process.env.EXIT ?? 0));
 
 let mock: MockServer;
 let work: string;
+let firstRead: string | undefined;
+let answeredTwice = 0;
+/** How often each question that answers, then turns away every request, has been asked. */
+const asks: Record<string, number> = {};
 let agent: string[];
 let counter = 0;
 
@@ -56,6 +60,22 @@ beforeAll(async () => {
     eventDelayMs: () => 0,
     script: withJudge(
       (q) => {
+        // A judge whose provider turns every request away: no verdict, so the check can't be decided.
+        if (q.question.includes('unreachable')) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+        // One that answers twice, and turns away every request after.
+        if (q.question.includes('(twice)')) return ++answeredTwice <= 2 ? { verdict: 'yes', reason: 'it issues the refund' } : { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+        // One that answers once, no or yes, and turns away every request after.
+        const once = /\((no|yes) once\)/.exec(q.question)?.[1];
+        if (once) {
+          asks[once] = (asks[once] ?? 0) + 1;
+          if (asks[once] > 1) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+          return once === 'no' ? { verdict: 'no', reason: 'it reads the refund as not issued' } : { verdict: 'yes', reason: 'it issues the refund' };
+        }
+        // One that answers about the first answer it reads, and turns away any other.
+        if (q.question.includes('first answer only')) {
+          firstRead ??= q.material;
+          return q.material === firstRead ? { verdict: 'no', reason: 'it reads the recorded answer' } : { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+        }
         if (q.question.includes('card')) return { verdict: 'yes', reason: `it names ${/SECRET\d+/.exec(q.material)?.[0] ?? 'no card'}` };
         if (q.question.includes('2026-10-20')) return q.material.includes('2026-10-20') ? { verdict: 'yes', reason: 'it names 2026-10-20' } : { verdict: 'no', reason: 'it names another date' };
         return q.material.includes('declined') ? { verdict: 'no', reason: 'it declines the refund' } : { verdict: 'yes', reason: 'it issues the refund' };
@@ -105,7 +125,18 @@ async function record(env: NodeJS.ProcessEnv = {}, expectCode = 0): Promise<stri
   return (JSON.parse(readFileSync(join(work, file), 'utf8')) as { summary: { runId: string } }).summary.runId;
 }
 
-type Result = { ok: boolean; verdict: string; failure: string | null; runId: string; upstreamRequests: number; checks: Array<{ status?: string; reason?: string; detail: string | null; judge?: { source: string | null; verdict: string | null } }> };
+type Result = {
+  ok: boolean;
+  verdict: string;
+  failure: string | null;
+  message: string | null;
+  runId: string;
+  runs: Array<{ runId: string; ok: boolean; verdict: string }>;
+  attempts: { total: number; passed: number; inconclusive?: number; required: number | null } | null;
+  gate: { decision: string; sentence: string } | null;
+  upstreamRequests: number;
+  checks: Array<{ status?: string; reason?: string; detail: string | null; judge?: { source: string | null; verdict: string | null } }>;
+};
 
 async function test(golden: string, extra: string[] = [], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; result: Result }> {
   const report = join(work, `report-${++counter}.json`);
@@ -273,6 +304,138 @@ describe('what a judge cost', () => {
     const stopped = JSON.parse(capped.stdout) as { cost: { attempts: number }; stopReason: string | null };
     expect(stopped.cost.attempts).toBe(1);
     expect(stopped.stopReason).toContain('budget');
+  }, 120_000);
+});
+
+describe('an attempt a judge could not answer', () => {
+  it('is inconclusive in verify, never a failure that rejects the change', async () => {
+    config({});
+    const rec = await record({ VARIANT: 'plain' });
+    const unanswered = JSON.stringify({ judge: [judge({ question: 'Did the agent issue the refund? (unreachable)' })] });
+    const r = await shadowlap(['verify', '--keeps', rec, '--expect', unanswered, '--attempts', '3', '--passes', '3', '--set', 'max_tokens=99', '--json'], { VARIANT: 'plain' });
+    const v = JSON.parse(r.stdout) as { verdict: string; reasons: string[]; runs: Array<{ outcome: string; passes: number; attempts: number; runs: Array<{ runId: string; passed: boolean; verdict?: string; failures: string[] }>; undecided?: string | null }> };
+    // The good run's attempt said nothing of the change: it is neither kept nor broken, and no attempt
+    // after it could say more, so verify stops there and the change is not settled.
+    expect(v.verdict).toBe('incomplete');
+    expect(v.runs[0]).toMatchObject({ outcome: 'inconclusive', passes: 0, attempts: 1 });
+    expect(v.runs[0]!.runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
+    expect(v.runs[0]!.undecided).toMatch(/^judge "issued" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/);
+    expect(v.reasons).toEqual([expect.stringMatching(new RegExp(`^good run ${rec.slice(0, 10)} inconclusive: attempt 1 could not be judged: judge "issued" answers yes`))]);
+    expect(r.code).toBe(1);
+    // shadowlap show on the attempt says so too.
+    expect((await shadowlap(['show', v.runs[0]!.runs[0]!.runId])).stdout).toContain('an attempt of shadowlap verify, replaying a good run: inconclusive, a check could not be decided');
+    const text = await shadowlap(['verify', '--keeps', rec, '--expect', unanswered, '--attempts', '3', '--passes', '3', '--set', 'max_tokens=99'], { VARIANT: 'plain' });
+    expect(text.out).toMatch(/attempt 1 {2}\? judge "issued" answers yes, but it is inconclusive: not judged/);
+    expect(text.out).toContain('! Incomplete');
+    expect(text.out).not.toMatch(/broken|Rejected|✗ judge/);
+    // Under its gate, the run's line gives no tally: the gate decided nothing.
+    const gated = await shadowlap(['verify', '--keeps', rec, '--expect', unanswered, '--set', 'max_tokens=99'], { VARIANT: 'plain' });
+    expect(gated.out).toMatch(new RegExp(`^ {2}good {6}${rec.slice(0, 10)} {2}inconclusive$`, 'm'));
+    expect(gated.out).not.toContain('0 of 0');
+  }, 120_000);
+});
+
+describe('a gated golden whose attempt a judge could not answer', () => {
+  it('is inconclusive for the check, never for a gate that ran out of attempts, in JUnit and the Markdown report', async () => {
+    const twice = [judge({ question: 'Did the agent issue the refund? (twice)' })];
+    config({ tests: { 'goldens/twice': { fork: true, gate: { good: 0.6, bad: 0.4, risk: 0.2, max: 4 }, expect: { judge: twice } } } });
+    const rec = await record({ VARIANT: 'plain' });
+    // Packing asks the judge once; the first attempt, which forks, asks it again; the second can't be judged.
+    expect((await shadowlap(['pack', rec, 'goldens/twice'])).code).toBe(0);
+    const junit = join(work, `junit-${++counter}.xml`);
+    const markdown = join(work, `summary-${++counter}.md`);
+    const t = await test('goldens/twice', ['--junit', junit, '--markdown', markdown], { VARIANT: 'n' });
+    expect(t.code, t.out).toBe(1);
+    expect(t.result).toMatchObject({ verdict: 'inconclusive', failure: 'inconclusive' });
+    // Its gate decided nothing: the check is why it is inconclusive, and no report says otherwise.
+    const xml = readFileSync(junit, 'utf8');
+    expect(xml).toContain(`<failure message="check inconclusive: judge &quot;issued&quot; answers yes, but not judged: the judge's call failed: HTTP 400`);
+    expect(xml).toContain('attempt 1  ✓ passed\nattempt 2  ? check inconclusive');
+    expect(xml).not.toContain('undecided');
+    const md = readFileSync(markdown, 'utf8');
+    expect(md).toContain('Inconclusive means a check could not be decided');
+    expect(md).not.toMatch(/neither verdict holds|More attempts settle a gate/);
+    // Nor does the JSON, nor the result the store keeps: there is no gate verdict, and no word that is no verdict.
+    expect(t.result).toMatchObject({ gate: null, attempts: { total: 2, passed: 1, inconclusive: 1, required: null } });
+    expect(t.result.runs.map((r) => r.verdict)).toEqual(['passed', 'inconclusive']);
+    expect(JSON.stringify(t.result)).not.toContain('undecided');
+    const store = Store.open(join(work, '.shadowlap', 'shadowlap.db'));
+    try {
+      const kept = store.listTestResults({ golden: 'goldens/twice', limit: 1 })[0]!;
+      expect(kept.data).toMatchObject({ verdict: 'inconclusive', attempts: { total: 2, passed: 1, inconclusive: 1 } });
+      expect(kept.data?.gate).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  }, 120_000);
+});
+
+describe('a repeated golden whose attempt a judge could not answer after its count was settled', () => {
+  it('failed when the attempts before it already lost the count, whatever --inconclusive says', async () => {
+    const lost = [judge({ question: 'Did the agent issue the refund? (no once)' })];
+    // Packed before its judge check was added, so only the test's attempts ask the judge: the first is told no, the second can't be judged.
+    config({ tests: { 'goldens/lost': { fork: true } } });
+    const rec = await record({ VARIANT: 'plain' });
+    expect((await shadowlap(['pack', rec, 'goldens/lost'])).code).toBe(0);
+    config({ tests: { 'goldens/lost': { fork: true, repeat: 3, passes: 3, expect: { judge: lost } } } });
+    const junit = join(work, `junit-${++counter}.xml`);
+    const t = await test('goldens/lost', ['--inconclusive', 'warn', '--junit', junit], { VARIANT: 'n' });
+    expect(t.code, t.out).toBe(1);
+    expect(t.result).toMatchObject({ ok: false, verdict: 'failed', failure: 'check', attempts: { total: 2, passed: 0, inconclusive: 1, required: 3 } });
+    expect(t.result.message).toBe('0 of 2 attempts passed, 1 inconclusive, 3 needed. Attempt 1: check failed: judge "issued" answers yes, but the judge answered no');
+    // Each attempt by its own verdict: the one that could not be judged is never failed.
+    expect(t.result.runs.map((r) => r.verdict)).toEqual(['failed', 'inconclusive']);
+    expect(t.out).toMatch(/✗ lost: 0 of 2 attempts passed, 1 inconclusive, 3 needed/);
+    expect(t.out).toMatch(/attempt 1 {2}✗ check failed: judge "issued" answers yes, but the judge answered no[^\n]*\n {4}attempt 2 {2}\? check inconclusive: judge "issued" answers yes, but not judged: the judge's call failed: HTTP 400/);
+    expect(t.out).toContain('0 passed, 1 failed');
+    // A failure in JUnit too, never skipped as an inconclusive one would be under --inconclusive warn.
+    const xml = readFileSync(junit, 'utf8');
+    expect(xml).toContain('<failure message="0 of 2 attempts passed, 1 inconclusive, 3 needed. Attempt 1: check failed');
+    expect(xml).not.toContain('<skipped');
+  }, 120_000);
+
+  it('passed when the attempts before it already met the count', async () => {
+    const met = [judge({ question: 'Did the agent issue the refund? (yes once)' })];
+    config({ tests: { 'goldens/met': { fork: true } } });
+    const rec = await record({ VARIANT: 'plain' });
+    expect((await shadowlap(['pack', rec, 'goldens/met'])).code).toBe(0);
+    config({ tests: { 'goldens/met': { fork: true, repeat: 3, passes: 1, expect: { judge: met } } } });
+    const t = await test('goldens/met', [], { VARIANT: 'n' });
+    expect(t.code, t.out).toBe(0);
+    expect(t.result).toMatchObject({ ok: true, verdict: 'passed', failure: null, message: null, attempts: { total: 2, passed: 1, inconclusive: 1, required: 1 } });
+    expect(t.result.runs.map((r) => r.verdict)).toEqual(['passed', 'inconclusive']);
+    expect(t.out).toMatch(/✓ met: .*1\/2 attempts passed \(1 inconclusive\)/);
+    expect(t.out).toContain('1 passed, 0 failed');
+  }, 120_000);
+});
+
+describe('a blame probe whose attempt a judge could not answer', () => {
+  it('is inconclusive, never lost: the search is not settled from the first model call', async () => {
+    config({});
+    // Each answer differs (Refund 1 issued., Refund 2 issued.): the replay as recorded reads the recorded one, which the judge answers.
+    const rec = await record({ VARIANT: 'n' });
+    const expect_ = JSON.stringify({ judge: [judge({ question: 'Did the agent issue the refund? (first answer only)' })] });
+    const b = await shadowlap(['blame', rec, '--expect', expect_, '--attempts', '2', '--passes', '1', '--concurrency', '1', '--json'], { VARIANT: 'n' });
+    const blame = JSON.parse(b.stdout) as { outcome: string; confidence: string; probes: Array<{ callNo: number; rescued: boolean; decision?: string; undecided?: string | null; runs: Array<{ passed: boolean; verdict?: string }> }> };
+    expect(blame).toMatchObject({ outcome: 'unrescuable', confidence: 'low' });
+    expect(blame.probes).toEqual([expect.objectContaining({ callNo: 1, rescued: false, decision: 'inconclusive', undecided: expect.stringMatching(/^judge "issued" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/) })]);
+    // It stopped at the attempt it could not judge, which is no failure.
+    expect(blame.probes[0]!.runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
+    const text = await shadowlap(['blame', rec, '--expect', expect_, '--attempts', '2', '--passes', '1', '--concurrency', '1'], { VARIANT: 'n' });
+    expect(text.out).toContain('? Not settled from the first model call');
+    expect(text.out).toContain('Resampled from the first model call, #1: an attempt could not be judged: judge "issued" answers yes, but it is inconclusive');
+    expect(text.out).toMatch(/inconclusive · an attempt not judged/);
+    expect(text.out).not.toMatch(/Not rescued from any model call|lost · |✗ judge/);
+    // What the run keeps of it says so, and shadowlap show reads it: not settled, never "not rescued".
+    const store = Store.open(join(work, '.shadowlap', 'shadowlap.db'));
+    try {
+      expect(store.getRun(rec)!.meta?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true });
+    } finally {
+      store.close();
+    }
+    const shown = (await shadowlap(['show', rec])).stdout;
+    expect(shown).toContain('blame: not settled from the first model call');
+    expect(shown).not.toContain('not rescued');
   }, 120_000);
 });
 
