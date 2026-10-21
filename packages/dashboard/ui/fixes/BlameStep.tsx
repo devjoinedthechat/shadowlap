@@ -148,7 +148,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                     <a className="more" href={href.run(o.runId, o.lostAt)}>
                       {shortId(o.runId)}
                     </a>{' '}
-                    {o.outcome === 'blamed' && o.lostAt !== null ? `lost at #${o.lostAt}` : o.outcome === 'unrescuable' ? 'not rescued' : 'stopped'}
+                    {o.outcome === 'blamed' && o.lostAt !== null ? `lost at #${o.lostAt}` : o.outcome === 'unrescuable' ? (o.unsettled ? 'not settled' : 'not rescued') : 'stopped'}
                   </span>
                 ))}
                 .

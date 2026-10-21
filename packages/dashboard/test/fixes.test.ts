@@ -224,6 +224,20 @@ describe('a fix', () => {
     expect(b.probes).toEqual([expect.objectContaining({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1, bound: null })]);
     expect(b.callRow[0]).toMatchObject({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1 });
     expect(b.bundles[0]!.attempts).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
+    // Wherever the blame is summed up, it is not settled, never "not rescued".
+    expect(fixList(store).fixes[0]!.steps[0]).toMatchObject({ state: 'todo', short: 'not settled', title: 'Not settled from the first model call' });
+    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not settled from the first model call · no fix yet');
+    expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, short: 'not settled from the first model call' });
+    expect(fixDetail(store, fix.fixId)!.blames).toEqual([expect.objectContaining({ outcome: 'unrescuable', unsettled: true })]);
+  });
+
+  it('still says a blame whose first probe lost the run was not rescued from any model call', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const { fix } = blame(failing, { outcome: 'unrescuable' });
+    expect(fixList(store).fixes[0]!.steps[0]).toMatchObject({ short: 'not rescued', title: 'Not rescued from any model call' });
+    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not rescued from any model call · no fix yet');
+    expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', short: 'not rescued from any model call' });
+    expect(fixForRun(store, failing)?.blame).not.toHaveProperty('unsettled');
   });
 
   it('says a blame that stopped reached an inconclusive probe, never that the run was lost there', () => {

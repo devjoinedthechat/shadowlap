@@ -65,7 +65,8 @@ export interface IndexedMeta {
   test: { golden: string; session: string; fork: boolean | null; passes: number | null; attempt: number | null; of: string | null } | null;
   /** Each check as stored, with its `status` when it has one (a result kept before checks had one reads as `ok` says). */
   checks: Array<{ ok: boolean; label: string; detail: string | null; status?: CheckStatus }> | null;
-  blame: { at: number; outcome: string; callNo: number | null; rescuedRunId: string | null } | null;
+  /** The last blame of the run: `unsettled` when it placed the failure on no call only because its first probe couldn't tell. */
+  blame: { at: number; outcome: string; callNo: number | null; rescuedRunId: string | null; unsettled: boolean } | null;
   /** Set on an attempt of an error-path preset (`test --chaos`, `replay --chaos`): bundled under the recording it forked. */
   chaos: { preset: string; callNo: number | null; session: string; attempt: number | null; golden: string | null } | null;
   author: string | null;
@@ -144,7 +145,7 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
     verify: isObject(verify) ? { role: str(verify.role) ?? '', passed: verify.passed === true } : null,
     test: isObject(test) ? { golden: str(test.golden) ?? '', session: str(test.session) ?? '', fork: typeof test.fork === 'boolean' ? test.fork : null, passes: num(test.passes), attempt: num(test.attempt), of: str(test.of) } : null,
     checks: Array.isArray(checks) ? checks.filter(isObject).map((c) => ({ ok: c.ok === true, label: str(c.label) ?? '', detail: str(c.detail), ...(typeof c.status === 'string' && (CHECK_STATUSES as readonly string[]).includes(c.status) ? { status: c.status as CheckStatus } : {}) })) : null,
-    blame: isObject(blame) ? { at: num(blame.at) ?? 0, outcome: str(blame.outcome) ?? '', callNo: num(blame.callNo), rescuedRunId: str(blame.rescuedRunId) } : null,
+    blame: isObject(blame) ? { at: num(blame.at) ?? 0, outcome: str(blame.outcome) ?? '', callNo: num(blame.callNo), rescuedRunId: str(blame.rescuedRunId), unsettled: blame.unsettled === true } : null,
     chaos: isObject(chaos) ? { preset: str(chaos.preset) ?? '', callNo: num(chaos.callNo), session: str(chaos.session) ?? '', attempt: num(chaos.attempt), golden: str(chaos.golden) } : null,
     author: str(row.author),
     ci: str(row.ci),

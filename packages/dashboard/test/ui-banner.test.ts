@@ -151,6 +151,8 @@ describe('the run’s banner', () => {
     expect(bannerFor({ ...base, status: 'failed', fix: { ...fix, status: 'verified' } })).toMatchObject({ why: 'the agent exited with an error · fixed: “Confirmation email sent twice”, verified' });
     expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable' } })).toEqual({ kind: 'failed', why: 'the run was interrupted · blame found no call whose answer, asked again, saves the run', fix: null, blamed: true });
     expect(bannerFor({ ...base, blame: { callNo: null, outcome: 'stopped' } })).toMatchObject({ why: 'blame confirmed it fails · blame stopped before it found the call', blamed: true });
+    // Its first probe couldn't tell: not settled, which is no finding that no call saves the run.
+    expect(bannerFor({ ...base, status: 'crashed', blame: { callNo: null, outcome: 'unrescuable', unsettled: true } })).toEqual({ kind: 'failed', why: 'the run was interrupted · blame not settled from the first model call', fix: null, blamed: true });
   });
 
   it('shows nothing for a run with nothing to say', () => {
@@ -233,6 +235,7 @@ describe('blame and checks on a run', () => {
 
   it('keeps a blame that placed the failure nowhere, prefers the server’s, and is null for a run never blamed', () => {
     expect(blameOf(run({ blame: { outcome: 'unrescuable', callNo: null, confidence: 'low', rescuedRunId: null } }))).toMatchObject({ callNo: null, outcome: 'unrescuable' });
+    expect(blameOf(run({ blame: { outcome: 'unrescuable', unsettled: true, callNo: null, confidence: 'low', rescuedRunId: null } }))).toMatchObject({ callNo: null, outcome: 'unrescuable', unsettled: true });
     expect(blameOf(run({}, { blame: { callNo: 1, modelCall: { k: 1, m: 9 } } }))).toEqual({ callNo: 1, modelCall: { k: 1, m: 9 } });
     expect(blameOf(run({}))).toBeNull();
   });

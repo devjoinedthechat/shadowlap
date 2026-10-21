@@ -318,6 +318,13 @@ export function unsettledFirst(r: Pick<BlameReport, 'outcome' | 'probes' | 'same
 }
 
 /**
+ * A blame that placed the failure on no call, in a few words, as a run's page, Needs a look and
+ * `shadowlap show` say it: not settled when its first probe couldn't tell (`unsettledFirst`), else
+ * not rescued from any model call.
+ */
+export const unrescuedWords = (unsettled: boolean): string => (unsettled ? 'not settled from the first model call' : 'not rescued from any model call');
+
+/**
  * Why a blame placed the failure on no call (`unrescuable`), as its report and the dashboard's Blame
  * step say it: the evidence, then where to look. Passing attempts that answered as the recording did,
  * or a write's recorded error every attempt met again, mean no answer of the model's lost the run. A

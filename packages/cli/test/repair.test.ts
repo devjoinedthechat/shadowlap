@@ -557,4 +557,12 @@ describe('noDiagnosisWhy', () => {
     // A search that stopped part way is no search: the run that couldn't be blamed says why.
     expect(noDiagnosisWhy([{ target: target(A, 'stopped'), notTheAnswer: null }, { target: target(B, 'passes', passes), notTheAnswer: null }], null)).toBe(`no failing run could be blamed: ${passes}`);
   });
+
+  it('says blame did not settle a run whose first probe could not tell, never that resampling rescued nothing', () => {
+    const unsettled = (runId: string) => ({ target: { ...target(runId, 'unrescuable'), unsettled: true }, notTheAnswer: null });
+    expect(noDiagnosisWhy([unsettled(A)], 'big-model')).toBe('blame did not settle where the failing run was lost: its first probe could not tell whether resampling rescues it, so there is no passing path to learn from yet; shadowlap blame 01M540RX39 says what settles it');
+    expect(noDiagnosisWhy([unsettled(A), unsettled(B)], null)).toBe('blame did not settle where the failing runs were lost: its first probe could not tell whether resampling rescues them, so there is no passing path to learn from yet; shadowlap blame 01M540RX39 01M540RX40 says what settles it');
+    // Beside a run resampling rescued nothing in, the search found that much.
+    expect(noDiagnosisWhy([unsettled(A), { target: target(B, 'unrescuable'), notTheAnswer: null }], null)).toContain('resampling rescued no failing run');
+  });
 });

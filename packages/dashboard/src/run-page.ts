@@ -263,6 +263,8 @@ export function conversationSource(store: Store, run: RunRecord, calls: readonly
 
 export interface RunBlame {
   outcome: 'blamed' | 'unrescuable' | 'stopped';
+  /** It placed the failure on no call only because its first probe couldn't tell: not settled, never "not rescued". Absent otherwise. */
+  unsettled?: true;
   /** The model call whose recorded answer lost the run. */
   callNo: number | null;
   /** That call counted among the model calls in the blame's scope: "model call k of m". */
@@ -336,6 +338,7 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[]): RunBlame | null 
   const k = callNo === null ? 0 : steps.indexOf(callNo) + 1;
   return {
     outcome: oneOf(b.outcome, ['blamed', 'unrescuable', 'stopped'] as const, 'stopped'),
+    ...(b.unsettled === true ? { unsettled: true as const } : {}),
     callNo,
     modelCall: k > 0 ? { k, m: steps.length } : null,
     confidence: oneOf(b.confidence, ['high', 'medium', 'low'] as const, 'low'),

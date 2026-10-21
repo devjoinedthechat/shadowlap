@@ -1,4 +1,4 @@
-import { agentCallsOf, attemptsToPass, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, normalizeResponse, probeFinding, probeTally, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
+import { agentCallsOf, attemptsToPass, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, normalizeResponse, probeFinding, probeTally, searchBlame, unsettledFirst, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -290,6 +290,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       blame: {
         at: Date.now(),
         outcome: report.outcome,
+        // Placed on no call only because its first probe couldn't tell: what reads this record says so.
+        ...(unsettledFirst(report) ? { unsettled: true } : {}),
         callNo: report.blamed?.callNo ?? null,
         confidence: report.confidence,
         rescuedRunId: contrast?.rescuedRunId ?? null,

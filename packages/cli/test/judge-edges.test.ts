@@ -325,6 +325,16 @@ describe('a blame probe whose attempt a judge could not answer', () => {
     expect(text.out).toContain('Resampled from the first model call, #1: an attempt could not be judged: judge "issued" answers yes, but it is inconclusive');
     expect(text.out).toMatch(/inconclusive · an attempt not judged/);
     expect(text.out).not.toMatch(/Not rescued from any model call|lost · |✗ judge/);
+    // What the run keeps of it says so, and shadowlap show reads it: not settled, never "not rescued".
+    const store = Store.open(join(work, '.shadowlap', 'shadowlap.db'));
+    try {
+      expect(store.getRun(rec)!.meta?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true });
+    } finally {
+      store.close();
+    }
+    const shown = (await shadowlap(['show', rec])).stdout;
+    expect(shown).toContain('blame: not settled from the first model call');
+    expect(shown).not.toContain('not rescued');
   }, 120_000);
 });
 

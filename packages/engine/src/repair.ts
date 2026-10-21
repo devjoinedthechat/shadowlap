@@ -1,3 +1,4 @@
+import { unrescuedWords } from './blame.js';
 import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
@@ -410,6 +411,12 @@ export interface RepairTarget {
    * says why).
    */
   outcome: 'blamed' | 'unrescuable' | 'stopped' | 'passes' | 'error';
+  /**
+   * An `unrescuable` blame that placed the failure on no call only because its first probe couldn't
+   * tell (blame.ts `unsettledFirst`): not settled, never a finding that no call rescues the run.
+   * Absent otherwise, and from reports made before it was.
+   */
+  unsettled?: boolean;
   callNo: number | null;
   step: number | null;
   steps: number;
@@ -554,7 +561,7 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
         t.outcome === 'blamed' && t.callNo !== null
           ? `model call #${t.callNo} (${t.step} of ${t.steps})${t.rescuedBy ? `, rescued by ${safeLine(t.rescuedBy)}` : ''}${t.reused ? p.dim(' · from an earlier blame') : ''}`
           : t.outcome === 'unrescuable'
-            ? 'not rescued from any model call'
+            ? unrescuedWords(t.unsettled === true)
             : safeLine(t.note ?? t.outcome);
       lines.push(`    ${short(t.runId)}  ${where}`);
     }
@@ -603,7 +610,7 @@ export function repairMarkdown(r: RepairReport): string {
     out.push('Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (`shadowlap blame`).', '');
     out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
     for (const t of r.targets) {
-      const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})` : t.outcome === 'unrescuable' ? 'not rescued from any model call' : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
+      const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
       out.push(`| \`${short(t.runId)}\` | ${cell(at)} | ${cell(t.recorded ?? '')} | ${cell(t.rescued ? `${t.rescued}${t.rescuedBy ? ` (${t.rescuedBy})` : ''}` : '')} |`);
     }
   } else {

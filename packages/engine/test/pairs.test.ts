@@ -60,6 +60,9 @@ describe('pairs from blame', () => {
       [true, 0, 'No attempt that passed at #5 is in the store any more.'],
       [true, 0, 'Not rescued from any model call: no other answer made the run pass, so there is none to prefer.'],
     ]);
+    // One whose first probe couldn't tell is not settled, never a finding that no answer passes.
+    store.updateRunMeta(run.runId, { blame: { at: 1, outcome: 'unrescuable', unsettled: true, callNo: null, confidence: 'low', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } });
+    expect(findPairs(store).sources.find((s) => s.runId === run.runId)?.why).toBe('Not settled from the first model call: blame could not tell whether another answer makes the run pass, so there is none to prefer yet.');
     store.close();
   });
 

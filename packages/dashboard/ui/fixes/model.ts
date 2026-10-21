@@ -597,7 +597,12 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
   if (job.kind === 'blame') {
     const blamed = isRecord(r.blamed) && typeof r.blamed.callNo === 'number' ? r.blamed.callNo : null;
     if (r.outcome === 'blamed' && blamed !== null) return { text: `lost at #${blamed} · ${exit}`, tone };
-    if (r.outcome === 'unrescuable') return { text: `not rescued · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
+    if (r.outcome === 'unrescuable') {
+      // Its first probe couldn't tell, and nothing else was found (blame's unsettledFirst): not settled, never "not rescued".
+      const first = Array.isArray(r.probes) && isRecord(r.probes[0]) ? r.probes[0] : null;
+      const unsettled = first?.decision === 'inconclusive' && !r.sameAnswer && !r.failedWrite;
+      return { text: `${unsettled ? 'not settled' : 'not rescued'} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
+    }
     if (r.outcome === 'stopped') return { text: `stopped early · ${exit}`, tone: 'err' };
     return null;
   }

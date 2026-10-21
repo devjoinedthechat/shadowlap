@@ -402,6 +402,9 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       // Done, and no model call rescued it: Today says so, as Needs a look does, rather than "not placed yet".
       local.updateRunMeta(failed, { blame: blameOf(null, null, NOW - HOUR / 2) });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'unrescuable', lostAt: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);
+      // One whose first probe couldn't tell says so, for Today to read it as not settled.
+      local.updateRunMeta(failed, { blame: { ...blameOf(null, null, NOW - HOUR / 3), unsettled: true } });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'unrescuable', unsettled: true, lostAt: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);
     } finally {
       local.close();
     }

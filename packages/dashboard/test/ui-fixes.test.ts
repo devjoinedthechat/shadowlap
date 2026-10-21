@@ -426,6 +426,11 @@ describe('the job drawer', () => {
   it('ends a blame, a repair and a fix apply on how they came out', () => {
     expect(jobStatus(job('blame', 0, { outcome: 'blamed', blamed: { callNo: 5 } }), [])).toEqual({ text: 'lost at #5 · exit 0', tone: 'ok' });
     expect(jobStatus(job('blame', 0, { outcome: 'unrescuable', blamed: null }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
+    // Its first probe couldn't tell, and nothing else was found: not settled, never "not rescued".
+    const unsettled = { outcome: 'unrescuable', blamed: null, sameAnswer: null, failedWrite: null, probes: [{ callNo: 1, decision: 'inconclusive' }] };
+    expect(jobStatus(job('blame', 0, unsettled), [])).toEqual({ text: 'not settled · exit 0', tone: 'warn' });
+    expect(jobStatus(job('blame', 0, { ...unsettled, failedWrite: { name: 'post_digest', message: 'channel_not_found', callNo: 1 } }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
+    expect(jobStatus(job('blame', 0, { ...unsettled, probes: [{ callNo: 1, decision: 'fail' }] }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
     expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped early · exit 1', tone: 'err' });
     expect(jobStatus(job('repair', 0, { outcome: 'fixed' }), [])).toEqual({ text: 'fixed · exit 0', tone: 'ok' });
     expect(jobStatus(job('repair', 1, { outcome: 'not-fixed' }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });

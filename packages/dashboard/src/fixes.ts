@@ -49,6 +49,7 @@ import {
   type VerdictStanding,
   type VerifiedRun,
   type VerifyOutcome,
+  unrescuedWords,
   unsettledFirst,
 } from '@shadowlap/engine';
 
@@ -342,7 +343,8 @@ export interface FixDetail extends FixRow {
   actions: FixActions;
   /** The blame the Blame step shows (the latest that found a call, else the latest), and every blame, newest first. */
   blame: BlameStep | null;
-  blames: Array<{ blameId: string; runId: string; at: number; outcome: StoredBlame['outcome']; lostAt: number | null; confidence: string }>;
+  /** Every blame, newest first: `unsettled` for one that placed the failure on no call only because its first probe couldn't tell. */
+  blames: Array<{ blameId: string; runId: string; at: number; outcome: StoredBlame['outcome']; unsettled?: true; lostAt: number | null; confidence: string }>;
   /** The repair the Repair step shows (the latest accepted that counts, else the latest accepted, else the latest), and every repair, newest first. */
   repair: RepairStep | null;
   repairs: Array<{ repairId: string; at: number; outcome: RepairOutcome; accepted: boolean; title: string }>;
@@ -462,7 +464,8 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const r = b.report;
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
     if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: `lost at #${r.blamed.callNo}`, title: `Lost at model call #${r.blamed.callNo}`, meta: `confidence ${r.confidence} · ${cost}` };
-    else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'todo', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
+    // Its first probe couldn't tell: not settled, never a finding that no call rescues the run.
+    else if (b.outcome === 'unrescuable') blame = unsettledFirst(r) ? { key: 'blame', n: '01', state: 'todo', short: 'not settled', title: 'Not settled from the first model call', meta: cost } : { key: 'blame', n: '01', state: 'todo', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
     else blame = { key: 'blame', n: '01', state: 'todo', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
   }
 
@@ -724,7 +727,7 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
     rule: v ? eachRun({ ...v, gate: sprtGate(v.gate) }) : null,
     lost: rep.targets.map((t) => ({
       runId: t.runId,
-      at: t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? 'not rescued from any model call' : (t.note ?? t.outcome),
+      at: t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : (t.note ?? t.outcome),
       href: fixHref(fixId, 'blame'),
     })),
     diagnosis: rep.diagnosis,
@@ -934,7 +937,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
       applied: fix.status === 'applied',
     },
     blame: b ? blameStep(store, b) : null,
-    blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, lostAt: x.report.blamed?.callNo ?? null, confidence: x.report.confidence })),
+    blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, confidence: x.report.confidence })),
     repair: p ? repairStep(rec, p, fix.fixId, pulled(p)) : null,
     repairs: [...rec.repairs].reverse().map((x) => {
       const c = acceptedCandidate(x);
@@ -1087,7 +1090,7 @@ export function needsLookFixes(store: Store, options: { limit?: number } = {}): 
     const rec = fixRecords(store, fix);
     if (fix.status === 'open') {
       const b = shownBlame(rec);
-      const where = b?.outcome === 'blamed' && b.report.blamed ? `lost at model call #${b.report.blamed.callNo}` : b?.outcome === 'unrescuable' ? 'not rescued from any model call' : 'blame stopped early';
+      const where = b?.outcome === 'blamed' && b.report.blamed ? `lost at model call #${b.report.blamed.callNo}` : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
       // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
       const elsewhere = noAnswerLost(b);
       open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : rec.repairs.length ? 'no fix found yet' : 'no fix yet'}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
@@ -1138,6 +1141,8 @@ export interface RunBlame {
   blameId: string;
   at: number;
   outcome: StoredBlame['outcome'];
+  /** It placed the failure on no call only because its first probe couldn't tell: not settled, never "not rescued". Absent otherwise. */
+  unsettled?: true;
   lostAt: number | null;
   step: number | null;
   steps: number;
@@ -1194,8 +1199,8 @@ function askedAgain(blocks: ReadonlyArray<{ type: string; name?: string }>): str
 
 function runBlame(b: StoredBlame, fixId: string | null): RunBlame {
   const r = b.report;
-  const what = b.outcome === 'blamed' ? `asked again, ${askedInstead(r.contrast?.recorded ?? [], r.contrast?.rescued ?? [])}` : b.outcome === 'unrescuable' ? 'not rescued from any model call' : 'blame stopped early';
-  return { blameId: b.blameId, at: b.at, outcome: b.outcome, lostAt: r.blamed?.callNo ?? null, step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
+  const what = b.outcome === 'blamed' ? `asked again, ${askedInstead(r.contrast?.recorded ?? [], r.contrast?.rescued ?? [])}` : b.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(r)) : 'blame stopped early';
+  return { blameId: b.blameId, at: b.at, outcome: b.outcome, ...(unsettledFirst(r) ? { unsettled: true as const } : {}), lostAt: r.blamed?.callNo ?? null, step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
 }
 
 /** How a run takes part in Fixes, for its page and the Forks view; null when it doesn't. */

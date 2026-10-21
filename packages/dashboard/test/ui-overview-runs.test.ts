@@ -33,6 +33,8 @@ describe('the Overview’s words', () => {
     // Today's blame line, in the words Needs a look uses for the same fix.
     expect(blameWords({ outcome: 'blamed', lostAt: 7 })).toBe('lost at #7');
     expect(blameWords({ outcome: 'unrescuable', lostAt: null })).toBe('not rescued from any model call');
+    // One whose first probe couldn't tell is not settled, never a finding that no call rescues the run.
+    expect(blameWords({ outcome: 'unrescuable', unsettled: true, lostAt: null })).toBe('not settled from the first model call');
     expect(blameWords({ outcome: 'stopped', lostAt: null })).toBe('blame stopped early');
     expect(blameWords({ outcome: null, lostAt: null })).toBe('not placed yet');
     expect(testsKpi(null, 0)).toEqual({ value: '—', note: 'no goldens yet', failing: false });
