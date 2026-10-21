@@ -563,7 +563,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     const broken = await shadowlap(['fix', 'apply', fixId, '--build', `node -e "require('fs').writeFileSync('agent.mjs', 'process.exit(3)')"`]);
     expect(broken.code, broken.out).toBe(1);
     // Broken before it passes 80 columns, as a terminal shows it.
-    expect(broken.stdout).toContain(`✗ ${fixId.slice(0, 13)} finished applying: the patch was already in the working tree,\n  2 of 2 goldens copied to goldens, shadowlap test failed\n`);
+    expect(broken.stdout).toContain(`✗ ${fixId.slice(0, 13)} finished applying: the patch was already in the working tree,\n  2 of 2 goldens copied to goldens/, shadowlap test failed\n`);
     expect(broken.stdout).toContain(`once the test passes, run shadowlap fix apply ${fixId.slice(0, 13)} again`);
     expect(broken.out).toContain('rebuilt: node -e');
     expect((await shadowlap(['fix', 'ls'])).stdout).toContain('! shadowlap test failed on its goldens');
