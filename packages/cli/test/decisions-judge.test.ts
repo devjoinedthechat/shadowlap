@@ -159,6 +159,9 @@ describe('a text-only change a judge check reads', () => {
   }, 120_000);
 
   it('asks nothing again for the words it has a verdict for: the recording\'s, and those an earlier session kept', async () => {
+    // A session of its own first, which asks what no session has kept yet.
+    const first = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--json']);
+    expect(first.code, first.out).toBe(0);
     const asked = judgeRequests(mock.requests).length;
     const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--json']);
     expect(r.code, r.out).toBe(0);
@@ -311,6 +314,21 @@ describe('judging text-only changes, more ways', () => {
     expect(decisionsInconclusive(report)).toBe('1 run has a text-only change a judge check reads that could not be judged');
   }, 120_000);
 
+  it('asks a request the samples of a step share once', async () => {
+    const p = await project('samples', [ANSWER]);
+    const asked = judgeRequests(mock.requests).length;
+    const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--samples', '3', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = json<DecisionsReport>(r);
+    // Three samples, the same new words: their verdict is asked once and read three times.
+    expect(judgeRequests(mock.requests).length - asked).toBe(1);
+    expect(report.judge).toMatchObject({ steps: 1, changed: 1, inconclusive: 0, upstreamRequests: 1 });
+    const step = report.runs[0]!.decisions[0]!;
+    expect(step).toMatchObject({ rank: 2, majority: 2, samples: { asked: 3, answered: 3, changed: 3, unjudged: 0, ranks: [2, 2, 2] } });
+    expect(step.judge!.map((j) => [j.recorded.source, j.now.source, j.changed])).toEqual([['recording', 'live', true]]);
+    expect(report.flagged).toEqual([p.runId]);
+  }, 120_000);
+
   it('waits on the judge when it could not judge some samples of a step, whichever sample shows the step', async () => {
     const p = await project('mixed', [ANSWER]);
     // mock-mixed words one sample tersely and the other as recorded in other words; the first judged spends the budget,
@@ -341,4 +359,17 @@ describe('judging text-only changes, more ways', () => {
     expect(report.judge).toMatchObject({ upstreamRequests: 0, spent: 0, unknownModels: [] });
     expect(report.runs[0]!.decisions[0]!.judge!.map((j) => [j.now.source, j.now.cost])).toEqual([['kept', 0]]);
   }, 120_000);
+
+  it('judges with the checks --expect gives --then-verify, which a golden with none has not', async () => {
+    const p = await project('expect', []);
+    const none = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--json']);
+    expect(json<DecisionsReport>(none)).toMatchObject({ flagged: [], judge: null, counts: { 5: 1 } });
+    const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--then-verify', '--expect', JSON.stringify({ judge: [ANSWER] }), '--attempts', '1', '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = json<DecisionsReport>(r);
+    // The recording holds no verdict for a check it was never judged by: both sides are asked live.
+    expect(report.runs[0]!.decisions[0]!.judge!.map((j) => [j.name, j.recorded.source, j.recorded.status, j.now.source, j.now.status])).toEqual([['fences', 'live', 'passed', 'live', 'failed']]);
+    expect(report.flagged).toEqual([p.runId]);
+    expect(report.verify).toMatchObject({ verdict: 'rejected', runs: [{ runId: p.runId, outcome: 'broken', passes: 0, attempts: 1 }] });
+  }, 180_000);
 });

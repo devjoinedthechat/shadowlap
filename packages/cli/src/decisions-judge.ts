@@ -1,4 +1,4 @@
-import { judgedAnswers, Store, type CallRecord, type DecisionJudge, type DecisionJudgeSide, type DecisionRun, type GivenAnswer, type RunRecord } from '@shadowlap/engine';
+import { judgedAnswers, Store, type CallRecord, type DecisionJudge, type DecisionJudgeSide, type GivenAnswer, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { judgeRecording } from './attempts.js';
 import { judgeChecksOf, judgeLabel, type JudgeCheck, type TestSpec } from './checks.js';
@@ -19,12 +19,13 @@ import { askPreparedJudge, heldVerdict, judgeRequestDigest, liveJudge, materialO
  * takes one, for a structured verdict, about what it reads with the project's rules applied: the run
  * as recorded, with the new answer in place of the recorded one. Each side's verdict comes from the
  * recording's own judge call for that very request when it holds one, else from an earlier ask of it
- * that a session kept, else from the judge, asked now; so asking the same again is free. Where the
- * judge can't be asked (no key, offline, the budget spent), the check is inconclusive and says why.
+ * that a session in this store kept, else from the judge, asked now; so asking the same again is
+ * free. Where the judge can't be asked (no key, offline, the budget spent), the check is inconclusive
+ * and says why.
  *
  * The judge's calls are made in a run of their own, in a store of their own that nothing keeps: the
- * decision diff runs no agent and keeps no run. What they found is kept with the session, with each
- * request's digest (a step's `judge`), which is what answers the same request again.
+ * decision diff runs no agent and keeps no run. What they found is kept with the session, with a
+ * digest of each request (a step's `judge`), which is what answers the same request again.
  */
 
 /** What a session kept of a judge's verdict, by the digest of the request it answered. */
@@ -148,21 +149,12 @@ export class TextJudge {
     return judged(j, v.verdict, v.reason, v.source === 'recording' ? 'recording' : 'live', v.cost ?? null, request);
   }
 
-  /** The verdicts the sessions that asked `runId` before kept, by the digest of their request. */
+  /** The verdicts every session in this store that asked `runId` before kept, by the digest of their request, the newest first. */
   private kept(runId: string): Map<string, KeptVerdict> {
     let found = this.keptByRun.get(runId);
     if (found) return found;
     found = new Map();
-    for (const row of this.store.decisionsOfRun(runId, 20)) {
-      const decisions = (row.data as Partial<DecisionRun>).decisions;
-      for (const step of Array.isArray(decisions) ? decisions : []) {
-        for (const j of Array.isArray(step.judge) ? step.judge : []) {
-          for (const side of [j.recorded, j.now]) {
-            if (side?.request && (side.verdict === 'yes' || side.verdict === 'no') && !found.has(side.request)) found.set(side.request, { verdict: side.verdict, reason: typeof side.reason === 'string' ? side.reason : '' });
-          }
-        }
-      }
-    }
+    for (const v of this.store.decisionJudgeVerdicts(runId)) if (!found.has(v.request)) found.set(v.request, { verdict: v.verdict, reason: v.reason });
     this.keptByRun.set(runId, found);
     return found;
   }

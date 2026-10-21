@@ -1796,6 +1796,28 @@ export class Store {
       .map((r) => ({ ...this.decisionRunRow(r), kind: r.kind === 'migrate' ? ('migrate' as const) : ('decisions' as const), change: String(r.change) }));
   }
 
+  /**
+   * The judge verdicts every session that asked a run again kept for it, newest first: each side of a
+   * step's judge check that got one (`recorded` or `now`), by the digest of the request it answered.
+   * The decision diff answers the very same request again from it, for free. Only those values are
+   * read out of each session's part of the run, however many sessions there are.
+   */
+  decisionJudgeVerdicts(runId: string): Array<{ request: string; verdict: 'yes' | 'no'; reason: string }> {
+    return this.db
+      .prepare(
+        `SELECT json_extract(side.value, '$.request') AS request, json_extract(side.value, '$.verdict') AS verdict, json_extract(side.value, '$.reason') AS reason
+         FROM decision_runs r,
+           json_each(r.data, '$.decisions') step,
+           json_each(CASE step.type WHEN 'object' THEN step.value END, '$.judge') j,
+           json_each(CASE j.type WHEN 'object' THEN j.value END) side
+         WHERE r.run_id = ? AND side.key IN ('recorded', 'now') AND side.type = 'object'
+           AND json_extract(side.value, '$.verdict') IN ('yes', 'no') AND json_type(side.value, '$.request') = 'text'
+         ORDER BY r.at DESC, r.session_id DESC`,
+      )
+      .all(runId)
+      .map((r) => ({ request: String(r.request), verdict: r.verdict === 'yes' ? ('yes' as const) : ('no' as const), reason: typeof r.reason === 'string' ? r.reason : '' }));
+  }
+
   deleteDecisionSession(sessionId: string): void {
     this.db.prepare(`DELETE FROM decision_sessions WHERE session_id = ?`).run(sessionId);
   }
