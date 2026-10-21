@@ -30,7 +30,7 @@ uv venv .venv --python 3.12 && uv pip install --python .venv/bin/python anthropi
 SHADOWLAP_PYTHON="$PWD/.venv/bin/python" npx vitest run
 ```
 
-CI runs all of it on Linux, macOS and Windows with Node 22 and 24. There the test run also writes `vitest-junit.xml`, uploaded as an artifact whether the job passed or not: test files run in parallel workers, so a failure that won't reproduce locally is only identifiable from the report of the run that saw it. Nothing retries; a flake CI swallows is one nobody fixes.
+CI runs all of it on Linux, macOS and Windows with Node 22 and 24, and on Linux the build, the tests and the CLI end to end (the golden replay, record, replay and fork) on Node 22.16.0 too, the oldest Node the packages support. There the test run also writes `vitest-junit.xml`, uploaded as an artifact whether the job passed or not: test files run in parallel workers, so a failure that won't reproduce locally is only identifiable from the report of the run that saw it. Nothing retries; a flake CI swallows is one nobody fixes.
 
 `npm run golden` re-records `testing/golden/reference-agent`. Only do that when the reference scenario changes on purpose: the golden is what proves replay fidelity in CI.
 

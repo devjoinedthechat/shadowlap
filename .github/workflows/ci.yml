@@ -14,6 +14,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node: [22, 24]
+        include:
+          # The oldest Node the packages' engines allow, the first 22 whose built-in SQLite has
+          # full-text search, which every store has. Here the packages are built and the suite, the
+          # golden replay and the smoke below run on it, so an API newer than the minimum fails;
+          # the typecheck and the Python SDK's tests, which no Node changes, run on 22 and 24.
+          - os: ubuntu-latest
+            node: 22.16.0
+            minimum: true
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -29,8 +37,10 @@ jobs:
       # Test files are outside the build graph (each package compiles only src), so they get
       # their own strict pass. Without it a type error in a test only ever shows up at runtime.
       - run: npm run typecheck:tests
+        if: ${{ !matrix.minimum }}
       - run: npm test
       - name: Python SDK tests
+        if: ${{ !matrix.minimum }}
         working-directory: sdks/python
         shell: bash
         run: |
