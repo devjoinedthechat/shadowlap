@@ -29,7 +29,7 @@ shadowlap repair --fixes label:refund-bug --keeps label:good \
      3  accepted  system prompt: You are a support agent. Follow the refund policy: escalate ever…
 
   cost: blame ≈$0.041 · repairer ≈$0.0040 · verify ≈$0.082
-  patch: .shadowlap/repairs/repair-munzln2i/fix.patch   apply it: git apply .shadowlap/repairs/repair-munzln2i/fix.patch
+  patch: .shadowlap/repairs/repair-munzln2i/fix.patch   apply it: git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch
   report: .shadowlap/repairs/repair-munzln2i/report.md
   recordings of the fixed runs, for shadowlap test: .shadowlap/repairs/repair-munzln2i/goldens/01M3RZ4XKN .shadowlap/repairs/repair-munzln2i/goldens/01M3RZ4XTE
 ```
@@ -83,6 +83,8 @@ One repair runs in a folder at a time. It holds `.shadowlap/repair.lock` while i
 | `--branch <name>` | A commit with the fix on a new branch, the evidence in its message. Nothing is checked out: HEAD and the working tree stay as they are. The commit is HEAD with the fix, while verify replayed the working tree: when tracked files have uncommitted changes, a warning, `report.md` and the commit message name them (`uncommitted`), so check the branch passes without them, or commit them and repair again |
 | `--pr` | With `--branch`: the branch pushed to `origin` and a pull request opened with `gh`, the report as its body |
 | `--goldens <dir>` | With `--apply` or `--branch`: the recordings also placed in the project, for [`shadowlap test`](./ci.md). The folder is taken from the one repair runs in; with `--branch` it has to be inside the repository, which repair checks before it starts |
+
+Repair prints the command that applies the patch by hand, `git -c core.autocrlf=false apply <patch>`. Git for Windows sets `core.autocrlf`, under which plain `git apply` writes a file with LF back with CRLF on every line, and the file is no longer the one verified. A teammate's patch with LF, for a checkout where the file has CRLF, applies only through that conversion, with plain `git apply`. [`shadowlap fix apply`](./cli.md#fix) applies either, and converts nothing where the patch's lines end as the file's do.
 
 The recordings were made by the fixed code, so `shadowlap test` replays them clean with the fix in place and fails the build if it is ever undone. Together with the patch, they turn a bug into a regression test.
 

@@ -3,7 +3,7 @@ import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { formatTally } from './stats.js';
-import { safeLine } from './text.js';
+import { quoteArgv, safeLine } from './text.js';
 import { eachRun, footprintDelta, outcomeOf, type VerifiedRun, type VerifyReport } from './verify.js';
 
 /**
@@ -213,6 +213,19 @@ export function unifiedDiff(path: string, before: string, after: string, context
   for (let i = p; i < b.lines.length - s; i++) push('+', b.lines[i]!, i === b.lines.length - 1, b.eol);
   for (let i = a.lines.length - s; i < aEnd; i++) push(' ', a.lines[i]!, i === a.lines.length - 1, a.eol && b.eol);
   return out.join('\n') + '\n';
+}
+
+/**
+ * The command that applies a repair's patch by hand: git apply with core.autocrlf off, so the file
+ * comes out as the repair verified it. Git for Windows sets core.autocrlf, under which plain git
+ * apply writes a file whose lines end with LF back with CRLF, every line of it. A patch whose lines
+ * end otherwise than the file's (a teammate's, made in a checkout with LF, for a Windows checkout's
+ * file with CRLF) applies only through that conversion, with plain git apply; a text or eol
+ * attribute in .gitattributes converts either way. `shadowlap fix apply` writes the file's bytes
+ * itself, whatever git would convert.
+ */
+export function gitApplyCommand(patch: string): string {
+  return quoteArgv(['git', '-c', 'core.autocrlf=false', 'apply', patch]);
 }
 
 /**
@@ -583,7 +596,7 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
   const repairer = r.repairer ? ` · repairer ${r.repairer.cost === null ? `(no price for ${safeLine(r.repairer.served ?? r.repairer.model)})` : `≈${formatUsd(r.repairer.cost)}`}` : '';
   const judged = r.cost.judge ? ` · judge checks ≈${formatUsd(r.cost.judge)}` : '';
   lines.push('', p.dim(`  cost: blame ≈${formatUsd(r.cost.blame)}${repairer} · verify ≈${formatUsd(r.cost.verify)}${judged}`));
-  if (r.output.patch) lines.push(p.dim(`  patch: ${safeLine(r.output.patch)}${r.output.applied ? ' (applied to the working tree)' : `   apply it: git apply ${safeLine(r.output.patch)}`}`));
+  if (r.output.patch) lines.push(p.dim(`  patch: ${safeLine(r.output.patch)}${r.output.applied ? ' (applied to the working tree)' : `   apply it: ${gitApplyCommand(safeLine(r.output.patch))}`}`));
   if (r.output.report) lines.push(p.dim(`  report: ${safeLine(r.output.report)}`));
   if (r.output.goldens.length) lines.push(p.dim(`  recordings of the fixed runs, for shadowlap test: ${r.output.goldens.map(safeLine).join(' ')}`));
   if (r.output.branch) lines.push(p.dim(`  branch: ${safeLine(r.output.branch)}`));

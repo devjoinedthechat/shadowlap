@@ -268,7 +268,9 @@ describe('test --chaos', () => {
   }, 180_000);
 });
 
-describe('a session stopped part way', () => {
+// Stopped with SIGINT, which the command handles. Windows has no signal one process can send another:
+// child.kill('SIGINT') ends the process outright there, and only Ctrl+C at its own console reaches it as one.
+describe.skipIf(process.platform === 'win32')('a session stopped part way', () => {
   it('keeps what finished, says it was interrupted, and exits as a shell reports the signal', async () => {
     config({});
     // While it runs, the store names its process, as the dashboard reads it to wait for the session.

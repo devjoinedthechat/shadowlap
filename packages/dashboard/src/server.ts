@@ -6,6 +6,7 @@ import { basename, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ProjectError, Store, tildePath, type Normalizer, type Price, type ProjectContext, type ProjectHost } from '@shadowlap/engine';
 import type { ProjectConfig, RouteContext } from './context.js';
+import { exportsEnded } from './export-apart.js';
 import { HttpError, json, sameToken } from './http.js';
 import { JobManager, type JobKind, type JobNotice, type JobPlace, type SpawnCli } from './jobs.js';
 import { previewsEnded } from './redaction-preview.js';
@@ -518,8 +519,8 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
         uploads.close();
         standIn?.close();
         await closed;
-        // A redaction preview's thread holds the store's file until it has ended.
-        await previewsEnded();
+        // A redaction preview's thread, or one making an HTML download, holds the store's file until it has ended.
+        await Promise.all([previewsEnded(), exportsEnded()]);
       })());
     },
   };

@@ -12,15 +12,19 @@ import { BUSY, type PreviewAnswer, type PreviewWork } from './redaction-preview.
 const work = workerData as PreviewWork;
 const post = (m: PreviewAnswer) => parentPort?.postMessage(m);
 let store: Store | null = null;
+let answer: PreviewAnswer;
 try {
   store = Store.open(work.dbPath);
   // Its time starts now: opening waited for any command holding the store.
   post({ type: 'open' });
   const deadline = Date.now() + work.limits.softMs;
-  post({ type: 'answer', ok: true, preview: previewRedaction(store, work.runId, work.rules, { maxCalls: work.limits.maxCalls, maxBytes: work.limits.maxBytes, deadline }) });
+  answer = { type: 'answer', ok: true, preview: previewRedaction(store, work.runId, work.rules, { maxCalls: work.limits.maxCalls, maxBytes: work.limits.maxBytes, deadline }) };
 } catch (err) {
   const error = err instanceof Error ? err.message : String(err);
-  post({ type: 'answer', ok: false, error, busy: BUSY.test(error) });
+  answer = { type: 'answer', ok: false, error, busy: BUSY.test(error) };
 } finally {
+  // Closed before the answer goes: the server ends the thread once it has it, which can stop it
+  // before a close after it, and Windows can't delete or move the store's file while it is open.
   store?.close();
 }
+post(answer);

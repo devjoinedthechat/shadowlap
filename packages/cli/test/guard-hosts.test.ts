@@ -9,7 +9,9 @@ import { guardEnv } from '../src/index.js';
 
 /**
  * What the network guard saw bypass Shadowlap is kept on the run, by host name: a Python agent
- * connects to the address a name resolved to, and the guard remembers the name.
+ * connects to the address a name resolved to, and the guard remembers the name. The Python agents
+ * here exit right after their last connection: the guard's reports reach the sidecar before they
+ * are gone.
  */
 
 const run = promisify(execFile);
@@ -50,12 +52,11 @@ const NODE_SCRIPT = `
 `;
 
 const PY_SCRIPT = `
-import os, time, urllib.request
+import os, urllib.request
 try:
     urllib.request.urlopen(os.environ['TARGET'], timeout=5).read()
 except OSError:
     pass
-time.sleep(0.2)
 `;
 
 describe('hosts that were not recorded', () => {
@@ -89,7 +90,7 @@ describe('hosts that were not recorded', () => {
    * to 127.0.0.1. Allowing one of them must not let the other through.
    */
   const SHARED = `
-import os, socket, sys, time, urllib.request
+import os, socket, urllib.request
 import sitecustomize as guard
 real = guard._orig_getaddrinfo
 def resolve(host, *args, **kwargs):
@@ -110,8 +111,6 @@ def pooled():
     socket.getaddrinfo('allowed.partner.test', port)
     return outcome(lambda: socket.create_connection((address, port), timeout=5).close())
 print(get('allowed.partner.test'), get('payments.example.test'), get('allowed.partner.test'), pooled())
-sys.stdout.flush()
-time.sleep(0.3)
 `;
 
   it.skipIf(!PYTHON)('let an allowed name through only while no other name shares its address', async () => {

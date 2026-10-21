@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createServer as createTcpServer, type AddressInfo, type Server as TcpServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -62,19 +62,35 @@ afterAll(async () => {
   rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
+/**
+ * How the input reaches the agent: through a pipe, as `printf … | shadowlap run` gives it, or on
+ * Windows from a file, as `< answers.txt` gives it. Node and Python can't tell one pipe from another
+ * there, so input through a pipe isn't recorded on Windows (user-input.test.ts), and a file's is.
+ */
+const INPUT_FROM_A_FILE = process.platform === 'win32';
+let inputFiles = 0;
+
 function run(argv: string[], input: string, env: Record<string, string>, dir = cwd): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
     const proxyUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+    let stdin: 'pipe' | number = 'pipe';
+    if (INPUT_FROM_A_FILE) {
+      const file = join(cwd, `input-${++inputFiles}.txt`);
+      writeFileSync(file, input);
+      stdin = openSync(file, 'r');
+    }
     const child = spawn(argv[0]!, argv.slice(1), {
       cwd: dir,
       env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', PYTHONPATH: PY_SDK, SHADOWLAP_UPSTREAM_OPENAI: mock.url, HTTP_PROXY: proxyUrl, HTTPS_PROXY: proxyUrl, http_proxy: proxyUrl, https_proxy: proxyUrl, NO_PROXY: 'corp.internal', no_proxy: '', ...env },
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: [stdin, 'pipe', 'pipe'],
     });
+    // The child has a copy of its own: this one would only keep Windows from deleting the file.
+    if (typeof stdin === 'number') closeSync(stdin);
     let out = '';
-    child.stdout.on('data', (c: Buffer) => (out += c.toString()));
-    child.stderr.on('data', (c: Buffer) => (out += c.toString()));
+    child.stdout!.on('data', (c: Buffer) => (out += c.toString()));
+    child.stderr!.on('data', (c: Buffer) => (out += c.toString()));
     child.on('exit', (code) => resolve({ code, out }));
-    child.stdin.end(input);
+    child.stdin?.end(input);
   });
 }
 

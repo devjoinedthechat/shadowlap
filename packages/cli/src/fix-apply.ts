@@ -1,22 +1,24 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyLeft, fixRecords, markFixApplied, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, type Store, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
+import { physicalPath } from './real-path.js';
 
 /**
- * `shadowlap fix apply <fix>`: hands a verified fix over to the working tree. It `git apply`s the
- * patch of the repair whose candidate was accepted, copies the recordings that repair made with the
- * fixed code into the project's goldens folder, runs `shadowlap test` on them, and marks the fix
- * applied. A patch already in the tree (applied by hand, committed, or by `repair --apply`) is
- * recognised with `git apply --reverse --check` and only marked. A tree whose changes conflict with
- * the patch is left alone, with what to do about it. A fix verified on the working tree itself,
- * with no repair behind it, has no patch: its change is already where it belongs, so it is only
- * marked applied. On a fix applied already, it finishes what was left: goldens not copied yet, and
- * a test that hasn't passed. With the patch in, it replays the project's other goldens offline and
- * names those that now diverge on what the patch changed, with the command that re-records them
- * (`fix-outdated.ts`).
+ * `shadowlap fix apply <fix>`: hands a verified fix over to the working tree. It applies the patch
+ * of the repair whose candidate was accepted with `git apply`, to the file's bytes as they are
+ * (`applyToBytes`), copies the recordings that repair made with the fixed code into the project's
+ * goldens folder, runs `shadowlap test` on them, and marks the fix applied. A patch already in the
+ * tree (applied by hand, committed, or by `repair --apply`) is recognised with `git apply --reverse
+ * --check` and only marked. A tree whose changes conflict with the patch is left alone, with what
+ * to do about it. A fix verified on the working tree itself, with no repair behind it, has no
+ * patch: its change is already where it belongs, so it is only marked applied. On a fix applied
+ * already, it finishes what was left: goldens not copied yet, and a test that hasn't passed. With
+ * the patch in, it replays the project's other goldens offline and names those that now diverge on
+ * what the patch changed, with the command that re-records them (`fix-outdated.ts`).
  *
  * A repair that came with a pull from the team store ran on a teammate's machine: its patch goes in
  * here, and its recordings, which stayed there, are neither copied nor tested here (they are
@@ -26,7 +28,8 @@ import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
  * What it reads from the store decides what it touches, so it trusts no path there: the repair's
  * directory must be `.shadowlap/repairs/<its id>`, its goldens inside that directory's `goldens/`,
  * its patch the one rewrite its accepted candidate makes, to that candidate's file alone and in
- * place (`repairPatchProblem`), and its fix.patch that patch.
+ * place (`repairPatchProblem`), and its fix.patch that patch. The file it writes is a plain file of
+ * the working tree, reached through no link to a folder.
  */
 
 export class ApplyError extends Error {
@@ -74,6 +77,49 @@ const CLI_BIN = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 
 const git = (cwd: string, args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 
+/**
+ * `git apply` as apply runs it: the change as the repair verified it, whatever git's config says,
+ * with no whitespace fixed (apply.whitespace) and none ignored to find where it goes
+ * (apply.ignoreWhitespace, which would also take a line that ends with CRLF for one with LF).
+ */
+const APPLY = ['-c', 'apply.ignoreWhitespace=no', 'apply', '--whitespace=nowarn'];
+
+/**
+ * What the patch makes of the file's bytes as they are: whether it is in them already, else the
+ * bytes with it applied, or null when it applies to neither. git apply in the working tree converts
+ * what it reads and writes as core.autocrlf and the file's text, eol, ident and filter attributes
+ * ask: where Git for Windows sets core.autocrlf, or where .gitattributes says `* text=auto` and the
+ * line ending git writes is CRLF (Git for Windows' own), it writes a file whose lines end with LF
+ * back with CRLF, every line of it, and the file is no longer the one the repair verified. Here git
+ * applies the patch to the bytes as a blob, in an index of its own, where nothing is converted.
+ */
+function applyToBytes(root: string, file: string, patch: string): { already: boolean; bytes: Buffer | null } {
+  let now: Buffer;
+  try {
+    now = readFileSync(join(root, file));
+  } catch {
+    // Not there, or not readable: git apply in the working tree says why.
+    return { already: false, bytes: null };
+  }
+  const scratch = mkdtempSync(join(tmpdir(), 'shadowlap-apply-'));
+  try {
+    const env = { ...process.env, GIT_INDEX_FILE: join(scratch, 'index') };
+    const run = (args: string[], input?: Buffer) => spawnSync('git', args, { cwd: root, env, input, maxBuffer: 64 * 1024 * 1024 });
+    const blob = run(['hash-object', '-w', '--stdin'], now);
+    const staged = blob.status === 0 && run(['update-index', '--add', '--cacheinfo', `100644,${blob.stdout.toString().trim()},${file}`]).status === 0;
+    if (staged && run([...APPLY, '--cached', '--reverse', '--check', patch]).status === 0) return { already: true, bytes: null };
+    const out = staged && run([...APPLY, '--cached', patch]).status === 0 ? run(['cat-file', 'blob', `:0:${file}`]) : null;
+    return { already: false, bytes: out?.status === 0 ? out.stdout : null };
+  } finally {
+    try {
+      rmSync(scratch, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      // Held a moment longer on Windows (a virus scanner reading the new index, say): an index left
+      // in the temporary folder harms nothing, and the patch still goes in.
+    }
+  }
+}
+
 /** The repair whose change a fix is applied with: the one it was applied with, else the latest accepted one that counts for it. */
 export function acceptedRepair(store: Store, fix: StoredFix): StoredRepair | null {
   return repairToApply(fixRecords(store, fix));
@@ -90,10 +136,27 @@ const lstatOrNull = (path: string) => {
   }
 };
 
+/** The first folder on the way to a file of the repository that is a link (a symbolic link, a junction), or null. */
+function linkOnTheWay(root: string, file: string): string | null {
+  const dirs = file.split('/').slice(0, -1);
+  for (let i = 1; i <= dirs.length; i++) {
+    const dir = dirs.slice(0, i).join('/');
+    if (lstatOrNull(join(root, dir))?.isSymbolicLink()) return dir;
+  }
+  return null;
+}
+
 const slashes = (p: string) => p.split(/[\\/]+/).join('/');
 
 /** A path as apply reports it: relative to the folder it runs in, with forward slashes on every system. */
 const shown = (cwd: string, path: string) => relative(cwd, path).split(sep).join('/');
+
+/**
+ * A file of the repository as apply reports it, from the folder it runs in: both named as the system
+ * names them, since git gives the root with links resolved and, on Windows, its long name, where the
+ * folder may have been reached through a link or by a short name (C:\Users\RUNNER~1).
+ */
+const shownInRepo = (cwd: string, root: string, file: string) => shown(physicalPath(cwd), join(physicalPath(root), file));
 
 /**
  * The repair's directory and goldens, checked: a store can come from elsewhere (a copied file, a
@@ -139,6 +202,10 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     const file = repair.report.candidates.find((c) => c.id === repair.report.accepted)!.file;
     const target = lstatOrNull(join(root, file));
     if (target && !target.isFile()) throw new ApplyError(`${file} is not a plain file in this working tree (a symbolic link or a folder), so the patch was not applied: apply it by hand if you mean to`);
+    // The file is written here, and a link to a folder on the way could lead it out of the working
+    // tree: git apply writes nothing beyond one either.
+    const link = linkOnTheWay(root, file);
+    if (link) throw new ApplyError(`${file} is reached through ${link}, which is a link in this working tree, so the patch was not applied: apply it by hand if you mean to`);
     // A repair rewrites only files git sees: a change to one git ignores (a dependency's code, say)
     // would show in neither git status nor git diff, so nobody would ever read it.
     if (git(root, ['check-ignore', '-q', '--', file]).status === 0) throw new ApplyError(`${file} is a path git ignores here, so a change to it would show in neither git status nor git diff: the patch was not applied. A repair only rewrites files git sees; read ${paths.dir}/fix.patch, and apply it by hand if you mean to`);
@@ -146,23 +213,36 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     if (!existsSync(patch)) throw new ApplyError(`the repair's patch is not in this folder (${paths.dir}/fix.patch): run shadowlap fix apply in the folder ${repair.repairId} ran in`);
     if (readFileSync(patch, 'utf8') !== repair.report.patch) throw new ApplyError(`${paths.dir}/fix.patch is not the patch ${repair.repairId} verified: it changed since. Nothing was changed: apply it by hand if you changed it on purpose, or repair again`);
 
-    if (git(root, ['apply', '--reverse', '--check', patch]).status === 0) {
+    // The patch goes in on the file's bytes as they are, so the file is the one the repair verified. A
+    // patch whose lines end otherwise than the file's (a teammate's, made in a checkout with LF, for a
+    // Windows checkout's file with CRLF) applies only through git's conversion: then it goes in as
+    // git apply puts it in, with git's own settings, which give the file back its CRLF.
+    const asIs = applyToBytes(root, file, patch);
+    if (asIs.already || git(root, [...APPLY, '--reverse', '--check', patch]).status === 0) {
       result.patch = 'already';
       o.log(`  the patch is already in the working tree (${shown(o.cwd, patch)})`);
     } else {
-      const check = git(root, ['apply', '--check', patch]);
-      if (check.status !== 0) {
-        const files = patchFiles(repair.report.patch ?? '');
-        const dirty = files.length ? git(root, ['status', '--porcelain', '--', ...files]).stdout.trim() : '';
-        const why = (check.stderr || check.stdout).trim().split('\n')[0] ?? '';
-        throw new ApplyError(
-          dirty
-            ? `${files.join(', ')} ${files.length === 1 ? 'has' : 'have'} uncommitted changes the patch conflicts with (${why}). Nothing was changed: commit or stash them, then run shadowlap fix apply ${fix.fixId} again`
-            : `the patch no longer applies: ${files.join(', ') || 'the file it changes'} changed since the repair (${why}). Nothing was changed: apply it by hand with git apply --3way ${shown(o.cwd, patch)}, or repair again`,
-        );
+      if (asIs.bytes) {
+        try {
+          writeFileSync(join(root, file), asIs.bytes);
+        } catch (err) {
+          throw new ApplyError(`writing ${file} failed: ${(err as Error).message}`);
+        }
+      } else {
+        const check = git(root, [...APPLY, '--check', patch]);
+        if (check.status !== 0) {
+          const files = patchFiles(repair.report.patch ?? '');
+          const dirty = files.length ? git(root, ['status', '--porcelain', '--', ...files]).stdout.trim() : '';
+          const why = (check.stderr || check.stdout).trim().split('\n')[0] ?? '';
+          throw new ApplyError(
+            dirty
+              ? `${files.join(', ')} ${files.length === 1 ? 'has' : 'have'} uncommitted changes the patch conflicts with (${why}). Nothing was changed: commit or stash them, then run shadowlap fix apply ${fix.fixId} again`
+              : `the patch no longer applies: ${files.join(', ') || 'the file it changes'} changed since the repair (${why}). Nothing was changed: apply it by hand with git apply --3way ${shown(o.cwd, patch)}, or repair again`,
+          );
+        }
+        const applied = git(root, [...APPLY, patch]);
+        if (applied.status !== 0) throw new ApplyError(`git apply failed: ${(applied.stderr || applied.stdout).trim()}`);
       }
-      const applied = git(root, ['apply', patch]);
-      if (applied.status !== 0) throw new ApplyError(`git apply failed: ${(applied.stderr || applied.stdout).trim()}`);
       result.patch = 'applied';
       o.log(`  applied ${shown(o.cwd, patch)}`);
     }
@@ -189,7 +269,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
       o.log(`  ${copied ? 'copied' : 'already there:'} ${shown(o.cwd, to)}`);
     }
     if (elsewhere) o.log(`  ${elsewhere === 1 ? 'the recording' : `the ${elsewhere} recordings`} the fixed code made ${elsewhere === 1 ? 'stays' : 'stay'} on the machine that ran ${repair.repairId}, which came with a pull: commit ${elsewhere === 1 ? 'it' : 'them'} from there`);
-    if (unread) o.log(`  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- ${shown(o.cwd, join(root, file))}), then ${o.build ? `rebuild (${o.build}) and ` : ''}check your goldens against it with shadowlap test`);
+    if (unread) o.log(`  it came with a pull from the team store, so nothing here runs it yet: read the change (git diff -- ${shownInRepo(o.cwd, root, file)}), then ${o.build ? `rebuild (${o.build}) and ` : ''}check your goldens against it with shadowlap test`);
 
     if (o.build && !unread) {
       const b = spawnSync(o.build, { cwd: o.cwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
