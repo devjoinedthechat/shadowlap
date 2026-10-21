@@ -115,10 +115,15 @@ runs:
         VERSION: ${{ inputs.version }}
         FIX_ON_FAILURE: ${{ inputs.fix-on-failure }}
       run: |
+        # The step names the release twice, the action's tag and `version`: an update that moves only
+        # the tag would have this action drive another CLI than the one it was released with.
+        action=$(node -p "require(process.env.GITHUB_ACTION_PATH + '/packages/cli/package.json').version")
+        if [ "$VERSION" != "$action" ]; then echo "::warning title=Shadowlap::this action is v$action but installs shadowlap $VERSION; set version: $action"; fi
         # fix-on-failure may ask Claude for the fix through the Anthropic SDK, an optional peer that the
-        # CLI imports from where it is installed: it goes in beside it.
+        # CLI imports from where it is installed: it goes in beside it, at the version this release was
+        # tested with, never whatever is newest, in a job that holds GH_TOKEN and the provider keys.
         sdk=()
-        if [ "$FIX_ON_FAILURE" = true ]; then sdk=('@anthropic-ai/sdk@>=0.126.0'); fi
+        if [ "$FIX_ON_FAILURE" = true ]; then sdk=("@anthropic-ai/sdk@$(node -p "require(process.env.GITHUB_ACTION_PATH + '/package-lock.json').packages['node_modules/@anthropic-ai/sdk']?.version ?? '>=0.126.0 <1'")"); fi
         npm install --prefix "$RUNNER_TEMP/shadowlap-cli" --no-save --no-audit --no-fund "shadowlap@$VERSION" "${sdk[@]}"
         echo "cli=$RUNNER_TEMP/shadowlap-cli/node_modules/shadowlap/bin/shadowlap.js" >> "$GITHUB_OUTPUT"
 

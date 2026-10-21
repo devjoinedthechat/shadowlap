@@ -37,7 +37,8 @@ const SEMVER = String.raw`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`;
 for (const page of ['README.md', 'docs/ci.md', 'packages/cli/README.md']) {
   const text = readFileSync(page, 'utf8')
     .replace(new RegExp(`(devjoinedthechat/shadowlap@v)${SEMVER}`, 'g'), `$1${version}`)
-    .replace(new RegExp(`(?<![\\w-])(version: )${SEMVER}`, 'g'), `$1${version}`);
+    .replace(new RegExp(`(?<![\\w-])(version: )${SEMVER}`, 'g'), `$1${version}`)
+    .replace(new RegExp(`(?<![\\w/-])(shadowlap@)${SEMVER}`, 'g'), `$1${version}`);
   writeFileSync(page, text);
 }
 

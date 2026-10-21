@@ -210,6 +210,9 @@ describe('the release the steps pin', () => {
       expect(pins.length, page).toBeGreaterThan(0);
       expect([...new Set(pins)], page).toEqual([`v${version}`]);
       expect([...new Set([...text.matchAll(/(?<![\w-])version: (\d+\.\d+\.\d+[^\s`]*)/g)].map((m) => m[1]))], page).toEqual([version]);
+      // The CLI a step installs itself, as the recipe that keeps a failed replay does.
+      const installs = [...text.matchAll(/(?<![\w/-])shadowlap@([^\s`'"]+)/g)].map((m) => m[1]);
+      expect(installs.filter((v) => v !== version), page).toEqual([]);
     }
   });
 });

@@ -163,7 +163,8 @@ describe('the CI steps in docs/ci.md that keep a failed replay', () => {
   it('install the CLI from npm before they use it, at the version the action names', () => {
     const [install, ...rest] = scripts();
     expect(rest).toEqual([recipe()]);
-    expect(install).toMatch(/^npm install -g shadowlap@<version>\s+# the version the action step names$/);
+    const version = (JSON.parse(readFileSync(join(ROOT, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }).version;
+    expect(install).toMatch(new RegExp(`^npm install -g shadowlap@${version.replace(/\./g, '\\.')}\\s+# the version the action step names$`));
   });
 
   it('read every run they need to: ls is not left at its default of 50', () => {

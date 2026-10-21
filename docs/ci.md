@@ -266,7 +266,7 @@ It replays each recording offline and fails the check when one diverges, makes a
 
 A Python agent needs its interpreter and packages installed before the action, as for any other step. The action itself needs Node 22.16 or later, not 23.
 
-The step names a release twice: the action at its tag, and in `version:` the `shadowlap` CLI it installs from npm. Keep the two the same release, the one your project uses. With `version:` left empty, the action builds the CLI from its own source, which adds about a minute.
+The step names a release twice: the action at its tag, and in `version:` the `shadowlap` CLI it installs from npm. Keep the two the same release, the one your project uses: when they differ, as after an update that moved only the tag, the step warns and names the version to set. With `fix-on-failure`, it installs the Anthropic SDK beside the CLI at the version the release was tested with. With `version:` left empty, the action builds the CLI from its own source, which adds about a minute.
 
 | Input | Default | Effect |
 |---|---|---|
@@ -297,7 +297,7 @@ When a recording fails and the logs aren't enough, keep the failed replay as a f
 
 ```yaml
 - if: failure()
-  run: npm install -g shadowlap@<version>      # the version the action step names
+  run: npm install -g shadowlap@0.1.0      # the version the action step names
 - if: failure()
   run: |
     shadowlap --db replays.db test goldens/* --json report.json || true
