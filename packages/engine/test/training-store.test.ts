@@ -37,6 +37,13 @@ describe('training tables', () => {
       ['qwen2.5:7b', 'http://127.0.0.1:11434/v1', 'goldens/a', 1, 0],
     ]);
     expect(rows[0]!.checks).toEqual([{ label: 'the agent exits 0', ok: true, detail: null }]);
+    // What an attempt's judge checks cost is kept apart from its own spend; one without a judge call has none.
+    expect(rows[0]).toMatchObject({ spent: 0.01, judgeSpent: null });
+    store.replaceTaskScores('claude-haiku-4-5', null, 'goldens/b', [{ ...row(1, 1), judgeSpent: 0.002 }, { ...row(2, 1), judgeSpent: 0 }]);
+    expect(store.listTaskScores().filter((r) => r.golden === 'goldens/b').map((r) => [r.attempt, r.spent, r.judgeSpent])).toEqual([
+      [1, 0.01, 0.002],
+      [2, 0.01, 0],
+    ]);
     store.close();
   });
 

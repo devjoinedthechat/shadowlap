@@ -103,7 +103,7 @@ describe('models to score', () => {
 
   it('takes the recorded models, the models scored before and the tokens to price from the tasks', () => {
     const task = (golden: string, status: Task['status'], model: string, inputTokens: number): Task => ({ golden, name: golden, status, note: null, runId: 'r', takeover: { callNo: 5, why: 'w', from: 'config' }, scope: null, scopes: [null], rewards: null, checks: [], after: { live: [], stubbed: [] }, prefix: 4, model, provider: 'anthropic', callName: 'POST /v1/messages', tokensAfter: { inputTokens, outputTokens: 100 } });
-    const row = (model: string, baseUrl: string | null, attempt: number): TaskScoreRow => ({ model, baseUrl, golden: 'a', attempt, runId: null, score: 1, checks: [], spent: 0, via: baseUrl ? 'on this machine' : 'Anthropic API', session: 's', at: 1 });
+    const row = (model: string, baseUrl: string | null, attempt: number): TaskScoreRow => ({ model, baseUrl, golden: 'a', attempt, runId: null, score: 1, checks: [], spent: 0, judgeSpent: null, via: baseUrl ? 'on this machine' : 'Anthropic API', session: 's', at: 1 });
     const input = listingInput([task('a', 'ready', 'claude-sonnet-5', 1000), task('b', 'ready', 'claude-sonnet-5', 3000), task('c', 'blocked', 'claude-opus-5', 9000)], [row('qwen', 'http://127.0.0.1:11434/v1', 1), row('qwen', 'http://127.0.0.1:11434/v1', 2), row('claude-haiku-4-5', null, 1)]);
     // Only ready tasks: a blocked one is neither scored nor priced.
     expect(input.recorded).toEqual([{ model: 'claude-sonnet-5', provider: 'anthropic' }]);

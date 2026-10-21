@@ -613,6 +613,8 @@ describe('a task with a judge check', () => {
     expect(report.judge).toEqual(task.judge);
     expect(departures('tasksScoreJudge', report.judge)).toEqual({ missing: [], extra: [] });
     expect(r.out).toMatch(/\n {2}judge: 2 calls · 2 live \(≈\$[\d.]+\) · 2 upstream requests, apart from the cost above\n/);
+    // Each attempt's score keeps both, apart, for the dashboard's model cards.
+    expect(withStore(db, (s) => s.listTaskScores().map((x) => [x.runId, x.spent, x.judgeSpent]))).toEqual(task.attempts.map((a) => [a.run, expect.closeTo(a.spent, 12), expect.closeTo(a.judge!.spent, 12)]));
 
     // A budget the attempt's own calls stay under, but not with its judge's: the second attempt never starts.
     const cut = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '2', '--budget', String(one.spent + one.judge!.spent / 2), '--json']);

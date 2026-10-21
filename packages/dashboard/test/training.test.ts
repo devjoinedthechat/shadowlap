@@ -54,7 +54,7 @@ const TASKS = [
   task('goldens/refund-in-limit', 'blocked', 'refund within the limit'),
 ];
 
-const score = (model: string, baseUrl: string | null, golden: string, attempt: number, value: number, at: number, spent = 0): TaskScoreRow => ({ model, baseUrl, golden, attempt, runId: `${model}-${golden}-${attempt}`, score: value, checks: [], spent, via: baseUrl ? 'Ollama, on this machine' : 'the recorded model', session: 's', at });
+const score = (model: string, baseUrl: string | null, golden: string, attempt: number, value: number, at: number, spent = 0, judgeSpent: number | null = null): TaskScoreRow => ({ model, baseUrl, golden, attempt, runId: `${model}-${golden}-${attempt}`, score: value, checks: [], spent, judgeSpent, via: baseUrl ? 'Ollama, on this machine' : 'the recorded model', session: 's', at });
 
 const SCORES: TaskScoreRow[] = [
   ...[1, 1, 1, 1, 1].map((v, i) => score('claude-sonnet-5', null, 'goldens/refund-over-limit', i + 1, v, 100, 0.033)),
@@ -209,6 +209,27 @@ describe('the Training read model', () => {
     // Scored at its own provider and at an endpoint: the provider's card says so.
     const both = trainingView({ ...readTraining(s, { tasks: ready }), scores: [...scores, score('claude-sonnet-5', 'http://127.0.0.1:8000/v1', 'goldens/a', 1, 1, 400)] });
     expect(both.scores.cards.filter((c) => c.model === 'claude-sonnet-5').map((c) => c.where)).toEqual(["the provider's API", '127.0.0.1:8000']);
+    s.close();
+  });
+
+  it("puts what each model's judge checks cost after what its own calls did, apart", () => {
+    const s = Store.open(':memory:');
+    const judged = [
+      // Each attempt kept what its judge's call cost apart from its own: $0.033 and $0.002.
+      ...[1, 2, 3].map((n) => score('claude-sonnet-5', null, 'goldens/refund-over-limit', n, 1, 100, 0.033, 0.002)),
+      // A score a build before kept has none apart: its spend counted the judge's calls.
+      ...[1, 2].map((n) => score('claude-sonnet-5', null, 'goldens/escalate-over-limit', n, 1, 100, 0.035)),
+      // A model on this machine answers for nothing; its judge, asked at its provider, does not.
+      ...[1, 2].map((n) => score('qwen2.5:7b', 'http://127.0.0.1:11434/v1', 'goldens/refund-over-limit', n, 1, 200, 0, 0.004)),
+      // A judge answered from the recording costs nothing, and says nothing.
+      score('gpt-small', 'http://127.0.0.1:8000/v1', 'goldens/refund-over-limit', 1, 1, 300, 0, 0),
+    ];
+    const view = trainingView({ ...readTraining(s, { tasks: TASKS }), scores: judged });
+    expect(view.scores.cards.map((c) => [c.model, c.cost, c.spent, c.judgeSpent])).toEqual([
+      ['claude-sonnet-5', '≈$0.169 spent · judge ≈$0.006', expect.closeTo(0.169, 9), expect.closeTo(0.006, 9)],
+      ['qwen2.5:7b', '$0, not a paid API · judge ≈$0.008', 0, expect.closeTo(0.008, 9)],
+      ['gpt-small', '$0, not a paid API', 0, 0],
+    ]);
     s.close();
   });
 

@@ -470,7 +470,7 @@ export interface KeptScores {
  * Keeps a model's scores on a task. A score that ran every attempt it was asked for replaces what the
  * model scored there before; one that stopped short (the budget, an interrupt, a model that stopped
  * answering) is kept only when there was nothing before, so a cut-short re-score never wipes a whole
- * one.
+ * one. Each attempt keeps what its judge checks cost apart from its own spend, as it reports them.
  */
 export function keepScores(store: Store, target: ModelTarget, score: TaskScore, session: string, asked: number): KeptScores {
   const before = store.listTaskScores().filter((r) => r.model === target.model && r.baseUrl === target.scoreBase && r.golden === score.task);
@@ -481,7 +481,7 @@ export function keepScores(store: Store, target: ModelTarget, score: TaskScore, 
     target.model,
     target.scoreBase,
     score.task,
-    score.attempts.map((a) => ({ attempt: a.attempt, runId: a.runId, score: a.score, checks: a.checks.map((c) => ({ label: c.check, ok: c.pass, detail: c.detail })), spent: a.spent, via: score.via, session, at })),
+    score.attempts.map((a) => ({ attempt: a.attempt, runId: a.runId, score: a.score, checks: a.checks.map((c) => ({ label: c.check, ok: c.pass, detail: c.detail })), spent: a.spent, judgeSpent: a.judge?.spent ?? null, via: score.via, session, at })),
   );
   return { outcome: before.length ? 'replaced' : 'new', before };
 }

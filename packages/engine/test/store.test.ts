@@ -225,7 +225,7 @@ describe('store schema version', () => {
     second.close();
   });
 
-  it('upgrades a v4 store to v5, which keeps the process running each session of error-path presets', async () => {
+  it('upgrades a v4 store to v5, which keeps the process running each session of error-path presets and what scored attempts\' judges cost', async () => {
     expect(SCHEMA_VERSION).toBe(5);
     const path = join(freshDir(), 's.db');
     const first = Store.open(path);
@@ -234,10 +234,12 @@ describe('store schema version', () => {
     first.startChaosSession({ sessionId: 'DONE', startedAt: 20, command: ['shadowlap', 'replay', 'R1', '--chaos'], presets: ['429'], owner: null });
     first.finishChaosSession('DONE', { passed: 1, failed: 0, inconclusive: 0, upstreamRequests: 2, endedAt: 30 });
     first.close();
-    // The store as a v4 build left it: no table for the sessions' processes, and its version.
+    // The store as a v4 build left it: no table for the sessions' processes, no column for what a
+    // scored attempt's judge checks cost (a v4 score's spend counted them), and its version.
     const { DatabaseSync } = (await import('node:sqlite')) as unknown as { DatabaseSync: new (p: string) => { exec(sql: string): void; close(): void } };
     const raw = new DatabaseSync(path);
-    raw.exec(`DROP TABLE chaos_session_owners; UPDATE meta SET value = '4' WHERE key = 'schema_version'`);
+    raw.exec(`DROP TABLE chaos_session_owners; ALTER TABLE task_scores DROP COLUMN judge_spent; UPDATE meta SET value = '4' WHERE key = 'schema_version'`);
+    raw.exec(`INSERT INTO task_scores (model, base_url, golden, attempt, run_id, score, checks, spent, via, session, at) VALUES ('claude-haiku-4-5', '', 'goldens/a', 1, 'R1', 1, '[]', 0.012, 'Anthropic API', 's4', 40)`);
     raw.close();
 
     const second = Store.open(path);
@@ -255,11 +257,19 @@ describe('store schema version', () => {
     expect(second.chaosSessionOwner(now.sessionId)).toBeNull();
     // One recorded elsewhere names none.
     expect(second.chaosSessionOwner(second.startChaosSession({ command: ['shadowlap', 'test', 'goldens/a', '--chaos'], presets: ['500'], owner: null }).sessionId)).toBeNull();
+    // The v4 score reads as having no judge spend apart; one kept now keeps it.
+    expect(second.listTaskScores().map((r) => [r.golden, r.spent, r.judgeSpent])).toEqual([['goldens/a', 0.012, null]]);
+    second.replaceTaskScores('claude-haiku-4-5', null, 'goldens/b', [{ attempt: 1, runId: 'R2', score: 1, checks: [], spent: 0.01, judgeSpent: 0.002, via: 'Anthropic API', session: 's5', at: 50 }]);
+    expect(second.listTaskScores().map((r) => [r.golden, r.spent, r.judgeSpent])).toEqual([
+      ['goldens/a', 0.012, null],
+      ['goldens/b', 0.01, 0.002],
+    ]);
     second.close();
     // Opened again, nothing is migrated twice.
     const third = Store.open(path);
     expect(third.schemaVersion()).toBe(5);
     expect(third.listChaosSessions()).toHaveLength(4);
+    expect(third.listTaskScores().map((r) => r.judgeSpent)).toEqual([null, 0.002]);
     third.close();
   });
 });

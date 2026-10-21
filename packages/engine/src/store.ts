@@ -292,6 +292,8 @@ CREATE TABLE IF NOT EXISTS task_scores (
   via       TEXT,
   session   TEXT    NOT NULL,
   at        INTEGER NOT NULL,
+  -- v5: what the attempt's judge checks cost, apart from spent; NULL without a judge call.
+  judge_spent REAL,
   PRIMARY KEY (model, base_url, golden, attempt)
 );
 
@@ -1077,8 +1079,13 @@ export interface TaskScoreRow {
   /** The share of the task's checks the attempt passed, from 0 to 1. */
   score: number;
   checks: Array<{ label: string; ok: boolean; detail: string | null }>;
-  /** USD spent on the attempt's live model calls (0 on a model that isn't a paid API). */
+  /** USD spent on the attempt's live model calls (0 on a model that isn't a paid API); its judge checks' are `judgeSpent`. */
   spent: number;
+  /**
+   * USD its judge checks' calls cost, apart from `spent` (v5): they ask the judge, never the model
+   * scored. Null without a judge call, and for a score a v4 build kept, whose `spent` counted them.
+   */
+  judgeSpent: number | null;
   /** Where the model ran, in words: `Anthropic API`, `Ollama, on this machine`. */
   via: string | null;
   /** The `tasks score` invocation that made it. */
@@ -1263,6 +1270,10 @@ export class Store {
       // v5: who runs each session of error-path presets (chaos_session_owners). Additive: the SCHEMA
       // above creates the table, and a session a v4 build left without an end names no process, so
       // it reads as one that did not finish, as a test session from before its owner was kept does.
+      // And what each scored attempt's judge checks cost, apart from its own spend: a score a v4
+      // build kept has none, its spend having counted them.
+      const scoreColumns = db.prepare(`PRAGMA table_info(task_scores)`).all().map((r) => String(r.name));
+      if (!scoreColumns.includes('judge_spent')) db.exec(`ALTER TABLE task_scores ADD COLUMN judge_spent REAL`);
       db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
       db.exec('COMMIT');
     } catch (err) {
@@ -1721,12 +1732,12 @@ export class Store {
   }
 
   /** A model's scores on one task, replacing whatever it scored there before. */
-  replaceTaskScores(model: string, baseUrl: string | null, golden: string, rows: Array<Omit<TaskScoreRow, 'model' | 'baseUrl' | 'golden'>>): void {
+  replaceTaskScores(model: string, baseUrl: string | null, golden: string, rows: Array<Omit<TaskScoreRow, 'model' | 'baseUrl' | 'golden' | 'judgeSpent'> & { judgeSpent?: number | null }>): void {
     const base = baseUrl ?? '';
     this.transaction(() => {
       this.db.prepare(`DELETE FROM task_scores WHERE model = ? AND base_url = ? AND golden = ?`).run(model, base, golden);
-      const insert = this.db.prepare(`INSERT INTO task_scores (model, base_url, golden, attempt, run_id, score, checks, spent, via, session, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-      for (const r of rows) insert.run(model, base, golden, r.attempt, r.runId, r.score, JSON.stringify(r.checks), r.spent, r.via, r.session, r.at);
+      const insert = this.db.prepare(`INSERT INTO task_scores (model, base_url, golden, attempt, run_id, score, checks, spent, via, session, at, judge_spent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      for (const r of rows) insert.run(model, base, golden, r.attempt, r.runId, r.score, JSON.stringify(r.checks), r.spent, r.via, r.session, r.at, r.judgeSpent ?? null);
     });
   }
 
@@ -1744,6 +1755,7 @@ export class Store {
         score: Number(r.score),
         checks: JSON.parse(String(r.checks)) as TaskScoreRow['checks'],
         spent: Number(r.spent),
+        judgeSpent: r.judge_spent === null || r.judge_spent === undefined ? null : Number(r.judge_spent),
         via: r.via === null ? null : String(r.via),
         session: String(r.session),
         at: Number(r.at),

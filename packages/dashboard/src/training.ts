@@ -269,8 +269,11 @@ export interface ModelCardView {
   coverage: string | null;
   /** The bar's width, 0 to 1. */
   bar: number;
+  /** What its attempts' own calls cost, in USD. */
   spent: number;
-  /** `≈$0.165 spent`, or `$0, not a paid API`. */
+  /** What their judge checks' calls cost, apart from `spent`: they ask the judge, never the model scored. 0 without one. */
+  judgeSpent: number;
+  /** `≈$0.165 spent`, or `$0, not a paid API`, with what the judge checks cost after it: `≈$0.165 spent · judge ≈$0.012`. */
   cost: string;
   /** When it was last scored (ms); the UI shows it after the cost. */
   at: number;
@@ -531,13 +534,14 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   // ---- scores ----
   // The model a ready task's recording asked at its takeover runs as "the recorded model".
   const recorded = new Set(ready.flatMap((t) => (t.model ? [t.model] : [])));
-  const models = new Map<string, { model: string; baseUrl: string | null; via: string; spent: number; at: number; first: number; rows: TaskScoreRow[] }>();
+  const models = new Map<string, { model: string; baseUrl: string | null; via: string; spent: number; judgeSpent: number; at: number; first: number; rows: TaskScoreRow[] }>();
   for (const r of input.scores) {
     const k = modelKey(r.model, r.baseUrl);
     const via = r.baseUrl === null && recorded.has(r.model) ? 'the recorded model' : (r.via ?? r.baseUrl ?? 'the recorded provider');
-    const m = models.get(k) ?? { model: r.model, baseUrl: r.baseUrl, via, spent: 0, at: 0, first: r.at, rows: [] };
+    const m = models.get(k) ?? { model: r.model, baseUrl: r.baseUrl, via, spent: 0, judgeSpent: 0, at: 0, first: r.at, rows: [] };
     m.rows.push(r);
     m.spent += r.spent;
+    m.judgeSpent += r.judgeSpent ?? 0;
     m.at = Math.max(m.at, r.at);
     m.first = Math.min(m.first, r.at);
     models.set(k, m);
@@ -549,7 +553,9 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     const value = s?.mean ?? null;
     const tasks = s?.tasks.size ?? 0;
     const local = !!m.baseUrl && LOOPBACK.test(m.baseUrl);
-    return { model: m.model, baseUrl: m.baseUrl, via: m.via, where: null, mean: value, tasks, coverage: tasks < ready.length ? `on ${tasks} of ${plural(ready.length, 'task')}` : null, bar: value ?? 0, spent: m.spent, cost: m.spent ? `${approx(m.spent)} spent` : local ? '$0, not a paid API' : '$0 spent', at: m.at };
+    // What the judge checks cost goes after the model's own, apart: a model on this machine is free, its judge may not be.
+    const cost = `${m.spent ? `${approx(m.spent)} spent` : local ? '$0, not a paid API' : '$0 spent'}${m.judgeSpent ? ` · judge ${approx(m.judgeSpent)}` : ''}`;
+    return { model: m.model, baseUrl: m.baseUrl, via: m.via, where: null, mean: value, tasks, coverage: tasks < ready.length ? `on ${tasks} of ${plural(ready.length, 'task')}` : null, bar: value ?? 0, spent: m.spent, judgeSpent: m.judgeSpent, cost, at: m.at };
   });
   // The same model scored at two endpoints is two cards and two columns: each says its endpoint.
   for (const c of cards) if (cards.some((o) => o !== c && o.model === c.model)) c.where = endpointName(c.baseUrl);
