@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { AGENT_NODE_TOO_OLD, nodeRefusesPreload, refusedPreload } from '../src/agent-node.js';
+import { AGENT_NODE_MAYBE_TOO_OLD, AGENT_NODE_TOO_OLD, namesNode, nodeRefusesPreload, refusedPreload } from '../src/agent-node.js';
 
 /**
  * An agent on a Node before 18.18 never starts under Shadowlap: that Node refuses `--import` in
@@ -55,6 +55,13 @@ describe("Node's refusal of the preload", () => {
     const env = { ...process.env, NODE_OPTIONS: '--import=file:///nonexistent/node-preload.mjs' };
     expect(nodeRefusesPreload(process.execPath, env, tmpdir())).toBe(false);
     expect(nodeRefusesPreload('shadowlap-no-such-node', env, tmpdir())).toBe(false);
+  });
+
+  it("is the agent's own Node's answer only when the command names a Node", () => {
+    expect(namesNode('node')).toBe(true);
+    expect(namesNode('/opt/node18/bin/node')).toBe(true);
+    expect(namesNode('C:\\Program Files\\nodejs\\node.exe')).toBe(true);
+    for (const launcher of ['npx', 'npm', 'volta', './launch.sh', 'nodemon', 'python3']) expect(namesNode(launcher)).toBe(false);
   });
 
   it.skipIf(process.platform === 'win32')('is asked of the command when it names a Node, else of the node on its PATH', () => {
@@ -122,5 +129,39 @@ describe.skipIf(process.platform === 'win32')('an agent whose Node refuses the p
     expect(r.code).toBe(1);
     expect(r.stderr.trimEnd().split('\n').at(-1)).toBe(`shadowlap: ${AGENT_NODE_TOO_OLD}`);
     expect(runs(dir).map((x) => x.runId)).toEqual([runId]);
+  });
+
+  it('started by a launcher that runs that Node by its path, keeps its run, and the summary says what Node printed means', () => {
+    const { dir, runId } = project();
+    // As `npx node@18.17.0`, `volta run` or a script would: the node on PATH takes the preload, so the one the agent got can't be asked.
+    writeFileSync(join(dir, 'launch.sh'), `#!/bin/sh\nexec ${JSON.stringify(join(bin, 'node'))} "$@"\n`);
+    chmodSync(join(dir, 'launch.sh'), 0o755);
+    const r = shadowlap(dir, ['run', '--', './launch.sh', 'agent.mjs']);
+    expect(r.code).toBe(9);
+    expect(r.stderr).toContain('--import= is not allowed in NODE_OPTIONS');
+    expect(r.stderr).toContain('no calls were made');
+    expect(r.stderr).toContain(`  ! ${AGENT_NODE_MAYBE_TOO_OLD}\n`);
+    expect(r.out).not.toContain('the agent ran');
+    const once = shadowlap(dir, ['replay', runId, '--', './launch.sh', 'agent.mjs']);
+    expect(once.code).toBe(9);
+    expect(once.stderr).toContain(`  ! ${AGENT_NODE_MAYBE_TOO_OLD}\n`);
+    // One attempt at a time, each streams to the terminal: the line comes once, under the first.
+    const repeated = shadowlap(dir, ['replay', runId, '--repeat', '2', '--', './launch.sh', 'agent.mjs']);
+    expect(repeated.code).toBe(1);
+    expect(repeated.stderr.split(AGENT_NODE_MAYBE_TOO_OLD)).toHaveLength(2);
+    expect(repeated.stderr).toContain('attempt 2 of 2');
+    // An agent that exits 9 for a reason of its own looks the same: every run is kept.
+    expect(runs(dir)).toHaveLength(5);
+  });
+
+  it('gets no such line when the Node asked is the one the command names', () => {
+    const dir = fresh();
+    writeFileSync(join(dir, 'agent.mjs'), AGENT);
+    // This Node takes the preload, and exits 9 on an option it doesn't know.
+    const r = shadowlap(dir, ['run', '--', 'node', '--no-such-option', 'agent.mjs']);
+    expect(r.code).toBe(9);
+    expect(r.stderr).toContain('no calls were made');
+    expect(r.out).not.toContain('NODE_OPTIONS');
+    expect(r.out).not.toContain('too old');
   });
 });

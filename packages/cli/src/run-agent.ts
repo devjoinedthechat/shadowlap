@@ -6,7 +6,7 @@ import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary,
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta, stampAuthor } from './activity.js';
-import { AGENT_NODE_TOO_OLD, nodeRefusesPreload, refusedPreload } from './agent-node.js';
+import { AGENT_NODE_MAYBE_TOO_OLD, AGENT_NODE_TOO_OLD, namesNode, nodeRefusesPreload, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
@@ -603,9 +603,12 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);
   // An agent on a Node before 18.18 never started either: its Node refused the preload and exited 9.
-  // Its words went to the terminal unless a check captured them, so that Node is asked again.
-  if (!notStarted && !interrupted && code === 9 && store.countCalls(run.runId) === 0 && (tee ? refusedPreload(tee.all()) : nodeRefusesPreload(argv[0]!, { ...process.env, ...guardEnv(guard) }, process.cwd()))) {
-    notStarted = { notFound: false, message: AGENT_NODE_TOO_OLD };
+  // Its words went to the terminal unless a check captured them, so that Node is asked again. One a
+  // launcher or a script picked can't be: its run is kept, and its summary says what Node's words mean.
+  let unasked = false;
+  if (!notStarted && !interrupted && code === 9 && store.countCalls(run.runId) === 0) {
+    if (tee ? refusedPreload(tee.all()) : nodeRefusesPreload(argv[0]!, { ...process.env, ...guardEnv(guard) }, process.cwd())) notStarted = { notFound: false, message: AGENT_NODE_TOO_OLD };
+    else unasked = !tee && !namesNode(argv[0]!);
   }
 
   const status: Exclude<RunStatus, 'running'> = interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
@@ -617,6 +620,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   }
   if (extra.beforeEnd && !notStarted) await extra.beforeEnd(sidecar, store, run, { code, interrupted, stdout: tee?.stdout() ?? '' });
   const result = sidecar.endRun(run.runId, status);
+  if (unasked) result.summary.warnings.push(AGENT_NODE_MAYBE_TOO_OLD);
   const why = notStarted as ReturnType<typeof startFailure> | null;
   if (why) {
     // Not a failed recording, or a replay that made no calls: the agent never ran. The run goes, and
@@ -681,6 +685,8 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
   const group = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   // Attempts whose Node refused the preload (Node before 18.18), as every attempt's would: none ran.
   const refused: string[] = [];
+  // Whether the line for an agent whose Node couldn't be asked has been printed.
+  let hinted = false;
   const worker = async () => {
     while (!stopped && !refused.length && next < count) {
       const i = next++;
@@ -723,11 +729,16 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
         output = shown.all();
         stdout = shown.stdout();
       }
-      // Streamed to the terminal, the Node's words can't be read here: that Node is asked again.
-      if (!stopped && !stoppedBySignal && code === 9 && store.countCalls(run.runId) === 0 && (streaming && !tee ? nodeRefusesPreload(argv[0]!, { ...process.env, ...guardEnv(guard) }, process.cwd()) : refusedPreload(output))) {
-        sidecar.endRun(run.runId, 'failed');
-        refused.push(run.runId);
-        continue;
+      // Streamed to the terminal, the Node's words can't be read here: that Node is asked again. One a
+      // launcher or a script picked can't be: the attempt counts, and a line says what Node's words mean.
+      let unasked = false;
+      if (!stopped && !stoppedBySignal && code === 9 && store.countCalls(run.runId) === 0) {
+        if (streaming && !tee ? nodeRefusesPreload(argv[0]!, { ...process.env, ...guardEnv(guard) }, process.cwd()) : refusedPreload(output)) {
+          sidecar.endRun(run.runId, 'failed');
+          refused.push(run.runId);
+          continue;
+        }
+        unasked = streaming && !tee && !namesNode(argv[0]!);
       }
       const status: Exclude<RunStatus, 'running'> = stopped || stoppedBySignal ? 'crashed' : code === 0 ? 'completed' : 'failed';
       if (extra.beforeEnd) await extra.beforeEnd(sidecar, store, run, { code, interrupted: stopped || stoppedBySignal, stdout });
@@ -739,6 +750,11 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const fork = s.divergence ? kindLabel('fork', s.divergence) : 'clean';
       const fenced = s.byOrigin.blocked + s.byOrigin.stubbed;
       process.stderr.write(p.dim(`   attempt ${i + 1}: ${fork} · ${s.byOrigin.live} live${fenced ? ` · ${fenced} writes fenced` : ''} · exit ${code} · ${formatDuration(s.durationMs ?? 0)}\n`));
+      // Once: every attempt that follows starts on the same Node.
+      if (unasked && !hinted) {
+        hinted = true;
+        process.stderr.write(p.yellow(`   ! ${AGENT_NODE_MAYBE_TOO_OLD}`) + '\n');
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, count) }, worker));
