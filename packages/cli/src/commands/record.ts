@@ -9,7 +9,7 @@ import { judgesOf, type Judged } from '../judge.js';
 import { emitJobEvent } from '../job-events.js';
 import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
-import { judgeAttempt, parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type BeforeEnd, type GuardMode } from '../run-agent.js';
+import { judgeAttempt, parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, replayPlaceholders, runUnderSidecar, testAttempt, type BeforeEnd, type GuardMode } from '../run-agent.js';
 import { readExpect } from './fix.js';
 import { givenCommand } from './testing.js';
 import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, readStore, recordEvents, requireEnded, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
@@ -172,6 +172,9 @@ export function register(program: Command): void {
         return;
       }
       const replay: Partial<ReplayOptions> = { writes: flags.writes, reads: flags.reads, liveTools: new Set(flags.liveTool) };
+      // An agent with no key of its own for a provider the run called gets a placeholder: a clean
+      // replay needs no real key, and the sidecar never sends a placeholder to a provider.
+      const env = replayPlaceholders(process.env, parentCalls);
       // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
       if (parent.meta?.covers?.length) replay.kinds = new Set(parent.meta.covers);
       if (flags.liveInput) replay.liveInput = true;
@@ -213,7 +216,7 @@ export function register(program: Command): void {
           flags.concurrency,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
-          { capture, ...(beforeEnd ? { beforeEnd } : {}) },
+          { capture, env, ...(beforeEnd ? { beforeEnd } : {}) },
         );
         const judged = checks ? attempts.map((a) => judge(a.run.runId, a.output)) : [];
         const reader = openStore(opts);
@@ -251,7 +254,7 @@ export function register(program: Command): void {
           argv,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
-          { capture, ...(beforeEnd ? { beforeEnd } : {}) },
+          { capture, env, ...(beforeEnd ? { beforeEnd } : {}) },
         );
         if (!started) {
           // The command never started: it has said so, and no run is kept to show or judge.
@@ -316,13 +319,14 @@ export function register(program: Command): void {
         }
         say(`${p.yellow('⑂')} Calibrating ${shortId(parent.runId)} (${safe(quoteArgv(parent.command.argv))}): replaying it offline until it is clean\n\n`);
         const offline = Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
+        const placeholders = replayPlaceholders(process.env, store.getCalls(parent.runId));
         const proposals: Proposal[] = [];
         // The blobs this calibration's own replays wrote: the only ones it collects afterwards.
         const written = new Set<string>();
         let outcome: { clean: true; total: number } | { clean: false; why: string; details: string } | null = null;
         for (let round = 1; round <= flags.maxRounds && !outcome; round++) {
           const normalizers = [...config.normalize, ...proposals.map((x) => x.normalizer)];
-          const attempt = await testAttempt(store, parent, { cwd, upstreams: offline, extraEnv: {}, writes: 'block', guard: flags.guard, normalizers, prices: config.prices, clock: config.clock, http: config.http, spec: null });
+          const attempt = await testAttempt(store, parent, { cwd, upstreams: offline, extraEnv: placeholders, writes: 'block', guard: flags.guard, normalizers, prices: config.prices, clock: config.clock, http: config.http, spec: null });
           const s = attempt.ended.summary;
           for (const hash of store.runBlobRefs(attempt.ended.run.runId)) written.add(hash);
           store.deleteRun(attempt.ended.run.runId);

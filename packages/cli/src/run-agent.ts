@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
-import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
+import { httpRuleMatcher, providers, REPLAY_AWS_KEY_ID, REPLAY_KEY, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
@@ -138,7 +138,39 @@ export function placeholderAwsCredentials(env: NodeJS.ProcessEnv, calls: readonl
   if (AWS_CREDENTIAL_SOURCES.some((name) => env[name])) return {};
   const sharedFiles = [env.AWS_SHARED_CREDENTIALS_FILE || join(home, '.aws', 'credentials'), env.AWS_CONFIG_FILE || join(home, '.aws', 'config')];
   if (sharedFiles.some((f) => existsSync(f))) return {};
-  return { AWS_ACCESS_KEY_ID: 'SHADOWLAPREPLAY', AWS_SECRET_ACCESS_KEY: 'shadowlap-offline-replay-placeholder' };
+  return { AWS_ACCESS_KEY_ID: REPLAY_AWS_KEY_ID, AWS_SECRET_ACCESS_KEY: REPLAY_KEY };
+}
+
+/**
+ * The variables each provider's official SDKs read their key from; a placeholder goes in the first.
+ * Vertex AI's clients sign in with Google credentials, which no placeholder stands in for.
+ */
+const PROVIDER_KEYS: Readonly<Record<string, readonly string[]>> = {
+  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+  openai: ['OPENAI_API_KEY'],
+  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+  azure: ['AZURE_OPENAI_API_KEY'],
+};
+
+/**
+ * The official SDKs refuse to send a request without a key (`new OpenAI()` throws as it is built,
+ * `new Anthropic()` on its first call), even one a replay serves from the recording. An offline
+ * replay gives the agent a placeholder for each provider its recording called that has no key in the
+ * environment, so a clean replay needs no real key, and CI no secrets. The sidecar never sends a
+ * placeholder to a provider: a call past a fork that would go there with it is answered with why.
+ */
+export function placeholderKeys(env: NodeJS.ProcessEnv, calls: readonly Pick<CallRecord, 'meta'>[]): Record<string, string> {
+  const called = new Set(calls.map((c) => c.meta.provider));
+  const keys: Record<string, string> = {};
+  for (const [provider, names] of Object.entries(PROVIDER_KEYS)) {
+    if (called.has(provider) && !names.some((name) => env[name]?.trim())) keys[names[0]!] = REPLAY_KEY;
+  }
+  return keys;
+}
+
+/** What an offline replay stands in for when the environment has none: the providers' keys and AWS credentials. */
+export function replayPlaceholders(env: NodeJS.ProcessEnv, calls: readonly Pick<CallRecord, 'meta'>[], home = homedir()): Record<string, string> {
+  return { ...placeholderKeys(env, calls), ...placeholderAwsCredentials(env, calls, home) };
 }
 
 export interface TestAttempt {
@@ -558,7 +590,7 @@ export function startFailure(err: NodeJS.ErrnoException, argv0: string, cwd: str
   return { notFound: false, message: `failed to start ${argv0}: ${err.message}` };
 }
 
-export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean; beforeEnd?: BeforeEnd } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean }> {
+export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean; beforeEnd?: BeforeEnd; env?: Record<string, string> } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean }> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
@@ -581,7 +613,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     // read-only working directory: the environment still carries SHADOWLAP_URL
   }
 
-  const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
+  const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env } }, { url: sidecar.url, runId: run.runId });
   // A dashboard job links to the run once its agent has started: one whose command isn't found is not kept.
   child.once('spawn', () => emitJobEvent({ type: 'run', runId: run.runId, role: 'new' }));
   const tee = extra.capture ? teeOutput(child) : null;
@@ -657,7 +689,7 @@ export interface AttemptResult {
  * concurrency of 1 the agent's output streams as usual under a header per attempt; with more, each
  * attempt's output is collected and printed whole when it finishes, so attempts never interleave.
  */
-export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count: number, concurrency: number, start: (sidecar: Sidecar) => RunRecord, guard: GuardMode, extra: { capture?: boolean; beforeEnd?: BeforeEnd } = {}): Promise<AttemptResult[]> {
+export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count: number, concurrency: number, start: (sidecar: Sidecar) => RunRecord, guard: GuardMode, extra: { capture?: boolean; beforeEnd?: BeforeEnd; env?: Record<string, string> } = {}): Promise<AttemptResult[]> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
@@ -692,7 +724,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const streaming = concurrency === 1;
       if (streaming) process.stderr.write(`${header}\n`);
       const tee = streaming && extra.capture;
-      const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
+      const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env } }, { url: sidecar.url, runId: run.runId });
       running.add(child);
       let stoppedBySignal = false;
       child.once('exit', (_c, signal) => {

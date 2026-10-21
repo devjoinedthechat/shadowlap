@@ -5,4 +5,5 @@ export type { SidecarOptions, StartRunInput, Interventions, EndRunResult, Resolv
 export { anthropic, openai, gemini, providers, sdkBasesFromEnvironment, sseDataObjects } from './providers.js';
 export type { Provider } from './providers.js';
 export { SseTimer } from './sse.js';
+export { carriesPlaceholder, REPLAY_AWS_KEY_ID, REPLAY_KEY } from './placeholders.js';
 export { httpRuleMatcher, matchHttpRule, validHttpHost, type HttpRule } from './http.js';
