@@ -7,7 +7,8 @@ import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { judgeAnswer, judgeQuestion, message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
-import { noDiagnosisWhy, recoverWorkingTree } from '../src/repair.js';
+import { releaseLock } from '@shadowlap/engine';
+import { noDiagnosisWhy, recoverWorkingTree, startRepair } from '../src/repair.js';
 
 /**
  * `shadowlap repair` through the CLI, on the support agent in a git repository of its own. The mock
@@ -524,6 +525,47 @@ describe('recoverWorkingTree', () => {
       expect(readdirSync(join(dir, '.shadowlap'))).toEqual([]);
       expect(recoverWorkingTree(dir)).toEqual([]);
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('startRepair', () => {
+  it('stops while another repair runs in the folder, leaving its candidate in place, and puts it back once that repair died', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-repair-lock-'));
+    // A repair runs in the folder: it started there, and holds it until it ends.
+    const running = spawn(process.execPath, ['--input-type=module', '-e', `
+      const { startRepair } = await import(${JSON.stringify(new URL('../dist/repair.js', import.meta.url).href)});
+      startRepair(${JSON.stringify(dir)});
+      setInterval(() => {}, 1000);
+      process.stdout.write('up\\n');`], { stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        let err = '';
+        running.stdout.on('data', (d: Buffer) => d.toString().includes('up') && resolve());
+        running.stderr.on('data', (d: Buffer) => (err += d.toString()));
+        running.on('exit', (c) => reject(new Error(`exited with ${c}: ${err}`)));
+      });
+      // It is verifying a candidate: the file is edited, and the journal holds the original.
+      const agent = join(dir, 'agent.txt');
+      const journal = join(dir, '.shadowlap', 'repair-journal.json');
+      const b64 = (s: string) => Buffer.from(s).toString('base64');
+      writeFileSync(agent, 'candidate');
+      writeFileSync(journal, JSON.stringify({ pid: running.pid, files: [{ path: agent, original: b64('original'), patched: b64('candidate') }] }));
+      // A second repair started there stops before it touches anything.
+      expect(() => startRepair(dir)).toThrow(/another shadowlap repair is running in this folder/);
+      expect(readFileSync(agent, 'utf8')).toBe('candidate');
+      expect(existsSync(journal)).toBe(true);
+      // Killed with its candidate applied: the next repair takes the folder over at once and puts the file back.
+      running.kill('SIGKILL');
+      await new Promise((resolve) => (running.exitCode !== null || running.signalCode !== null ? resolve(null) : running.once('exit', resolve)));
+      const { lock, restored } = startRepair(dir);
+      expect(restored).toEqual([agent]);
+      expect(readFileSync(agent, 'utf8')).toBe('original');
+      releaseLock(lock);
+      expect(readdirSync(join(dir, '.shadowlap'))).toEqual([]);
+    } finally {
+      running.kill('SIGKILL');
       rmSync(dir, { recursive: true, force: true });
     }
   });
