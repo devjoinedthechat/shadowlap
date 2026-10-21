@@ -216,7 +216,7 @@ describe('read models at scale', () => {
       // No read model reads a finished run's calls again.
       expect(t.read, `${name} read the calls of ${t.read} runs`).toBe(0);
       expect(t.caches, `${name} worked out the prompt cache of ${t.caches} runs`).toBe(0);
-      // A row per run: about a fifth of what a plain read of every call takes, on any machine.
+      // A row per run: about a tenth of what a plain read of every call takes, on any machine.
       expect(t.cpu, `${name} took ${ms(t)}, ${(t.cpu / plain).toFixed(2)} times a plain read of every call`).toBeLessThan(plain);
     }
   }, TIMEOUT);
