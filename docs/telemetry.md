@@ -39,3 +39,5 @@ With a collector configured, the first run prints a one-line notice. `SHADOWLAP_
 ## Hosting your own
 
 Install the collector with `npm install -g @shadowlap/collector` (Node 22.16 or later, not 23) and start it with `shadowlap-collector`. `PORT` sets the port it listens on (8787 by default), `HOST` the address (`0.0.0.0`), `COLLECTOR_DB` its SQLite file (`./collector.db`), and `PUBLIC_ORIGIN` the address its empty dashboard tells clients to send to. Put it behind TLS at a hostname you control, and point the CLI at it with `SHADOWLAP_TELEMETRY_URL=https://your-host/v1/events`; `GET /healthz` is its health check.
+
+In a container, point `COLLECTOR_DB` at a directory the process's user can write: with a volume, create the directory and give it to that user before declaring the volume (`RUN mkdir -p /data && chown node:node /data`, then `VOLUME /data`), or the collector can't create its file there.
