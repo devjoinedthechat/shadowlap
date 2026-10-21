@@ -287,6 +287,12 @@ export function noDiagnosisWhy(blamed: ReadonlyArray<Pick<Blamed, 'target' | 'no
     : 'resampling rescued no failing run, so there is no passing path to learn from; try a stronger model with --stronger <model>, or look at the code and the tools';
 }
 
+/**
+ * Runs a repair and hands it over, holding the folder's repair lock through both: `--apply` writes
+ * the accepted change to the working tree, where another repair would otherwise try a candidate on
+ * top of it, or verify one with it in place. A hand-over that fails part way throws a HandOverError
+ * with the report as far as it got.
+ */
 export async function runRepair(input: RepairInput): Promise<RepairReport> {
   const cwd = process.cwd();
   const root = gitRoot(cwd);
@@ -294,7 +300,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
   if (input.outputs.branch && input.outputs.goldens) goldensInRepo(root, cwd, input.outputs.goldens);
   const { lock, restored } = startRepair(cwd);
   try {
-    return await repairHere(input, cwd, root, restored);
+    return handOver(await repairHere(input, cwd, root, restored), input);
   } finally {
     releaseLock(lock);
   }
@@ -674,8 +680,9 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
  * fix, the patch and a recording of every fixed run; then, on request, the change applied to the
  * working tree, committed to a branch, and opened as a pull request. When one of those requests
  * fails, report.json is still written and a HandOverError carries the report as far as it got.
+ * Called holding the folder's repair lock.
  */
-export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' | 'outputs' | 'settings' | 'log'>): RepairReport {
+function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' | 'outputs' | 'settings' | 'log'>): RepairReport {
   const cwd = process.cwd();
   const root = gitRoot(cwd);
   const id = `repair-${Date.now().toString(36)}`;

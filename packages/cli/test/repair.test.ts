@@ -359,20 +359,25 @@ process.stdin.on('end', () => {
     expect(sent).not.toContain('jane.doe@example.com');
   });
 
-  it('switches to a stronger model when only it rescues the runs, without asking a repairer', async () => {
+  it('switches to a stronger model when only it rescues the runs, without asking a repairer, and applies it holding the folder’s repair lock', async () => {
     const { failed } = await runs();
     mode = 'stubborn';
     const before = mock.requests.length;
-    const r = await shadowlap(['repair', '--fixes', failed[0]!, '--keeps', 'label:good', '--expect', ORACLE, '--stronger', 'big-model', '--apply', '--json']);
+    // A build that fails unless the folder's repair lock is held: it runs after each candidate is
+    // applied and put back, and after --apply writes the fix, which another repair must not see half done.
+    const build = `"${process.execPath}" -e "process.exit(require('node:fs').existsSync('.shadowlap/repair.lock') ? 0 : 3)"`;
+    const r = await shadowlap(['repair', '--fixes', failed[0]!, '--keeps', 'label:good', '--expect', ORACLE, '--stronger', 'big-model', '--build', build, '--apply', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as Report;
     expect(report.targets[0]).toMatchObject({ outcome: 'blamed', rescuedBy: 'big-model' });
     expect(report.candidates).toEqual([expect.objectContaining({ source: 'model', state: 'accepted', after: 'big-model' })]);
     expect(report.repairer).toBeNull();
     expect(mock.requests.slice(before).some((q) => JSON.stringify(q.body.system).includes('You improve AI agents'))).toBe(false);
-    // --apply leaves it in the working tree.
+    // --apply leaves it in the working tree, and wrote it holding the lock, which is gone once the repair ends.
     expect(report.output.applied).toBe(true);
     expect(agentText()).toContain("?? 'big-model'");
+    expect(report.warnings).toEqual([]);
+    expect(existsSync(join(project, '.shadowlap', 'repair.lock'))).toBe(false);
   });
 
   it('says so when there is no passing path to learn from', async () => {
