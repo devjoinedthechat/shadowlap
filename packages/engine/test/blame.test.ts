@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeBlocks, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport } from '../src/blame.js';
+import { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport } from '../src/blame.js';
 import { BLAME_DEFAULTS, decide, gateResult, type SprtGate } from '../src/stats.js';
 
 /** A probe that passes `rate(i)` of `n` attempts at model call `steps[i]`. */
@@ -227,8 +227,11 @@ describe('formatBlame', () => {
   });
 
   it('describes a rescue that changes the request', () => {
-    const text = formatBlame(base({ blamed: probe(3, 1, 3, 3, true), probes: [probe(3, 1, 3, 3, true)], rescue: { fields: { model: 'claude-opus-5-5', temperature: 1 } } }));
-    expect(text).toContain('resample from the probed call on with model=claude-opus-5-5, temperature=1');
+    const fields = { model: 'claude-opus-5-5', temperature: 1 };
+    expect(describeRescue(fields)).toBe('resample from the probed call on with model=claude-opus-5-5, temperature=1');
+    // In the report, under the rule, broken where it would pass 80 columns.
+    const text = formatBlame(base({ blamed: probe(3, 1, 3, 3, true), probes: [probe(3, 1, 3, 3, true)], rescue: { fields } }));
+    expect(text).toContain('\n          resample from the probed call on with\n          model=claude-opus-5-5, temperature=1)\n');
   });
 });
 
@@ -267,6 +270,28 @@ describe('probes decided by a gate', () => {
     expect(probeBound({ passes: 2, attempts: [1, 2, 3] as never }, null)).toBeNull();
     expect(rescueRule({ gate: GATE, needed: 2, attemptsPerProbe: 20 })).toBe('gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts');
     expect(rescueRule({ gate: null, needed: 2, attemptsPerProbe: 5 })).toBe('a rescue needs 2 of 5 attempts to pass');
+  });
+
+  it('puts the Probes rule and what a probe changes on one line when it fits 80 columns, and wraps them so every line does', () => {
+    const probes = [gated(2, 1, [true, true])];
+    const probesOf = (text: string) => text.split('\n').slice(text.split('\n').findIndex((l) => l.startsWith('  Probes ')), text.split('\n').findIndex((l) => l.startsWith('    #')));
+    // A fixed count: rule and change on one line.
+    const fixed = probesOf(formatBlame(report({ gate: null, attemptsPerProbe: 5, needed: 2, probes })));
+    expect(fixed).toEqual(['  Probes (a rescue needs 2 of 5 attempts to pass; resample the probed call)']);
+    // A gate's rule takes a line of its own.
+    expect(probesOf(formatBlame(report({ probes })))).toEqual(['  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts;', '          resample the probed call)']);
+    // --model with a long name, and --set besides: the change wraps after a comma, under the parenthesis.
+    for (const fields of [{ model: 'claude-sonnet-4-5-20250929' }, { model: 'claude-opus-5-5', temperature: 1 }, { model: 'claude-sonnet-4-5-20250929', temperature: 1, max_tokens: 4096, top_p: 0.95 }]) {
+      const lines = probesOf(formatBlame(report({ probes, rescue: { fields } })));
+      expect(lines.filter((l) => l.length > 80), JSON.stringify(fields)).toEqual([]);
+      expect(lines.slice(1).every((l) => l.startsWith('          ') && !l.startsWith('           ')), JSON.stringify(lines)).toBe(true);
+      expect(lines.join(' ').replace(/ +/g, ' ')).toBe(`  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts; ${describeRescue(fields)})`.replace(/ +/g, ' '));
+    }
+    expect(probesOf(formatBlame(report({ probes, rescue: { fields: { model: 'claude-opus-5-5', temperature: 1 } } })))).toEqual([
+      '  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts;',
+      '          resample from the probed call on with',
+      '          model=claude-opus-5-5, temperature=1)',
+    ]);
   });
 
   it('says what it decided on when attempts running at once ended after it decided', () => {

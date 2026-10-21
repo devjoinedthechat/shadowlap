@@ -303,9 +303,41 @@ export interface BlameReport extends BlameSearchResult {
 const short = (id: string) => id.slice(0, 10);
 
 export function describeRescue(fields: Record<string, unknown>): string {
-  const entries = Object.entries(fields);
+  const entries = rescueFields(fields);
   if (!entries.length) return 'resample the probed call';
-  return `resample from the probed call on with ${entries.map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ')}`;
+  return `resample from the probed call on with ${entries.join(', ')}`;
+}
+
+const rescueFields = (fields: Record<string, unknown>): string[] => Object.entries(fields).map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`);
+
+/** The columns the report is laid out for: an 80-column terminal. */
+const COLUMNS = 80;
+/** `  Probes ` and the continuation lines under it, which line up with its parenthesis. */
+const PROBES = '  Probes ';
+const UNDER = ' '.repeat(PROBES.length + 1);
+
+/**
+ * The Probes line: the rule, and what each probe changes under it, in parentheses. On one line when
+ * that fits; else the rule on a line of its own and the change under it, its fields broken after a
+ * comma onto further lines when they don't fit either. `head` follows `Probes`; each of `under` is
+ * a line of its own, indented under the parenthesis.
+ */
+export function probesLines(rule: string, fields: Record<string, unknown>): { head: string; under: string[] } {
+  const rescue = describeRescue(fields);
+  if (`${PROBES}(${rule}; ${rescue})`.length <= COLUMNS) return { head: `(${rule}; ${rescue})`, under: [] };
+  if (`${UNDER}${rescue})`.length <= COLUMNS) return { head: `(${rule};`, under: [`${rescue})`] };
+  const under = ['resample from the probed call on with'];
+  const parts = rescueFields(fields);
+  let line = '';
+  for (const [i, part] of parts.entries()) {
+    const piece = `${part}${i === parts.length - 1 ? ')' : ','}`;
+    if (line && `${UNDER}${line} ${piece}`.length > COLUMNS) {
+      under.push(line);
+      line = piece;
+    } else line = line ? `${line} ${piece}` : piece;
+  }
+  under.push(line);
+  return { head: `(${rule};`, under };
 }
 
 /**
@@ -424,8 +456,9 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
   }
 
   if (r.probes.length) {
-    // The rule, then what each probe changes under it, so each fits an 80-column terminal.
-    lines.push('', `  ${p.bold('Probes')} ${p.dim(`(${rescueRule(r)};`)}`, `          ${p.dim(`${describeRescue(r.rescue.fields)})`)}`);
+    // The rule and what each probe changes under it, each line within an 80-column terminal.
+    const { head, under } = probesLines(rescueRule(r), r.rescue.fields);
+    lines.push('', `  ${p.bold('Probes')} ${p.dim(head)}`, ...under.map((u) => `${UNDER}${p.dim(u)}`));
     const w = Math.max(...r.probes.map((x) => String(x.callNo).length)) + 1;
     // Each probe's tally, and under a gate the Wilson bound on the attempts it decided on.
     const tallies = r.probes.map((x) => [probeTally(x, ' passed'), probeBound(x, r.gate)].filter(Boolean).join(' · '));
