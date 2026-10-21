@@ -299,7 +299,9 @@ function verifyLines(v: DecisionsVerify, what: string | null): string {
   const lines = [``, `${head}: ${v.runs.length} run${v.runs.length === 1 ? '' : 's'} with a write or stop change${what ? ` (${what})` : ''}`];
   // The rule once, then each run's outcome, its tally and under a gate the Wilson bound.
   if (v.rule) lines.push(p.dim(`  ${v.rule}`));
-  for (const x of v.runs) lines.push(`  ${x.runId.slice(0, 10)}  ${x.outcome}  ${p.dim(`${x.passes} of ${x.attempts} passed${x.bound ? ` · ${x.bound}` : ''}`)}`);
+  // The last attempt of a run it could not judge stopped it: neither passed nor failed, so said apart.
+  const tally = (x: DecisionsVerify['runs'][number]) => (x.undecided ? `${x.attempts > 1 ? `${x.passes} of ${x.attempts - 1} passed, ` : ''}attempt ${x.attempts} not judged` : `${x.passes} of ${x.attempts} passed`);
+  for (const x of v.runs) lines.push(`  ${x.runId.slice(0, 10)}  ${x.outcome}  ${p.dim(`${tally(x)}${x.bound ? ` · ${x.bound}` : ''}`)}`);
   for (const reason of v.reasons) lines.push(`  ${p.red('·')} ${reason}`);
   for (const c of v.commands) lines.push(p.dim(`  ${c}`));
   return lines.join('\n') + '\n';

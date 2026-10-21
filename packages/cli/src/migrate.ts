@@ -54,8 +54,13 @@ export interface MigrateRunPass {
   /** kept, broken, fixed, not-fixed, inconclusive, unsettled (verified, in verify's own words); unchanged (no write or stop decision changed, so not re-run); not-asked. */
   outcome: string;
   verified: boolean;
-  /** A run verify took: its passes of its attempts and, under a gate, the Wilson bound of its pass rate (null for a clean replay or a fixed count). Null for a run it didn't. */
-  tally: { passes: number; attempts: number; bound: string | null } | null;
+  /**
+   * A run verify took: its passes of its attempts and, under a gate, the Wilson bound of its pass rate
+   * (null for a clean replay or a fixed count), and `undecided`, why its last attempt could not be
+   * judged, which stopped it: that attempt neither passed nor failed, and there is no bound (null
+   * otherwise). Null for a run it didn't take.
+   */
+  tally: { passes: number; attempts: number; bound: string | null; undecided?: string | null } | null;
 }
 
 /** A place a project file names a model the switch changes. */
@@ -100,8 +105,17 @@ export interface MigrateReport {
 
 const fieldValue = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
-/** A verified run's tally after its outcome: ` · 12 of 12 · rate >= 0.76 (95%)`; nothing for a run verify didn't take, or one kept before tallies were. */
-const tallyWords = (x: Pick<MigrateRunPass, 'tally'>): string => (x.tally ? ` · ${x.tally.passes} of ${x.tally.attempts}${x.tally.bound ? ` · ${x.tally.bound}` : ''}` : '');
+/**
+ * A verified run's tally after its outcome: ` · 12 of 12 · rate >= 0.76 (95%)`, and an attempt that
+ * could not be judged apart, never as one that failed: ` · 2 of 2, attempt 3 not judged`. Nothing for
+ * a run verify didn't take, or one kept before tallies were.
+ */
+const tallyWords = (x: Pick<MigrateRunPass, 'tally'>): string => {
+  const t = x.tally;
+  if (!t) return '';
+  const tally = t.undecided ? `${t.attempts > 1 ? `${t.passes} of ${t.attempts - 1}, ` : ''}attempt ${t.attempts} not judged` : `${t.passes} of ${t.attempts}`;
+  return ` · ${tally}${t.bound ? ` · ${t.bound}` : ''}`;
+};
 
 /** Files the project tracks or would (not ignored), with text, outside recordings and the store. */
 function projectTextFiles(cwd: string): Array<{ path: string; content: string }> | null {
@@ -299,7 +313,7 @@ export function passesOf(runs: readonly DecisionRun[], flagged: readonly string[
   const verified = new Map((verify?.runs ?? []).map((r) => [r.runId, r]));
   return runs.map((r): MigrateRunPass => {
     const v = verified.get(r.runId);
-    if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true, tally: { passes: v.passes, attempts: v.attempts, bound: v.bound ?? null } };
+    if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true, tally: { passes: v.passes, attempts: v.attempts, bound: v.bound ?? null, undecided: v.undecided ?? null } };
     const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked);
     if (unanswered) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-asked', verified: false, tally: null };
     if (flagged.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false, tally: null };

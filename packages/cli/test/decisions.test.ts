@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type DecisionsReport } from '@shadowlap/engine';
-import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { startMockAnthropic, withJudge, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 import { mergeVerify } from '../src/decisions-verify.js';
 import { departures } from './json-shapes.js';
@@ -24,7 +24,9 @@ let cwd: string;
 let db: string;
 
 beforeAll(async () => {
-  mock = await startMockAnthropic({ script: referenceScript, eventDelayMs: () => 0 });
+  // A judge whose provider turns every request away, for a check verify can't decide.
+  const turnedAway = { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+  mock = await startMockAnthropic({ script: withJudge(() => turnedAway, referenceScript), eventDelayMs: () => 0 });
   cwd = mkdtempSync(join(tmpdir(), 'sl-decisions-'));
   db = join(cwd, 'store.db');
 });
@@ -287,6 +289,20 @@ describe('shadowlap decisions', () => {
     const alone = await shadowlap(['decisions', runId, '--from-code', '--attempts', '3'], noEmail);
     expect(alone.code).toBe(1);
     expect(alone.out).toContain('--expect, --gate, --attempts and --passes are for --then-verify');
+  }, 180_000);
+
+  it('counts a verify attempt a judge could not answer apart, never as one that failed', async () => {
+    const runId = await record();
+    const noEmail = { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' };
+    const unanswered = JSON.stringify({ judge: [{ name: 'summary', question: 'Did the agent summarise the refunds?', of: 'output', model: 'claude-haiku-4-5' }] });
+    const r = await shadowlap(['decisions', runId, '--from-code', '--then-verify', '--attempts', '3', '--passes', '3', '--expect', unanswered, '--json'], noEmail);
+    const report = json<DecisionsReport>(r);
+    // Its first attempt could not be judged, which stops the run: inconclusive, with why, and no bound.
+    expect(report.verify).toMatchObject({ verdict: 'incomplete', runs: [{ runId, outcome: 'inconclusive', passes: 0, attempts: 1, bound: null, undecided: expect.stringMatching(/^judge "summary" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/) }] });
+    expect(r.code, r.out).toBe(1);
+    const text = await shadowlap(['decisions', '--verify', report.decisionsId!, '--attempts', '3', '--passes', '3', '--expect', unanswered], noEmail);
+    expect(text.out).toContain(`${runId.slice(0, 10)}  inconclusive  attempt 1 not judged`);
+    expect(text.out).not.toMatch(/0 of 1 passed|broken/);
   }, 180_000);
 
   it('asks the goldens a pack holds, named as test names them, and warns about a model that retires', async () => {
