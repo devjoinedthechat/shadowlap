@@ -105,7 +105,7 @@ export function register(program: Command): void {
     .option('--samples <n>', 'ask each model call this many times, and say how often its decision changed', parseIntArg, 1)
     .option('--concurrency <n>', 'requests in flight at once', parseIntArg, 4)
     .option('--scope <name>', "ask only the model calls made in this scope, such as the agent's and not a simulated user's; none for those made in no scope")
-    .option('--then-verify', 'then run shadowlap verify on the runs with a rank 1 or 2 change (a write, or when the agent stops), and only on those')
+    .option('--then-verify', 'then run shadowlap verify on the runs with a rank 1 or 2 change (a write, when the agent stops, or words a judge check reads otherwise), and only on those')
     .option('--verify <session>', 'ask nothing: verify the runs a kept session flagged (its dc-… or mg-… id), or the runs named, each under its golden\'s checks, and keep what verify finds in the session')
     .option('--expect <json|@file>', 'with --then-verify or --verify: what a passing run must do besides exiting 0 (default: each golden\'s checks from shadowlap.config.json)')
     .option('--gate <json|@file>', `with --then-verify or --verify: the gate each run is decided by, as for verify (default '{"good":${SPRT_DEFAULTS.good},"bad":${SPRT_DEFAULTS.bad},"risk":${SPRT_DEFAULTS.risk},"max":${SPRT_DEFAULTS.max}}', verify's)`)
