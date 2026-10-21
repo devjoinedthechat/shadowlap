@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -13,15 +14,34 @@ import { isLoopbackHost } from '../src/loopback.js';
 const posix = process.platform !== 'win32';
 let home: string;
 let project: string;
+const children: ChildProcessWithoutNullStreams[] = [];
 
 beforeEach(() => {
   home = realpathSync(mkdtempSync(join(tmpdir(), 'sl-reg-home-')));
   project = realpathSync(mkdtempSync(join(tmpdir(), 'sl-reg-project-')));
 });
 afterEach(() => {
+  for (const c of children.splice(0)) c.kill('SIGKILL');
   rmSync(home, { recursive: true, force: true });
   rmSync(project, { recursive: true, force: true });
 });
+
+/** A process running `code` as a module, which can import the built registry. */
+const REGISTRY = new URL('../dist/agent-registry.js', import.meta.url).href;
+function start(code: string): ChildProcessWithoutNullStreams {
+  const child = spawn(process.execPath, ['--input-type=module', '-e', code], { stdio: ['pipe', 'pipe', 'pipe'] });
+  children.push(child);
+  return child;
+}
+const said = (child: ChildProcessWithoutNullStreams, line: string) =>
+  new Promise<void>((resolve, reject) => {
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()).includes(`${line}\n`) && resolve());
+    child.stderr.on('data', (d: Buffer) => (err += d.toString()));
+    child.on('exit', (c) => reject(new Error(`exited with ${c} before saying ${line}: ${err}`)));
+  });
+const exited = (child: ChildProcessWithoutNullStreams) => new Promise<number | null>((resolve) => (child.exitCode !== null ? resolve(child.exitCode) : child.once('exit', (c) => resolve(c))));
 
 /** A process tree: a proxy, the agent Shadowlap started (pid 4242), and the CLI that started it. */
 const tree = (agentParent = process.pid): ProcessInfo[] => [
@@ -53,6 +73,57 @@ describe('the agent registry', () => {
     expect(existsSync(dead)).toBe(false);
     unregister();
     expect(registryDirs(project, null)).toEqual([join(project, '.shadowlap', 'agents')]);
+  });
+
+  it('removes on exit only the file written for that agent, not one written since for an agent given its process id', () => {
+    const first = registerAgent(4242, { url: 'http://127.0.0.1:5000/t/abc', runId: '01FIRST' }, { cwd: project, home });
+    // The agent exited, and another command started an agent that got the same process id before the first one's exit was handled.
+    const second = registerAgent(4242, { url: 'http://127.0.0.1:5001/t/def', runId: '01SECOND' }, { cwd: project, home });
+    first.unregister();
+    expect(JSON.parse(readFileSync(second.file!, 'utf8'))).toMatchObject({ runId: '01SECOND' });
+    second.unregister();
+    // Neither file, nor the folder's lock, is left.
+    expect(readdirSync(join(home, '.shadowlap', 'agents'))).toEqual([]);
+  });
+
+  it('never prunes a file written after it found the one there left over', async () => {
+    // An agent's process ended and its file was left. No process has its id, as above: past macOS's
+    // ids, at the very top of Linux's, and no multiple of four, as Windows's are.
+    const gone = 2 ** 22 - 7;
+    const left = join(home, '.shadowlap', 'agents', `${gone}.json`);
+    mkdirSync(join(home, '.shadowlap', 'agents'), { recursive: true, mode: 0o700 });
+    writeFileSync(left, '{}', { mode: 0o600 });
+    // A command registers an agent, and stops right before it removes the file it has just judged left over.
+    const pruning = start(`
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const realRm = fs.rmSync, realRead = fs.readSync, one = Buffer.alloc(1), nap = new Int32Array(new SharedArrayBuffer(4));
+      fs.rmSync = function (path, ...rest) {
+        if (path === ${JSON.stringify(left)}) {
+          fs.writeSync(1, 'removing\\n');
+          for (;;) {
+            try { if (realRead(0, one, 0, 1, null) === 1) break; } catch (err) { if (err.code !== 'EAGAIN') throw err; }
+            Atomics.wait(nap, 0, 0, 5);
+          }
+        }
+        return realRm.call(this, path, ...rest);
+      };
+      syncBuiltinESMExports();
+      const { registerAgent } = await import(${JSON.stringify(REGISTRY)});
+      registerAgent(process.pid, { url: 'http://127.0.0.1:5000/t/abc', runId: '01PRUNING' }, { cwd: ${JSON.stringify(project)}, home: ${JSON.stringify(home)} });`);
+    await said(pruning, 'removing');
+    // Meanwhile another command registers an agent that was given that process id.
+    const registering = start(`
+      const { registerAgent } = await import(${JSON.stringify(REGISTRY)});
+      process.stdout.write('registering\\n');
+      registerAgent(${gone}, { url: 'http://127.0.0.1:5001/t/def', runId: '01NEW' }, { cwd: ${JSON.stringify(project)}, home: ${JSON.stringify(home)} });`);
+    await said(registering, 'registering');
+    // It waits for the first command, or (were the folder not locked) is done at once.
+    await Promise.race([exited(registering), new Promise((resolve) => setTimeout(resolve, 500))]);
+    pruning.stdin.write('g');
+    expect(await exited(pruning)).toBe(0);
+    expect(await exited(registering)).toBe(0);
+    expect(JSON.parse(readFileSync(left, 'utf8'))).toMatchObject({ pid: gone, runId: '01NEW' });
   });
 
   it('finds the nearest registered ancestor, and checks that it is the one Shadowlap started', () => {
