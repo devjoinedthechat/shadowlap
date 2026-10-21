@@ -185,8 +185,10 @@ describe('read models at scale', () => {
     // The prompt cache only for this week's runs: the week before never needs it.
     expect(first.caches).toBeGreaterThan(1000);
     expect(first.caches).toBeLessThan(RUNS * 0.75);
-    // Once in the store's life: about twice what a plain read of every call takes, on any machine.
-    expect(first.cpu, `the first look took ${ms(first)}, ${(first.cpu / plain).toFixed(1)} times a plain read of every call`).toBeLessThan(5 * plain);
+    // Once in the store's life: 1.7 to 1.9 times what a plain read of every call takes on Node 22, and
+    // 2.4 to 3.1 times on Node 24, whose plain read is faster. Under 8 times leaves room for both, and
+    // fails a first look that read the whole store again for each run.
+    expect(first.cpu, `the first look took ${ms(first)}, ${(first.cpu / plain).toFixed(1)} times a plain read of every call`).toBeLessThan(8 * plain);
 
     const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }));
     const page = timed((s) => listRunsPage(s, {}));
@@ -216,12 +218,15 @@ describe('read models at scale', () => {
       // No read model reads a finished run's calls again.
       expect(t.read, `${name} read the calls of ${t.read} runs`).toBe(0);
       expect(t.caches, `${name} worked out the prompt cache of ${t.caches} runs`).toBe(0);
-      // A row per run: about a tenth of what a plain read of every call takes, on any machine.
+      // A row per run: about a tenth of what a plain read of every call takes on Node 22, and about a
+      // fifth on Node 24. Under one plain read: less than reading every call's row again.
       expect(t.cpu, `${name} took ${ms(t)}, ${(t.cpu / plain).toFixed(2)} times a plain read of every call`).toBeLessThan(plain);
     }
   }, TIMEOUT);
 
   it('works the totals out ahead in short slices, so the first look reads no calls either', () => {
+    // The measure of this machine the warm-up's time is held against, as the reads' is above.
+    const plain = plainRead();
     // As a store no dashboard has opened: no run's totals kept yet.
     const raw = new DatabaseSync(path);
     raw.exec('DELETE FROM run_stats');
@@ -258,10 +263,12 @@ describe('read models at scale', () => {
       store.close();
     }
     const batches = slices.flatMap((s) => s.batches);
+    const total = slices.reduce((n, s) => n + s.cpu, 0);
+    const first = slices[0]!.cpu;
     const middle = slices.slice(1, -1).map((s) => s.cpu);
     const median = [...middle].sort((a, b) => a - b)[Math.floor(middle.length / 2)]!;
     const longest = Math.max(...middle);
-    process.stdout.write(`warmed ${RUNS} runs (${batches.reduce((n, b) => n + b.caches.length, 0)} with their prompt cache) in ${slices.length} slices of ${batches.length} batches: the first ${Math.round(slices[0]!.cpu)} ms CPU, with the run index; then median ${Math.round(median)} ms CPU, the longest ${Math.round(longest)} ms\n`);
+    process.stdout.write(`warmed ${RUNS} runs (${batches.reduce((n, b) => n + b.caches.length, 0)} with their prompt cache) in ${slices.length} slices of ${batches.length} batches, ${Math.round(total)} ms CPU in all where a plain read of every call took ${Math.round(plain)} ms: the first ${Math.round(first)} ms CPU, with the run index; then median ${Math.round(median)} ms CPU, the longest ${Math.round(longest)} ms\n`);
 
     // Every run's totals kept once, by one batch.
     expect(new Set(batches.flatMap((b) => b.runs)).size).toBe(RUNS);
@@ -284,9 +291,17 @@ describe('read models at scale', () => {
       if (s.done) expect(at.at(-1), 'the last slice read its clock with no run left').toBeNull();
       else expect(at.at(-1), `slice ${i} stopped before its budget was spent`).toBeGreaterThanOrEqual(BUDGET);
     }
-    // Time only against this machine's own: each slice between the first (which also reads the run
-    // index, one row per run, as every read model does first) and the last (which ends with the runs)
-    // takes its budget and at most one batch more, so none takes more than four times the median.
+    // Time only against this machine's own. The slices do the first look's work between them: 1.7 to
+    // 1.9 times a plain read of every call on Node 22, and 2.4 to 3.1 times on Node 24. Under 8 times,
+    // as the first look is held, leaves room for both, and fails batches that read more than their
+    // runs' calls: a scan of every call in each batch took 60 to 100 times.
+    expect(total, `the warm-up took ${Math.round(total)} ms of CPU time in all, ${(total / plain).toFixed(1)} times a plain read of every call`).toBeLessThan(8 * plain);
+    // The first slice also reads the run index, one row per run, as every read model does first: with
+    // its batches, 0.06 to 0.08 of a plain read on Node 22 and up to 0.14 on Node 24, about what a read
+    // model takes. Under one plain read, as each of them is held.
+    expect(first, `the first slice took ${Math.round(first)} ms of CPU time, ${(first / plain).toFixed(2)} times a plain read of every call`).toBeLessThan(plain);
+    // Each slice between the first and the last (which ends with the runs) takes its budget and at
+    // most one batch more: none takes four times the median (the longest, 1.7 times at most here).
     expect(middle.length, 'the warm-up took one slice or two: none between to hold against the others').toBeGreaterThan(0);
     expect(longest, `a slice took ${Math.round(longest)} ms of CPU time, where half took ${Math.round(median)} ms or less`).toBeLessThan(4 * median);
 

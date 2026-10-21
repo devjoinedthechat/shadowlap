@@ -70,9 +70,9 @@ describe('the Forks view’s bundles at scale', () => {
     fixBundles(store, root);
     expect(verdicts).toHaveBeenCalledTimes(2);
     verdicts.mockRestore();
-    // Held against this machine, not a number of milliseconds: a poll costs a few times what a plain
-    // read of every run's row does (the family's 2,000 replays among them), and the read after a
-    // change, which reads every report again, not much more.
+    // Held against this machine, not a number of milliseconds: a poll costs about 4 times what a plain
+    // read of every run's row does (the family's 2,000 replays among them), on Node 22 and 24 alike,
+    // and the read after a change, which reads every report again, 5 to 8 times.
     const t = timesOf({
       poll: () => fixBundles(store, root),
       changed: () => {

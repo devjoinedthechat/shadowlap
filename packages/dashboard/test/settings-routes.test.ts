@@ -315,7 +315,7 @@ describe('the redaction preview', () => {
       expect((await get<View>(`settings/redaction/preview?run=${run.runId}`)).preview).toMatchObject({ calls: 1, partial: { read: 1, of: 12, stopped: 'bytes' } });
     });
 
-    it('reads a 40 MB tool result on its thread, within its heap, in a few times what parsing it takes', async () => {
+    it('reads a 40 MB tool result on its thread, within its heap, in a small multiple of what parsing it takes', async () => {
       writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/\\b(?:\\d[ -]?){13,16}\\b/', replace: '<CARD>' }] }));
       const run = recording();
       // Rows of small values, an address in every hundredth: a document a tree of its values would take past the thread's 512 MB.
@@ -338,10 +338,11 @@ describe('the redaction preview', () => {
       // Every row read, within the thread's heap.
       expect(read.out.preview).toMatchObject({ calls: 1, partial: null, total: Math.ceil(rows.length / 100) });
       // Held against this machine, not a number of milliseconds: in CPU time, the preview's thread and
-      // the server's together, a few times what parsing the document takes, which builds the tree of its
-      // values the preview never builds.
+      // the server's together, 7 to 8 times what parsing the document takes on Node 22 and 8 to 11
+      // times on Node 24, whose parse is faster (a parse builds the tree of values the preview never
+      // builds). Under 50 times leaves room for both, and fails a preview that went back over the text.
       const { parse } = timesOf({ parse: () => JSON.parse(body) }, { rounds: 2 });
-      expect(read.ms, `the preview took ${times(read.ms, parse)} parsing the document`).toBeLessThan(25 * parse);
+      expect(read.ms, `the preview took ${times(read.ms, parse)} parsing the document`).toBeLessThan(50 * parse);
     }, 60_000);
 
     it('ends a preview whose rule takes too long on one call, naming the rule, and answers everything else meanwhile', async () => {

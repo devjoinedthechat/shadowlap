@@ -522,6 +522,8 @@ describe('the run index’s query', () => {
       // Per run, its calls from the primary key's index alone (a covering index: no call is read),
       // and its judge calls from the index that holds them and no other call.
       expect(plan.filter((step) => step.startsWith('SEARCH c '))).toEqual([expect.stringMatching(/ USING COVERING INDEX /), expect.stringMatching(/ USING INDEX call_events_judge /)]);
+      // Nothing else in it reads every call either: the runs are the one table it goes through whole.
+      expect(plan.filter((step) => step.startsWith('SCAN '))).toEqual(['SCAN r']);
     } finally {
       local.close();
     }
