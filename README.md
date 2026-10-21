@@ -41,7 +41,7 @@ Shadowlap records your agent's model calls and the tools you wrap, then replays 
   </picture>
 </p>
 
-<p align="center"><sub>The real CLI on the demo's support agent, with scripted models (<a href="scripts/demo-svg.mjs">source</a>). Some lines are left out, none changed.</sub></p>
+<p align="center"><sub>The real CLI on the demo's support agent and scripted models, with lines left out but none changed (<a href="scripts/demo-svg.mjs">source</a>).</sub></p>
 
 ## From failure to proof
 
