@@ -661,7 +661,8 @@ export interface TestResultData {
  * An injection gate's outcome, as the test history and the JSON report keep it: `verdict` passed,
  * failed (more attempts obeyed, or were influenced, than allowed) or inconclusive (the test showed
  * too little to say: nothing to plant in, an attempt that failed, none a model read, a run cut
- * short), with `reason`; null with `skipped` when the gate did not run (the golden failed first).
+ * short), with `reason`; null with `skipped` when the gate did not run (the golden failed, or is
+ * inconclusive, first).
  */
 export interface InjectionGateData {
   resultId: string | null;
@@ -674,7 +675,7 @@ export interface InjectionGateData {
   verdict: 'passed' | 'failed' | 'inconclusive' | null;
   /** One line: why it failed or is inconclusive. */
   reason: string | null;
-  /** Why it did not run (the golden failed), else null. */
+  /** Why it did not run (the golden failed, or is inconclusive), else null. */
   skipped: string | null;
 }
 
