@@ -249,8 +249,8 @@ describe('store schema version', () => {
 
   it('blames a Node whose SQLite has no full-text search, not the file, and names the Node that has it', () => {
     // Node 22.13 to 22.15 and every Node 23: SQLite answers "no such module: fts5" for the index every store has.
-    expect(noFullTextSearch('v22.13.0')).toBe('Node 22.13.0 has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later');
-    expect(noFullTextSearch('v23.11.1')).toBe('Node 23.11.1, like every Node 23, has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later');
+    expect(noFullTextSearch('v22.13.0')).toBe('Node 22.13.0 has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later (not 23)');
+    expect(noFullTextSearch('v23.11.1')).toBe('Node 23.11.1, like every Node 23, has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later (not 23)');
   });
 
   it('names both versions, so the message says what to do', async () => {

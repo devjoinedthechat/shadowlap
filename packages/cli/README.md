@@ -8,7 +8,7 @@ Shadowlap records your agent's model calls and the tools you wrap, then replays 
 
 ## Quickstart
 
-Install the CLI (Node 22.16 or later), then let it read your project:
+Install the CLI (Node 22.16 or later, not 23), then let it read your project:
 
 ```sh
 npm install -g shadowlap
@@ -23,7 +23,7 @@ shadowlap init
 npm install @shadowlap/sdk
 # wrap them in your framework (Node 18.18+)
 npm install @shadowlap/adapters
-# record tests in Vitest or node:test (Node 22.16+)
+# record tests in Vitest or node:test (Node 22.16+, not 23)
 npm install -D @shadowlap/test
 # Python 3.9+: all three in one package
 pip install shadowlap

@@ -258,7 +258,7 @@ The Shadowlap action is the one step to add after your agent is built:
 
 It replays each recording offline and fails the check when one diverges, makes a live call, exits with an error or fails a check. The job needs no real key: an agent with none gets a [placeholder](./providers.md#credentials-on-replay), which never leaves the machine; only Vertex AI's clients need a token of their own. The job summary gets a table of the recordings, and for each failure the diff of the first changed request, the normalizer hint if there is one, and the agent's last output lines; when a recording diverged, it names the `shadowlap test <dir> --update` command for a change you meant. Each failure is also annotated on the pull request.
 
-A Python agent needs its interpreter and packages installed before the action, as for any other step. The action itself needs Node 22.16 or later.
+A Python agent needs its interpreter and packages installed before the action, as for any other step. The action itself needs Node 22.16 or later, not 23.
 
 The step names a release twice: the action at its tag, and in `version:` the `shadowlap` CLI it installs from npm. Keep the two the same release, the one your project uses. With `version:` left empty, the action builds the CLI from its own source, which adds about a minute.
 

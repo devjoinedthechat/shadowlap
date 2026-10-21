@@ -1150,7 +1150,7 @@ function createOnce(path: string, content: string): void {
  */
 export function noFullTextSearch(version: string = process.version): string {
   const node = /^v?23\./.test(version) ? `Node ${version.replace(/^v?/, '')}, like every Node 23,` : `Node ${version.replace(/^v?/, '')}`;
-  return `${node} has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later`;
+  return `${node} has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later (not 23)`;
 }
 
 /** Takes group and other permissions off a store created by an earlier version. */

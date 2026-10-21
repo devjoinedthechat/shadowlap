@@ -10,7 +10,7 @@ What is most likely to be merged: a bug fix with the test that catches it, a pro
 
 ## Setup
 
-Node ≥ 22.16. Python ≥ 3.9 only if you touch `sdks/python`.
+Node ≥ 22.16, not 23. Python ≥ 3.9 only if you touch `sdks/python`.
 
 ```sh
 npm ci

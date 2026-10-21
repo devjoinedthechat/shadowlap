@@ -881,7 +881,7 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean, { gl
   }
   if (python) {
     out(`     ${p.cyan(r.packageManager === 'uv' ? 'uv add shadowlap' : r.packageManager === 'poetry' ? 'poetry add shadowlap' : 'pip install shadowlap')}   ${p.dim('the Python SDK')}`);
-    if (!ts && !globalCli) out(`     ${p.cyan('npm install --global shadowlap')}   ${p.dim('the CLI (Node 22.16 or later)')}`);
+    if (!ts && !globalCli) out(`     ${p.cyan('npm install --global shadowlap')}   ${p.dim('the CLI (Node 22.16 or later, not 23)')}`);
   }
   out();
 

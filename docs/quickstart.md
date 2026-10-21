@@ -1,6 +1,6 @@
 # Quickstart
 
-Install the CLI. It needs Node ≥ 22.16 (and Python ≥ 3.9 only for the Python SDK). An agent on Node needs Node ≥ 18.18.
+Install the CLI. It needs Node ≥ 22.16, not 23 (and Python ≥ 3.9 only for the Python SDK). An agent on Node needs Node ≥ 18.18.
 
 ```sh
 npm install -g shadowlap
@@ -107,7 +107,7 @@ With npm and pip, the packages are:
 npm install @shadowlap/sdk
 # wrap them in your framework (Node 18.18+)
 npm install @shadowlap/adapters
-# record tests in Vitest or node:test (Node 22.16+)
+# record tests in Vitest or node:test (Node 22.16+, not 23)
 npm install -D @shadowlap/test
 # Python 3.9+: all three in one package
 pip install shadowlap

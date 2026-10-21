@@ -18,7 +18,7 @@ def issue_refund(order_id: str, amount: float) -> dict:
     return payments.refund(order_id, amount)
 ```
 
-Record and replay with the `shadowlap` CLI, from npm (Node 22.16 or later):
+Record and replay with the `shadowlap` CLI, from npm (Node 22.16 or later, not 23):
 
 ```sh
 npm install -g shadowlap
