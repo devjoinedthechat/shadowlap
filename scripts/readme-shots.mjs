@@ -172,7 +172,7 @@ async function story(folder) {
     runs.ticket = runIn(await sl(['run', '--', 'node', 'refund_agent.mjs', 'T-8812']));
     control.delay = 0;
     await sl(['decisions', short(runs.ticket), '--model', 'claude-haiku-4-5'], 'decisions');
-    runs.override = runIn(await sl(['replay', short(runs.ticket), '--override', '16=@payloads/policy.json'], 'override'));
+    runs.override = runIn(await sl(['replay', short(runs.ticket), '--override', '16=@policy.json'], 'override'));
     writeFileSync(join(folder, 'runs.json'), `${JSON.stringify({ story: 'readme', runs }, null, 2)}\n`);
     return runs;
   } finally {

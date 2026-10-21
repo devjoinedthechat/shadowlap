@@ -338,7 +338,7 @@ try {
     await sl(['note', runs.ticket, 'Found in the refund audit: tier-2 approval was skipped.'], { who: 'maya' });
     runs.clean = await replay(runs.ticket, [], { who: 'maya' });
     // What if lookup_policy had returned the limit?
-    runs.override = await replay(runs.ticket, ['--override', '16=@payloads/policy.json'], { who: 'dana' });
+    runs.override = await replay(runs.ticket, ['--override', '16=@policy.json'], { who: 'dana' });
     await label(runs.override, 'what-if');
     if (!fast) {
       runs.batch = await record(['node', 'refund_agent.mjs', '--batch', 'inbox/2026-09-30.jsonl'], { who: 'ci' });
