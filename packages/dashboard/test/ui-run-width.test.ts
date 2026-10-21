@@ -6,6 +6,7 @@ import type { CallRow } from '../ui/types.js';
 import { glued } from '../ui/format.js';
 import { bannerFor } from '../ui/run/banner.js';
 import { Inspector } from '../ui/run/Inspector.js';
+import { DiffPanel } from '../ui/run/parts.js';
 
 /**
  * A long command line or model id never makes a run's page wider than the window: a 266-character
@@ -107,5 +108,19 @@ describe('a header line that wraps on a phone', () => {
 
   it('sets a run’s id in the face every other id is in, where 0 and O differ', () => {
     expect(topRule('.rtitle h1')).toMatch(/var\(--mono\)/);
+  });
+});
+
+describe("a fork's diff panel", () => {
+  // Each value is a block of its own (.val, .add), so it starts a line by itself: a line break before
+  // it as well would put an empty line between a path and its value when the pane is copied.
+  it('puts each value right after its path, the block starting its line', () => {
+    const run = { run: { divergence: { type: 'request_changed', callNo: 17, kind: 'api', name: 'POST /v1/messages', replayedBefore: 16, counterpart: { callNo: 17 }, diff: [{ path: '$.messages[2].content[0].content', op: 'changed', before: 'EU limit: $150', after: 'EU limit: $50' }] } }, parent: null } as never;
+    const html = renderToStaticMarkup(createElement(DiffPanel, { run }));
+    expect(html).toContain('<span>$.messages[2].content[0].content<span class="val">');
+    expect(html).toContain('<span>$.messages[2].content[0].content<span class="add">');
+    expect(html).not.toMatch(/content\n<span/);
+    expect(topRule('.diffpanel .val')).toMatch(/display: block/);
+    expect(topRule('.diffpanel .add')).toMatch(/display: block/);
   });
 });

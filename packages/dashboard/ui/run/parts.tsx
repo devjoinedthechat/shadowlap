@@ -389,7 +389,6 @@ export function DiffPanel({ run }: { run: RunDetail }) {
             ? diff.slice(0, 12).map((e, i) => (
                 <span key={i}>
                   {e.path}
-                  {'\n'}
                   <span className="val">{e.op === 'added' ? '  (absent)' : <>{'  '}{breakable(clip(jsonText(e.before, false), 800))}</>}</span>
                 </span>
               ))
@@ -403,7 +402,6 @@ export function DiffPanel({ run }: { run: RunDetail }) {
             ? diff.slice(0, 12).map((e, i) => (
                 <span key={i}>
                   {e.path}
-                  {'\n'}
                   <span className="add">{e.op === 'removed' ? '  (absent)' : <>{'  '}{breakable(clip(jsonText(e.after, false), 800))}</>}</span>
                 </span>
               ))
