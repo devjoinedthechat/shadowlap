@@ -11,27 +11,30 @@ shadowlap repair --fixes label:refund-bug --keeps label:good \
 ✓ Fixed: Escalate refunds above the policy limit
   agent.mjs · system prompt
   - You are a support agent. Follow the refund policy.
-  + You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.
+  + You are a support agent. Follow the refund policy: escalate every refund above the limit.
 
-  Verified: fixes 1 of 1 target run, 1 of 1 held-out, keeps 1 of 1 good, each by its gate, which tells 90%+ from 70%- at <= 5% risk
+  Verified: fixes 2 of 2 target runs, 1 of 1 held-out, keeps 1 of 1 good,
+            each by its gate, which tells 90%+ from 70%- at <= 5% risk
 
   Where the failing runs were lost
-    01M3RZ4XKN  model call #5 (3 of 4)
+    01M5FA9VJ6  model call #5 (3 of 5)
+    01M5FA9W23  model call #5 (3 of 5)
 
   Diagnosis (claude-opus-5-5)
     The system prompt says to follow the policy but not what the policy asks of large refunds, so the model reaches for the refund tool it was asked about.
 
   Candidates (tried smallest first; the first the gate accepts is kept)
-     1  invalid   system prompt: You are a support agent. Follow the refund policy, and never ref…
+     1  invalid   system prompt: You are a support agent. Follow the refund policy. For order A-1…
         it mentions A-1042, which only the failing runs contain: a fix has to hold for cases it has not seen
-     2  rejected  tool issue_refund: Refund an order. Check the policy first.
-        target run 01M3RZ4XKN not fixed: 0 of 3 passed · rate <= 0.56 (95%) (issue_refund with {"amount":240} called 0 times, but called 1 time (1 blocked or stubbed))
+     2  rejected  tool issue_refund: Refund an order in full. Check the policy first.
+        target run 01M5FA9VJ6 not fixed: 0 of 3 passed · rate <= 0.56 (95%) (issue_refund with {"amount":240} called 0 times, but called 1 time (1 blocked or…
      3  accepted  system prompt: You are a support agent. Follow the refund policy: escalate ever…
 
-  cost: blame ≈$0.041 · repairer ≈$0.0040 · verify ≈$0.082
-  patch: .shadowlap/repairs/repair-munzln2i/fix.patch   apply it: git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch
-  report: .shadowlap/repairs/repair-munzln2i/report.md
-  recordings of the fixed runs, for shadowlap test: .shadowlap/repairs/repair-munzln2i/goldens/01M3RZ4XKN .shadowlap/repairs/repair-munzln2i/goldens/01M3RZ4XTE
+  cost: blame ≈$0.107 · repairer ≈$0.0085 · verify ≈$0.238
+  patch: .shadowlap/repairs/repair-mvi5coxh/fix.patch   apply it: git -c core.autocrlf=false apply .shadowlap/repairs/repair-mvi5coxh/fix.patch
+  report: .shadowlap/repairs/repair-mvi5coxh/report.md
+  recordings of the fixed runs, for shadowlap test: .shadowlap/repairs/repair-mvi5coxh/goldens/01M5FA9VJ6 .shadowlap/repairs/repair-mvi5coxh/goldens/01M5FA9W23 .shadowlap/repairs/repair-mvi5coxh/goldens/01M5FA9VTD
+  fix fx-01M5FA9ZQR · issue_refund called with amount 240 · verified · shadowlap fix show fx-01M5FA9ZQR
 ```
 
 Of the three rewrites the repairer proposed, the first named the order that failed and was set aside before anything ran. The second changed nothing the model acted on, and the gate rejected it. The third was accepted. Your working tree is as it was; the fix is a patch, a report written for a pull request, and a recording of each fixed run.
@@ -98,7 +101,7 @@ Any model from any vendor, configured rather than built in:
 
 | Value | |
 |---|---|
-| `anthropic` | Claude Opus 5.5, through the Anthropic SDK, with `ANTHROPIC_API_KEY` or an `ant auth login` profile. The SDK is an optional peer of Shadowlap, so it isn't installed for everyone: `npm install @anthropic-ai/sdk` next to `shadowlap` |
+| `anthropic` | Claude Opus 5.5, through the Anthropic SDK, with `ANTHROPIC_API_KEY` or an `ant auth login` profile. The SDK is an optional peer of Shadowlap, so it isn't installed for everyone: `npm install @anthropic-ai/sdk` next to `shadowlap`, or `npm install -g @anthropic-ai/sdk` beside a global one |
 | `anthropic:<model>` | Another Claude model, such as `claude-fable-5-1` |
 | `openai:<model>` | Any Chat Completions API: OpenAI, OpenRouter, a local server such as Ollama or vLLM (`OPENAI_BASE_URL`, `OPENAI_API_KEY`) |
 | `claude-code`, `claude-code:<model>` | Your own [Claude Code](https://code.claude.com), run in print mode (`claude -p`), with no tools, the answer held to a JSON schema. It runs as whatever Claude Code is signed in with; Shadowlap never sees its credentials. Without a model, Claude Code's own default is used. `SHADOWLAP_CLAUDE` names the binary when `claude` isn't on the PATH |

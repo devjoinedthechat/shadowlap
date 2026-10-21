@@ -1,9 +1,9 @@
 # Team store
 
 The team store keeps your team's runs in a bucket you own, so teammates and CI open each other's
-recordings, CI keeps its test history there, and anyone can open a share link: a redacted report
-that works for 7 days. It is part of the open-source Shadowlap, free under Apache-2.0 like
-everything else, with nothing to buy or add first.
+recordings, CI keeps its test history there, and anyone can open a share link for up to 7 days: a
+report masked by your redaction rules. It is part of the open-source Shadowlap, free under
+Apache-2.0 like everything else, with nothing to buy or add first.
 
 Nothing is hosted by Shadowlap and nothing calls home. The bucket is yours, every machine reaches
 it with its own credentials, and there are no accounts: who may read and write the store is whoever

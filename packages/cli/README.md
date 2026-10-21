@@ -19,27 +19,34 @@ shadowlap init
 `init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes. Wrap each tool once with its effect, or it runs again on every replay:
 
 ```sh
-npm install @shadowlap/sdk          # tools, clock and randomness (Node 18+)
-npm install @shadowlap/adapters     # framework adapters, next to the SDK
-npm install -D @shadowlap/test      # recorded tests: Vitest, node:test
-pip install shadowlap               # Python 3.9+: SDK, adapters, pytest plugin
+# tools, clock and randomness (Node 18+)
+npm install @shadowlap/sdk
+# framework adapters, next to the SDK
+npm install @shadowlap/adapters
+# recorded tests: Vitest, node:test
+npm install -D @shadowlap/test
+# Python 3.9+: SDK, adapters, pytest plugin
+pip install shadowlap
 ```
 
 [`@shadowlap/sdk`](https://www.npmjs.com/package/@shadowlap/sdk) and [`shadowlap` for Python](https://pypi.org/project/shadowlap/) show the wrapper. Then record, replay and look:
 
 ```sh
-shadowlap run -- node agent.mjs    # record a run, with your usual key
-shadowlap replay <run>             # replay it: 0 upstream requests, no real key
-shadowlap dashboard                # step through it in your browser
+# record a run, with your usual key
+shadowlap run -- node agent.mjs
+# replay it: 0 upstream requests, no real key
+shadowlap replay <run>
+# step through it in your browser
+shadowlap dashboard
 ```
 
 ## From failure to proof
 
 - **Reproduce a failure exactly.** `shadowlap replay <run>` serves every call from the recording. A what-if changes the run at one call and replays everything before it: `--override`, `--fail-at`, `--inject`, `--model`.
 - **Find the call that lost the run.** `shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'` asks model calls again, each from a fork, and names the last one whose new answer can still save the run.
-- **Prove the fix.** `shadowlap repair` asks a model you choose, or your own Claude Code, to rewrite the system prompt or a tool description, and keeps the smallest rewrite that fixes the failing runs and breaks no good one. `shadowlap verify` gives a fix you wrote yourself the same proof, and exits 1 when it rejects.
-- **Keep it fixed in CI.** `shadowlap test goldens/*` replays committed recordings offline and fails on a changed request, a live call, an error exit or a failed check. On GitHub it is one step: `uses: devjoinedthechat/shadowlap@main`.
-- **Change models and prompts safely.** `shadowlap decisions --model <model>` asks the recorded model calls again under the change and ranks what they decide differently, writes first. `shadowlap migrate --to <model>` verifies and prices a switch.
+- **Prove the fix.** `shadowlap repair` asks a model you choose, or your own Claude Code, to rewrite the system prompt or a tool description, and keeps the smallest rewrite that fixes the failing runs and breaks no good one. `--repairer anthropic` needs the Anthropic SDK beside the CLI: `npm install -g @anthropic-ai/sdk`. `shadowlap verify` gives a fix you wrote yourself the same proof, and exits 1 unless it accepts the fix.
+- **Keep it fixed in CI.** `shadowlap test goldens/*` replays committed recordings offline and fails on a changed request, a live call, an error exit or a failed check. On GitHub it is one step after checkout, `actions/setup-node` with Node 22 and your build: `uses: devjoinedthechat/shadowlap@main` ([the workflow](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/ci.md#github-actions)).
+- **Change models and prompts safely.** `shadowlap decisions <runs or goldens/*> --model <model>` asks the recorded model calls again under the change and ranks what they decide differently, writes first. `shadowlap migrate --to <model>` verifies and prices a switch.
 
 `shadowlap --help` lists every command.
 

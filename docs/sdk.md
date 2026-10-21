@@ -9,10 +9,14 @@ Without `SHADOWLAP_URL` in the environment (that is, outside `shadowlap run`), e
 Into your agent's project:
 
 ```sh
-npm install @shadowlap/sdk          # tools, clock and randomness (Node 18+)
-npm install @shadowlap/adapters     # framework adapters, next to the SDK
-npm install -D @shadowlap/test      # recorded tests: Vitest, node:test
-pip install shadowlap               # Python 3.9+: SDK, adapters, pytest plugin
+# tools, clock and randomness (Node 18+)
+npm install @shadowlap/sdk
+# framework adapters, next to the SDK
+npm install @shadowlap/adapters
+# recorded tests: Vitest, node:test
+npm install -D @shadowlap/test
+# Python 3.9+: SDK, adapters, pytest plugin
+pip install shadowlap
 ```
 
 `@shadowlap/test` brings the `shadowlap` CLI it runs. [`shadowlap init`](./cli.md#init) prints the install step with your project's package manager.

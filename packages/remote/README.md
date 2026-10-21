@@ -12,7 +12,7 @@ shadowlap pull
 shadowlap share <run>
 ```
 
-`store set --check` connects your bucket once this machine's access works, `push --all` sends every run on this machine, `pull` brings your teammates' runs, and `share` writes a redacted report behind a link that works for 7 days.
+`store set --check` connects your bucket once this machine's access works, `push --all` sends every run on this machine, `pull` brings your teammates' runs, and `share` writes a report, masked by your redaction rules, behind a link that works for up to 7 days.
 
 Each machine reaches the bucket with its own credentials, from the environment or where each cloud's CLI keeps them: no cloud SDK is bundled, nothing passes through Shadowlap, and there are no accounts. A blob many runs share goes up once, labels and notes merge both ways, and a pull request's CI job writes only to its own folder.
 

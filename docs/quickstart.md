@@ -97,17 +97,20 @@ Found
   Run with SHADOWLAP_UPSTREAM_ANTHROPIC=https://llm-proxy.internal/anthropic, or read the base URL from ANTHROPIC_BASE_URL.
 
 1. Install
-     pnpm add -D shadowlap
      pnpm add @shadowlap/sdk @shadowlap/adapters   tool effects, through your framework
 ```
 
 With npm and pip, the packages are:
 
 ```sh
-npm install @shadowlap/sdk          # tools, clock and randomness (Node 18+)
-npm install @shadowlap/adapters     # framework adapters, next to the SDK
-npm install -D @shadowlap/test      # recorded tests: Vitest, node:test
-pip install shadowlap               # Python 3.9+: SDK, adapters, pytest plugin
+# tools, clock and randomness (Node 18+)
+npm install @shadowlap/sdk
+# framework adapters, next to the SDK
+npm install @shadowlap/adapters
+# recorded tests: Vitest, node:test
+npm install -D @shadowlap/test
+# Python 3.9+: SDK, adapters, pytest plugin
+pip install shadowlap
 ```
 
 Run the agent the way you always do, prefixed with `shadowlap run --`. API calls are captured with no code changes: `shadowlap run` sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and `GOOGLE_GEMINI_BASE_URL` for the child process, and the official SDKs read them.
