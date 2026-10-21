@@ -20,6 +20,7 @@ let work = '';
 let db = '';
 let runId = '';
 let plainRun = '';
+let crawlRun = '';
 
 function shadowlap(args: string[]): Promise<{ code: number | null; stdout: string; out: string }> {
   return new Promise((resolve) => {
@@ -39,9 +40,9 @@ beforeAll(() => {
   const store = Store.open(db);
   try {
     const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: work } });
-    const tool = (callNo: number, name: string, effect: Effect, meta: CallMeta = {}) => {
-      store.appendCallStart({ runId: run.runId, callNo, kind: 'tool', name, fingerprint: `f${callNo}`, occurrence: 1, origin: 'live', effect, requestRef: store.putJson({ args: { n: callNo } }), meta, at: callNo });
-      store.appendCallEnd({ kind: 'tool', name, fingerprint: `f${callNo}`, occurrence: 1 }, { runId: run.runId, callNo, attempt: 0, responseRef: store.putJson({ result: 'ok' }), outcome: 'ok', meta: {}, at: callNo });
+    const tool = (callNo: number, name: string, effect: Effect, meta: CallMeta = {}, of = run.runId) => {
+      store.appendCallStart({ runId: of, callNo, kind: 'tool', name, fingerprint: `f${callNo}`, occurrence: 1, origin: 'live', effect, requestRef: store.putJson({ args: { n: callNo } }), meta, at: callNo });
+      store.appendCallEnd({ kind: 'tool', name, fingerprint: `f${callNo}`, occurrence: 1 }, { runId: of, callNo, attempt: 0, responseRef: store.putJson({ result: 'ok' }), outcome: 'ok', meta: {}, at: callNo });
     };
     tool(1, 'fetch_page', 'read', { trust: 'untrusted', trustFrom: 'sdk' });
     tool(2, 'web_search', 'read', { mcp: { transport: 'stdio', server: 'search' }, trust: 'untrusted', trustFrom: 'mcp' });
@@ -56,6 +57,12 @@ beforeAll(() => {
     store.appendCallStart({ runId: plain.runId, callNo: 1, kind: 'tool', name: 'lookup_order', fingerprint: 'g', occurrence: 1, origin: 'live', effect: 'read', requestRef: null, meta: {}, at: 1 });
     store.endRun(plain.runId, 'completed');
     plainRun = plain.runId;
+    // A crawler that read eight pages and answered.
+    const crawl = store.createRun({ mode: 'record', command: { argv: ['node', 'crawler.mjs'], cwd: work } });
+    for (let n = 1; n <= 8; n++) tool(n, 'fetch_page', 'read', { trust: 'untrusted', trustFrom: 'sdk' }, crawl.runId);
+    tool(9, 'send_email', 'write', {}, crawl.runId);
+    store.endRun(crawl.runId, 'completed');
+    crawlRun = crawl.runId;
   } finally {
     store.close();
   }
@@ -78,6 +85,16 @@ describe('shadowlap show and untrusted reads', () => {
     const plain = await shadowlap(['show', plainRun]);
     expect(plain.stdout).not.toContain('untrusted');
     expect(plain.stdout).toMatch(/\n {2}#1 {2}tool {2}lookup_order {2}live {2}pending/);
+  });
+
+  it('names the first five above the timeline and counts the rest, while every row and the JSON have them all', async () => {
+    const r = await shadowlap(['show', crawlRun]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toContain('  untrusted reads: #1 fetch_page (SDK), #2 fetch_page (SDK), #3 fetch_page (SDK), #4 fetch_page (SDK), #5 fetch_page (SDK) and 3 more · shadowlap injection plants in them\n');
+    const rows = r.stdout.split('\n').filter((l) => /^ {2}#\d+ /.test(l));
+    expect(rows.map((l) => / untrusted /.test(l))).toEqual([true, true, true, true, true, true, true, true, false]);
+    const shown = JSON.parse((await shadowlap(['show', crawlRun, '--json'])).stdout) as { untrusted: Array<{ callNo: number }> };
+    expect(shown.untrusted.map((u) => u.callNo)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   it('prints them in the JSON as the dashboard lists them, and the dashboard serves the same object', async () => {

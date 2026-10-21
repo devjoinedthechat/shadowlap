@@ -17,6 +17,9 @@ import { ago, palette as p, safe, shortId, table } from '../ui.js';
 /** Where a read's untrusted mark came from, as `show` names it. */
 const TRUST_FROM: Record<TrustSource, string> = { config: 'config', sdk: 'SDK', mcp: 'MCP openWorldHint' };
 
+/** How many untrusted reads `show` names above the timeline: a crawler reads hundreds, and each row is tagged anyway. */
+const UNTRUSTED_NAMED = 5;
+
 export function register(program: Command): void {
   program.commandsGroup('Look at runs:');
 
@@ -206,9 +209,14 @@ export function register(program: Command): void {
         head.push(p.dim(`  an attempt of the error-path presets: ${PRESET_LABELS[chaos.preset]} at ${at}${typeof chaos.golden === 'string' ? ` of ${safe(chaos.golden)}` : ''}${Number.isInteger(chaos.attempt) && chaos.attempt > 1 ? `, attempt ${chaos.attempt}` : ''}`));
       }
       // Its untrusted reads, as the dashboard's Calls view tags them: where shadowlap injection plants,
-      // each marked by the config's tools, the SDK's trust or its MCP server's openWorldHint.
+      // each marked by the config's tools, the SDK's trust or its MCP server's openWorldHint. The
+      // first few are named here; each row says it, and --json lists them all.
       const untrusted = new Map(untrustedReads(calls, config.tools).reads.map((r) => [r.callNo, r]));
-      if (untrusted.size) head.push(p.dim(`  untrusted reads: ${[...untrusted.values()].map((r) => `#${r.callNo} ${safe(r.name)} (${TRUST_FROM[r.from]})`).join(', ')} · shadowlap injection plants in them`));
+      if (untrusted.size) {
+        const named = [...untrusted.values()].map((r) => `#${r.callNo} ${safe(r.name)} (${TRUST_FROM[r.from]})`);
+        const list = named.length > UNTRUSTED_NAMED ? `${named.slice(0, UNTRUSTED_NAMED).join(', ')} and ${named.length - UNTRUSTED_NAMED} more` : named.join(', ');
+        head.push(p.dim(`  untrusted reads: ${list} · shadowlap injection plants in them`));
+      }
       process.stdout.write(head.join('\n') + '\n\n');
       // A column of its own, only when there is a read to tag, so the rest line up as they always have.
       const rows = calls.map((c) => {
