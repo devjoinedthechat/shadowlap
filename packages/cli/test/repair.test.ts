@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -566,6 +566,23 @@ describe('startRepair', () => {
       expect(readdirSync(join(dir, '.shadowlap'))).toEqual([]);
     } finally {
       running.kill('SIGKILL');
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('never takes over by its age the lock of a repair it can’t check, one in a container or on another machine sharing the folder', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-repair-lock-'));
+    try {
+      mkdirSync(join(dir, '.shadowlap'));
+      const path = join(dir, '.shadowlap', 'repair.lock');
+      // Written an hour ago by a repair on another boot of a Linux kernel: its process can't be asked about from here.
+      const text = JSON.stringify({ v: 2, pid: 7, host: 'build-box', start: 'another-boot:1', born: Date.now() - 3_600_000, token: 'there' });
+      writeFileSync(path, text);
+      const hourAgo = (Date.now() - 3_600_000) / 1000;
+      utimesSync(path, hourAgo, hourAgo);
+      expect(() => startRepair(dir)).toThrow(/another shadowlap repair is running in this folder.*if none is running, delete/);
+      expect(readFileSync(path, 'utf8')).toBe(text);
+    } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });

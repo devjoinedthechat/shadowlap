@@ -9,9 +9,9 @@ import { processAlive } from './liveness.js';
 /**
  * A lock file, so that one process at a time does what two must never do at once: change
  * shadowlap.config.json (the CLI and the dashboard's Settings), the dashboard's project list,
- * `.shadowlap/active.json` or the agent registry, or try a repair's candidates in a working tree. A
- * lock left by a process that died is taken over without anyone's help, and a lock whose process
- * still runs never is.
+ * `.shadowlap/active.json` or the agent registry, or try a repair's candidates in a working tree and
+ * hand its fix over. A lock left by a process that died is taken over without anyone's help, and a
+ * lock whose process still runs never is.
  *
  * Taking it. The taker writes its record (process id, machine, when its process started, and a
  * token no other lock has) to a file of its own, then links that file to the lock's name. A link
@@ -24,11 +24,18 @@ import { processAlive } from './liveness.js';
  * can share one, and DHCP can change it); elsewhere, the same host name. Such a holder is gone when
  * no process has its id, or when the process that has it started after the holder did (the id was
  * given to another process since). A process that is gone can't come back to remove its lock, so a
- * lock found stale stays where it is until another process removes it. A lock written on another
- * machine, or in a container with process ids of its own, that shares the folder, or by anything
- * that doesn't say who holds it, can't be checked that way: it is stale once nobody has changed it
- * for LOCK_STALE_MS. An earlier Shadowlap's names its process but not when it started: it is stale
- * once that process is gone from a machine with its host name, or after LOCK_STALE_MS.
+ * lock found stale stays where it is until another process removes it.
+ *
+ * A lock this machine can't check that way goes by its age: one written on another machine, or in a
+ * container with process ids of its own, that shares the folder, and one that doesn't say who holds
+ * it. A lock held for a moment, as all are but a repair's, is stale once nobody has changed it for
+ * LOCK_STALE_MS. A lock held for minutes, a repair's, takes `ageOut: false` and never goes stale that
+ * way: it waits for its holder to remove it, or for someone to delete it. So two repairs in a folder
+ * shared with a container or another machine are kept apart too, as far as the folder's file system
+ * creates a file only when its name is free (local disks, NFS and SMB do), and a repair that died
+ * over there leaves a lock to delete by hand. An earlier Shadowlap's lock names its process but not
+ * when it started: it is stale once that process is gone from a machine with its host name, or by
+ * its age.
  *
  * Taking over. Only a process holding `<lock>.break`, a lock taken the same way, removes a stale
  * lock, and only after reading the lock again and finding the very one it judged: the same file
@@ -47,11 +54,11 @@ import { processAlive } from './liveness.js';
  * below is only needed after a process died at the level above, and the last level is waited for,
  * never broken.
  *
- * The one assumption is on the locks that can't be checked: a holder on another machine or in
- * another container, or an earlier Shadowlap's, that keeps the lock longer than LOCK_STALE_MS loses
- * it. On a file system
- * without hard links (FAT) a lock is created in place and its record written after, so a taker
- * stopped for longer than that between the two loses it too.
+ * The one assumption is on the locks judged by their age: a holder on another machine or in another
+ * container, or an earlier Shadowlap's, that keeps one longer than LOCK_STALE_MS loses it. No
+ * Shadowlap edit takes nearly that long, and a repair's lock, the one held for minutes, is never
+ * judged so. On a file system without hard links (FAT) a lock is created in place and its record
+ * written after, so a taker stopped for longer than that between the two loses it too.
  *
  * Taking over has a limit, which costs waiting, never a second holder: Windows can't tell when a
  * process started without PowerShell, so there a lock whose holder died, and whose id was given to
@@ -75,6 +82,12 @@ export interface LockOptions {
   busy: () => Error;
   /** The lock file's permissions: 0o644 unless given. */
   mode?: number;
+  /**
+   * Whether a lock whose holder this machine can't check (see the header) is stale once nobody has
+   * changed it for LOCK_STALE_MS: true unless given, for a lock held a moment. A lock held for
+   * longer than that, as a repair's is, passes false: one it can't check waits until it is deleted.
+   */
+  ageOut?: boolean;
 }
 
 /** A lock this process holds: its path, and the record it wrote there. */
@@ -85,7 +98,7 @@ export interface HeldLock {
 
 /** Takes the lock file at `path`, waiting up to `options.wait` for a holder that runs; throws `options.busy()` after that. */
 export function takeLock(path: string, options: LockOptions): HeldLock {
-  const held = take(path, Math.max(0, options.wait), options.mode ?? 0o644, 0);
+  const held = take(path, Math.max(0, options.wait), options.mode ?? 0o644, options.ageOut ?? true, 0);
   if (!held) throw options.busy();
   return held;
 }
@@ -125,7 +138,7 @@ const code = (err: unknown) => (err as NodeJS.ErrnoException | undefined)?.code;
 const holding = new Set<string>();
 
 /** The lock, or null when a holder that runs (or a lock that can't be checked, while it is fresh) still has it after `wait`. */
-function take(path: string, wait: number, mode: number, level: number): HeldLock | null {
+function take(path: string, wait: number, mode: number, ageOut: boolean, level: number): HeldLock | null {
   const record = newRecord();
   const deadline = Date.now() + wait;
   for (let quick = 0; ; ) {
@@ -135,7 +148,7 @@ function take(path: string, wait: number, mode: number, level: number): HeldLock
     }
     const seen = inspect(path);
     // Released since the link failed, or stale and removed now: try again at once.
-    if (quick < QUICK_TRIES && (!seen || (stale(seen) && breakStale(path, seen, mode, level)))) {
+    if (quick < QUICK_TRIES && (!seen || (stale(seen, ageOut) && breakStale(path, seen, mode, level)))) {
       quick++;
       continue;
     }
@@ -199,7 +212,8 @@ function writeNew(path: string, text: string, mode: number): void {
  */
 function breakStale(path: string, seen: Seen, mode: number, level: number): boolean {
   if (level >= GUARDS) return false;
-  const guard = take(`${path}.break`, 0, mode, level + 1);
+  // A guard is held for a few file operations, as a brief lock is, and goes by the same rules.
+  const guard = take(`${path}.break`, 0, mode, true, level + 1);
   if (!guard) return false;
   try {
     const now = inspect(path);
@@ -310,12 +324,14 @@ function parseRecord(text: string): Record2 | Record1 | null {
 }
 
 /** Whether the lock's holder is gone (see the header): for certain when this machine can check it, by its age otherwise. */
-function stale(seen: Seen, now: number = Date.now()): boolean {
+function stale(seen: Seen, ageOut: boolean, now: number = Date.now()): boolean {
   const old = now - seen.mtimeMs > LOCK_STALE_MS;
+  // What a lock this machine can't check goes by: its age, unless it is held for longer than that.
+  const aged = ageOut && old;
   const r = parseRecord(seen.content);
-  if (!r) return old;
-  if (r.v === 1) return ((r.host === null || r.host === hostname()) && !processAlive(r.pid)) || old;
-  if (!here(r)) return old;
+  if (!r) return aged;
+  if (r.v === 1) return ((r.host === null || r.host === hostname()) && !processAlive(r.pid)) || aged;
+  if (!here(r)) return aged;
   // This process: another of its threads may hold it; this thread knows whether it does.
   if (r.pid === process.pid) return r.tid === threadId && !holding.has(seen.content);
   if (!processAlive(r.pid)) return true;

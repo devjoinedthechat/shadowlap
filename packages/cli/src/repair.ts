@@ -117,12 +117,14 @@ export function recoverWorkingTree(cwd: string): string[] {
  * repair ends, then puts back what an interrupted repair left. With one repair at a time trying
  * candidates in a folder, a journal found here is never that of a repair still running, whose
  * candidate would be undone while it is verified: the repair that wrote it died, and the lock of a
- * process that died is taken over at once. Throws when another repair runs here.
+ * process that died is taken over at once. A repair runs for minutes, so a lock whose holder this
+ * machine can't check (one in a container or on another machine that shares the folder) is never
+ * taken over by its age: it waits until someone deletes it. Throws when another repair runs here.
  */
 export function startRepair(cwd: string): { lock: HeldLock; restored: string[] } {
   mkdirSync(join(cwd, '.shadowlap'), { recursive: true, mode: 0o700 });
   const path = join(cwd, '.shadowlap', 'repair.lock');
-  const lock = takeLock(path, { wait: 0, mode: 0o600, busy: () => new RepairError(`another shadowlap repair is running in this folder, trying its candidates in the working tree: wait for it to end (if none is running, delete ${path})`) });
+  const lock = takeLock(path, { wait: 0, mode: 0o600, ageOut: false, busy: () => new RepairError(`another shadowlap repair is running in this folder, trying its candidates in the working tree: wait for it to end (if none is running, delete ${path})`) });
   try {
     return { lock, restored: recoverWorkingTree(cwd) };
   } catch (err) {

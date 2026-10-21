@@ -155,6 +155,30 @@ describe('takeLock', () => {
     }
   });
 
+  it('never takes over by its age a lock held for minutes whose holder it can’t check, and at once one whose holder died here', () => {
+    // A repair's: held while candidates are verified, far longer than LOCK_STALE_MS.
+    const long = (wait = 0) => takeLock(lock, { wait, busy, ageOut: false });
+    const cases: Array<[string, string]> = [
+      ['another machine’s', record({ pid: GONE, host: 'another-machine', start: 'another-boot:1' })],
+      ['a container’s with process ids of its own', record({ pid: GONE, ns: 'pid:[1]' })],
+      ['one that doesn’t say who holds it', ''],
+      ['an earlier Shadowlap’s held by a running process', JSON.stringify({ pid: process.pid, host: hostname(), token: 'earlier' })],
+    ];
+    for (const [what, text] of cases) {
+      writeFileSync(lock, text);
+      age(lock);
+      expect(() => long(50), what).toThrow('busy');
+      expect(readFileSync(lock, 'utf8'), what).toBe(text);
+      // A lock held for a moment, in its place, is taken over by now.
+      releaseLock(take());
+      expect(readdirSync(dir), what).toEqual([]);
+    }
+    // Its holder died on this machine: taken over at once, as any lock is.
+    writeFileSync(lock, record({ pid: GONE }));
+    releaseLock(long());
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
   it('tells this machine on Linux by its boot and process id namespace, whatever the host name, and elsewhere by its host name', () => {
     // Another boot, or another process id namespace (a container with process ids of its own, sharing
     // the folder), under this host name: no process here has its id, which says nothing of its holder.
