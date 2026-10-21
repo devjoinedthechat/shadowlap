@@ -1,9 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { accessSync, closeSync, constants, fchmodSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
-import { hostname } from 'node:os';
+import { accessSync, closeSync, constants, fchmodSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { ClockMode } from './clock.js';
-import { processAlive } from './liveness.js';
+import { releaseLock, takeLock, type HeldLock } from './lock-file.js';
 import { compilePattern, namedPatterns, parsePath } from './normalize.js';
 import type { CallKind, Normalizer } from './types.js';
 
@@ -330,8 +329,6 @@ function ruleEvent(list: RuleList, what: 'added' | 'removed', entry: unknown): C
 }
 
 const LOCK_WAIT_MS = 2_000;
-const LOCK_STALE_MS = 10_000;
-const pause = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /** The file edits write to: the config itself, or what a symbolic link to it points at. */
 function writeTarget(path: string): string {
@@ -340,51 +337,6 @@ function writeTarget(path: string): string {
   } catch {
     return path;
   }
-}
-
-/**
- * A lock left by a writer that is gone: its process no longer runs on this machine, or (for a lock
- * from another machine on a shared folder, or one whose owner can't be read) nobody touched it for
- * a while.
- */
-function stale(owner: string, mtimeMs: number): boolean {
-  try {
-    const o = JSON.parse(owner) as { pid?: unknown; host?: unknown };
-    if (o.host === hostname() && typeof o.pid === 'number' && Number.isInteger(o.pid) && o.pid > 0 && !processAlive(o.pid)) return true;
-  } catch {
-    // written by something else, or still being written: go by its age
-  }
-  return Date.now() - mtimeMs > LOCK_STALE_MS;
-}
-
-const readOr = (path: string, fallback: string | null): string | null => {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return fallback;
-  }
-};
-
-/**
- * Moves a stale lock out of the way, if it is still the one `seen`: renaming is atomic, so of two
- * writers that found the same stale lock only one moves it. One that moved a fresh lock instead
- * (taken between its look and its move) puts it back and waits like everyone else.
- */
-function breakStale(lock: string, seen: string): void {
-  const aside = `${lock}.${process.pid}.${randomBytes(4).toString('hex')}.stale`;
-  try {
-    renameSync(lock, aside);
-  } catch {
-    return; // released or broken meanwhile
-  }
-  if (readOr(aside, null) !== seen) {
-    try {
-      linkSync(aside, lock);
-    } catch {
-      // another lock was taken meanwhile; its owner and the one moved aside both finish first
-    }
-  }
-  rmSync(aside, { force: true });
 }
 
 /**
@@ -398,48 +350,21 @@ function notWritable(err: unknown, target: string): Error {
 }
 
 /**
- * Runs `fn` holding `<file>.lock`, which every Shadowlap writer takes. The lock names its owner, so
- * a lock left by a crash is taken over at once on the same machine (after LOCK_STALE_MS otherwise),
- * and a writer only ever removes its own.
+ * Runs `fn` holding `<file>.lock`, which every Shadowlap writer takes (lock-file.ts: a lock whose
+ * process is gone is taken over at once, and one whose process runs on this machine is not, but on
+ * Windows after ten seconds; a writer only ever removes its own).
  */
 function withLock<T>(target: string, wait: number, fn: () => T): T {
-  const lock = `${target}.lock`;
-  const owner = JSON.stringify({ pid: process.pid, host: hostname(), token: randomBytes(8).toString('hex'), at: new Date().toISOString() });
-  const deadline = Date.now() + wait;
-  for (;;) {
-    let fd: number | null = null;
-    try {
-      fd = openSync(lock, 'wx', 0o644);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw notWritable(err, target);
-    }
-    if (fd !== null) {
-      try {
-        writeSync(fd, owner);
-      } finally {
-        closeSync(fd);
-      }
-      break;
-    }
-    let seen: string | null = null;
-    let mtimeMs = 0;
-    try {
-      mtimeMs = statSync(lock).mtimeMs;
-      seen = readFileSync(lock, 'utf8');
-    } catch {
-      continue; // released between the two calls
-    }
-    if (stale(seen, mtimeMs)) {
-      breakStale(lock, seen);
-      continue;
-    }
-    if (Date.now() >= deadline) throw new ConfigBusyError(`${CONFIG_FILE} is being edited by another command; try again`);
-    pause(10 + Math.floor(Math.random() * 15));
+  let held: HeldLock;
+  try {
+    held = takeLock(`${target}.lock`, { wait, busy: () => new ConfigBusyError(`${CONFIG_FILE} is being edited by another command; try again (if no Shadowlap command is running, delete ${target}.lock)`) });
+  } catch (err) {
+    throw err instanceof ConfigBusyError ? err : notWritable(err, target);
   }
   try {
     return fn();
   } finally {
-    if (readOr(lock, null) === owner) rmSync(lock, { force: true });
+    releaseLock(held);
   }
 }
 

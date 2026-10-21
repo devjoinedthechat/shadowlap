@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncR
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { withLockFile } from '@shadowlap/engine';
 import { startCommand } from './start-command.js';
 
 /**
@@ -20,6 +21,13 @@ import { startCommand } from './start-command.js';
  * can't be written, in the project's `.shadowlap/agents`. They carry the sidecar's session token,
  * so the folder is owner-only, and a file is trusted only when it is the user's own, owner-only,
  * not a link, names the process it is filed under, and names that process's parent correctly.
+ *
+ * A file is written, removed, and removed as left over (its agent's process is gone) only under the
+ * folder's `.lock`, the engine's lock file. A process id is given again once its process ends, so a
+ * file found left over can be replaced by a new agent's before it is removed, and an agent that
+ * exited can have its id, and its file name, taken by another agent before its own exit is handled.
+ * Under the lock, what is removed is what was judged: a left-over file is judged and removed in one
+ * hold, and an exit removes the file only while it is still the one written for that agent.
  */
 
 export interface SidecarTarget {
@@ -98,7 +106,16 @@ function alive(pid: number): boolean {
   }
 }
 
-/** Removes files left by agents whose process is gone (a CLI that was killed can't clean up). */
+/** How long a command waits for another changing the same folder: each holds the lock for a few file operations. */
+const LOCK_WAIT_MS = 2_000;
+
+/** Runs `fn` holding the folder's lock (see the header). */
+function underLock(dir: string, fn: () => void): void {
+  const lock = join(dir, '.lock');
+  withLockFile(lock, { wait: LOCK_WAIT_MS, mode: 0o600, busy: () => new Error(`${dir} is being changed by another Shadowlap command (if none is running, delete ${lock})`) }, fn);
+}
+
+/** Removes files left by agents whose process is gone (a CLI that was killed can't clean up). Called holding the folder's lock. */
 function prune(dir: string): void {
   try {
     for (const name of readdirSync(dir)) {
@@ -110,20 +127,31 @@ function prune(dir: string): void {
   }
 }
 
+const readOr = (file: string): string | null => {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+};
+
 /**
  * Publishes the sidecar and run of an agent this process started, until the returned function is
  * called. Written to the first folder that can be used; false when none could.
  */
 export function registerAgent(pid: number, target: SidecarTarget, o: { cwd?: string; home?: string | null } = {}): { unregister: () => void; file: string | null } {
   const body: Registration = { v: 1, pid, parent: process.pid, url: target.url, runId: target.runId };
+  const text = JSON.stringify(body) + '\n';
   for (const dir of registryDirs(o.cwd, o.home === undefined ? safeHome() : o.home)) {
     if (!prepareDir(dir)) continue;
-    prune(dir);
     const file = join(dir, `${pid}.json`);
     try {
-      // Written fresh, so a link or a file left at that path is replaced, never followed.
-      rmSync(file, { force: true });
-      writeFileSync(file, JSON.stringify(body) + '\n', { mode: 0o600, flag: 'wx' });
+      underLock(dir, () => {
+        prune(dir);
+        // Written fresh, so a link or a file left at that path is replaced, never followed.
+        rmSync(file, { force: true });
+        writeFileSync(file, text, { mode: 0o600, flag: 'wx' });
+      });
     } catch {
       continue;
     }
@@ -133,7 +161,14 @@ export function registerAgent(pid: number, target: SidecarTarget, o: { cwd?: str
       unregister: () => {
         if (done) return;
         done = true;
-        rmSync(file, { force: true });
+        try {
+          // Only while it is the file written for this agent: its process id may be another agent's by now.
+          underLock(dir, () => {
+            if (readOr(file) === text) rmSync(file, { force: true });
+          });
+        } catch {
+          // the folder kept busy: the next registration here removes it, its agent being gone
+        }
       },
     };
   }

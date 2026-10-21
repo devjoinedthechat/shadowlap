@@ -682,9 +682,10 @@ describe('ProjectRegistry: the file', () => {
     expect(() => busy.add('~/triage-bot')).toThrow(/held by another Shadowlap process/);
     expect(existsSync(lock)).toBe(true);
 
-    // Held by a process that is gone: taken over at once.
-    const dead = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
-    writeFileSync(lock, dead.stdout);
+    // Held by a process that is gone: taken over at once. No process has this id: past macOS's ids, at
+    // the very top of Linux's, and no multiple of four, as every Windows one is (Windows can give the id
+    // of a process that just ended to another, whose lock would then be a running holder's).
+    writeFileSync(lock, String(2 ** 22 - 7));
     expect(busy.add('~/triage-bot').project.id).toBe('triage-bot');
     expect(existsSync(lock)).toBe(false);
     expect(existsSync(`${lock}.stale`)).toBe(false);

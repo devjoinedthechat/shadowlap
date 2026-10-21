@@ -72,6 +72,8 @@ Each candidate is applied in place, verified, and put back. The agent's command,
 
 Before an edit, the original bytes go to `.shadowlap/repair-journal.json`. The file is restored after each candidate, on Ctrl-C, and at the start of the next repair if a process died; `shadowlap doctor` reports a journal left behind. A file you edit while a candidate is being verified is left alone, and the report says so.
 
+One repair runs in a folder at a time. It holds `.shadowlap/repair.lock` while it runs and while it hands its fix over, and a repair started there meanwhile stops before it does anything and says so, rather than undo the running one's candidate. The lock of a repair whose process died on this machine is taken over at once, and its journal restored. A repair in a container or on another machine that shares the folder is kept apart too, but neither side can check the other's process, so such a lock is never taken over: if a repair died there, delete `.shadowlap/repair.lock`. On Windows, which can't tell a process from one given the same process id since, the lock of a repair that died also waits while a running process has its id: delete it if no repair is running.
+
 ## Handing it over
 
 | Option | What you get |

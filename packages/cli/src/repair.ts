@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, BLAME_DEFAULTS, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, REPAIR_FILE_LIMIT, repairMarkdown, rewriteText, safeLine, Store, toolDefinitions, unifiedDiff, type Conversation, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { applyEdit, BLAME_DEFAULTS, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, type Conversation, type HeldLock, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
@@ -110,6 +110,27 @@ export function recoverWorkingTree(cwd: string): string[] {
   }
   rmSync(path, { force: true });
   return restored;
+}
+
+/**
+ * Starts a repair in `cwd`: takes `.shadowlap/repair.lock` (the engine's lock file), held until the
+ * repair ends, then puts back what an interrupted repair left. With one repair at a time trying
+ * candidates in a folder, a journal found here is never that of a repair still running, whose
+ * candidate would be undone while it is verified: the repair that wrote it died, and the lock of a
+ * process that died is taken over at once. A repair runs for minutes, so a lock whose holder this
+ * machine can't check (one in a container or on another machine that shares the folder) is never
+ * taken over by its age: it waits until someone deletes it. Throws when another repair runs here.
+ */
+export function startRepair(cwd: string): { lock: HeldLock; restored: string[] } {
+  mkdirSync(join(cwd, '.shadowlap'), { recursive: true, mode: 0o700 });
+  const path = join(cwd, '.shadowlap', 'repair.lock');
+  const lock = takeLock(path, { wait: 0, mode: 0o600, ageOut: false, busy: () => new RepairError(`another shadowlap repair is running in this folder, trying its candidates in the working tree: wait for it to end (if none is running, delete ${path})`) });
+  try {
+    return { lock, restored: recoverWorkingTree(cwd) };
+  } catch (err) {
+    releaseLock(lock);
+    throw err;
+  }
 }
 
 function gitRoot(cwd: string): string {
@@ -266,13 +287,28 @@ export function noDiagnosisWhy(blamed: ReadonlyArray<Pick<Blamed, 'target' | 'no
     : 'resampling rescued no failing run, so there is no passing path to learn from; try a stronger model with --stronger <model>, or look at the code and the tools';
 }
 
+/**
+ * Runs a repair and hands it over, holding the folder's repair lock through both: `--apply` writes
+ * the accepted change to the working tree, where another repair would otherwise try a candidate on
+ * top of it, or verify one with it in place. A hand-over that fails part way throws a HandOverError
+ * with the report as far as it got.
+ */
 export async function runRepair(input: RepairInput): Promise<RepairReport> {
-  const { settings: s, log } = input;
   const cwd = process.cwd();
   const root = gitRoot(cwd);
   // A hand-over that can't work is refused before anything runs, not after the repair.
   if (input.outputs.branch && input.outputs.goldens) goldensInRepo(root, cwd, input.outputs.goldens);
-  const restored = recoverWorkingTree(cwd);
+  const { lock, restored } = startRepair(cwd);
+  try {
+    return handOver(await repairHere(input, cwd, root, restored), input);
+  } finally {
+    releaseLock(lock);
+  }
+}
+
+/** The repair itself, holding the folder's repair lock. */
+async function repairHere(input: RepairInput, cwd: string, root: string, restored: string[]): Promise<RepairReport> {
+  const { settings: s, log } = input;
   for (const f of restored) log(p.yellow(`  ! restored ${relative(cwd, f)}, which an interrupted repair had left edited`));
 
   const config = loadConfig(cwd);
@@ -644,8 +680,9 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
  * fix, the patch and a recording of every fixed run; then, on request, the change applied to the
  * working tree, committed to a branch, and opened as a pull request. When one of those requests
  * fails, report.json is still written and a HandOverError carries the report as far as it got.
+ * Called holding the folder's repair lock.
  */
-export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' | 'outputs' | 'settings' | 'log'>): RepairReport {
+function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' | 'outputs' | 'settings' | 'log'>): RepairReport {
   const cwd = process.cwd();
   const root = gitRoot(cwd);
   const id = `repair-${Date.now().toString(36)}`;
