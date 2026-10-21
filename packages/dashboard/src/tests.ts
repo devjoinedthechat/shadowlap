@@ -659,11 +659,13 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
 
 /**
  * What a result's gate decided, as the screen shows it: the tally, what an attempt cost, and for an
- * inconclusive one, Run more attempts with twice the limit.
+ * inconclusive one, Run more attempts with twice the limit. Null when it decided nothing: an attempt
+ * a check could not decide stopped it first (a result kept before test left such a gate out keeps
+ * one still going, which no verdict word names).
  */
 export function gateResultView(r: TestResult, golden: string): GateResultView | null {
   const g = r.data?.gate;
-  if (!g) return null;
+  if (!g || g.decision === 'continue') return null;
   // What this session's own attempts cost, the agent's calls and its judges' alike (each forked
   // attempt asks its judges live): carried-over ones were paid for before.
   const agent = r.data?.spent;

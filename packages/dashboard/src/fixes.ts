@@ -268,7 +268,11 @@ export interface VerifyRow {
   /** The first attempt replayed clean, so it settled the run. */
   deterministic: boolean;
   outcome: ReturnType<typeof outcomeOf>;
-  /** Decided by a gate: what it said, the pass rate's Wilson interval at the confidence it decided at, and its bound as the Attempts column shows it (`rate >= 0.76 (95%)`). Null for a fixed count. */
+  /**
+   * Decided by a gate: what it said, the pass rate's Wilson interval at the confidence it decided at,
+   * and its bound as the Attempts column shows it (`rate >= 0.76 (95%)`). Null for a fixed count, and
+   * for a run an attempt it could not judge stopped before its gate decided anything.
+   */
   rate: { decision: string; lo: number; hi: number; confidence: number; sentence: string; bound: string | null } | null;
   /** Where it went: where it forked, or why it failed. */
   note: string;
@@ -792,8 +796,8 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
       return sum / n;
     };
     const now = mean((a) => a.footprint.inputTokens);
-    // A run an attempt it could not judge stopped was decided by no gate: no bound, as verify's report has none.
-    const rate = rateOf(x.gate);
+    // A run an attempt it could not judge stopped was decided by no gate: no rate, as verify's JSON has none.
+    const rate = x.undecided ? null : rateOf(x.gate);
     return {
       role: ROLE[x.role],
       runId: x.runId,
@@ -803,7 +807,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
       inconclusive: x.attempts.filter((a) => attemptVerdictOf(a) === 'inconclusive').length,
       deterministic: x.deterministic,
       outcome: outcomeOf(x),
-      rate: rate && x.undecided ? { ...rate, bound: null } : rate,
+      rate,
       note: failure ? shortFailure(failure) : x.undecided ? 'an attempt could not be judged' : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
       tokens: now === null ? null : { recorded: x.recorded.footprint.inputTokens, now },
       cost: n ? { recorded: x.recorded.footprint.cost, now: mean((a) => a.footprint.cost) } : null,

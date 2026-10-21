@@ -116,7 +116,18 @@ async function record(env: NodeJS.ProcessEnv = {}, expectCode = 0): Promise<stri
   return (JSON.parse(readFileSync(join(work, file), 'utf8')) as { summary: { runId: string } }).summary.runId;
 }
 
-type Result = { ok: boolean; verdict: string; failure: string | null; runId: string; upstreamRequests: number; checks: Array<{ status?: string; reason?: string; detail: string | null; judge?: { source: string | null; verdict: string | null } }> };
+type Result = {
+  ok: boolean;
+  verdict: string;
+  failure: string | null;
+  message: string | null;
+  runId: string;
+  runs: Array<{ runId: string; ok: boolean; verdict: string }>;
+  attempts: { total: number; passed: number; inconclusive?: number; required: number | null } | null;
+  gate: { decision: string; sentence: string } | null;
+  upstreamRequests: number;
+  checks: Array<{ status?: string; reason?: string; detail: string | null; judge?: { source: string | null; verdict: string | null } }>;
+};
 
 async function test(golden: string, extra: string[] = [], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; result: Result }> {
   const report = join(work, `report-${++counter}.json`);
@@ -331,6 +342,18 @@ describe('a gated golden whose attempt a judge could not answer', () => {
     const md = readFileSync(markdown, 'utf8');
     expect(md).toContain('Inconclusive means a check could not be decided');
     expect(md).not.toMatch(/neither verdict holds|More attempts settle a gate/);
+    // Nor does the JSON, nor the result the store keeps: there is no gate verdict, and no word that is no verdict.
+    expect(t.result).toMatchObject({ gate: null, attempts: { total: 2, passed: 1, inconclusive: 1, required: null } });
+    expect(t.result.runs.map((r) => r.verdict)).toEqual(['passed', 'inconclusive']);
+    expect(JSON.stringify(t.result)).not.toContain('undecided');
+    const store = Store.open(join(work, '.shadowlap', 'shadowlap.db'));
+    try {
+      const kept = store.listTestResults({ golden: 'goldens/twice', limit: 1 })[0]!;
+      expect(kept.data).toMatchObject({ verdict: 'inconclusive', attempts: { total: 2, passed: 1, inconclusive: 1 } });
+      expect(kept.data?.gate).toBeUndefined();
+    } finally {
+      store.close();
+    }
   }, 120_000);
 });
 

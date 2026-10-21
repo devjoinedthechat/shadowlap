@@ -1051,7 +1051,8 @@ describe('goldens with a gate', () => {
     ]);
     const view = testsView(store, gated.slice(0, 2));
     const [escalates, flaky] = view.rows;
-    expect(escalates!.last).toMatchObject({ verdict: 'inconclusive', line: why });
+    // A result kept with the gate the check stopped before it decided: no gate shows, as it decided nothing.
+    expect(escalates!.last).toMatchObject({ verdict: 'inconclusive', line: why, gate: null });
     expect(view.inconclusive).toEqual([expect.objectContaining({ golden: 'goldens/escalates', reason: why, gate: null }), expect.objectContaining({ golden: 'goldens/flaky', reason: 'injection inconclusive: no attempt showed anything', gate: null })]);
     expect(flaky!.last).toMatchObject({ verdict: 'inconclusive', line: 'injection inconclusive: no attempt showed anything' });
     // Its title and its history cell say what is inconclusive, never a gate that ran out of attempts.

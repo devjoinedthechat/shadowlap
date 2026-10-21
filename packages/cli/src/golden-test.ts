@@ -83,7 +83,10 @@ export interface RecordingOutcome {
    * judge, a condition it can't read), which fails the run all the same unless inconclusive verdicts warn.
    */
   verdict: 'passed' | 'failed' | 'inconclusive';
-  /** A golden with a gate: what the gate decided, and why. */
+  /**
+   * A golden with a gate: what the gate decided, and why. Null without one, and for one an attempt a
+   * check could not decide stopped before its gate decided: the gate said nothing, and `failure` says why.
+   */
   gate: GateResult | null;
   /** Attempts a check couldn't judge: no evidence either way. */
   inconclusive: number;
@@ -187,7 +190,8 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   const required = gate ? null : (spec?.passes ?? 1);
   const judged = attempts.filter((a) => attemptVerdict(a) !== 'inconclusive');
   const carried = carry ? carry.outcomes : [];
-  const result = gate ? gateResult(gate, [...carried, ...judged.map((a) => !a.failure)], { history: ctx.history ?? null, clean, decision: unjudged ? 'continue' : decision, carried: carried.length }) : null;
+  // An attempt a check could not decide stops a gate before it decides: the gate said nothing.
+  const result = gate && !unjudged ? gateResult(gate, [...carried, ...judged.map((a) => !a.failure)], { history: ctx.history ?? null, clean, decision, carried: carried.length }) : null;
   const verdict: RecordingOutcome['verdict'] = unjudged ? 'inconclusive' : gate ? (decision === 'pass' ? 'passed' : decision === 'fail' ? 'failed' : 'inconclusive') : passed >= required! ? 'passed' : 'failed';
   const unjudgedAttempt = attempts.find((a) => attemptVerdict(a) === 'inconclusive');
   const shown = verdict === 'passed' ? attempts.filter((a) => !a.failure).at(-1)! : (unjudgedAttempt ?? attempts.find((a) => a.failure) ?? attempts.at(-1)!);
@@ -249,7 +253,8 @@ export function carryFor(store: Store, golden: string, o: { goldenRunId: string;
   const last: TestResult | undefined = store.listTestResults({ golden, limit: 2 }).find((r) => r.sessionId !== o.session);
   if (!last) return { why: 'it has no result to continue yet' };
   const g = last.data?.gate;
-  if (!g) return { why: 'its last result had no gate' };
+  // An attempt a check could not decide stopped it before its gate decided anything: there is no gate to continue.
+  if (!g) return { why: last.data?.attempts?.inconclusive ? 'a check could not be decided in its last result, which stopped it before its gate decided' : 'its last result had no gate' };
   if (g.decision !== 'inconclusive') return { why: `its last result ${g.decision === 'pass' ? 'passed' : g.decision === 'fail' ? 'failed' : 'did not finish'}, so there is nothing to continue` };
   if (last.goldenRunId !== o.goldenRunId) return { why: 'it was re-recorded since its last result' };
   if (!judgedUnder(last, o.checks)) return { why: 'its checks changed since its last result' };
@@ -522,7 +527,8 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     tokensNotRespent: s ? notRespentOf(s) : null,
     divergence: s?.divergence ? { type: s.divergence.type, callNo: s.divergence.callNo, kind: s.divergence.kind, name: s.divergence.name, ...(s.divergence.recorded !== undefined ? { recorded: s.divergence.recorded } : {}) } : null,
     checks: r?.shown.checks ?? null,
-    attempts: r && (r.attempts.length > 1 || r.gate) ? { total: r.attempts.length, passed: r.passed, required: r.required } : null,
+    // A gated golden has them whether or not its gate decided; an attempt a check could not decide counts neither way.
+    attempts: r && (r.attempts.length > 1 || r.gate || o.spec?.gate) ? { total: r.attempts.length, passed: r.passed, inconclusive: r.inconclusive, required: r.required } : null,
     gate: r?.gate ?? null,
     expect: extra.expect,
     updated: extra.updated ?? null,

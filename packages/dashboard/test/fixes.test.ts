@@ -383,7 +383,7 @@ describe('a fix', () => {
     expect(fixDetail(store, fix.fixId)!.steps[2]).toMatchObject({ state: 'todo', short: 'not settled', meta: 'a run it verified is inconclusive' });
   });
 
-  it('gives no bound for a run an attempt it could not judge stopped under a gate, as verify gives none', () => {
+  it('gives no rate for a run an attempt it could not judge stopped under a gate, as verify gives none', () => {
     const failing = makeRun(store, { labels: ['refund-bug'] });
     const good = makeRun(store, { labels: ['good'], status: 'completed' });
     const { fix } = blame(failing);
@@ -397,7 +397,9 @@ describe('a fix', () => {
     Object.assign(report, decideVerify(report.runs, null));
     recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: NOW });
     const row = fixDetail(store, fix.fixId)!.verify[0]!.rows[1]!;
-    expect(row).toMatchObject({ outcome: 'inconclusive', attempts: 3, passes: 2, inconclusive: 1, rate: { decision: 'continue', bound: null } });
+    // Its gate decided nothing, so there is no rate, nor a sentence with a word that is no verdict.
+    expect(row).toMatchObject({ outcome: 'inconclusive', attempts: 3, passes: 2, inconclusive: 1, rate: null });
+    expect(JSON.stringify(fixDetail(store, fix.fixId))).not.toContain('undecided');
   });
 
   it("lists a verdict under another check with why it doesn't count, and leaves the steps as they were", () => {

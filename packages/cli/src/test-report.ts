@@ -50,9 +50,17 @@ export interface PackResult {
   divergence: { type: DivergenceType; callNo: number; kind: string; name: string; recorded?: number } | null;
   /** Outcome checks from shadowlap.config.json for the attempt shown: the first failure, or the last pass. Each has its `status` (passed, failed, inconclusive, not-applicable), and a judge check's its judge's `reason` and `judge`. Null without checks. */
   checks: StoredCheck[] | null;
-  /** For a recording that repeats, or one with a gate: how many attempts ran, passed and had to pass (null with a gate). */
-  attempts: { total: number; passed: number; required: number | null } | null;
-  /** A golden with a gate: its figures, its decision and sentence, the interval, pass^k and the evidence path (stats.ts). */
+  /**
+   * For a recording that repeats, or one with a gate: how many attempts ran, passed, were
+   * inconclusive (a check could not decide them: neither passed nor failed) and had to pass (null
+   * with a gate). Reports made before attempts were counted apart have no `inconclusive`.
+   */
+  attempts: { total: number; passed: number; inconclusive?: number; required: number | null } | null;
+  /**
+   * A golden with a gate: its figures, its decision and sentence, the interval, pass^k and the
+   * evidence path (stats.ts). Null for one an attempt a check could not decide stopped before its
+   * gate decided anything: its message says why it is inconclusive.
+   */
   gate: GateResult | null;
   /** Its checks as written under `tests` in the config (`expect`), for tools that act on a failed check, such as the GitHub Action's fix on failure. */
   expect: Record<string, unknown> | null;
