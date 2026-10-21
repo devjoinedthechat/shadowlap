@@ -356,7 +356,9 @@ describe('shadowlap blame', () => {
     expect(p.runs.every((x) => !x.passed)).toBe(true);
   });
 
-  it('ends promptly on Ctrl-C while an attempt waits for a slow one the gate must read first, and says nothing of the call it cut off', async () => {
+  // On Windows a process is ended outright, never signalled, so blame never gets to report: there the
+  // stopped probe in probe-tally.test.ts is what shows no attempt waits forever.
+  it.skipIf(process.platform === 'win32')('ends promptly on Ctrl-C while an attempt waits for a slow one the gate must read first, and says nothing of the call it cut off', async () => {
     stubborn = true;
     const runId = await record();
     // Held far longer than the test runs: only the interrupt can end the attempt.
