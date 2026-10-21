@@ -130,6 +130,16 @@ async function record(work: string, argv: string[], env: NodeJS.ProcessEnv = {})
   return /recording run (\w{26})/.exec(r.out)![1]!;
 }
 
+/**
+ * Ends a `tasks serve` and waits until it has gone, before its folder is removed: Windows keeps a
+ * folder a process still holds open (its store, its working directory), and refuses to remove it.
+ */
+async function stopServe(child: ChildProcess): Promise<void> {
+  const gone = new Promise((resolve) => (child.exitCode !== null || child.signalCode !== null ? resolve(null) : child.once('exit', resolve)));
+  child.kill('SIGTERM');
+  await gone;
+}
+
 function withStore<T>(db: string, fn: (s: Store) => T): T {
   const s = Store.open(db);
   try {
@@ -550,7 +560,7 @@ describe('shadowlap tasks', () => {
         expect(s.getRun(attempt.body.run as string)!.meta?.task).toMatchObject({ model: 'my-finetune', session: expect.stringMatching(/^serve-/) });
       });
     } finally {
-      child.kill('SIGTERM');
+      await stopServe(child);
     }
   }, 120_000);
   // Last: it adds a model's scores, which the tests above count.
@@ -646,7 +656,7 @@ describe('a task with a judge check', () => {
       expect(body.judge).toMatchObject({ calls: 1, live: 1, upstreamRequests: 1, spent: expect.closeTo(priced(judgeCallsOf(calls)), 12) });
       expect(body.judge!.spent).toBeGreaterThan(0);
     } finally {
-      child.kill('SIGTERM');
+      await stopServe(child);
     }
   }, 120_000);
 });
@@ -827,10 +837,7 @@ describe('shadowlap tasks serve, started with an endpoint', () => {
         expect(theirs.length).toBeGreaterThan(0);
         expect(theirs.every((r) => r.headers.authorization === undefined)).toBe(true);
       } finally {
-        const gone = new Promise((resolve) => (child.exitCode !== null || child.signalCode !== null ? resolve(null) : child.once('exit', resolve)));
-        child.kill('SIGTERM');
-        // Gone before its folder is removed: Windows keeps a folder a process still holds open.
-        await gone;
+        await stopServe(child);
       }
     } finally {
       rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
