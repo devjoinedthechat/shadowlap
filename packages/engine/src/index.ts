@@ -10,7 +10,7 @@ export { multipartView, parseMultipart, type MultipartPart, type MultipartView }
 export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, type ClockMode, type ClockReference } from './clock.js';
 export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
-export { SCHEMA_VERSION, Store } from './store.js';
+export { noFullTextSearch, SCHEMA_VERSION, Store } from './store.js';
 export type { CreateRunInput, NewStoredEvent, SearchState, StoredEvent } from './store.js';
 export type { SqlValue } from './store.js';
 export type { FixData, FixLink, FixLinkKind, FixStatus, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';

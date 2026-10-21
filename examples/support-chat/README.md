@@ -11,7 +11,7 @@ the keyboard.
 
 ## Setup
 
-You need Python 3.9 or later, Node 22.13 or later, and this repository built (`npm install && npm run
+You need Python 3.9 or later, Node 22.16 or later, and this repository built (`npm install && npm run
 build` at the root).
 
 ```sh

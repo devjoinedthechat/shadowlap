@@ -18,6 +18,6 @@ if (run) {
 store.close();
 ```
 
-Nothing in it talks to a network or a model provider. To bring recordings from another tool, write a pack and read it with `unpackRun`, which checks every record and every blob's hash before anything reaches the store. Node 22.13 or later, no dependencies.
+Nothing in it talks to a network or a model provider. To bring recordings from another tool, write a pack and read it with `unpackRun`, which checks every record and every blob's hash before anything reaches the store. Node 22.16 or later, no dependencies.
 
 [The engine as a library](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/engine.md) · [The recording format](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/recording-format.md)

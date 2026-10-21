@@ -23,7 +23,7 @@ if (!empty) {
       version: pick(['0.1.0', '0.1.0', '0.1.0', '0.1.1', '0.2.0']),
       os: pick(['darwin', 'darwin', 'darwin', 'linux', 'linux', 'win32']),
       arch: pick(['arm64', 'x64']),
-      node: pick(['22.13.0', '24.2.0']),
+      node: pick(['22.16.0', '24.2.0']),
       providers: pick([['anthropic'], ['anthropic'], ['openai'], ['anthropic', 'openai'], ['gemini']]),
       sdks: pick([['typescript'], ['typescript'], ['python'], ['typescript', 'mcp']]),
       ...(rand() < 0.12 ? { ci: pick(['github', 'github', 'gitlab', 'buildkite']) } : {}),

@@ -257,7 +257,7 @@ The Shadowlap action is the one step to add after your agent is built:
 
 It replays each recording offline and fails the check when one diverges, makes a live call, exits with an error or fails a check. The job summary gets a table of the recordings, and for each failure the diff of the first changed request, the normalizer hint if there is one, and the agent's last output lines; when a recording diverged, it names the `shadowlap test <dir> --update` command for a change you meant. Each failure is also annotated on the pull request.
 
-A Python agent needs its interpreter and packages installed before the action, as for any other step. The action itself needs Node 22.13 or later.
+A Python agent needs its interpreter and packages installed before the action, as for any other step. The action itself needs Node 22.16 or later.
 
 Set `version:` to the `shadowlap` release your project uses, and the action installs that CLI from npm. Left empty, the action builds the CLI from its own source, which adds about a minute.
 

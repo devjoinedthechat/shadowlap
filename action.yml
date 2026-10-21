@@ -105,7 +105,7 @@ runs:
     - name: Check Node.js
       shell: bash
       run: |
-        node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (a < 22 || (a === 22 && b < 13)) { console.log("::error title=Shadowlap::Shadowlap needs Node.js 22.13 or later; this job has " + process.version + ". Add actions/setup-node with node-version: 22 before this step."); process.exit(1); }'
+        node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (!((a === 22 && b >= 16) || a >= 24)) { console.log("::error title=Shadowlap::Shadowlap needs Node.js 22.16 or later (not 23), whose built-in SQLite has full-text search; this job has " + process.version + ". Add actions/setup-node with node-version: 22 before this step."); process.exit(1); }'
 
     - name: Install shadowlap ${{ inputs.version }}
       id: install

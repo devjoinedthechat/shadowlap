@@ -1144,6 +1144,15 @@ function createOnce(path: string, content: string): void {
   }
 }
 
+/**
+ * Why a store can't be opened on a Node whose built-in SQLite has no full-text search, which every
+ * store uses: Node has it from 22.16 on, and in 24 and later, never in 23.
+ */
+export function noFullTextSearch(version: string = process.version): string {
+  const node = /^v?23\./.test(version) ? `Node ${version.replace(/^v?/, '')}, like every Node 23,` : `Node ${version.replace(/^v?/, '')}`;
+  return `${node} has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later`;
+}
+
 /** Takes group and other permissions off a store created by an earlier version. */
 function restrictToOwner(path: string): void {
   if (process.platform === 'win32' || typeof process.getuid !== 'function') return;
@@ -1271,7 +1280,13 @@ export class Store {
       const columns = db.prepare(`PRAGMA table_info(runs)`).all().map((r) => String(r.name));
       if (!columns.includes('meta')) db.exec(`ALTER TABLE runs ADD COLUMN meta TEXT`);
       // v3: full-text search over recorded content, built on demand (search.ts). Additive too.
-      db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS search_docs USING fts5(text, run_id UNINDEXED, call_no UNINDEXED, field UNINDEXED, tokenize = 'unicode61')`);
+      try {
+        db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS search_docs USING fts5(text, run_id UNINDEXED, call_no UNINDEXED, field UNINDEXED, tokenize = 'unicode61')`);
+      } catch (err) {
+        // SQLite's own words, "no such module: fts5", would read as a damaged store.
+        if (/no such module: fts5/i.test(err instanceof Error ? err.message : String(err))) throw new Error(noFullTextSearch());
+        throw err;
+      }
       db.exec(`CREATE TABLE IF NOT EXISTS search_state (run_id TEXT PRIMARY KEY, calls INTEGER NOT NULL, status TEXT NOT NULL)`);
       // Where indexing a run stopped (search.ts), so a long run is indexed a batch at a time and a run
       // still recording from its newest calls on. Additive: a row without it covers its run whole.

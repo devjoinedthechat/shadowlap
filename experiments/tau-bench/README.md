@@ -28,7 +28,7 @@ The agent's system prompt is tau2's agent instruction followed by the domain pol
 
 ## Running it
 
-You need Node ≥ 22.13, git, [uv](https://docs.astral.sh/uv/), this repository built (`npm install && npm run build`), and keys for the models you choose. Setup pins Python 3.12, which tau2-bench's text mode still needs (it imports `audioop`).
+You need Node ≥ 22.16, git, [uv](https://docs.astral.sh/uv/), this repository built (`npm install && npm run build`), and keys for the models you choose. Setup pins Python 3.12, which tau2-bench's text mode still needs (it imports `audioop`).
 
 ```sh
 node experiments/tau-bench/experiment.mjs setup

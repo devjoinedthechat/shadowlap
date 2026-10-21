@@ -142,7 +142,7 @@ $ shadowlap decisions 01M5FP149X --model claude-haiku-4-5
 
 ## Quickstart
 
-Install the CLI (Node 22.13 or later), then let it read your project:
+Install the CLI (Node 22.16 or later), then let it read your project:
 
 ```sh
 npm install -g shadowlap
@@ -152,7 +152,7 @@ shadowlap init
 
 `init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes. Wrap each tool once with its effect, or it runs again on every replay.
 
-`@shadowlap/sdk` wraps tools and `@shadowlap/adapters` wraps them in your framework, both on Node 18 or later. `@shadowlap/test`, a dev dependency, records tests in Vitest or node:test, on Node 22.13 or later like the CLI. For Python 3.9 or later, one package holds all three:
+`@shadowlap/sdk` wraps tools and `@shadowlap/adapters` wraps them in your framework, both on Node 18.18 or later. `@shadowlap/test`, a dev dependency, records tests in Vitest or node:test, on Node 22.16 or later like the CLI. For Python 3.9 or later, one package holds all three:
 
 ```sh
 npm install @shadowlap/sdk

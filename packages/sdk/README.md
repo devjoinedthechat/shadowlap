@@ -24,6 +24,6 @@ Record and replay with the [`shadowlap` CLI](https://www.npmjs.com/package/shado
 - `scope()` names branches of the agent that run at once, `userInput()` records what a person types, and `trust: 'untrusted'` marks a read for injection tests.
 - A tool that a replay's `--fail-at` fails throws `ShadowlapInjectedFailure` without running, named `TimeoutError` for a timeout and with `status` for an HTTP status. `isActive()` says whether the agent runs under Shadowlap.
 
-Node 18 or later, no dependencies. Model calls need no SDK: `shadowlap run` points the provider SDKs at its sidecar through their base URLs.
+Node 18.18 or later, no dependencies. Model calls need no SDK: `shadowlap run` points the provider SDKs at its sidecar through their base URLs.
 
 [SDKs](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/sdk.md) · [Frameworks](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/frameworks.md) · [How it works](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/how-it-works.md)

@@ -33,9 +33,31 @@ export interface DoctorOptions {
   guardDir?: string;
   /** Runs `<command> --version` for python3 and python, null for one that isn't there (tests stub it). */
   python?: (command: string) => string | null;
+  /** Opens an in-memory database with a full-text index, as every store has; why it can't, or null (tests stub it). */
+  sqlite?: () => string | null;
 }
 
-const MIN_NODE = [22, 13] as const;
+/** The first Node 22 whose built-in SQLite has full-text search (FTS5), which every store uses; Node 24 and later have it too, Node 23 never. */
+const MIN_NODE = [22, 16] as const;
+
+/** Why this Node's built-in SQLite can't hold a store, or null: no `node:sqlite`, or no full-text search in it. */
+function defaultSqlite(): string | null {
+  let db: { exec(sql: string): void; close(): void } | null = null;
+  try {
+    const { DatabaseSync } = (globalThis as { process: { getBuiltinModule?: (id: string) => unknown } }).process.getBuiltinModule?.('node:sqlite') as { DatabaseSync: new (p: string) => { exec(sql: string): void; close(): void } };
+    db = new DatabaseSync(':memory:');
+  } catch (err) {
+    return `node:sqlite unavailable: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  try {
+    db.exec('CREATE VIRTUAL TABLE probe USING fts5(text)');
+    return null;
+  } catch (err) {
+    return `built-in SQLite has no full-text search: ${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    db.close();
+  }
+}
 
 function parseVersion(v: string): [number, number, number] {
   const m = /v?(\d+)\.(\d+)\.(\d+)/.exec(v);
@@ -88,19 +110,12 @@ export function runDoctor(options: DoctorOptions): Check[] {
   // Runtime
   const nodeVersion = options.nodeVersion ?? process.version;
   const [maj, min] = parseVersion(nodeVersion);
-  const nodeOk = maj > MIN_NODE[0] || (maj === MIN_NODE[0] && min >= MIN_NODE[1]);
-  push('node', nodeOk ? 'ok' : 'fail', `${nodeVersion} (shadowlap ${options.version})`, nodeOk ? undefined : `Shadowlap needs Node ≥ ${MIN_NODE.join('.')} for the built-in SQLite; install a current Node LTS.`);
-  let sqlite = 'built-in SQLite available';
-  let sqliteOk = true;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { DatabaseSync } = (globalThis as { process: { getBuiltinModule?: (id: string) => unknown } }).process.getBuiltinModule?.('node:sqlite') as { DatabaseSync: new (p: string) => { close(): void } };
-    new DatabaseSync(':memory:').close();
-  } catch (err) {
-    sqlite = `node:sqlite unavailable: ${err instanceof Error ? err.message : String(err)}`;
-    sqliteOk = false;
-  }
-  push('sqlite', sqliteOk ? 'ok' : 'fail', sqlite, sqliteOk ? undefined : 'Use Node ≥ 22.13, or a build of Node with node:sqlite enabled.');
+  const nodeOk = (maj === MIN_NODE[0] && min >= MIN_NODE[1]) || maj >= 24;
+  const needs = `Node ${MIN_NODE.join('.')} or later (not 23)`;
+  push('node', nodeOk ? 'ok' : 'fail', `${nodeVersion} (shadowlap ${options.version})`, nodeOk ? undefined : `Shadowlap needs ${needs}, whose built-in SQLite has full-text search; install a current Node LTS.`);
+  const sqliteWhy = (options.sqlite ?? defaultSqlite)();
+  const sqliteOk = sqliteWhy === null;
+  push('sqlite', sqliteOk ? 'ok' : 'fail', sqliteWhy ?? 'built-in SQLite with full-text search', sqliteOk ? undefined : `Use ${needs}: every store has a full-text index.`);
 
   // Guard files and Python
   const guardDir = options.guardDir ?? fileURLToPath(new URL('../guard/', import.meta.url));
@@ -115,6 +130,9 @@ export function runDoctor(options: DoctorOptions): Check[] {
   const dbPath = options.dbPath ?? defaultDbPath(cwd);
   if (!existsSync(dbPath)) {
     push('store', 'ok', `${dbPath} (not created yet; the first shadowlap run creates it)`);
+  } else if (!sqliteOk) {
+    // Opening it would fail for the Node, not for the file: never call it damaged.
+    push('store', 'warn', `${dbPath}: not read, as this Node's SQLite can't open a store`, `Use ${needs}, then run shadowlap doctor again.`);
   } else {
     try {
       const store = Store.open(dbPath);

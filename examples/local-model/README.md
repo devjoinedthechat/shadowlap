@@ -6,7 +6,7 @@ It is a good agent to debug, because a 7B model gets this task wrong in instruct
 
 ## Setup
 
-You need Node 22.13 or later, Ollama, and this repository built (`npm install && npm run build` at the root).
+You need Node 22.16 or later, Ollama, and this repository built (`npm install && npm run build` at the root).
 
 ```sh
 ollama pull qwen2.5:7b

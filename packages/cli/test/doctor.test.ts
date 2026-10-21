@@ -52,7 +52,7 @@ describe('shadowlap doctor', () => {
     });
     const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
     expect(byName.node).toMatchObject({ verdict: 'fail' });
-    expect(byName.node?.fix).toMatch(/Node ≥ 22\.13/);
+    expect(byName.node?.fix).toMatch(/Node 22\.16 or later \(not 23\)/);
     expect(byName['network guard']?.verdict).toBe('fail');
     expect(byName.python?.verdict).toBe('warn');
     expect(byName.SHADOWLAP_GUARD?.verdict).toBe('warn');
@@ -69,6 +69,19 @@ describe('shadowlap doctor', () => {
     expect(text).toContain('✗ node');
   });
 
+  it('wants Node 22.16 or later, not 23, and blames the Node, not the store, for a SQLite without full-text search', () => {
+    dir = mkdtempSync(join(tmpdir(), 'fp-doctor-'));
+    const node = (v: string) => runDoctor({ cwd: dir, env: {}, version: '0.1.0', nodeVersion: v, guardDir, python: () => 'Python 3.12.1' }).find((c) => c.name === 'node')!.verdict;
+    expect(['v22.15.0', 'v22.16.0', 'v23.11.1', 'v24.0.0', 'v26.1.0'].map(node)).toEqual(['fail', 'ok', 'fail', 'ok', 'ok']);
+    // A store a newer Node made, on a Node whose SQLite can't open it: never "damaged, record again".
+    const store = Store.open(join(dir, 'store.db'));
+    store.close();
+    const checks = runDoctor({ cwd: dir, env: {}, version: '0.1.0', dbPath: join(dir, 'store.db'), guardDir, python: () => 'Python 3.12.1', sqlite: () => 'built-in SQLite has no full-text search: no such module: fts5' });
+    const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
+    expect(byName.sqlite).toMatchObject({ verdict: 'fail', detail: expect.stringContaining('no such module: fts5'), fix: expect.stringContaining('Node 22.16 or later (not 23)') });
+    expect(byName.store).toMatchObject({ verdict: 'warn', detail: expect.stringContaining('not read'), fix: expect.stringContaining('Node 22.16 or later') });
+    expect(byName.store?.fix).not.toMatch(/damaged/);
+  });
 });
 
 describe('the python check', () => {

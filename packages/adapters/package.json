@@ -38,7 +38,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=18.18"
   },
   "dependencies": {
     "@shadowlap/sdk": "^0.1.0"

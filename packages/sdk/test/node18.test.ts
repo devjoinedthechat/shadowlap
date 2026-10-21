@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { now, random, uuid } from '../src/index.js';
 
 /**
- * The package says it runs on Node 18. Node 18 has no `globalThis.crypto` unless it is started with
+ * The package says it runs on Node 18.18. Node 18 has no `globalThis.crypto` unless it is started with
  * --experimental-global-webcrypto, so nothing outside Shadowlap may reach for it: here it is taken
  * away as Node 18 leaves it, and the helpers still answer.
  */

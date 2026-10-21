@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
-import { SCHEMA_VERSION, Store } from '../src/store.js';
+import { noFullTextSearch, SCHEMA_VERSION, Store } from '../src/store.js';
 
 const cmd = { argv: ['node', 'agent.js'], cwd: '/tmp' };
 
@@ -245,6 +245,12 @@ describe('store schema version', () => {
     // Migrations are additive, so without this guard every CREATE IF NOT EXISTS would no-op, the
     // version would be stamped backwards, and the recording would be read under stale assumptions.
     expect(() => Store.open(path)).toThrow(/written by a newer Shadowlap/);
+  });
+
+  it('blames a Node whose SQLite has no full-text search, not the file, and names the Node that has it', () => {
+    // Node 22.13 to 22.15 and every Node 23: SQLite answers "no such module: fts5" for the index every store has.
+    expect(noFullTextSearch('v22.13.0')).toBe('Node 22.13.0 has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later');
+    expect(noFullTextSearch('v23.11.1')).toBe('Node 23.11.1, like every Node 23, has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later');
   });
 
   it('names both versions, so the message says what to do', async () => {

@@ -15,7 +15,7 @@ npm install -D @shadowlap/test
 pip install shadowlap
 ```
 
-`@shadowlap/sdk` wraps tools and records the clock and randomness, on Node 18 or later; `@shadowlap/adapters` declares effects through your framework, next to the SDK; `@shadowlap/test` runs recorded tests in Vitest and node:test, and brings the `shadowlap` CLI it runs. The Python package, on Python 3.9 or later, holds the SDK, the adapters and the pytest plugin. [`shadowlap init`](./cli.md#init) prints the install step with your project's package manager.
+`@shadowlap/sdk` wraps tools and records the clock and randomness, on Node 18.18 or later; `@shadowlap/adapters` declares effects through your framework, next to the SDK; `@shadowlap/test` runs recorded tests in Vitest and node:test, and brings the `shadowlap` CLI it runs. The Python package, on Python 3.9 or later, holds the SDK, the adapters and the pytest plugin. [`shadowlap init`](./cli.md#init) prints the install step with your project's package manager.
 
 ## TypeScript
 
@@ -48,7 +48,7 @@ const requestId = await uuid();
 - A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails throws `ShadowlapInjectedFailure` without running: named `TimeoutError` with code `ETIMEDOUT` for a timeout, with `status` and `statusCode` for an HTTP status, with the given message for an error. `injected` is always `true`.
 - `now()`, `random()` and `uuid()` are asynchronous, because Node has no synchronous HTTP. Give concurrent reads a label to disambiguate them: `now('deadline')`.
 
-Node ≥ 18. Zero dependencies. `@shadowlap/sdk` and `@shadowlap/adapters` are ES modules: load them with `import`, or from CommonJS with `await import('@shadowlap/sdk')`; `require()` loads them on Node 20.19, 22.12 and later.
+Node ≥ 18.18. Zero dependencies. `@shadowlap/sdk` and `@shadowlap/adapters` are ES modules: load them with `import`, or from CommonJS with `await import('@shadowlap/sdk')`; `require()` loads them on Node 20.19, 22.12 and later.
 
 ## Python
 

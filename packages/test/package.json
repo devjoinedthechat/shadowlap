@@ -30,7 +30,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22.13"
+    "node": "^22.16.0 || >=24"
   },
   "dependencies": {
     "shadowlap": "^0.1.0"
