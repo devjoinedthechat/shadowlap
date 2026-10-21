@@ -12,7 +12,8 @@ import { askPreparedJudge, heldVerdict, judgeRequestDigest, liveJudge, materialO
  * its recording comes from, or `--expect` with --then-verify) that reads the final answer, at the
  * run's last model call, or the run, at the last call of a conversation, whose answer no later
  * request carries (judgedAnswers). A check that reads what the agent printed reads no model call's
- * answer, and is left to verify.
+ * answer, and is left to verify. A run that did not complete is not judged, as the judge runtime
+ * judges none (cannotJudge): it fails its checks whatever a judge says, so a verdict would only cost.
  *
  * Such a check is asked about the words as recorded and the new ones, as the judge runtime asks it
  * (judge.ts): through the sidecar in the scope shadowlap:judge, at temperature 0 where the model
@@ -78,7 +79,8 @@ export class TextJudge {
   /**
    * The judge checks of `spec` that read a text-only step of `run`, by the recorded model call whose
    * answer they read. A check under a `when` whose condition never held in the recording is no check
-   * of the run, and reads nothing.
+   * of the run, and reads nothing. A run that did not complete is judged by none (cannotJudge), which
+   * its caller says.
    */
   reads(run: RunRecord, calls: CallRecord[], spec: TestSpec | null): Map<number, JudgeCheck[]> {
     const out = new Map<number, JudgeCheck[]>();

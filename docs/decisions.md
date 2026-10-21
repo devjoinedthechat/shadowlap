@@ -92,6 +92,8 @@ Each verdict is kept with the session, with a digest of the request it answered.
 
 Where the judge can't be asked (no key for its provider and no upstream set for it, the budget spent, Ctrl-C), the check is *inconclusive* and says why: the step stays text only, and the warnings say what could not be judged. A preview that can't tell whether a run would be flagged settles nothing: when nothing else flags the run, it exits 1 unless `--inconclusive warn`. The report's notes count the steps a check reads: those it came out otherwise for, those it came out as recorded for, and those it could not judge, never one for the other.
 
+A run that did not complete (its agent exited with an error, or it was interrupted) is judged by none of its checks, as `pack` and `test` judge none: it fails its checks whatever a judge says, so its text-only changes are counted, and the report says so.
+
 A check on what the agent printed (`"of": "output"`) reads no model call's answer: the report names it, and verify judges it. Nor does a judge read the words of an earlier step as given: the requests after it carry them back to the model as recorded, so no run holds that answer with the rest as recorded.
 
 ## Reading the report
@@ -233,5 +235,5 @@ On a pull request, this previews the prompt and tools the branch sends against t
 - A switch to a model of another family is verify's: the recorded request can't be asked of it as it stands.
 - A Responses request that continues a stored response (`previous_response_id`) is asked with the turns the provider holds for it, as recorded.
 - An agent that thinks between its tool calls has its earlier reasoning left out under a new prompt, as above; a provider that still wants it back refuses such a step, which is listed with the provider's words, not ranked.
-- Text-only changes are counted, not judged, unless a judge check reads them, as above; the words of a step a later request carries are counted.
+- Text-only changes are counted, not judged, unless a judge check reads them, as above; the words of a step a later request carries are counted, and so are those of a run that did not complete.
 - Each session is kept in the store with each run's decisions, for the dashboard; `gc` leaves sessions, which outlive the runs they name.

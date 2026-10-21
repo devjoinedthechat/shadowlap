@@ -20,6 +20,8 @@ import { departures } from './json-shapes.js';
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
+/** Runs the agent, failing every third time (flaky-agent.mjs). */
+const FLAKY = fileURLToPath(new URL('./flaky-agent.mjs', import.meta.url));
 const ANSWER = { name: 'fences', question: 'Does the final answer say that forks fence writes?', of: 'answer', model: 'claude-haiku-4-5' };
 const RUN = { name: 'run-fences', question: 'Does the agent tell the user that forks fence writes?', of: 'run', model: 'claude-haiku-4-5' };
 const OUTPUT = { name: 'printed', question: 'Does what the agent printed say it is done?', of: 'output', model: 'claude-haiku-4-5' };
@@ -371,5 +373,29 @@ describe('judging text-only changes, more ways', () => {
     expect(report.runs[0]!.decisions[0]!.judge!.map((j) => [j.name, j.recorded.source, j.recorded.status, j.now.source, j.now.status])).toEqual([['fences', 'live', 'passed', 'live', 'failed']]);
     expect(report.flagged).toEqual([p.runId]);
     expect(report.verify).toMatchObject({ verdict: 'rejected', runs: [{ runId: p.runId, outcome: 'broken', passes: 0, attempts: 1 }] });
+  }, 180_000);
+
+  it('judges no text-only change of a run that did not complete, which fails whatever a judge says', async () => {
+    const dir = join(root, 'failed');
+    mkdirSync(join(dir, 'goldens'), { recursive: true });
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/research': { expect: { judge: [ANSWER] } } } }));
+    // The agent gives its final answer, then its command exits 1 (flaky-agent.mjs, on its third run): the recording
+    // holds the final answer, and the run failed.
+    const counter = join(dir, 'flaky.count');
+    writeFileSync(counter, '2');
+    const rec = await shadowlap(dir, ['run', '--', process.execPath, FLAKY, counter, process.execPath, AGENT]);
+    expect(rec.code, rec.out).not.toBe(0);
+    const runId = /recording run (\w{26})/.exec(rec.out)![1]!;
+    const packed = await shadowlap(dir, ['pack', runId, 'goldens/research']);
+    expect(packed.code, packed.out).toBe(0);
+    const asked = judgeRequests(mock.requests).length;
+    const r = await shadowlap(dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = json<DecisionsReport>(r);
+    expect(judgeRequests(mock.requests).length).toBe(asked);
+    expect(report.runs[0]!.decisions[0]).toMatchObject({ rank: 5, judge: null, samples: { unjudged: 0 } });
+    expect(report.judge).toBeNull();
+    expect(report.notes).toContain(`${runId.slice(0, 10)} did not complete, so it fails its checks whatever a judge says: no judge check reads its text-only changes, which are counted.`);
+    expect(decisionsInconclusive(report)).toBeNull();
   }, 180_000);
 });

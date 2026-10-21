@@ -81,6 +81,7 @@ import { gateFlags, recordVerifyFix, verifyCommand } from './fixes.js';
 import { importGolden } from './golden-test.js';
 import { expandRecordings, goldenName, rawExpectFor } from './goldens.js';
 import { checksOfRun } from './interventions.js';
+import { cannotJudge } from './judge.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, requireRun, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
@@ -808,10 +809,13 @@ function maskJudge(j: DecisionJudge, m: Mask): DecisionJudge {
  * Asks the judge checks that read a text-only answer's words about the recorded words and the new
  * ones (decisions-judge.ts), for every answered sample of a step that is text only: the run's own
  * checks, or those given with --expect for verify. Runs go side by side, `concurrency` at once, as
- * asking does. What it finds raises a step whose check comes out otherwise to rank 2 (stepOf).
+ * asking does. What it finds raises a step whose check comes out otherwise to rank 2 (stepOf). A run
+ * that did not complete is judged by none, as the judge runtime judges none (cannotJudge): it fails
+ * its checks whatever a judge says, so asking would only cost. Those runs are returned, for a note.
  */
-async function judgeTextSteps(store: Store, targets: readonly DecisionTarget[], planned: readonly Planned[], judge: TextJudge, expect: TestSpec | null, concurrency: number): Promise<{ outputJudges: string[] }> {
+async function judgeTextSteps(store: Store, targets: readonly DecisionTarget[], planned: readonly Planned[], judge: TextJudge, expect: TestSpec | null, concurrency: number): Promise<{ outputJudges: string[]; incomplete: string[] }> {
   const outputJudges = new Set<string>();
+  const incomplete: string[] = [];
   const work: Array<() => Promise<void>> = [];
   for (const t of targets) {
     const spec = expect ?? t.spec;
@@ -820,6 +824,11 @@ async function judgeTextSteps(store: Store, targets: readonly DecisionTarget[], 
     for (const j of TextJudge.readsOutput(spec)) outputJudges.add(j.name);
     const calls = store.getCalls(t.run.runId);
     const reads = judge.reads(t.run, calls, spec);
+    if (!text.some((plan) => reads.get(plan.call.callNo)?.length)) continue;
+    if (cannotJudge(t.run)) {
+      incomplete.push(t.run.runId);
+      continue;
+    }
     work.push(async () => {
       for (const plan of text) {
         const checks = reads.get(plan.call.callNo);
@@ -838,7 +847,7 @@ async function judgeTextSteps(store: Store, targets: readonly DecisionTarget[], 
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, work.length)) }, async () => {
     while (next < work.length) await work[next++]!();
   }));
-  return { outputJudges: [...outputJudges] };
+  return { outputJudges: [...outputJudges], incomplete };
 }
 
 /** A run's part of the report. */
@@ -1036,8 +1045,9 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     // what it costs counted apart from asking, and against the budget (decisions-judge.ts).
     const judge = new TextJudge(store, config, env, (judgeSpent) => (interrupted ? 'interrupted' : (asked.stopReason ?? (s.budget !== null && asked.spent + judgeSpent >= s.budget ? `the budget of $${s.budget.toFixed(2)} is spent` : null))));
     let outputJudges: string[] = [];
+    let incomplete: string[] = [];
     try {
-      ({ outputJudges } = await judgeTextSteps(store, input.targets, planned, judge, s.thenVerify?.expect?.spec ?? null, s.concurrency));
+      ({ outputJudges, incomplete } = await judgeTextSteps(store, input.targets, planned, judge, s.thenVerify?.expect?.spec ?? null, s.concurrency));
     } finally {
       await judge.close();
     }
@@ -1098,6 +1108,10 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
       notes.push(`A judge check of the runs reads the words of ${judgedSteps.length} text-only step${judgedSteps.length === 1 ? '' : 's'}: ${parts.join(', ')}.`);
     }
     if (waiting.length) warnings.push(`${waiting.length} text-only step${waiting.length === 1 ? '' : 's'} a judge check reads could not be judged: ${[...notJudged].slice(0, 3).join('; ')}`);
+    if (incomplete.length) {
+      const one = incomplete.length === 1;
+      notes.push(`${one ? shortId(incomplete[0]!) : `${incomplete.length} runs`} did not complete${one ? '' : ` (${incomplete.map((id) => shortId(id)).join(', ')})`}, so ${one ? 'it fails its' : 'each fails its'} checks whatever a judge says: no judge check reads ${one ? 'its' : 'their'} text-only changes, which are counted.`);
+    }
     if (allSteps.some((x) => x.rank === 5 && !x.judge?.length && !judgeOpen(x))) notes.push(judgedSteps.length ? 'Text-only changes no judge check reads are counted, not judged.' : 'Text-only changes are counted, not judged.');
     if (outputJudges.length) notes.push(`The judge check${outputJudges.length === 1 ? '' : 's'} ${outputJudges.map((n) => `"${n}"`).join(', ')} read${outputJudges.length === 1 ? 's' : ''} what the agent printed, which asking a model call again doesn't make: verify judges ${outputJudges.length === 1 ? 'it' : 'them'}.`);
     if (s.samples === 1 && (counts[1] || counts[2] || counts[3] || counts[4])) notes.push('Each step was asked once, and a model varies from one answer to the next: --samples 3 says how often a decision changes.');
