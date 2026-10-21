@@ -822,7 +822,12 @@ const ADAPTER_SNIPPETS: Record<string, (name: string, effect: Effect, tool?: Fou
   crewai: (n, e) => `with_effect(${n}, "${e}")   # from shadowlap.adapters.crewai import with_effect`,
 };
 
-export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): string {
+/**
+ * What `shadowlap init` prints: what it found, then the steps to a first recording. Run by a global
+ * `shadowlap` (`globalCli`), the steps use it as it is: they add only the SDKs to the project, and
+ * run `shadowlap`, not `npx shadowlap`.
+ */
+export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean, { globalCli = false }: { globalCli?: boolean } = {}): string {
   const lines: string[] = [];
   const out = (s = '') => lines.push(s);
   const ts = r.languages.includes('typescript') || r.languages.includes('javascript');
@@ -871,12 +876,12 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): str
   if (ts) {
     const add = r.packageManager === 'pnpm' ? 'pnpm add' : r.packageManager === 'yarn' ? 'yarn add' : r.packageManager === 'bun' ? 'bun add' : 'npm install';
     const adapters = r.frameworks.some((f) => f.adapter);
-    out(`     ${p.cyan(`${add} ${r.packageManager === 'npm' || !r.packageManager ? '--save-dev' : '-D'} shadowlap`)}`);
+    if (!globalCli) out(`     ${p.cyan(`${add} ${r.packageManager === 'npm' || !r.packageManager ? '--save-dev' : '-D'} shadowlap`)}`);
     out(`     ${p.cyan(`${add} @shadowlap/sdk${adapters ? ' @shadowlap/adapters' : ''}`)}   ${p.dim(adapters ? 'tool effects, through your framework' : 'tool effects, clock and randomness')}`);
   }
   if (python) {
     out(`     ${p.cyan(r.packageManager === 'uv' ? 'uv add shadowlap' : r.packageManager === 'poetry' ? 'poetry add shadowlap' : 'pip install shadowlap')}   ${p.dim('the Python SDK')}`);
-    if (!ts) out(`     ${p.cyan('npm install --global shadowlap')}   ${p.dim('the CLI (Node 22.13 or later)')}`);
+    if (!ts && !globalCli) out(`     ${p.cyan('npm install --global shadowlap')}   ${p.dim('the CLI (Node 22.13 or later)')}`);
   }
   out();
 
@@ -903,7 +908,7 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): str
   // Record and replay.
   head('Record a run');
   const upstream = r.modelServer ? `SHADOWLAP_UPSTREAM_OPENAI=${secret ? '<your model server>' : r.modelServer.upstream} ` : '';
-  const cli = ts ? 'npx shadowlap' : 'shadowlap';
+  const cli = ts && !globalCli ? 'npx shadowlap' : 'shadowlap';
   out(`     ${p.cyan(`${upstream}${cli} run -- ${r.command ? quoteArgv(r.command.argv) : '<the command that starts your agent>'}`)}`);
   if (r.modelServer) out(`     ${p.dim(secret ? 'SHADOWLAP_UPSTREAM_OPENAI is the model server’s address without /v1, credentials included; init doesn’t print them.' : 'SHADOWLAP_UPSTREAM_OPENAI keeps your model server as the upstream; the agent talks to Shadowlap.')}`);
   out();

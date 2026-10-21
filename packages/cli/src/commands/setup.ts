@@ -5,6 +5,7 @@ import { recordActivity } from '../activity.js';
 import { configPath, loadConfig } from '../config.js';
 import { formatDoctor, runDoctor } from '../doctor.js';
 import { formatInit, initJson, inspectProject, noteInspected, writeInitialConfig } from '../init.js';
+import { installedGlobally } from '../installed.js';
 import { emitJobEvent } from '../job-events.js';
 import { openStoreIfExists, parseChoice, recordEvents, requireRun, VERSION, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId, table } from '../ui.js';
@@ -25,7 +26,7 @@ export function register(program: Command): void {
       // A project in the dashboard has its first setup step done first, then a dashboard job hears the findings, and whether the step took them.
       const json = initJson(report, wrote);
       const result = { ...json, project: noteInspected(process.cwd(), json) };
-      process.stdout.write((flags.json ? JSON.stringify(result, null, 2) : formatInit(report, p, wrote)) + '\n');
+      process.stdout.write((flags.json ? JSON.stringify(result, null, 2) : formatInit(report, p, wrote, { globalCli: installedGlobally() })) + '\n');
       if (!flags.json && result.project.id && !result.project.noted) process.stderr.write(`${p.yellow('!')} The dashboard’s setup of ${result.project.id} didn’t take this in: ${result.project.why}\n`);
       emitJobEvent({ type: 'result', data: result });
     });

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { estimateCost, safeLine, type Anchor, type Block, type Conversation, type Price, type ProposedEdit, type Usage } from '@shadowlap/engine';
+import { installedGlobally } from './installed.js';
 import { startCommand } from './start-command.js';
 
 /**
@@ -263,7 +264,9 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
   return { ...out, served, usage, cost: typeof d.total_cost_usd === 'number' ? d.total_cost_usd : estimateCost(served, usage, prices) };
 }
 
-const SDK_MISSING = () => new RepairerError('the Anthropic SDK is not installed', 'an anthropic repairer needs it, and Shadowlap does not install it for everyone: npm install @anthropic-ai/sdk');
+// The SDK is imported from where this CLI is installed, so a global CLI needs a global SDK beside it:
+// one in the project's node_modules is never found.
+const SDK_MISSING = () => new RepairerError('the Anthropic SDK is not installed', `an anthropic repairer needs it, and Shadowlap does not install it for everyone: npm install${installedGlobally() ? ' -g' : ''} @anthropic-ai/sdk`);
 const REFUSED = () => new RepairerError('the Anthropic API refused the credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
 
 /** Why the SDK sent nothing: it refuses before it sends when it finds no key, token or profile to sign in with. */

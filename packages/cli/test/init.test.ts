@@ -79,6 +79,19 @@ export const other = new Anthropic({ baseURL: process.env.ANTHROPIC_BASE_URL ?? 
     expect(text).toContain('npx shadowlap run -- pnpm agent');
   });
 
+  it('leaves the CLI out of the install step when a global shadowlap runs it, and runs that one', () => {
+    const text = formatInit(inspectProject(ts, {}), palette, true, { globalCli: true });
+    expect(text).not.toContain('add -D shadowlap');
+    expect(text).toContain('pnpm add @shadowlap/sdk @shadowlap/adapters');
+    expect(text).toContain('     shadowlap run -- pnpm agent');
+    expect(text).not.toContain('npx shadowlap');
+    const py = inspectProject(project({ 'pyproject.toml': '[project]\nname = "triage"\ndependencies = ["anthropic>=0.40"]\n', 'agent.py': 'import anthropic\n' }), {});
+    expect(formatInit(py, palette, true)).toContain('npm install --global shadowlap');
+    const global = formatInit(py, palette, true, { globalCli: true });
+    expect(global).toContain('pip install shadowlap');
+    expect(global).not.toContain('npm install --global shadowlap');
+  });
+
   it('finds AI SDK tools kept in constants, named by the key that gives them to the model', () => {
     const dir = project({
       'package.json': JSON.stringify({ name: 'docs-agent', dependencies: { ai: '^7.0.0', '@ai-sdk/openai': '^3.0.0', '@shadowlap/adapters': '^0.1.0' } }),
