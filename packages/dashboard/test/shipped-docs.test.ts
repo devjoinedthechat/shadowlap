@@ -40,7 +40,9 @@ describe('the docs pages Settings reads', () => {
 
 describe('the coding agents’ plugin and rule', () => {
   it('ship in the dashboard package, file for file as the repository has them, dot-folders included', () => {
-    const repo = files(join(REPO, 'coding-agents'));
+    // A file a system left in the folder (Finder's .DS_Store, Windows' Thumbs.db) is no part of the
+    // repository, which ignores it: the build leaves it out of the copy, so the package holds none.
+    const repo = files(join(REPO, 'coding-agents')).filter((p) => !['.DS_Store', 'Thumbs.db'].includes(p.split('/').pop()!));
     expect(repo).toEqual(expect.arrayContaining(['claude-code/.claude-plugin/plugin.json', 'claude-code/skills/debug-agent/SKILL.md', 'cursor/shadowlap.mdc']));
     expect(files(join(PACKAGE, 'dist', 'coding-agents'))).toEqual(repo);
     expect(packed.filter((p) => p.startsWith('dist/coding-agents/')).sort()).toEqual(repo.map((p) => `dist/coding-agents/${p}`));
