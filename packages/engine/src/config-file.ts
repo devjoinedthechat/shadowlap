@@ -351,8 +351,8 @@ function notWritable(err: unknown, target: string): Error {
 
 /**
  * Runs `fn` holding `<file>.lock`, which every Shadowlap writer takes (lock-file.ts: a lock whose
- * process is gone is taken over at once, one whose process runs on this machine never is, and a
- * writer only ever removes its own).
+ * process is gone is taken over at once, and one whose process runs on this machine is not, but on
+ * Windows after ten seconds; a writer only ever removes its own).
  */
 function withLock<T>(target: string, wait: number, fn: () => T): T {
   let held: HeldLock;

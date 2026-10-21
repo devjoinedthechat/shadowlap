@@ -32,8 +32,8 @@ export function writeFileAtomic(file: string, text: string): void {
 /**
  * Runs `fn` holding `<file>.lock`, so the CLI and the dashboard changing the list at the same time
  * don't lose each other's change (lock-file.ts: a lock whose process is gone is taken over at once,
- * one whose process runs on this machine never is). A lock is held for the time it takes to read
- * and write a small file, so waiting for one is rare and short.
+ * and one whose process runs on this machine is not, but on Windows after ten seconds). A lock is
+ * held for the time it takes to read and write a small file, so waiting for one is rare and short.
  */
 export function withFileLock<T>(file: string, timeoutMs: number, fn: () => T): T {
   const lock = `${file}.lock`;
