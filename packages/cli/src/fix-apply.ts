@@ -94,17 +94,29 @@ const APPLY = ['-c', 'apply.ignoreWhitespace=no', 'apply', '--whitespace=nowarn'
  * applies the patch to the bytes as a blob, in an index of its own, where nothing is converted.
  */
 function applyToBytes(root: string, file: string, patch: string): { already: boolean; bytes: Buffer | null } {
+  let now: Buffer;
+  try {
+    now = readFileSync(join(root, file));
+  } catch {
+    // Not there, or not readable: git apply in the working tree says why.
+    return { already: false, bytes: null };
+  }
   const scratch = mkdtempSync(join(tmpdir(), 'shadowlap-apply-'));
   try {
     const env = { ...process.env, GIT_INDEX_FILE: join(scratch, 'index') };
     const run = (args: string[], input?: Buffer) => spawnSync('git', args, { cwd: root, env, input, maxBuffer: 64 * 1024 * 1024 });
-    const blob = run(['hash-object', '-w', '--stdin'], readFileSync(join(root, file)));
+    const blob = run(['hash-object', '-w', '--stdin'], now);
     const staged = blob.status === 0 && run(['update-index', '--add', '--cacheinfo', `100644,${blob.stdout.toString().trim()},${file}`]).status === 0;
     if (staged && run([...APPLY, '--cached', '--reverse', '--check', patch]).status === 0) return { already: true, bytes: null };
     const out = staged && run([...APPLY, '--cached', patch]).status === 0 ? run(['cat-file', 'blob', `:0:${file}`]) : null;
     return { already: false, bytes: out?.status === 0 ? out.stdout : null };
   } finally {
-    rmSync(scratch, { recursive: true, force: true });
+    try {
+      rmSync(scratch, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      // Held a moment longer on Windows (a virus scanner reading the new index, say): an index left
+      // in the temporary folder harms nothing, and the patch still goes in.
+    }
   }
 }
 
@@ -205,7 +217,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     // patch whose lines end otherwise than the file's (a teammate's, made in a checkout with LF, for a
     // Windows checkout's file with CRLF) applies only through git's conversion: then it goes in as
     // git apply puts it in, with git's own settings, which give the file back its CRLF.
-    const asIs = target ? applyToBytes(root, file, patch) : { already: false, bytes: null };
+    const asIs = applyToBytes(root, file, patch);
     if (asIs.already || git(root, [...APPLY, '--reverse', '--check', patch]).status === 0) {
       result.patch = 'already';
       o.log(`  the patch is already in the working tree (${shown(o.cwd, patch)})`);
