@@ -198,7 +198,7 @@ function NoStore({ setup }: { setup: boolean }) {
       {!setup ? (
         <div className="cli">
           <span>in a terminal</span>
-          <code>$ shadowlap store set s3://bucket/folder --check</code>
+          <code>{'$ shadowlap store set s3://<bucket>/<project> --check'}</code>
         </div>
       ) : actionsOff ? (
         <button className="btn lime" type="button" disabled title={actionsOff}>

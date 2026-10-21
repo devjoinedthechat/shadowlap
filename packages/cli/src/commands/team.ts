@@ -63,7 +63,7 @@ export function register(program: Command): void {
   store
     .command('set')
     .description('Use a bucket as the team store: writes "store" to shadowlap.config.json')
-    .argument('<url>', 's3://bucket/folder, gs://bucket/folder, az://account/container/folder or r2://account/bucket/folder')
+    .argument('<url>', 's3://<bucket>/<folder>, gs://<bucket>/<folder>, az://<account>/<container>/<folder> or r2://<account-id>/<bucket>/<folder>')
     .option('--provider <provider>', `check the URL against one provider's scheme: ${PROVIDER_FLAG}`, provider)
     .option('--check', "check access first, as store check does, and write the store only when it works")
     .option('--json', 'machine-readable output')

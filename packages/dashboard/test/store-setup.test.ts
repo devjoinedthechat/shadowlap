@@ -152,7 +152,7 @@ describe('the setup read model', () => {
 describe('a store URL typed in the setup', () => {
   it('is checked against the provider picked, with the policy for its bucket and folder and the command that connects it', () => {
     const wrong = checkSetupUrl('gcs', 's3://northwind-agent-runs/support-agent', { env: {} });
-    expect(wrong).toMatchObject({ ok: false, error: 'A Google Cloud store starts with gs://, then the bucket and, if you like, a folder: gs://my-bucket/agent-runs.' });
+    expect(wrong).toMatchObject({ ok: false, error: 'A Google Cloud store starts with gs://, then the bucket and, if you like, a folder: gs://<bucket>/<folder>.' });
     // Without a URL, the policy names no bucket.
     expect(checkSetupUrl('s3', '', { env: {} }).policy.writer.text).toContain('arn:aws:s3:::your-bucket');
     const ok = checkSetupUrl('s3', URL_, { env: { AWS_ACCESS_KEY_ID: 'AKIA', AWS_SECRET_ACCESS_KEY: 'x' } });

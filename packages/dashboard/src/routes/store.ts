@@ -122,7 +122,7 @@ export function register(router: Router, ctx: RouteContext): void {
     build: (req) => {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       if (!isProvider(req.provider)) return { error: 'provider is s3, gcs, azure or r2' };
-      if (typeof req.url !== 'string' || !req.url.trim() || req.url.length > 2048) return { error: 'url: the bucket and folder, such as s3://my-bucket/agent-runs' };
+      if (typeof req.url !== 'string' || !req.url.trim() || req.url.length > 2048) return { error: 'url: the bucket and folder, such as s3://<bucket>/<project>' };
       let configured: string;
       try {
         configured = formatStoreUrl(parseStoreUrl(req.url, req.provider));

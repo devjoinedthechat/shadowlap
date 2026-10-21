@@ -83,7 +83,7 @@ export function loadConfig(cwd: string): ShadowlapConfig {
   // Team store: taken as written. A typo in the URL can't stop a recording: push, pull and the store
   // commands parse it and say what is wrong.
   if (parsed.store !== undefined) {
-    if (typeof parsed.store !== 'string') throw new Error(`${file}: store must be a bucket URL such as s3://bucket/folder (set it with shadowlap store set)`);
+    if (typeof parsed.store !== 'string') throw new Error(`${file}: store must be a bucket URL such as s3://<bucket>/<folder> (set it with shadowlap store set)`);
     config.store = parsed.store;
   }
   if (parsed.ciPush !== undefined) {

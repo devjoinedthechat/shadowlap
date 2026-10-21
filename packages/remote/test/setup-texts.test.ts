@@ -25,8 +25,8 @@ describe('store URLs', () => {
   });
 
   it("checks a URL against the provider picked, with the mock's words", () => {
-    expect(() => parseStoreUrl('gs://agent-runs', 's3')).toThrow('An Amazon S3 store starts with s3://, then the bucket and, if you like, a folder: s3://my-bucket/agent-runs.');
-    expect(schemeHint('azure')).toBe('An Azure Blob store starts with az://, then the storage account, the container and, if you like, a folder: az://myaccount/agent-runs.');
+    expect(() => parseStoreUrl('gs://agent-runs', 's3')).toThrow('An Amazon S3 store starts with s3://, then the bucket and, if you like, a folder: s3://<bucket>/<folder>.');
+    expect(schemeHint('azure')).toBe('An Azure Blob store starts with az://, then the storage account, the container and, if you like, a folder: az://<account>/<container>/<folder>.');
     expect(schemeHint('gcs')).toMatch(/^A Google Cloud store starts with gs:\/\//);
     expect(schemeHint('r2')).toMatch(/^A Cloudflare R2 store starts with r2:\/\//);
   });

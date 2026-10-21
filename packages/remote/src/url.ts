@@ -51,10 +51,10 @@ export class StoreUrlError extends Error {
 }
 
 const SHAPES: Record<Provider, string> = {
-  s3: 'then the bucket and, if you like, a folder: s3://my-bucket/agent-runs',
-  gcs: 'then the bucket and, if you like, a folder: gs://my-bucket/agent-runs',
-  azure: 'then the storage account, the container and, if you like, a folder: az://myaccount/agent-runs',
-  r2: 'then your account id, the bucket and, if you like, a folder: r2://<account-id>/agent-runs',
+  s3: 'then the bucket and, if you like, a folder: s3://<bucket>/<folder>',
+  gcs: 'then the bucket and, if you like, a folder: gs://<bucket>/<folder>',
+  azure: 'then the storage account, the container and, if you like, a folder: az://<account>/<container>/<folder>',
+  r2: 'then your account id, the bucket and, if you like, a folder: r2://<account-id>/<bucket>/<folder>',
 };
 
 /** The message the mock shows for a URL that doesn't fit the provider picked. */
@@ -112,7 +112,7 @@ export function parseStoreUrl(raw: string, expect?: Provider): StoreLocation {
   const m = /^([a-z0-9]+:)\/\/([^?#]*)(\?[^#]*)?$/i.exec(text);
   const provider = m ? providerOf(m[1]!.toLowerCase()) : null;
   if (expect && provider !== expect) throw new StoreUrlError(schemeHint(expect));
-  if (!m || !provider) throw new StoreUrlError(`${text || '""'} isn't a store URL. Use s3://bucket/folder, gs://bucket/folder, az://account/container/folder or r2://account/bucket/folder.`);
+  if (!m || !provider) throw new StoreUrlError(`${text || '""'} isn't a store URL. Use s3://<bucket>/<folder>, gs://<bucket>/<folder>, az://<account>/<container>/<folder> or r2://<account-id>/<bucket>/<folder>.`);
   const parts = m[2]!.split('/');
   const query = new URLSearchParams(m[3]?.slice(1) ?? '');
   const loc: StoreLocation = { provider, url: '', bucket: '', prefix: '' };
