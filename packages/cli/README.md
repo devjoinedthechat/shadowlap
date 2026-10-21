@@ -19,13 +19,13 @@ shadowlap init
 `init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes. Wrap each tool once with its effect, or it runs again on every replay:
 
 ```sh
-# tools, clock and randomness (Node 18.18+)
+# wrap tools (Node 18.18+)
 npm install @shadowlap/sdk
-# framework adapters, next to the SDK (Node 18.18+)
+# wrap them in your framework (Node 18.18+)
 npm install @shadowlap/adapters
-# recorded tests in Vitest or node:test (Node 22.16+)
+# record tests in Vitest or node:test (Node 22.16+)
 npm install -D @shadowlap/test
-# Python 3.9+: SDK, adapters, pytest plugin
+# Python 3.9+: all three in one package
 pip install shadowlap
 ```
 

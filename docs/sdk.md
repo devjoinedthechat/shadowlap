@@ -9,13 +9,17 @@ Without `SHADOWLAP_URL` in the environment (that is, outside `shadowlap run`), e
 Into your agent's project:
 
 ```sh
+# wrap tools (Node 18.18+)
 npm install @shadowlap/sdk
+# wrap them in your framework (Node 18.18+)
 npm install @shadowlap/adapters
+# record tests in Vitest or node:test (Node 22.16+)
 npm install -D @shadowlap/test
+# Python 3.9+: all three in one package
 pip install shadowlap
 ```
 
-`@shadowlap/sdk` wraps tools and records the clock and randomness, on Node 18.18 or later; `@shadowlap/adapters` declares effects through your framework, next to the SDK; `@shadowlap/test` runs recorded tests in Vitest and node:test, and brings the `shadowlap` CLI it runs. The Python package, on Python 3.9 or later, holds the SDK, the adapters and the pytest plugin. [`shadowlap init`](./cli.md#init) prints the install step with your project's package manager.
+`@shadowlap/sdk` also records the clock and randomness; `@shadowlap/adapters` declares effects through your framework, next to the SDK; `@shadowlap/test` brings the `shadowlap` CLI it runs. The Python package holds the SDK, the adapters and the pytest plugin. [`shadowlap init`](./cli.md#init) prints the install step with your project's package manager.
 
 ## TypeScript
 

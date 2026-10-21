@@ -56,25 +56,34 @@ describe('the terminal UI section', () => {
     expect(footer, 'no timeline footer in TimelineView.tsx').toBeDefined();
     const line = readme.split('\n').find((l) => l.trimStart().startsWith(': actions'));
     expect(line, 'no footer in the README sample').toBeDefined();
-    // The sample is a frame at a fixed width, so it may end in the TUI's own ellipsis; before that,
-    // it must be the footer itself, hint for hint and in order, not a paraphrase that drifts.
-    const shown = line!.trim().replace(/\s*…$/, '');
-    expect(footer!.startsWith(shown), `the README shows "${shown}"; the TUI renders "${footer}"`).toBe(true);
-    expect(shown.split('·').length, 'the README footer shows too little of the real one').toBeGreaterThanOrEqual(footer!.split('·').length - 3);
+    // The sample is a frame at a fixed width, so it may end in the TUI's own " · …", after the last
+    // whole key that fits; before that, it must be the footer itself, hint for hint and in order, not
+    // a paraphrase that drifts.
+    const shown = line!.trim().replace(/ · …$/, '');
+    expect(shown.endsWith('…'), 'the README footer is cut inside a hint').toBe(false);
+    expect(footer === shown || footer!.startsWith(`${shown} · `), `the README shows "${shown}"; the TUI renders "${footer}"`).toBe(true);
+    expect(shown.split(' · ').length, 'the README footer shows too little of the real one').toBeGreaterThanOrEqual(4);
   });
 
-  it('is one frame at one width, header and footer as the TUI cuts them at it', () => {
+  it('is one frame at one width, header and footer as the TUI fits them to it', () => {
     const frame = /```text\n([\s\S]*?)\n```/.exec(readme.slice(readme.indexOf('## Dashboard and terminal UI')))?.[1];
     expect(frame, 'no terminal UI frame in the README').toBeDefined();
     const lines = frame!.split('\n');
     const width = [...lines[1]!].length;
     expect(lines[1]).toMatch(/^╭─+╮$/);
-    expect(lines.filter((l) => [...l].length !== width), 'lines narrower or wider than the frame').toEqual([]);
+    expect(lines.at(-2)).toMatch(/^╰─+╯$/);
+    // The box is as wide as the terminal; the header above it and the footer under it show whole
+    // items only, so they end where the last one that fits does.
+    const [header, ...rest] = lines;
+    const footer = rest.pop()!;
+    expect(rest.filter((l) => [...l].length !== width), 'lines of the box narrower or wider than it').toEqual([]);
+    expect([header, footer].filter((l) => [...l!].length > width), 'a header or footer wider than the frame').toEqual([]);
   });
 });
 
-// The terminal comes in three widths, and a narrower one is drawn at its own width, never stretched
-// to the column: a width on its <source> says how wide, and goes stale when npm run demo draws it anew.
+// The terminal and the dashboard pictures come in three widths, and a narrower one is drawn at its own
+// width, never stretched to the column: a width on its <source> says how wide, and goes stale when npm
+// run demo or readme-shots draws it anew. A PNG is taken at twice the pixels.
 describe('the README pictures', () => {
   it('are files here, and a source with a width is as wide as its picture', () => {
     const tags = [...readme.matchAll(/<(?:source|img)\b[^>]*>/g)].map((m) => m[0]);
@@ -82,10 +91,12 @@ describe('the README pictures', () => {
     expect(local.length).toBeGreaterThan(10);
     expect(local.filter((t) => !existsSync(join(root, t.path!))).map((t) => t.path), 'pictures the README names that are not here').toEqual([]);
     const sized = local.filter((t) => t.tag.startsWith('<source') && / width="\d+"/.test(t.tag));
-    expect(sized.length).toBeGreaterThan(0);
+    expect(sized.map((t) => t.path!.replace(/^.*\./, '')).sort()).toEqual(['png', 'png', 'png', 'png', 'svg', 'svg', 'svg', 'svg']);
     for (const { tag, path } of sized) {
-      const svg = readFileSync(join(root, path!), 'utf8');
-      expect(/ width="(\d+)"/.exec(tag)![1], path).toBe(/<svg\b[^>]* width="(\d+)"/.exec(svg)?.[1]);
+      const file = readFileSync(join(root, path!));
+      // A PNG's width is in its header (IHDR), at twice the pixels; an SVG's on its root element.
+      const drawn = path!.endsWith('.png') ? String(file.readUInt32BE(16) / 2) : /<svg\b[^>]* width="(\d+)"/.exec(file.toString('utf8'))?.[1];
+      expect(/ width="(\d+)"/.exec(tag)![1], path).toBe(drawn);
     }
   });
 });
