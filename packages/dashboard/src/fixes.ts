@@ -492,7 +492,11 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const meta = [earlier ? `${earlier} earlier change${s(earlier)} rejected` : kept ? 'every failing run fixed, every good run kept' : 'every failing run fixed', ...(later ? [`${later} later change${s(later)} rejected`] : [])].join(' · ');
     verify = { key: 'verify', n: '03', state: 'done', short: `${held} of ${runs.length} held`, title: `${held} of ${runs.length} run${s(runs.length)} held`, meta };
   } else if (rejected.length) verify = { key: 'verify', n: '03', state: 'no', short: 'rejected', title: 'Rejected', meta: `${rejected.length} change${s(rejected.length)} rejected` };
-  else if (counting(rec).length) verify = { key: 'verify', n: '03', state: 'todo', short: 'not settled', title: 'Not settled', meta: 'a verify stopped before every run settled' };
+  else if (counting(rec).length) {
+    // A run it took is inconclusive (its gate ran out of attempts, or an attempt could not be judged), or the verify stopped first.
+    const unsure = counting(rec).some((x) => x.report.runs.some((run) => outcomeOf(run) === 'inconclusive'));
+    verify = { key: 'verify', n: '03', state: 'todo', short: 'not settled', title: 'Not settled', meta: unsure ? 'a run it verified is inconclusive' : 'a verify stopped before every run settled' };
+  }
   else if (rec.verdicts.length) {
     const why = rec.standing.get(rec.verdicts.at(-1)!.verifyId)?.why;
     verify = { key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: why === 'another-check' ? 'verified only under another check' : why === 'already-passing' ? 'verified only on runs that already passed' : 'no verdict on its runs yet' };

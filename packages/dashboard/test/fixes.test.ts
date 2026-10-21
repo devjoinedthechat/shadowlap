@@ -379,6 +379,8 @@ describe('a fix', () => {
     // The Forks view under the good run: the attempt reads inconclusive, never failed.
     const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
     expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: attempt, passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
+    // The fix's Verify step says why it is not settled: a run it verified is inconclusive, not a verify that stopped.
+    expect(fixDetail(store, fix.fixId)!.steps[2]).toMatchObject({ state: 'todo', short: 'not settled', meta: 'a run it verified is inconclusive' });
   });
 
   it('gives no bound for a run an attempt it could not judge stopped under a gate, as verify gives none', () => {
