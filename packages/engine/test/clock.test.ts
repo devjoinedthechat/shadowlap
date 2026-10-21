@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { maskClock, maskClockText } from '../src/clock.js';
 import { fingerprintApi, normalizersHash } from '../src/fingerprint.js';
+import { times, timesOf } from './timing.js';
 
 const REF = Date.parse('2026-09-16T10:30:00Z');
 
@@ -44,11 +45,15 @@ describe('clock masking', () => {
     expect(normalizersHash([])).toBe(normalizersHash([], 'exact'));
   });
 
-  it('is fast enough for large requests', () => {
+  it('is fast enough for large requests: about what a copy of the request takes', () => {
     const big = { system: 'x'.repeat(200_000) + ' 2026-09-16 ' + 'word '.repeat(40_000), messages: Array.from({ length: 200 }, (_, i) => ({ role: 'user', content: `turn ${i} at 2026-09-16T10:${String(i % 60).padStart(2, '0')}:00Z` })) };
-    const started = performance.now();
-    maskClock(big, REF);
-    expect(performance.now() - started).toBeLessThan(250);
+    const masked = maskClock(big, REF) as typeof big;
+    expect(masked.system).toContain(' <date> ');
+    expect(masked.messages.every((m) => m.content.endsWith(' at <datetime>'))).toBe(true);
+    // Held against this machine, not a number of milliseconds: masking reads each string once, as a
+    // copy does (about as long here); a pattern that went back over a long string would take far longer.
+    const t = timesOf({ mask: () => maskClock(big, REF), copy: () => JSON.parse(JSON.stringify(big)) });
+    expect(t.mask, `masking took ${times(t.mask, t.copy)} a copy of the request`).toBeLessThan(10 * t.copy);
   });
 });
 

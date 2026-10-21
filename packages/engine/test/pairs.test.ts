@@ -5,6 +5,7 @@ import { sha256 } from '../src/ids.js';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { Store } from '../src/store.js';
 import type { RunMeta, RunRecord, RunStatus } from '../src/types.js';
+import { cpuOnce, times, timesOf } from './timing.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, testRunId, type Step } from './training-fixtures.js';
 
 /**
@@ -430,9 +431,8 @@ describe('reading pairs', () => {
       record('You are an agent. Finish every item.', passed ? 'All done.' : 'Gave up.', { parentRunId: target.runId, status: passed ? 'completed' : 'failed', ids: `a${a}`, meta: { verify: { role: 'target', passed }, repeat: { group: `v1-${target.runId}`, attempt: a + 1, of: 4 } } });
     }
     const read = vi.spyOn(store, 'getJson');
-    const started = performance.now();
-    const { pairs } = findPairs(store);
-    const ms = performance.now() - started;
+    const found = cpuOnce(() => findPairs(store));
+    const { pairs } = found.out;
     const manifests = read.mock.results.filter((x) => (x.value as { kind?: unknown } | null)?.kind === 'chunked').length;
     expect(pairs).toHaveLength(1);
     // The attempts' prompt changed, not their path: the pair is about the recording's last call too.
@@ -440,11 +440,16 @@ describe('reading pairs', () => {
     // Reading every call of five 400-call runs would read 2,000 requests, each the whole conversation so far:
     // halving reads each attempt's first and last call, the context line one more, and the recording's call it is about one more.
     expect(manifests).toBeLessThanOrEqual(10);
-    expect(ms).toBeLessThan(5_000);
     // Read again, nothing changed: nothing is read.
     read.mockClear();
     expect(findPairs(store).pairs.map((p) => p.id)).toEqual(pairs.map((p) => p.id));
     expect(read).not.toHaveBeenCalled();
+    // Held against this machine, not a number of milliseconds: what reading each run's last request
+    // whole takes, the longest it sent, a few times over (the first look also lists the runs and their
+    // calls). Reading every request of every run would take a hundred times that.
+    const runs = store.listRuns();
+    const { lasts } = timesOf({ lasts: () => runs.forEach((r) => loadApiRequest(store, store.getCalls(r.runId, { only: [N] })[0]!.requestRef!)) });
+    expect(found.ms, `finding the pairs took ${times(found.ms, lasts)} reading each run's last request`).toBeLessThan(40 * lasts);
     store.close();
   });
 
