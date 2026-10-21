@@ -289,6 +289,17 @@ describe('probes decided by a gate', () => {
     expect(text).not.toMatch(/at least|at most|of the time/);
   });
 
+  it('says a search that stopped reached an inconclusive probe, never that the run was lost there', () => {
+    const rescued = gated(1, 1, [true, true]);
+    const stopped = { outcome: 'stopped' as const, blamed: rescued, confidence: 'low' as const, stopReason: 'the budget of $0.50 is spent' };
+    const unsure = gated(3, 2, UNSURE);
+    const text = formatBlame(report({ ...stopped, lost: unsure, probes: [rescued, unsure] }));
+    expect(text).toContain('So far: rescued up to #1, inconclusive at #3.');
+    expect(text).not.toContain('lost from');
+    const lost = gated(3, 2, [false, false, false, false]);
+    expect(formatBlame(report({ ...stopped, lost, probes: [rescued, lost] }))).toContain('So far: rescued up to #1, lost from #3.');
+  });
+
   it('reads a first probe that couldn\'t tell apart from one that found no rescue, at low confidence', async () => {
     const r = await searchBlame({ steps: [1, 2, 3], probe: async (callNo, step) => gated(callNo, step, step === 1 ? UNSURE : [false, false, false, false]), scan: 0 });
     expect(r).toMatchObject({ outcome: 'unrescuable', lost: { callNo: 1, decision: 'inconclusive' }, confidence: 'low' });

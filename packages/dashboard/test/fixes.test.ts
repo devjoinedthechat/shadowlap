@@ -226,6 +226,22 @@ describe('a fix', () => {
     expect(b.bundles[0]!.attempts).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
   });
 
+  it('says a blame that stopped reached an inconclusive probe, never that the run was lost there', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api'] });
+    const report = blameReport(failing, 'stopped');
+    const [rescued] = report.probes;
+    const unsure = { ...rescued!, callNo: 5, step: 3, passes: 1, rescued: false, decision: 'inconclusive' as const };
+    report.probes = [rescued!, unsure];
+    report.lost = unsure;
+    const { fix } = recordBlame(store, { runId: failing, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
+    const b = fixDetail(store, fix.fixId)!.blame!;
+    expect(b.boundary).toBe('Stopped: the budget of $0.05 is spent. So far: rescued up to #1, inconclusive at #5.');
+    expect(b.probes.map((x) => [x.callNo, x.verdict])).toEqual([
+      [1, 'rescued · blamed'],
+      [5, 'inconclusive'],
+    ]);
+  });
+
   it("dims the calls outside a blame's scope, tool calls included, and keeps those in it", () => {
     const run = makeRun(store, { calls: [{ kind: 'api', scope: 'agent' }, { kind: 'tool', scope: 'agent' }, { kind: 'api', scope: 'customer' }, { kind: 'tool', scope: 'agent/refunds' }, { kind: 'api', scope: 'agent' }] });
     const { fix } = blame(run, { scope: 'agent' });

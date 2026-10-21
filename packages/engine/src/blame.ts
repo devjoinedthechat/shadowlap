@@ -390,7 +390,9 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
     if (unsettled) lines.push(`  Confidence: ${p.red('low')} ${p.dim(`(#${r.probes[0]!.callNo} was inconclusive)`)}`);
   } else {
     lines.push(`${p.yellow('!')} ${p.bold('Stopped before the search finished')}${r.stopReason ? `: ${r.stopReason}` : ''}`);
-    lines.push(r.blamed ? `  So far: rescued up to ${call(r.blamed)}${r.lost ? `, lost from ${call(r.lost)}` : ''}.` : '  So far no probe had settled.');
+    // The probe past the last rescue lost the run there, or could not tell, which is no loss.
+    const after = r.lost ? (probeWord(r.lost) === 'inconclusive' ? `, inconclusive at ${call(r.lost)}` : `, lost from ${call(r.lost)}`) : '';
+    lines.push(r.blamed ? `  So far: rescued up to ${call(r.blamed)}${after}.` : '  So far no probe had settled.');
   }
 
   if (r.outcome !== 'unrescuable') {

@@ -583,7 +583,9 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     boundary = unrescuedWhy(r).evidence ?? 'No probe rescued the run.';
   } else {
     title = 'Stopped before the search finished';
-    boundary = `${r.stopReason ? `Stopped: ${r.stopReason}. ` : ''}${r.blamed ? `So far: rescued up to #${r.blamed.callNo}${r.lost ? `, lost from #${r.lost.callNo}` : ''}.` : 'No probe had settled.'}`;
+    // The probe past the last rescue lost the run there, or could not tell, which is no loss.
+    const after = r.lost ? (probeWord(r.lost) === 'inconclusive' ? `, inconclusive at #${r.lost.callNo}` : `, lost from #${r.lost.callNo}`) : '';
+    boundary = `${r.stopReason ? `Stopped: ${r.stopReason}. ` : ''}${r.blamed ? `So far: rescued up to #${r.blamed.callNo}${after}.` : 'No probe had settled.'}`;
   }
   const confidenceWhy =
     r.confidence === 'low'
