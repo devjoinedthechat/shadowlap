@@ -63,6 +63,7 @@ A run made where nothing knows what started the agent, such as a capture of prod
 | `redactions` | The [redaction rules](./normalizers-and-redaction.md#redaction) applied to the pack's copy of the run. A replay applies them as normalizers, so a live request matches the masked recording |
 | `covers` | What a [partial recording](#partial-recordings) holds |
 | `inputs` | `true`: what a person typed during the run is recorded, as `user_input` tool calls ([the wire protocol](./protocol.md#user-input)) |
+| `keyEnv` | The providers whose credentials the environment the agent started in held, each with the variables among those its SDKs read that held its key, such as `{ "anthropic": ["ANTHROPIC_API_KEY"], "bedrock": [] }` (empty for a credential of another kind: a profile, a shared file, an identity): names, never values. `shadowlap replay` gives the agent a [placeholder key](./how-it-works.md#keys) for those providers when its environment has none. A reader takes only the providers and variables it knows; a producer may leave it out |
 | `normalizersHash` | Under what the stored fingerprints were computed ([identity](#identity)). A producer leaves it out |
 | `imported` | Written by a reader that brings the run into a store: where it came from. A pack's own is replaced |
 
@@ -504,7 +505,7 @@ It answers `201`:
 { "runId": "01K5CQ4N7G…", "mode": "record", "recording": "tests/recordings/refund-flow" }
 ```
 
-`mode` in the response is what actually happened, which is what the test should report. A `none` mode with no recording on disk is a 404 whose message says how to record it; a recording that holds no runs is a 422, and one whose run the local store already holds as another recording, with other calls, is a 409 that says how to replay this one.
+`mode` in the response is what actually happened, which is what the test should report. A replay's response may also carry `placeholders`, such as `{ "OPENAI_API_KEY": "shadowlap-offline-replay-placeholder" }`: the [placeholder keys](./how-it-works.md#keys) for the providers the recording called whose credentials the host's environment lacks. Set each in the test's process while the test runs, only where the variable is unset or empty, and put it back as it was when the test ends, so a model client the test builds the default way sends what the recording answers. The replay is offline: no placeholder goes anywhere. A `none` mode with no recording on disk is a 404 whose message says how to record it; a recording that holds no runs is a 422, and one whose run the local store already holds as another recording, with other calls, is a 409 that says how to replay this one.
 
 Starting a run in a slot ends whatever was still running in that slot, so a crashed test doesn't wedge the worker.
 
@@ -569,7 +570,7 @@ The default that makes recorded tests pleasant: read an explicit setting from th
 1. Spawn the host once per worker; read its JSON line; substitute `__SLOT__`; set the env before anything else loads.
 2. Load the capture module for your language.
 3. Keep stdin open for the life of the worker.
-4. `start` per test, with the recording directory and the slot.
+4. `start` per test, with the recording directory and the slot; set the `placeholders` a replay comes with where their variables are empty, until the test ends.
 5. `end` per test with the real `passed`, exactly once, even when the test errored.
 6. Fail the test when `ok` is false, printing `report`.
 7. Expose `calls` and `answer` to the test for assertions.

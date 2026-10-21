@@ -81,6 +81,34 @@ Only calls that go through Shadowlap can be replayed; a tool that isn't wrapped 
 
 Node names a target by the host the agent asked for. Python connects to the address a name resolved to, so its guard names a target by the names that resolved to that address (`api.stripe.com:443`, not the address); when several did, as behind a CDN or a shared load balancer, the address is shown with all of them (`104.18.7.1:443 (api.example.com, cdn.example.com)`). Since those hosts can't be told apart when the connection opens, an allowed host name lets a Python connection through only while every name that resolved to its address is allowed. Allow the address itself (`104.18.7.1:443`) to let them all through.
 
+## Keys
+
+A live call carries your key: the sidecar forwards it upstream and never stores it. What a recording answers needs no key, but a model client built the default way (`new Anthropic()`, `new OpenAI()`, Google's `GoogleGenAI` or `genai.Client()`) reads its key from the environment and refuses to send anything without one. So a replay gives the agent a placeholder for each provider its recording called when the environment has no credential for it, and the client sends what the recording answers:
+
+| Provider | Placeholder |
+|---|---|
+| Anthropic | `ANTHROPIC_API_KEY=shadowlap-offline-replay-placeholder` |
+| OpenAI | `OPENAI_API_KEY=shadowlap-offline-replay-placeholder` |
+| Gemini | The same value in `GEMINI_API_KEY` and `GOOGLE_API_KEY`, or in the one of them the recording's environment held |
+| Azure OpenAI | `AZURE_OPENAI_API_KEY=shadowlap-offline-replay-placeholder`, only when the recording's environment held `AZURE_OPENAI_API_KEY` |
+| Bedrock | `AWS_ACCESS_KEY_ID=SHADOWLAPREPLAY` and `AWS_SECRET_ACCESS_KEY=shadowlap-offline-replay-placeholder` |
+
+A placeholder never replaces a credential you set, of any kind the provider's SDKs read: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_PROFILE`, `ANTHROPIC_FEDERATION_RULE_ID` or the active Anthropic profile (in `ANTHROPIC_CONFIG_DIR`, `$XDG_CONFIG_HOME/anthropic` or `~/.config/anthropic`); `OPENAI_ADMIN_KEY`; Microsoft Entra ID (`AZURE_OPENAI_AD_TOKEN`, `AZURE_CLIENT_ID`, `AZURE_FEDERATED_TOKEN_FILE`, a managed identity's `IDENTITY_ENDPOINT` or `MSI_ENDPOINT`) or an Azure CLI sign-in; `AWS_PROFILE`, AWS's shared credentials and config files, web identity, container credentials or a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`). An empty variable, which is what a pull request from a fork gets for a secret, counts as none. Azure OpenAI gets one only for a recording whose environment held the key itself: the Node client refuses a key beside a token provider, which no variable shows. Vertex AI clients fetch a token before they call it, which no placeholder stands in for ([Providers](./providers.md#credentials-on-replay)). With `SHADOWLAP_CAPTURE=off`, Azure OpenAI and Bedrock get none, since their calls would then go straight to the provider.
+
+A placeholder is never sent, to any host: a provider, a gateway, a model server on this machine or a mock. The sidecar answers a live call that carries one, in any header, in an AWS signature or in the query string, with one line instead of sending it:
+
+```
+a live call needs a real key: set ANTHROPIC_API_KEY, or keep the replay offline
+```
+
+The agent gets it as the provider's own 401 (`UnrecognizedClientException` from Bedrock), and the replay's summary prints it under the fork line, which counts the call as refused, not as an upstream request. A call to a host declared under `http` that passes one on, such as a vector store that embeds with the caller's OpenAI key, is answered the same way, the line naming the call.
+
+Which commands are offline, and which may go live:
+
+- **Offline:** a clean replay; `shadowlap test` and the [GitHub Action](./ci.md#github-actions), but for `--online`, a golden marked `fork` and a gate with `fork: true`; [recorded tests](./testing.md) under pytest, Vitest and node:test; `bisect` without `--fork`; `calibrate`; `coverage --pack`; the replay `decisions --from-code` reads the working tree's prompt with; and `check`, and the checks `verify` reads from a recording, which run nothing. None of them needs a key. Each replay gets a placeholder for every provider its recording called whose credential the environment lacks (Azure OpenAI's as above), and a call the recording doesn't hold fails as offline, never live. A recorded test's process holds them only while the test runs, each where its variable is empty, and has the variable back as it was afterwards.
+- **May go live:** a fork, whether the code changed a request or a flag did (`--inject`, `--set`, `--model`, `--override`, `--fail-at`, `--inject-result`, `--prompt-from`, `--diverge-at`), `--live-tool` and `--live-input`; `test --online` and `--update`, a golden marked `fork` and a gate with `fork: true`; `--chaos`; the attempts of `blame`, `verify` and `repair`; `injection`, `bisect --fork`, `decisions`, `migrate` and `tasks score`; a judge asked live. A live call needs a real key, and none of these gives a placeholder but `shadowlap replay`.
+- **`shadowlap replay`**, with `--repeat` and `--watch` too, is offline until it forks. It gives its agent a placeholder only for a provider whose key the recording's own environment held, which a run keeps by name, never by value (`keyEnv` in its [metadata](./recording-format.md#a-run)): the agent took its key from the environment then, so a clean replay needs none now, and a fork stops at its first live call with the line above. An agent that brings its key itself (from a `.env` file it loads, or a local server's `ollama`) or signs in another way (a token provider, an instance role) gets none, so its fork goes live with what it has. A recording that doesn't say, such as an import, gets none.
+
 ## Where forks happen
 
 A replay forks at the first **request** that changes, not where the bug is. That splits changes into three classes:

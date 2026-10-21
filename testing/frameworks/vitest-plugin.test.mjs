@@ -15,6 +15,8 @@ const VITEST = fileURLToPath(new URL('../../node_modules/vitest/vitest.mjs', imp
 describe('@shadowlap/test', () => {
   let mock;
   let hits = 0;
+  // The key each request carried.
+  const keys = [];
   let project;
   before(async () => {
     mock = createServer((req, res) => {
@@ -22,6 +24,7 @@ describe('@shadowlap/test', () => {
       req.on('data', (c) => (body += c));
       req.on('end', () => {
         hits++;
+        keys.push(req.headers['x-api-key']);
         const text = JSON.parse(body).messages[0].content;
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ id: `msg_${hits}`, type: 'message', role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: `echo: ${text}` }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 5 } }));
@@ -93,6 +96,28 @@ describe('@shadowlap/test', () => {
     const alone = await run([VITEST, 'run', '--config', 'vitest.mixed.config.mjs', '-t', 'after a recorded one'], { ANTHROPIC_BASE_URL: model, SHADOWLAP_UPSTREAM_ANTHROPIC: model });
     assert.equal(alone.code, 0, alone.out);
     assert.match(alone.out, /1 passed/);
+  });
+
+  it('Vitest and node:test: a client built the default way replays with no key in the environment', async () => {
+    const vitestKeys = (env) => run([VITEST, 'run', '--config', 'vitest.keys.config.mjs'], env);
+    const nodeKeys = (env) => run(['--import', '@shadowlap/test/register', '--test', 'node-keys.fixture.mjs'], env);
+    const recording = { ANTHROPIC_API_KEY: 'sk-recording', KEY_BEFORE: 'sk-recording' };
+    const first = await vitestKeys(recording);
+    assert.equal(first.code, 0, first.out);
+    assert.match(first.out, /Tests\s+2 passed/);
+    const firstNode = await nodeKeys(recording);
+    assert.equal(firstNode.code, 0, firstNode.out);
+    assert.deepEqual(keys.slice(-2), ['sk-recording', 'sk-recording']);
+    // In CI without secrets: a recorded test's client gets a placeholder while it runs, and nothing is sent.
+    const hitsBefore = hits;
+    const ci = { ANTHROPIC_API_KEY: '', KEY_BEFORE: '', CI: 'true', SHADOWLAP_UPSTREAM_ANTHROPIC: 'http://127.0.0.1:9' };
+    const again = await vitestKeys(ci);
+    assert.equal(again.code, 0, again.out);
+    assert.match(again.out, /Tests\s+2 passed/);
+    const node = await nodeKeys(ci);
+    assert.equal(node.code, 0, node.out);
+    assert.equal(hits, hitsBefore);
+    assert.ok(!keys.includes('shadowlap-offline-replay-placeholder'));
   });
 
   it('node:test with --import @shadowlap/test/register: records, then replays offline', async () => {

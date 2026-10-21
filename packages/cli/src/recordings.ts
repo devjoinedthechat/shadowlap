@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { divergenceLine, finalAnswer, formatDivergence, formatSummary, heldFrom, packRun, TEST_COMMAND, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
 import { HttpError, type ApiRoute, type Sidecar } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
+import { placeholdersFor, stampKeyEnv } from './placeholder-keys.js';
 
 /**
  * Recordings for test suites, behind `shadowlap serve --recordings`. A test-runner plugin (pytest,
@@ -11,7 +12,7 @@ import { stampAuthor } from './activity.js';
  * packed next to the test, and a replay that diverged is reported, and kept in the local store to
  * inspect.
  *
- *   POST /v1/recordings/start  { recording, slot, mode?, name?, command? } → { runId, mode, recording }
+ *   POST /v1/recordings/start  { recording, slot, mode?, name?, command? } → { runId, mode, recording, placeholders? }
  *   POST /v1/recordings/calls  { runId }                                   → RecordedCalls, so far
  *   POST /v1/recordings/end    { runId, passed }                           → RecordingResult
  */
@@ -96,7 +97,12 @@ export class RecordingHost {
     return dir;
   }
 
-  start(body: StartBody): { runId: string; mode: 'record' | 'replay'; recording: string } {
+  /**
+   * A replay comes with `placeholders`: the key variables the test process sets while the test runs,
+   * each unless it holds a value already, so a model client the test builds the default way sends
+   * what the recording answers (placeholder-keys.ts). The replay is offline: none goes anywhere.
+   */
+  start(body: StartBody): { runId: string; mode: 'record' | 'replay'; recording: string; placeholders?: Record<string, string> } {
     const sidecar = this.sidecar!;
     const dir = this.dirFor(body.recording);
     const slot = typeof body.slot === 'string' ? body.slot : 'main';
@@ -114,6 +120,7 @@ export class RecordingHost {
     if (mode === 'all' || (!exists && mode === 'missing')) {
       const run = sidecar.startRun({ mode: 'record', command, codeVersion: this.opts.codeVersion, slot });
       stampAuthor(this.store, run.runId);
+      stampKeyEnv(this.store, run.runId);
       this.active.set(run.runId, { runId: run.runId, mode: 'record', dir, slot });
       return { runId: run.runId, mode: 'record', recording: rel };
     }
@@ -131,8 +138,10 @@ export class RecordingHost {
     const covers = this.store.getRun(parentRunId)?.meta?.covers;
     const run = sidecar.startRun({ mode: 'replay', parentRunId, command, codeVersion: this.opts.codeVersion, slot, offline: true, replay: { writes: 'block', reads: 'live', liveTools: new Set(), ...(covers?.length ? { kinds: new Set(covers) } : {}) } });
     stampAuthor(this.store, run.runId);
+    stampKeyEnv(this.store, run.runId);
     this.active.set(run.runId, { runId: run.runId, mode: 'replay', dir, slot });
-    return { runId: run.runId, mode: 'replay', recording: rel };
+    const placeholders = placeholdersFor(this.store, this.store.getRun(parentRunId)!, 'offline');
+    return { runId: run.runId, mode: 'replay', recording: rel, ...(Object.keys(placeholders).length ? { placeholders } : {}) };
   }
 
   calls(body: { runId?: unknown }): RecordedCalls {

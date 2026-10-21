@@ -35,7 +35,7 @@ import threading
 import urllib.error
 import urllib.request
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 __all__ = ["ShadowlapReplayDiverged", "Recording", "recording", "record_mode", "under_shadowlap_run"]
 
@@ -237,6 +237,8 @@ class Recording:
         self.result: Optional[dict] = None
         # Whether this recording has pointed the process at its slot (see _Host.enter).
         self._entered = False
+        # The placeholder keys a replay set, each with the value its variable had before (see _place).
+        self._placed: Dict[str, Tuple[Optional[str], str]] = {}
 
     def start(self) -> "Recording":
         if under_shadowlap_run():
@@ -252,7 +254,31 @@ class Recording:
         if not self._entered:
             host.enter()
             self._entered = True
+        self._place(started.get("placeholders") or {})
         return self
+
+    def _place(self, placeholders: Dict[str, str]) -> None:
+        """Sets the placeholder keys a replay comes with (``shadowlap-offline-replay-placeholder``), each
+        only where the variable holds no value, so a model client built the default way, which takes
+        its key from the environment, sends what the recording answers. The replay is offline: no
+        placeholder goes anywhere."""
+        self._unplace()
+        for key, value in placeholders.items():
+            if (os.environ.get(key) or "").strip():
+                continue
+            self._placed[key] = (os.environ.get(key), value)
+            os.environ[key] = value
+
+    def _unplace(self) -> None:
+        """Puts back each variable the test left holding its placeholder."""
+        for key, (before, value) in self._placed.items():
+            if os.environ.get(key) != value:
+                continue
+            if before is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = before
+        self._placed = {}
 
     def _read(self) -> Dict[str, Any]:
         if self.run_id is None:
@@ -286,6 +312,7 @@ class Recording:
         """Ends the recording. Raises :class:`ShadowlapReplayDiverged` when the replay diverged."""
         if self.run_id is None:
             return
+        self._unplace()
         if self._entered:
             self._entered = False
             if _host is not None:

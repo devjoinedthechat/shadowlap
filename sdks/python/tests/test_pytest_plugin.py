@@ -28,13 +28,15 @@ except ImportError:
 
 
 class _Model(BaseHTTPRequestHandler):
-    """An OpenAI-shaped chat endpoint that echoes the prompt and counts its requests."""
+    """An OpenAI-shaped chat endpoint that echoes the prompt, and counts its requests and the keys they carry."""
 
     hits = 0
+    keys = []
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("content-length") or 0)) or b"{}")
         type(self).hits += 1
+        type(self).keys.append(self.headers.get("authorization"))
         text = "echo: " + body["messages"][-1]["content"]
         reply = {"id": "c%d" % self.hits, "object": "chat.completion", "created": 1, "model": body.get("model", "m"), "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}}
         data = json.dumps(reply).encode()
@@ -115,6 +117,29 @@ def test_d_unmarked_again():
 '''
 
 
+# A recorded test whose client takes its key from the environment, as an SDK's client built the
+# default way does, and fails without one; then a test that sees the variable as it was.
+KEYS = '''
+import json, os, urllib.request
+import pytest
+
+def ask(prompt):
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("Missing credentials: set the OPENAI_API_KEY environment variable")
+    body = {"model": "gpt-5", "messages": [{"role": "user", "content": prompt}]}
+    req = urllib.request.Request(os.environ["OPENAI_BASE_URL"].rstrip("/") + "/chat/completions", data=json.dumps(body).encode(), headers={"content-type": "application/json", "authorization": "Bearer " + key})
+    return json.load(urllib.request.urlopen(req))["choices"][0]["message"]["content"]
+
+@pytest.mark.shadowlap
+def test_a_key_from_the_environment():
+    assert ask("hello") == "echo: hello"
+
+def test_b_the_variable_as_it_was():
+    assert os.environ.get("OPENAI_API_KEY", "") == os.environ["KEY_BEFORE"]
+'''
+
+
 # Tests whose names alone would share a recording: the same name in two classes, two parametrized
 # cases that agree for their first 130 characters, and two that differ only in punctuation.
 NAMES = '''
@@ -191,6 +216,7 @@ def pytest_runtest_protocol(item, nextitem):
 class PytestPlugin(unittest.TestCase):
     def setUp(self):
         _Model.hits = 0
+        _Model.keys = []
         self.project = tempfile.mkdtemp(prefix="sl-pytest-plugin-")
         with open(os.path.join(self.project, "test_agent.py"), "w") as f:
             f.write(textwrap.dedent(TESTS))
@@ -283,6 +309,27 @@ class PytestPlugin(unittest.TestCase):
         self.assertEqual(legacy.returncode, 0, legacy.stdout + legacy.stderr)
         self.assertIn("2 passed", legacy.stdout)
 
+
+    @unittest.skipUnless(BUILT, "the shadowlap CLI of this repository is not built")
+    def test_a_recorded_test_replays_with_no_key_in_the_environment(self):
+        with open(os.path.join(self.project, "test_keys.py"), "w") as f:
+            f.write(textwrap.dedent(KEYS))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Model)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            env = {"SHADOWLAP_CLI": CLI, "SHADOWLAP_UPSTREAM_OPENAI": "http://127.0.0.1:%d" % server.server_address[1], "SHADOWLAP_TELEMETRY": "0", "OPENAI_API_KEY": "sk-recording", "KEY_BEFORE": "sk-recording"}
+            first = self.pytest("test_keys.py", env=env)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            self.assertIn("2 passed", first.stdout)
+            self.assertEqual(_Model.keys, ["Bearer sk-recording"])
+            # In CI without secrets: the recorded test's client gets a placeholder while it runs, and nothing is sent.
+            again = self.pytest("test_keys.py", env=dict(env, SHADOWLAP_RECORD="none", OPENAI_API_KEY="", KEY_BEFORE=""))
+            self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+            self.assertIn("2 passed", again.stdout)
+            self.assertEqual(_Model.hits, 1)
+        finally:
+            server.shutdown()
+            server.server_close()
 
     @unittest.skipUnless(BUILT, "the shadowlap CLI of this repository is not built")
     def test_a_test_run_again_is_judged_by_its_own_attempt(self):

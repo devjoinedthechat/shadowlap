@@ -160,6 +160,26 @@ async function post<T>(info: HostInfo, path: string, body: unknown): Promise<T> 
   return JSON.parse(text) as T;
 }
 
+/**
+ * Sets the placeholder keys a replay comes with (`shadowlap-offline-replay-placeholder`), each only
+ * where the variable holds no value, so a model client built the default way, which takes its key
+ * from the environment, sends what the recording answers. The replay is offline: no placeholder goes
+ * anywhere. The returned function puts back each variable the test left holding its placeholder.
+ */
+function usePlaceholders(placeholders: Record<string, string> | undefined): () => void {
+  const set = Object.entries(placeholders ?? {}).filter(([key]) => !process.env[key]?.trim());
+  const before = new Map(set.map(([key]) => [key, process.env[key]]));
+  for (const [key, value] of set) process.env[key] = value;
+  return () => {
+    for (const [key, value] of set) {
+      if (process.env[key] !== value) continue;
+      const was = before.get(key);
+      if (was === undefined) delete process.env[key];
+      else process.env[key] = was;
+    }
+  };
+}
+
 /** Runs `fn` as one recorded test. `fn` gets the recording, which `currentRecording()` also returns. */
 export async function withRecording<T>(opts: RecordingOptions & { recording: string }, fn: (recording: Recording) => T | Promise<T>): Promise<T> {
   const raw = process.env[HOST_ENV];
@@ -173,7 +193,7 @@ export async function withRecording<T>(opts: RecordingOptions & { recording: str
   }
   const info = JSON.parse(raw) as HostInfo;
   const slot = process.env[SLOT_ENV] ?? 'main';
-  const started = await post<{ runId: string; mode: 'record' | 'replay'; recording: string }>(info, '/v1/recordings/start', {
+  const started = await post<{ runId: string; mode: 'record' | 'replay'; recording: string; placeholders?: Record<string, string> }>(info, '/v1/recordings/start', {
     recording: opts.recording,
     slot,
     mode: recordMode(opts.mode),
@@ -183,14 +203,17 @@ export async function withRecording<T>(opts: RecordingOptions & { recording: str
   let error: unknown;
   let failed = false;
   const rec = new Recording(info, started.runId, started.mode, started.recording);
-  // The model clients and the SDK point at the slot only while the test runs.
+  // The model clients and the SDK point at the slot only while the test runs, and on a replay a
+  // client gets a placeholder for each key the environment lacks.
   const restore = pointAtSlot(info, slot);
+  const unplace = usePlaceholders(started.placeholders);
   try {
     value = await current.run(rec, () => fn(rec));
   } catch (err) {
     failed = true;
     error = err;
   } finally {
+    unplace();
     restore();
   }
   const result = await post<RecordingResult>(info, '/v1/recordings/end', { runId: started.runId, passed: !failed });
