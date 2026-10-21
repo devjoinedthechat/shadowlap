@@ -493,7 +493,8 @@ function divergenceOf(r: TestResult): DivergenceReport | null {
 /** Why a result failed, in a few words: `diverged at call 1`, `check failed: send_email called 0 times`, `inconclusive after 40 attempts`. */
 export function shortReason(r: TestResult): string {
   if (r.ok) return 'passed';
-  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate ? `inconclusive after ${r.data.gate.attempts} attempts` : 'inconclusive: a check could not be judged';
+  // Its gate ran out of attempts; else a check could not be judged (which stops a gate before it decides), or its injection gate showed too little.
+  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate?.decision === 'inconclusive' ? `inconclusive after ${r.data.gate.attempts} attempts` : r.failure === 'injection' ? 'inconclusive: its injection test showed too little to say' : 'inconclusive: a check could not be judged';
   const reason = r.reason ?? 'failed';
   if (r.failure === 'diverged') {
     const d = r.data?.divergence;
@@ -534,8 +535,9 @@ export function gateVerdictLine(g: GateResult): string {
 /** The line under a golden's last result: what it did, or why it failed; `normalizers` are the config's now. */
 export function resultLine(r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
   const data = r.data ?? {};
-  // A gate's verdict is its verdict line, passed, failed or inconclusive, with pass^k beside it.
-  if (data.gate && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit')) return [gateVerdictLine(data.gate), formatPassK(data.gate)].filter(Boolean).join(' · ');
+  // A gate's verdict is its verdict line, passed, failed or inconclusive, with pass^k beside it; a gate
+  // an attempt a check could not decide stopped decided nothing, and the result's reason says why.
+  if (data.gate && data.gate.decision !== 'continue' && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit')) return [gateVerdictLine(data.gate), formatPassK(data.gate)].filter(Boolean).join(' · ');
   if (!r.ok) {
     if (r.failure === 'diverged') {
       const d = divergenceOf(r);
@@ -1021,7 +1023,10 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     if (!latest || latest.ok) continue;
     // Neither passed nor failed: nothing to bisect or fix, only attempts to add.
     if (verdictOfResult(latest) === 'inconclusive') {
-      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: latest.data?.gate ? gateVerdictLine(latest.data.gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: row.last.gate, failure: latest.failure });
+      // Its gate ran out of attempts between its bounds; or a check, or its injection gate, is what is
+      // inconclusive (an attempt a check could not decide stopped its gate, which decided nothing).
+      const gate = latest.data?.gate?.decision === 'inconclusive' ? latest.data.gate : null;
+      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: gate ? gateVerdictLine(gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: gate ? row.last.gate : null, failure: latest.failure });
       continue;
     }
     const past = store.listTestResults({ golden: row.path, limit: 1000 });

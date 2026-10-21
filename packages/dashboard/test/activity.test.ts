@@ -363,6 +363,12 @@ describe('a test session', () => {
     const unsure = replay('goldens/flaky', 190);
     const outcomes = [...Array(16).fill(true), false, false, false, false];
     store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/flaky', ok: false, failure: 'inconclusive', reason: 'inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', runId: unsure, at: 200, data: { mode: 'fork', attempts: { total: 20, passed: 16, required: null, runs: [unsure] }, verdict: 'inconclusive', gate: gateResult(SPRT, outcomes) } });
+    // Gated, but a check its third attempt could not decide stopped it: its gate decided nothing.
+    const stopped = replay('goldens/stopped', 202);
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/stopped', ok: false, failure: 'inconclusive', reason: 'check inconclusive: judge "calm" answers yes, but not judged', runId: stopped, at: 204, data: { mode: 'fork', attempts: { total: 3, passed: 2, required: null, runs: [stopped], inconclusive: 1 }, verdict: 'inconclusive', gate: gateResult(SPRT, [true, true], { decision: 'continue' }) } });
+    // Gated and passed, then its injection gate showed too little to say.
+    const planted = replay('goldens/planted', 206);
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/planted', ok: false, failure: 'injection', reason: 'injection inconclusive: no attempt showed anything', runId: planted, at: 208, data: { mode: 'fork', attempts: { total: 12, passed: 12, required: null, runs: [planted] }, verdict: 'inconclusive', gate: gateResult(SPRT, Array(12).fill(true)) } });
     recordEvent(store, { kind: 'test.session', ref: session.sessionId, data: { passed: 2, failed: 2, inconclusive: 1, goldens: 5 }, at: 210 });
     recordEvent(store, { kind: 'test.session', ref: 'S2', data: { passed: 4, failed: 0, inconclusive: 1, goldens: 5 }, at: 220 });
     recordEvent(store, { kind: 'blame.done', runId: rec, ref: 'fx-01K5CQ4N7G8M2XWQH6V3T9RB1D', data: { outcome: 'unrescuable', callNo: null, confidence: 'low', title: 'Refunds above the limit', unsettled: true }, at: 230 });
@@ -379,6 +385,9 @@ describe('a test session', () => {
     expect(line(passes)).toEqual(['test', `Test passed · gated-pass · 12 of 12 passed · rate >= 0.76 (95%) · pass^5 1.00 · ${rule}`]);
     expect(line(fails)).toEqual(['fail', `Test failed · gated-fail · 0 of 3 passed · rate <= 0.56 (95%) · ${rule}`]);
     expect(line(unsure)).toEqual(['warn', `Test inconclusive · flaky · 16 of 20 passed · rate 0.58 to 0.92 (95%) · pass^5 0.28 · ${rule}`]);
+    // Never a gate's evidence for a golden whose gate is not what is inconclusive.
+    expect(line(stopped)).toEqual(['warn', 'Test inconclusive · stopped · a check could not be judged']);
+    expect(line(planted)).toEqual(['warn', 'Test inconclusive · planted · its injection test showed too little to say']);
     expect(JSON.stringify(items)).not.toContain('needed');
     expect(JSON.stringify(items)).not.toContain('null');
     expect(items.find((i) => i.at === 210)).toMatchObject({ kind: 'fail', text: 'Tests ran · 2 passed, 2 failed, 1 inconclusive' });

@@ -40,6 +40,7 @@ process.exit(Number(process.env.EXIT ?? 0));
 let mock: MockServer;
 let work: string;
 let firstRead: string | undefined;
+let answeredTwice = 0;
 let agent: string[];
 let counter = 0;
 
@@ -59,6 +60,8 @@ beforeAll(async () => {
       (q) => {
         // A judge whose provider turns every request away: no verdict, so the check can't be decided.
         if (q.question.includes('unreachable')) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+        // One that answers twice, and turns away every request after.
+        if (q.question.includes('(twice)')) return ++answeredTwice <= 2 ? { verdict: 'yes', reason: 'it issues the refund' } : { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
         // One that answers about the first answer it reads, and turns away any other.
         if (q.question.includes('first answer only')) {
           firstRead ??= q.material;
@@ -305,6 +308,29 @@ describe('an attempt a judge could not answer', () => {
     expect(text.out).toMatch(/attempt 1 {2}\? judge "issued" answers yes, but it is inconclusive: not judged/);
     expect(text.out).toContain('! Incomplete');
     expect(text.out).not.toMatch(/broken|Rejected|✗ judge/);
+  }, 120_000);
+});
+
+describe('a gated golden whose attempt a judge could not answer', () => {
+  it('is inconclusive for the check, never for a gate that ran out of attempts, in JUnit and the Markdown report', async () => {
+    const twice = [judge({ question: 'Did the agent issue the refund? (twice)' })];
+    config({ tests: { 'goldens/twice': { fork: true, gate: { good: 0.6, bad: 0.4, risk: 0.2, max: 4 }, expect: { judge: twice } } } });
+    const rec = await record({ VARIANT: 'plain' });
+    // Packing asks the judge once; the first attempt, which forks, asks it again; the second can't be judged.
+    expect((await shadowlap(['pack', rec, 'goldens/twice'])).code).toBe(0);
+    const junit = join(work, `junit-${++counter}.xml`);
+    const markdown = join(work, `summary-${++counter}.md`);
+    const t = await test('goldens/twice', ['--junit', junit, '--markdown', markdown], { VARIANT: 'n' });
+    expect(t.code, t.out).toBe(1);
+    expect(t.result).toMatchObject({ verdict: 'inconclusive', failure: 'inconclusive' });
+    // Its gate decided nothing: the check is why it is inconclusive, and no report says otherwise.
+    const xml = readFileSync(junit, 'utf8');
+    expect(xml).toContain(`<failure message="check inconclusive: judge &quot;issued&quot; answers yes, but not judged: the judge's call failed: HTTP 400`);
+    expect(xml).toContain('attempt 1  ✓ passed\nattempt 2  ? check inconclusive');
+    expect(xml).not.toContain('undecided');
+    const md = readFileSync(markdown, 'utf8');
+    expect(md).toContain('Inconclusive means a check could not be decided');
+    expect(md).not.toMatch(/neither verdict holds|More attempts settle a gate/);
   }, 120_000);
 });
 

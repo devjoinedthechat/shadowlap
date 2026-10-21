@@ -187,7 +187,9 @@ export function markdownReport(report: TestReport): string {
     const unsure = report.results.filter((r) => verdictOf(r) === 'inconclusive');
     const unjudged = unsure.some((r) => r.checks?.some((c) => checkStatus(c) === 'inconclusive'));
     const injected = unsure.some((r) => r.injection?.verdict === 'inconclusive');
-    const gated = unsure.some((r) => r.gate) || (!unjudged && !injected);
+    // A gate that ran out of attempts: not one an attempt a check could not decide stopped first,
+    // which decided nothing, nor one that passed a golden its injection gate then left inconclusive.
+    const gated = unsure.some((r) => r.gate?.decision === 'inconclusive') || (!unjudged && !injected);
     const causes = [
       ...(unjudged ? ['a check could not be decided, such as a judge check with no recorded verdict and no way to ask the judge, or a condition whose value the run does not have: it never passes, but the agent failed no check'] : []),
       ...(gated ? ["neither verdict holds at the gate's stated risk after the most attempts it runs"] : []),

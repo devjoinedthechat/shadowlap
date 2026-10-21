@@ -1038,6 +1038,29 @@ describe('goldens with a gate', () => {
     store.close();
   });
 
+  it('says a gated golden a check could not decide is inconclusive for the check, never for a gate that ran out', () => {
+    const store = Store.open(':memory:');
+    const why = 'check inconclusive: judge "calm" answers yes, but not judged: the judge\'s call failed: HTTP 400';
+    // Two attempts passed, and the third could not be judged: test stops there, and its gate decided nothing.
+    const stopped: TestResultData = { mode: 'fork', attempts: { total: 3, passed: 2, required: null, runs: [], inconclusive: 1 }, verdict: 'inconclusive', gate: gateResult(sprt, [true, true], { decision: 'continue' }) };
+    // One whose replay passed its gate, and whose injection gate showed too little to say.
+    const injected: TestResultData = { ...result(sprt, Array(12).fill(true)), verdict: 'inconclusive', injection: { resultId: null, attempts: 3, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 3, allowed: { obeyed: 0, influenced: null }, verdict: 'inconclusive', reason: 'no attempt showed anything', skipped: null } };
+    session(store, 'e4f5a6b', T0, [
+      { golden: 'goldens/escalates', ok: false, failure: 'inconclusive' as never, reason: why, runId: 'R1', data: stopped },
+      { golden: 'goldens/flaky', ok: false, failure: 'injection', reason: 'injection inconclusive: no attempt showed anything', runId: 'R2', data: injected },
+    ]);
+    const view = testsView(store, gated.slice(0, 2));
+    const [escalates, flaky] = view.rows;
+    expect(escalates!.last).toMatchObject({ verdict: 'inconclusive', line: why });
+    expect(view.inconclusive).toEqual([expect.objectContaining({ golden: 'goldens/escalates', reason: why, gate: null }), expect.objectContaining({ golden: 'goldens/flaky', reason: 'injection inconclusive: no attempt showed anything', gate: null })]);
+    expect(flaky!.last).toMatchObject({ verdict: 'inconclusive', line: 'injection inconclusive: no attempt showed anything' });
+    // Its title and its history cell say what is inconclusive, never a gate that ran out of attempts.
+    expect(view.verdict).toMatchObject({ state: 'inconclusive', inconclusive: 2, title: 'escalates inconclusive: a check could not be judged' });
+    expect(escalates!.history.map((c) => c.note)).toEqual([why]);
+    expect(failingTests(store, { goldens: gated.slice(0, 2) }).map((t) => t.line)).toEqual(['injection inconclusive: no attempt showed anything', why]);
+    store.close();
+  });
+
   it('runs more attempts for one golden: its gate\'s limit raised for that session only', () => {
     expect(runTestsJob(gated, { golden: 'goldens/flaky', maxAttempts: 40 })).toEqual({ title: 'Running more attempts', args: ['test', 'goldens/flaky', '--max-attempts', '40'] });
     expect(runTestsJob(gated, { golden: 'goldens/flaky', maxAttempts: 0 })).toEqual({ error: 'maxAttempts is a whole number from 1 to 1000' });

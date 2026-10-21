@@ -359,7 +359,8 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   const repeated = !gate && attempts && attempts.total > 1 ? attempts : null;
   const judged = result?.data?.checks ?? null;
   // Neither passed nor failed: its gate ran out of attempts between its bounds, or a check couldn't be judged.
-  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · ${gate ? gateTally(gate) : 'a check could not be judged'}` };
+  // Its gate ran out of attempts, or a check could not be judged (which stops a gate before it decides), or its injection gate showed too little to say.
+  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · ${gate?.decision === 'inconclusive' ? gateTally(gate) : result.failure === 'injection' ? 'its injection test showed too little to say' : 'a check could not be judged'}` };
   if (result?.ok) {
     const how = gate ? gateTally(gate) : repeated ? `${repeated.passed} of ${repeated.total} attempts passed` : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
     return { ...item, kind: 'test', text: `Test passed · ${golden} · ${how}` };
