@@ -333,7 +333,7 @@ describe('shadowlap blame', () => {
     }
   });
 
-  it('starts no attempt the gate can\'t read yet while one runs slow, and decides as one after another would', async () => {
+  it("starts no more than --concurrency attempts the gate can't read yet while one runs slow, and decides as one after another would", async () => {
     // Every attempt fails, so no order they end in can change the verdict: lost, as without --concurrency.
     stubborn = true;
     const runId = await record();
@@ -350,8 +350,9 @@ describe('shadowlap blame', () => {
     const p = report.probes[0]!;
     expect(p).toMatchObject({ decision: 'fail', rescued: false });
     expect(p.rate.sentence).toMatch(/^lost · 0 of 4 (\(and 1 more that ended after it decided\) )?· rate <= 0\.49 \(95%\)/);
-    // While it ran, the other worker started no attempt the gate couldn't read yet, where it used to
-    // start one after another until the held one ended: at most one ran past the four decided on.
+    // While it ran, the other worker started an attempt only while fewer than two had started that the
+    // gate couldn't read yet, where it used to start one after another until the held one ended: at
+    // most one ran past the four decided on.
     expect(p.runs.length).toBeLessThanOrEqual(4 + concurrency - 1);
     expect(p.runs.every((x) => !x.passed)).toBe(true);
   });

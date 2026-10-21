@@ -112,12 +112,12 @@ export class ProbeTally {
 /**
  * Runs a probe's attempts, numbered from 1 in the order they start, up to `concurrency` at once and
  * `limit` in all, while `more()` lets another start. The tally reads them in that order, so attempt
- * n starts only while fewer than `concurrency` attempts have started that it has not read: while an
- * early one runs slow, the others wait for it rather than start forks it can't read yet, each live
- * and paid for, so at most `concurrency - 1` start after the one that decides. A worker that waits
- * is woken whenever an attempt ends, whatever ended it (the tally read more, Ctrl-C, a prefix that
- * broke, the budget spent), and it waits only while an attempt it waits for is still running, so
- * none waits forever.
+ * n starts only while fewer than `concurrency` attempts have started that it has not read: once that
+ * many have, the next waits for the earliest of them to end rather than start another fork it can't
+ * read yet, each live and paid for, so at most `concurrency - 1` start after the one that decides. A
+ * worker that waits is woken whenever an attempt ends, whatever ended it (the tally read more,
+ * Ctrl-C, a prefix that broke, the budget spent), and it waits only while an attempt it waits for is
+ * still running, so none waits forever.
  */
 export async function probeAttempts(o: { concurrency: number; limit: number; tally: Pick<ProbeTally, 'read'>; more: () => boolean; attempt: (n: number) => Promise<void> }): Promise<void> {
   let started = 0;
