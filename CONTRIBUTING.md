@@ -23,10 +23,10 @@ cd sdks/python && uv run --no-project --with pytest --with-editable . python -m 
 
 Without uv, the Python tests run with `pip install pytest -e sdks/python` and `python -m pytest -q sdks/python`.
 
-`npx vitest run` runs the Python reference agent end to end only with a Python ≥ 3.9 that can import `anthropic`, which CI installs. Without one, those four tests count as skipped and the run is still green, so point `SHADOWLAP_PYTHON` at one before you rely on it:
+`npx vitest run` runs the Python reference agent end to end, and the Python agents that build their clients the default way (`testing/default-clients`), only with a Python ≥ 3.9 that can import `anthropic`, `openai`, `google-genai` and `boto3`, which CI installs. Without one, those tests count as skipped and the run is still green, so point `SHADOWLAP_PYTHON` at one before you rely on it:
 
 ```sh
-uv venv .venv --python 3.12 && uv pip install --python .venv/bin/python anthropic
+uv venv .venv --python 3.12 && uv pip install --python .venv/bin/python anthropic openai google-genai boto3
 SHADOWLAP_PYTHON="$PWD/.venv/bin/python" npx vitest run
 ```
 
