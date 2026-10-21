@@ -47,6 +47,31 @@ describe('a session verified more than once', () => {
     expect(mergeVerify(merged, verified({ runs: [{ runId: '01A', role: 'good', outcome: 'broken', passes: 0, attempts: 4, bound: 'rate <= 0.49 (95%)', rule: GATE }] })).verdict).toBe('rejected');
   });
 
+  it('stays incomplete while an attempt that could not be judged left a run inconclusive, keeping why and the rule that decided it', () => {
+    const why = 'judge "summary" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
+    // 01A's second attempt could not be judged, which stopped it: neither passed nor failed, and no bound.
+    const first = verified({ verdict: 'incomplete', runs: [{ runId: '01A', role: 'good', outcome: 'inconclusive', passes: 1, attempts: 2, bound: null, undecided: why, rule: GATE }] });
+    // A later verify under other figures keeps 01B, and leaves 01A as the first found it.
+    const later = verified({ verifyIds: ['vf-2'], runs: [{ runId: '01B', role: 'good', outcome: 'kept', passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)', undecided: null, rule: SHORT }], rule: SHORT });
+    const merged = mergeVerify(first, later);
+    expect(merged.verdict).toBe('incomplete');
+    expect(merged.rule).toBeNull();
+    expect(merged.runs.map((r) => [r.runId, r.outcome, r.bound, r.undecided, r.rule])).toEqual([
+      ['01A', 'inconclusive', null, why, GATE],
+      ['01B', 'kept', 'rate 0.34 to 1 (95%)', null, SHORT],
+    ]);
+    // What still passes reads it as verify left it: inconclusive, the attempt not judged apart, under its own rule.
+    expect(passesOf([run('01A')], ['01A', '01B'], merged, () => true)[0]).toEqual({ runId: '01A', golden: null, verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 1, attempts: 2, bound: null, rule: GATE, undecided: why } });
+    // A run whose attempts stopped before they settled it keeps the session incomplete too; once 01A is kept, both are settled.
+    expect(mergeVerify(merged, verified({ verdict: 'incomplete', runs: [{ runId: '01A', role: 'good', outcome: 'unsettled', passes: 1, attempts: 1, bound: null, undecided: null, rule: GATE }] })).verdict).toBe('incomplete');
+    const settled = mergeVerify(merged, verified({ runs: [{ runId: '01A', role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', undecided: null, rule: GATE }] }));
+    expect(settled.verdict).toBe('accepted');
+    expect(settled.runs.map((r) => [r.runId, r.undecided, r.rule])).toEqual([
+      ['01B', null, SHORT],
+      ['01A', null, GATE],
+    ]);
+  });
+
   it("reads a migrate session's inconclusive run as inconclusive, with its tally and bound under the rule that decided it", () => {
     const v = verified({ verdict: 'incomplete', runs: [{ runId: '01A', role: 'good', outcome: 'inconclusive', passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)', rule: SHORT }], rule: SHORT });
     expect(passesOf([run('01A', 'goldens/research')], ['01A'], v, () => true)).toEqual([{ runId: '01A', golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)', rule: SHORT, undecided: null } }]);
