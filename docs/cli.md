@@ -310,7 +310,7 @@ It switches the agent's model calls: those made with the models `--from` names, 
 | `--scope <name>` | Only the model calls made in this scope; `none` for those made in no scope |
 | `--set <key=value>` | A request field the switch sets as well (repeatable) |
 | `--samples <n>`, `--concurrency <n>` | As for `decisions` |
-| `--expect <json\|@file>` | What a passing run must do besides exiting 0. Default: each golden's checks from `shadowlap.config.json` |
+| `--expect <json\|@file>` | What a passing run must do besides exiting 0. Default: each run's checks from `shadowlap.config.json`, its golden's, or for a run named by id those of the recording it comes from |
 | `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | Verify's, as for [`verify`](#verify). Each run is decided by verify's gate, unless `--attempts` or `--passes` gives a fixed count |
 | `--budget <usd>`, `--timeout <seconds>` | As for `decisions` |
 | `--inconclusive fail\|warn` | What an inconclusive result does to the exit status, as for `decisions` |

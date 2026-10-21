@@ -254,9 +254,10 @@ export function migrateJob(req: JobRequest, store: Store, goldens: readonly Gold
 
 /**
  * Verify the runs a session flagged, the page's primary action: `shadowlap decisions --verify
- * <session>` (with the one `runId` names), which verifies each run under its golden's own checks, one
- * verify per set of checks, in the role its recording plays under them, with the session's change,
- * and keeps what it finds in the session.
+ * <session>` (with the one `runId` names), which verifies each run under its own checks (its
+ * golden's, or for a run named by id those of the recording it comes from), one verify per set of
+ * checks, in the role its recording plays under them, with the session's change, and keeps what it
+ * finds in the session.
  */
 export function verifyFlaggedJob(req: JobRequest, store: Store): JobBuildResult {
   if (typeof req.sessionId !== 'string') return { error: 'sessionId is required' };

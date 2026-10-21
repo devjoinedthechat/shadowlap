@@ -13,10 +13,11 @@ import { openStore, type GlobalOpts } from './shared.js';
 /**
  * `shadowlap decisions --verify <session>`: verify the runs a kept session flagged, without asking
  * their model calls again: the dashboard's "Verify the changed runs". Each run is verified as
- * `--then-verify` verifies it: under its golden's checks from the config (one verify per set of
- * checks), in the role its recording plays under them, with the session's change (its model, the
- * fields it set and those migrate sent in place of what the new model refuses, at the models it
- * changed from). What it finds is kept in the session.
+ * `--then-verify` verifies it: under its checks from the config, its golden's, or for a run named by
+ * id those of the recording it comes from (one verify per set of checks), in the role its recording
+ * plays under them, with the session's change (its model, the fields it set and those migrate sent
+ * in place of what the new model refuses, at the models it changed from). What it finds is kept in
+ * the session.
  */
 
 export interface SessionVerify {
