@@ -358,15 +358,17 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   const attempts = result?.data?.attempts;
   const repeated = !gate && attempts && attempts.total > 1 ? attempts : null;
   const judged = result?.data?.checks ?? null;
+  // A count settled before an attempt a check could not decide keeps that attempt apart: it neither passed nor failed.
+  const tally = (a: NonNullable<typeof repeated>) => `${a.passed} of ${a.total} attempts passed${a.inconclusive ? `, ${a.inconclusive} inconclusive` : ''}`;
   // Neither passed nor failed: its gate ran out of attempts between its bounds, or a check couldn't be judged.
   // Its gate ran out of attempts, or a check could not be judged (which stops a gate before it decides), or its injection gate showed too little to say.
   if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · ${gate?.decision === 'inconclusive' ? gateTally(gate) : result.failure === 'injection' ? 'its injection test showed too little to say' : 'a check could not be judged'}` };
   if (result?.ok) {
-    const how = gate ? gateTally(gate) : repeated ? `${repeated.passed} of ${repeated.total} attempts passed` : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
+    const how = gate ? gateTally(gate) : repeated ? tally(repeated) : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
     return { ...item, kind: 'test', text: `Test passed · ${golden} · ${how}` };
   }
   if (result && gate) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${gateTally(gate)}` };
-  if (result && repeated) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${repeated.passed} of ${repeated.total} attempts passed${typeof repeated.required === 'number' ? `, ${repeated.required} needed` : ''}` };
+  if (result && repeated) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${tally(repeated)}${typeof repeated.required === 'number' ? `, ${repeated.required} needed` : ''}` };
   const diverged = d && d.type !== 'forced' ? `diverged at call ${d.callNo}${drifted ? `, ${drifted}` : ''}` : null;
   if (result) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${result.failure === 'diverged' && diverged ? diverged : shortReason(result)}` };
   const reason = diverged ?? (checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : null);

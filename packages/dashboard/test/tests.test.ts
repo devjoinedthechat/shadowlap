@@ -195,6 +195,9 @@ describe('the Tests screen', () => {
     expect(over).toMatchObject({ modeLabel: 'fork ×5', modeHint: 'allowed to fork; passes on its checks, 5 of 5 attempts', checks: ['issue_refund called 0 times', 'escalate called 1 time'], last: { line: '5 of 5 attempts passed both checks' } });
     const attempts = (n: number) => resultLine({ sessionId: 's', golden: 'g', at: T0, revision: null, ok: true, failure: null, reason: null, runId: null, goldenRunId: null, data: { attempts: { total: 3, passed: 3, required: 3, runs: [] }, checks: Array.from({ length: n }, (_, i) => ({ ok: true, label: `check ${i}`, detail: null })) } }, []);
     expect([attempts(0), attempts(1), attempts(3)]).toEqual(['3 of 3 attempts passed', '3 of 3 attempts passed the check', '3 of 3 attempts passed all 3 checks']);
+    // A count met before an attempt a check could not decide: that attempt is counted apart, never as one that failed.
+    const met = resultLine({ sessionId: 's', golden: 'g', at: T0, revision: null, ok: true, failure: null, reason: null, runId: null, goldenRunId: null, data: { verdict: 'passed', attempts: { total: 2, passed: 1, required: 1, runs: [], inconclusive: 1 }, checks: [{ ok: true, label: 'check 0', detail: null }] } }, []);
+    expect(met).toBe('1 of 2 attempts passed the check · 1 inconclusive');
     expect(over!.history[1]).toMatchObject({ result: 'fail', note: '4 of 5 attempts passed, 5 needed. Attempt 2: check failed: issue_refund called 0 times, but called 1 time', runId: null });
     store.close();
   });

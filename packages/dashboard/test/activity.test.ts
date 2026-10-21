@@ -337,6 +337,32 @@ describe('a test session', () => {
     store.close();
   });
 
+  it('counts an attempt a check could not decide after the count was settled apart, never as one that failed', () => {
+    const store = Store.open(':memory:');
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 1 }).runId;
+    store.endRun(rec, 'completed', 2);
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: 100 });
+    const label = 'judge "issued" answers yes';
+    const attempt = (golden: string, at: number, status: 'passed' | 'failed' | 'inconclusive') => {
+      const check = { ok: status === 'passed', status, label, detail: status === 'passed' ? null : status === 'failed' ? 'the judge answered no' : "not judged: the judge's call failed: HTTP 400" };
+      const r = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: at, meta: { test: { golden, session: session.sessionId }, checks: [check] } });
+      store.endRun(r.runId, 'completed', at + 5);
+      return r.runId;
+    };
+    // met needed one pass of three: its first attempt passed, and its second could not be judged.
+    const met = [attempt('goldens/met', 110, 'passed'), attempt('goldens/met', 120, 'inconclusive')];
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/met', ok: true, runId: met[0]!, at: 130, data: { verdict: 'passed', attempts: { total: 2, passed: 1, required: 1, runs: met, inconclusive: 1 } } });
+    // lost needed all three: its first failed, and its second could not be judged.
+    const lost = [attempt('goldens/lost', 200, 'failed'), attempt('goldens/lost', 210, 'inconclusive')];
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/lost', ok: false, failure: 'check', reason: `0 of 2 attempts passed, 1 inconclusive, 3 needed. Attempt 1: check failed: ${label}, but the judge answered no`, runId: lost[0]!, at: 220, data: { verdict: 'failed', attempts: { total: 2, passed: 0, required: 3, runs: lost, inconclusive: 1 } } });
+    const tests = activity(store).items.filter((i) => i.kind === 'test' || i.kind === 'fail');
+    expect(tests.map((i) => [i.kind, i.text])).toEqual([
+      ['fail', 'Test failed · lost · 0 of 2 attempts passed, 1 inconclusive, 3 needed'],
+      ['test', 'Test passed · met · 1 of 2 attempts passed, 1 inconclusive'],
+    ]);
+    store.close();
+  });
+
   it('tells a golden by what its result says, now that every result keeps its attempts: a gate by its evidence, an inconclusive one apart', () => {
     const store = Store.open(':memory:');
     const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 1 }).runId;

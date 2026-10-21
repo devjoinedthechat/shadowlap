@@ -41,6 +41,8 @@ let mock: MockServer;
 let work: string;
 let firstRead: string | undefined;
 let answeredTwice = 0;
+/** How often each question that answers, then turns away every request, has been asked. */
+const asks: Record<string, number> = {};
 let agent: string[];
 let counter = 0;
 
@@ -62,6 +64,13 @@ beforeAll(async () => {
         if (q.question.includes('unreachable')) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
         // One that answers twice, and turns away every request after.
         if (q.question.includes('(twice)')) return ++answeredTwice <= 2 ? { verdict: 'yes', reason: 'it issues the refund' } : { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+        // One that answers once, no or yes, and turns away every request after.
+        const once = /\((no|yes) once\)/.exec(q.question)?.[1];
+        if (once) {
+          asks[once] = (asks[once] ?? 0) + 1;
+          if (asks[once] > 1) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+          return once === 'no' ? { verdict: 'no', reason: 'it reads the refund as not issued' } : { verdict: 'yes', reason: 'it issues the refund' };
+        }
         // One that answers about the first answer it reads, and turns away any other.
         if (q.question.includes('first answer only')) {
           firstRead ??= q.material;
@@ -354,6 +363,45 @@ describe('a gated golden whose attempt a judge could not answer', () => {
     } finally {
       store.close();
     }
+  }, 120_000);
+});
+
+describe('a repeated golden whose attempt a judge could not answer after its count was settled', () => {
+  it('failed when the attempts before it already lost the count, whatever --inconclusive says', async () => {
+    const lost = [judge({ question: 'Did the agent issue the refund? (no once)' })];
+    // Packed before its judge check was added, so only the test's attempts ask the judge: the first is told no, the second can't be judged.
+    config({ tests: { 'goldens/lost': { fork: true } } });
+    const rec = await record({ VARIANT: 'plain' });
+    expect((await shadowlap(['pack', rec, 'goldens/lost'])).code).toBe(0);
+    config({ tests: { 'goldens/lost': { fork: true, repeat: 3, passes: 3, expect: { judge: lost } } } });
+    const junit = join(work, `junit-${++counter}.xml`);
+    const t = await test('goldens/lost', ['--inconclusive', 'warn', '--junit', junit], { VARIANT: 'n' });
+    expect(t.code, t.out).toBe(1);
+    expect(t.result).toMatchObject({ ok: false, verdict: 'failed', failure: 'check', attempts: { total: 2, passed: 0, inconclusive: 1, required: 3 } });
+    expect(t.result.message).toBe('0 of 2 attempts passed, 1 inconclusive, 3 needed. Attempt 1: check failed: judge "issued" answers yes, but the judge answered no');
+    // Each attempt by its own verdict: the one that could not be judged is never failed.
+    expect(t.result.runs.map((r) => r.verdict)).toEqual(['failed', 'inconclusive']);
+    expect(t.out).toMatch(/✗ lost: 0 of 2 attempts passed, 1 inconclusive, 3 needed/);
+    expect(t.out).toMatch(/attempt 1 {2}✗ check failed: judge "issued" answers yes, but the judge answered no[^\n]*\n {4}attempt 2 {2}\? check inconclusive: judge "issued" answers yes, but not judged: the judge's call failed: HTTP 400/);
+    expect(t.out).toContain('0 passed, 1 failed');
+    // A failure in JUnit too, never skipped as an inconclusive one would be under --inconclusive warn.
+    const xml = readFileSync(junit, 'utf8');
+    expect(xml).toContain('<failure message="0 of 2 attempts passed, 1 inconclusive, 3 needed. Attempt 1: check failed');
+    expect(xml).not.toContain('<skipped');
+  }, 120_000);
+
+  it('passed when the attempts before it already met the count', async () => {
+    const met = [judge({ question: 'Did the agent issue the refund? (yes once)' })];
+    config({ tests: { 'goldens/met': { fork: true } } });
+    const rec = await record({ VARIANT: 'plain' });
+    expect((await shadowlap(['pack', rec, 'goldens/met'])).code).toBe(0);
+    config({ tests: { 'goldens/met': { fork: true, repeat: 3, passes: 1, expect: { judge: met } } } });
+    const t = await test('goldens/met', [], { VARIANT: 'n' });
+    expect(t.code, t.out).toBe(0);
+    expect(t.result).toMatchObject({ ok: true, verdict: 'passed', failure: null, message: null, attempts: { total: 2, passed: 1, inconclusive: 1, required: 1 } });
+    expect(t.result.runs.map((r) => r.verdict)).toEqual(['passed', 'inconclusive']);
+    expect(t.out).toMatch(/✓ met: .*1\/2 attempts passed \(1 inconclusive\)/);
+    expect(t.out).toContain('1 passed, 0 failed');
   }, 120_000);
 });
 

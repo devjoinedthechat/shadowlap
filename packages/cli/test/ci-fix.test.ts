@@ -570,6 +570,17 @@ describe('planning fixes from a test report', () => {
     ]);
   });
 
+  it('fixes a golden its count failed on the replays that failed: one a check could not decide is neither fixed nor kept', () => {
+    // A failed its check, B passed, and C could not be judged after the count was lost: the golden failed.
+    const runs = [
+      { runId: 'A', ok: false, verdict: 'failed' as const },
+      { runId: 'B', ok: true, verdict: 'passed' as const },
+      { runId: 'C', ok: false, verdict: 'inconclusive' as const },
+    ];
+    const plans = planFixes({ results: [result({ verdict: 'failed', runs, checks: [{ ok: false, status: 'failed', label: 'issue_refund called 0 times', detail: 'called 1 time' }] })] });
+    expect(plans[0]).toMatchObject({ skip: null, fixes: ['A'], keeps: ['B'] });
+  });
+
   it('writes the job summary', () => {
     const md = fixSummary([
       { name: 'a|b', outcome: 'opened', pr: 'https://example.com/pr/1', title: 'Fix it', verify: 'target 1 of 1', spent: 0.84, why: null, goldenState: { state: 'recorded', golden: 'goldens/a', why: null } },

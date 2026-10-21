@@ -559,9 +559,11 @@ export function resultLine(r: TestResult, checks: readonly string[], normalizers
     parts.push(n ? `${n === 1 ? 'check' : 'checks'} passed` : data.calls ? `${data.calls.replayed}/${data.calls.total} replayed` : 'exited 0');
     return parts.join(' · ');
   }
-  // Every result keeps its attempts now; one attempt reads as the replay it was.
+  // Every result keeps its attempts now; one attempt reads as the replay it was. One a check could
+  // not decide, after the count was met, is counted apart: it neither passed nor failed.
   if (data.attempts && data.attempts.total > 1) {
     parts.push(`${data.attempts.passed} of ${data.attempts.total} attempts passed ${n === 1 ? 'the check' : n === 2 ? 'both checks' : n ? `all ${n} checks` : ''}`.trim());
+    if (data.attempts.inconclusive) parts.push(`${data.attempts.inconclusive} inconclusive`);
   } else if (data.divergence) {
     parts.push(`${data.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${data.divergence.callNo}`);
     if (n) parts.push(`${plural(n, 'check')} passed`);

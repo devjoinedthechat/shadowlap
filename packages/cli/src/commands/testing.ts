@@ -167,7 +167,8 @@ function passedLine(o: GoldenOutcome): string {
         : `${replayed}/${replayed + s.notReached.length} replayed`,
     `${formatTokens(s.tokensNotRespent.inputTokens)} input tokens not re-spent`,
     ...(r.shown.checks?.length ? [statusTally(r.shown.checks)] : []),
-    ...(r.attempts.length > 1 && !r.gate ? [`${r.passed}/${r.attempts.length} attempts passed`] : []),
+    // An attempt a check could not decide, after the count was met, is counted apart: it did not fail.
+    ...(r.attempts.length > 1 && !r.gate ? [`${r.passed}/${r.attempts.length} attempts passed${r.inconclusive ? ` (${r.inconclusive} inconclusive)` : ''}`] : []),
   ].join(', ');
 }
 

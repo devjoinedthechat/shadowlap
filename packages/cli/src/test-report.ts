@@ -134,7 +134,8 @@ function passedLabel(r: PackResult): string {
   const parts = [r.updated ? 'updated' : r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${r.divergence.callNo}` : 'clean'];
   if (r.checks?.length) parts.push(statusTally(r.checks));
   if (r.gate) return `${r.gate.sentence}${passKAfter(r.gate)} · ${parts.join(', ')}`;
-  if (r.attempts) parts.push(`${r.attempts.passed}/${r.attempts.total} attempts`);
+  // An attempt a check could not decide passed nothing and failed nothing: counted apart.
+  if (r.attempts) parts.push(`${r.attempts.passed}/${r.attempts.total} attempts${r.attempts.inconclusive ? ` (${r.attempts.inconclusive} inconclusive)` : ''}`);
   return parts.join(', ');
 }
 

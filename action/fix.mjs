@@ -83,9 +83,10 @@ export function planFixes(report) {
       if (!r.expect) return { result: r, skip: 'its checks are not under "tests" in shadowlap.config.json' };
       const unpriced = unpricedOnly(r.checks);
       if (unpriced) return { result: r, skip: `it fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, which no prompt fix changes: add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json` };
-      const failing = (r.runs ?? []).filter((x) => !x.ok).map((x) => x.runId);
+      // A replay a check could not decide neither failed nor passed: a fix is not verified on it either way.
+      const failing = (r.runs ?? []).filter((x) => verdictOf(x) === 'failed').map((x) => x.runId);
       if (!failing.length) return { result: r, skip: 'no failing replay was kept' };
-      return { result: r, skip: null, fixes: failing, keeps: (r.runs ?? []).filter((x) => x.ok).map((x) => x.runId) };
+      return { result: r, skip: null, fixes: failing, keeps: (r.runs ?? []).filter((x) => verdictOf(x) === 'passed').map((x) => x.runId) };
     });
 }
 
