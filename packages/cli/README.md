@@ -2,30 +2,51 @@
 
 Change safety for agents: record, replay and fork AI agent runs.
 
-Shadowlap records every model API call and tool call an agent makes, then re-runs the agent's *real code* against that recording. Calls that haven't changed are served from the recording: no tokens spent, no side effects repeated. The first call that differs is reported with a precise diff, and from there the run continues live as a fork of the original, with write tools fenced off.
+Your agent refunded $240 it should have escalated. Run it again and it behaves: you can't make it fail on demand, so you can't prove a fix worked.
+
+Shadowlap records your agent's model calls and the tools you wrap, then replays your real code against the recording. Every call is served from it, the refund included: nothing goes upstream and nothing happens twice. Change one thing and the run forks at the first request that differs.
+
+## Quickstart
+
+Install the CLI (Node 22.13 or later), then let it read your project:
 
 ```sh
 npm install -g shadowlap
-
-shadowlap run -- node agent.js        # record (sets ANTHROPIC_BASE_URL, OPENAI_BASE_URL, GOOGLE_GEMINI_BASE_URL for the agent)
-shadowlap replay <run>                # replay: zero upstream requests when nothing changed, a fork with a diff when something did
-shadowlap ui                          # timeline, inspector, play mode, diffs, actions
+cd your-agent
+shadowlap init
 ```
 
-Model calls need no code changes: the official Anthropic, OpenAI (and OpenAI-compatible) and Gemini SDKs read the base-URL variables `shadowlap run` sets. Tools declare an effect through the SDK (`@shadowlap/sdk`, `shadowlap` on PyPI), a one-line framework adapter (`@shadowlap/adapters`), or, for MCP servers, `shadowlap mcp -- <server>`.
+`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes. Wrap each tool once with its effect, or it runs again on every replay:
 
-| Command | What it does |
-|---|---|
-| `run -- <cmd>` | Record a run |
-| `replay <run> [-- <cmd>]` | Replay; forks at the first changed call. `--strict`, `--writes block\|stub\|allow`, `--reads live\|replay`, `--live-tool`, `--diverge-at`, `--override`, `--inject`, `--set`, `--model`, `--guard` |
-| `test <pack...>` | Replay committed recordings offline in CI, JUnit output |
-| `ui [run]` | The terminal UI |
-| `show <run>`, `ls [--tree]`, `diff <a> <b>` | Inspect and compare runs |
-| `mcp -- <server>` | Run an MCP server behind Shadowlap |
-| `pack`, `unpack`, `redact`, `normalize` | Portable recordings, redaction, normalizers |
-| `export otel <run>` | The run as an OpenTelemetry trace |
-| `rm`, `gc`, `doctor` | Store maintenance and environment checks |
+```sh
+npm install @shadowlap/sdk          # tools, clock and randomness (Node 18+)
+npm install @shadowlap/adapters     # framework adapters, next to the SDK
+npm install -D @shadowlap/test      # recorded tests: Vitest, node:test
+pip install shadowlap               # Python 3.9+: SDK, adapters, pytest plugin
+```
 
-Needs Node ≥ 22.13. Recordings stay on your machine in `./.shadowlap/`; credentials are forwarded to the provider and never stored. No telemetry is sent: the CLI has no default collector and the project runs none.
+[`@shadowlap/sdk`](https://www.npmjs.com/package/@shadowlap/sdk) and [`shadowlap` for Python](https://pypi.org/project/shadowlap/) show the wrapper. Then record, replay and look:
 
-Docs, source and the terminal UI in action: https://github.com/devjoinedthechat/shadowlap
+```sh
+shadowlap run -- node agent.mjs    # record a run, with your usual key
+shadowlap replay <run>             # replay it: 0 upstream requests, no real key
+shadowlap dashboard                # step through it in your browser
+```
+
+## From failure to proof
+
+- **Reproduce a failure exactly.** `shadowlap replay <run>` serves every call from the recording. A what-if changes the run at one call and replays everything before it: `--override`, `--fail-at`, `--inject`, `--model`.
+- **Find the call that lost the run.** `shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'` asks model calls again, each from a fork, and names the last one whose new answer can still save the run.
+- **Prove the fix.** `shadowlap repair` asks a model you choose, or your own Claude Code, to rewrite the system prompt or a tool description, and keeps the smallest rewrite that fixes the failing runs and breaks no good one. `shadowlap verify` gives a fix you wrote yourself the same proof, and exits 1 when it rejects.
+- **Keep it fixed in CI.** `shadowlap test goldens/*` replays committed recordings offline and fails on a changed request, a live call, an error exit or a failed check. On GitHub it is one step: `uses: devjoinedthechat/shadowlap@main`.
+- **Change models and prompts safely.** `shadowlap decisions --model <model>` asks the recorded model calls again under the change and ranks what they decide differently, writes first. `shadowlap migrate --to <model>` verifies and prices a switch.
+
+`shadowlap --help` lists every command.
+
+## Security
+
+The sidecar and the dashboard listen on 127.0.0.1 behind a session token, recordings stay in your project, readable only by you, and keys pass through to the provider, never stored. Telemetry is off unless `SHADOWLAP_TELEMETRY_URL` names a collector; the project runs none. [SECURITY.md](https://github.com/devjoinedthechat/shadowlap/blob/main/SECURITY.md) lists every check and how to report a vulnerability.
+
+## Documentation
+
+[Introduction](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/index.md) · [Quickstart](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/quickstart.md) · [CLI reference](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/cli.md) · [CI](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/ci.md) · [Why did my replay diverge?](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/troubleshooting.md)
