@@ -86,17 +86,19 @@ describe('takeLock', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
-  it('never takes over a lock whose holder runs on this machine, however old the lock', async () => {
+  it('never takes over a lock whose holder runs on this machine, however old the lock (on Windows, one held for minutes)', async () => {
     const holder = await running(`
       const { takeLock } = await import(${JSON.stringify(new URL('../dist/lock-file.js', import.meta.url).href)});
       takeLock(${JSON.stringify(lock)}, { wait: 0, busy: () => new Error('busy') });
       setInterval(() => {}, 1000);
       process.stdout.write('up\\n');`);
     expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ pid: holder.pid });
-    // A minute untouched, far past LOCK_STALE_MS: an edit that takes that long is still an edit.
+    // A minute untouched, far past LOCK_STALE_MS: an edit that takes that long is still an edit. Windows
+    // can't tell its holder from a process given a dead holder's id since, so there it is a lock held
+    // for minutes, a repair's, that is kept so; one held a moment goes by its age (tested below).
     age(lock);
     const started = Date.now();
-    expect(() => take(300)).toThrow('busy');
+    expect(() => takeLock(lock, { wait: 300, busy, ageOut: process.platform !== 'win32' })).toThrow('busy');
     expect(Date.now() - started).toBeGreaterThanOrEqual(250);
     expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ pid: holder.pid });
 
@@ -119,7 +121,9 @@ describe('takeLock', () => {
     const later = JSON.stringify({ ...JSON.parse(readFileSync(lock, 'utf8')), v: 3, lease: 'renewed' });
     writeFileSync(lock, later);
     age(lock);
-    expect(() => take(300)).toThrow('busy');
+    // Kept as this version's own lock is: on Windows, which can't tell its holder from a process
+    // given a dead holder's id since, only one held for minutes is.
+    if (process.platform !== 'win32') expect(() => take(300)).toThrow('busy');
     expect(() => takeLock(lock, { wait: 50, busy, ageOut: false })).toThrow('busy');
     expect(readFileSync(lock, 'utf8')).toBe(later);
     // Its holder ended without removing it: taken over at once.
