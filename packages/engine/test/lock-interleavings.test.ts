@@ -4,6 +4,7 @@ import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CONFIG_FILE } from '../src/config-file.js';
+import { releaseLock, takeLock } from '../src/lock-file.js';
 
 /**
  * Config edits from several processes, run one file operation at a time in an order the test picks.
@@ -124,6 +125,13 @@ class Harness {
   readonly config = join(this.dir, CONFIG_FILE);
   readonly writers: Writer[] = [];
   private wake: (() => void) | null = null;
+  /** This machine, as a lock taken here names it: a crashed writer's lock says it ran here. */
+  readonly here = ((): Record<string, unknown> => {
+    const held = takeLock(join(this.dir, 'here.lock'), { wait: 0, busy: () => new Error('busy') });
+    const { host, ns, start } = JSON.parse(readFileSync(held.path, 'utf8')) as Record<string, unknown>;
+    releaseLock(held);
+    return { host, ns, start };
+  })();
 
   async start(): Promise<void> {
     for (let i = 0; i < WRITERS; i++) this.writers.push(this.spawn(i));
@@ -182,7 +190,7 @@ class Harness {
     const crashed = JSON.stringify({ pid: GONE, host: hostname(), token: 'crashed' });
     if (scenario === 'crashed writer' || scenario === 'writer killed') writeFileSync(`${this.config}.lock`, crashed);
     if (scenario === 'crashed writer and breaker') {
-      const record = (token: string) => JSON.stringify({ v: 2, pid: GONE, host: hostname(), born: Date.now() - 1000, token, at: new Date().toISOString() });
+      const record = (token: string) => JSON.stringify({ v: 2, ...this.here, pid: GONE, born: Date.now() - 1000, token, at: new Date().toISOString() });
       writeFileSync(`${this.config}.lock`, record('crashed-writer'));
       writeFileSync(`${this.config}.lock.break`, record('crashed-breaker'));
     }

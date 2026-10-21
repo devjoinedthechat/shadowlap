@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, lutimesSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, lutimesSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -27,7 +27,23 @@ const age = (path: string) => utimesSync(path, (Date.now() - 60_000) / 1000, (Da
  * Windows, which would make its lock a running holder's.
  */
 const GONE = 2 ** 22 - 7;
-const record = (fields: Record<string, unknown>) => JSON.stringify({ v: 2, host: hostname(), born: Date.now(), token: Math.random().toString(16).slice(2), at: new Date().toISOString(), ...fields });
+
+/** This machine, as a lock taken here names it: its host name and, on Linux, its boot (in `start`) and process id namespace. */
+const HERE = ((): { host: string; ns?: string; start?: string } => {
+  const where = mkdtempSync(join(tmpdir(), 'sl-lock-here-'));
+  try {
+    const held = takeLock(join(where, 'here.lock'), { wait: 0, busy });
+    const r = JSON.parse(readFileSync(held.path, 'utf8')) as { host: string; ns?: string; start?: string };
+    releaseLock(held);
+    return { host: r.host, ...(r.ns ? { ns: r.ns } : {}), ...(r.start ? { start: r.start } : {}) };
+  } finally {
+    rmSync(where, { recursive: true, force: true });
+  }
+})();
+/** A record as a process on this machine writes it, with `fields` in place of its own. */
+const record = (fields: Record<string, unknown>) => JSON.stringify({ v: 2, ...HERE, born: Date.now(), token: Math.random().toString(16).slice(2), at: new Date().toISOString(), ...fields });
+/** On Linux, when a process started at clock tick `ticks` of this boot, as a record says it; nothing elsewhere. */
+const startedAt = (ticks: number) => (HERE.start ? { start: `${HERE.start.slice(0, HERE.start.lastIndexOf(':'))}:${ticks}` } : {});
 
 /** A process that runs until the test ends, and its id once it has started. */
 async function running(code = 'setInterval(() => {}, 1000); process.stdout.write("up\\n")'): Promise<ChildProcess> {
@@ -94,9 +110,10 @@ describe('takeLock', () => {
   });
 
   it.skipIf(process.platform === 'win32')('takes over a lock whose holder’s process id was given to another process', async () => {
-    // A process runs under the id the lock names, but it started after the holder did: the holder is gone.
+    // A process runs under the id the lock names, but it started after the holder did (on Linux, at
+    // another clock tick of this boot): the holder is gone.
     const other = await running();
-    writeFileSync(lock, record({ pid: other.pid, born: Date.now() - 60_000, start: 'another-boot:1' }));
+    writeFileSync(lock, record({ pid: other.pid, born: Date.now() - 60_000, ...startedAt(1) }));
     age(lock);
     releaseLock(take());
     expect(readdirSync(dir)).toEqual([]);
@@ -118,7 +135,7 @@ describe('takeLock', () => {
   it('takes over a lock it can’t check only once nobody has changed it for LOCK_STALE_MS', () => {
     expect(LOCK_STALE_MS).toBe(10_000);
     const cases: Array<[string, string]> = [
-      ['another machine’s', record({ pid: GONE, host: 'another-machine' })],
+      ['another machine’s', record({ pid: GONE, host: 'another-machine', start: 'another-boot:1' })],
       ['one that doesn’t say who holds it', ''],
       ['an earlier shadowlap.config.json lock held by a running process', JSON.stringify({ pid: process.pid, host: hostname(), token: 'earlier' })],
       ['an earlier project list lock held by a running process', String(process.pid)],
@@ -138,16 +155,24 @@ describe('takeLock', () => {
     }
   });
 
-  it('counts a lock from another process id namespace, another container sharing the folder, as another machine’s', () => {
-    // Its process id is no process here, but this machine's process table can't say: it is another's.
-    writeFileSync(lock, record({ pid: GONE, ns: 'pid:[1]' }));
-    let namespaces = false;
-    try {
-      namespaces = process.platform === 'linux' && readlinkSync('/proc/self/ns/pid') !== 'pid:[1]';
-    } catch {
-      // no namespaces to tell apart: the record's is ignored
+  it('tells this machine on Linux by its boot and process id namespace, whatever the host name, and elsewhere by its host name', () => {
+    // Another boot, or another process id namespace (a container with process ids of its own, sharing
+    // the folder), under this host name: no process here has its id, which says nothing of its holder.
+    for (const [what, text] of [
+      ['another boot', record({ pid: GONE, start: 'another-boot:1' })],
+      ['another namespace', record({ pid: GONE, ns: 'pid:[1]' })],
+    ]) {
+      writeFileSync(lock, text!);
+      expect(() => take(50), what).toThrow('busy');
+      age(lock);
+      releaseLock(take());
+      expect(readdirSync(dir), what).toEqual([]);
     }
-    if (namespaces) {
+    // Another host name, with this boot and namespace on Linux: one DHCP gave this machine since, or a
+    // container's own that shares this machine's process ids. On Linux it is checked as this machine's,
+    // and elsewhere it is another machine's.
+    writeFileSync(lock, record({ pid: GONE, host: 'renamed' }));
+    if (!HERE.start) {
       expect(() => take(50)).toThrow('busy');
       age(lock);
     }

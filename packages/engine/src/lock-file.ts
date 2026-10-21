@@ -18,13 +18,17 @@ import { processAlive } from './liveness.js';
  * fails when the name exists, so one taker gets the lock, and nobody ever reads a lock half
  * written. The holder removes the lock when it is done, if its own record is still the one there.
  *
- * Stale locks. A lock is stale when its holder is gone, which this machine can tell for certain: no
- * process has the holder's id, or the process that has it started after the holder did (the id was
+ * Stale locks. A lock is stale when its holder is gone, which this machine can tell for certain of a
+ * holder whose process it can ask about: one in the same table of process ids. On Linux that is the
+ * same boot of the same kernel and the same process id namespace, whatever the host name (containers
+ * can share one, and DHCP can change it); elsewhere, the same host name. Such a holder is gone when
+ * no process has its id, or when the process that has it started after the holder did (the id was
  * given to another process since). A process that is gone can't come back to remove its lock, so a
  * lock found stale stays where it is until another process removes it. A lock written on another
- * machine (a shared folder), or by anything that doesn't say who holds it, can't be checked that
- * way: it is stale once nobody has changed it for LOCK_STALE_MS. An earlier Shadowlap's names its
- * process but not when it started: it is stale once that process is gone, or after LOCK_STALE_MS.
+ * machine, or in a container with process ids of its own, that shares the folder, or by anything
+ * that doesn't say who holds it, can't be checked that way: it is stale once nobody has changed it
+ * for LOCK_STALE_MS. An earlier Shadowlap's names its process but not when it started: it is stale
+ * once that process is gone from a machine with its host name, or after LOCK_STALE_MS.
  *
  * Taking over. Only a process holding `<lock>.break`, a lock taken the same way, removes a stale
  * lock, and only after reading the lock again and finding the very one it judged: the same file
@@ -36,15 +40,16 @@ import { processAlive } from './liveness.js';
  * at the name from the link that took it until the holder removes it, unless a breaker removes it.
  * A breaker judges first and reads again after, and a lock that is removed never comes back (its
  * token is new), so the lock it finds again was there, unchanged, when it saw the holder gone: that
- * holder died holding it. A holder that runs on this machine is never seen gone: its id is taken,
- * by itself, and it started before it wrote its record. So a holder's lock is never removed but by
- * the holder, which is also why its own check before removing it is enough. `<lock>.break` is safe
- * by the same argument, with `<lock>.break.break` to take over one whose breaker died; a level below
- * is only needed after a process died at the level above, and the last level is waited for, never
- * broken.
+ * holder died holding it. A holder this machine can check is never seen gone while it runs: its id
+ * is taken, by itself, and it started before it wrote its record. So a holder's lock is never removed
+ * but by the holder, which is also why its own check before removing it is enough. `<lock>.break` is
+ * safe by the same argument, with `<lock>.break.break` to take over one whose breaker died; a level
+ * below is only needed after a process died at the level above, and the last level is waited for,
+ * never broken.
  *
- * The one assumption is on the locks that can't be checked: a holder on another machine, or an
- * earlier Shadowlap's, that keeps the lock longer than LOCK_STALE_MS loses it. On a file system
+ * The one assumption is on the locks that can't be checked: a holder on another machine or in
+ * another container, or an earlier Shadowlap's, that keeps the lock longer than LOCK_STALE_MS loses
+ * it. On a file system
  * without hard links (FAT) a lock is created in place and its record written after, so a taker
  * stopped for longer than that between the two loses it too.
  *
@@ -304,19 +309,32 @@ function parseRecord(text: string): Record2 | Record1 | null {
   };
 }
 
-/** Whether the lock's holder is gone (see the header): for certain on this machine, by age elsewhere. */
+/** Whether the lock's holder is gone (see the header): for certain when this machine can check it, by its age otherwise. */
 function stale(seen: Seen, now: number = Date.now()): boolean {
   const old = now - seen.mtimeMs > LOCK_STALE_MS;
   const r = parseRecord(seen.content);
   if (!r) return old;
   if (r.v === 1) return ((r.host === null || r.host === hostname()) && !processAlive(r.pid)) || old;
-  const self = me();
-  if (r.host !== hostname() || (r.ns !== null && self.ns !== null && r.ns !== self.ns)) return old;
+  if (!here(r)) return old;
   // This process: another of its threads may hold it; this thread knows whether it does.
   if (r.pid === process.pid) return r.tid === threadId && !holding.has(seen.content);
   if (!processAlive(r.pid)) return true;
   // Its id is taken. Asked only of a lock held this long: the answer costs a `ps` on macOS.
   return old && idReused(r);
+}
+
+/**
+ * Whether the record's holder ran where this process can ask about it, in the same table of process
+ * ids: on Linux the same boot (which its `start` carries) and the same process id namespace, whatever
+ * the host name; elsewhere the same host name. So a record written on Linux is never this machine's
+ * elsewhere, and one written elsewhere never is on Linux.
+ */
+function here(r: Record2): boolean {
+  const s = me();
+  const at = r.start === null ? -1 : r.start.lastIndexOf(':');
+  const boot = at > 0 ? r.start!.slice(0, at) : null;
+  if (s.boot !== null || boot !== null) return boot === s.boot && r.ns === s.ns;
+  return r.host === hostname() && r.ns === s.ns;
 }
 
 /** Holders of locks seen running lately, by token: asked again after a second, not on every try. */
@@ -348,6 +366,8 @@ function idReused(r: Record2): boolean {
 // ---- this process ----
 
 interface Self {
+  /** On Linux: this boot of the kernel. */
+  boot: string | null;
   ns: string | null;
   start: string | null;
   born: number;
@@ -356,7 +376,10 @@ interface Self {
 let self: Self | null = null;
 
 function me(): Self {
-  self ??= { ns: pidNamespace(), start: process.platform === 'linux' ? linuxStart(process.pid) : null, born: Math.floor(performance.timeOrigin) };
+  if (!self) {
+    const boot = linuxBoot();
+    self = { boot, ns: pidNamespace(), start: boot ? linuxStart(process.pid) : null, born: Math.floor(performance.timeOrigin) };
+  }
   return self;
 }
 
@@ -374,15 +397,31 @@ function pidNamespace(): string | null {
   }
 }
 
-let bootId: string | null = null;
+let bootId: string | null | undefined;
+
+/** This boot of the kernel, on Linux, read once; null elsewhere, and without /proc. */
+function linuxBoot(): string | null {
+  if (bootId === undefined) {
+    bootId = null;
+    if (process.platform === 'linux') {
+      try {
+        bootId = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim() || null;
+      } catch {
+        // no /proc: this machine is told by its host name
+      }
+    }
+  }
+  return bootId;
+}
 
 /** When a Linux process started: the boot, and the clock tick since it (field 22 of /proc/<pid>/stat, after the command name, which can hold spaces and parentheses). */
 function linuxStart(pid: number): string | null {
+  const boot = linuxBoot();
+  if (!boot) return null;
   try {
-    bootId ??= readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
     const ticks = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
-    return bootId && ticks && /^\d+$/.test(ticks) ? `${bootId}:${ticks}` : null;
+    return ticks && /^\d+$/.test(ticks) ? `${boot}:${ticks}` : null;
   } catch {
     return null;
   }
