@@ -8,7 +8,9 @@
 //   npm run build && node scripts/demo-svg.mjs
 //
 // It writes .github/assets/readme/terminal.svg, which types each command and shows what it printed,
-// on a loop, and terminal-static.svg, the same session drawn whole, for where motion is unwanted.
+// on a loop, and terminal-static.svg, the same session drawn whole, for where motion is unwanted; and
+// both again as terminal-narrow.svg and terminal-narrow-static.svg for a phone's width, with a line
+// longer than the longest command broken at a space.
 //
 // A line is shown as the CLI printed it, or left out; none is changed. Left out: the progress a
 // command prints while it works (`[shadowlap] recording run …`, blame's probes and their attempts),
@@ -165,7 +167,8 @@ function excerpt(name, text, keep, drop) {
 
 // ---- the session ----
 
-const EXPECT = '{"tools":{"issue_refund":0}}';
+// The check the README's blame asks too: the project's refund-check.json, issue_refund never called for $240.
+const EXPECT = '@refund-check.json';
 const SHOW = /^ {2}shadowlap show \w+$/;
 const scenes = [];
 try {
@@ -192,7 +195,7 @@ try {
   models.control.refund = 'refund';
   scenes.push({
     args: blameArgs,
-    work: 1.4,
+    work: 1.1,
     lines: excerpt(
       'blame',
       blamed,
@@ -224,7 +227,7 @@ try {
   const source = readFileSync(agent, 'utf8');
   const prompt = "'You are a support agent. Follow the refund policy.'";
   if (!source.includes(prompt)) throw new Error(`demo-svg: agent.mjs no longer has the prompt ${prompt}`);
-  writeFileSync(agent, source.replace(prompt, "'You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.'"));
+  writeFileSync(agent, source.replace(prompt, "'You are a support agent. Follow the refund policy: escalate every refund above the limit.'"));
   const forkArgs = ['replay', id, '--expect', EXPECT];
   scenes.push({
     args: forkArgs,
@@ -232,7 +235,7 @@ try {
     lines: excerpt(
       'the replay after the fix',
       await inTerminal(forkArgs),
-      [/^Escalated: the refund of \$240 /, /^⑂ Forked at call \d+: /, /^✗ Diverged at call \d+ /, /^ {2}~ \$\.system$/, /^ {6}- "/, /^ {6}\+ "/, /^✓ \d+ checks? passed/, /^ {2}✓ issue_refund called 0 times$/],
+      [/^Escalated: the refund of \$240 /, /^⑂ Forked at call \d+: /, /^✗ Diverged at call \d+ /, /^ {2}~ \$\.system$/, /^ {6}- "/, /^ {6}\+ "/, /^✓ \d+ checks? passed/, /^ {2}✓ issue_refund with \{"amount":240\} called 0 times$/],
       [/^\[shadowlap\] replaying run /, /^ {2}\d+ recorded calls? left unused after the fork: /, /^ {2}compared with run \w+…, call \d+$/, SHOW],
     ),
   });
@@ -252,41 +255,84 @@ const C = { bg: '#0e0f0b', edge: '#25261d', fg: '#eeede6', dim: '#8d8b7b', promp
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const fillOf = (run) => (run.fg ? C[run.fg] : run.dim ? C.dim : C.fg);
 
-// Pacing, in seconds: the prompt waiting, typing, the command working, its lines arriving, time to read.
-const P = { first: 0.5, idle: 0.45, perChar: 0.034, enter: 0.3, perLine: 0.07, readBase: 1.5, readPerLine: 0.24, end: 4, fade: 0.5 };
+// Pacing, in seconds: the prompt waiting, typing, the command working, its lines arriving, time to
+// read, and the whole session held at the end. The first command is typed already, so the picture is
+// never empty: a page that shows its first frame, or a capture of one, shows a command at work.
+const P = { idle: 0.25, perChar: 0.017, enter: 0.2, perLine: 0.05, readBase: 0.9, readPerLine: 0.12, end: 6.5, fade: 0.4 };
 
-const rows = [];
-let t = P.first;
+/** When each command shows, is typed and prints, and when each of its lines arrives. */
+const timeline = [];
+let t = 0;
 for (const [i, scene] of scenes.entries()) {
-  if (i) rows.push({ kind: 'blank' });
   const text = `shadowlap ${scene.args.map(quote).join(' ')}`;
-  const typeAt = t + P.idle;
-  const typedAt = typeAt + text.length * P.perChar;
+  const typeAt = i ? t + P.idle : t;
+  const typedAt = i ? typeAt + text.length * P.perChar : t;
   const outAt = typedAt + P.enter + scene.work;
-  rows.push({ kind: 'cmd', text, showAt: t, typeAt, typedAt, outAt });
+  const lines = [];
   let at = outAt;
   for (const line of scene.lines) {
-    if (!line.length) {
-      rows.push({ kind: 'blank' });
-      continue;
-    }
-    rows.push({ kind: 'out', runs: line, at });
-    at += P.perLine;
+    lines.push({ line, at });
+    if (line.length) at += P.perLine;
   }
+  timeline.push({ text, showAt: t, typeAt, typedAt, outAt, lines });
   t = at + P.readBase + P.readPerLine * scene.lines.filter((l) => l.length).length;
 }
 // The next prompt waits under the last command until the loop starts again.
 const last = t - P.readBase;
-rows.push({ kind: 'blank' });
-rows.push({ kind: 'cmd', text: '', showAt: last, typeAt: last, typedAt: last, outAt: Infinity });
 const TOTAL = t + P.end + P.fade;
-
-const width = (r) => (r.kind === 'cmd' ? 2 + r.text.length + 1 : r.kind === 'out' ? plain(r.runs).length : 0);
-const COLS = Math.max(...rows.map(width)) + 1;
-const W = Math.round(PX * 2 + COLS * CW);
-const H = Math.round(PY * 2 + rows.length * LH);
 const pct = (s) => `${Math.min(100, (s / TOTAL) * 100).toFixed(3)}%`;
 const fadeAt = pct(TOTAL - P.fade);
+
+/**
+ * A line of runs broken at spaces into rows of at most `width` columns, as a narrow terminal would
+ * show it, the rows after the first indented two past the line's own indent. Nothing is left out or
+ * changed: the rows hold the line's characters in order, in their own colours.
+ */
+function wrapRuns(runs, width) {
+  const chars = runs.flatMap((r) => [...r.text].map((ch) => ({ ch, fg: r.fg, bold: r.bold, dim: r.dim })));
+  if (chars.length <= width) return [runs];
+  const indent = chars.findIndex((c) => c.ch !== ' ') + 2;
+  const rows = [];
+  let start = 0;
+  while (start < chars.length) {
+    const lead = rows.length ? indent : 0;
+    const room = width - lead;
+    let end = chars.length;
+    if (chars.length - start > room) {
+      end = start + room;
+      while (end > start && chars[end].ch !== ' ') end--;
+      if (end === start) end = start + room;
+    }
+    const row = lead ? [{ text: ' '.repeat(lead), fg: null, bold: false, dim: false }] : [];
+    for (const c of chars.slice(start, end)) {
+      const prev = row.at(-1);
+      if (prev && prev.fg === c.fg && prev.bold === c.bold && prev.dim === c.dim) prev.text += c.ch;
+      else row.push({ text: c.ch, fg: c.fg, bold: c.bold, dim: c.dim });
+    }
+    rows.push(row);
+    start = end;
+    while (start < chars.length && chars[start].ch === ' ') start++;
+  }
+  return rows;
+}
+
+/** The session as rows of at most `columns` columns (commands are never broken), and the picture's size. */
+function layout(columns) {
+  const rows = [];
+  for (const [i, cmd] of timeline.entries()) {
+    if (i) rows.push({ kind: 'blank' });
+    rows.push({ kind: 'cmd', ...cmd });
+    for (const { line, at } of cmd.lines) {
+      if (!line.length) rows.push({ kind: 'blank' });
+      else for (const runs of wrapRuns(line, columns)) rows.push({ kind: 'out', runs, at });
+    }
+  }
+  rows.push({ kind: 'blank' });
+  rows.push({ kind: 'cmd', text: '', showAt: last, typeAt: last, typedAt: last, outAt: Infinity });
+  const width = (r) => (r.kind === 'cmd' ? 2 + r.text.length + 1 : r.kind === 'out' ? plain(r.runs).length : 0);
+  const cols = Math.max(...rows.map(width)) + 1;
+  return { rows, cols, W: Math.round(PX * 2 + cols * CW), H: Math.round(PY * 2 + rows.length * LH) };
+}
 
 /** Text at its exact column: each word of ASCII in a tspan, any other character in one of its own, spaces skipped. */
 function spans(runs, startCol) {
@@ -303,7 +349,7 @@ function spans(runs, startCol) {
   return out;
 }
 
-function render(animated) {
+function render({ rows, W, H }, animated) {
   const css = [];
   const body = [];
   let n = 0;
@@ -312,7 +358,12 @@ function render(animated) {
     css.push(`.${k}{animation:${k} ${TOTAL.toFixed(2)}s infinite}@keyframes ${k}{${frames}}`);
     return k;
   };
-  const appear = (at) => `a ${keyframes(`0%{opacity:0;animation-timing-function:step-end}${pct(at)}{opacity:1;animation-timing-function:step-end}${fadeAt}{opacity:1;animation-timing-function:linear}100%{opacity:0}`)}`;
+  // Rows that arrive together share one animation.
+  const appearing = new Map();
+  const appear = (at) => {
+    if (!appearing.has(at)) appearing.set(at, `a ${keyframes(`0%{opacity:0;animation-timing-function:step-end}${pct(at)}{opacity:1;animation-timing-function:step-end}${fadeAt}{opacity:1;animation-timing-function:linear}100%{opacity:0}`)}`);
+    return appearing.get(at);
+  };
   rows.forEach((r, i) => {
     const top = PY + i * LH;
     const y = (top + 14.5).toFixed(1);
@@ -351,10 +402,16 @@ ${body.join('\n')}
 `;
 }
 
+// The README's column, and a phone's: there, a line longer than the longest command breaks at a space.
+const wide = layout(Infinity);
+const narrow = layout(Math.max(...timeline.map((c) => 2 + c.text.length)));
 mkdirSync(outDir, { recursive: true });
 const files = [
-  ['terminal.svg', render(true)],
-  ['terminal-static.svg', render(false)],
+  ['terminal.svg', render(wide, true)],
+  ['terminal-static.svg', render(wide, false)],
+  ['terminal-narrow.svg', render(narrow, true)],
+  ['terminal-narrow-static.svg', render(narrow, false)],
 ];
 for (const [name, svg] of files) writeFileSync(join(outDir, name), svg);
-console.log(`wrote ${files.map(([name, svg]) => `${relative(root, join(outDir, name))} (${(Buffer.byteLength(svg) / 1024).toFixed(0)} KB)`).join(' and ')}: ${scenes.length} commands, ${rows.length} rows of ${COLS} columns, a ${TOTAL.toFixed(1)} s loop`);
+const shown = timeline.at(-1).lines.at(-1).at;
+console.log(`wrote ${files.map(([name, svg]) => `${relative(root, join(outDir, name))} (${(Buffer.byteLength(svg) / 1024).toFixed(0)} KB)`).join(', ')}: ${scenes.length} commands, ${wide.rows.length} rows of ${wide.cols} columns (narrow: ${narrow.rows.length} of ${narrow.cols}), a ${TOTAL.toFixed(1)} s loop, the whole session shown from ${shown.toFixed(1)} s to ${(TOTAL - P.fade).toFixed(1)} s`);

@@ -13,9 +13,11 @@
 // Without a folder it builds the demo project in a temporary one first (about a minute) and removes
 // it afterwards; with one, it uses what scripts/demo-store.mjs built there. It starts `shadowlap
 // dashboard` in the project, as anyone would, and takes each picture with headless Chrome at twice
-// the pixels, into .github/assets/readme/ (CHROME=/path/to/chrome chooses the browser). The dashboard
-// runs with the demo folder as its home folder, so the paths it shows are the ones a project in your
-// home folder shows (~/support-agent), never this machine's. It shows the dashboard as it is before
+// the pixels, into .github/assets/readme/ (CHROME=/path/to/chrome chooses the browser): the page
+// beside the sidebar and above the status bar of a 1280 by 800 window, in the README terminal's
+// frame (rounded corners, transparent outside them, and a hairline edge). The dashboard runs with
+// the demo folder as its home folder, so the paths it shows are the ones a project in your home
+// folder shows (~/support-agent), never this machine's. It shows the dashboard as it is before
 // anyone sets up a team store: the demo project names one, so `store` is taken out of the project's
 // shadowlap.config.json while the dashboard runs, and the file is put back as it was afterwards. The
 // dashboard is dark only. Run ids, commits, dates, times and durations differ from build to build;
@@ -182,21 +184,54 @@ try {
     },
   ];
   mkdirSync(outDir, { recursive: true });
+  // A desktop window: narrower, the dashboard stacks what sits side by side here. The picture is the
+  // part beside the sidebar, above the status bar, so the README's column shows its text at four
+  // fifths of its size, where the whole window would shrink it to two thirds.
   const W = 1280;
   const H = 800;
   for (const shot of shots) {
+    await send('Emulation.setDefaultBackgroundColorOverride', {});
     await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 2, mobile: false });
     await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
     await send('Page.navigate', { url: `${origin}/#token=${token}&open=${shot.open}` });
     await shot.ready();
     await evaluate('document.fonts.ready.then(() => true)');
     await wait(700);
-    const { data } = await send('Page.captureScreenshot', { format: 'png' });
+    const clip = await evaluate(`(() => {
+      const side = document.querySelector('aside.side').getBoundingClientRect();
+      const status = document.querySelector('footer.status').getBoundingClientRect();
+      return { x: Math.ceil(side.right), y: 0, width: ${W} - Math.ceil(side.right), height: Math.floor(status.top) };
+    })()`);
+    const { data } = await send('Page.captureScreenshot', { format: 'png', clip: { ...clip, scale: 1 } });
+    const png = await framed(data, clip);
     const file = join(outDir, shot.file);
-    writeFileSync(file, Buffer.from(data, 'base64'));
+    writeFileSync(file, png);
     const bytes = statSync(file).size;
-    console.log(`wrote ${relative(root, file)}: ${W * 2}×${H * 2}, ${(bytes / 1024).toFixed(0)} KB`);
+    console.log(`wrote ${relative(root, file)}: ${clip.width * 2}×${clip.height * 2}, ${(bytes / 1024).toFixed(0)} KB`);
     if (bytes > MAX_BYTES) throw new Error(`readme-shots: ${shot.file} is ${(bytes / 1024).toFixed(0)} KB, over the ${MAX_BYTES / 1024} KB a README picture may weigh`);
+  }
+
+  /**
+   * The picture in the terminal picture's frame: corners rounded to the radius that one shows at the
+   * README's width, transparent outside them, and a hairline edge in its colour, so the pictures
+   * match on a light page and a dark one.
+   */
+  async function framed(data, { width, height }) {
+    const radius = Math.round(width / 80);
+    await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: false });
+    await send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
+    await send('Page.navigate', { url: 'about:blank' });
+    await until(`document.readyState === 'complete'`, 'a blank page');
+    await evaluate(`(() => {
+      document.documentElement.style.background = 'transparent';
+      document.body.style.cssText = 'margin:0;background:transparent';
+      document.body.innerHTML = '<div style="position:relative;width:${width}px;height:${height}px;border-radius:${radius}px;overflow:hidden"><img style="display:block;width:${width}px;height:${height}px"><div style="position:absolute;inset:0;border:1px solid #25261d;border-radius:${radius}px"></div></div>';
+      const img = document.querySelector('img');
+      img.src = 'data:image/png;base64,${data}';
+      return img.decode().then(() => true);
+    })()`);
+    const { data: out } = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width, height, scale: 1 } });
+    return Buffer.from(out, 'base64');
   }
   ws.close();
 } finally {

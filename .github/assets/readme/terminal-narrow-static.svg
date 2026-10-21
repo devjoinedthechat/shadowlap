@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="434" height="1064" viewBox="0 0 434 1064" role="img" aria-labelledby="title desc">
+<title id="title">Shadowlap in a terminal: a refund agent recorded, replayed exactly, blamed to the model call that lost the run, and replayed with the fix</title>
+<desc id="desc">$ shadowlap run -- node agent.mjs A-1042
+Refunded $240 for A-1042 and emailed the customer.
+
+● Recorded 01M5FYCCTQ2EJ9FZ97VT4JYEK6: 9 calls (5 api, 4 tool), 5 upstream requests, ≈$0.0037
+
+$ shadowlap replay 01M5FYCCTQ
+Refunded $240 for A-1042 and emailed the customer.
+
+✓ Replay clean: 9/9 calls replayed (5 api, 4 tool), 0 upstream requests, 2k input tokens not re-spent (≈$0.0037)
+
+$ shadowlap blame 01M5FYCCTQ --expect @refund-check.json
+⑂ The run was lost at model call #5 (3 of 5)
+  Confidence: high (rescue stops cleanly at the boundary)
+
+  At #5  the recording   "Issuing the refund.", issue_refund({"order_id":"A-1042","amount":240})
+         a rescued fork  "Above the limit.", escalate({"reason":"refund of $240 is above $100"})
+
+$ # agent.mjs: escalate refunds above the limit
+
+$ shadowlap replay 01M5FYCCTQ --expect @refund-check.json
+Escalated: the refund of $240 for A-1042 is above the $100 limit.
+
+⑂ Forked at call 1: 0 calls replayed, then 6 live, 2 writes blocked; 5 upstream requests (≈$0.0039 spent, $0 saved)
+  ~ $.system
+      - "You are a support agent. Follow the refund policy."
+      + "You are a support agent. Follow the refund policy: escalate every refund above the limit."
+✓ 1 check passed (--expect)
+  ✓ issue_refund with {"amount":240} called 0 times</desc>
+<style>
+text{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono","DejaVu Sans Mono",monospace;font-size:13px;fill:#eeede6;white-space:pre}
+</style>
+<rect width="434" height="1064" rx="12" fill="#0e0f0b"/>
+<rect x="0.5" y="0.5" width="433" height="1063" rx="11.5" fill="none" stroke="#25261d"/>
+<text y="36.5"><tspan x="26" fill="#76745f">$</tspan><tspan x="41.6">shadowlap</tspan><tspan x="119.6">run</tspan><tspan x="150.8">--</tspan><tspan x="174.2">node</tspan><tspan x="213.2">agent.mjs</tspan><tspan x="291.2">A-1042</tspan></text>
+<text y="56.5"><tspan x="26.0">Refunded</tspan><tspan x="96.2">$240</tspan><tspan x="135.2">for</tspan><tspan x="166.4">A-1042</tspan><tspan x="221.0">and</tspan></text>
+<text y="76.5"><tspan x="41.6">emailed</tspan><tspan x="104.0">the</tspan><tspan x="135.2">customer.</tspan></text>
+<text y="116.5"><tspan x="26.0" fill="#c4f233">●</tspan><tspan x="41.6">Recorded</tspan><tspan x="111.8" font-weight="700">01M5FYCCTQ2EJ9FZ97VT4JYEK6</tspan><tspan x="314.6">:</tspan></text>
+<text y="136.5"><tspan x="41.6">9</tspan><tspan x="57.2">calls</tspan><tspan x="104.0">(5</tspan><tspan x="127.4">api,</tspan><tspan x="166.4">4</tspan><tspan x="182.0">tool),</tspan></text>
+<text y="156.5"><tspan x="41.6">5</tspan><tspan x="57.2">upstream</tspan><tspan x="127.4">requests,</tspan><tspan x="205.4">≈</tspan><tspan x="213.2">$0.0037</tspan></text>
+<text y="196.5"><tspan x="26" fill="#76745f">$</tspan><tspan x="41.6">shadowlap</tspan><tspan x="119.6">replay</tspan><tspan x="174.2">01M5FYCCTQ</tspan></text>
+<text y="216.5"><tspan x="26.0">Refunded</tspan><tspan x="96.2">$240</tspan><tspan x="135.2">for</tspan><tspan x="166.4">A-1042</tspan><tspan x="221.0">and</tspan></text>
+<text y="236.5"><tspan x="41.6">emailed</tspan><tspan x="104.0">the</tspan><tspan x="135.2">customer.</tspan></text>
+<text y="276.5"><tspan x="26.0" fill="#c4f233">✓</tspan><tspan x="41.6">Replay</tspan><tspan x="96.2">clean:</tspan><tspan x="150.8">9/9</tspan><tspan x="182.0">calls</tspan><tspan x="228.8">replayed</tspan></text>
+<text y="296.5"><tspan x="41.6">(5</tspan><tspan x="65.0">api,</tspan><tspan x="104.0">4</tspan><tspan x="119.6">tool),</tspan><tspan x="174.2">0</tspan><tspan x="189.8">upstream</tspan><tspan x="260.0">requests,</tspan></text>
+<text y="316.5"><tspan x="41.6">2k</tspan><tspan x="65.0">input</tspan><tspan x="111.8">tokens</tspan><tspan x="166.4">not</tspan><tspan x="197.6">re-spent</tspan><tspan x="267.8">(</tspan><tspan x="275.6">≈</tspan><tspan x="283.4">$0.0037)</tspan></text>
+<text y="356.5"><tspan x="26" fill="#76745f">$</tspan><tspan x="41.6">shadowlap</tspan><tspan x="119.6">blame</tspan><tspan x="166.4">01M5FYCCTQ</tspan><tspan x="252.2">\</tspan></text>
+<text y="376.5"><tspan x="26" fill="#76745f">&gt;</tspan><tspan x="57.2">--expect</tspan><tspan x="127.4">@refund-check.json</tspan></text>
+<text y="396.5"><tspan x="26.0" fill="#f2c94c">⑂</tspan><tspan x="41.6" font-weight="700">The</tspan><tspan x="72.8" font-weight="700">run</tspan><tspan x="104.0" font-weight="700">was</tspan><tspan x="135.2" font-weight="700">lost</tspan><tspan x="174.2" font-weight="700">at</tspan><tspan x="197.6" font-weight="700">model</tspan><tspan x="244.4" font-weight="700">call</tspan><tspan x="283.4" font-weight="700">#5</tspan><tspan x="306.8" font-weight="700">(3</tspan><tspan x="330.2" font-weight="700">of</tspan><tspan x="353.6" font-weight="700">5)</tspan></text>
+<text y="416.5"><tspan x="41.6">Confidence:</tspan><tspan x="135.2" fill="#c4f233">high</tspan><tspan x="174.2" fill="#8d8b7b">(rescue</tspan><tspan x="236.6" fill="#8d8b7b">stops</tspan><tspan x="283.4" fill="#8d8b7b">cleanly</tspan></text>
+<text y="436.5"><tspan x="57.2" fill="#8d8b7b">at</tspan><tspan x="80.6" fill="#8d8b7b">the</tspan><tspan x="111.8" fill="#8d8b7b">boundary)</tspan></text>
+<text y="476.5"><tspan x="41.6">At</tspan><tspan x="65.0">#5</tspan><tspan x="96.2" fill="#8d8b7b">the</tspan><tspan x="127.4" fill="#8d8b7b">recording</tspan><tspan x="221.0">"Issuing</tspan><tspan x="291.2">the</tspan><tspan x="322.4">refund.",</tspan></text>
+<text y="496.5"><tspan x="57.2">issue_refund({"order_id":"A-1042",</tspan></text>
+<text y="516.5"><tspan x="57.2">"amount":240})</tspan></text>
+<text y="536.5"><tspan x="96.2" fill="#8d8b7b">a</tspan><tspan x="111.8" fill="#8d8b7b">rescued</tspan><tspan x="174.2" fill="#8d8b7b">fork</tspan><tspan x="221.0">"Above</tspan><tspan x="275.6">the</tspan><tspan x="306.8">limit.",</tspan></text>
+<text y="556.5"><tspan x="57.2">escalate(</tspan></text>
+<text y="576.5"><tspan x="57.2">{"reason":"refund</tspan><tspan x="197.6">of</tspan><tspan x="221.0">$240</tspan><tspan x="260.0">is</tspan><tspan x="283.4">above</tspan><tspan x="330.2">$100"})</tspan></text>
+<text y="616.5"><tspan x="26" fill="#76745f">$</tspan><tspan x="41.6">#</tspan><tspan x="57.2">agent.mjs:</tspan><tspan x="143.0">escalate</tspan><tspan x="213.2">refunds</tspan><tspan x="275.6">above</tspan><tspan x="322.4">the</tspan><tspan x="353.6">limit</tspan></text>
+<text y="656.5"><tspan x="26" fill="#76745f">$</tspan><tspan x="41.6">shadowlap</tspan><tspan x="119.6">replay</tspan><tspan x="174.2">01M5FYCCTQ</tspan><tspan x="260.0">\</tspan></text>
+<text y="676.5"><tspan x="26" fill="#76745f">&gt;</tspan><tspan x="57.2">--expect</tspan><tspan x="127.4">@refund-check.json</tspan></text>
+<text y="696.5"><tspan x="26.0">Escalated:</tspan><tspan x="111.8">the</tspan><tspan x="143.0">refund</tspan><tspan x="197.6">of</tspan><tspan x="221.0">$240</tspan><tspan x="260.0">for</tspan><tspan x="291.2">A-1042</tspan><tspan x="345.8">is</tspan></text>
+<text y="716.5"><tspan x="41.6">above</tspan><tspan x="88.4">the</tspan><tspan x="119.6">$100</tspan><tspan x="158.6">limit.</tspan></text>
+<text y="756.5"><tspan x="26.0" fill="#f2c94c">⑂</tspan><tspan x="41.6">Forked</tspan><tspan x="96.2">at</tspan><tspan x="119.6">call</tspan><tspan x="158.6">1:</tspan><tspan x="182.0">0</tspan><tspan x="197.6">calls</tspan><tspan x="244.4">replayed,</tspan></text>
+<text y="776.5"><tspan x="41.6">then</tspan><tspan x="80.6">6</tspan><tspan x="96.2">live,</tspan><tspan x="143.0">2</tspan><tspan x="158.6">writes</tspan><tspan x="213.2">blocked;</tspan></text>
+<text y="796.5"><tspan x="41.6">5</tspan><tspan x="57.2">upstream</tspan><tspan x="127.4">requests</tspan></text>
+<text y="816.5"><tspan x="41.6">(</tspan><tspan x="49.4">≈</tspan><tspan x="57.2">$0.0039</tspan><tspan x="119.6">spent,</tspan><tspan x="174.2">$0</tspan><tspan x="197.6">saved)</tspan></text>
+<text y="836.5"><tspan x="41.6" fill="#6fcfe0">~</tspan><tspan x="57.2">$.system</tspan></text>
+<text y="856.5"><tspan x="72.8" fill="#ff6b5e">-</tspan><tspan x="88.4" fill="#ff6b5e">"You</tspan><tspan x="127.4" fill="#ff6b5e">are</tspan><tspan x="158.6" fill="#ff6b5e">a</tspan><tspan x="174.2" fill="#ff6b5e">support</tspan><tspan x="236.6" fill="#ff6b5e">agent.</tspan><tspan x="291.2" fill="#ff6b5e">Follow</tspan></text>
+<text y="876.5"><tspan x="88.4" fill="#ff6b5e">the</tspan><tspan x="119.6" fill="#ff6b5e">refund</tspan><tspan x="174.2" fill="#ff6b5e">policy."</tspan></text>
+<text y="896.5"><tspan x="72.8" fill="#c4f233">+</tspan><tspan x="88.4" fill="#c4f233">"You</tspan><tspan x="127.4" fill="#c4f233">are</tspan><tspan x="158.6" fill="#c4f233">a</tspan><tspan x="174.2" fill="#c4f233">support</tspan><tspan x="236.6" fill="#c4f233">agent.</tspan><tspan x="291.2" fill="#c4f233">Follow</tspan><tspan x="345.8" fill="#c4f233">the</tspan></text>
+<text y="916.5"><tspan x="88.4" fill="#c4f233">refund</tspan><tspan x="143.0" fill="#c4f233">policy:</tspan><tspan x="205.4" fill="#c4f233">escalate</tspan><tspan x="275.6" fill="#c4f233">every</tspan><tspan x="322.4" fill="#c4f233">refund</tspan></text>
+<text y="936.5"><tspan x="88.4" fill="#c4f233">above</tspan><tspan x="135.2" fill="#c4f233">the</tspan><tspan x="166.4" fill="#c4f233">limit."</tspan></text>
+<text y="956.5"><tspan x="26.0" fill="#c4f233">✓</tspan><tspan x="41.6" fill="#c4f233">1</tspan><tspan x="57.2" fill="#c4f233">check</tspan><tspan x="104.0" fill="#c4f233">passed</tspan><tspan x="158.6" fill="#8d8b7b">(--expect)</tspan></text>
+<text y="976.5"><tspan x="41.6" fill="#c4f233">✓</tspan><tspan x="57.2">issue_refund</tspan><tspan x="158.6">with</tspan></text>
+<text y="996.5"><tspan x="57.2">{"amount":240}</tspan><tspan x="174.2">called</tspan><tspan x="228.8">0</tspan><tspan x="244.4">times</tspan></text>
+<text y="1036.5"><tspan x="26" fill="#76745f">$</tspan></text>
+<rect x="41.6" y="1025" width="7.8" height="14" fill="#c4f233"/>
+</svg>
