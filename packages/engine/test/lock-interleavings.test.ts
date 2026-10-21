@@ -47,8 +47,19 @@ const MAX_STEPS = 40_000;
 const GONE = 2 ** 22 - 7;
 /** Steps with no edit landing, after which every writer is waiting for a lock only its age frees, if any. */
 const STUCK = 2_000;
-/** Windows starts processes and passes bytes through pipes several times slower. */
-const TIMEOUT = process.platform === 'win32' ? 300_000 : 180_000;
+/**
+ * Writers that keep the test waiting longer than this, to start, to take a step or to exit when
+ * killed, have stopped answering: minutes, since on a machine many times busier than its cores a
+ * start alone took over one. It is the only limit of time here.
+ */
+const MAX_SILENCE = 300_000;
+/**
+ * A test's own time limit: none (vitest's 0). A test takes some 25,000 to 55,000 steps one after
+ * another, seconds on an idle machine and many minutes on a busy one, where each step waits its turn
+ * for a processor twice; a schedule that goes on is ended by MAX_STEPS, and writers that stop
+ * answering by MAX_SILENCE.
+ */
+const NO_TIME_LIMIT = 0;
 
 /** The engine with node:fs wrapped, adding `$.field<i>` to the config once per 'n' it reads, or per 'f' on a file system without hard links. */
 function writerScript(dir: string, i: number): string {
@@ -102,7 +113,8 @@ function writerScript(dir: string, i: number): string {
     for (let edit = next(); edit === 'n' || edit === 'f'; edit = next()) {
       links = edit === 'n';
       try {
-        addRule(DIR, 'normalize', { path: '$.field${i}', replace: '<F${i}>' }, { wait: 600000 });
+        // It waits for the lock as many steps as it takes, never a time: MAX_STEPS ends a schedule that goes on.
+        addRule(DIR, 'normalize', { path: '$.field${i}', replace: '<F${i}>' }, { wait: Infinity });
         say('D ok');
       } catch (err) {
         say('D ' + String(err && err.message).replace(/\\n/g, ' '));
@@ -151,8 +163,13 @@ class Harness {
 
   async start(): Promise<void> {
     for (let i = 0; i < WRITERS; i++) this.writers.push(this.spawn(i));
-    await this.until(() => this.writers.every((w) => w.ready || w.exited));
-    const failed = this.writers.find((w) => w.exited);
+    await this.untilReady(this.writers);
+  }
+
+  /** Waits for each of `ws` to be ready to edit; one that exited instead fails the test with what it said. */
+  private async untilReady(ws: Writer[]): Promise<void> {
+    await this.until(() => ws.every((w) => w.ready || w.exited));
+    const failed = ws.find((w) => w.exited);
     if (failed) throw new Error(`a writer did not start: ${failed.stderr}`);
   }
 
@@ -186,8 +203,8 @@ class Harness {
     wake?.();
   }
 
-  private async until(condition: () => boolean, ms = 60_000): Promise<void> {
-    const deadline = Date.now() + ms;
+  private async until(condition: () => boolean): Promise<void> {
+    const deadline = Date.now() + MAX_SILENCE;
     while (!condition()) {
       if (Date.now() > deadline) throw new Error(`writers stopped answering: ${this.writers.map((w) => `#${w.i} at=${JSON.stringify(w.at)} done=${w.done} exited=${w.exited} ${w.stderr}`).join('; ')}`);
       await new Promise<void>((resolve) => {
@@ -336,8 +353,11 @@ class Harness {
       return !(pid === null || pid === killed.proc.pid);
     });
     if (left.length) problems.push(`left beside the config: ${left.join(', ')}`);
-    if (killed) this.writers[killed.i] = this.spawn(killed.i);
-    if (killed) await this.until(() => this.writers[killed!.i]!.ready);
+    if (killed) {
+      const again = this.spawn(killed.i);
+      this.writers[killed.i] = again;
+      await this.untilReady([again]);
+    }
     const steps = (story ?? trace.slice(-60)).map((line) => line.split(this.dir).join('<dir>'));
     return problems.length ? [`${scenario}${links ? '' : ' without hard links'}, seed ${seed}: ${problems.join('; ')}\n    steps:\n    ${steps.join('\n    ')}`] : [];
   }
@@ -353,7 +373,7 @@ describe('config edits in any order of their steps', () => {
   beforeAll(async () => {
     harness = new Harness();
     await harness.start();
-  }, 60_000);
+  }, NO_TIME_LIMIT);
   afterAll(() => harness?.stop());
 
   it('keeps one writer at a time and every edit, with a crashed writer’s lock in the way', async () => {
@@ -361,14 +381,14 @@ describe('config edits in any order of their steps', () => {
     for (let seed = 1; seed <= 60; seed++) problems.push(...(await harness.run('crashed writer', seed)));
     for (let seed = 1; seed <= 20; seed++) problems.push(...(await harness.run('no stale lock', seed)));
     expect(problems).toEqual([]);
-  }, TIMEOUT);
+  }, NO_TIME_LIMIT);
 
   it('recovers from a writer or a breaker that died at any step, and still keeps one writer at a time', async () => {
     const problems: string[] = [];
     for (let seed = 1; seed <= 20; seed++) problems.push(...(await harness.run('crashed writer and breaker', seed)));
     for (let seed = 1; seed <= 40; seed++) problems.push(...(await harness.run('writer killed', seed)));
     expect(problems).toEqual([]);
-  }, TIMEOUT);
+  }, NO_TIME_LIMIT);
 
   it('keeps one writer at a time on a file system without hard links, where a lock is created in place', async () => {
     const problems: string[] = [];
@@ -376,5 +396,5 @@ describe('config edits in any order of their steps', () => {
     for (let seed = 1; seed <= 30; seed++) problems.push(...(await harness.run('writer killed', seed, false)));
     for (let seed = 1; seed <= 15; seed++) problems.push(...(await harness.run('writer killed creating a lock', seed, false)));
     expect(problems).toEqual([]);
-  }, TIMEOUT);
+  }, NO_TIME_LIMIT);
 });
