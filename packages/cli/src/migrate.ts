@@ -458,7 +458,9 @@ export function formatMigrate(r: MigrateReport): string {
   if (r.passes.runs.some((x) => x.verified) && r.decisions.verify?.rule) lines.push(p.dim(`  ${safeLine(r.decisions.verify.rule)}`));
   lines.push('', p.bold('What it costs'));
   lines.push(`  per run      ${usd(r.costs.perRun.before)} → ${usd(r.costs.perRun.after)}${pct(r.costs.perRun.before, r.costs.perRun.after)} · ${r.costs.tokensPerRun.before.toLocaleString('en-US')} → ${r.costs.tokensPerRun.after.toLocaleString('en-US')} tokens`);
-  const unpriced = r.decisions.cost.unknownModels.length ? ` (no price for ${r.decisions.cost.unknownModels.join(', ')}: add it under "prices" in shadowlap.config.json)` : '';
+  // Asking's models and the judge's with no price: what they cost is not in the figures.
+  const unknown = [...new Set([...r.decisions.cost.unknownModels, ...(r.decisions.judge?.unknownModels ?? [])])];
+  const unpriced = unknown.length ? ` (no price for ${unknown.join(', ')}: add it under "prices" in shadowlap.config.json)` : '';
   lines.push(p.dim(`  checking it  ${usd(r.costs.checking.decisions)} asking, ${r.decisions.judge ? `${usd(r.costs.checking.judge)} judging, ` : ''}${usd(r.costs.checking.verify)} verifying${unpriced}`));
   lines.push('', p.bold('What to set'));
   if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`  only the model: ${r.to}`);

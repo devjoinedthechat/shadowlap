@@ -834,9 +834,9 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
   const unpriced = r.cost.unknownModels.length ? ` (no price for ${r.cost.unknownModels.map(safeLine).join(', ')})` : '';
   const perRun = r.cost.before !== null && r.cost.after !== null ? ` · per run ≈${formatUsd(r.cost.before)} → ≈${formatUsd(r.cost.after)} (${pct(r.cost.before, r.cost.after)})` : '';
   lines.push(p.dim(`  asking: ${r.cost.upstreamRequests} upstream request${r.cost.upstreamRequests === 1 ? '' : 's'} · ≈${formatUsd(r.cost.spent)} spent${unpriced}${perRun}${r.stopReason ? ` · stopped: ${safeLine(r.stopReason)}` : ''}`));
-  // The judge's calls apart from the agent's.
+  // The judge's calls apart from the agent's: free only when none went upstream, as a judge with no price is no free call.
   const j = r.judge;
-  if (j) lines.push(p.dim(`  judging: ${j.upstreamRequests} upstream request${j.upstreamRequests === 1 ? '' : 's'} · ${j.spent ? `${aboutUsd(j.spent)} spent` : 'free'}${j.unknownModels.length ? ` (no price for ${j.unknownModels.map(safeLine).join(', ')})` : ''}`));
+  if (j) lines.push(p.dim(`  judging: ${j.upstreamRequests} upstream request${j.upstreamRequests === 1 ? '' : 's'} · ${j.upstreamRequests ? `${aboutUsd(j.spent)} spent${j.unknownModels.length ? ` (no price for ${j.unknownModels.map(safeLine).join(', ')})` : ''}` : 'free'}`));
   return lines.join('\n');
 }
 

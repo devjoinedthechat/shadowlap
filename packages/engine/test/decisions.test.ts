@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, type DecisionJudge, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
+import { compareDecisions, decisionOf, decisionOfResponse, decisionView, effectsOf, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, type DecisionJudge, type DecisionsReport, type EffectOf, type ModelDecision } from '../src/decisions.js';
 import type { Effect } from '../src/types.js';
 
 /**
@@ -427,5 +427,15 @@ describe('a text-only change a judge check reads', () => {
     // With samples, how many of them a judge could not judge, the one shown or not.
     const sampled = formatDecisions({ ...report, samples: 3, flagged: [], runs: [{ ...run, rank: 2, majority: 5, decisions: [{ ...run.decisions[0]!, majority: 5, samples: { asked: 3, answered: 3, changed: 3, unjudged: 2, ranks: [2, 5, 5] } }] }] });
     expect(sampled).toMatch(/#30 +step 30 +rank 2 +judge "explains-escalation" fails what it says now, which passed as recorded · in 3 of 3 samples, fewer than half: not flagged, 2 of them not judged/);
+  });
+
+  it('calls judging free only when no judge request went upstream: a judge with no price is no free call', () => {
+    const report = { decisionsId: null, kind: 'decisions', at: 0, change: { model: 'mock-terse', fields: {}, from: null, fromCode: null, text: 'the model mock-terse' }, command: 'shadowlap decisions goldens/refund --model mock-terse', samples: 1, runs: [], counts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0 }, flagged: [], cost: { before: null, after: null, spent: 0, upstreamRequests: 0, unknownModels: [] }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, retirements: [], notes: [], warnings: [], verify: null, remedies: [], stopReason: null } satisfies Omit<DecisionsReport, 'judge'>;
+    const judging = (judge: DecisionsReport['judge']) => formatDecisions({ ...report, judge }).split('\n').find((l) => l.startsWith('  judging:'));
+    expect(judging({ steps: 1, changed: 0, inconclusive: 0, spent: 0, upstreamRequests: 1, unknownModels: ['claude-mock-judge-9'] })).toBe('  judging: 1 upstream request · ≈$0 spent (no price for claude-mock-judge-9)');
+    expect(judging({ steps: 1, changed: 0, inconclusive: 0, spent: 0.0012, upstreamRequests: 2, unknownModels: ['claude-mock-judge-9'] })).toBe('  judging: 2 upstream requests · ≈$0.0012 spent (no price for claude-mock-judge-9)');
+    // Every verdict from the recording or kept: nothing went upstream.
+    expect(judging({ steps: 1, changed: 0, inconclusive: 0, spent: 0, upstreamRequests: 0, unknownModels: [] })).toBe('  judging: 0 upstream requests · free');
+    expect(judging(null)).toBeUndefined();
   });
 });

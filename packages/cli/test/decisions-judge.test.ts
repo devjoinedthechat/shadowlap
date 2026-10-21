@@ -328,4 +328,17 @@ describe('judging text-only changes, more ways', () => {
     expect(report.warnings).toContain('1 text-only step a judge check reads could not be judged: the budget of $0.00 is spent');
     expect(decisionsInconclusive(report)).toBe('1 run has a text-only change a judge check reads that could not be judged');
   }, 120_000);
+
+  it('says a judge with no price is no free call', async () => {
+    const p = await project('unpriced', [{ ...ANSWER, model: 'claude-mock-judge-9' }]);
+    const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse']);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toContain('judge "fences" passed → failed · it no longer says that forks fence writes (judged live, no price for its model)');
+    expect(r.stdout).toContain('judging: 1 upstream request · ≈$0 spent (no price for claude-mock-judge-9)');
+    // Asked again, the verdict is the one the first session kept, and nothing goes upstream: that is free.
+    const again = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--json']);
+    const report = json<DecisionsReport>(again);
+    expect(report.judge).toMatchObject({ upstreamRequests: 0, spent: 0, unknownModels: [] });
+    expect(report.runs[0]!.decisions[0]!.judge!.map((j) => [j.now.source, j.now.cost])).toEqual([['kept', 0]]);
+  }, 120_000);
 });
