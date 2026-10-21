@@ -57,7 +57,7 @@ Document a new command or flag in `docs/cli.md`, in the section of its command, 
 | `testing/` | The scripted mock APIs, the reference agent, the golden recording, the framework and live-provider suites, and the conformance suite |
 | `docs/` | The documentation |
 
-The README's "How it works" section states the contract users rely on: what is matched, what replays after a fork, what is never stored. If a change alters it, update the README in the same pull request; `testing/docs` checks the parts of it the code can check.
+The README's "How it works" and "Security" sections state the contract users rely on: what is matched and what replays after a fork (How it works), and what is never stored (Security). If a change alters it, update the README in the same pull request; `testing/docs` checks the parts of it the code can check.
 
 ## Rules of the road
 
