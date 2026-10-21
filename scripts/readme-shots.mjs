@@ -19,6 +19,9 @@
 //   dashboard-fork.png         the override fork, with the request that changed and the strip of calls
 //   dashboard-fix.png          the fix: the call blame found, the prompt repair proposed, and verify's
 //                              verdict on every failing and good run
+//   dashboard-fork-medium.png  the same pages 640 px wide, in the dashboard's narrow layout, for the
+//   dashboard-fix-medium.png   README's column on a tablet or in a narrow window: the fix down to
+//                              verify's verdict
 //   dashboard-fork-phone.png   the same pages in the dashboard's phone layout: the fork down to its
 //   dashboard-fix-phone.png    strip of calls, the fix down to verify's verdict
 //
@@ -33,9 +36,9 @@
 // never this machine's; and as a first-time user sees it, with no team store set up: a `store` in
 // the project's shadowlap.config.json is taken out while it runs, and the file put back as it was.
 // Each picture is taken with headless Chrome at twice the pixels (CHROME=/path/to/chrome chooses
-// the browser): on a desktop, the page beside the sidebar of a 1280 by 800 window; on a phone, the
-// page 390 px wide, top bar included, as a touch screen shows it. Each ends under a part of the page,
-// never through one, and above the status bar. It is in the README terminal's frame (rounded corners,
+// the browser): on a desktop, the page beside the sidebar of a 1280 by 800 window; in a medium
+// window, the page 640 px wide, top bar included; on a phone, the page 390 px wide, as a touch screen
+// shows it. Each ends under a part of the page, never through one, and above the status bar. It is in the README terminal's frame (rounded corners,
 // transparent outside them, and a hairline edge). The dashboard is dark only. Run ids, dates and
 // durations differ from run to run; the rest comes out the same.
 import { execFileSync, spawn } from 'node:child_process';
@@ -291,7 +294,7 @@ try {
         await until(`!!document.querySelector('.diffpanel')`, 'the fork’s diff');
       },
       // Down to the strip of the calls the fork made.
-      end: { desktop: 'section.strip', phone: 'section.strip' },
+      end: { desktop: 'section.strip', medium: 'section.strip', phone: 'section.strip' },
     },
     {
       name: 'dashboard-fix',
@@ -299,19 +302,22 @@ try {
       async ready() {
         await until(`${text('Every failing run fixed')} && ${text('Lost at model call')}`, 'the fix’s verdict');
       },
-      // Down to verify's table of runs; on a phone, where that table scrolls sideways, to its verdict.
-      end: { desktop: '.verdict ~ section.panel.tscroll', phone: '.verdict' },
+      // Down to verify's table of runs; narrower, where that table scrolls sideways, to its verdict.
+      end: { desktop: '.verdict ~ section.panel.tscroll', medium: '.verdict', phone: '.verdict' },
     },
   ];
   mkdirSync(outDir, { recursive: true });
   // A desktop window: narrower, the dashboard stacks what sits side by side here. The picture is the
   // part beside the sidebar, so the README's column shows its text at four fifths of its size, where
-  // the whole window would shrink it to two thirds. A phone: the dashboard's phone layout, top bar
-  // included, as a touch screen shows it (no keyboard help), in a window tall enough that the picture
-  // ends above the status bar. The frame's corners are those of the README terminal shown beside it:
-  // the wide one on a desktop, the narrow one on a phone.
+  // the whole window would shrink it to two thirds. A medium window, 640 px wide, for the README's
+  // column between a phone's and a wide screen's (400 to 660 px), where the desktop picture's text
+  // would shrink to a third: the dashboard's narrow layout, top bar included. A phone: its phone
+  // layout, as a touch screen shows it (no keyboard help). Each window is tall enough that the
+  // picture ends above the status bar. The frame's corners are those of the README terminal shown
+  // beside it: the wide one on a desktop, the medium one, and the narrow one on a phone.
   const sizes = [
     { size: 'desktop', suffix: '', width: 1280, height: 800, mobile: false, radius: (w) => w / 80 },
+    { size: 'medium', suffix: '-medium', width: 640, height: 2000, mobile: false, radius: (w) => w / 53 },
     { size: 'phone', suffix: '-phone', width: 390, height: 1200, mobile: true, radius: (w) => w / 36 },
   ];
   for (const s of sizes) {
@@ -327,46 +333,55 @@ try {
       await evaluate('document.fonts.ready.then(() => true)');
       await wait(700);
       // The picture ends under a part of the page, never through one: 24 px under it, or just above
-      // what follows it, whichever comes first.
+      // what follows it, whichever comes first. Where what follows starts closer than 16 px under it,
+      // the frame adds the rest of 16 px in the page's own background, so the frame's edge never
+      // touches the part (the fork's strip of calls, whose marker sits under its cells).
       const clip = await evaluate(`(() => {
         const part = document.querySelector(${JSON.stringify(end)});
         if (!part) return null;
         let next = part.nextElementSibling;
         while (next && !next.getBoundingClientRect().height) next = next.nextElementSibling;
-        const bottom = Math.floor(Math.min(part.getBoundingClientRect().bottom + 24, next ? next.getBoundingClientRect().top - 1 : Infinity));
+        const below = part.getBoundingClientRect().bottom;
+        const bottom = Math.floor(Math.min(below + 24, next ? next.getBoundingClientRect().top - 1 : Infinity));
         if (bottom > document.querySelector('footer.status').getBoundingClientRect().top) return { under: true };
-        const left = ${s.mobile} ? 0 : Math.ceil(document.querySelector('aside.side').getBoundingClientRect().right);
-        return { x: left, y: 0, width: ${s.width} - left, height: bottom };
+        // The sidebar beside the page in a wide window; none in a narrow one, where it is a menu.
+        const left = ${s.width} > 1000 ? Math.ceil(document.querySelector('aside.side').getBoundingClientRect().right) : 0;
+        let behind = part;
+        while (behind && /rgba\\(0, 0, 0, 0\\)|transparent/.test(getComputedStyle(behind).backgroundColor)) behind = behind.parentElement;
+        return { x: left, y: 0, width: ${s.width} - left, height: bottom, pad: Math.max(0, Math.ceil(below + 16 - bottom)), background: behind ? getComputedStyle(behind).backgroundColor : 'transparent' };
       })()`);
       if (!clip) fail(`${file}: the page has no ${end}`);
       if (clip.under) fail(`${file}: ${end} ends under the status bar of a ${s.width} by ${s.height} window`);
-      const { data } = await send('Page.captureScreenshot', { format: 'png', clip: { ...clip, scale: 1 } });
-      const png = await framed(data, clip, Math.round(s.radius(clip.width)));
+      const { pad, background, ...area } = clip;
+      const { data } = await send('Page.captureScreenshot', { format: 'png', clip: { ...area, scale: 1 } });
+      const png = await framed(data, area, Math.round(s.radius(area.width)), pad, background);
       writeFileSync(join(outDir, file), png);
       const bytes = statSync(join(outDir, file)).size;
-      console.log(`wrote ${relative(root, join(outDir, file))}: ${clip.width * 2}×${clip.height * 2}, ${(bytes / 1024).toFixed(0)} KB`);
+      console.log(`wrote ${relative(root, join(outDir, file))}: ${area.width * 2}×${(area.height + pad) * 2}, ${(bytes / 1024).toFixed(0)} KB`);
       if (bytes > MAX_BYTES) throw new Error(`readme-shots: ${file} is ${(bytes / 1024).toFixed(0)} KB, over the ${MAX_BYTES / 1024} KB a README picture may weigh`);
     }
   }
 
   /**
    * The picture in the terminal picture's frame: corners rounded, transparent outside them, and a
-   * hairline edge in its colour, so the pictures match on a light page and a dark one.
+   * hairline edge in its colour, so the pictures match on a light page and a dark one. `pad` px of
+   * the page's `background` go under the picture, inside the frame.
    */
-  async function framed(data, { width, height }, radius) {
-    await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: false });
+  async function framed(data, { width, height }, radius, pad = 0, background = 'transparent') {
+    const tall = height + pad;
+    await send('Emulation.setDeviceMetricsOverride', { width, height: tall, deviceScaleFactor: 2, mobile: false });
     await send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
     await send('Page.navigate', { url: 'about:blank' });
     await until(`document.readyState === 'complete'`, 'a blank page');
     await evaluate(`(() => {
       document.documentElement.style.background = 'transparent';
       document.body.style.cssText = 'margin:0;background:transparent';
-      document.body.innerHTML = '<div style="position:relative;width:${width}px;height:${height}px;border-radius:${radius}px;overflow:hidden"><img style="display:block;width:${width}px;height:${height}px"><div style="position:absolute;inset:0;border:1px solid #25261d;border-radius:${radius}px"></div></div>';
+      document.body.innerHTML = '<div style="position:relative;width:${width}px;height:${tall}px;border-radius:${radius}px;overflow:hidden;background:${background}"><img style="display:block;width:${width}px;height:${height}px"><div style="position:absolute;inset:0;border:1px solid #25261d;border-radius:${radius}px"></div></div>';
       const img = document.querySelector('img');
       img.src = 'data:image/png;base64,${data}';
       return img.decode().then(() => true);
     })()`);
-    const { data: out } = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width, height, scale: 1 } });
+    const { data: out } = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width, height: tall, scale: 1 } });
     return Buffer.from(out, 'base64');
   }
   ws.close();

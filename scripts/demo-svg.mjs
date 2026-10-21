@@ -9,11 +9,12 @@
 //   npm run build && node scripts/demo-svg.mjs
 //
 // It writes .github/assets/readme/terminal.svg, which types each command and shows what it printed,
-// on a loop, and terminal-static.svg, the same session drawn whole, for where motion is unwanted.
-// Both come again in 80 columns, terminal-medium.svg and terminal-medium-static.svg, for a tablet or
-// a narrow window, and in 47, terminal-narrow.svg and terminal-narrow-static.svg, for a phone, which
-// shows them at about 10 px. A command too long for the width goes on in a second line after a
-// backslash, as a shell takes it, and a longer line breaks at the end of a clause.
+// holds the whole session for a minute and loops, and terminal-static.svg, the same session drawn
+// whole, for where motion is unwanted. Both come again in 80 columns, terminal-medium.svg and
+// terminal-medium-static.svg, for a tablet or a narrow window, and in 47, terminal-narrow.svg and
+// terminal-narrow-static.svg, for a phone, which shows them at about 10 px. A command too long for
+// the width goes on in a second line after a backslash, as a shell takes it, and a longer line breaks
+// at the end of a clause, never inside a quoted string where it can break elsewhere.
 //
 // A line is shown as the CLI printed it, or left out; none is changed. Left out: the progress a
 // command prints while it works (`[shadowlap] recording run …`, blame's probes and their attempts),
@@ -216,6 +217,7 @@ try {
         // the detail under its result, and what to run next
         /^ {2}The re-asked call #\d+: /,
         /^ {2}Probes /,
+        /^ {10}\S/,
         /^ {4}#\d+ /,
         /^ {2}\d+ attempts · /,
         /^ {2}oracle: /,
@@ -263,10 +265,10 @@ const fillOf = (run) => (run.fg ? C[run.fg] : run.dim ? C.dim : C.fg);
 // Pacing, in seconds: the prompt waiting, typing, the command working, its lines arriving (all at
 // once, as a block), a moment before the next command, and the whole session held at the end. It is
 // typed fast, so all of it is on screen within six seconds of the picture loading and stays there for
-// twenty-two before the loop starts again: a reader who scrolls to it late still sees the whole
-// session. The first command is typed already, so the picture is never empty: a page that shows its
-// first frame, or a capture of one, shows a command at work.
-const P = { idle: 0.15, perChar: 0.01, enter: 0.1, perLine: 0, readBase: 0.25, readPerLine: 0.03, end: 22, fade: 0.4 };
+// a minute before the loop starts again: a reader who scrolls to it late, or reads it slowly, still
+// sees the whole session. The first command is typed already, so the picture is never empty: a page
+// that shows its first frame, or a capture of one, shows a command at work.
+const P = { idle: 0.15, perChar: 0.01, enter: 0.1, perLine: 0, readBase: 0.25, readPerLine: 0.03, end: 60, fade: 0.4 };
 
 /** When each command shows, is typed and prints, and when each of its lines arrives. */
 const timeline = [];
@@ -298,16 +300,19 @@ const fadeAt = pct(TOTAL - P.fade);
  * rows after the first indented two past the line's own indent. A row ends, by preference, where a
  * clause does (a comma, semicolon or colon and the space after it) outside brackets and quotes, then
  * at a space outside them, each only when that leaves the row at least half full; then at a comma
- * between JSON values, then at any space. Rows are kept shorter when that spares the last one from
- * holding a word or two alone. Nothing is left out or changed: the rows hold the line's characters in
- * order, in their own colours.
+ * between JSON values, before a JSON object or list, or at any other space outside a quoted string.
+ * It ends inside a quoted string only when that takes fewer rows, since a break there reads as if the
+ * string held a line break; and where a piece with no other break in it would not fit beside the
+ * indent, the rows after the first are indented less, by an even number of columns. Rows are kept
+ * shorter when that spares the last one from holding a word or two alone. Nothing is left out or
+ * changed: the rows hold the line's characters in order, in their own colours.
  */
 function wrapRuns(runs, width) {
   const chars = runs.flatMap((r) => [...r.text].map((ch) => ({ ch, fg: r.fg, bold: r.bold, dim: r.dim })));
   if (chars.length <= width) return [runs];
-  const indent = chars.findIndex((c) => c.ch !== ' ') + 2;
-  // How deep in brackets or a quoted string each character is.
+  // How deep in brackets or a quoted string each character is, and whether it is inside a quoted string.
   const depth = [];
+  const inQuotes = [];
   let level = 0;
   let quoted = false;
   for (const [i, { ch }] of chars.entries()) {
@@ -315,9 +320,31 @@ function wrapRuns(runs, width) {
     else if (!quoted && '([{'.includes(ch)) level++;
     else if (!quoted && ')]}'.includes(ch)) level = Math.max(0, level - 1);
     depth.push(level + (quoted ? 1 : 0));
+    inQuotes.push(quoted && ch !== '"');
   }
-  /** Where each row starts and ends, none but the last longer than `limit`. */
-  const spans = (limit) => {
+  /** The kind of break a row may end with before position e, or null where it may not end. */
+  const breakAt = (e) => {
+    const prev = chars[e - 1].ch;
+    const ch = chars[e].ch;
+    if (ch === ' ' && inQuotes[e]) return 'quoted';
+    if (ch === ' ') return !depth[e] ? (',;:'.includes(prev) ? 'clause' : 'space') : 'any';
+    if (prev === ',' && ch === '"' && !inQuotes[e - 1]) return 'json';
+    if ('{['.includes(ch) && !inQuotes[e] && prev !== ' ') return 'open';
+    return null;
+  };
+  const own = chars.findIndex((c) => c.ch !== ' ');
+  /** The rows, none but the last longer than `limit`; `quotes`: a row may end inside a quoted string as at any space. */
+  const spans = (limit, quotes) => {
+    // The longest piece no break cuts: the rows after the first leave it room where they can.
+    let piece = 0;
+    for (let from = own, e = own + 1; e <= chars.length; e++) {
+      const kind = e < chars.length ? breakAt(e) : 'end';
+      if (!kind || (kind === 'quoted' && !quotes)) continue;
+      piece = Math.max(piece, e - from);
+      from = e;
+      while (from < chars.length && chars[from].ch === ' ') from++;
+    }
+    const indent = own + 2 + piece <= width || width - piece < 2 ? own + 2 : Math.max(2, Math.floor((width - piece) / 2) * 2);
     const out = [];
     let start = 0;
     while (start < chars.length) {
@@ -326,19 +353,15 @@ function wrapRuns(runs, width) {
       if (end - start > width - lead) {
         const room = Math.min(width, limit) - lead;
         // The last break of each kind within the row's room.
-        const last = { clause: -1, space: -1, json: -1, any: -1 };
+        const last = { clause: -1, space: -1, json: -1, open: -1, any: -1, quoted: -1 };
         for (let e = start + 1; e <= start + room && e < chars.length; e++) {
-          const prev = chars[e - 1].ch;
-          if (chars[e].ch === ' ') {
-            last.any = e;
-            if (!depth[e]) {
-              last.space = e;
-              if (',;:'.includes(prev)) last.clause = e;
-            }
-          } else if (prev === ',' && chars[e].ch === '"') last.json = e;
+          const kind = breakAt(e);
+          if (!kind) continue;
+          last[kind === 'quoted' && quotes ? 'any' : kind] = e;
+          if (kind === 'clause') last.space = e;
         }
         const full = (e) => e - start >= room / 2;
-        end = [last.clause, last.space].find(full) ?? [last.json, last.any].find((e) => e > start) ?? start + room;
+        end = [last.clause, last.space].find(full) ?? [Math.max(last.json, last.open), Math.max(last.space, last.any), last.quoted].find((e) => e > start) ?? start + room;
       }
       out.push({ start, end, lead });
       start = end;
@@ -347,9 +370,10 @@ function wrapRuns(runs, width) {
     return out;
   };
   const tail = (rows) => rows.at(-1).end - rows.at(-1).start;
-  let rows = spans(width);
+  const quotes = spans(width, true).length < spans(width, false).length;
+  let rows = spans(width, quotes);
   for (let limit = width - 1; rows.length > 1 && tail(rows) < 16 && limit >= Math.ceil(width * 0.7); limit--) {
-    const tried = spans(limit);
+    const tried = spans(limit, quotes);
     if (tried.length === rows.length && tail(tried) > tail(rows)) rows = tried;
   }
   return rows.map(({ start, end, lead }) => {
