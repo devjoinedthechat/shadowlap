@@ -13,3 +13,5 @@ stand-in served on this machine: nothing here talks to a real provider.
 | `node triage.mjs` | Labels the unread support threads (OpenAI) |
 | `node digest.mjs` | Posts the weekly refund digest (Gemini) |
 | `node faq.mjs "<question>"` | Answers from the help center, an MCP server (`kb_server.mjs`) that `.mcp.json` starts behind `shadowlap mcp` |
+
+`refund-check.json` is the check the first refund agent fails on its $240 orders: a passing run never calls `issue_refund` for $240.

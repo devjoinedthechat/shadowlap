@@ -8,12 +8,12 @@ import { classifyRun, decide, SPRT_DEFAULTS, Store, type RunRecord } from '@shad
 import { startMockAnthropic } from '@shadowlap-testing/mock-anthropic';
 
 /**
- * scripts/demo-store.mjs builds the demo project the dashboard is compared with the design on, each
- * state made by the CLI against the mock providers. Built here with --fast in a temporary folder,
- * its store holds what --fast promises: a run of every kind with blame's probes and verify's
- * attempts under them, a fork for each intervention it makes, an interrupted and a failed
- * recording, a verified fix and an open one, and goldens tested at several commits that passed,
- * failed a check and diverged. The script drives the built CLI, as the other end-to-end tests do.
+ * scripts/demo-store.mjs builds the demo project the dashboard is shown on, each state made by the
+ * CLI against the mock providers. Built here with --fast in a temporary folder, its store holds what
+ * --fast promises: a run of every kind with blame's probes and verify's attempts under them, a fork
+ * for each intervention it makes, an interrupted and a failed recording, a verified fix and an open
+ * one, and goldens tested at several commits that passed, failed a check and diverged. The script
+ * drives the built CLI, as the other end-to-end tests do.
  */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
@@ -274,7 +274,7 @@ describe('the demo’s models', () => {
   type Answer = { candidates: Array<{ anchor: number; replace: string; strategy: string }> };
   type Models = { anthropic(ctx: { request: Record<string, unknown> }): { message: { content: Array<{ type: string; text?: string; name?: string }> } }; control: { email: string } };
   const load = async (): Promise<Models> => ((await import(pathToFileURL(join(ROOT, 'scripts', 'demo-store', 'models.mjs')).href)) as { createModels(): Models }).createModels();
-  const SYSTEM = 'You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.';
+  const SYSTEM = 'You are a support agent. Follow the refund policy: escalate every refund above the limit.';
 
   it('offers a repair rewrites for the check its runs fail', async () => {
     const models = await load();

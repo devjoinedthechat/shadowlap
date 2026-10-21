@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Builds a demo project whose store holds the states the dashboard's design shows, each one made by
-// real shadowlap commands against the mock providers in testing/, so the dashboard can be compared
-// with the design on realistic data. Nothing writes to the store but the CLI.
+// Builds a demo project whose store holds every state the dashboard shows, each one made by real
+// shadowlap commands against the mock providers in testing/, so the dashboard, and the README's
+// pictures of it, show realistic data. Nothing writes to the store but the CLI.
 //
 //   npm run build && node scripts/demo-store.mjs <folder> [--fast]
 //
@@ -20,8 +20,8 @@
 //   home/            the dashboard's own files (SHADOWLAP_HOME): its project list
 //   runs.json        the ids of the runs each step made, and the revisions, to find them by
 //
-// The story is the design's: a refund agent refunds $240 orders its policy says need approval.
-// Each step runs at the commit the story puts it on (Sep 26 to 30, 2026):
+// The story: a refund agent refunds $240 orders its policy says need approval. Each step runs at
+// the commit the story puts it on (Sep 26 to 30, 2026):
 //
 //   - recordings: the first refund agent (agent.mjs) on several orders; the ticket agent
 //     (refund_agent.mjs: streamed, with thinking, clock and id reads); an eval where a model plays
@@ -68,7 +68,7 @@
 // The calendar: every run a command makes is dated when it is made, today. Imports keep the dates
 // their files carry, so the HAR, LiteLLM, OpenTelemetry, Langfuse and LangSmith runs fall 3 to 16
 // days back; nock and VCR files carry no dates, so theirs are today's too. The commits are dated in
-// the design's week. What the agents send and what the models answer is the same on every build,
+// the demo's week. What the agents send and what the models answer is the same on every build,
 // apart from the time and the ids the ticket agent reads per run; run ids and times are not, and so
 // neither is a commit that holds a golden, nor any after it.
 //
@@ -168,7 +168,7 @@ const ENV = {
   GIT_CONFIG_NOSYSTEM: '1',
 };
 
-/** Who does what: the people of the design, and CI. */
+/** Who does what: the demo's people, and CI. */
 const PEOPLE = {
   dana: { name: 'Dana', email: 'dana@example.com' },
   maya: { name: 'Maya', email: 'maya@example.com' },
@@ -283,7 +283,8 @@ const POLICY = [
   'A refund to a card the customer no longer holds goes out as store credit, with the customer told why.',
 ];
 
-const E_REFUND = '{"tools":{"issue_refund":{"count":0,"args":{"amount":240}}}}';
+// The check the refund runs fail: issue_refund is never called for $240 (the project's refund-check.json).
+const E_REFUND = '@refund-check.json';
 const E_EMAIL = '{"tools":{"send_email":1}}';
 const CHAT = ['My blender arrived broken. Order A-1042.', 'A replacement, please.', 'No, thanks!'];
 const runs = {};

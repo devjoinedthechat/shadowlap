@@ -304,7 +304,7 @@ export function createModels() {
       candidates: [
         { anchor: anchor('system prompt'), replace: `You are a support agent. Follow the refund policy. For order ${order}, escalate instead of refunding.`, strategy: 'Forbid the failing refund', why: 'It names the case.' },
         { anchor: anchor('tool issue_refund'), replace: 'Refund an order in full. Check the policy first.', strategy: 'Point the refund tool at the policy', why: 'The tool is where the choice is made.' },
-        { anchor: anchor('system prompt'), replace: 'You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.', strategy: 'Escalate refunds above the policy limit', why: 'The policy sets a limit; saying what to do above it makes the right tool clear.' },
+        { anchor: anchor('system prompt'), replace: 'You are a support agent. Follow the refund policy: escalate every refund above the limit.', strategy: 'Escalate refunds above the policy limit', why: 'The policy sets a limit; saying what to do above it makes the right tool clear.' },
       ],
     };
     return reply(req, [text(JSON.stringify(answer))], 'end_turn');
