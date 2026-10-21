@@ -223,4 +223,26 @@ describe('the search index', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('deletes a run whole or not at all: a failure in its index keeps the run, and the text it recorded stays findable only with it', () => {
+    const [kept, gone] = [newRun(), newRun()];
+    for (const runId of [kept, gone]) {
+      for (let n = 1; n <= 3; n++) toolCall(runId, n, `okapi ${n}`, 'done');
+      store.endRun(runId, 'completed');
+    }
+    updateSearchIndex(store);
+    // Inside a transaction someone else opened, as a pull replaces a run: it nests.
+    store.transaction(() => store.deleteRun(gone));
+    expect(store.getRun(gone)).toBeNull();
+    expect(new Set(store.searchDocs('"okapi"', 100).map((h) => h.runId))).toEqual(new Set([kept]));
+    // An index that can't be written (a Node whose SQLite has no full-text search reads it as no such module).
+    (store as unknown as { db: DatabaseSync }).db.exec('ALTER TABLE search_rows RENAME TO search_rows_away');
+    expect(() => store.deleteRun(kept)).toThrow(/search_rows/);
+    (store as unknown as { db: DatabaseSync }).db.exec('ALTER TABLE search_rows_away RENAME TO search_rows');
+    expect(store.getRun(kept)?.runId).toBe(kept);
+    expect(store.getCalls(kept)).toHaveLength(3);
+    expect(store.searchDocs('"okapi"', 100).map((h) => h.runId)).toEqual([kept, kept, kept]);
+    store.deleteRun(kept);
+    expect(store.searchDocs('"okapi"', 100)).toEqual([]);
+  });
 });

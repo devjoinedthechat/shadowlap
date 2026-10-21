@@ -2232,12 +2232,23 @@ export class Store {
   }
 
   deleteRun(runId: string): void {
-    this.stmts.deleteRun.run(runId);
-    this.deleteSearchDocs(runId);
-    this.db.prepare(`DELETE FROM search_state WHERE run_id = ?`).run(runId);
-    // A run queued for a push while it recorded goes nowhere now. (A row of a run synced stays: it
-    // is what keeps a run deleted here from coming back with the next pull.)
-    this.db.prepare(`DELETE FROM team_runs WHERE run_id = ? AND state = 'queued'`).run(runId);
+    // All of it or none: a run whose rows went while its search index could not be written (a Node
+    // whose SQLite has no full-text search) would leave the text it recorded behind. A savepoint, as
+    // a caller may have a transaction open already (replaceRun in a pull's).
+    this.db.exec('SAVEPOINT delete_run');
+    try {
+      this.stmts.deleteRun.run(runId);
+      this.deleteSearchDocs(runId);
+      this.db.prepare(`DELETE FROM search_state WHERE run_id = ?`).run(runId);
+      // A run queued for a push while it recorded goes nowhere now. (A row of a run synced stays: it
+      // is what keeps a run deleted here from coming back with the next pull.)
+      this.db.prepare(`DELETE FROM team_runs WHERE run_id = ? AND state = 'queued'`).run(runId);
+      this.db.exec('RELEASE delete_run');
+    } catch (err) {
+      this.db.exec('ROLLBACK TO delete_run');
+      this.db.exec('RELEASE delete_run');
+      throw err;
+    }
   }
 
   /**
