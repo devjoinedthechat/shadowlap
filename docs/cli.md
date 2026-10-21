@@ -2,7 +2,7 @@
 
 Global options: `--db <path>` (default `./.shadowlap/shadowlap.db`), `-v` / `--verbose` (sidecar log on stderr), given before the command or after it: `shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Each command's `--help` lists them. Run ids can be abbreviated to any unique prefix.
 
-The CLI runs on Node 22.16 or later, but not on Node 23: every store has a full-text index, which Node's built-in SQLite has from 22.16 on and in 24 and later. On another Node it says which Node it needs, in one line, and exits 1.
+The CLI runs on Node 22.16 or later, but not on Node 23: every store has a full-text index, which Node's built-in SQLite has from 22.16 on and in 24 and later. On another Node it says which Node it needs, in one line, and exits 1. On a Node in that range whose SQLite was built without full-text search, such as a custom build, opening a store says to use an official build, as [`doctor`](#doctor) does.
 
 A store is created by the first command that records into it. Commands that only read it (`ls`, `show`, `search`, `diff`, `pack`, the exports, `fix ls`, `tasks`), or change only what it already holds (`label`, `note`, `rm`, `fix title`, and `coverage`, which keeps its scans there), never create one: where there is none they find nothing, and when the project's store is in a folder above (run from `src/`, say) they name it.
 

@@ -1146,10 +1146,15 @@ function createOnce(path: string, content: string): void {
 
 /**
  * Why a store can't be opened on a Node whose built-in SQLite has no full-text search, which every
- * store uses: Node has it from 22.16 on, and in 24 and later, never in 23.
+ * store uses: Node has it from 22.16 on, and in 24 and later, never in 23. One of those without it
+ * is a build that left it out (a custom or a distribution's build), which another version of Node
+ * wouldn't mend: an official build has it, as doctor says.
  */
 export function noFullTextSearch(version: string = process.version): string {
-  const node = /^v?23\./.test(version) ? `Node ${version.replace(/^v?/, '')}, like every Node 23,` : `Node ${version.replace(/^v?/, '')}`;
+  const v = version.replace(/^v?/, '');
+  const [major = 0, minor = 0] = v.split('.').map(Number);
+  if ((major === 22 && minor >= 16) || major >= 24) return `this build of Node ${v} has no full-text search (FTS5) in its built-in SQLite, which the store needs: use an official Node build`;
+  const node = major === 23 ? `Node ${v}, like every Node 23,` : `Node ${v}`;
   return `${node} has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later (not 23)`;
 }
 
