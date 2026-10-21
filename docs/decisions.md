@@ -94,7 +94,7 @@ Where the judge can't be asked (no key for its provider and no upstream set for 
 
 A run that did not complete (its agent exited with an error, or it was interrupted) is judged by none of its checks, as `pack` and `test` judge none: it fails its checks whatever a judge says, so its text-only changes are counted, and the report says so.
 
-A check on what the agent printed (`"of": "output"`) reads no model call's answer: the report names it, and verify judges it. Nor does a judge read the words of an earlier step as given: the requests after it carry them back to the model as recorded, so no run holds that answer with the rest as recorded.
+A check on what the agent printed (`"of": "output"`) reads no model call's answer: the report names it, and verify judges it end to end when it takes the run (`--then-verify`, `migrate`), as it takes only a run with a write, stop or judged change. Nothing judges it under the change for a run whose changes are text only. Nor does a judge read the words of an earlier step as given: the requests after it carry them back to the model as recorded, so no run holds that answer with the rest as recorded.
 
 ## Reading the report
 

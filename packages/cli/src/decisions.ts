@@ -1113,7 +1113,8 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
       notes.push(`${one ? shortId(incomplete[0]!) : `${incomplete.length} runs`} did not complete${one ? '' : ` (${incomplete.map((id) => shortId(id)).join(', ')})`}, so ${one ? 'it fails its' : 'each fails its'} checks whatever a judge says: no judge check reads ${one ? 'its' : 'their'} text-only changes, which are counted.`);
     }
     if (allSteps.some((x) => x.rank === 5 && !x.judge?.length && !judgeOpen(x))) notes.push(judgedSteps.length ? 'Text-only changes no judge check reads are counted, not judged.' : 'Text-only changes are counted, not judged.');
-    if (outputJudges.length) notes.push(`The judge check${outputJudges.length === 1 ? '' : 's'} ${outputJudges.map((n) => `"${n}"`).join(', ')} read${outputJudges.length === 1 ? 's' : ''} what the agent printed, which asking a model call again doesn't make: verify judges ${outputJudges.length === 1 ? 'it' : 'them'}.`);
+    // A check on what the agent printed is judged only where the agent runs: by verify, on the runs a change flags.
+    if (outputJudges.length) notes.push(`The judge check${outputJudges.length === 1 ? '' : 's'} ${outputJudges.map((n) => `"${n}"`).join(', ')} read${outputJudges.length === 1 ? 's' : ''} what the agent printed, which asking a model call again doesn't make: verify judges ${outputJudges.length === 1 ? 'it' : 'them'} end to end when it takes a run (--then-verify, migrate).`);
     if (s.samples === 1 && (counts[1] || counts[2] || counts[3] || counts[4])) notes.push('Each step was asked once, and a model varies from one answer to the next: --samples 3 says how often a decision changes.');
     if (s.fromCode) notes.push('Nothing ran to read the prompt: each run was replayed offline under the working tree, its model calls matched without their prompt and tools.');
     // What a judge reads goes to its model: the same rules masked it first (decisions-judge.ts). Said

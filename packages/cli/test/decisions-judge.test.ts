@@ -137,7 +137,7 @@ describe('a text-only change a judge check reads', () => {
     expect(report.judge!.spent).toBeGreaterThan(0);
     expect(report.cost.upstreamRequests).toBe(11);
     expect(report.notes).toContain('A judge check of the runs reads the words of 1 text-only step: 1 came out otherwise for the new words (rank 2, as a changed stop is).');
-    expect(report.notes).toContain('The judge check "printed" reads what the agent printed, which asking a model call again doesn\'t make: verify judges it.');
+    expect(report.notes).toContain('The judge check "printed" reads what the agent printed, which asking a model call again doesn\'t make: verify judges it end to end when it takes a run (--then-verify, migrate).');
     expect(step.samples).toEqual({ asked: 1, answered: 1, changed: 1, unjudged: 0, ranks: [2] });
     expect(report.notes.join('\n')).not.toMatch(/counted, not judged/);
     const shapes = [departures('decisions', report), departures('decisionsStep', step), departures('decisionsDifference', step.changes[0]), departures('decisionsJudge', judged[0]), departures('decisionsJudgeSide', judged[0]!.now), departures('decisionsJudged', report.judge)];
