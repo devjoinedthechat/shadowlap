@@ -38,7 +38,7 @@ CI runs all of it on Linux, macOS and Windows with Node 22 and 24. There the tes
 
 `docs/*.md` are the documentation, read on GitHub as they are. Name a new page in lower-case letters, digits and hyphens. Link to another page as `./page.md` or `./page.md#section`, and to anything else in the repository by its relative path, so every link works on GitHub.
 
-Document a new command or flag in `docs/cli.md`, in the section of its command, and anything a user would notice in `README.md` (the Status table is the live checklist) and `CHANGELOG.md`, under Unreleased. `testing/docs` reads the CLI's command tree and fails when an option is missing from the reference, or when a page shows a command or flag the CLI doesn't have. It also runs the CI step `docs/ci.md` prints, holds the normalizer samples and the divergence output the docs show to what the CLI prints, installs the packages from a clone the way the docs say, holds the changelog's line on dependencies to the package manifests, and builds the site, the repository's own docs included.
+Document a new command or flag in `docs/cli.md`, in the section of its command, and anything a user would notice in `README.md` and `CHANGELOG.md`, under Unreleased. `testing/docs` reads the CLI's command tree and fails when an option is missing from the reference, or when a page shows a command or flag the CLI doesn't have. It also runs the CI step `docs/ci.md` prints, holds the normalizer samples and the divergence output the docs show to what the CLI prints, installs the packages the way the docs say (each from its folder here), holds the changelog's line on dependencies to the package manifests, and builds the site, the repository's own docs included.
 
 ## Where things live
 

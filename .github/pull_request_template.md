@@ -8,5 +8,5 @@
 **Docs**
 
 - [ ] New commands and flags are in `docs/cli.md`
-- [ ] `README.md` Status table and `CHANGELOG.md` (under Unreleased) updated if a user would notice
+- [ ] `README.md` and `CHANGELOG.md` (under Unreleased) updated if a user would notice
 - [ ] `README.md` "How it works" updated if a guarantee, matching rule or policy changed

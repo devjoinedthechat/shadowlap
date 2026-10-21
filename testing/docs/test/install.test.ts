@@ -1,51 +1,75 @@
-// Until the packages are on npm and PyPI, the README, the quickstart and the SDK page tell people to
-// install them from a clone of the repository: `shadowlap init` prints the published names, which don't
-// exist yet. These checks run the npm lines exactly as the SDK page prints them, with this repository as
-// the clone, in a project of their own, and check what an agent then gets: the SDK and the adapters as
-// one module, and a recorded-test package that finds the clone's CLI without being told where it is.
+// The README, the quickstart and the SDK page install the packages by the names they are published
+// under, in one block each page prints alike. These checks hold that block to the repository: each npm
+// name is a package here that publishes, the pip name is the Python package's, and the CLI the README
+// and the quickstart install globally is the package with the `shadowlap` command. Then they install the
+// npm packages the way the block does, from their folders here, in a project of their own, and check
+// what an agent gets: the SDK and the adapters as one module, and a recorded-test package that finds
+// the CLI it depends on without being told where it is.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url)).replace(/[\\/]$/, '');
-const CLONE = 'path/to/shadowlap';
 const read = (path: string) => readFileSync(join(ROOT, path), 'utf8');
 
-/** The fenced shell blocks of a page that install from the clone, as their lines. */
-function installBlocks(page: string): string[][] {
-  return [...read(page).matchAll(/^```sh\n([\s\S]*?)^```/gm)].map((m) => m[1]!.trim().split('\n')).filter((lines) => lines.some((l) => l.includes(`${CLONE}/`)));
+interface Manifest {
+  name: string;
+  private?: boolean;
+  bin?: Record<string, string>;
 }
+
+/** The repository's npm packages by name: the folder each is in, and its manifest. */
+const PACKAGES = new Map(
+  readdirSync(join(ROOT, 'packages'))
+    .filter((dir) => existsSync(join(ROOT, 'packages', dir, 'package.json')))
+    .map((dir) => {
+      const manifest = JSON.parse(read(join('packages', dir, 'package.json'))) as Manifest;
+      return [manifest.name, { dir: join(ROOT, 'packages', dir), manifest }] as const;
+    }),
+);
 
 /** A line's words, without its comment. */
 const words = (line: string) => line.replace(/\s+#.*$/, '').trim().split(/\s+/);
 
-const block = installBlocks('docs/sdk.md')[0] ?? [];
+/** The fenced shell blocks of a page, as their lines. */
+const shellBlocks = (page: string) => [...read(page).matchAll(/^```sh\n([\s\S]*?)^```/gm)].map((m) => m[1]!.trim().split('\n'));
 
-describe('installing from a clone', () => {
+/** The blocks of a page that install the SDKs: an `npm install` of a @shadowlap package. */
+const installBlocks = (page: string) => shellBlocks(page).filter((lines) => lines.some((l) => l.startsWith('npm install ') && words(l).some((w) => w.startsWith('@shadowlap/'))));
+
+const block = installBlocks('docs/sdk.md')[0] ?? [];
+const npmLines = block.filter((l) => l.startsWith('npm install '));
+
+describe('installing the packages', () => {
   it('is one block, the same on the SDK page, in the quickstart and in the README', () => {
     expect(block.length).toBeGreaterThan(0);
     for (const page of ['README.md', 'docs/quickstart.md', 'docs/sdk.md']) expect(installBlocks(page), page).toEqual([block]);
   });
 
-  it('names packages the repository has, by the folder each is in', () => {
-    for (const line of block) {
-      for (const w of words(line).filter((x) => x.startsWith(`${CLONE}/`))) {
-        const dir = join(ROOT, w.slice(CLONE.length + 1));
-        if (line.startsWith('pip ')) {
-          expect(read(join(w.slice(CLONE.length + 1), 'pyproject.toml')), w).toMatch(/^name = "shadowlap"$/m);
-          continue;
-        }
-        const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name: string; private?: boolean };
-        expect(manifest.private, w).toBeUndefined();
-        expect(manifest.name, w).toMatch(/^@shadowlap\//);
-      }
+  it('names packages the repository publishes, by the names in their manifests', () => {
+    const named = npmLines.flatMap((l) => words(l).filter((w) => w.startsWith('@shadowlap/')));
+    expect([...named].sort()).toEqual(['@shadowlap/adapters', '@shadowlap/sdk', '@shadowlap/test']);
+    for (const name of named) {
+      const pkg = PACKAGES.get(name);
+      expect(pkg, name).toBeDefined();
+      expect(pkg!.manifest.private, name).toBeUndefined();
     }
+    const pip = block.filter((l) => l.startsWith('pip install '));
+    expect(pip.map((l) => words(l).slice(2))).toEqual([['shadowlap']]);
+    expect(read('sdks/python/pyproject.toml')).toMatch(/^name = "shadowlap"$/m);
   });
 
-  describe('run as the SDK page prints it, in a project of its own', () => {
+  it('installs the CLI as the package that has the shadowlap command', () => {
+    const cli = PACKAGES.get('shadowlap');
+    expect(cli?.manifest.private).toBeUndefined();
+    expect(cli?.manifest.bin?.shadowlap).toBeDefined();
+    for (const page of ['README.md', 'docs/quickstart.md']) expect(shellBlocks(page).flat(), page).toContain('npm install -g shadowlap');
+  });
+
+  describe('run as the block prints it, from the folders here, in a project of its own', () => {
     let project: string;
     const run = (cmd: string, args: string[]) => {
       const win = process.platform === 'win32';
@@ -61,9 +85,9 @@ describe('installing from a clone', () => {
     beforeAll(() => {
       project = mkdtempSync(join(tmpdir(), 'shadowlap-agent-'));
       writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'agent', private: true, type: 'module' }, null, 2));
-      for (const line of block.filter((l) => l.startsWith('npm install '))) {
-        // Linking a folder needs no registry: --offline proves it.
-        const args = [...words(line).slice(1).map((w) => w.split(CLONE).join(ROOT)), '--offline', '--loglevel=error'];
+      for (const line of npmLines) {
+        // Each package from its folder in place of the registry: linking a folder needs none, as --offline proves.
+        const args = [...words(line).slice(1).map((w) => PACKAGES.get(w)?.dir ?? w), '--offline', '--loglevel=error'];
         const r = run('npm', args);
         if (r.status !== 0) throw new Error(`${line}\n${r.error?.message ?? ''}${r.stdout}${r.stderr}`);
       }
@@ -72,7 +96,7 @@ describe('installing from a clone', () => {
       if (project) rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     });
 
-    it('records each package as a link to the clone', () => {
+    it('records each package, and @shadowlap/test as a dev dependency', () => {
       const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
       const all = { ...manifest.dependencies, ...manifest.devDependencies };
       expect(Object.keys(all).sort()).toEqual(['@shadowlap/adapters', '@shadowlap/sdk', '@shadowlap/test']);
@@ -105,7 +129,7 @@ describe('installing from a clone', () => {
       // One module: a scope the agent enters is the scope the adapters' tools see.
       expect(seen.theirs).toBe(seen.own);
       expect(seen.own).toBe(realpathSync(join(ROOT, 'packages', 'sdk', 'dist', 'index.js')));
-      // @shadowlap/test runs the CLI it depends on: from a clone, the clone's own.
+      // @shadowlap/test runs the CLI it depends on: here, the repository's own.
       expect(seen.cli).toBe(realpathSync(join(ROOT, 'packages', 'cli', 'bin', 'shadowlap.js')));
       expect(existsSync(join(project, 'node_modules', '@shadowlap', 'test'))).toBe(true);
     });

@@ -94,11 +94,7 @@ describe('docs/cli.md', () => {
 function shown(): Array<{ where: string; line: string }> {
   const out: Array<{ where: string; line: string }> = [];
   for (const page of pages) {
-    // The README's Status table names commands that are still being built.
-    const md = read(page)
-      .split('\n')
-      .filter((l) => !l.startsWith('| ⬜'))
-      .join('\n');
+    const md = read(page);
     for (const m of md.matchAll(/^```([\w-]*)[^\n]*\n([\s\S]*?)^```/gm)) {
       if (!['', 'sh', 'bash', 'shell', 'console', 'zsh', 'text', 'yaml', 'yml'].includes(m[1]!)) continue;
       for (const line of m[2]!.split('\n')) if (/(^|[\s"'(])shadowlap\s/.test(line)) out.push({ where: page, line });

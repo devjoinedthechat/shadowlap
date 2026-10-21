@@ -6,7 +6,7 @@ It works like vcrpy or Polly.js, with Shadowlap's matching (calls are matched by
 
 ## pytest
 
-Install the Python package ([from a clone](./sdk.md#install) until it is published); the plugin loads itself and does nothing for tests without the marker. It works with pytest 6.2 and later, with any pluggy that pytest allows.
+Install the Python package (`pip install shadowlap`); the plugin loads itself and does nothing for tests without the marker. It works with pytest 6.2 and later, with any pluggy that pytest allows.
 
 ```python
 import pytest
@@ -32,7 +32,7 @@ with recording("tests/__recordings__/triage"):
 
 ## Vitest
 
-Install `@shadowlap/test` as a dev dependency ([from a clone](./sdk.md#install) until it is published), and add its setup:
+Install `@shadowlap/test` as a dev dependency (`npm install -D @shadowlap/test`), and add its setup:
 
 ```js
 // vitest.config.ts

@@ -6,16 +6,16 @@ Without `SHADOWLAP_URL` in the environment (that is, outside `shadowlap run`), e
 
 ## Install
 
-The packages are not on npm or PyPI yet. Until they are, build a clone of the repository as the [quickstart](./quickstart.md) does, and install them from it into your agent's project:
+Into your agent's project:
 
 ```sh
-npm install path/to/shadowlap/packages/sdk          # tools, clock and randomness
-npm install path/to/shadowlap/packages/adapters     # framework adapters, next to the SDK
-npm install -D path/to/shadowlap/packages/test      # recorded tests: Vitest, node:test
-pip install -e path/to/shadowlap/sdks/python        # Python SDK, adapters, pytest plugin
+npm install @shadowlap/sdk          # tools, clock and randomness (Node 18+)
+npm install @shadowlap/adapters     # framework adapters, next to the SDK
+npm install -D @shadowlap/test      # recorded tests: Vitest, node:test
+pip install shadowlap               # Python 3.9+: SDK, adapters, pytest plugin
 ```
 
-npm links each package to the clone, so a rebuild there updates them, and `@shadowlap/test` runs the clone's CLI. `shadowlap init` prints the published names: skip its install step until they exist. The CLI you linked is already on your PATH, and `npx shadowlap` finds it too.
+`@shadowlap/test` brings the `shadowlap` CLI it runs. [`shadowlap init`](./cli.md#init) prints the install step with your project's package manager.
 
 ## TypeScript
 

@@ -1,20 +1,21 @@
 # Quickstart
 
-Shadowlap runs from source until it is published. You need Node ≥ 22.13 (and Python ≥ 3.9 only for the Python SDK).
+Install the CLI. It needs Node ≥ 22.13 (and Python ≥ 3.9 only for the Python SDK).
+
+```sh
+npm install -g shadowlap
+```
+
+## 1. Record and replay the reference agent
+
+The repository ships a 30-call streaming agent (parallel tool calls, a write tool) and a scripted fake of the Anthropic API, so this needs no API key. Clone and build it first:
 
 ```sh
 git clone https://github.com/devjoinedthechat/shadowlap
 cd shadowlap
 npm ci
 npm run build
-npm link --workspace packages/cli     # puts shadowlap on your PATH
 ```
-
-Once published, `npm install -g shadowlap` installs the CLI, and the SDKs come from npm and PyPI.
-
-## 1. Record and replay the reference agent
-
-The repository ships a 30-call streaming agent (parallel tool calls, a write tool) and a scripted fake of the Anthropic API, so this needs no API key.
 
 ```sh
 node testing/reference-agent/dist/mock-server.js &        # prints its URL, e.g. http://127.0.0.1:53188
@@ -100,13 +101,13 @@ Found
      pnpm add @shadowlap/sdk @shadowlap/adapters   tool effects, through your framework
 ```
 
-Until the packages are published, skip that install step: the CLI you linked is already on your PATH, and `npx shadowlap` finds it too. Install the SDKs from the clone instead:
+With npm and pip, the packages are:
 
 ```sh
-npm install path/to/shadowlap/packages/sdk          # tools, clock and randomness
-npm install path/to/shadowlap/packages/adapters     # framework adapters, next to the SDK
-npm install -D path/to/shadowlap/packages/test      # recorded tests: Vitest, node:test
-pip install -e path/to/shadowlap/sdks/python        # Python SDK, adapters, pytest plugin
+npm install @shadowlap/sdk          # tools, clock and randomness (Node 18+)
+npm install @shadowlap/adapters     # framework adapters, next to the SDK
+npm install -D @shadowlap/test      # recorded tests: Vitest, node:test
+pip install shadowlap               # Python 3.9+: SDK, adapters, pytest plugin
 ```
 
 Run the agent the way you always do, prefixed with `shadowlap run --`. API calls are captured with no code changes: `shadowlap run` sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and `GOOGLE_GEMINI_BASE_URL` for the child process, and the official SDKs read them.
