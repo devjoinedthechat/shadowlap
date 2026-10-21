@@ -3,7 +3,7 @@ import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffe
 import { CmdLine } from '../components/bits.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
-import { callName, clip, glued, GLUED_SEPARATOR, jsonText, num, shortId } from '../format.js';
+import { callName, clip, glued, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { href } from '../route.js';
@@ -62,18 +62,39 @@ function spentBy(run: RunDetail): Pick<MetricInput, 'spentBy'> {
 }
 
 /**
- * One line: the explanation gives way first, cut with "…" and shown in full on hover. The flag that
+ * One line: the explanation gives way first, a whole part (between its " · ") at a time, the rest
+ * said by " · …" and shown in full on hover; a part too long alone is cut with "…". The flag that
  * made a fork, when it is part of the line, is set as code.
  */
 function Why({ children, code }: { children: string; code?: string | readonly string[] | null }) {
   const ref = useRef<HTMLSpanElement>(null);
+  const parts = children.split(' · ');
+  // How many parts the line shows: all of them, until it is measured too long for its room.
+  const [fit, setFit] = useState({ text: children, count: parts.length });
+  const count = fit.text === children ? fit.count : parts.length;
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el) el.title = (el.textContent ?? '').replaceAll(GLUED_SEPARATOR, ' · ');
+    if (!el) return;
+    el.title = children;
+    if (count > 1 && el.scrollWidth > el.clientWidth + 1) setFit({ text: children, count: count - 1 });
   });
+  // A room that grows may take the parts back: the line is measured again from the whole of it.
+  useLayoutEffect(() => {
+    const room = ref.current?.parentElement;
+    if (!room || typeof ResizeObserver === 'undefined') return;
+    let width = room.clientWidth;
+    const watch = new ResizeObserver(() => {
+      if (room.clientWidth === width) return;
+      width = room.clientWidth;
+      setFit({ text: children, count: children.split(' · ').length });
+    });
+    watch.observe(room);
+    return () => watch.disconnect();
+  }, [children]);
+  const text = count < parts.length ? `${parts.slice(0, count).join(' · ')} · …` : children;
   return (
     <span className="why" ref={ref}>
-      {codeParts(children, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? glued(p) : <code key={i}>{p.code}</code>))}
+      {codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? glued(p) : <code key={i}>{p.code}</code>))}
     </span>
   );
 }
