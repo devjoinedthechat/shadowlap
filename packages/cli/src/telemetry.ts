@@ -24,7 +24,7 @@ import { join } from 'node:path';
  * whoever holds a domain receives what is sent to it.
  */
 export const DEFAULT_TELEMETRY_URL = '';
-export const TELEMETRY_DOCS_URL = 'https://github.com/devjoinedthechat/shadowlap#telemetry';
+export const TELEMETRY_DOCS_URL = 'https://github.com/devjoinedthechat/shadowlap/blob/main/docs/telemetry.md';
 export const TELEMETRY_SCHEMA_VERSION = 1;
 
 export type TelemetryEventType = 'run' | 'replay' | 'test' | 'ui' | 'pack';

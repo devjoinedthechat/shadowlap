@@ -2,8 +2,8 @@
 // None of that is generated, so it drifts silently: the architecture diagram once claimed three
 // providers while six were proxied, and named no route for declared HTTP hosts. These checks fail
 // the build when the code grows past what the README says about it.
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -61,5 +61,57 @@ describe('the terminal UI section', () => {
     const shown = line!.trim().replace(/\s*…$/, '');
     expect(footer!.startsWith(shown), `the README shows "${shown}"; the TUI renders "${footer}"`).toBe(true);
     expect(shown.split('·').length, 'the README footer shows too little of the real one').toBeGreaterThanOrEqual(footer!.split('·').length - 3);
+  });
+});
+
+/** A heading's anchor as GitHub makes it: lower case, punctuation dropped, spaces as hyphens. */
+const anchor = (heading: string) =>
+  heading
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s/g, '-');
+
+/** Every anchor a Markdown file's headings give it, the second of a name with -1 after it, as GitHub numbers them. */
+function anchors(markdown: string): Set<string> {
+  const seen = new Map<string, number>();
+  const out = new Set<string>();
+  let fenced = false;
+  for (const line of markdown.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    const m = fenced ? null : /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
+    if (!m) continue;
+    const base = anchor(m[1]!);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    out.add(n ? `${base}-${n}` : base);
+  }
+  return out;
+}
+
+/** The source files under a folder, leaving out what is built or installed there. */
+function sources(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    if (e.isDirectory()) return ['node_modules', 'dist', '__pycache__', 'test', 'tests'].includes(e.name) ? [] : sources(join(dir, e.name));
+    return /\.(ts|tsx|mjs|js|py)$/.test(e.name) && !e.name.endsWith('.d.ts') ? [join(dir, e.name)] : [];
+  });
+}
+
+// The CLI and the dashboard print links into the repository, the telemetry notice among them: a
+// heading renamed or a page moved leaves a link that lands on nothing, as #telemetry once did.
+describe('links into the repository that the code prints', () => {
+  it('name a file that exists, and a heading it has', () => {
+    const files = [...readdirSync(join(root, 'packages')).flatMap((p) => sources(join(root, 'packages', p))), ...sources(join(root, 'sdks', 'python', 'shadowlap'))];
+    const links: Array<{ where: string; url: string; path: string; hash: string | undefined }> = [];
+    for (const file of files) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/https:\/\/github\.com\/devjoinedthechat\/shadowlap(?:\/blob\/[\w.-]+\/([\w./-]+))?(?:#([\w-]+))?/g)) {
+        links.push({ where: relative(root, file), url: m[0], path: m[1] ?? 'README.md', hash: m[2] });
+      }
+    }
+    expect(links.map((l) => l.where), 'the telemetry notice\'s link').toContain(join('packages', 'cli', 'src', 'telemetry.ts'));
+    const broken = links.filter((l) => !existsSync(join(root, l.path)) || (l.hash !== undefined && !anchors(readFileSync(join(root, l.path), 'utf8')).has(l.hash)));
+    expect(broken.map((l) => `${l.where}: ${l.url}`), 'links that land on no file or no heading').toEqual([]);
   });
 });
