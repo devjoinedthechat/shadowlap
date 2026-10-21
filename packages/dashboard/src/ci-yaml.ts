@@ -4,8 +4,14 @@
  * browser bundle uses this file as it is.
  */
 
-/** The GitHub Action this repository publishes. */
-export const ACTION = 'devjoinedthechat/shadowlap@main';
+/**
+ * The release the steps pin: the action at its tag, and the CLI it installs from npm, which spares
+ * the job building it from source. scripts/set-version.mjs sets it with the packages' version.
+ */
+export const VERSION = '0.1.0';
+
+/** The GitHub Action this repository publishes, at the release's tag. */
+export const ACTION = `devjoinedthechat/shadowlap@v${VERSION}`;
 
 /** Where the panels say the steps go. */
 export const WORKFLOW_FILE = '.github/workflows/agent.yml';
@@ -114,6 +120,7 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
   lines.push(
     `- uses: ${ACTION}`,
     '  with:',
+    `    version: ${VERSION}`,
     `    recordings: ${scalar(s.recordings ?? 'goldens/*')}`,
     '    fix-on-failure: true',
     `    fix-budget: ${dollars(s.budget)}`,
@@ -193,6 +200,7 @@ export function alertsYaml(s: AlertsSettings): string {
     `- uses: ${ACTION}`,
     '  id: goldens',
     '  with:',
+    `    version: ${VERSION}`,
     `    recordings: ${scalar(s.recordings ?? 'goldens/*')}`,
     '    fail-on-divergence: false',
     ...inconclusiveLine(s.inconclusive),

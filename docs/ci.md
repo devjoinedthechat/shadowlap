@@ -250,16 +250,17 @@ The Shadowlap action is the one step to add after your agent is built:
 - uses: actions/setup-node@v7
   with: { node-version: 22 }
 - run: npm ci && npm run build          # whatever your agent needs to run
-- uses: devjoinedthechat/shadowlap@main
+- uses: devjoinedthechat/shadowlap@v0.1.0
   with:
+    version: 0.1.0
     recordings: goldens/*
 ```
 
-It replays each recording offline and fails the check when one diverges, makes a live call, exits with an error or fails a check. The job summary gets a table of the recordings, and for each failure the diff of the first changed request, the normalizer hint if there is one, and the agent's last output lines; when a recording diverged, it names the `shadowlap test <dir> --update` command for a change you meant. Each failure is also annotated on the pull request.
+It replays each recording offline and fails the check when one diverges, makes a live call, exits with an error or fails a check. The job needs no secrets: an agent with no key gets a [placeholder](./providers.md#credentials-on-replay), which never reaches a provider. The job summary gets a table of the recordings, and for each failure the diff of the first changed request, the normalizer hint if there is one, and the agent's last output lines; when a recording diverged, it names the `shadowlap test <dir> --update` command for a change you meant. Each failure is also annotated on the pull request.
 
 A Python agent needs its interpreter and packages installed before the action, as for any other step. The action itself needs Node 22.16 or later.
 
-Set `version:` to the `shadowlap` release your project uses, and the action installs that CLI from npm. Left empty, the action builds the CLI from its own source, which adds about a minute.
+The step names a release twice: the action at its tag, and in `version:` the `shadowlap` CLI it installs from npm. Keep the two the same release, the one your project uses. With `version:` left empty, the action builds the CLI from its own source, which adds about a minute.
 
 | Input | Default | Effect |
 |---|---|---|
@@ -317,8 +318,9 @@ A fix changes what the agent sends, so a golden that must replay exactly would d
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write }
 - run: npm install -g @anthropic-ai/claude-code
-- uses: devjoinedthechat/shadowlap@main
+- uses: devjoinedthechat/shadowlap@v0.1.0
   with:
+    version: 0.1.0
     recordings: goldens/*
     fix-on-failure: true
     fix-budget: 2.00
@@ -353,8 +355,9 @@ A job's store usually goes with the job, so to reach your teammates a fix has to
 # the job needs: permissions: { contents: write, pull-requests: write, id-token: write }
 # and before it, the bucket's credentials: the two if: steps shadowlap store ci prints
 - run: npm install -g @anthropic-ai/claude-code
-- uses: devjoinedthechat/shadowlap@main
+- uses: devjoinedthechat/shadowlap@v0.1.0
   with:
+    version: 0.1.0
     recordings: goldens/*
     fix-on-failure: true
     fix-budget: 2.00
@@ -376,8 +379,9 @@ Cloudflare R2 has no OIDC, and an R2 token can't be kept to a pull request's fol
 # the job needs: permissions: { contents: write, pull-requests: write }
 # and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push
 - run: npm install -g @anthropic-ai/claude-code
-- uses: devjoinedthechat/shadowlap@main
+- uses: devjoinedthechat/shadowlap@v0.1.0
   with:
+    version: 0.1.0
     recordings: goldens/*
     fix-on-failure: true
     fix-budget: 2.00
@@ -403,9 +407,10 @@ A push that can't happen never fails the job and never keeps a fix's pull reques
 To hear about failures in Slack, let the action count them without failing, post the count, then fail the job:
 
 ```yaml
-- uses: devjoinedthechat/shadowlap@main
+- uses: devjoinedthechat/shadowlap@v0.1.0
   id: goldens
   with:
+    version: 0.1.0
     recordings: goldens/*
     fail-on-divergence: false
 

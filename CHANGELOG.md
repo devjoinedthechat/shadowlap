@@ -44,7 +44,7 @@ The first release: record, replay and fork AI agent runs, find the call that los
 #### Tests and CI
 
 - **`shadowlap test`** replays committed recordings offline and fails on a divergence, a live call, a non-zero exit or a failed check, with JUnit, JSON and Markdown reports and pull request annotations. A recording marked `fork` may diverge and passes on its checks, repeated when a model varies.
-- **A GitHub Action**, `devjoinedthechat/shadowlap@main`, that replays the recordings and puts the diff of each failure in the job summary and on the pull request.
+- **A GitHub Action**, `devjoinedthechat/shadowlap`, that replays the recordings and puts the diff of each failure in the job summary and on the pull request.
 - **Recorded tests** for your own suite: a pytest plugin (`@pytest.mark.shadowlap`) and `@shadowlap/test` for Vitest and node:test. A test records on its first run and replays offline after that.
 - **Gated goldens.** A golden that may fork can be decided by a sequential test between two pass rates, or against its own test history, stopping as soon as the evidence is enough. `--inconclusive fail|warn` says what CI does when a gate, a check or an injection test can't decide, and the Action can keep the test history between jobs.
 - **Injection tests.** `shadowlap injection` plants payloads in every read of a tool marked untrusted, each carrying a canary that occurs nowhere else, so a tool call carrying it proves the planted text caused it; `--clean` asks whether a recorded read caused a write. A golden's `injection` gate fails CI while the agent obeys.

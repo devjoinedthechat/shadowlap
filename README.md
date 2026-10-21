@@ -114,8 +114,9 @@ $ shadowlap fix apply fx-01M5FP0R4Q
 Commit the goldens with the fix. In CI, `shadowlap test` replays them offline and fails on a changed request, a live call, an error exit or a failed [check](docs/checks.md). On GitHub, add one step after your checkout, Node and build steps ([workflow](docs/ci.md#github-actions)):
 
 ```yaml
-- uses: devjoinedthechat/shadowlap@main
+- uses: devjoinedthechat/shadowlap@v0.1.0
   with:
+    version: 0.1.0
     recordings: goldens/*
 ```
 

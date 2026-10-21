@@ -1,5 +1,5 @@
-// Sets one version across every publishable package, their internal dependencies, the Python SDK and
-// the Claude Code plugin in coding-agents/.
+// Sets one version across every publishable package, their internal dependencies, the Python SDK, the
+// release the CI step pins, and the Claude Code plugin in coding-agents/.
 // Usage: node scripts/set-version.mjs 0.1.0
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -29,10 +29,22 @@ writeFileSync(py, readFileSync(py, 'utf8').replace(/^version = ".*"$/m, `version
 const init = 'sdks/python/shadowlap/__init__.py';
 writeFileSync(init, readFileSync(init, 'utf8').replace(/^__version__ = ".*"$/m, `__version__ = "${version}"`));
 
+// The CI step pins the release, the action at its tag and the CLI it installs from npm: in the
+// dashboard's generator, and on the pages that show the step.
+const yaml = 'packages/dashboard/src/ci-yaml.ts';
+writeFileSync(yaml, readFileSync(yaml, 'utf8').replace(/^export const VERSION = '[^']*';$/m, `export const VERSION = '${version}';`));
+const SEMVER = String.raw`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`;
+for (const page of ['README.md', 'docs/ci.md', 'packages/cli/README.md']) {
+  const text = readFileSync(page, 'utf8')
+    .replace(new RegExp(`(devjoinedthechat/shadowlap@v)${SEMVER}`, 'g'), `$1${version}`)
+    .replace(new RegExp(`(?<![\\w-])(version: )${SEMVER}`, 'g'), `$1${version}`);
+  writeFileSync(page, text);
+}
+
 // The Claude Code plugin is versioned with the CLI whose commands its skill names.
 const plugin = 'coding-agents/claude-code/.claude-plugin/plugin.json';
 const manifest = JSON.parse(readFileSync(plugin, 'utf8'));
 manifest.version = version;
 writeFileSync(plugin, JSON.stringify(manifest, null, 2) + '\n');
 
-console.log(`version ${version} set in ${PACKAGES.length} packages, the Python SDK and the Claude Code plugin; run npm install to refresh the lockfile`);
+console.log(`version ${version} set in ${PACKAGES.length} packages, the Python SDK, the CI step and the Claude Code plugin; run npm install to refresh the lockfile`);

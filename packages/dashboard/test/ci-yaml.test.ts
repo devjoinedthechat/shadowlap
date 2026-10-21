@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACTION, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar } from '../src/ci-yaml.js';
+import { ACTION, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar, VERSION } from '../src/ci-yaml.js';
 
 /** The workflow steps behind Settings → CI, checked against the action they use and the docs that show them. */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -28,8 +28,9 @@ describe('the Fix on failure step', () => {
       [
         '# the job needs: permissions: { contents: write, pull-requests: write }',
         '- run: npm install -g @anthropic-ai/claude-code',
-        '- uses: devjoinedthechat/shadowlap@main',
+        '- uses: devjoinedthechat/shadowlap@v0.1.0',
         '  with:',
+        '    version: 0.1.0',
         '    recordings: goldens/*',
         '    fix-on-failure: true',
         '    fix-budget: 2.00',
@@ -68,8 +69,9 @@ describe('the Fix on failure step', () => {
         '# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }',
         "# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints",
         '- run: npm install -g @anthropic-ai/claude-code',
-        '- uses: devjoinedthechat/shadowlap@main',
+        '- uses: devjoinedthechat/shadowlap@v0.1.0',
         '  with:',
+        '    version: 0.1.0',
         '    recordings: goldens/*',
         '    fix-on-failure: true',
         '    fix-budget: 2.00',
@@ -92,8 +94,9 @@ describe('the Fix on failure step', () => {
         '# the job needs: permissions: { contents: write, pull-requests: write }',
         "# and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push",
         '- run: npm install -g @anthropic-ai/claude-code',
-        '- uses: devjoinedthechat/shadowlap@main',
+        '- uses: devjoinedthechat/shadowlap@v0.1.0',
         '  with:',
+        '    version: 0.1.0',
         '    recordings: goldens/*',
         '    fix-on-failure: true',
         '    fix-budget: 2.00',
@@ -136,12 +139,12 @@ describe('the Fix on failure step', () => {
   });
 
   it('passes only inputs the action has', () => {
-    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic' }))).toEqual(['recordings', 'fix-on-failure', 'fix-budget', 'repairer']);
-    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push: 'oidc' }))).toEqual(['recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'push']);
-    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push: 'keys' }))).toEqual(['recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'push']);
+    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic' }))).toEqual(['version', 'recordings', 'fix-on-failure', 'fix-budget', 'repairer']);
+    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push: 'oidc' }))).toEqual(['version', 'recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'push']);
+    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push: 'keys' }))).toEqual(['version', 'recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'push']);
     for (const push of [null, 'oidc', 'keys'] as const) for (const key of withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push }))) expect(inputs).toContain(key);
     // Inconclusive goldens let through: the action's own input, written only when it isn't the default.
-    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', inconclusive: 'warn' }))).toEqual(['recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'inconclusive']);
+    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', inconclusive: 'warn' }))).toEqual(['version', 'recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'inconclusive']);
     expect(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', inconclusive: 'fail' })).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic' }));
     expect(inputs).toEqual(expect.arrayContaining(['inconclusive', 'max-attempts', 'keep-history']));
     expect(outputs).toContain('inconclusive');
@@ -189,6 +192,25 @@ describe('the Alerts steps', () => {
     expect(alertsSecret(' MY-HOOK 2 ')).toBe('MYHOOK2');
     expect(alertsSecret('$$')).toBe('SLACK_WEBHOOK_URL');
     expect(alertsNeeds('OPS_HOOK')[1]).toEqual(['its URL as a repository secret', 'OPS_HOOK']);
+  });
+});
+
+// A step on a branch runs whatever lands there, in jobs that may hold GH_TOKEN and provider keys, and
+// one with no version builds the CLI on every run: every step pins the release the packages are at.
+describe('the release the steps pin', () => {
+  it('is the packages’ version: the action’s tag and the CLI it installs, on every page that shows the step', () => {
+    const version = (JSON.parse(readFileSync(join(ROOT, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }).version;
+    expect(VERSION).toBe(version);
+    expect(ACTION).toBe(`devjoinedthechat/shadowlap@v${version}`);
+    expect(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic' })).toContain(`  with:\n    version: ${version}\n`);
+    expect(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' })).toContain(`  with:\n    version: ${version}\n`);
+    for (const page of ['README.md', 'docs/ci.md', 'packages/cli/README.md']) {
+      const text = readFileSync(join(ROOT, page), 'utf8');
+      const pins = [...text.matchAll(/devjoinedthechat\/shadowlap@([^\s`'"]+)/g)].map((m) => m[1]);
+      expect(pins.length, page).toBeGreaterThan(0);
+      expect([...new Set(pins)], page).toEqual([`v${version}`]);
+      expect([...new Set([...text.matchAll(/(?<![\w-])version: (\d+\.\d+\.\d+[^\s`]*)/g)].map((m) => m[1]))], page).toEqual([version]);
+    }
   });
 });
 
