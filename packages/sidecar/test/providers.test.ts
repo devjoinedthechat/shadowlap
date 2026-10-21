@@ -28,6 +28,17 @@ describe('anthropic usage', () => {
     expect(anthropic.apiPath?.('/messages/batches/msgbatch_1')).toBe('/v1/messages/batches/msgbatch_1');
     for (const path of ['/v1/messages', '/v1/messages/count_tokens', '/v1/models', '/v1']) expect(anthropic.apiPath?.(path)).toBe(path);
   });
+
+  it('matches a call without the betas that only say how it signed in, and keeps every other beta', () => {
+    const version = { 'anthropic-version': '2023-06-01' };
+    expect(anthropic.matchHeaders?.({ ...version, 'anthropic-beta': 'oauth-2025-04-20' })).toEqual(version);
+    expect(anthropic.matchHeaders?.({ ...version, 'anthropic-beta': 'files-api-2025-04-14, oauth-2025-04-20' })).toEqual({ ...version, 'anthropic-beta': 'files-api-2025-04-14' });
+    // Nothing to leave out: the headers as they came, whatever their spacing.
+    expect(anthropic.matchHeaders?.({ ...version, 'anthropic-beta': 'files-api-2025-04-14, context-1m-2025-08-07' })).toEqual({ ...version, 'anthropic-beta': 'files-api-2025-04-14, context-1m-2025-08-07' });
+    expect(anthropic.matchHeaders?.(version)).toEqual(version);
+    // Only Anthropic's own API signs in so; the clouds' clients sign in their own way.
+    for (const p of providers.filter((x) => x !== anthropic)) expect(p.matchHeaders, p.id).toBeUndefined();
+  });
 });
 
 describe('openai usage', () => {

@@ -164,7 +164,7 @@ The fingerprint is the SHA-256, in lowercase hex, of the [RFC 8785](https://www.
 
 - `body` is the request body with every `cache_control` member removed, wherever it is: providers document it as changing nothing. A multipart body (a file upload) counts by its parts: each part's name, file name and content type, a field's text, and a file's SHA-256.
 - `path` is the path the request was sent to under its provider's root, without the query. A Vertex AI path leaves out its `/projects/<project>/locations/<location>`, which differ from one machine to the next.
-- `headers` are the request's fingerprint headers, named in lower case: the few headers that change what the model does.
+- `headers` are the request's fingerprint headers, named in lower case: the few headers that change what the model does. An `anthropic` call's `anthropic-beta` counts without the betas that only say how the call signed in, those starting `oauth-` (a profile's sign-in sends `oauth-2025-04-20`, a key none), and is left out when nothing else is in it. `fingerprintHeaders` keeps it as it was sent.
 - The project's [normalizers](./normalizers-and-redaction.md) apply first, and under `"clock": "auto"` (the default) so does masking the dates and timestamps near the run's start.
 
 | Provider | Fingerprint headers |
@@ -176,7 +176,7 @@ The fingerprint is the SHA-256, in lowercase hex, of the [RFC 8785](https://www.
 
 The occurrence is *n* for the *n*-th call of the run with the same kind and fingerprint, counted within the call's scope when the run has scopes.
 
-A reader computes the fingerprint of every `api` and `tool` call and every occurrence again, from the stored request, unless the run's `normalizersHash` says they were computed under the normalizers in force and the clock is `exact`. A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it computed that with the engine's `normalizersHash`. Clock and random fingerprints are never computed again: a producer MUST compute those exactly. When Shadowlap changes how a fingerprint is computed, it says so with a version of its own (`FINGERPRINT_VERSION`, now 4), and fingerprints made under another are computed again, so older packs keep replaying.
+A reader computes the fingerprint of every `api` and `tool` call and every occurrence again, from the stored request, unless the run's `normalizersHash` says they were computed under the normalizers in force and the clock is `exact`. A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it computed that with the engine's `normalizersHash`. Clock and random fingerprints are never computed again: a producer MUST compute those exactly. When Shadowlap changes how a fingerprint is computed, it says so with a version of its own (`FINGERPRINT_VERSION`, now 5), and fingerprints made under another are computed again, so older packs keep replaying.
 
 ## Partial recordings
 

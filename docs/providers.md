@@ -4,7 +4,7 @@ The proxy is body-agnostic; a provider module only says which hosts it owns, whi
 
 | Provider | How calls reach the sidecar | Fingerprinted headers | Never stored |
 |---|---|---|---|
-| Anthropic | `ANTHROPIC_BASE_URL` | `anthropic-version`, `anthropic-beta` | `x-api-key`, `authorization`, cookies |
+| Anthropic | `ANTHROPIC_BASE_URL` | `anthropic-version`, `anthropic-beta` but for the `oauth-` betas a profile's sign-in adds | `x-api-key`, `authorization`, cookies |
 | OpenAI and OpenAI-compatible | `OPENAI_BASE_URL` (with `/v1`) | `openai-beta` | `authorization`, `openai-organization`, `openai-project`, cookies |
 | Google Gemini | `GOOGLE_GEMINI_BASE_URL` | none | `x-goog-api-key`, `authorization`, the `?key=` query string |
 | Azure OpenAI | in-process capture | `openai-beta` | `api-key`, `authorization`, `openai-organization`, `openai-project`, cookies |

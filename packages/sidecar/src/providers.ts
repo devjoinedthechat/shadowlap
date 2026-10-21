@@ -33,6 +33,12 @@ export interface Provider {
   matchPath?(path: string): string;
   /** Lower-cased request headers that change model behavior and therefore fingerprint. */
   fingerprintHeaders: readonly string[];
+  /**
+   * A request's headers as matching reads them, when part of a fingerprint header says how the call
+   * signed in rather than what it asks: Anthropic's `oauth-…` betas, which a profile's sign-in
+   * sends and a key doesn't. The headers are kept as sent; only matching leaves that part out.
+   */
+  matchHeaders?(headers: Readonly<Record<string, string>>): Record<string, string>;
   /** Lower-cased headers that are forwarded upstream but never stored. */
   credentialHeaders: readonly string[];
   /**
@@ -121,6 +127,19 @@ function parseJson(body: Buffer): Record<string, unknown> | null {
 
 // ---- Anthropic ----
 
+/** Betas that only say how a call signed in, not what it asks: `oauth-2025-04-20`, which a profile's sign-in sends and an API key doesn't. */
+const SIGN_IN_BETA = /^oauth-/i;
+
+/** `anthropic-beta` without the sign-in betas, gone when nothing else is left in it; the other headers as they are. */
+function withoutSignInBetas(headers: Readonly<Record<string, string>>): Record<string, string> {
+  const beta = headers['anthropic-beta'];
+  const betas = beta?.split(',').map((b) => b.trim()) ?? [];
+  if (!betas.some((b) => SIGN_IN_BETA.test(b))) return { ...headers };
+  const { 'anthropic-beta': _signIn, ...rest } = headers;
+  const kept = betas.filter((b) => b && !SIGN_IN_BETA.test(b));
+  return kept.length ? { ...rest, 'anthropic-beta': kept.join(',') } : rest;
+}
+
 function anthropicUsage(u: unknown): Usage | null {
   if (!isObject(u)) return null;
   const usage: Usage = { inputTokens: num(u.input_tokens), outputTokens: num(u.output_tokens) };
@@ -136,6 +155,8 @@ export const anthropic: Provider = {
   // Every path of the API is under /v1: one that isn't comes from a client whose base URL held it.
   apiPath: (path) => (/^\/v1(\/|$)/.test(path) ? path : `/v1${path}`),
   fingerprintHeaders: ['anthropic-version', 'anthropic-beta'],
+  // A golden recorded signed in with a profile replays with a key, in CI, and asks the same.
+  matchHeaders: withoutSignInBetas,
   // The key travels as x-api-key, or as a bearer token (anthropic for Python 2.0 and later, a profile's sign-in).
   credentialHeaders: ['x-api-key', ...COMMON_CREDENTIAL_HEADERS],
   // A profile (ANTHROPIC_PROFILE, or a config file the CLI looks for) and workload identity

@@ -16,7 +16,7 @@ import type { CallKind, Normalizer } from './types.js';
 export const BUILTIN_STRIPPED_KEYS: readonly string[] = ['cache_control'];
 
 /** Bump when fingerprints change meaning; stored fingerprints from another version are recomputed on replay. */
-export const FINGERPRINT_VERSION = 4;
+export const FINGERPRINT_VERSION = 5;
 
 export interface ApiRequestShape {
   method: string;

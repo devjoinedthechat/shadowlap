@@ -494,6 +494,8 @@ export class Sidecar {
         this.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers`);
         parentCalls = this.refingerprint(stored, normalizers, this.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, input.replay?.promptFrom !== undefined, redactions);
       }
+      // Compared as they are matched, so a divergence report never shows a sign-in beta as a change.
+      parentCalls = parentCalls.map((c) => this.asMatched(c));
     }
     // Resolved against the parent before the run exists, so a target that is not a model call is refused with nothing created.
     // Flags name the agent's model calls: a judge's is never one of them, nor counted among them.
@@ -824,7 +826,7 @@ export class Sidecar {
       // sends (an embeddings call too), and a retry as the call it retries. A retry is told apart as the
       // recording tells it, by its fingerprint, here of the request before any rewrite, so it gets the
       // same rewrite as the attempt it repeats.
-      const key = `${scope ?? ''}\n${fingerprintApi({ method, path: subpath, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath: provider.matchPath?.(subpath) }).fingerprint}`;
+      const key = `${scope ?? ''}\n${fingerprintApi({ method, path: subpath, headers: matchedHeaders(provider, headers), body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath: provider.matchPath?.(subpath) }).fingerprint}`;
       const same = ctx.lastByRequest.get(key);
       const repeats = same !== undefined && ctx.calls.get(same.callNo)?.retryable === true && (retryCount > 0 || retryHeader === undefined);
       counted = { key, place: repeats ? same!.place : ctx.interventions.next(scope) };
@@ -861,9 +863,13 @@ export class Sidecar {
     // What identifies the call, where the provider leaves part of its path out (Vertex AI's project and region).
     const matchPath = provider.matchPath?.(path);
     const matchName = matchPath !== undefined && matchPath !== path ? apiCallName(method, matchPath) : undefined;
-    const { fingerprint } = judge ? judgeFingerprint({ method, path, headers, body }, ctx.redactions, provider, matchPath) : fingerprintApi({ method, path, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath });
+    // Matched without what only says how the call signed in (matchHeaders); kept as it was sent.
+    const asked = matchedHeaders(provider, headers);
+    const { fingerprint } = judge ? judgeFingerprint({ method, path, headers: asked, body }, ctx.redactions, provider, matchPath) : fingerprintApi({ method, path, headers: asked, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath });
     const fingerprintHeaders: Record<string, string> = {};
     for (const h of provider.fingerprintHeaders) if (headers[h] !== undefined) fingerprintHeaders[h] = headers[h]!;
+    const askedHeaders: Record<string, string> = {};
+    for (const h of provider.fingerprintHeaders) if (asked[h] !== undefined) askedHeaders[h] = asked[h]!;
 
     // A judge that may not be asked live, whose very request the recording never answered, is
     // answered by no one: nothing is kept of it, since a call no one answered holds no verdict, and
@@ -890,7 +896,7 @@ export class Sidecar {
       callNo = ctx.nextCallNo++;
       // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
       const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, headers: fingerprintHeaders, ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, headers: askedHeaders, ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
       const origin = storedOrigin('api', decision);
       tracked = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin, decision, ends: 0, retryable: false, done: false };
       ctx.calls.set(callNo, tracked);
@@ -1546,6 +1552,14 @@ export class Sidecar {
    * as proxyHttp stores a live call's. `only` limits the calls fingerprinted again; the others keep
    * their stored fingerprints, and every call's occurrence is counted again.
    */
+  /** A model call with its fingerprint headers as matching reads them (Provider.matchHeaders). */
+  private asMatched(rec: CallRecord): CallRecord {
+    const provider = rec.kind === 'api' ? this.providers.get(String(rec.meta.provider ?? '')) : undefined;
+    const headers = rec.meta.fingerprintHeaders as Record<string, string> | undefined;
+    if (!provider?.matchHeaders || !headers) return rec;
+    return { ...rec, meta: { ...rec.meta, fingerprintHeaders: provider.matchHeaders(headers) } };
+  }
+
   private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: readonly number[] | undefined, withoutPromptMask = false, redactions: Normalizer[] = [], only?: (rec: CallRecord) => boolean): CallRecord[] {
     const counts = new Map<string, number>();
     return calls.map((rec) => {
@@ -1557,7 +1571,7 @@ export class Sidecar {
           // A judge's call is matched by its request as sent, not as the agent's calls are.
           const provider = this.providers.get(String(rec.meta.provider ?? ''));
           const [method = 'POST', ...pathParts] = rec.name.split(' ');
-          const headers = (rec.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {};
+          const headers = matchedHeaders(provider, (rec.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {});
           if (provider) {
             const path = pathParts.join(' ');
             fingerprint = judgeFingerprint({ method, path, headers, body: loadApiRequest(this.store, rec.requestRef) }, redactions, provider, provider.matchPath?.(path)).fingerprint;
@@ -1565,7 +1579,7 @@ export class Sidecar {
         } else if (rec.kind === 'api' && rec.requestRef) {
           const provider = this.providers.get(String(rec.meta.provider ?? ''));
           const [method = 'POST', ...pathParts] = rec.name.split(' ');
-          const headers = (rec.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {};
+          const headers = matchedHeaders(provider, (rec.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {});
           if (provider) {
             const path = pathParts.join(' ');
             fingerprint = fingerprintApi({ method, path, headers, body: loadApiRequest(this.store, rec.requestRef) }, normalizers, provider.fingerprintHeaders, clockRef, { withoutPrompt: withoutPromptMask, matchPath: provider.matchPath?.(path) }).fingerprint;
@@ -1725,6 +1739,11 @@ interface JudgeAccess {
  * judge's request (judgeRules), apply as a copy applied them, so a pack's masked request still
  * matches the one a replay sends. Nothing is matched fuzzily because of a judge.
  */
+/** A request's headers as matching reads them (Provider.matchHeaders): as sent, for most providers. */
+function matchedHeaders(provider: Provider | undefined, headers: Readonly<Record<string, string>>): Record<string, string> {
+  return provider?.matchHeaders?.(headers) ?? { ...headers };
+}
+
 function judgeFingerprint(req: { method: string; path: string; headers: Record<string, string>; body: unknown }, redactions: readonly Normalizer[], provider: Provider, matchPath: string | undefined): { fingerprint: string } {
   return fingerprintApi(req, judgeRules(redactions), provider.fingerprintHeaders, undefined, { matchPath });
 }
