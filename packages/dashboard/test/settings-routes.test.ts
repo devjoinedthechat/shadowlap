@@ -348,12 +348,13 @@ describe('the redaction preview', () => {
       const run = slowRun();
       Object.assign(PREVIEW_LIMITS, { softMs: 200, hardMs: 1500 });
       const t0 = Date.now();
-      const preview = api(`settings/redaction/preview?run=${run.runId}`);
+      let previewed = false;
+      const preview = api(`settings/redaction/preview?run=${run.runId}`).finally(() => (previewed = true));
       await new Promise((r) => setTimeout(r, 300));
-      // The server's own thread is free: the status bar's meta answers at once.
-      const m0 = Date.now();
+      // The server's own thread is free: the status bar's meta answers while the preview runs, which
+      // only its hard limit stops.
       expect((await api('meta')).status).toBe(200);
-      expect(Date.now() - m0).toBeLessThan(500);
+      expect(previewed, 'the server answered only once the preview was stopped').toBe(false);
       const res = await preview;
       expect(res.status).toBe(422);
       expect(await error(res)).toBe('The preview stopped after 2 s on one call. Rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.');
