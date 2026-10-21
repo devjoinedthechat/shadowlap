@@ -54,7 +54,7 @@ import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 import { isJudgeCall, JUDGE_SCOPE, judgeRules, RESERVED_SCOPE_PREFIX, summarizeJudge } from '@shadowlap/engine';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
-import { carriesPlaceholder } from './placeholders.js';
+import { carriesPlaceholder, hostOf, onThisMachine } from './placeholders.js';
 import { providers as defaultProviders, sdkBasesFromEnvironment, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
 import { SseTimer } from './sse.js';
@@ -1056,11 +1056,11 @@ export class Sidecar {
       tracked.done = true;
       return;
     }
-    // An agent with no key of its own got a placeholder for the replay. Past the fork, this call would
-    // take it to the provider's API: it goes nowhere, and the agent hears why. An upstream configured
-    // here (a mock, a local model server) gets the call as it is: it asks for no key of the provider's.
-    if (!judging && !this.upstreams[provider.id] && carriesPlaceholder(headers, provider.credentialHeaders, search)) {
-      const message = `shadowlap: call #${callNo} (${tracked.identity.name}) was not served from the recording and would go to ${provider.id} live, but the agent has no key of its own: the replay gave it a placeholder, which is never sent. Set the provider's key to let calls after a fork go live`;
+    // An agent with no key of its own got a placeholder for the replay, and a placeholder never leaves
+    // this machine: past the fork, a call that would take one to another host goes nowhere, and the
+    // agent hears why. A server on this machine (a mock, a local model server) gets the call as it is.
+    if (!judging && !onThisMachine(upstream) && carriesPlaceholder(headers, provider.credentialHeaders, search)) {
+      const message = `shadowlap: call #${callNo} (${tracked.identity.name}) was not served from the recording and would go live to ${hostOf(upstream)}, but the agent has no key of its own: the replay gave it a placeholder, which never leaves this machine. Set the provider's key to let calls after a fork go live`;
       const error: SerializedError = { name: 'ShadowlapNoKey', message };
       res.writeHead(401, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_no_key', message } }));

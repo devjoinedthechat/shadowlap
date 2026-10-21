@@ -156,8 +156,8 @@ const PROVIDER_KEYS: Readonly<Record<string, readonly string[]>> = {
  * The official SDKs refuse to send a request without a key (`new OpenAI()` throws as it is built,
  * `new Anthropic()` on its first call), even one a replay serves from the recording. An offline
  * replay gives the agent a placeholder for each provider its recording called that has no key in the
- * environment, so a clean replay needs no real key, and CI no secrets. The sidecar never sends a
- * placeholder to a provider: a call past a fork that would go there with it is answered with why.
+ * environment, so a clean replay needs no real key. A placeholder never leaves the machine: a call
+ * past a fork that would take one to another host is answered with why.
  */
 export function placeholderKeys(env: NodeJS.ProcessEnv, calls: readonly Pick<CallRecord, 'meta'>[]): Record<string, string> {
   const called = new Set(calls.map((c) => c.meta.provider));

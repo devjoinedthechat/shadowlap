@@ -43,7 +43,7 @@ shadowlap replay <run> [options] [-- <command> [args...]]
 
 Replays a recorded run; forks at the first changed call. Re-runs the recorded command unless one follows `--`.
 
-A clean replay needs no real key: an agent with none for a provider the run called gets a [placeholder](./providers.md#credentials-on-replay), which never reaches the provider. A fork that goes live needs the real one.
+A clean replay needs no real key: an agent with none for a provider the run called gets a [placeholder](./providers.md#credentials-on-replay), which never leaves this machine. A fork that goes live needs the real one.
 
 A run imported with `unpack`, or a replay of one, carries a command someone else recorded. `replay` shows it and asks before running it. Without a terminal to ask on, it refuses: pass `--yes` once you have read the command, or give your own after `--`.
 

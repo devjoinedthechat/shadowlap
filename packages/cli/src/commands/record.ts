@@ -173,7 +173,7 @@ export function register(program: Command): void {
       }
       const replay: Partial<ReplayOptions> = { writes: flags.writes, reads: flags.reads, liveTools: new Set(flags.liveTool) };
       // An agent with no key of its own for a provider the run called gets a placeholder: a clean
-      // replay needs no real key, and the sidecar never sends a placeholder to a provider.
+      // replay needs no real key, and a placeholder never leaves this machine.
       const env = replayPlaceholders(process.env, parentCalls);
       // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
       if (parent.meta?.covers?.length) replay.kinds = new Set(parent.meta.covers);
