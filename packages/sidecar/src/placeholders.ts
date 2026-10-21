@@ -1,40 +1,46 @@
+import { signingKeyId } from './sigv4.js';
+
 /**
- * What an offline replay gives an agent for a key it has none of. The official SDKs refuse to send a
- * request without a key (`new OpenAI()` throws as it is built), even one the recording answers, so
- * `shadowlap replay`, `test` and `calibrate` set one of these where the environment has no key for a
- * provider the recording called. One never leaves this machine: a call past a fork that would take it
- * to another host is answered with why instead (Sidecar's forward).
+ * Placeholder keys. A model client built the default way takes its key from the environment and
+ * refuses to send a request without one, even a request Shadowlap answers from a recording. So a
+ * replay gives the agent a placeholder for each provider its recording called when the environment
+ * has no credential for it (the CLI decides which replays, and which providers, in
+ * placeholder-keys.ts), and the sidecar never sends a request that carries one, to any host: a
+ * provider, a gateway, a model server or a mock. A live call needs a real key.
  */
+
+/** The value every placeholder key holds: recognisable in a request, and never a provider's key. */
 export const PLACEHOLDER_KEY = 'shadowlap-offline-replay-placeholder';
 
-/** The AWS access key id an offline replay of a run with Bedrock calls gets: the SDK signs it into each request's Authorization. */
+/** The access key id of placeholder AWS credentials, which a SigV4 signature names in the clear. */
 export const PLACEHOLDER_AWS_ACCESS_KEY_ID = 'SHADOWLAPREPLAY';
 
-/** Whether a request carries a placeholder: in one of its provider's credential headers, or in its query (Gemini's `?key=`). */
-export function carriesPlaceholder(headers: Readonly<Record<string, string>>, credentialHeaders: readonly string[], search: string): boolean {
-  for (const name of credentialHeaders) {
-    const value = headers[name];
-    if (value && (value.includes(PLACEHOLDER_KEY) || value.includes(`Credential=${PLACEHOLDER_AWS_ACCESS_KEY_ID}/`))) return true;
+/** An AWS credential scope made with the placeholder access key: `Credential=SHADOWLAPREPLAY/20261021/…`. */
+const PLACEHOLDER_SCOPE = `${PLACEHOLDER_AWS_ACCESS_KEY_ID}/`;
+
+/**
+ * Whether a request carries a placeholder key, wherever it put it: in any header (an API key header,
+ * a bearer token, a key a vector store passes on, an AWS signature made with the placeholder access
+ * key) or in any query value (Gemini's `?key=`, a presigned AWS credential).
+ */
+export function carriesPlaceholder(headers: Readonly<Record<string, string | string[] | undefined>>, search: string): boolean {
+  for (const [name, value] of Object.entries(headers)) {
+    for (const v of Array.isArray(value) ? value : [value]) {
+      if (typeof v !== 'string') continue;
+      if (v.includes(PLACEHOLDER_KEY) || v.includes(`Credential=${PLACEHOLDER_SCOPE}`)) return true;
+      if (name.toLowerCase() === 'authorization' && signingKeyId(v) === PLACEHOLDER_AWS_ACCESS_KEY_ID) return true;
+    }
   }
-  return search.includes(PLACEHOLDER_KEY);
+  const query = search.startsWith('?') ? search.slice(1) : search;
+  if (!query) return false;
+  for (const v of new URLSearchParams(query).values()) if (v.includes(PLACEHOLDER_KEY) || v.startsWith(PLACEHOLDER_SCOPE)) return true;
+  return false;
 }
 
-/** An upstream's host and port, as a message names it: `api.anthropic.com`, `127.0.0.1:11434`. */
-export function hostOf(upstream: string): string {
-  try {
-    return new URL(upstream).host;
-  } catch {
-    return upstream;
-  }
-}
-
-/** Whether an upstream is on this machine (a mock, a local model server): a loopback address or localhost. */
-export function onThisMachine(upstream: string): boolean {
-  let host: string;
-  try {
-    host = new URL(upstream).hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  } catch {
-    return false;
-  }
-  return host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host);
+/**
+ * What a live call that would carry a placeholder is answered with, in one line: `set` names the
+ * variable to set (`ANTHROPIC_API_KEY`), and `call` the call when it isn't a provider's.
+ */
+export function placeholderRefusal(set: string, call?: string): string {
+  return `${call ? `${call}: ` : ''}a live call needs a real key: set ${set}, or keep the replay offline`;
 }

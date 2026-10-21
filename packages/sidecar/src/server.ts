@@ -54,7 +54,7 @@ import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 import { isJudgeCall, JUDGE_SCOPE, judgeRules, RESERVED_SCOPE_PREFIX, summarizeJudge } from '@shadowlap/engine';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
-import { carriesPlaceholder, hostOf, onThisMachine } from './placeholders.js';
+import { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, placeholderRefusal } from './placeholders.js';
 import { providers as defaultProviders, sdkBasesFromEnvironment, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
 import { SseTimer } from './sse.js';
@@ -842,7 +842,9 @@ export class Sidecar {
           body = rewrite.body;
           rawBody = Buffer.from(JSON.stringify(body), 'utf8');
           // AWS signs a request's exact path and body: the changed one is signed again, or refused.
-          if (signingKeyId(headers.authorization)) {
+          // One signed with placeholder credentials is never sent, so forward() refuses it as it is.
+          const keyId = signingKeyId(headers.authorization);
+          if (keyId && keyId !== PLACEHOLDER_AWS_ACCESS_KEY_ID) {
             const signed = this.resign(req, headers, method, path, search, rawBody);
             if ('error' in signed) refusal = `${rewrite.target?.by ?? 'the intervention'}: ${signed.error}`;
             else headers = signed.headers;
@@ -962,6 +964,26 @@ export class Sidecar {
     this.log(`run ${ctx.run.runId} call ${callNo}: refused ${reason}`);
   }
 
+  /**
+   * Answers a live call that carries a placeholder key instead of sending it: a placeholder only gets
+   * a replay's client to send what the recording answers. In the provider's own error shape, as a
+   * refused key arrives (AWS's for Bedrock), so its client shows the line; the run's summary counts
+   * the call as refused, not as an upstream request, and prints the line under the fork.
+   */
+  private servePlaceholderRefusal(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall): void {
+    const message = placeholderRefusal(provider.keys?.set ?? `a key for ${provider.id}`);
+    const aws = provider.id === 'bedrock';
+    const bytes = Buffer.from(JSON.stringify(aws ? { message } : { type: 'error', error: { type: 'shadowlap_placeholder_key', message } }), 'utf8');
+    res.writeHead(401, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused', ...(aws ? { 'x-amzn-errortype': 'UnrecognizedClientException' } : {}) });
+    res.end(bytes);
+    const error: SerializedError = { name: 'ShadowlapPlaceholderKey', message };
+    this.store.appendCallEnd(tracked.identity, { runId: ctx.run.runId, callNo, attempt: tracked.ends++, responseRef: this.store.putBlob(bytes), outcome: 'error', meta: { status: 401, retryable: false, refused: true, error, latencyMs: 0 }, at: Date.now() });
+    tracked.done = true;
+    tracked.retryable = false;
+    ctx.warnOnce(`placeholder:${provider.id}`, message);
+    this.log(`run ${ctx.run.runId} call ${callNo}: not sent, it carries a placeholder key`);
+  }
+
   private serveReplayed(ctx: RunContext, res: ServerResponse, callNo: number, tracked: TrackedCall): void {
     if (tracked.decision.origin !== 'replayed' && tracked.decision.origin !== 'overridden') return;
     const record = tracked.decision.record;
@@ -1056,19 +1078,9 @@ export class Sidecar {
       tracked.done = true;
       return;
     }
-    // An agent with no key of its own got a placeholder for the replay, and a placeholder never leaves
-    // this machine: past the fork, a call that would take one to another host goes nowhere, and the
-    // agent hears why. A server on this machine (a mock, a local model server) gets the call as it is.
-    if (!judging && !onThisMachine(upstream) && carriesPlaceholder(headers, provider.credentialHeaders, search)) {
-      const message = `shadowlap: call #${callNo} (${tracked.identity.name}) was not served from the recording and would go live to ${hostOf(upstream)}, but the agent has no key of its own: the replay gave it a placeholder, which never leaves this machine. Set the provider's key to let calls after a fork go live`;
-      const error: SerializedError = { name: 'ShadowlapNoKey', message };
-      res.writeHead(401, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_no_key', message } }));
-      this.store.appendCallEnd(tracked.identity, { runId: ctx.run.runId, callNo, attempt: tracked.ends, responseRef: null, outcome: 'error', meta: { status: 401, latencyMs: 0, retryable: false, error }, at: Date.now() });
-      tracked.ends++;
-      tracked.done = true;
-      return;
-    }
+    // A placeholder key, which a replay gives an agent whose environment has no key, is never sent,
+    // whatever the upstream: a provider, a gateway, a model server or a mock.
+    if (carriesPlaceholder(headers, search)) return this.servePlaceholderRefusal(ctx, res, provider, callNo, tracked);
     // An upstream that is the SDK's own base URL, with no `/v1` under it: the SDK's path goes straight under it.
     const sdkBase = this.sdkBases[provider.id];
     const sdkPath = provider.sdkPath;
@@ -1304,6 +1316,19 @@ export class Sidecar {
     }
     if (ctx.offline || this.upstreams.http === 'offline') {
       return fail(503, { name: 'ShadowlapOffline', message: `shadowlap is offline: call #${callNo} (${name}) was not served from the recording and would need the network` }, 'shadowlap_offline');
+    }
+    // A placeholder key the agent passes on to a declared host (a vector store that embeds with the
+    // caller's OpenAI key) is never sent either.
+    if (carriesPlaceholder(req.headers, search)) {
+      const message = placeholderRefusal('the key it sends', name);
+      const error: SerializedError = { name: 'ShadowlapPlaceholderKey', message };
+      end(this.store.putJson({ error }), 'error', { status: 401, refused: true, retryable: false, error, latencyMs: 0 });
+      ctx.warnOnce(`placeholder:${name}`, message);
+      this.log(`run ${ctx.run.runId} call ${callNo}: not sent, it carries a placeholder key`);
+      const bytes = Buffer.from(JSON.stringify({ type: 'error', error: { type: 'shadowlap_placeholder_key', message } }), 'utf8');
+      res.writeHead(401, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused' });
+      res.end(bytes);
+      return;
     }
 
     const headers: Record<string, string> = {};
