@@ -127,9 +127,9 @@ Commit the goldens with the fix. In CI, <code>shadowlap&nbsp;test</code> replays
 
 With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix for a golden that fails a check, and opens a pull request once&nbsp;verify&nbsp;accepts&nbsp;it.
 
-### Change models and prompts safely
+## Model and prompt changes
 
-The demo's second agent, `refund_agent.mjs`, handles the same order from support ticket T-8812. Before you move it to another model, [`decisions`](docs/decisions.md) asks its recorded model calls again under that model. No tool runs, and changes are ranked, writes first. Under the demo's scripted Haiku, the agent no longer issues the&nbsp;refund:
+A second agent, `refund_agent.mjs`, handles the same order from support ticket&nbsp;T&#8209;8812. Before you move it to another model, [<code>shadowlap&nbsp;decisions</code>](docs/decisions.md) asks its recorded model calls again under that model to see which decisions change. No tool runs. Changes are ranked by what they do, writes first. Under a scripted Haiku, the agent no longer issues&nbsp;the&nbsp;refund:
 
 ```console
 $ shadowlap decisions 01M5FYDVBW --model claude-haiku-4-5
@@ -144,7 +144,7 @@ $ shadowlap decisions 01M5FYDVBW --model claude-haiku-4-5
 …
 ```
 
-`shadowlap decisions --from-code` previews a prompt edit in your code the same way, and `shadowlap migrate` verifies and prices a model&nbsp;switch.
+`shadowlap decisions --from-code` previews a prompt edit in your code the same way, and <code>shadowlap&nbsp;migrate</code> verifies and prices&nbsp;a&nbsp;model&nbsp;switch.
 
 ## Quickstart
 
