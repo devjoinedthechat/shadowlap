@@ -182,6 +182,23 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     </button>
   );
   const off = app.actionsOff;
+  // Run blame: the fixes' blame job, which finds the check the run failed (asking when nothing names
+  // it) and ends with a link to the fix. Not for a run blame has been run on already, nor in a copy.
+  const runBlame = (blamed: boolean) => {
+    if (blamed || app.exported) return null;
+    const offer = blameOfferFor(offers, {
+      blamed,
+      capture: !!run.source,
+      argv: r.command.argv,
+      status: r.status,
+      failed: checks.filter((c) => !c.ok).map((c) => c.label),
+      fixExpect: run.blameExpect,
+      ownExpect: r.meta?.expect,
+      modelCalls: run.summary.byKind.api,
+    });
+    // The server picks the check, as the CLI judges the run; disabled with why on a read-only dashboard or while a repair holds the tree.
+    return offer ? <RunBlameButton runId={r.runId} failed={offer.failed} title={blameTitle(offer)} /> : null;
+  };
   const fixLink = (step?: string) =>
     run.fix ? (
       <a className="more" href={run.fix.href ?? href.fixes(run.fix.id, step ?? null)}>
@@ -297,6 +314,8 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
               </button>
             ) : null}
             {b.diff ? diffToggle : null}
+            {/* A fork that failed is blamed as any failed run is: its fix, or Run blame. */}
+            {b.failed ? (run.fix ? fixLink() : runBlame(!!blame)) : null}
           </span>
         </section>
       );
@@ -345,32 +364,12 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
         </section>
       );
     case 'failed': {
-      // Run blame: the fixes' blame job, which finds the check the run failed (asking when nothing
-      // names it) and ends with a link to the fix. Not for a run blame has been run on already.
-      const offer = b.blamed
-        ? null
-        : blameOfferFor(offers, {
-            blamed: b.blamed,
-            capture: !!run.source,
-            argv: r.command.argv,
-            status: r.status,
-            failed: checks.filter((c) => !c.ok).map((c) => c.label),
-            fixExpect: run.blameExpect,
-            ownExpect: r.meta?.expect,
-            modelCalls: run.summary.byKind.api,
-          });
+      const blameButton = b.fix ? null : runBlame(b.blamed);
       return (
         <section className="banner blame">
           <span className="bk">failed</span>
           <Why>{b.why}</Why>
-          {b.fix ? (
-            <span className="end">{fixLink()}</span>
-          ) : offer && !app.exported ? (
-            <span className="end">
-              {/* The server picks the check, as the CLI judges the run; disabled with why on a read-only dashboard or while a repair holds the tree. */}
-              <RunBlameButton runId={r.runId} failed={offer.failed} title={blameTitle(offer)} />
-            </span>
-          ) : null}
+          {b.fix ? <span className="end">{fixLink()}</span> : blameButton ? <span className="end">{blameButton}</span> : null}
         </section>
       );
     }

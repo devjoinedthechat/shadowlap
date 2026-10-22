@@ -164,14 +164,17 @@ export function runGlyph(r: RunLike): { kind: GlyphKind; label: string } {
   return failed ? { kind: 'fail', label: 'Recording, failed' } : { kind: 'rec', label: `Recording${cut}` };
 }
 
-/** The tag beside a run's id on its page and in Compare: an interrupted recording, replay or test says so, in grey. */
+/**
+ * The tag beside a run's id on its page and in Compare: an interrupted recording, replay or test says
+ * so, in grey; a run that failed says FAILED, a fork as any other (its eyebrow names the fork).
+ */
 export function runTag(r: RunLike): { cls: string; text: string } {
   if (isLive(r)) return { cls: 'live', text: 'recording' };
   const t = runType(r);
   if (isInterrupted(r) && (t === 'recording' || t === 'replay' || t === 'test')) return { cls: '', text: 'interrupted' };
   if (t === 'recording') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'recording' };
   if (t === 'clean') return { cls: 'clean', text: 'clean' };
-  if (t === 'fork') return { cls: 'fork', text: forkAt(r.divergence!) };
+  if (t === 'fork') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: 'fork', text: forkAt(r.divergence!) };
   if (t === 'capture') return { cls: 'cap', text: 'capture' };
   if (t === 'test') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: 'test', text: 'test' };
   return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'replay' };

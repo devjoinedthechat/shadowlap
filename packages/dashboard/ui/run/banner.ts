@@ -4,10 +4,10 @@ import type { RunType } from '../runs.js';
 /**
  * The run page's one banner: which it is, and what it says. A run shows at most one, in this order:
  * recording now; a fork blame rescued; a test that diverged; a fork (the flag that made it, or what
- * changed); where blame found the run lost; what was not recorded; the checks it passed; that it was
- * interrupted (neutral, as every list says it); or that it failed (with its fix, or Run blame). How
- * the run came out is the server's state, the one Runs and the Overview read. No DOM here: the tests
- * import it, and `parts.tsx` draws it.
+ * changed, and whether it failed, for Run blame); where blame found the run lost; what was not
+ * recorded; the checks it passed; that it was interrupted (neutral, as every list says it); or that
+ * it failed (with its fix, or Run blame). How the run came out is the server's state, the one Runs
+ * and the Overview read. No DOM here: the tests import it, and `parts.tsx` draws it.
  */
 
 /** A flag a replay ran with, as the server names it: `--fail-at` and `19=529`, and the call it names. */
@@ -71,7 +71,8 @@ export type Banner =
   | { kind: 'recording' }
   | { kind: 'rescued'; callNo: number | null; why: string }
   | { kind: 'diverged'; callNo: number; name: string; why: string; path: string | null; normalizer: boolean; diff: boolean }
-  | { kind: 'fork'; callNo: number; name: string; why: string; flag: string | null; path: string | null; normalizer: boolean; diff: boolean }
+  /** `failed`: the fork failed (its check, or its agent's exit), so Run blame applies to it as to any failed run. */
+  | { kind: 'fork'; callNo: number; name: string; why: string; flag: string | null; path: string | null; normalizer: boolean; diff: boolean; failed: boolean }
   | { kind: 'lost'; callNo: number; why: string; rescuedRunId: string | null }
   | { kind: 'not-recorded'; why: string }
   | { kind: 'checks'; checks: ReadonlyArray<{ label: string; text: string; status?: string }>; why: string | null }
@@ -378,7 +379,9 @@ export function bannerFor(i: BannerInput): Banner | null {
     const failedModelCall = iv?.flag === '--fail-at' && i.flagCall?.kind !== 'tool';
     // An override's or a planted result's flag names its call: what came before the fork doesn't again.
     const named = iv && (iv.flag === '--override' || iv.flag === '--inject-result') ? (iv.callNo ?? null) : null;
-    return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${beforeFork(d, i.calls, named)}`, flag: flagText(iv) ?? forced, path, normalizer: !!d.hints?.some((h) => h.normalizer), diff };
+    // A fork that failed its check, or whose agent failed, is blamed as any failed run is.
+    const failed = i.failed ?? failureText(i) !== null;
+    return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${beforeFork(d, i.calls, named)}`, flag: flagText(iv) ?? forced, path, normalizer: !!d.hints?.some((h) => h.normalizer), diff, failed };
   }
   const b = i.blame;
   if (b && b.callNo !== null && b.outcome !== 'unrescuable' && b.outcome !== 'stopped') return { kind: 'lost', callNo: b.callNo, why: lostWhy(b), rescuedRunId: b.rescuedRunId ?? null };

@@ -70,7 +70,7 @@ describe('the run’s banner', () => {
   });
 
   it('names the flag that made a fork, or what changed, with the calls replayed before it', () => {
-    expect(bannerFor({ ...base, type: 'fork', divergence: fork })).toEqual({ kind: 'fork', callNo: 17, name: 'POST /v1/messages', why: 'a request changed · 16 calls replayed before it', flag: null, path: '$.messages[16].content', normalizer: false, diff: true });
+    expect(bannerFor({ ...base, type: 'fork', divergence: fork })).toEqual({ kind: 'fork', callNo: 17, name: 'POST /v1/messages', why: 'a request changed · 16 calls replayed before it', flag: null, path: '$.messages[16].content', normalizer: false, diff: true, failed: false });
     // What the flag did, in words, with the flag in them; how the writes after it went, from the replay's other flags.
     const failAt = { ...base, type: 'fork' as const, divergence: { ...fork, callNo: 19, replayedBefore: 18 }, intervention: { flag: '--fail-at', value: '19=529', callNo: 19 } };
     expect(bannerFor({ ...failAt, flagCall: { kind: 'api', name: 'POST /v1/messages', attempts: 2 }, interventions: [failAt.intervention, { flag: '--writes', value: 'stub', callNo: null }] })).toMatchObject({
