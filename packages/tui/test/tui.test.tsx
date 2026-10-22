@@ -254,6 +254,28 @@ describe('ease of use', () => {
     store.close();
   });
 
+  it('deletes a run with the attempts bundled under it, as rm does, and says so before it asks', async () => {
+    const { store, runId } = goldenStore();
+    const attempts = [1, 2].map((n) => {
+      const a = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { verify: { role: 'target', passed: n === 1 } } });
+      store.endRun(a.runId, 'completed');
+      return a.runId;
+    });
+    const { lastFrame, stdin } = render(<App store={store} columns={140} rows={30} />);
+    await frameWith(lastFrame, '3 runs');
+    stdin.write('/');
+    await frameWith(lastFrame, RUN_SEARCH);
+    stdin.write(runId.slice(0, 10));
+    stdin.write('\r');
+    await frameWith(lastFrame, '1/3 runs');
+    stdin.write('x');
+    await frameWith(lastFrame, `delete run ${runId.slice(0, 10)}, the 2 attempts bundled under it and their calls?`);
+    stdin.write('y');
+    await frameWithout(lastFrame, 'delete run');
+    expect([runId, ...attempts].map((id) => store.getRun(id))).toEqual([null, null, null]);
+    store.close();
+  });
+
   it('leaves a run that is still recording, and says why', async () => {
     const { store } = goldenStore();
     // Recorded by this process, which is still running.

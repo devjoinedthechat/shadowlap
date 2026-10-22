@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { asTheyStand, DATASET_FORMATS, datasetRows, type DatasetFormat, type RunRecord, type Store } from '@shadowlap/engine';
+import { asTheyStand, DATASET_FORMATS, datasetRows, deletionPlan, type DatasetFormat, type RunRecord, type Store } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent, inDashboardJob } from '../job-events.js';
@@ -187,31 +187,25 @@ export function register(program: Command): void {
 
   program
     .command('rm')
-    .description('Delete runs (their forks keep their data but lose the link); blobs nothing references any more are removed')
+    .description("Delete runs, with the attempts bundled under them (--repeat, blame's probes, verify, a test's repeats, error-path presets); their forks keep their data but lose the link; blobs nothing references any more are removed")
     .argument('<run...>', 'run ids or unique prefixes')
     .option('--forks', 'also delete the forks of each run, recursively')
     .action((runArgs: string[], flags: { forks?: boolean }) => {
       const store = readStore(program.opts<GlobalOpts>());
-      const targets = new Map<string, RunRecord>();
-      const collect = (run: RunRecord) => {
-        targets.set(run.runId, run);
-        if (flags.forks) for (const child of store.childRuns(run.runId)) collect(child);
-      };
-      for (const arg of runArgs) collect(requireRun(store, arg));
-      // A run still recording, or one a run in progress replays from, is left alone, as the dashboard leaves it.
-      const live = store.recordingRuns().live.map((r) => r.run);
-      const held = [...targets.values()].flatMap((run) => {
-        const why = store.deletionHold(run.runId, live);
-        return why ? [{ run, why }] : [];
+      const asked = runArgs.map((arg) => requireRun(store, arg).runId);
+      // Each run goes with the attempts bundled under it, as the dashboard deletes it: left behind,
+      // they would show as runs of their own. A run still recording, one a run in progress replays
+      // from, and one with an attempt still running, is left alone, as the dashboard leaves it.
+      const plan = deletionPlan(store, asked, { forks: flags.forks === true });
+      store.transaction(() => {
+        for (const id of [...plan.runs, ...plan.attempts]) store.deleteRun(id);
       });
-      for (const { run } of held) targets.delete(run.runId);
-      for (const run of targets.values()) store.deleteRun(run.runId);
-      const gc = targets.size ? store.gcBlobs() : null;
+      const gc = plan.runs.length ? store.gcBlobs() : null;
       store.close();
-      if (targets.size) process.stdout.write(`${p.green('✓')} deleted ${targets.size} run${targets.size === 1 ? '' : 's'} (${[...targets.keys()].map((id) => shortId(id)).join(', ')}); ${gc!.removed} blob${gc!.removed === 1 ? '' : 's'}, ${formatBytes(gc!.bytes)} freed\n`);
+      if (plan.runs.length) process.stdout.write(`${p.green('✓')} ${deletedLine(plan.runs, plan.attempts.length)}; ${gc!.removed} blob${gc!.removed === 1 ? '' : 's'}, ${formatBytes(gc!.bytes)} freed\n`);
       if (gc?.recording.length) process.stdout.write(p.dim(`  blobs are left while ${gc.recording.length === 1 ? 'a run is' : `${gc.recording.length} runs are`} still recording (${gc.recording.map((id) => shortId(id)).join(', ')}); shadowlap gc frees them once ${gc.recording.length === 1 ? 'it ends' : 'they end'}\n`));
-      for (const { run, why } of held) process.stderr.write(`${p.yellow('!')} left ${shortId(run.runId)}: ${why}; delete it once that has ended\n`);
-      if (held.length) process.exitCode = 1;
+      for (const { runId, why } of plan.held) process.stderr.write(`${p.yellow('!')} left ${shortId(runId)}: ${why}; delete it once that has ended\n`);
+      if (plan.held.length) process.exitCode = 1;
     });
 
   program
@@ -241,6 +235,13 @@ export function register(program: Command): void {
       emitJobEvent({ type: 'result', data: report });
       process.stdout.write(flags.json ? JSON.stringify(report, null, 2) + '\n' : formatGc(report));
     });
+}
+
+/** What rm deleted: "deleted 2 runs (01K5CQ4N7G, 01K5CQ4N9A) and the 6 attempts bundled under them". */
+export function deletedLine(runs: readonly string[], attempts: number): string {
+  const what = `deleted ${runs.length} run${runs.length === 1 ? '' : 's'} (${runs.map((id) => shortId(id)).join(', ')})`;
+  if (!attempts) return what;
+  return `${what} and the ${attempts === 1 ? 'attempt' : `${attempts} attempts`} bundled under ${runs.length === 1 ? 'it' : 'them'}`;
 }
 
 /** How a copy says the redaction rules were applied to it. */

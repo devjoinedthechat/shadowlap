@@ -13,14 +13,16 @@ interface Props {
   width: number;
   height: number;
   onOpen: (runId: string) => void;
-  /** Deletes a run; what it says back (why it didn't) is shown. */
+  /** Deletes a run, with the attempts bundled under it; what it says back (why it didn't) is shown. */
   onDelete: (runId: string) => string | null | void;
+  /** How many attempts are bundled under a run, which a delete takes with it: the confirm names them. */
+  attemptsOf?: (runId: string) => number;
   onQuit: () => void;
   onHelp: () => void;
   openDashboard?: OpenDashboard;
 }
 
-type Mode = { kind: 'list' } | { kind: 'search' } | { kind: 'confirm-delete'; runId: string };
+type Mode = { kind: 'list' } | { kind: 'search' } | { kind: 'confirm-delete'; runId: string; attempts: number };
 
 /**
  * `shadowlap test` checks as `✓ 3/3`, `✗ 2/3` or `? 1/2`: passed of those that applied, in green,
@@ -36,6 +38,12 @@ function checksOf(run: RunNode['run']): { text: string; color: 'green' | 'red' |
   return { text: `${failed ? '✗' : n.inconclusive ? '?' : '✓'} ${n.passed}/${applied}`, color: failed ? 'red' : n.inconclusive ? 'yellow' : 'green' };
 }
 
+/** The confirm before `x` deletes a run, naming the attempts that go with it, as `rm` deletes them. */
+export function deletePrompt(runId: string, attempts: number): string {
+  const bundled = attempts ? `, the ${attempts === 1 ? 'attempt' : `${attempts} attempts`} bundled under it` : '';
+  return `delete run ${runId.slice(0, 10)}${bundled} and ${attempts ? 'their' : 'its'} calls? forks keep their data but lose the link. y / n`;
+}
+
 /** The footer's words for a run's checks: `checks 1/3 passed, 2 not applicable`, a check that did not apply never counted as passed. */
 function checksLine(run: RunNode['run']): string {
   const n = engineChecksOf(run);
@@ -43,7 +51,7 @@ function checksLine(run: RunNode['run']): string {
   return `checks ${n.passed}/${n.total} passed${n.inconclusive ? `, ${n.inconclusive} inconclusive` : ''}${n.notApplicable ? `, ${n.notApplicable} not applicable` : ''}`;
 }
 
-export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHelp, openDashboard }: Props) {
+export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, onQuit, onHelp, openDashboard }: Props) {
   const [query, setQuery] = useState('');
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -110,7 +118,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHel
       else if (input === 'G') setSelected(Math.max(0, visible.length - 1));
       else if (key.return && current) onOpen(current.run.runId);
       else if (input === 'o' && current) toDashboard(current.run.runId);
-      else if (input === 'x' && current) setMode({ kind: 'confirm-delete', runId: current.run.runId });
+      else if (input === 'x' && current) setMode({ kind: 'confirm-delete', runId: current.run.runId, attempts: attemptsOf?.(current.run.runId) ?? 0 });
     },
     { isActive: mode.kind !== 'search' },
   );
@@ -186,7 +194,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHel
       )}
       <Box flexGrow={1} />
       {mode.kind === 'confirm-delete' ? (
-        <Text color="red"> delete run {mode.runId.slice(0, 10)} and its calls? forks keep their data but lose the link. y / n</Text>
+        <Text color="red"> {deletePrompt(mode.runId, mode.attempts)}</Text>
       ) : toast ? (
         <Text color="yellow" wrap="truncate">
           {' '}

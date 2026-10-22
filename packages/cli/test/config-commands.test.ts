@@ -583,6 +583,40 @@ describe('shadowlap gc', () => {
     store.close();
   });
 
+  it('deletes the attempts bundled under a run with it, as the dashboard does, and leaves its forks as runs', async () => {
+    const { done } = seedRuns();
+    const store = Store.open(dbPath());
+    const replay = (parent: string, meta: Parameters<Store['createRun']>[0]['meta'], end = true) => {
+      const r = store.createRun({ mode: 'replay', parentRunId: parent, command: { argv: ['node', 'agent.js'], cwd }, ...(meta ? { meta } : {}) });
+      if (end) store.endRun(r.runId, 'completed');
+      return r.runId;
+    };
+    // Blame's two probes, a --repeat of one of them, and a fork made on purpose.
+    const probes = [1, 2].map((n) => replay(done, { probe: { of: done, callNo: 1, passed: false }, repeat: { group: 'p', attempt: n, of: 2 } }));
+    const again = replay(probes[0]!, { repeat: { group: 'again', attempt: 1, of: 1 } });
+    const fork = replay(done, undefined);
+    store.close();
+    let r = await shadowlap(['rm', done]);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain(`deleted 1 run (${done.slice(0, 10)}) and the 3 attempts bundled under it;`);
+    const check = Store.open(dbPath());
+    // Nothing of it is left behind as a run of its own; the fork keeps its data and loses the link.
+    expect([done, ...probes, again].map((id) => check.getRun(id))).toEqual([null, null, null, null]);
+    expect(check.getRun(fork)?.parentRunId).toBeNull();
+    // A run blame is still probing stays, with its attempts, until the probe has ended.
+    const probing = check.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd } });
+    check.endRun(probing.runId, 'failed');
+    const running = check.createRun({ mode: 'replay', parentRunId: probing.runId, command: { argv: ['node', 'agent.js'], cwd }, meta: { probe: { of: probing.runId, callNo: 1, passed: false }, repeat: { group: 'q', attempt: 1, of: 2 } } });
+    check.close();
+    r = await shadowlap(['rm', probing.runId]);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(`left ${probing.runId.slice(0, 10)}: an attempt of it is still running; delete it once that has ended`);
+    const after = Store.open(dbPath());
+    expect(after.getRun(probing.runId)).not.toBeNull();
+    expect(after.getRun(running.runId)).not.toBeNull();
+    after.close();
+  });
+
   it('says when rm leaves blobs for a recording to finish', async () => {
     const { done, live } = seedRuns();
     const r = await shadowlap(['rm', done]);
