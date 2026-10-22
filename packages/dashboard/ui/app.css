@@ -283,6 +283,15 @@ table.runst .rsub { padding-left: 22px; }
 .st.warn { color: var(--warn); } .st.warn i { background: var(--warn); }
 .st.n { color: var(--faint); padding-left: 13px; } .st.n i { background: var(--line2); }
 .st.warn { color: var(--warn); } .st.warn i { background: var(--warn); }
+/* a fork's own outcome, what came of its writes, in plain text by a dot in the fork's colour; where the table is tight
+   (Labels gives way there) it wraps after its dot rather than take the Run column's room */
+.st.fk { color: var(--dim); } .st.fk i { background: var(--warn); }
+@media (max-width: 1380px) { table.runst .st.fk { white-space: normal; align-items: baseline; } table.runst .st.fk i { flex: none; transform: translateY(-1px); } }
+/* a fork that failed a check names it under its status, in the room the column has anyway: whole on hover */
+table.runst .st.named { display: flex; align-items: baseline; }
+table.runst .st.named i { flex: none; transform: translateY(-1px); }
+table.runst .st.named .stw { flex: 1; min-width: 0; }
+table.runst .st.named .stc { display: block; width: 0; min-width: 100%; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 12px; }
 .nil { color: var(--faint); }
 .st.live { color: var(--ink); } .st.live i { background: var(--lime); animation: pulse 1.6s infinite; }
 

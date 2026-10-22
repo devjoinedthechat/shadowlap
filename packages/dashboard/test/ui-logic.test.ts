@@ -9,7 +9,7 @@ import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, run
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
-import { bundlesAttempts, compareTarget, defaultComparePair, isFailed, matchesChip, matchesText, runOutcome, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
+import { bundlesAttempts, compareTarget, defaultComparePair, isFailed, matchesChip, matchesText, runOutcome, runStatus, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
 import { inScope, scopeChips, scopeCount, scopesOf } from '../ui/scopes.js';
 import { binCalls, gridCells, miniCells, stripCells, type StripItem } from '../ui/strip.js';
 
@@ -426,6 +426,28 @@ describe('runs', () => {
     // The agent's exit names no check; a check that could not be decided is amber, neither passed nor failed.
     expect(sideLine({ ...base, status: 'failed', outcome: { kind: 'check-failed', check: null }, failed: true })).toEqual({ err: 'failed', text: ' · 30 calls' });
     expect(sideLine({ ...test, status: 'completed', outcome: { kind: 'inconclusive', check: 'judge "polite" answers yes' }, failed: false })).toEqual({ warn: 'check inconclusive', text: ' · test' });
+  });
+
+  it('says what a fork did in its Status: what came of its writes, or the check it failed', () => {
+    const none = { outcome: { kind: 'none' }, failed: false };
+    expect(runOutcome({ ...fork, ...none })).toEqual({ tone: 'fk', text: 'forked · 1 write blocked' });
+    expect(runOutcome(fork)).toEqual({ tone: 'fk', text: 'forked · 1 write blocked' });
+    expect(runOutcome({ ...fork, ...none, origins: 'rrrlss' })).toEqual({ tone: 'fk', text: 'forked · 2 writes stubbed' });
+    expect(runOutcome({ ...fork, ...none, origins: 'rrlbsb' })).toEqual({ tone: 'fk', text: 'forked · 3 writes fenced' });
+    expect(runOutcome({ ...fork, ...none, origins: 'rrll' })).toEqual({ tone: 'fk', text: 'forked · no writes fenced' });
+    // A replay that ended early never forked, and a recording has nothing to say.
+    expect(runOutcome({ ...fork, ...none, divergence: { callNo: 11, type: 'ended_early' } })).toEqual({ tone: 'n', text: '—' });
+    expect(runOutcome({ ...base, ...none })).toEqual({ tone: 'n', text: '—' });
+    // Its checks passed, or it stopped before it ended: the outcome says so, as for any run.
+    expect(runStatus({ ...fork, outcome: { kind: 'passed', checks: 1 }, failed: false })).toEqual({ tone: 'ok', text: '1 check passed' });
+    expect(runStatus({ ...fork, ...none, status: 'crashed' })).toEqual({ tone: 'n', text: 'interrupted' });
+    // A fork that failed a check names it, in its own words.
+    const failedFork = { ...fork, outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true };
+    expect(runStatus(failedFork)).toEqual({ tone: 'err', text: 'check failed', check: 'send_email called 1 time' });
+    // The outcome stays in a word or two for the lists that say it beside other things; a recording names no check here.
+    expect(runOutcome(failedFork)).toEqual({ tone: 'err', text: 'check failed' });
+    expect(runStatus({ ...base, outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, failed: true })).toEqual({ tone: 'err', text: 'check failed' });
+    expect(runStatus({ ...fork, outcome: { kind: 'lost', callNo: 4 }, failed: true })).toEqual({ tone: 'err', text: 'lost at #4' });
   });
 
   it('says attempts are bundled only when the run list tells them apart', () => {

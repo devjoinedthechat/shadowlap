@@ -228,8 +228,25 @@ export function sideLine(r: RunLike): { text: string; err?: string; warn?: strin
   return { text: `${runSource(r)} · ${calls}` };
 }
 
-/** The Runs table's status: the outcome only, in a dot and a few words. */
-export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' | 'n'; text: string } {
+/** What a fork's fence did to the writes after it, as the sidebar counts them: `2 writes blocked`, `1 write stubbed`, `3 writes fenced` (both), `no writes fenced`. */
+export function fencedText(c: Pick<OriginCounts, 'block' | 'stub'>): string {
+  if (c.block && c.stub) return `${plural(c.block + c.stub, 'write')} fenced`;
+  if (c.block) return `${plural(c.block, 'write')} blocked`;
+  if (c.stub) return `${plural(c.stub, 'write')} stubbed`;
+  return 'no writes fenced';
+}
+
+/** A run with nothing to report: a fork says what came of its writes (`forked · 2 writes blocked`), any other run a dash. */
+function nothingToReport(r: RunLike): { tone: 'fk' | 'n'; text: string } {
+  const counts = runType(r) === 'fork' && r.divergence?.type !== 'ended_early' ? runCounts(r) : null;
+  return counts ? { tone: 'fk', text: `forked · ${fencedText(counts)}` } : { tone: 'n', text: '—' };
+}
+
+/**
+ * The Runs table's status: the outcome only, in a dot and a few words. A fork with nothing else to
+ * report says what came of its writes, in the fork's colour (`fk`).
+ */
+export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' | 'n' | 'fk'; text: string } {
   if (isLive(r)) return { tone: 'live', text: 'in progress' };
   const o = r.outcome;
   if (o) {
@@ -243,7 +260,7 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' |
     if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: checksPassedText(o.checks, o.notApplicable) };
     if (o.kind === 'clean') return { tone: 'ok', text: 'clean' };
     // A run cut short (its recorder stopped before it ended) has no outcome, but says why.
-    if (o.kind === 'none') return { tone: 'n', text: r.status === 'crashed' ? 'interrupted' : '—' };
+    if (o.kind === 'none') return r.status === 'crashed' ? { tone: 'n', text: 'interrupted' } : nothingToReport(r);
   }
   if (r.test && r.divergence) return { tone: 'err', text: `diverged at #${r.divergence.callNo}` };
   if (r.blame && r.blame.callNo) return { tone: 'err', text: `lost at #${r.blame.callNo}` };
@@ -256,7 +273,19 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' |
   if (r.status === 'failed') return { tone: 'err', text: 'failed' };
   const t = runType(r);
   if (t === 'clean' || t === 'test') return { tone: 'ok', text: 'clean' };
-  return { tone: 'n', text: '—' };
+  return nothingToReport(r);
+}
+
+/**
+ * The Runs table's Status: the outcome, and for a fork, what it did that its recording didn't: what
+ * came of its writes (`forked · 2 writes blocked`), or the check it failed, named in its own words
+ * under `check failed` (`check`), as the run's page names a check it can tell no more of.
+ */
+export function runStatus(r: RunLike): { tone: ReturnType<typeof runOutcome>['tone']; text: string; check?: string } {
+  const out = runOutcome(r);
+  const check = r.outcome?.kind === 'check-failed' ? r.outcome.check : null;
+  if (out.tone === 'err' && check && runType(r) === 'fork') return { ...out, check };
+  return out;
 }
 
 /**

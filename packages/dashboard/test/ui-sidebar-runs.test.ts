@@ -1,5 +1,6 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { RunsTable } from '../ui/runspage/RunsTable.js';
 import { RecentRuns } from '../ui/shell/Sidebar.js';
 import type { RunListItem } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
@@ -7,7 +8,7 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
 /**
  * The lists agree on depth and words. The sidebar draws a family as deep as it goes, a step in for
  * each level with its branch lines, as the Overview's grid nests it, and says a failure as Runs'
- * Status says it.
+ * Status says it. Runs gives a fork's Status what came of its writes, or the check it failed.
  */
 
 const T = Date.UTC(2026, 9, 22, 7, 48);
@@ -94,5 +95,28 @@ describe('the sidebar’s recent runs', () => {
     expect([red(FAILED_FORK.runId), line(FAILED_FORK.runId)]).toEqual(['check failed', 'check failed · fork @7']);
     expect([red(FORK2.runId), line(FORK2.runId)]).toEqual([null, 'fork @19 · 0 live · 2 stubbed']);
     expect(line(CLEAN.runId)).toBe('clean replay · 30/30');
+  });
+});
+
+describe('the Runs table', () => {
+  const table = (rows: RunListItem[]) => createElement(RunsTable, { rows, picked: new Set<string>(), selectable: false, byColumn: false, sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: T + 60_000 });
+  const row = (r: Rendered, id: string) => r.all('table.runst tbody tr').find((tr) => tr.querySelector('.rid code')!.textContent === id.slice(0, 10))!;
+
+  it('gives a fork’s Status what came of its writes, or the check it failed', async () => {
+    r = await render(table([FORK, FORK2, FAILED_FORK, LOST, REC]));
+    const status = (id: string) => {
+      const st = row(r!, id).querySelector('.st')!;
+      return [st.className, text(st)];
+    };
+    expect(status(FORK.runId)).toEqual(['st fk', 'forked · 2 writes blocked']);
+    expect(status(FORK2.runId)).toEqual(['st fk', 'forked · 2 writes stubbed']);
+    // Where the table is tight, it wraps after the dot only.
+    expect(row(r, FORK.runId).querySelector('.st')!.textContent).toBe('forked\u00a0· 2\u00a0writes\u00a0blocked');
+    // The check it failed, named under the words, and whole on hover.
+    expect(status(FAILED_FORK.runId)).toEqual(['st err named', 'check failed: “send_email called 1 time”']);
+    expect(row(r, FAILED_FORK.runId).querySelector('.stc')!.getAttribute('title')).toBe('check failed: “send_email called 1 time”');
+    expect(status(LOST.runId)).toEqual(['st err', 'lost at #9']);
+    // A recording with nothing to report keeps its dash.
+    expect(status(REC.runId)).toEqual(['st n', '—']);
   });
 });
