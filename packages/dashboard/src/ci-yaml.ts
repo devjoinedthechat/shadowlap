@@ -139,8 +139,9 @@ const BUCKET_COMMENT: Record<BucketCredentials, string> = {
  * pull request goes into it; Node 22.16 or later; the agent's own dependencies (a placeholder); then
  * the action. Its job needs contents and pull-requests write permission, which the first comment
  * states. Blame and verify run the agent itself live, so the step's env also needs the agent's own
- * provider keys: those the project's goldens call (`keys`), else a comment that says to add them.
- * With `push` (Push from CI is on) the action pushes the test runs and each fix it opens to the
+ * provider keys: those the project's goldens call (`keys`), and a comment that says to add them when
+ * there are none or a golden's can't be named (`keysUnknown`). While shadowlap.config.json can't be
+ * read (`unreadable`), a comment says what the step leaves out. With `push` (Push from CI is on) the action pushes the test runs and each fix it opens to the
  * team store, so the job also needs the bucket's credentials: short-lived ones (`oidc`) come from
  * the steps `shadowlap store ci` prints, which go right before the action, with `id-token: write`
  * among the job's permissions, and the step pushes from every job, a pull request's to its own
@@ -261,8 +262,9 @@ export function alertsMessage(o: { failed: number; branch: string; runUrl: strin
 /**
  * The Alerts steps, as a job of their own runs them: the repository, Node 22.16 or later and the
  * agent's own dependencies (a placeholder), then the action, which counts the failed goldens without
- * failing the step, with the keys of the providers the goldens that run live call; Slack is told
- * when any failed, then the job fails.
+ * failing the step, with the keys of the providers the goldens that run live call, a comment where
+ * one of theirs can't be named (`keysUnknown`) and one while shadowlap.config.json can't be read
+ * (`unreadable`); Slack is told when any failed, then the job fails.
  */
 export function alertsYaml(s: AlertsSettings): string {
   const secret = alertsSecret(s.secret);
