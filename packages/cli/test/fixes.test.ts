@@ -252,7 +252,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
     expect(shown.blame.callRow.filter((c: { kind: string }) => c.kind === 'api')).toHaveLength(4);
     // Verified on the working tree, with no repair behind it: applying it only marks it.
-    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, change: null }, applied: false });
+    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, change: null }, applied: false, blameAgain: null, blameStronger: null });
 
     const human = (await shadowlap(['fix', 'show', fixId])).stdout;
     expect(human).toContain(`${fixId}  Refunds above the limit issued without approval`);
