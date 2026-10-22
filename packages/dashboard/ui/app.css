@@ -599,6 +599,8 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 /* ============ status bar + overlays ============ */
 .status { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--faint); background: var(--bg); white-space: nowrap; overflow: hidden; }
 .status .sep { width: 1px; height: 12px; background: var(--line2); flex: none; }
+/* Drawn over what scrolls under it: a switch (Format JSON) in the views pane would otherwise paint over the bar. */
+.status { position: relative; z-index: 2; }
 .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(5,6,4,.55); backdrop-filter: blur(2px); display: grid; place-items: center; padding: 24px; }
 /* A dialog never outgrows the window: its body scrolls, so its title and buttons stay in view. */
 .dialog { width: min(520px, 100%); max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden; }

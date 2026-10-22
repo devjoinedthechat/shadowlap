@@ -124,3 +124,11 @@ describe("a fork's diff panel", () => {
     expect(topRule('.diffpanel .add')).toMatch(/display: block/);
   });
 });
+
+describe('the status bar', () => {
+  it('is drawn over the views pane, so a switch scrolled under it (Format JSON at 1180) never paints over it', () => {
+    const bar = topRule('.status');
+    expect(bar).toMatch(/position:\s*relative/);
+    expect(bar).toMatch(/z-index:\s*[1-9]/);
+  });
+});
