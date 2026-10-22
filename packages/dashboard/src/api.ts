@@ -1,7 +1,8 @@
-import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunAbout, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
+import { aboutOfRun, aboutsOf } from './run-about.js';
 import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
 import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
@@ -25,6 +26,12 @@ export interface RunListItem {
   label: string;
   divergence: { callNo: number; type: string } | null;
   command: string;
+  /**
+   * What the run was about, in one quiet line worked out from it (decision 10: the id is its name):
+   * a test replay's golden, what a replay or a fork changed, an import's source, the first thing a
+   * recording's user asked; where it comes from, and for a replay or a fork its change apart.
+   */
+  about: RunAbout;
   codeVersion: string | null;
   startedAt: number;
   endedAt: number | null;
@@ -96,6 +103,8 @@ export interface CallRow extends CallFacts {
 export interface RunDetail extends RunPageFacts {
   run: RunRecord;
   label: string;
+  /** What the run was about, as the lists say it (run-about.ts); null for a run the index doesn't have yet. */
+  about: RunAbout | null;
   /** Set for a run built from a capture, which has no command: where it came from. */
   source: string | null;
   summary: RunSummary;
@@ -252,6 +261,7 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
   return {
     run: shown,
     label: runLabel(run, kindFacts(store, run, calls.length)),
+    about: aboutOfRun(store, loadRunIndex(store), runId),
     source: captureSource(run),
     summary,
     // A recording's page asks only for the calls after those it has: rows are read for those alone.
@@ -455,6 +465,8 @@ export interface LineageNode {
   startedAt: number;
   repeat: { group: string; attempt: number; of: number } | null;
   checks: { passed: number; total: number } | null;
+  /** What the run was about (run-about.ts): under a parent, what it changed. */
+  about: RunAbout | null;
   /** How the run stands as the run list says it: its kind, how it came out, and whether that failed. */
   kind?: RunKind;
   outcome?: RunOutcome;
@@ -479,6 +491,7 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
   }
   const modelOf = modelResolver(store);
   const stateOf = runStates(store);
+  const index = loadRunIndex(store);
   const out: LineageNode[] = [];
   const walk = (r: RunRecord, depth: number) => {
     if (out.length >= 1000) return;
@@ -502,10 +515,14 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
       startedAt: r.startedAt,
       repeat: r.meta?.repeat ?? null,
       checks: checksOf(r),
+      about: null,
     });
     for (const child of store.childRuns(r.runId).sort((a, b) => a.startedAt - b.startedAt)) walk(child, depth + 1);
   };
   walk(root, 0);
+  // Every node's about line at once: a recording's first request is read once, and kept.
+  const abouts = aboutsOf(store, index, out.map((n) => index.byId.get(n.runId)).filter((r) => r !== undefined));
+  for (const n of out) n.about = abouts.get(n.runId) ?? null;
   return out;
 }
 

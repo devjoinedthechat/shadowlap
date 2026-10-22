@@ -69,6 +69,14 @@ export interface IndexedMeta {
   blame: { at: number; outcome: string; callNo: number | null; rescuedRunId: string | null; unsettled: boolean } | null;
   /** Set on an attempt of an error-path preset (`test --chaos`, `replay --chaos`): bundled under the recording it forked. */
   chaos: { preset: string; callNo: number | null; session: string; attempt: number | null; golden: string | null } | null;
+  /**
+   * What the about line reads of a replay, as kept (loosely: a pack can carry anything): the flags it
+   * ran with (`meta.interventions`), what an injection test made of it (`meta.injection`), and the
+   * golden a model took over (`meta.task`).
+   */
+  interventions: unknown[] | null;
+  injection: Record<string, unknown> | null;
+  task: Record<string, unknown> | null;
   author: string | null;
   /** For a run made in CI (`author` is `ci`): the provider, such as `github`. */
   ci: string | null;
@@ -91,6 +99,7 @@ SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS st
        r.meta -> '$.labels' AS labels, r.meta -> '$.imported' AS imported, r.meta -> '$.covers' AS covers,
        r.meta -> '$.repeat' AS rep, r.meta -> '$.probe' AS probe, r.meta -> '$.verify' AS verify,
        r.meta -> '$.test' AS test, r.meta -> '$.checks' AS checks, r.meta -> '$.blame' AS blame, r.meta -> '$.chaos' AS chaos,
+       r.meta -> '$.interventions' AS interventions, r.meta -> '$.injection' AS injection, r.meta -> '$.task' AS task,
        r.meta ->> '$.author' AS author, r.meta ->> '$.ci' AS ci,
        (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start') AS calls,
        -- Through the store's index of judge calls alone (call_events_judge, whose condition this
@@ -138,6 +147,9 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
   const checks = json(row.checks);
   const blame = json(row.blame);
   const chaos = json(row.chaos);
+  const interventions = json(row.interventions);
+  const injection = json(row.injection);
+  const task = json(row.task);
   return {
     labels: Array.isArray(labels) ? labels.filter((l): l is string => typeof l === 'string') : [],
     imported: isObject(imported) ? { at: num(imported.at) ?? 0, from: str(imported.from) ?? '' } : null,
@@ -149,6 +161,9 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
     checks: Array.isArray(checks) ? checks.filter(isObject).map((c) => ({ ok: c.ok === true, label: str(c.label) ?? '', detail: str(c.detail), ...(typeof c.status === 'string' && (CHECK_STATUSES as readonly string[]).includes(c.status) ? { status: c.status as CheckStatus } : {}) })) : null,
     blame: isObject(blame) ? { at: num(blame.at) ?? 0, outcome: str(blame.outcome) ?? '', callNo: num(blame.callNo), rescuedRunId: str(blame.rescuedRunId), unsettled: blame.unsettled === true } : null,
     chaos: isObject(chaos) ? { preset: str(chaos.preset) ?? '', callNo: num(chaos.callNo), session: str(chaos.session) ?? '', attempt: num(chaos.attempt), golden: str(chaos.golden) } : null,
+    interventions: Array.isArray(interventions) ? interventions.filter(isObject) : null,
+    injection: isObject(injection) ? injection : null,
+    task: isObject(task) ? task : null,
     author: str(row.author),
     ci: str(row.ci),
   };

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store, type RunMeta } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
-import { cachesRead, runsRead, warmRunStats } from '../src/run-stats.js';
+import { asksRead, cachesRead, runsRead, warmRunStats } from '../src/run-stats.js';
 import { listRunsPage, recentRuns, runsByDay } from '../src/runs-list.js';
 
 /**
@@ -32,6 +32,8 @@ const TIMEOUT = 180_000;
 let dir: string;
 let path: string;
 let calls = 0;
+/** How many runs are recordings: what their user asked is what their about line quotes. */
+let recordingCount = 0;
 /** Each run's number of calls. */
 const lengths = new Map<string, number>();
 
@@ -85,6 +87,7 @@ beforeAll(() => {
       }
     }
   });
+  recordingCount = recordings.length;
   store.close();
 }, TIMEOUT);
 
@@ -95,9 +98,10 @@ interface Timed<T> {
   /** CPU time the read took, in ms: what the code costs, whatever else the machine is doing. */
   cpu: number;
   wall: number;
-  /** Runs whose calls the read had to read, for their totals and for their prompt cache. */
+  /** Runs whose calls the read had to read, for their totals and for their prompt cache, and recordings whose requests it read for what their user asked. */
   read: number;
   caches: number;
+  asks: number;
 }
 
 /** One read on a store opened afresh, as a new dashboard process would; the best of `times`. */
@@ -111,7 +115,7 @@ function timed<T>(read: (store: Store) => T, times = 3): Timed<T> {
       const out = read(store);
       const wall = performance.now() - t0;
       const c = process.cpuUsage(c0);
-      const t = { out, cpu: (c.user + c.system) / 1000, wall, read: runsRead(store), caches: cachesRead(store) };
+      const t = { out, cpu: (c.user + c.system) / 1000, wall, read: runsRead(store), caches: cachesRead(store), asks: asksRead(store) };
       if (!best || t.cpu < best.cpu) best = t;
     } finally {
       store.close();
@@ -140,10 +144,14 @@ function plainRead(): number {
   }
 }
 
-/** One batch of the warm-up, as it kept it: its runs' totals, and the prompt cache of those of the last eight days. */
+/**
+ * One batch of the warm-up, as it kept it: its runs' totals, the prompt cache of those of the last
+ * eight days, and for recordings the first thing their user asked, which their about line quotes.
+ */
 interface Batch {
   runs: string[];
   caches: string[];
+  asks: string[];
   /** On the warm-up's own clock, how long its slice had run when this batch ended; null when no run was left to go on with. */
   at: number | null;
 }
@@ -155,22 +163,39 @@ interface Slice {
   cpu: number;
 }
 
+/** A save of the warm-up: each run's totals as it kept them. */
+type Saved = Array<{ runId: string; stats: string }>;
+
 /**
  * A slice's batches from what it did, in order: a reading of its clock as it starts, then for each
- * batch the totals it kept, the prompt caches it kept, and a reading of its clock while runs are left.
+ * batch the totals it kept (its runs), what it added to them (the prompt cache of some, what some
+ * recordings' user asked), and a reading of its clock while runs are left.
  */
-function batchesOf(events: Array<number | string[]>): Batch[] {
+function batchesOf(events: Array<number | Saved>): Batch[] {
   const [started, ...rest] = events;
   if (typeof started !== 'number') throw new Error('the slice did not read its clock first');
   const out: Batch[] = [];
-  let batch: Batch = { runs: [], caches: [], at: null };
+  const empty = (): Batch => ({ runs: [], caches: [], asks: [], at: null });
+  let batch = empty();
+  // Each run's totals as the batch last kept them: a later save adds the prompt cache, or the ask.
+  let kept = new Map<string, Record<string, unknown>>();
   for (const e of rest) {
     if (typeof e === 'number') {
       batch.at = e - started;
       out.push(batch);
-      batch = { runs: [], caches: [], at: null };
-    } else if (!batch.runs.length) batch.runs = e;
-    else batch.caches = e;
+      batch = empty();
+      kept = new Map();
+      continue;
+    }
+    const first = !batch.runs.length;
+    if (first) batch.runs = e.map((r) => r.runId);
+    for (const r of e) {
+      const now = JSON.parse(r.stats) as Record<string, unknown>;
+      const was = kept.get(r.runId);
+      if (!first && was && !('cache' in was) && 'cache' in now) batch.caches.push(r.runId);
+      if (!first && was && !('ask' in was) && 'ask' in now) batch.asks.push(r.runId);
+      kept.set(r.runId, now);
+    }
   }
   if (batch.runs.length) out.push(batch);
   return out;
@@ -189,6 +214,12 @@ describe('read models at scale', () => {
     // 2.4 to 3.1 times on Node 24, whose plain read is faster. Under 8 times leaves room for both, and
     // fails a first look that read the whole store again for each run.
     expect(first.cpu, `the first look took ${ms(first)}, ${(first.cpu / plain).toFixed(1)} times a plain read of every call`).toBeLessThan(8 * plain);
+    // The lists name a run by its id with its about line, which for a recording quotes what its user
+    // asked first: their first look works that out for the runs they show or filter (a word in the
+    // filter field reads every run's), and keeps it with their totals, reading no run's calls again.
+    const lists = timed((s) => [listRunsPage(s, { q: 'agent' }), recentRuns(s)], 1);
+    expect(lists.read).toBe(0);
+    expect(lists.asks).toBe(recordingCount);
 
     const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }));
     const page = timed((s) => listRunsPage(s, {}));
@@ -218,6 +249,7 @@ describe('read models at scale', () => {
       // No read model reads a finished run's calls again.
       expect(t.read, `${name} read the calls of ${t.read} runs`).toBe(0);
       expect(t.caches, `${name} worked out the prompt cache of ${t.caches} runs`).toBe(0);
+      expect(t.asks, `${name} read what the user of ${t.asks} recordings asked again`).toBe(0);
       // A row per run: about a tenth of what a plain read of every call takes on Node 22, and about a
       // fifth on Node 24. Under one plain read: less than reading every call's row again.
       expect(t.cpu, `${name} took ${ms(t)}, ${(t.cpu / plain).toFixed(2)} times a plain read of every call`).toBeLessThan(plain);
@@ -234,7 +266,7 @@ describe('read models at scale', () => {
     const store = Store.open(path);
     // What each slice does, in order: the warm-up's own clock (performance.now), read as the slice
     // starts and after each batch while runs are left, and what each batch keeps.
-    let events: Array<number | string[]> = [];
+    let events: Array<number | Saved> = [];
     const clock = performance.now.bind(performance);
     const save = store.saveRunStats.bind(store);
     vi.spyOn(performance, 'now').mockImplementation(() => {
@@ -243,7 +275,7 @@ describe('read models at scale', () => {
       return t;
     });
     vi.spyOn(store, 'saveRunStats').mockImplementation((rows) => {
-      events.push(rows.map((r) => r.runId));
+      events.push(rows.map((r) => ({ runId: r.runId, stats: r.stats })));
       return save(rows);
     });
     const slices: Slice[] = [];
@@ -258,6 +290,8 @@ describe('read models at scale', () => {
       expect(runsRead(store)).toBe(RUNS);
       // The last eight days' prompt cache too: the Overview's week, wherever the viewer is.
       expect(cachesRead(store)).toBeGreaterThan(1000);
+      // And what each recording's user asked, which its about line quotes in every list.
+      expect(asksRead(store)).toBe(recordingCount);
     } finally {
       vi.restoreAllMocks();
       store.close();
@@ -275,10 +309,12 @@ describe('read models at scale', () => {
     expect(batches.reduce((n, b) => n + b.runs.length, 0)).toBe(RUNS);
     // A batch is cut by the calls it reads: it takes no run more once it has 50, or once it has read
     // 2,000 calls, a run's counted four times when its prompt cache is worked out too (that reads
-    // every request it sent).
+    // every request it sent), and once more for a recording whose user's first words are read (that
+    // reads its requests to count its conversations).
+    expect(batches.reduce((n, b) => n + b.asks.length, 0)).toBe(recordingCount);
     for (const [i, b] of batches.entries()) {
       expect(b.runs.length, `batch ${i} kept ${b.runs.length} runs`).toBeLessThanOrEqual(50);
-      const before = b.runs.slice(0, -1).reduce((n, id) => n + lengths.get(id)! * (b.caches.includes(id) ? 4 : 1), 0);
+      const before = b.runs.slice(0, -1).reduce((n, id) => n + lengths.get(id)! * (b.caches.includes(id) ? 4 : 1) + (b.asks.includes(id) ? lengths.get(id)! : 0), 0);
       expect(before, `batch ${i} went on after reading ${before} calls' worth`).toBeLessThan(2000);
     }
     // A slice, on its own clock, runs a batch at least, then the next only while its budget is not

@@ -1,6 +1,7 @@
 import { checksOf, cleanLabel, isFailedOutcome, lostAt, runOutcome, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
 import type { RunListItem } from './api.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
+import { aboutsOf } from './run-about.js';
 import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import { callTotals, priced, spentOf, type StatsOptions } from './run-stats.js';
 
@@ -33,7 +34,7 @@ export interface RunFilter {
   /** Runs that started before this instant (epoch ms). */
   to?: number | null;
   types?: readonly RunType[];
-  /** The filter field: every word must appear in the run's id, labels, command, source or revision. */
+  /** The filter field: every word must appear in the run's id, about line, labels, command, source or revision. */
   q?: string;
   /** List attempts as rows too. */
   includeAttempts?: boolean;
@@ -103,14 +104,26 @@ interface Matcher {
   matches(r: IndexedRun): boolean;
 }
 
-function matcher(filter: RunFilter): Matcher {
+const filterWords = (filter: RunFilter): string[] => (filter.q ?? '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 20);
+
+/**
+ * The about line of each run the filter field may match, worked out only when the field has words:
+ * a recording's reads its first request, kept once read.
+ */
+function aboutTexts(store: Store, index: RunIndex, runs: readonly IndexedRun[], filter: RunFilter): (r: IndexedRun) => string {
+  if (!filterWords(filter).length) return () => '';
+  const abouts = aboutsOf(store, index, runs);
+  return (r) => abouts.get(r.runId)?.text ?? '';
+}
+
+function matcher(filter: RunFilter, aboutText: (r: IndexedRun) => string = () => ''): Matcher {
   const types = filter.types ?? [];
   const kinds = new Set(types.flatMap((t) => (t === 'failed' ? [] : TYPE_KINDS[t])));
   const failedOnly = types.includes('failed');
-  const words = (filter.q ?? '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 20);
+  const words = filterWords(filter);
   const text = (r: IndexedRun) => {
     if (!words.length) return true;
-    const hay = [r.runId, ...r.meta.labels, r.argv.join(' '), r.source ?? '', r.codeVersion ?? ''].join(' ').toLowerCase();
+    const hay = [r.runId, aboutText(r), ...r.meta.labels, r.argv.join(' '), r.source ?? '', r.codeVersion ?? ''].join(' ').toLowerCase();
     return words.every((w) => hay.includes(w));
   };
   const scope = (r: IndexedRun) => (filter.includeAttempts || !r.bundled) && (filter.from == null || r.startedAt >= filter.from) && (filter.to == null || r.startedAt < filter.to);
@@ -121,7 +134,9 @@ function matcher(filter: RunFilter): Matcher {
 /** Every run the filter matches, newest first, as the table lists them. */
 export function matchingRuns(store: Store, filter: RunFilter): IndexedRun[] {
   const index = loadRunIndex(store);
-  return withLiveness(store, index).filter(matcher(filter).matches);
+  const all = withLiveness(store, index);
+  const scoped = all.filter(matcher(filter).scope);
+  return all.filter(matcher(filter, aboutTexts(store, index, scoped, filter)).matches);
 }
 
 /**
@@ -242,7 +257,7 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   const all = withLiveness(store, index);
   const sort = options.sort ?? 'when';
   const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50) || 50));
-  const m = matcher(options);
+  const m = matcher(options, aboutTexts(store, index, all.filter(matcher(options).scope), options));
   const matching = all.filter(m.matches);
   const spent = sort === 'spent' ? spentOf(store, index, matching.filter((r) => r.status !== 'running'), options) : null;
   const keyOf = (r: IndexedRun): SortKey => {
@@ -272,6 +287,7 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
 /** Rows of the table for these runs, with their statistics and origins. */
 export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions = {}): RunRow[] {
   const totals = callTotals(store, index, runs);
+  const abouts = aboutsOf(store, index, runs);
   return runs.map((r) => {
     const t = totals.get(r.runId);
     const s = t ? priced(t, options.prices) : null;
@@ -285,6 +301,7 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
       label: r.label,
       divergence: r.divergence,
       command: r.argv.join(' '),
+      about: abouts.get(r.runId)!,
       codeVersion: r.codeVersion,
       startedAt: r.startedAt,
       endedAt: r.endedAt,
@@ -422,8 +439,10 @@ export function runsByDay(store: Store, options: RunsByDayOptions = {}): RunsByD
   const today = localDay(options.now ?? Date.now(), tz);
   const days = daysFrom(addDays(today, -(today.weekday + (weeks - 1) * 7), tz), today, tz);
   const out: DayCount[] = days.map((d) => ({ day: d.key, start: d.start, end: d.end, weekday: d.weekday, runs: 0, failed: 0, all: 0, level: 0, byKind: {}, byAuthor: {} }));
-  const m = matcher(options);
-  for (const r of withLiveness(store, loadRunIndex(store))) {
+  const index = loadRunIndex(store);
+  const all = withLiveness(store, index);
+  const m = matcher(options, aboutTexts(store, index, all.filter(matcher(options).scope), options));
+  for (const r of all) {
     const i = dayIndex(days, r.startedAt);
     if (i < 0 || !m.base(r)) continue;
     const d = out[i]!;
