@@ -1773,6 +1773,8 @@ a.fxcall:hover code { text-decoration: underline; text-underline-offset: 3px; }
 .fxsource { color: var(--accent); }
 .dialog p.fxdlg { margin: 0; color: var(--dim); font-size: 13px; }
 .dialog p.fxdlg + p.fxdlg { margin-top: 8px; }
+/* Find the commit's note on a first failure it passed over, above the commit to search from. */
+.dialog p.fcearly { margin-bottom: 14px; }
 /* A command-line flag in running text (`--stronger <model>`): one piece, never broken after its first hyphen. */
 code.flag { white-space: nowrap; font-size: .92em; }
 .prbody.clamp { max-height: 380px; overflow: hidden; position: relative; }

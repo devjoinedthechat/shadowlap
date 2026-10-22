@@ -12,9 +12,11 @@ import { bisectCommand, bisectRequest, bisectUpTo, revisionTally } from './find-
  * Find the commit, from the calendar: the first failure on the days picked is where it started
  * failing, and bisect replays it at commits between one where it still worked (before the first day
  * picked) and its own, halving each time, to name the first that broke it. Replays are free, so it
- * costs no tokens, unless its replays have to run live from where they diverge.
+ * costs no tokens, unless its replays have to run live from where they diverge. A
+ * first failure at the first commit has nothing before it to search: the server offers the first
+ * that started later, and `earlier` says why the first was passed over.
  */
-export function FindCommitDialog({ runId, choices, onClose }: { runId: string; choices: BisectChoices; onClose: () => void }) {
+export function FindCommitDialog({ runId, choices, earlier = null, onClose }: { runId: string; choices: BisectChoices; earlier?: { runId: string; why: string } | null; onClose: () => void }) {
   const { client, watchJob } = useApp();
   const listed = choices.revisions.map((r) => r.rev);
   const [good, setGood] = useState(choices.good ?? listed[0] ?? '');
@@ -40,6 +42,11 @@ export function FindCommitDialog({ runId, choices, onClose }: { runId: string; c
         watchJob(client.startJob(JOB_KINDS.bisect, bisectRequest(runId, choices, rev)));
       }}
     >
+      {earlier ? (
+        <p className="fxdlg fcearly">
+          {sentence(earlier.why)} This finds the commit that broke {what}, the first failure on those days that started later.
+        </p>
+      ) : null}
       <div className="form one">
         <label>
           A commit where it still worked

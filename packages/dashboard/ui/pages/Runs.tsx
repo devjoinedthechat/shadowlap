@@ -133,7 +133,7 @@ function ServerRuns() {
   const [picked, setPickedState] = useState(() => new Map(kept.picked));
   const [days, setDaysState] = useState(kept.days);
   const [times, setTimesState] = useState(kept.times);
-  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices }>(() => (importAsked ? 'import' : null));
+  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices; earlier: { runId: string; why: string } | null }>(() => (importAsked ? 'import' : null));
   const now = Date.now();
   // Asked from the palette: on this page already, or arriving on it.
   useEffect(() => {
@@ -267,7 +267,7 @@ function ServerRuns() {
     if (!t) return;
     guard(() =>
       client.daysBisect({ ...t, types, q }).then(
-        (out) => ('reason' in out ? toast(sentence(out.reason)) : setDialog({ runId: out.runId, choices: out.choices })),
+        (out) => ('reason' in out ? toast(sentence(out.reason)) : setDialog({ runId: out.runId, choices: out.choices, earlier: out.earlier ?? null })),
         (err: unknown) => toast(errorText(err), 'error'),
       ),
     );
@@ -328,7 +328,7 @@ function ServerRuns() {
         </>
       ) : null}
       {dialog === 'import' ? <ImportDialog onClose={() => setDialog(null)} /> : null}
-      {dialog && dialog !== 'import' ? <FindCommitDialog runId={dialog.runId} choices={dialog.choices} onClose={() => setDialog(null)} /> : null}
+      {dialog && dialog !== 'import' ? <FindCommitDialog runId={dialog.runId} choices={dialog.choices} earlier={dialog.earlier} onClose={() => setDialog(null)} /> : null}
     </Page>
   );
 }

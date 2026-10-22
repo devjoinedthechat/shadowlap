@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import { bisectCopy } from '../ui/run/offers.js';
+import { bisectBlocked, bisectCopy } from '../ui/run/offers.js';
 import type { BisectOffer } from '../ui/types.js';
 import { blameOf } from './read-model-store.js';
 
@@ -26,6 +26,7 @@ let second: string;
 let store: Store;
 let dash: Dashboard;
 let blamed: string;
+let atFirst: string;
 
 const getJson = async <T>(path: string): Promise<T> => {
   const res = await fetch(`${dash.url}/api/${path}`, { headers: { 'x-shadowlap-token': dash.token } });
@@ -67,6 +68,9 @@ beforeAll(async () => {
     data: {},
   });
   store.addFixLink('fx-01K4ZZFIND000000000000000', 'failing', blamed, T0 + 2000);
+  // Another agent, which exited 1 at the repository's first commit.
+  atFirst = store.createRun({ mode: 'record', command: { argv: ['node', 'digest.mjs'], cwd: repo }, codeVersion: first, startedAt: T0 - 3_600_000 }).runId;
+  store.endRun(atFirst, 'failed', T0 - 3_590_000);
   dash = await startDashboard({ store, readOnly: false, project: { path: repo } });
 });
 
@@ -86,5 +90,15 @@ describe('Find the commit on a run blame found failing though it exited 0', () =
     const copy = bisectCopy(blamed, offer);
     expect(copy.choices[0]).toEqual({ value: first, label: `${first} · Add the refund limit` });
     expect(copy.command(first)).toBe(`shadowlap bisect ${blamed.slice(0, 10)} --good ${first} --bad ${second} --expect '${JSON.stringify(CHECK)}' --fork`);
+  });
+});
+
+describe('Find the commit on a run that failed at the first commit', () => {
+  it('offers no search, and says there is nothing before it', async () => {
+    const offer = (await getJson<{ bisect: BisectOffer & { first?: boolean } }>(`runs/${atFirst}/offers`)).bisect;
+    const why = `${atFirst.slice(0, 10)} failed at the first commit, ${first}: there is nothing before it to search`;
+    expect(offer).toMatchObject({ failed: true, bad: first, good: null, args: null, first: true, unavailable: why });
+    // The fork menu's item is off, and says why on hover and when the palette asks for it.
+    expect(bisectBlocked(atFirst, offer, true)).toBe(why);
   });
 });
