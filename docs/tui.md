@@ -9,11 +9,11 @@ shadowlap ui <run> --call 17   # opened at call 17
 The terminal UI is the quick look: where a run forked, what a call sent and got back, and a fork from the call in front of you, without leaving the terminal. The [dashboard](./dashboard.md) is the full inspector, with turns, context and cache charts, the timeline of what ran in parallel, a run's family of forks, search across runs, comparison, and label and note editing. `o` opens the run, at the selected call, in the dashboard. `shadowlap search` ends each match with the `shadowlap ui <run> --call <n>` that opens it.
 
 ```
- 01K5CQ4P2R fork @17 of 01K5CQ4N7G · 30 calls · 16 replayed · 13 live · 1 blocked · 12k tok saved · 2s ago
+ 01K5CQ4P2R fork @17 of 01K5CQ4N7G · 30 calls · 16 replayed · 13 live · 1 blocked · 12.4k input tokens not re-spent · 2s ago
 ┌─────────────────────────────────────────────────┐┌───────────────────────────────────────────────┐
 │  #15  tool  fetch_page        replayed ok  {"url"││ conversation  request  response  meta         │
 │  #16  tool  read_file         replayed ok  {"path││ ■ 14 events over 1.3s · stop tool_use · space │
-│>!#17  api   messages          live     ok  1k>40 ││                                               │
+│>!#17  api   messages          live     ok  980>40││                                               │
 │  #18  tool  search_web        live     ok  {"quer││ Sending the summary.                          │
 │  #19  tool  send_email        blocked  ERR {"to":││ ⚙ send_email {"to":"team@example.com",…       │
 └─────────────────────────────────────────────────┘└───────────────────────────────────────────────┘
@@ -23,7 +23,7 @@ The terminal UI is the quick look: where a run forked, what a call sent and got 
 ## Screens
 
 - **Runs**: the run tree, forks nested under their parents, with status, call count, cost, age, `shadowlap test` check results (`✓ 3/3`, `✗ 2/3`) and labels. `Enter` opens.
-- **Timeline**: one row per call with kind, scope (when the run uses [scopes](./sdk.md#scopes)), name, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`, or `injected` for a failure Shadowlap answered with under [`--fail-at`](./interventions.md#inject-a-failure)), outcome, and for model calls the tokens, model and stop reason (`1k>40 tok · opus-5 · tool_use`), for tools the arguments. The divergence row is marked `!`.
+- **Timeline**: one row per call with kind, scope (when the run uses [scopes](./sdk.md#scopes)), name, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`, or `injected` for a failure Shadowlap answered with under [`--fail-at`](./interventions.md#inject-a-failure)), outcome, and for model calls the tokens, model and stop reason (`1.2k>40 tok · opus-5 · tool_use`), for tools the arguments. The divergence row is marked `!`.
 - **Inspector** tabs: *conversation* (the full conversation as sent at the selected call), *request* (structured), *response* (rendered stream, or JSON), *meta* (origin, latency, usage, attempts, headers, the changed-implementation warning).
 - **Play mode**: replays the selected response at its recorded pacing (×1, ×2, ×4, instant) from the per-event timing stored with the recording. Watch the run happen, at zero cost.
 - **Diff**: the divergence report with the normalizer hint.
