@@ -391,16 +391,16 @@ export interface InconclusiveView {
   gate: GateResultView | null;
   /** `injection` when its injection gate is what is inconclusive. */
   failure?: TestFailure | null;
-  /** A judge check its last result couldn't decide for want of a verdict, and what settles it; null for any other reason. */
+  /** A judge check its last result couldn't decide for want of a verdict it could use, and what settles it; null for any other reason. */
   judge?: UnjudgedCheck | null;
 }
 
 /**
  * A judge check a golden's last result couldn't decide, and what settles it. A golden that replays
- * offline can't ask the judge, so Update golden (`update`, the arguments of `test <golden> --update`)
- * asks it once, live, and keeps its verdict in the pack. A golden that forks asks its judges live,
- * and what it lacked was a key for the judge's provider where the test ran (`keys`, the variables
- * that key is read from). Neither when the result says another reason.
+ * offline can't ask the judge, so when what its pack holds is why (`held`), Update golden (`update`,
+ * the arguments of `test <golden> --update`) asks it once, live, and keeps its verdict in the pack. A
+ * golden that forks asks its judges live, and what it lacked was a key for the judge's provider where
+ * the test ran (`keys`, the variables that key is read from). Neither when the result says another reason.
  */
 export interface UnjudgedCheck {
   /** The check's name in the config, and its label. */
@@ -411,6 +411,16 @@ export interface UnjudgedCheck {
   provider: JudgeProvider | null;
   /** Why it wasn't judged, as the result kept it. */
   why: string;
+  /**
+   * What its pack holds for the check, as `why` says: no verdict (`none`); one given to an older form
+   * of the judge's request, which a replay no longer sends (`older`); or one given on other material
+   * than the replay reads now (`material`), as a value that changes every run does, which a normalizer
+   * fixes for good, or a rule or the agent changed since. Null for another reason, which an update
+   * can't settle.
+   */
+  held: 'none' | 'older' | 'material' | null;
+  /** For `material`, where it differs, in the CLI's words: `it read "…" where it now reads "…"`. */
+  changed: string | null;
   update: string[] | null;
   keys: readonly string[] | null;
 }
@@ -846,20 +856,37 @@ function goldenChecks(store: Store, labels: readonly string[], r: TestResult | n
 }
 
 /**
- * The judge check an inconclusive result couldn't decide for want of a verdict, and what settles it:
- * for a golden that replays offline and replayed clean, Update golden, which asks the judge once and
- * keeps its verdict in the pack; for a golden that forks, the key it lacked, when that is why. Null
- * when no judge check is what kept it undecided.
+ * What a golden's pack holds for a judge check its test couldn't decide, read from the CLI's words for
+ * why (`whyNotAnswered` in the CLI's judge.ts): no verdict, one given to an older form of the judge's
+ * request, or one given on other material, with where it differs. Null for any other reason.
+ */
+function heldVerdict(why: string): Pick<UnjudgedCheck, 'held' | 'changed'> {
+  const w = why.replace(/^not judged: /, '');
+  if (w.startsWith('no recorded verdict')) return { held: 'none', changed: null };
+  if (w.startsWith("the recording's verdict was given to an older form of the judge's request")) return { held: 'older', changed: null };
+  // `…on other material: it read "…" where it now reads "…", and <why the judge couldn't be asked>`, the last clause without a comma.
+  const other = /^the recording's verdict was given on other material(?:: (it read [\s\S]*))?, and [^,]*$/.exec(w);
+  if (other) return { held: 'material', changed: other[1] ?? null };
+  return { held: null, changed: null };
+}
+
+/**
+ * The judge check an inconclusive result couldn't decide for want of a verdict it could use, and what
+ * settles it: for a golden that replays offline and replayed clean, Update golden, which asks the judge
+ * once and keeps its verdict in the pack, when what the pack holds is why; for a golden that forks,
+ * the key it lacked, when that is why. Null when no judge check is what kept it undecided.
  */
 function unjudgedCheck(path: string, mode: 'replay' | 'fork', r: TestResult): UnjudgedCheck | null {
   const c = (r.data?.checks ?? []).find((x) => checkStatus(x) === 'inconclusive' && x.judge);
   if (!c?.judge) return null;
   const provider = judgeTarget(c.judge.model)?.provider ?? null;
   const why = c.detail ?? 'not judged';
-  // Offline, nothing could ask the judge; --update asks it live, once, and keeps the verdict, for a replay that ran clean.
-  const update = mode === 'replay' && !r.data?.divergence && !optionLike(path) ? ['test', path, '--update'] : null;
+  const { held, changed } = heldVerdict(why);
+  // Offline, nothing could ask the judge; --update asks it live, once, and keeps the verdict, for a replay
+  // that ran clean. It settles nothing else: a model no provider serves, material that couldn't be made.
+  const update = mode === 'replay' && held && !r.data?.divergence && !optionLike(path) ? ['test', path, '--update'] : null;
   const keys = mode === 'fork' && provider && /\bno key for\b/.test(why) ? JUDGE_KEYS[provider] : null;
-  return { name: c.judge.name, label: c.label, model: c.judge.model, provider, why, update, keys };
+  return { name: c.judge.name, label: c.label, model: c.judge.model, provider, why, held, changed, update, keys };
 }
 
 /** What the network guard prints when it blocks a connection, Node's and Python's alike, and the error it raises. */

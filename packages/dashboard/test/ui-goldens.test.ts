@@ -173,11 +173,19 @@ describe('the goldens table', () => {
   });
 
   it('says what settles a judge check with no verdict: Update golden offline, the key for a golden that forks', () => {
-    const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', update: ['test', 'goldens/judged', '--update'], keys: null };
+    const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', held: 'none', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null };
     const v = { golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge } as InconclusiveView;
     // Offline, no key settles it: the old hint asked for one.
     expect(inconclusiveHint(v)).toBe('Its pack holds no verdict for the judge check explains-escalation, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.');
     expect(inconclusiveHint({ ...v, judge: { ...judge, update: null, keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] } })).toBe('The test runs this golden live, and the judge check explains-escalation had no key to ask claude-haiku-4-5 with: set ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) where the tests run, in CI as a secret, and run it again.');
+    // A verdict the pack holds, given to an older form of the request: no "no verdict", and the update asks again.
+    const older = inconclusiveHint({ ...v, judge: { ...judge, held: 'older', why: "not judged: the recording's verdict was given to an older form of the judge's request, and the test runs offline: record it again with shadowlap test --update" } });
+    expect(older).toBe('The verdict its pack holds for the judge check explains-escalation was given to an older form of the judge’s request, which a replay no longer sends, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.');
+    // One given on other material: a value made anew on every run needs its normalizer before the update, which alone would leave the next test where this one is.
+    const material = inconclusiveHint({ ...v, judge: { ...judge, held: 'material', changed: 'it read "order 8f3a" where it now reads "order 1b2c"' } });
+    expect(material).toBe('The verdict its pack holds for the judge check explains-escalation was given on other material than the replay reads now, as its line above says, and the test replays offline, so the judge can’t be asked. If what changed is a value that changes every run, such as an id the agent prints, a normalizer for it is the lasting fix: add it first, since a verdict on one run’s value answers no other, and the next test would read not judged again. Update golden then asks the judge once, live, and keeps its verdict in the pack.');
+    expect(material.indexOf('normalizer')).toBeLessThan(material.indexOf('Update golden'));
+    for (const hint of [older, material]) expect(hint).not.toContain('holds no verdict');
   });
 
   it('marks each check by its last status, as the CLI does, with no mark before a result', () => {
@@ -423,7 +431,7 @@ describe('waiting for a test job', () => {
 
 describe('the Update golden dialog', () => {
   it('asks the judge once for a golden that replays clean and only lacks its verdict, re-recording nothing', () => {
-    const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', update: ['test', 'goldens/judged', '--update'], keys: null };
+    const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', held: 'none', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null };
     const v = view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge }] });
     const plan = updatePlan(v, ['goldens/judged']);
     // As the mock's dialog has it: no card, since nothing diverged and the title names the golden.
@@ -437,6 +445,21 @@ describe('the Update golden dialog', () => {
       ['Its verdict kept in the pack', 'the next test judges from it, free'],
       ['You review the change', 'in your pull request'],
     ]);
+  });
+
+  it('words the judge\'s update by what its pack holds: an older form of the request, or other material, where a normalizer comes first', () => {
+    const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: '', held: 'older', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null };
+    const plan = (j: UnjudgedCheck) => updatePlan(view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge: j }] }), ['goldens/judged']);
+    const older = plan(judge);
+    expect(older).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, ok: 'Update', command: 'shadowlap test goldens/judged --update' });
+    expect(older.text).toBe('Its replay is clean: only its judge check’s verdict in the pack was given to an older form of the judge’s request, which a replay no longer sends. Updating asks the judge once, live, with the Anthropic key in the dashboard’s environment, and keeps its new verdict; nothing is re-recorded.');
+    const material = plan({ ...judge, held: 'material', changed: 'it read "order 8f3a" where it now reads "order 1b2c"' });
+    expect(material.text).toBe('Its replay is clean, but its judge check’s verdict in the pack was given on other material than the replay reads now. Updating asks the judge once, live, with the Anthropic key in the dashboard’s environment, and keeps its new verdict; nothing is re-recorded.');
+    // The amber box names the normalizer as the lasting fix, with what changed, as a divergence's does.
+    expect(material.advise).toEqual({ title: 'A value that changes every run needs a normalizer', text: 'What the judge reads changed: it read "order 8f3a" where it now reads "order 1b2c". If that is such a value (an id the agent prints, say), add a normalizer for it first: a verdict given on one run’s value answers no other, and the next test reads not judged again.', path: null });
+    expect(material.ok).toBe('Update anyway');
+    expect(material.steps[2]).toEqual(['Its verdict kept in the pack', 'for what it reads now']);
+    for (const p of [older, material]) expect(p.text).not.toContain('has no verdict');
   });
 
   it('shows one golden as a card, its checks, the amber note naming the path, and Update anyway', () => {

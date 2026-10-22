@@ -1176,7 +1176,7 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
     const s = store();
     const view = testsView(s, GOLDENS);
     const judged = view.inconclusive.find((v) => v.golden === 'goldens/judged')!;
-    expect(judged.judge).toEqual({ name: 'explains-escalation', label: judgeLabel, model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', update: ['test', 'goldens/judged', '--update'], keys: null });
+    expect(judged.judge).toEqual({ name: 'explains-escalation', label: judgeLabel, model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', held: 'none', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null });
     // Its update is the job Update golden runs.
     expect(updateGoldensJob(GOLDENS, { golden: 'goldens/judged' })).toEqual({ title: 'Updating a golden', args: judged.judge!.update });
     const keyless = view.inconclusive.find((v) => v.golden === 'goldens/keyless')!;
@@ -1229,6 +1229,29 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
       ['live', { cost: 0.0004, asked: 1 }],
       ['recording', null],
     ]);
+    s.close();
+  });
+
+  it('reads what the pack holds for a judge from why it wasn\'t judged, and offers Update golden only where that is what\'s missing', () => {
+    const s = Store.open(':memory:');
+    const list = ['older', 'material', 'unknown'].map((name) => golden(`goldens/${name}`, 'replay', [judgeLabel]));
+    const why = {
+      older: "not judged: the recording's verdict was given to an older form of the judge's request, and the test runs offline: record it again with shadowlap test --update",
+      material: 'not judged: the recording\'s verdict was given on other material: it read "order 8f3a, and more" where it now reads "order 1b2c, and more", and the test runs offline',
+      unknown: "not judged: Shadowlap can't tell which provider serves my-judge",
+    };
+    session(
+      s,
+      'd2e8a1f',
+      T0,
+      Object.entries(why).map(([name, detail], i) => ({ golden: `goldens/${name}`, ok: false, failure: 'inconclusive' as never, runId: `R${i}`, data: { mode: 'replay' as const, verdict: 'inconclusive' as const, checks: [{ ...offline, detail }] } })),
+    );
+    const judges = new Map(testsView(s, list).inconclusive.map((v) => [v.name, v.judge]));
+    expect(judges.get('older')).toMatchObject({ held: 'older', changed: null, update: ['test', 'goldens/older', '--update'] });
+    // Where it differs, its quoted values whole, commas and all.
+    expect(judges.get('material')).toMatchObject({ held: 'material', changed: 'it read "order 8f3a, and more" where it now reads "order 1b2c, and more"', update: ['test', 'goldens/material', '--update'] });
+    // An update can't ask a judge whose provider no one can tell.
+    expect(judges.get('unknown')).toMatchObject({ held: null, changed: null, update: null });
     s.close();
   });
 });
