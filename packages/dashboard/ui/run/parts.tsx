@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { wholeInput } from '../../../engine/src/tokens.js';
 import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
+import type { TestBannerOffer } from '../types.js';
 import { CmdLine } from '../components/bits.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
@@ -16,7 +17,7 @@ import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, type MetricInput } from './metrics.js';
 import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './model.js';
-import { blameOfferFor, blameTitle, divergedActions, goldenName, updateGoldenCopy } from './offers.js';
+import { blameOfferFor, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from './offers.js';
 import { UpdateGoldenDialog } from './RunDialogs.js';
 
 /** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
@@ -419,15 +420,45 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
   }
 }
 
-/** The request that changed at the fork: what the recording sent, and what this run sent. */
-export function DiffPanel({ run }: { run: RunDetail }) {
+/**
+ * What a diverged test's banner found, said again under the diff: the value made anew on every run,
+ * what it looks like, and what its normalizer does; that one the recording never had needs the
+ * golden updated after the rule, and that one that may be a real change should be looked at first.
+ */
+function VolatileHint({ v, updates }: { v: NonNullable<TestBannerOffer['volatile']>; updates: boolean }) {
+  return (
+    <span>
+      {' '}
+      {v.op === 'added' ? (
+        <>
+          A value the recording never had, at <code>{v.path}</code>, looks like {v.looks}
+        </>
+      ) : (
+        <>
+          Only a value changed at <code>{v.path}</code>, and it looks like {v.looks}
+        </>
+      )}
+      {v.certain ? ': the agent makes a new one on every run.' : ', though it may be a real change: look at it before masking it.'} A normalizer masks it before matching
+      {updates ? '; the request still carries the field the recording lacks, so the golden is updated after it.' : ', and older recordings match too.'}
+    </span>
+  );
+}
+
+/**
+ * The request that changed at the fork: what the recording sent, and what this run sent. A diverged
+ * test's value made anew on every run is the test offer's finding (the banner's), judged on all its
+ * changes: the panel says so, with its normalizer, and says none is suggested only when neither the
+ * divergence's hints nor the finding suggest one.
+ */
+export function DiffPanel({ run, test = null }: { run: RunDetail; test?: TestBannerOffer | null }) {
   const d = run.run.divergence;
   if (!d) return null;
   const diff = d.diff ?? [];
   const parent = run.parent ? shortId(run.parent.runId) : 'the recording';
   const hint = d.hints?.find((h) => h.normalizer);
   const n = hint?.normalizer;
-  const command = n ? `shadowlap normalize add${n.kind ? ` --kind ${n.kind}` : ''}${n.name ? ` --name ${n.name}` : ''} --path '${n.path ?? '$'}'${n.pattern ? ` --pattern ${n.pattern}` : ''} --replace '${n.replace}'` : null;
+  const v = test?.volatile ?? null;
+  const command = v?.command ?? (n ? `shadowlap normalize add${n.kind ? ` --kind ${n.kind}` : ''}${n.name ? ` --name ${n.name}` : ''} --path '${n.path ?? '$'}'${n.pattern ? ` --pattern ${n.pattern}` : ''} --replace '${n.replace}'` : null);
   return (
     <section className="diffpanel">
       <div>
@@ -460,10 +491,12 @@ export function DiffPanel({ run }: { run: RunDetail }) {
       </div>
       <div className="hint">
         {diff.length ? `${diff.length === 1 ? 'One field' : `${diff.length} fields`} changed${diff.length > 12 ? '; the first 12 are shown' : ''}.` : null}
-        {d.hints?.map((h, i) => (
-          <span key={i}> {h.message}</span>
-        ))}
-        {!hint && diff.length ? ' Not a date or an id, so no normalizer is suggested.' : null}
+        {v ? (
+          <VolatileHint v={v} updates={!!test && updatesAfterRules(test)} />
+        ) : (
+          d.hints?.map((h, i) => <span key={i}> {h.message}</span>)
+        )}
+        {!hint && !v && diff.length ? ' Not a date or an id, so no normalizer is suggested.' : null}
         {command ? <CmdLine>{command}</CmdLine> : null}
       </div>
     </section>

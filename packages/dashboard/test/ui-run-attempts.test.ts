@@ -1,20 +1,22 @@
 import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Client } from '../ui/api.js';
 import { attemptOutcome, bannerFor, type BannerInput } from '../ui/run/banner.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { attemptLinks, attemptOf } from '../ui/run/model.js';
-import { Banner, type BannerProps } from '../ui/run/parts.js';
+import { Banner, DiffPanel, type BannerProps } from '../ui/run/parts.js';
 import { familyLine, runTag, type RunLike } from '../ui/runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { LineageNode, RunDetail, RunOffers } from '../ui/types.js';
+import type { LineageNode, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
+
 
 /**
  * The run page states what happened: a fork that failed says FAILED and offers Run blame; an attempt
  * says what was asked again, which attempt it is and how it came out, and leads back to where it
  * counted; the Forks view words a test from what its calls did and bundles a golden's attempts in
- * one session.
+ * one session; a diverged test's diff agrees with its banner.
  */
 
 const PLANTED = '01M5GRXJ8PT3W5BY6PKZQM6YA5';
@@ -241,5 +243,36 @@ describe('the Forks view', () => {
     expect(bundle.textContent).toContain('forked 5 attempts, 5 passed · ≈$0.088');
     expect(page.all('.fnode .attempts span').map((s) => s.textContent)).toEqual([1, 2, 3, 4, 5].map((k) => `0TEST${k}0000 · checks 1 of 1`));
     expect(titles.some((t) => t.startsWith('0OTHER'))).toBe(true);
+  });
+});
+
+describe('a diverged test’s diff', () => {
+  it('says what its banner says: the value made anew on every run, and its normalizer', () => {
+    const run = { run: { divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, counterpart: { callNo: 3 }, diff: [{ path: '$.metadata', op: 'added', after: { user_id: '6faa71ad-0381-40a5-aaa6-2b90195750da' } }] } }, parent: null } as never;
+    const test = {
+      golden: 'goldens/refund-in-limit',
+      volatile: { path: '$.metadata.user_id', looks: 'a UUID', op: 'added', certain: true, command: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" },
+      normalizeAndTest: [
+        ['normalize', 'add'],
+        ['test', 'goldens/refund-in-limit', '--update'],
+      ],
+    } as unknown as TestBannerOffer;
+    const html = renderToStaticMarkup(createElement(DiffPanel, { run, test }));
+    expect(html).toContain('looks like a UUID: the agent makes a new one on every run.');
+    expect(html).toContain('so the golden is updated after it');
+    expect(html).toContain('--path &#x27;$.metadata.user_id&#x27; --pattern uuid');
+    expect(html).not.toContain('no normalizer is suggested');
+    // A value that only changed: the design's sentence, and older recordings match too.
+    const changed = {
+      ...test,
+      volatile: { ...test.volatile!, op: 'changed' },
+      normalizeAndTest: [
+        ['normalize', 'add'],
+        ['test', 'goldens/refund-in-limit'],
+      ],
+    } as unknown as TestBannerOffer;
+    expect(renderToStaticMarkup(createElement(DiffPanel, { run, test: changed }))).toContain('and it looks like a UUID: the agent makes a new one on every run. A normalizer masks it before matching, and older recordings match too.');
+    // Without the finding, and no hint, it still says none is suggested.
+    expect(renderToStaticMarkup(createElement(DiffPanel, { run }))).toContain('Not a date or an id, so no normalizer is suggested.');
   });
 });
