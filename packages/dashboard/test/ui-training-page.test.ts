@@ -102,6 +102,8 @@ describe('the Training page', () => {
     r = await render(page('pairs'));
     await r.until('the page to load', () => r!.all('.kstrip').length > 0);
     expect(r.one('.ph p').textContent).toBe('Answers to prefer, from attempts already in the store, and your goldens as tasks to score.');
+    // In two clauses, so with less room than the line needs it breaks between them, not before its last words.
+    expect(text(r, '.ph p .ln')).toEqual(['Answers to prefer, from attempts already in the store,', 'and your goldens as tasks to score.']);
     expect(r.document.body.textContent).not.toContain('from failures you fixed');
     expect(text(r, '.kpi .k')).toContain('Exported');
     expect(r.document.body.textContent).not.toContain('Left this machine');

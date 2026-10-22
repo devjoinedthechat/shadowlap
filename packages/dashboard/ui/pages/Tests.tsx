@@ -7,6 +7,7 @@ import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
 import { treeBusy } from '../fixes/model.js';
 import { useServerJobs } from '../fixes/tree.js';
+import { glued } from '../format.js';
 import { asksUpdate, checkMark, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, sessionLine, sessionWait, sourceText, testsBusy, type ReportLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
@@ -469,7 +470,7 @@ function Checks({ row }: { row: GoldenRow }) {
             ) : null}
             <span className="cw">
               {m.text}
-              {m.sub ? <small>{m.sub}</small> : null}
+              {m.sub ? <small>{glued(m.sub)}</small> : null}
             </span>
           </span>
         );

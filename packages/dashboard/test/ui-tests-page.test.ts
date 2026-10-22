@@ -198,4 +198,8 @@ describe('the Tests page\'s styles', () => {
     // The viewport rule that hid revisions by the window's width, not the table's, is gone.
     expect(css).not.toMatch(/td\.hist i:nth-last-child/);
   });
+
+  it('wrap a cell without leaving a word alone on its last line, as the mock\'s do', () => {
+    expect(css).toMatch(/\ntable\.gt td \{ text-wrap: pretty; \}/);
+  });
 });

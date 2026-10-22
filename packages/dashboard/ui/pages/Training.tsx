@@ -60,7 +60,11 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
       <PageHeader
         eyebrow="pairs · tasks · on this machine"
         title="Training"
-        text="Answers to prefer, from attempts already in the store, and your goldens as tasks to score."
+        text={
+          <>
+            <span className="ln">Answers to prefer, from attempts already in the store,</span> <span className="ln">and your goldens as tasks to score.</span>
+          </>
+        }
         actions={
           action ? (
             <button className="btn lime" type="button" disabled={!!action.off} title={action.off ?? undefined} onClick={() => guard(() => setDialog(action.kind))}>
