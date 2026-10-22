@@ -120,9 +120,10 @@ describe('Run blame and Find the commit', () => {
     ]);
     expect(c.initial).toBe('c91d0f4');
     expect(c.command('a7b3c2e')).toBe('shadowlap bisect 01M50J6C69 --good a7b3c2e --bad d2e8a1f');
-    // A run that failed on its own replays live past where it differs: it says so, and forks.
+    // A run that failed on its own replays live past where it differs, and forks: one live replay
+    // decides each commit, which it says, with what that means for a failure that comes and goes.
     const live = bisectCopy(RUN, offer({ fork: true, live: true, bad: null, revisions: [] }));
-    expect(live.text).toMatch(/and HEAD, .* this costs tokens\.$/);
+    expect(live.text).toBe('Replays the run at commits between a good one and HEAD, halving each time, and names the first where it fails. One live replay decides each commit, from where its requests differ: it costs tokens, and a failure that doesn’t happen every time can pass at a commit that has it.');
     expect(live.choices).toEqual([{ value: 'c91d0f4', label: 'c91d0f4 · where it last passed' }]);
     expect(live.command('…')).toBe('shadowlap bisect 01M50J6C69 --good … --fork');
     // A golden's replay bisects the golden.
