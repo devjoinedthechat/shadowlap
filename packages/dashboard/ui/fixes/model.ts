@@ -446,13 +446,17 @@ export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict'> & { tone?: Fi
  * The line under a bundle's title. A stored report's says its verdict as a gate's (decision 9: the
  * word, the tally and the Wilson bound) and what its attempts spent, `rescued · 2 of 2 · rate >= 0.34
  * (95%) · ≈$0.032`, its rule said once under the family; attempts no report names, "4 attempts, 2
- * passed" (those that could not be judged counted apart).
+ * passed" (those that could not be judged counted apart). A verify's then names the change it
+ * checked and how that came out, as the Verify step's switch names it: `fixed · 12 of 12 · rate >=
+ * 0.76 (95%) · ≈$0.046 · repair candidate 3 · accepted`, since a run kept under a change says
+ * nothing of whether the change was accepted.
  */
 export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict'> & { verdictLine?: string | null }, money: (usd: number) => string): string {
-  if (b.verdictLine) return [b.verdictLine, ...(b.spent ? [money(b.spent)] : [])].join(' · ');
+  const change = b.kind === 'verify' && b.change ? [b.change, ...(b.verdict ? [b.verdict] : [])] : [];
+  if (b.verdictLine) return [b.verdictLine, ...(b.spent ? [money(b.spent)] : []), ...change].join(' · ');
   const n = b.attempts.length;
   const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
-  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...(b.kind === 'verify' && b.change ? [`${b.change}${b.verdict ? ` ${b.verdict}` : ''}`] : [])].join(' · ');
+  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...change].join(' · ');
 }
 
 // ---------------------------------------------------------------------------------------------- report.md

@@ -171,13 +171,14 @@ describe('the Forks view’s bundles', () => {
     r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ForksView, { runId: REC })));
     await r.until('the bundles to load', () => r!.all('.fnode').length === 6);
     const f2 = r.all('.fnode .f2');
-    // The recording, then its bundles: each verdict whole, then what its attempts spent.
+    // The recording, then its bundles: each verdict whole, then what its attempts spent, and a verify's change.
     expect(f2.slice(1).map((x) => x.querySelectorAll('.nw').map((n) => n.textContent))).toEqual([
       ['rescued ·', '2 of 2 ·', 'rate >= 0.34 (95%) ·', '≈$0.020'],
       ['rescued ·', '3 of 4 ·', 'rate >= 0.30 (95%) ·', '≈$0.020'],
       ['lost ·', '0 of 4 ·', 'rate <= 0.49 (95%) ·', '≈$0.020'],
-      ['fixed ·', '12 of 12 ·', 'rate >= 0.76 (95%) ·', '≈$0.200'],
-      ['not fixed ·', '0 of 3 ·', 'rate <= 0.56 (95%) ·', '≈$0.030'],
+      // A verify's names the change it checked and how that came out.
+      ['fixed ·', '12 of 12 ·', 'rate >= 0.76 (95%) ·', '≈$0.200 ·', 'repair candidate 3 ·', 'accepted'],
+      ['not fixed ·', '0 of 3 ·', 'rate <= 0.56 (95%) ·', '≈$0.030 ·', 'repair candidate 2 ·', 'rejected'],
     ]);
     // Blame's rule under the first of its probes alone, verify's under the first run it decided.
     expect(f2.map((x) => x.querySelector('.frule')?.textContent.replace(/\u00a0/g, ' ') ?? null)).toEqual([null, BLAME, null, null, VERIFY, null]);

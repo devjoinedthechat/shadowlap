@@ -312,6 +312,9 @@ describe('the Forks view’s bundles', () => {
   it('says a bundle’s verdict as a gate’s is said, then what its attempts spent', () => {
     const money = (v: number) => `≈$${v.toFixed(3)}`;
     expect(bundleLine(bundle({ verdictLine: 'rescued · 2 of 2 · rate >= 0.34 (95%)', spent: 0.032 }), money)).toBe('rescued · 2 of 2 · rate >= 0.34 (95%) · ≈$0.032');
+    // A verify's then names the change it checked and how that came out: a run kept under a rejected change says so.
+    expect(bundleLine(bundle({ kind: 'verify', verdictLine: 'fixed · 12 of 12 · rate >= 0.76 (95%)', spent: 0.046, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('fixed · 12 of 12 · rate >= 0.76 (95%) · ≈$0.046 · repair candidate 3 · accepted');
+    expect(bundleLine(bundle({ kind: 'verify', verdictLine: 'kept · 3 of 3', spent: 0.011, change: 'repair candidate 2', verdict: 'rejected' }), money)).toBe('kept · 3 of 3 · ≈$0.011 · repair candidate 2 · rejected');
     // Attempts no report names: their count.
     expect(bundleLine(bundle({ attempts: [attempt('A', true), attempt('B', false)], passes: 1 }), money)).toBe('2 attempts, 1 passed');
   });
@@ -339,7 +342,7 @@ describe('the Forks view’s bundles', () => {
   it('says how many attempts passed, what they cost, and for a verify the change and how it came out', () => {
     const money = (usd: number) => `≈$${usd.toFixed(3)}`;
     expect(bundleLine(bundle({ attempts: [attempt('A', true), attempt('B', false)], passes: 1, spent: 0.032 }), money)).toBe('2 attempts, 1 passed · ≈$0.032');
-    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('1 attempt, 1 passed · repair candidate 3 accepted');
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('1 attempt, 1 passed · repair candidate 3 · accepted');
   });
 
   it('marks an attempt that could not be judged apart from one that failed, and counts it apart', () => {
@@ -347,7 +350,7 @@ describe('the Forks view’s bundles', () => {
     expect([attempt('A', true), attempt('B', false), unsure].map(attemptMark)).toEqual([undefined, 'no', 'unsure']);
     // An attempt kept before attempts had a verdict reads as whether it passed.
     expect(attemptMark({ passed: false })).toBe('no');
-    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree incomplete');
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree · incomplete');
   });
 });
 
