@@ -103,7 +103,17 @@ describe('the Overview', () => {
   it('lists runs only on this machine in Needs a look once a team store is set', async () => {
     setConfig({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' });
     const s = await get<OverviewSummary>(dash, 'summary');
-    expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine', action: 'Push', href: '#/runs' });
+    // Push leads to the runs it means: Runs with Local picked, which lists those four and counts them.
+    expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine', action: 'Push', href: '#/runs?type=local' });
+    const page = await get<Omit<RunsPage, 'runs'> & { runs: RunsPageRow[] }>(dash, 'runs/page?types=local');
+    expect(page.runs.map((r) => r.runId)).toEqual([ids.failed, ids.fork, ids.rec, ids.old]);
+    expect(page.runs.every((r) => r.local)).toBe(true);
+    expect(page.chipCounts.local).toBe(4);
+    const days = await get<RunsByDay>(dash, 'runs/days?types=local&weeks=4');
+    expect(days.totals.runs).toBe(4);
+    // Without a store, nothing is only on this machine.
+    setConfig(null);
+    expect((await get<RunsPage>(dash, 'runs/page?types=local')).runs).toEqual([]);
   });
 });
 

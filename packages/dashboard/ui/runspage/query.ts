@@ -19,13 +19,13 @@ export function runsQueryString(q: RunsQuery & { tz?: string; weeks?: number }):
   return s ? `?${s}` : '';
 }
 
-/** The chips a link can pick. */
-const LINK_CHIPS: readonly RunChip[] = ['all', 'recording', 'fork', 'clean', 'test', 'capture', 'failed'];
+/** The chips a link can pick: Local is where Needs a look's Push leads. */
+const LINK_CHIPS: readonly RunChip[] = ['all', 'recording', 'fork', 'clean', 'test', 'capture', 'failed', 'local'];
 
 /**
  * What a link to Runs asks it to show: `#/runs?q=<words>&type=failed`, as an import's drawer links
- * the runs it made and Needs a look the failed runs. Null for a plain `#/runs`, or one asking for
- * nothing Runs knows.
+ * the runs it made and Needs a look the failed runs and the runs only here (`type=local`). Null for a
+ * plain `#/runs`, or one asking for nothing Runs knows.
  */
 export function runsLinkQuery(hash: string): { q: string; chip: RunChip } | null {
   const m = /^#\/runs\/?\?(.*)$/.exec(hash);

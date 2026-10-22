@@ -349,7 +349,8 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       story(local);
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'northwind-agent-runs/support-agent', onlyLocal: 7 } });
       // On Runs, as the design has it: the local tags show which, and the bulk bar pushes them.
-      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs', runId: null, fixId: null, at: 0 });
+      // Push leads to those runs: Runs with Local picked.
+      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs?type=local', runId: null, fixId: null, at: 0 });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 1 } }).needsLook.items.at(-1)).toMatchObject({ title: '1 run is only on this machine', detail: 'push it so the team can open it' });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 0 } }).needsLook.items.some((i) => i.kind === 'local')).toBe(false);
       // A store's setup left unfinished leads back to it, first.

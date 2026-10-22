@@ -260,7 +260,8 @@ export function runSpent(r: RunLike): { text: string; captured: boolean } {
   return { text: approx(r.spent || (r.imported ? r.captured : 0)), captured: false };
 }
 
-export type RunChip = 'all' | 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed';
+/** The Runs page's chips: the kinds, Failed, and with a team store Local, the runs only on this machine. */
+export type RunChip = 'all' | 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed' | 'local';
 export const RUN_CHIPS: ReadonlyArray<[RunChip, string]> = [
   ['all', 'All'],
   ['recording', 'Recordings'],
@@ -269,11 +270,14 @@ export const RUN_CHIPS: ReadonlyArray<[RunChip, string]> = [
   ['test', 'Tests'],
   ['capture', 'Captures'],
   ['failed', 'Failed'],
+  ['local', 'Local'],
 ];
 
+/** Whether a run is one a chip shows, in a list worked out in the page (an exported copy, which has no team store: Local shows none). */
 export function matchesChip(r: RunLike, chip: RunChip): boolean {
   if (chip === 'all') return true;
   if (chip === 'failed') return isFailed(r);
+  if (chip === 'local') return false;
   return runType(r) === chip;
 }
 

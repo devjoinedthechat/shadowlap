@@ -113,7 +113,7 @@ async function loadRows(client: Client, q: RunsQuery, limit: number): Promise<Ru
   return { ...first, runs, next };
 }
 
-const CHIP_TYPES: Readonly<Record<RunChip, readonly string[]>> = { all: [], recording: ['recording'], fork: ['fork'], clean: ['clean'], test: ['test'], capture: ['capture'], failed: ['failed'] };
+const CHIP_TYPES: Readonly<Record<RunChip, readonly string[]>> = { all: [], recording: ['recording'], fork: ['fork'], clean: ['clean'], test: ['test'], capture: ['capture'], failed: ['failed'], local: ['local'] };
 
 function pickedRun(r: TableRun): PickedRun {
   return { runId: r.runId, status: r.status, startedAt: r.startedAt, attempts: r.attempts ?? 0, ...(r.local !== undefined ? { local: r.local } : {}) };
@@ -305,7 +305,7 @@ function ServerRuns() {
       />
       {cal.data ? <Calendar data={cal.data} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} actionsOff={actionsOff} /> : null}
       <div className="tbar">
-        <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
+        <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
         <label className="tin">
           <span className="sr">Filter runs</span>
           <input type="search" placeholder="Filter by id, command, label or revision" value={query} onChange={(e) => setQuery(e.target.value)} />

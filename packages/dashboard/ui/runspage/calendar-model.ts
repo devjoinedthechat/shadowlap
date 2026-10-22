@@ -15,7 +15,7 @@ export const CAL_WEEKS = 12;
 export const CAL_CELLS = CAL_WEEKS * 7;
 
 /** What the chip picked counts, in the calendar's words. */
-export const CAL_NOUN: Readonly<Record<RunChip, string>> = { all: 'runs', recording: 'recordings', fork: 'forks', clean: 'clean replays', test: 'tests', capture: 'captures', failed: 'failed runs' };
+export const CAL_NOUN: Readonly<Record<RunChip, string>> = { all: 'runs', recording: 'recordings', fork: 'forks', clean: 'clean replays', test: 'tests', capture: 'captures', failed: 'failed runs', local: 'local runs' };
 
 /** One of them: `recording`, `failed run`. */
 export const oneOf = (noun: string): string => noun.replace(/s$/, '');

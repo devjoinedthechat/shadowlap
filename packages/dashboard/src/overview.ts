@@ -531,7 +531,8 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
             title: `${plural(teamStore.onlyLocal, 'run is', 'runs are')} only on this machine`,
             detail: `push ${teamStore.onlyLocal === 1 ? 'it' : 'them'} so the team can open ${teamStore.onlyLocal === 1 ? 'it' : 'them'}`,
             action: 'Push',
-            href: '#/runs',
+            // Runs, showing only those: each tagged local, and Push in the bulk bar sends the ones picked.
+            href: '#/runs?type=local',
             runId: null,
             fixId: null,
             at: 0,

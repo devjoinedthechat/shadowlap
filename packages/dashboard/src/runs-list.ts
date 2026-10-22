@@ -11,12 +11,15 @@ import { callTotals, priced, spentOf, type StatsOptions } from './run-stats.js';
  * wants them.
  */
 
-/** The table's type chips. The kinds add up (forks or clean replays); Failed narrows to failures. */
-export type RunType = 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed';
-export const RUN_TYPES: readonly RunType[] = ['recording', 'fork', 'clean', 'test', 'capture', 'failed'];
+/**
+ * The table's type chips. The kinds add up (forks or clean replays); Failed narrows to failures, and
+ * Local, with a team store, to the runs only on this machine (`localRuns`).
+ */
+export type RunType = 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed' | 'local';
+export const RUN_TYPES: readonly RunType[] = ['recording', 'fork', 'clean', 'test', 'capture', 'failed', 'local'];
 
 /** The kinds each chip shows. A recording from a pack is a recording; a replay that never finished shows under All. */
-const TYPE_KINDS: Readonly<Record<Exclude<RunType, 'failed'>, readonly RunKind[]>> = {
+const TYPE_KINDS: Readonly<Record<Exclude<RunType, 'failed' | 'local'>, readonly RunKind[]>> = {
   recording: ['recording', 'pack'],
   fork: ['fork'],
   clean: ['clean'],
@@ -37,6 +40,11 @@ export interface RunFilter {
   q?: string;
   /** List attempts as rows too. */
   includeAttempts?: boolean;
+  /**
+   * With a team store, the runs only on this machine, as its status counts them (`teamRunCounts`):
+   * what the Local chip shows, and counts. Without one, Local matches nothing.
+   */
+  localRuns?: ReadonlySet<string> | null;
 }
 
 export interface RunsPageOptions extends RunFilter, StatsOptions {
@@ -82,6 +90,8 @@ export interface ChipCounts {
   test: number;
   capture: number;
   failed: number;
+  /** Runs only on this machine, with a team store; 0 without one. */
+  local: number;
 }
 
 export interface RunsPage {
@@ -97,7 +107,7 @@ export interface RunsPage {
 interface Matcher {
   /** Listed at all: attempts only when asked, and within the date range. */
   scope(r: IndexedRun): boolean;
-  /** The chips' kinds and the filter field, without Failed: what failures are counted out of. */
+  /** The chips' kinds, Local and the filter field, without Failed: what failures are counted out of. */
   base(r: IndexedRun): boolean;
   /** Everything the filter asks for. */
   matches(r: IndexedRun): boolean;
@@ -105,8 +115,10 @@ interface Matcher {
 
 function matcher(filter: RunFilter): Matcher {
   const types = filter.types ?? [];
-  const kinds = new Set(types.flatMap((t) => (t === 'failed' ? [] : TYPE_KINDS[t])));
+  const kinds = new Set(types.flatMap((t) => (t === 'failed' || t === 'local' ? [] : TYPE_KINDS[t])));
   const failedOnly = types.includes('failed');
+  const localOnly = types.includes('local');
+  const local = filter.localRuns ?? null;
   const words = (filter.q ?? '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 20);
   const text = (r: IndexedRun) => {
     if (!words.length) return true;
@@ -114,7 +126,8 @@ function matcher(filter: RunFilter): Matcher {
     return words.every((w) => hay.includes(w));
   };
   const scope = (r: IndexedRun) => (filter.includeAttempts || !r.bundled) && (filter.from == null || r.startedAt >= filter.from) && (filter.to == null || r.startedAt < filter.to);
-  const base = (r: IndexedRun) => scope(r) && (!kinds.size || kinds.has(r.kind)) && text(r);
+  // Local narrows what failures are counted out of, as a kind does: the calendar's "8 of 12 local runs".
+  const base = (r: IndexedRun) => scope(r) && (!kinds.size || kinds.has(r.kind)) && (!localOnly || !!local?.has(r.runId)) && text(r);
   return { scope, base, matches: (r) => base(r) && (!failedOnly || r.failed) };
 }
 
@@ -195,12 +208,13 @@ export function runStates(store: Store): (runId: string) => RunState | null {
   };
 }
 
-export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) => boolean): ChipCounts {
-  const c: ChipCounts = { all: 0, recording: 0, fork: 0, clean: 0, test: 0, capture: 0, failed: 0 };
+export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) => boolean, localRuns: ReadonlySet<string> | null = null): ChipCounts {
+  const c: ChipCounts = { all: 0, recording: 0, fork: 0, clean: 0, test: 0, capture: 0, failed: 0, local: 0 };
   for (const r of runs) {
     if (!inScope(r)) continue;
     c.all++;
     if (r.failed) c.failed++;
+    if (localRuns?.has(r.runId)) c.local++;
     for (const t of ['recording', 'fork', 'clean', 'test', 'capture'] as const) if (TYPE_KINDS[t].includes(r.kind)) c[t]++;
   }
   return c;
@@ -265,7 +279,7 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
     runs: rows(store, index, page.map((x) => x.r), options),
     total: matching.length,
     next: last && start + limit < keyed.length ? encodeCursor(last.k) : null,
-    chipCounts: chipCounts(all, m.scope),
+    chipCounts: chipCounts(all, m.scope, options.localRuns ?? null),
   };
 }
 

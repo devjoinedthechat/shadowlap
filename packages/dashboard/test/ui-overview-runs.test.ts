@@ -367,6 +367,8 @@ describe('the Runs page’s requests and words', () => {
     expect(runsLinkQuery('#/runs?q=imported%20gateway%20%282%29.jsonl')).toEqual({ q: 'imported gateway (2).jsonl', chip: 'all' });
     expect(runsLinkQuery('#/runs?type=failed')).toEqual({ q: '', chip: 'failed' });
     expect(runsLinkQuery('#/runs?q=refund&type=fork')).toEqual({ q: 'refund', chip: 'fork' });
+    // Needs a look's Push: the runs only on this machine.
+    expect(runsLinkQuery('#/runs?type=local')).toEqual({ q: '', chip: 'local' });
     for (const hash of ['#/runs', '#/runs?type=nightly', '#/runs?q=%20', '#/run/01K5CQ4N7G?q=x', '#token=abc&open=/runs']) expect(runsLinkQuery(hash), hash).toBeNull();
   });
 
