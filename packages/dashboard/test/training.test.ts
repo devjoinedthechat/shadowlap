@@ -33,13 +33,14 @@ const task = (golden: string, status: Task['status'], rewards: string | null, ex
   status,
   note: status === 'blocked' ? 'its test fails' : status === 'not-a-task' ? 'its checks only cap tokens and cost' : status === 'no-golden' ? 'the golden is gone' : null,
   runId: status === 'no-golden' ? null : `RUN_${golden.split('/').at(-1)}`,
-  takeover: status === 'no-golden' ? null : { callNo: 17, why: 'decides between refunding and escalating', from: 'config' },
+  // Nothing would score a golden that is no task for want of outcome checks: no call to take over, and nothing after it.
+  takeover: status === 'no-golden' || status === 'not-a-task' ? null : { callNo: 17, why: 'decides between refunding and escalating', from: 'config' },
   scope: null,
   scopes: [null],
   rewards,
   checks: status === 'not-a-task' ? [{ label: 'at most 60000 input tokens', cap: true }] : [{ label: 'issue_refund called 0 times', cap: false }, { label: 'at most 60000 input tokens', cap: true }],
-  after: { live: ['queue_status'], stubbed: ['send_email'] },
-  prefix: 16,
+  after: status === 'not-a-task' ? { live: [], stubbed: [] } : { live: ['queue_status'], stubbed: ['send_email'] },
+  prefix: status === 'not-a-task' ? 0 : 16,
   model: 'claude-sonnet-5',
   provider: 'anthropic',
   callName: 'POST /v1/messages',
@@ -82,7 +83,7 @@ describe('the Training read model', () => {
       pairs: { value: '0', sub: 'blame a failing run to make some', href: '#/training', high: 0, medium: 0 },
       tasks: { value: '0 / 0', sub: 'no goldens yet', href: '#/training/tasks', ready: 0, total: 0, blocked: 0, notTask: 0 },
       best: { value: '—', sub: 'no model scored yet', href: '#/training/tasks', model: null, mean: null },
-      left: { value: '0', sub: 'nothing until you export it', href: null, pairs: 0, file: null, at: null },
+      left: { value: '0', sub: 'nothing exported yet', href: null, pairs: 0, file: null, at: null },
     });
     expect(view.actions).toEqual({ exportPairs: false, scoreModel: false });
     expect(view.pairs.empty).toEqual({ title: 'No pairs yet', text: 'Blame a failing run. The answer it was lost on and an answer that went on to pass make a pair.', command: 'shadowlap blame <run> --expect <checks>' });
@@ -262,8 +263,12 @@ describe('the Training read model', () => {
     // Checks that only cap spending score nothing, so no model takes over: no call, no tools after it.
     expect(view.tasks.rows[3]).toMatchObject({ sub: 'no call to take over', takeover: null, after: null, checks: ['at most 60000 input tokens'], status: { short: 'its checks only cap tokens and cost' } });
     expect(view.tasks.weak).toBe('refund-flow-budget');
+    // The sentence names a golden whose checks only cap tokens and cost, never one with no checks at all.
+    const bare = task('goldens/list-inbox', 'not-a-task', null, { note: 'it has no checks', checks: [] });
+    expect(trainingView(readTraining(s, { tasks: [TASKS[0]!, bare, TASKS[2]!] })).tasks.weak).toBe('refund-flow-budget');
+    expect(trainingView(readTraining(s, { tasks: [TASKS[0]!, bare] })).tasks.weak).toBeNull();
     // A golden with a simulated user: the row says which scope the model plays, and why it can't be scored yet.
-    const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], checks: [{ label: 'issue_refund called 0 times', cap: false }], note: "its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test" });
+    const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], takeover: { callNo: 17, why: 'decides between refunding and escalating', from: 'config' }, checks: [{ label: 'issue_refund called 0 times', cap: false }], note: "its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test" });
     expect(trainingView({ ...readTraining(s, { tasks: [dialogue] }) }).tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating · plays scope agent', status: { label: 'not a task', short: expect.stringContaining('more than one scope') } });
 
     // Means count the ready tasks only: qwen's zeros on the blocked task don't, and its card says it was scored on one of the two.
@@ -279,8 +284,10 @@ describe('the Training read model', () => {
     expect(first!.cells[1]!.pips[1]).toMatchObject({ attempt: 2, href: '#/run/qwen2.5:7b-goldens/refund-over-limit-2' });
     expect(second!.cells).toEqual([expect.objectContaining({ model: 'claude-sonnet-5', mean: 1 }), null]);
 
-    expect(view.serve!.request).toBe('POST /v1/tasks/refund-over-limit/attempts\nAuthorization: Bearer <token>\n{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1",\n  "from": 17 }');
-    expect(view.serve!.response).toContain('"check": "issue_refund called 0 times"');
+    // An example, never a result: no `from` (it only moves the takeover), a placeholder run, and a
+    // score that is the share of the checks passed, one of them missed.
+    expect(view.serve!.request).toBe('POST /v1/tasks/refund-over-limit/attempts\nAuthorization: Bearer <token>\n{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1" }');
+    expect(view.serve!.response).toBe(['200 OK', '{ "score": 0.5,', '  "checks": [', '    { "check": "the agent exits 0", "pass": true },', '    { "check": "issue_refund called 0 times", "pass": false } ],', '  "run": "<run id>", "spent": 0 }'].join('\n'));
 
     const dialog = view.scoreDialog!;
     expect(dialog.title).toBe('Score a model on 2 tasks');

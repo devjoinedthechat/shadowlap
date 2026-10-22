@@ -162,7 +162,9 @@ describe('GET /api/training', () => {
       ['claude-sonnet-5', 1, '≈$0.040 spent'],
       ['qwen2.5:7b', 0.75, '$0, not a paid API'],
     ]);
-    expect(view.serve?.response).toContain('{ "check": "issue_refund called 0 times", "pass": true } ],');
+    // An example of an attempt's answer, not one of this store's: a placeholder run, and one check missed.
+    expect(view.serve?.response).toContain('{ "check": "issue_refund called 0 times", "pass": false } ],');
+    expect(view.serve?.response).toContain('"run": "<run id>"');
   });
 
   it('answers 304 when nothing changed, filters by confidence, and refuses a filter it doesn’t know', async () => {

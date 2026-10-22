@@ -338,8 +338,11 @@ describe('shadowlap tasks', () => {
     ]);
     expect(tasks[1]).toMatchObject({ runId: golden, takeover: { callNo: 5, why: 'decides between refunding and escalating', from: 'config' }, rewards: 'escalate above the limit', after: { live: [], stubbed: ['escalate'] }, prefix: 4, model: 'small-model', provider: 'anthropic' });
     expect(oneSided?.rewards).toBe('escalate above the limit');
+    // Nothing would score a model on the budget golden, so it has no call to take over, as Training says.
+    expect(tasks[0]).toMatchObject({ takeover: null, after: { live: [], stubbed: [] }, prefix: 0 });
     const plain = await shadowlap(work, ['tasks']);
     expect(plain.stdout).toContain('1 of 2 tasks ready · 1 not a task');
+    expect(plain.stdout).toContain('  goldens/budget  not a task · its checks only cap tokens and cost\n  goldens/refund-over-limit  ready\n');
     expect(plain.stdout).toContain('takes over at #5 · decides between refunding and escalating · #1–#4 replay free');
     expect(plain.stdout).toContain('! One-sided: every ready task rewards "escalate above the limit"');
   });

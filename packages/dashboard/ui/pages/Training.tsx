@@ -60,7 +60,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
       <PageHeader
         eyebrow="pairs · tasks · on this machine"
         title="Training"
-        text="Answers to prefer and tasks to score, from failures you fixed."
+        text="Answers to prefer, from attempts already in the store, and your goldens as tasks to score."
         actions={
           action ? (
             <button className="btn lime" type="button" disabled={!!action.off} title={action.off ?? undefined} onClick={() => guard(() => setDialog(action.kind))}>
@@ -97,7 +97,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
 
 // ---------------------------------------------------------------------------------------------- the strip
 
-/** The same four numbers on both tabs: what there is, what's usable, how models did, and what has left the machine. */
+/** The same four numbers on both tabs: what there is, what's usable, how models did, and what the last export wrote. */
 function TrainingStrip({ view }: { view: TrainingView }) {
   const { pairs, tasks, best, left } = view.strip;
   const count = (v: string) => (/^\d+$/.test(v) ? Number(v).toLocaleString('en-US') : v);
@@ -106,7 +106,7 @@ function TrainingStrip({ view }: { view: TrainingView }) {
       <Kpi k="Pairs" value={count(pairs.value)} note={pairs.sub} tone="lime" href={href.training('pairs')} />
       <Kpi k="Tasks ready" value={tasks.value} note={tasks.sub} href={href.training('tasks')} />
       <Kpi k="Best mean score" value={best.value} note={best.sub} href={href.training('tasks')} />
-      <Kpi k="Left this machine" value={count(left.value)} note={left.file ? <span title={left.file === '-' ? 'Written to standard output' : `Written to ${left.file}`}>{leftNote(left)}</span> : left.sub} />
+      <Kpi k="Exported" value={count(left.value)} note={left.file ? <span title={left.file === '-' ? 'Written to standard output' : `Written to ${left.file}`}>{leftNote(left)}</span> : left.sub} />
     </div>
   );
 }
@@ -370,7 +370,15 @@ function TasksTab({ view }: { view: TrainingView }) {
           <div className="pbody">
             <p className="muted">Serve the model you’re training on an OpenAI-compatible endpoint. Each attempt returns its score, to use as the reward.</p>
             <CmdLine>{view.serve?.command ?? 'shadowlap tasks serve goldens/ --port 4779'}</CmdLine>
-            {view.serve ? <pre className="report trserve">{`${view.serve.request}\n\n${view.serve.response}`}</pre> : <p className="muted trafter">Once a task is ready, each request scores one attempt at it.</p>}
+            {view.serve ? (
+              <>
+                {/* Nothing was asked: an example, with a placeholder run and one check missed, so a score reads as the share passed. */}
+                <p className="muted trafter">For example, one attempt and the score it answers with:</p>
+                <pre className="report trserve">{`${view.serve.request}\n\n${view.serve.response}`}</pre>
+              </>
+            ) : (
+              <p className="muted trafter">Once a task is ready, each request scores one attempt at it.</p>
+            )}
           </div>
         </section>
         <section className="panel">

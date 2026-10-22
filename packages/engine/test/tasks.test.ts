@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NO_COMMAND, packRun } from '../src/pack.js';
 import { Store } from '../src/store.js';
-import { attemptScore, averageTokens, describeTask, entryFor, goldenPaths, inconclusiveWhy, isInconclusiveNote, isModelRequest, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, readGolden, type Task, type TaskCheck } from '../src/tasks.js';
+import { attemptScore, averageTokens, CAPS_ONLY_NOTE, describeTask, entryFor, goldenPaths, inconclusiveWhy, isInconclusiveNote, isModelRequest, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, readGolden, type Task, type TaskCheck } from '../src/tasks.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from './training-fixtures.js';
 
 /** Goldens as tasks: where a model takes over, why, what the task rewards, and whether it can be scored. */
@@ -153,8 +153,10 @@ describe('tasks', () => {
     expect(status(describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 5 }))).toEqual(['ready', null]);
     expect(status(describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 7 }))).toEqual(['ready', null]);
     expect(describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 7, forkedRun: 'R' }).fork).toBeUndefined();
-    expect(status(describeTask({ path: 'g', golden, fields: {}, checks: CAPS, testFailed: false }))).toEqual(['not-a-task', 'its checks only cap tokens and cost']);
+    expect(status(describeTask({ path: 'g', golden, fields: {}, checks: CAPS, testFailed: false }))).toEqual(['not-a-task', CAPS_ONLY_NOTE]);
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: [], testFailed: false }))).toEqual(['not-a-task', 'it has no checks']);
+    // Nothing would score what a model did there, so none takes over: no call, and nothing after it.
+    for (const checks of [CAPS, []]) expect(describeTask({ path: 'g', golden, fields: {}, checks, testFailed: false })).toMatchObject({ takeover: null, after: { live: [], stubbed: [] }, prefix: 0, model: null, callName: null, tokensAfter: null });
     expect(status(describeTask({ path: 'gone', golden: null, fields: {}, checks: OUTCOME, testFailed: null }))).toEqual(['no-golden', 'the golden is gone']);
     // Packed straight from a capture: shadowlap test can't start its agent, so neither can a score.
     const captured = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE], { argv: [NO_COMMAND] }).run;

@@ -1,4 +1,4 @@
-import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { CAPS_ONLY_NOTE, countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 
 /**
@@ -352,7 +352,7 @@ export interface TrainingView {
     empty: { title: string; text: string; command: string } | null;
     /** Why the tasks couldn't be read, such as a mistake in the config's `tests`; null when they could. */
     error: string | null;
-    /** The first task that isn't one, for "weak checks teach the wrong thing". */
+    /** The first golden that is no task because its checks only cap tokens and cost, for "weak checks teach the wrong thing"; null without one. */
     weak: string | null;
   };
   scores: { sub: string; empty: string | null; cards: ModelCardView[]; rows: ScoreRowView[]; footnote: string };
@@ -506,19 +506,23 @@ export function modelsView(tasks: readonly Task[], scores: readonly TaskScoreRow
 }
 
 /**
- * From a training loop: one `tasks serve` request for a ready task and its response (serve-tasks.ts
- * in the CLI), cut to what a loop reads, as the mock shows it: the score, each check, the run and
- * what it cost. The endpoint also answers the task, model, takeover, each check's detail, the exit
- * code and the time (docs/training.md has all of it). The model and run id are samples.
+ * From a training loop: an example of one `tasks serve` request for a ready task and its response
+ * (serve-tasks.ts in the CLI), cut to what a loop reads: the score, each check, the run and what it
+ * cost. Nothing was asked, so the page labels it an example, the run is a placeholder, and one check
+ * is shown missed, to show that a score is the share of the checks passed. The request names no
+ * `from`, which only takes over elsewhere than the task's own call. The endpoint also answers the
+ * task, model, takeover, each check's detail, the exit code and the time (docs/training.md has all of it).
  */
 function serveSample(t: Task): { command: string; request: string; response: string } {
   const q = JSON.stringify;
   const checks = ['the agent exits 0', ...t.checks.filter((c) => !c.cap).map((c) => c.label)];
-  const from = t.takeover?.callNo ?? null;
+  // The last check missed: a score is the share of the checks passed.
+  const missed = checks.length - 1;
+  const score = Math.round(((checks.length - 1) / checks.length) * 100) / 100;
   return {
     command: 'shadowlap tasks serve goldens/ --port 4779',
-    request: [`POST /v1/tasks/${t.name}/attempts`, 'Authorization: Bearer <token>', `{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1"${from !== null ? `,\n  "from": ${from}` : ''} }`].join('\n'),
-    response: ['200 OK', '{ "score": 1,', '  "checks": [', ...checks.map((c, i) => `    { "check": ${q(c)}, "pass": true }${i < checks.length - 1 ? ',' : ' ],'}`), '  "run": "01K5CR2M8Q…", "spent": 0 }'].join('\n'),
+    request: [`POST /v1/tasks/${t.name}/attempts`, 'Authorization: Bearer <token>', '{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1" }'].join('\n'),
+    response: ['200 OK', `{ "score": ${score},`, '  "checks": [', ...checks.map((c, i) => `    { "check": ${q(c)}, "pass": ${i !== missed} }${i < checks.length - 1 ? ',' : ' ],'}`), '  "run": "<run id>", "spent": 0 }'].join('\n'),
   };
 }
 
@@ -643,8 +647,8 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   const taskRows: TaskRowView[] = byStatus.map((t) => {
     const outcome = t.checks.filter((c) => !c.cap).map((c) => c.label);
     const checks = outcome.length ? ['the agent exits 0', ...outcome] : t.checks.map((c) => c.label);
-    // Without an outcome check nothing is scored, so no model takes over: the mock's "no call to take over".
-    const takeover = outcome.length && t.status !== 'no-golden' ? t.takeover : null;
+    // Without an outcome check nothing is scored, so no model takes over: the task has no call to take over.
+    const takeover = t.takeover;
     const k = takeover?.callNo ?? null;
     const update = updateOf(t);
     const atTakeover = stored(t.runId) ? `#/run/${t.runId}${k !== null ? `/${k}` : ''}` : null;
@@ -679,7 +683,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
       // The best names its endpoint when its model was scored at two; the same model at two endpoints is one model scored.
       best: { value: best ? best.mean!.toFixed(2) : '—', sub: best ? `${best.model}${best.where ? ` at ${best.where}` : ''} · ${best.coverage ?? `${plural(new Set(cards.map((c) => c.model)).size, 'model')} scored`}` : 'no model scored yet', href: '#/training/tasks', model: best?.model ?? null, mean: best?.mean ?? null },
       // The UI adds the export's time (`at`) after the file, as it formats every time.
-      left: { value: String(last?.pairs ?? 0), sub: last ? `pairs, to ${last.file === '-' ? 'stdout' : last.file}` : 'nothing until you export it', href: null, pairs: last?.pairs ?? 0, file: last?.file ?? null, at: last?.at ?? null },
+      left: { value: String(last?.pairs ?? 0), sub: last ? `pairs, to ${last.file === '-' ? 'stdout' : last.file}` : 'nothing exported yet', href: null, pairs: last?.pairs ?? 0, file: last?.file ?? null, at: last?.at ?? null },
     },
     tabs: { pairs: counts.all, tasks: ready.length },
     actions: { exportPairs: counts.all > 0, scoreModel: ready.length > 0 },
@@ -699,9 +703,10 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     tasks: {
       rows: taskRows,
       warning,
-      empty: input.tasks.length || input.tasksError ? null : { title: 'No tasks yet', text: 'A golden with outcome checks is a task: a model takes over at one call, and the checks score what it did.', command: 'shadowlap pack <run> goldens/<name>' },
+      empty: input.tasks.length || input.tasksError ? null : { title: 'No tasks yet', text: 'A golden whose checks say what the agent must do is a task: a model takes over at one call, and the checks score what it did.', command: 'shadowlap pack <run> goldens/<name>' },
       error: input.tasksError ?? null,
-      weak: input.tasks.find((t) => t.status === 'not-a-task')?.name ?? null,
+      // A golden whose checks only cap tokens and cost: one with no checks at all has none to call weak.
+      weak: input.tasks.find((t) => t.status === 'not-a-task' && t.note === CAPS_ONLY_NOTE)?.name ?? null,
     },
     scores: {
       sub: `mean share of checks passed, ${plural(ready.length, 'task')}`,

@@ -34,7 +34,7 @@ export function fileName(file: string): string {
   return file.split(/[\\/]/).filter(Boolean).pop() ?? file;
 }
 
-/** The line under Left this machine: how many pairs went to which file, and when. */
+/** The line under Exported: how many pairs the last export wrote to which file, and when. */
 export function leftNote(left: TrainingView['strip']['left'], now = Date.now()): string {
   if (left.file === null || left.at === null) return left.sub;
   return `pairs, to ${fileName(left.file)} · ${whenDone(left.at, now)}`;

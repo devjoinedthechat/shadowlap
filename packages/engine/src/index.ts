@@ -110,7 +110,7 @@ export type { ShowJson } from './show.js';
 // translation that lets a model of another provider take over a recorded conversation.
 export { contextLine, countPairs, findPairs, pairRows, PAIR_FORMATS, PAIR_SHAPES } from './pairs.js';
 export type { Pair, PairAnswer, PairConfidence, PairFormat, PairRowsOptions, PairSource, PairSourceKind, PairsResult } from './pairs.js';
-export { answersNothing, attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, goldenPaths, inconclusiveTestNote, inconclusiveWhy, isInconclusiveNote, isModelRequest, isPack, isRecordedInput, INCONCLUSIVE_TEST_NOTE, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
+export { answersNothing, attemptScore, averageTokens, CAPS_ONLY_NOTE, defaultTakeover, describeTask, entryFor, goldenPaths, inconclusiveTestNote, inconclusiveWhy, isInconclusiveNote, isModelRequest, isPack, isRecordedInput, INCONCLUSIVE_TEST_NOTE, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
 export type { Golden, InconclusiveWhy, OneSided, Takeover, Task, TaskCheck, TaskFields, TaskInput, TaskStatus } from './tasks.js';
 export { anthropicBase, choiceTarget, endpointVia, isLoopback, listingInput, listModelChoices, mainRefusal, modelReach, ollamaBase, openAIBase, OFFICIAL, refusedLine } from './models.js';
 // A rule the config already has, for a value a divergence shows (test --update, Training's Update the golden).

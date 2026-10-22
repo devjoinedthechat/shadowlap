@@ -231,7 +231,7 @@ export function TestsPage() {
             <p className="muted">Pack a run you consider correct into the repository. Redaction rules apply to the copy.</p>
             <CmdLine>{view.commands.pack}</CmdLine>
             <p className="muted after">
-              A golden with outcome checks is also a task a model can be scored on.{' '}
+              A golden whose checks say what the agent must do is also a task a model can be scored on.{' '}
               <a className="more" href={href.training('tasks')}>
                 Training tasks
               </a>

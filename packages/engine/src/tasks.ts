@@ -426,7 +426,9 @@ export function describeTask(input: TaskInput): Task {
     callName: call.name,
     tokensAfter: usageFrom(golden.calls, k),
   };
-  if (!outcome.length) return { ...task, status: 'not-a-task', note: checks.length ? 'its checks only cap tokens and cost' : 'it has no checks' };
+  // Nothing would score what a model did, so no model takes over: no call to take over, as the
+  // dashboard and `shadowlap tasks` both say, and nothing runs after one.
+  if (!outcome.length) return { ...base, status: 'not-a-task', note: checks.length ? CAPS_ONLY_NOTE : 'it has no checks' };
   // As shadowlap test refuses it: a golden packed straight from a capture can't start its agent.
   if (!hasRecordedCommand(golden.run)) return { ...task, status: 'blocked', note: NO_COMMAND_NOTE };
   if (task.scopes.length > 1) return { ...task, status: 'not-a-task', note: `its model calls are made in more than one scope (${task.scopes.map(scopeName).join(', ')}), and scoring can't yet send only ${task.scope === null ? "one scope's" : `${task.scope}'s`} to the model under test` };
@@ -436,6 +438,12 @@ export function describeTask(input: TaskInput): Task {
   if (input.forkedAt != null && input.forkedAt < k) return { ...task, status: 'blocked', note: forkNote(input.forkedAt), fork: { callNo: input.forkedAt, runId: input.forkedRun ?? null } };
   return task;
 }
+
+/**
+ * Why a golden whose checks only cap tokens and cost is no task: they say what a run spent, not
+ * whether the agent was right, so they would teach a model to spend less, not to do the job.
+ */
+export const CAPS_ONLY_NOTE = 'its checks only cap tokens and cost';
 
 /** Why a task whose golden's test forks before its takeover is blocked, and what makes it ready. */
 export function forkNote(callNo: number): string {
