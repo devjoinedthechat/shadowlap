@@ -120,9 +120,11 @@ function matcher(filter: RunFilter): Matcher {
   const localOnly = types.includes('local');
   const local = filter.localRuns ?? null;
   const words = (filter.q ?? '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 20);
+  // What the line under a run's id says it is (`clean replay`, `fork @17`) counts too, as an exported
+  // copy's filter reads it (ui/runs.ts `matchesText`).
   const text = (r: IndexedRun) => {
     if (!words.length) return true;
-    const hay = [r.runId, ...r.meta.labels, r.argv.join(' '), r.source ?? '', r.codeVersion ?? ''].join(' ').toLowerCase();
+    const hay = [r.runId, ...r.meta.labels, r.argv.join(' '), r.source ?? '', r.codeVersion ?? '', r.label].join(' ').toLowerCase();
     return words.every((w) => hay.includes(w));
   };
   const scope = (r: IndexedRun) => (filter.includeAttempts || !r.bundled) && (filter.from == null || r.startedAt >= filter.from) && (filter.to == null || r.startedAt < filter.to);

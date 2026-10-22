@@ -140,8 +140,13 @@ describe('the Runs table', () => {
     expect(runsPageOptions(new URLSearchParams('types=local'))).toEqual({ types: ['local'] });
   });
 
-  it('matches every word of the filter field against id, labels, command, source and revision', () => {
+  it('matches every word of the filter field against id, labels, command, source, revision and kind', () => {
     const ids = (q: string) => all({ q }).runs.map((r) => r.runId);
+    // What the line under the id calls a run, as an exported copy's filter finds it.
+    expect(ids('clean replay')).toEqual([id.clean]);
+    expect(ids('fork @5')).toEqual([id.p1]);
+    expect(ids('capture')).toEqual([id.cap]);
+    expect(runsByDay(store, { tz: 'UTC', now: NOW, q: 'clean replay' }).totals).toMatchObject({ runs: 1 });
     expect(ids('refund-bug')).toEqual([id.failed]);
     expect(ids('AGENT.MJS')).toEqual([id.failed]);
     expect(ids('2026-09-30')).toEqual([id.cap]);
