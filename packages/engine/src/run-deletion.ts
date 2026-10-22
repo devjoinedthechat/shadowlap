@@ -3,9 +3,10 @@ import type { Store } from './store.js';
 import type { RunRecord } from './types.js';
 
 /**
- * What `shadowlap rm` and the terminal UI's `x` delete, as the dashboard's Delete does: each run with
- * the attempts bundled under it (`--repeat`, blame's probes, verify's attempts, a golden's repeats in
- * one test session, an error-path preset's attempts), so none is left behind as a run of its own.
+ * What `shadowlap rm`, `gc` and the terminal UI's `x` delete, as the dashboard's Delete does: each run
+ * with the attempts bundled under it (`--repeat`, blame's probes, verify's attempts, a golden's
+ * repeats in one test session, an error-path preset's attempts), so none is left behind as a run of
+ * its own.
  */
 
 export interface DeletionPlan {
