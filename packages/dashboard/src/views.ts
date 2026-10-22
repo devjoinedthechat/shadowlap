@@ -146,6 +146,8 @@ export interface MetaView {
   static?: boolean;
   exportedAt?: number;
   redacted?: boolean;
+  /** An exported copy: how many redaction rules were applied to it (0: none, so it holds what was recorded). */
+  redactedRules?: number;
   runIds?: string[];
   /**
    * Compare in an exported copy: the run every comparison it holds includes, when it holds too many

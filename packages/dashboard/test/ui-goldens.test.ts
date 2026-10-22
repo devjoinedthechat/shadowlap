@@ -477,14 +477,14 @@ describe('the Update golden dialog', () => {
 
 describe('the palette', () => {
   it('lists each golden by how it did last, from any page, and Update goldens… when any diverged', () => {
-    // A golden whose gate ran out of attempts between its bounds reads as not passing (`result`), and is inconclusive, never failing.
+    // A golden whose gate ran out of attempts between its bounds reads as not passing (`result`), and is inconclusive, never failed.
     const unsure = row('refund-flaky', { last: { result: 'fail', verdict: 'inconclusive', failure: 'inconclusive', line: 'inconclusive · 16 of 20 passed', at: T, updated: false, gate: null } });
     const entries = testsPalette(view({ rows: [...view().rows, unsure, row('broken', { last: { result: null, verdict: null, failure: null, line: "can't be read: no run.json", at: null, updated: false, gate: null }, error: 'no run.json' }), row('new-one', { last: { result: null, verdict: null, failure: null, line: 'not run yet', at: null, updated: false, gate: null } })] }), { update: true });
     expect(entries.map((e) => [e.group, e.label, e.hint, e.to])).toEqual([
       ['Actions', 'Update goldens…', 'shadowlap test --update', '#/tests?update'],
-      ['Tests', 'refund-over-limit', 'passing', '#/tests'],
-      ['Tests', 'refund-in-limit', 'failing', '#/tests'],
-      ['Tests', 'escalate-over-limit', 'passing', '#/tests'],
+      ['Tests', 'refund-over-limit', 'passed', '#/tests'],
+      ['Tests', 'refund-in-limit', 'failed', '#/tests'],
+      ['Tests', 'escalate-over-limit', 'passed', '#/tests'],
       ['Tests', 'refund-flaky', 'inconclusive', '#/tests'],
       ['Tests', 'broken', 'can’t be read', '#/tests'],
       ['Tests', 'new-one', 'not run yet', '#/tests'],

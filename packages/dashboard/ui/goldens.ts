@@ -1,3 +1,4 @@
+import { wilsonBound } from '../../engine/src/stats.js';
 import { href } from './route.js';
 import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
 
@@ -441,8 +442,24 @@ export interface TestsPaletteEntry {
   label: string;
   hint: string;
   mono: boolean;
+  /** Update goldens…: it opens what starts a job, paused while the server can't be reached. */
+  job?: boolean;
   /** Where it goes: Tests, or Tests with its Update goldens… dialog open. */
   to: string;
+}
+
+/**
+ * A golden's hint in the palette, in the verdict words Tests uses (decision 9): passed, failed or
+ * inconclusive, and for a gate's verdict its tally and Wilson bound ("passed · 12 of 12 · rate >=
+ * 0.76 (95%)"); not run yet, or why its pack can't be read.
+ */
+export function goldenHint(r: Pick<GoldenRow, 'last' | 'error'>): string {
+  const verdict = r.last.verdict ?? (r.last.result === 'pass' ? 'passed' : r.last.result === 'fail' ? 'failed' : null);
+  if (!verdict) return r.error ? 'can’t be read' : 'not run yet';
+  const g = r.last.gate;
+  if (!g || g.attempts === 0) return verdict;
+  if (g.clean) return `${verdict} · a clean replay`;
+  return [verdict, `${g.passes} of ${g.attempts}`, wilsonBound(g)].filter(Boolean).join(' · ');
 }
 
 /**
@@ -452,9 +469,9 @@ export interface TestsPaletteEntry {
  */
 export function testsPalette(view: TestsView | null, o: { update: boolean }): TestsPaletteEntry[] {
   if (!view || view.empty) return [];
-  // An inconclusive golden is neither passing nor failing, as Tests marks it.
-  const out: TestsPaletteEntry[] = view.rows.map((r) => ({ group: 'Tests', label: r.name, mono: true, hint: r.last.verdict === 'inconclusive' ? 'inconclusive' : r.last.result === 'fail' ? 'failing' : r.last.result === 'pass' ? 'passing' : r.error ? 'can’t be read' : 'not run yet', to: href.tests() }));
-  if (view.diverged.length && o.update) out.unshift({ group: 'Actions', label: 'Update goldens…', hint: 'shadowlap test --update', mono: false, to: TESTS_UPDATE_HASH });
+  // An inconclusive golden neither passed nor failed, as Tests marks it.
+  const out: TestsPaletteEntry[] = view.rows.map((r) => ({ group: 'Tests', label: r.name, mono: true, hint: goldenHint(r), to: href.tests() }));
+  if (view.diverged.length && o.update) out.unshift({ group: 'Actions', label: 'Update goldens…', hint: 'shadowlap test --update', mono: false, job: true, to: TESTS_UPDATE_HASH });
   return out;
 }
 

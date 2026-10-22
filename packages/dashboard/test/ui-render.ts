@@ -52,6 +52,21 @@ export class FakeElement {
   get className(): string {
     return this.attributes.get('class') ?? '';
   }
+  /** The classes, as the shell marks the page's body with a state (`is-offline`, `is-expired`). */
+  get classList(): { add(c: string): void; remove(c: string): void; toggle(c: string, on?: boolean): boolean; contains(c: string): boolean } {
+    const list = () => this.className.split(/\s+/).filter(Boolean);
+    const write = (classes: string[]) => this.attributes.set('class', classes.join(' '));
+    return {
+      add: (c) => write([...new Set([...list(), c])]),
+      remove: (c) => write(list().filter((x) => x !== c)),
+      toggle: (c, on) => {
+        const now = on ?? !list().includes(c);
+        write(now ? [...new Set([...list(), c])] : list().filter((x) => x !== c));
+        return now;
+      },
+      contains: (c) => list().includes(c),
+    };
+  }
   getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
   }

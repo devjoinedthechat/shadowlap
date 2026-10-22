@@ -11,6 +11,21 @@ export interface PaletteEntry {
   group: PaletteGroup;
   label: string;
   hint: string;
+  /** It starts a job, or opens what starts one: paused while the server can't be reached. */
+  job?: boolean;
+}
+
+/** What a job's entry says in place of its hint while the server can't be reached. */
+export const PAUSED_HINT = 'paused: the server can’t be reached';
+
+/**
+ * What the palette's field says it searches, as the dashboard stands: an exported copy holds runs
+ * and pages; without the server (offline) the same, since recorded data is searched there and jobs
+ * are paused; a read-only dashboard runs no actions; otherwise everything.
+ */
+export function palettePlaceholder(o: { exported: boolean; actions: boolean; offline: boolean }): string {
+  if (o.exported || o.offline) return 'Search runs and pages';
+  return o.actions ? 'Search runs, pages, actions and what runs recorded' : 'Search runs, pages and what runs recorded';
 }
 
 /**

@@ -22,6 +22,8 @@ export interface PaletteCommand {
   label: string;
   hint: string;
   mono?: boolean;
+  /** It starts a job, or opens what starts one: dimmed and paused while the server can't be reached. */
+  job?: boolean;
   run: () => void;
 }
 
@@ -367,7 +369,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       ? (meta?.readOnlyReason ??
         (meta?.readOnly ? 'This dashboard is read-only: it was started with --read-only.' : 'Actions run the CLI: start the dashboard with shadowlap dashboard.'))
       : conn === 'expired'
-        ? 'This link has expired.'
+        ? 'This link’s session token isn’t this dashboard’s.'
         : null;
   const hasKind = useCallback((kind: string) => (meta?.jobKinds ? meta.jobKinds.includes(kind) : false), [meta]);
   const guard = useCallback(

@@ -1122,6 +1122,9 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 .palg { padding: 10px 10px 4px; font: 500 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
 .palit { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border: 0; border-radius: 9px; background: none; color: var(--ink); text-align: left; cursor: pointer; }
 .palit.on { background: var(--sel); }
+/* an action that starts a job, while it can't: dimmed, its reason as its hint, and Enter says why */
+.palit.waits .pl { color: var(--faint); }
+.palit.waits { cursor: default; }
 .palit .pl { font-size: 13.5px; white-space: nowrap; }
 .palit .pl.mono { font: 12.5px var(--mono); }
 .palit .ph2 { flex: 1; min-width: 0; color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1146,6 +1149,7 @@ body.is-offline main.view { padding-top: 44px; }
 .connblock h2 { margin: 0 0 8px; font: 600 20px var(--disp); letter-spacing: -.025em; }
 .connblock p { margin: 0 0 10px; color: var(--dim); font-size: 13.5px; line-height: 1.55; }
 .connblock .cmdline { margin: 6px 0 14px; }
+.connblock .actions .fieldnote { flex-basis: 100%; margin: 4px 0 0; }
 @media (max-width: 1000px) { .connbar { left: 0; padding: 10px 16px; flex-wrap: wrap; } }
 
 

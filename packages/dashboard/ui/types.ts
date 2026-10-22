@@ -300,6 +300,8 @@ export interface Meta {
   static?: boolean;
   exportedAt?: number;
   redacted?: boolean;
+  /** An exported copy: how many redaction rules were applied to it. */
+  redactedRules?: number;
   runIds?: string[];
   /** An exported copy of many runs compares each with this one only (Compare's pickers offer those pairs). */
   compareWith?: string | null;

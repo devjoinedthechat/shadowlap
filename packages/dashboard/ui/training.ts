@@ -209,6 +209,8 @@ export interface TrainingCommand {
   group: 'Actions';
   label: string;
   hint: string;
+  /** Each opens what starts a job: paused while the server can't be reached. */
+  job: true;
   run: () => void;
 }
 
@@ -230,7 +232,7 @@ export function trainingPalette({ app, go }: TrainingPaletteContext, kinds: { pa
       go(href.training(tab));
       requestTrainingDialog(kind);
     });
-  if (app.hasKind(kinds.pairs) && counts.pairs > 0) out.push({ group: 'Actions', label: 'Export preference pairs…', hint: 'shadowlap export pairs', run: open('pairs', 'export') });
-  if (app.hasKind(kinds.score) && counts.ready > 0) out.push({ group: 'Actions', label: 'Score a model on the tasks…', hint: 'shadowlap tasks score', run: open('tasks', 'score') });
+  if (app.hasKind(kinds.pairs) && counts.pairs > 0) out.push({ group: 'Actions', label: 'Export preference pairs…', hint: 'shadowlap export pairs', job: true, run: open('pairs', 'export') });
+  if (app.hasKind(kinds.score) && counts.ready > 0) out.push({ group: 'Actions', label: 'Score a model on the tasks…', hint: 'shadowlap tasks score', job: true, run: open('tasks', 'score') });
   return out;
 }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { tokenInUse } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
+import { pastedLink } from '../connection.js';
 import { copyText } from '../dom.js';
 import { clock } from '../format.js';
 import { readTokenLink } from '../route.js';
@@ -8,9 +10,10 @@ import { useApp } from '../state.js';
 
 /**
  * What the page says when it cannot talk to its server. Offline: a bar under the top bar, what was
- * loaded and when, actions paused, and a retry that backs off 5, 10, 20, then 30 seconds. Expired: a
- * full-screen card, since a restart issued a new session token. A link with no token at all gets the
- * gate, which explains where the link comes from.
+ * loaded and when, actions paused, and a retry that backs off 5, 10, 20, then 30 seconds. A session
+ * token the server refuses: a full-screen card, since the dashboard was restarted (a restart issues
+ * a new token) or the link is another dashboard's, with Paste the new link. A link with no token at
+ * all gets the gate, which explains where the link comes from.
  */
 
 export function OfflineBar() {
@@ -49,6 +52,39 @@ function CopyCommand({ text }: { text: string }) {
   );
 }
 
+/**
+ * Paste the new link: the link the dashboard printed, read from the clipboard, opened in this tab
+ * (`pastedLink`): the page starts again with its token. Says why when the clipboard holds no
+ * dashboard link, the one this page has, or can't be read.
+ */
+function PasteLink() {
+  const [why, setWhy] = useState<string | null>(null);
+  const paste = () =>
+    navigator.clipboard.readText().then(
+      (text) => {
+        const step = pastedLink(text, location.origin);
+        if (!step) return setWhy('The clipboard holds no dashboard link: copy the one shadowlap dashboard printed, with its #token=.');
+        if (step.kind === 'go') return location.assign(step.url);
+        if (readTokenLink(step.hash)?.token === tokenInUse()) return setWhy('That is the link this page already has: copy the one the dashboard printed when it last started.');
+        setWhy(null);
+        location.hash = step.hash;
+      },
+      () => setWhy('The browser didn’t let the page read the clipboard: paste the link into the address bar instead.'),
+    );
+  return (
+    <>
+      <button className="btn lime" type="button" onClick={() => void paste()}>
+        Paste the new link
+      </button>
+      {why ? (
+        <p className="fieldnote err" role="status">
+          {why}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 export function ExpiredCard() {
   const { conn } = useApp();
   useEffect(() => {
@@ -62,14 +98,15 @@ export function ExpiredCard() {
         <span className="cbi">
           <Icon name="clock" />
         </span>
-        <h2 id="connT">This link has expired</h2>
+        <h2 id="connT">This link’s session token isn’t this dashboard’s</h2>
         <p>
-          The dashboard was restarted. Every link carries a session token after the <code>#</code>, and a restart issues a new one, so links from before stop working.
+          It was restarted, or the link is from another one. Every link carries a session token after the <code>#</code>, and each start of the dashboard issues a new one.
         </p>
         <p>Open the link it printed when it started, or start it again:</p>
         <CmdLine>shadowlap dashboard</CmdLine>
         <div className="actions">
           <CopyCommand text="shadowlap dashboard" />
+          <PasteLink />
         </div>
       </div>
     </div>

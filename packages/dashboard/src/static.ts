@@ -82,7 +82,7 @@ function anonymous<T extends object>(row: T): T {
   return 'author' in row ? { ...row, author: null } : row;
 }
 
-function payload(store: Store, runIds: string[], opts: { prices?: Record<string, Price>; version?: string | null; redacted: boolean; now: number; keepAuthor: boolean }): { data: StaticPayload; calls: number } {
+function payload(store: Store, runIds: string[], opts: { prices?: Record<string, Price>; version?: string | null; rules: number; now: number; keepAuthor: boolean }): { data: StaticPayload; calls: number } {
   const read = opts.prices ? { prices: opts.prices } : {};
   const responses: Record<string, unknown> = {};
   const keep = opts.keepAuthor;
@@ -106,7 +106,9 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     static: true,
     exportedAt: opts.now,
     runIds,
-    redacted: opts.redacted,
+    redacted: opts.rules > 0,
+    // What Provenance says of the copy: when it was made, and with how many rules.
+    redactedRules: opts.rules,
     // Compare offers only the pairs the file holds.
     compareWith: runIds.length > COMPARE_ALL_UPTO ? runIds[0]! : null,
   };
@@ -137,7 +139,7 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     const c = compare(store, a, b);
     if (c) responses[`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`] = c;
   }
-  return { data: { shadowlap: opts.version ?? null, exportedAt: opts.now, runIds, redacted: opts.redacted, responses }, calls };
+  return { data: { shadowlap: opts.version ?? null, exportedAt: opts.now, runIds, redacted: opts.rules > 0, responses }, calls };
 }
 
 /** The bundled script and stylesheet inside their elements: only `</` can end either early. */
@@ -182,7 +184,7 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
     store = scratch;
   }
   try {
-    const { data, calls } = payload(store, asked, { ...(opts.prices ? { prices: opts.prices } : {}), version: opts.version ?? null, redacted: rules.length > 0, now: opts.now ?? Date.now(), keepAuthor: opts.keepAuthor === true });
+    const { data, calls } = payload(store, asked, { ...(opts.prices ? { prices: opts.prices } : {}), version: opts.version ?? null, rules: rules.length, now: opts.now ?? Date.now(), keepAuthor: opts.keepAuthor === true });
     const css = readFileSync(join(uiDir, 'assets', 'app.css'), 'utf8').replace(/url\(["']?\.\/fonts\/([\w.-]+)["']?\)/g, (_m, name: string) => `url(${dataUri(join(uiDir, 'assets', 'fonts', name), 'font/woff2')})`);
     const js = readFileSync(join(uiDir, 'assets', 'app.js'), 'utf8');
     const favicon = dataUri(join(uiDir, 'assets', 'favicon.svg'), 'image/svg+xml');

@@ -71,6 +71,7 @@ export function testsPaletteCommands(app: TestsPaletteApp, go: (to: string) => v
     label: e.label,
     hint: e.hint,
     mono: e.mono,
+    ...(e.job ? { job: true } : {}),
     run: () => (e.group === 'Actions' ? app.guard(() => go(e.to)) : go(e.to)),
   }));
 }
