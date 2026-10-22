@@ -286,7 +286,7 @@ describe('the Verify step', () => {
 });
 
 describe('the Forks view’s bundles', () => {
-  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: 'R', title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, passes: 1, attempts: [], spent: 0, at: 0, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
+  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: 'R', title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, passes: 1, attempts: [], spent: 0, at: 0, verdictLine: null, tone: null, rule: null, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
   const attempt = (runId: string, passed: boolean, rescued = false, verdict: 'passed' | 'failed' | 'inconclusive' = passed ? 'passed' : 'failed') => ({ runId, passed, verdict, note: passed ? 'passed' : verdict === 'inconclusive' ? 'inconclusive: judge "issued" answers yes' : 'failed', href: `#/run/${runId}`, rescued });
 
   it('leaves out every attempt they list but the rescued fork, which shows as a fork', () => {
@@ -294,11 +294,23 @@ describe('the Forks view’s bundles', () => {
     expect([...bundledRuns([b])]).toEqual(['B']);
   });
 
-  it('gives a verify the icon of its verdict', () => {
+  it('gives a verify the icon of how its run came out, inconclusive in amber, never a fork’s', () => {
     expect(bundleGlyph({ kind: 'blame', verdict: null }).kind).toBe('blame');
+    // A run the change fixed, under a verify that rejected it for another run: its own outcome.
+    expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', tone: 'ok' })).toEqual({ kind: 'fixok', label: 'Verify attempts: the run held' });
+    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', tone: 'no' }).kind).toBe('fixbad');
+    expect(bundleGlyph({ kind: 'verify', verdict: 'incomplete', tone: 'y' }).kind).toBe('warn');
+    // Attempts no report names go by the verdict.
     expect(bundleGlyph({ kind: 'verify', verdict: 'accepted' })).toEqual({ kind: 'fixok', label: 'Verify accepted the change' });
     expect(bundleGlyph({ kind: 'verify', verdict: 'rejected' }).kind).toBe('fixbad');
-    expect(bundleGlyph({ kind: 'verify', verdict: 'incomplete' }).kind).toBe('fork');
+    expect(bundleGlyph({ kind: 'verify', verdict: 'incomplete' }).kind).toBe('warn');
+  });
+
+  it('says a bundle’s verdict as a gate’s is said, then what its attempts spent', () => {
+    const money = (v: number) => `≈$${v.toFixed(3)}`;
+    expect(bundleLine(bundle({ verdictLine: 'rescued · 2 of 2 · rate >= 0.34 (95%)', spent: 0.032 }), money)).toBe('rescued · 2 of 2 · rate >= 0.34 (95%) · ≈$0.032');
+    // Attempts no report names: their count.
+    expect(bundleLine(bundle({ attempts: [attempt('A', true), attempt('B', false)], passes: 1 }), money)).toBe('2 attempts, 1 passed');
   });
 
   it('asks the server for them until it says it has none, and leaves a run it doesn’t know unbundled', async () => {

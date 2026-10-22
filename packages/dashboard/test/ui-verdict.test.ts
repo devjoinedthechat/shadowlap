@@ -6,8 +6,9 @@ import type { Client, TestsView } from '../ui/api.js';
 import { dotParts } from '../ui/components/Verdict.js';
 import { ActivityCard, NeedsLook } from '../ui/overview/panels.js';
 import { TestsPage } from '../ui/pages/Tests.js';
+import { ForksView } from '../ui/run/ForksView.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { ActivityItem, NeedsLookRow } from '../ui/types.js';
+import type { ActivityItem, FixBundle, LineageNode, NeedsLookRow } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
@@ -146,5 +147,41 @@ describe('Tests’ Last result', () => {
     } finally {
       delete g.location;
     }
+  });
+});
+
+describe('the Forks view’s bundles', () => {
+  const REC = '01M3RZ00010000000000000000';
+  const node = (runId: string, parentRunId: string | null): LineageNode => ({ runId, parentRunId, depth: parentRunId ? 1 : 0, mode: parentRunId ? 'replay' : 'record', status: 'failed', label: 'recording', divergence: null, calls: 7, spent: 0, saved: 0, startedAt: 1, repeat: null, checks: null, about: null });
+  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: REC, title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, passes: 2, attempts: [], spent: 0.02, at: 2, verdictLine: null, tone: null, rule: null, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
+  const BLAME = 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts';
+  const VERIFY = 'gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts';
+
+  it('says each probe’s and each run’s verdict as a gate’s, the rule once for each report', async () => {
+    const bundles = [
+      bundle({ key: 'b:1', title: 'blame · probe #1', verdictLine: 'rescued · 2 of 2 · rate >= 0.34 (95%)', tone: 'ok', rule: BLAME }),
+      bundle({ key: 'b:5', title: 'blame · probe #5', blamed: true, verdictLine: 'rescued · 3 of 4 · rate >= 0.30 (95%)', tone: 'ok', rule: BLAME }),
+      bundle({ key: 'b:7', title: 'blame · probe #7', verdictLine: 'lost · 0 of 4 · rate <= 0.49 (95%)', tone: 'no', rule: BLAME }),
+      bundle({ kind: 'verify', key: 'v:1', title: 'verify · target', verdict: 'accepted', change: 'repair candidate 3', verdictLine: 'fixed · 12 of 12 · rate >= 0.76 (95%)', tone: 'ok', rule: VERIFY, spent: 0.2, at: 3 }),
+      // Another verdict decided by the same rule: stated once in the family.
+      bundle({ kind: 'verify', key: 'v:2', title: 'verify · target', verdict: 'rejected', change: 'repair candidate 2', verdictLine: 'not fixed · 0 of 3 · rate <= 0.56 (95%)', tone: 'no', rule: VERIFY, spent: 0.03, at: 4 }),
+    ];
+    const client = { lineage: () => Promise.resolve([node(REC, null)]), fixBundles: () => Promise.resolve(bundles) } as unknown as Client;
+    const app = { client, exported: false, meta: null, runs: [], live: [], feeds: {}, tick: 0, runsTick: 0, jobs: [], hasKind: () => true, registerLayer: () => () => undefined };
+    r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ForksView, { runId: REC })));
+    await r.until('the bundles to load', () => r!.all('.fnode').length === 6);
+    const f2 = r.all('.fnode .f2');
+    // The recording, then its bundles: each verdict whole, then what its attempts spent.
+    expect(f2.slice(1).map((x) => x.querySelectorAll('.nw').map((n) => n.textContent))).toEqual([
+      ['rescued ·', '2 of 2 ·', 'rate >= 0.34 (95%) ·', '≈$0.020'],
+      ['rescued ·', '3 of 4 ·', 'rate >= 0.30 (95%) ·', '≈$0.020'],
+      ['lost ·', '0 of 4 ·', 'rate <= 0.49 (95%) ·', '≈$0.020'],
+      ['fixed ·', '12 of 12 ·', 'rate >= 0.76 (95%) ·', '≈$0.200'],
+      ['not fixed ·', '0 of 3 ·', 'rate <= 0.56 (95%) ·', '≈$0.030'],
+    ]);
+    // Blame's rule under the first of its probes alone, verify's under the first run it decided.
+    expect(f2.map((x) => x.querySelector('.frule')?.textContent.replace(/\u00a0/g, ' ') ?? null)).toEqual([null, BLAME, null, null, VERIFY, null]);
+    // A verify's icon says how its run came out: held, or failed.
+    expect(r.all('.fnode .glyph').map((g) => g.className)).toEqual([expect.any(String), 'glyph blame', 'glyph blame', 'glyph blame', 'glyph fixok', 'glyph fixbad']);
   });
 });

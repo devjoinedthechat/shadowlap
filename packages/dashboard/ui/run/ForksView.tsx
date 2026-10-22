@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useRef, type ReactNode } from 'react';
-import type { LineageNode } from '../api.js';
+import type { FixBundle, LineageNode } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
 import { shortId, stamp } from '../format.js';
@@ -70,6 +70,13 @@ export function ForksView({ runId }: { runId: string }) {
       </a>
     );
   };
+  // Each rule is stated once in the family, under the first bundle it decided (decision 9).
+  const ruled = new Set<string>();
+  const ruleOf = (b: FixBundle): string | null => {
+    if (!b.rule || ruled.has(b.rule)) return null;
+    ruled.add(b.rule);
+    return b.rule;
+  };
   const family = (parent: string | null): ReactNode => {
     const list = [...(kids.get(parent) ?? [])].filter((n) => !fixes.bundled.has(n.runId)).sort((a, b) => a.startedAt - b.startedAt);
     // The fork blame rescued a run with is one of its attempts, but it shows as a fork of its own.
@@ -84,7 +91,7 @@ export function ForksView({ runId }: { runId: string }) {
       if (sub) items.push(<Fragment key={`${n.runId}:kids`}>{sub}</Fragment>);
     }
     for (const [group, attempts] of groups) items.push(<Bundle key={group} attempts={attempts} current={runId} />);
-    if (parent !== null) for (const b of fixes.bundles) if (b.parentRunId === parent) items.push(<FixBundleNode key={b.key} bundle={b} current={runId} />);
+    if (parent !== null) for (const b of fixes.bundles) if (b.parentRunId === parent) items.push(<FixBundleNode key={b.key} bundle={b} current={runId} rule={ruleOf(b)} />);
     if (!items.length) return null;
     return parent === null ? <>{items}</> : <div className="fkids">{items}</div>;
   };

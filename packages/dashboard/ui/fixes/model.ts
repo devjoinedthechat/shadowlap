@@ -419,16 +419,28 @@ export function attemptMark(a: { passed: boolean; verdict?: string }): 'unsure' 
   return a.passed ? undefined : a.verdict === 'inconclusive' ? 'unsure' : 'no';
 }
 
-/** A bundle's icon and the words for it: blame attempts, or a verify accepted or rejected. */
-export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict'>): { kind: 'blame' | 'fixok' | 'fixbad' | 'fork'; label: string } {
+/**
+ * A bundle's icon and the words for it: blame attempts; a verify's by how its run came out (held in
+ * lime, failed in red, inconclusive in amber), or, for attempts no report names, by its verdict.
+ */
+export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict'> & { tone?: FixBundle['tone'] }): { kind: 'blame' | 'fixok' | 'fixbad' | 'warn'; label: string } {
   if (b.kind === 'blame') return { kind: 'blame', label: 'Blame attempts' };
+  if (b.tone === 'ok') return { kind: 'fixok', label: 'Verify attempts: the run held' };
+  if (b.tone === 'no') return { kind: 'fixbad', label: 'Verify attempts: the run failed' };
+  if (b.tone === 'y') return { kind: 'warn', label: 'Verify attempts: inconclusive' };
   if (b.verdict === 'accepted') return { kind: 'fixok', label: 'Verify accepted the change' };
   if (b.verdict === 'rejected') return { kind: 'fixbad', label: 'Verify rejected the change' };
-  return { kind: 'fork', label: 'Verify attempts, not settled' };
+  return { kind: 'warn', label: 'Verify attempts, not settled' };
 }
 
-/** The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032" (with those that could not be judged counted apart), and for a verify the change and how it came out. */
-export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict'>, money: (usd: number) => string): string {
+/**
+ * The line under a bundle's title. A stored report's says its verdict as a gate's (decision 9: the
+ * word, the tally and the Wilson bound) and what its attempts spent, `rescued · 2 of 2 · rate >= 0.34
+ * (95%) · ≈$0.032`, its rule said once under the family; attempts no report names, "4 attempts, 2
+ * passed" (those that could not be judged counted apart).
+ */
+export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict'> & { verdictLine?: string | null }, money: (usd: number) => string): string {
+  if (b.verdictLine) return [b.verdictLine, ...(b.spent ? [money(b.spent)] : [])].join(' · ');
   const n = b.attempts.length;
   const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
   return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...(b.kind === 'verify' && b.change ? [`${b.change}${b.verdict ? ` ${b.verdict}` : ''}`] : [])].join(' · ');

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Glyph } from '../components/RunIcon.js';
+import { DotLine, RuleText } from '../components/Verdict.js';
 import { approx, shortId, stamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
@@ -29,7 +30,12 @@ export function useFixBundles(runId: string): { bundles: FixBundle[]; bundled: S
   return useMemo(() => ({ bundles, bundled: bundledRuns(bundles), rescued: new Set(bundles.flatMap((b) => b.attempts.filter((a) => a.rescued).map((a) => a.runId))), loading }), [bundles, loading]);
 }
 
-export function FixBundleNode({ bundle: b, current }: { bundle: FixBundle; current: string }) {
+/**
+ * One bundle: its title, its verdict as decision 9 says it with what its attempts spent, and, for
+ * the first bundle a rule decided in the family, that rule (`rule`); then its attempts, each a run
+ * that opens.
+ */
+export function FixBundleNode({ bundle: b, current, rule = null }: { bundle: FixBundle; current: string; rule?: string | null }) {
   const g = bundleGlyph(b);
   const here = b.attempts.some((a) => a.runId === current);
   return (
@@ -40,7 +46,14 @@ export function FixBundleNode({ bundle: b, current }: { bundle: FixBundle; curre
           <code>{b.title}</code>
           {b.blamed ? <span className="chip">blamed</span> : null}
         </span>
-        <span className="f2 block">{bundleLine(b, approx)}</span>
+        <span className="f2 block">
+          {b.verdictLine ? <DotLine text={bundleLine(b, approx)} /> : bundleLine(b, approx)}
+          {rule ? (
+            <span className="frule">
+              <RuleText rule={rule} />
+            </span>
+          ) : null}
+        </span>
       </span>
       <span className="fr">{stamp(b.at)}</span>
       {/* A row of their own, under the time as well, as wide as the node. */}
