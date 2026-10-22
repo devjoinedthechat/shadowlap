@@ -90,6 +90,8 @@ describe('Find the commit on a run blame found failing though it exited 0', () =
     const copy = bisectCopy(blamed, offer);
     expect(copy.choices[0]).toEqual({ value: first, label: `${first} · Add the refund limit` });
     expect(copy.command(first)).toBe(`shadowlap bisect ${blamed.slice(0, 10)} --good ${first} --bad ${second} --expect '${JSON.stringify(CHECK)}' --fork`);
+    // Replayed with --fork, one live replay decides each commit, which a failure that comes and goes can pass.
+    expect(copy.text).toBe(`Replays the run at commits between a good one and ${second}, halving each time, and names the first where it fails. One live replay decides each commit, from where its requests differ: it costs tokens, and a failure that doesn’t happen every time can pass at a commit that has it.`);
   });
 });
 

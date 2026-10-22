@@ -5,7 +5,7 @@ import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, todayTestsLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, localTitle } from '../ui/runspage/bulk.js';
-import { bisectCommand, bisectRequest, revisionTally } from '../ui/runspage/find-commit.js';
+import { bisectCommand, bisectCost, bisectRequest, revisionTally } from '../ui/runspage/find-commit.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
 import { fileHead, FILE_FORMATS, HEAD_BYTES, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, pickedFormat, redateTrace, sampleTrace, tooLargeNote } from '../ui/runspage/imports.js';
 import { OTEL_SAMPLE, type OtlpTrace } from '../ui/runspage/sample-otel.js';
@@ -286,6 +286,12 @@ describe('the Runs page’s requests and words', () => {
     expect(bulkToast({ verb: 'Deleted', done: ['01K5CQ4N7G0000'], of: 2, skipped: [{ runId: '01K5CQ6L0P0000', reason: 'still recording' }] })).toBe('Deleted 1 of 2 runs · 01K5CQ6L0P is still recording');
   });
 
+  it('says what the search costs: with --fork, one live replay decides each commit', () => {
+    expect(bisectCost({ fork: true, live: true })).toBe('One live replay decides each commit, from where its requests differ: it costs tokens, and a failure that doesn’t happen every time can pass at a commit that has it.');
+    expect(bisectCost({ fork: false, live: true })).toBe('Its replays run live from where they diverge, so this costs tokens.');
+    expect(bisectCost({ fork: false, live: false })).toBe('Replays are free, so this costs no tokens.');
+  });
+
   it('names where Find the commit ends: the failure’s own commit, or HEAD when this checkout lacks it', () => {
     const run = '01K5CQ4N7G0000000000000000';
     const own = { bad: 'ab2a568', target: { kind: 'run' as const, runId: run }, fork: true };
@@ -296,6 +302,9 @@ describe('the Runs page’s requests and words', () => {
     const theirs = { ...own, bad: null };
     expect(bisectRequest(run, theirs, '2ef20ae')).toEqual({ runId: run, good: '2ef20ae', bad: 'HEAD' });
     expect(bisectCommand(run, { ...theirs, target: { kind: 'golden', golden: 'goldens/refund-flow' }, fork: false }, '')).toBe('shadowlap bisect goldens/refund-flow --good <commit> --bad HEAD');
+    // A run blame found failing a check: the job judges each replay by it, and so does the command shown.
+    const check = { tools: { issue_refund: { count: 0, args: { amount: 240 } } } };
+    expect(bisectCommand(run, { ...own, expect: check }, '0007d11')).toBe(`shadowlap bisect 01K5CQ4N7G --good 0007d11 --bad ab2a568 --expect '${JSON.stringify(check)}' --fork`);
     // How the runs at each commit went: a golden's inconclusive results are counted apart, never as failures.
     expect([{ runs: 3, failed: 0 }, { runs: 3, failed: 1 }, { runs: 3, failed: 0, inconclusive: 1 }, { runs: 3, failed: 1, inconclusive: 1 }].map(revisionTally)).toEqual(['3 passed', '1 of 3 failed', '1 of 3 inconclusive', '1 of 3 failed, 1 inconclusive']);
   });

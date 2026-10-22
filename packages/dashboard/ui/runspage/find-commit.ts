@@ -1,4 +1,5 @@
 import { shortId } from '../format.js';
+import { commandText } from '../goldens.js';
 import type { BisectChoices } from '../types.js';
 
 /**
@@ -31,8 +32,20 @@ export function revisionTally(r: Pick<BisectChoices['revisions'][number], 'runs'
   return `${r.failed} of ${r.runs} failed${unsure ? `, ${unsure} inconclusive` : ''}`;
 }
 
-/** The command the dialog shows, as the job will run it. */
-export function bisectCommand(runId: string, choices: Pick<BisectChoices, 'bad' | 'target' | 'fork'>, good: string): string {
+/** The command the dialog shows, as the job will run it: with the check each replay is judged by when the job passes one (`--expect`). */
+export function bisectCommand(runId: string, choices: Pick<BisectChoices, 'bad' | 'target' | 'fork' | 'expect'>, good: string): string {
   const what = choices.target.kind === 'golden' ? choices.target.golden : shortId(runId);
-  return `shadowlap bisect ${what} --good ${good.trim() || '<commit>'} --bad ${bisectUpTo(choices)}${choices.fork ? ' --fork' : ''}`;
+  const expect = choices.expect && Object.keys(choices.expect).length ? ['--expect', JSON.stringify(choices.expect)] : [];
+  return commandText(['bisect', what, '--good', good.trim() || '<commit>', '--bad', bisectUpTo(choices), ...expect, ...(choices.fork ? ['--fork'] : [])]);
+}
+
+/**
+ * What the search costs, as Find the commit's dialogs say it. A run that failed on its own is
+ * replayed with `--fork`: one live replay decides each commit, so a failure that doesn't happen
+ * every time can pass at a commit that has it. A golden that may fork runs live from where it
+ * diverges; any other replay is free.
+ */
+export function bisectCost(choices: Pick<BisectChoices, 'fork' | 'live'>): string {
+  if (choices.fork) return 'One live replay decides each commit, from where its requests differ: it costs tokens, and a failure that doesn’t happen every time can pass at a commit that has it.';
+  return choices.live ? 'Its replays run live from where they diverge, so this costs tokens.' : 'Replays are free, so this costs no tokens.';
 }
