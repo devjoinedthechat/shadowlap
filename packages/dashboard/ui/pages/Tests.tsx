@@ -18,9 +18,10 @@ import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './
 
 /**
  * Tests (#/tests): every golden CI runs and how it did at each revision. The verdict for the goldens'
- * last results, the table (where each came from, its mode, checks, history and last result), each
- * failure as the CLI prints it with what fixes it, and how CI runs them: replay goldens offline,
- * those marked fork live from where they fork.
+ * last results, the table (each golden with its mode and where it came from, its checks marked by
+ * how its last result came out, its history and its last result, fitted to its panel's width as the
+ * mock's container queries fit it), each failure as the CLI prints it with what fixes it, and how CI
+ * runs them: replay goldens offline, those marked fork live from where they fork.
  */
 
 /** The jobs that change what this page shows: while one of this tab's runs, the verdict's session reads as running. */
@@ -147,31 +148,36 @@ export function TestsPage() {
     <Page>
       {header(actions)}
       <Verdict view={view} running={running} />
-      <section className="panel tscroll">
-        <table className="t gt">
-          <thead>
-            <tr>
-              <th>Golden</th>
-              <th className="hide-sm">Mode</th>
-              <th className="hide-sm">Checks</th>
-              {view.revisions.length ? (
-                <th className="hist hide-sm">
-                  {view.revisions.map((r, i) => (
-                    <span key={`${r}:${i}`} data-tip={tipText(r ? `revision ${r}` : 'no revision: not in a git repository')}>
-                      {revLabel(r)}
-                    </span>
-                  ))}
-                </th>
-              ) : null}
-              <th>Last result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {view.rows.map((row) => (
-              <GoldenTr key={row.path} row={row} showHistory={view.revisions.length > 0} />
-            ))}
-          </tbody>
-        </table>
+      {/* The table fits its panel at every width, as the mock's .gtw container queries fit it: below
+          1000px of room the oldest revisions give way, below 820px the checks go under the golden's
+          name, and on a phone the revisions become a strip there too. Last result keeps its width. */}
+      <section className="panel gtw">
+        <div className="tscroll">
+          <table className="t gt">
+            <thead>
+              <tr>
+                <th className="gg">Golden</th>
+                <th className="gck">Checks</th>
+                {view.revisions.length ? (
+                  <th className="hist">
+                    <span className="hn">By revision</span>
+                    {view.revisions.map((r, i) => (
+                      <span key={`${r}:${i}`} className={revClass(i, view.revisions.length)} data-tip={tipText(r ? `revision ${r}` : 'no revision: not in a git repository')}>
+                        {revLabel(r)}
+                      </span>
+                    ))}
+                  </th>
+                ) : null}
+                <th className="glast">Last result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {view.rows.map((row) => (
+                <GoldenTr key={row.path} row={row} showHistory={view.revisions.length > 0} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
       {view.divergences.map((d) => {
         const b = divergenceButtons(d, hasKind);
@@ -339,42 +345,59 @@ function SessionCommand({ text }: { text: string }) {
   );
 }
 
+/** A history column's class: `r0` the newest revision, `r1` the one before, and so on, by which the oldest give way on a narrow panel. */
+const revClass = (i: number, n: number) => `r${n - 1 - i}`;
+
+/** A history cell's class: how the golden came out at that revision, inconclusive told apart. */
+const cellClass = (h: GoldenRow['history'][number]) => (h.verdict === 'inconclusive' ? 'inc' : (h.result ?? 'none'));
+
 function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }) {
   const source = sourceText(row);
   const last = row.last;
+  const n = row.history.length;
   return (
     <tr className={row.runId ? undefined : 'still'} onClick={row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : undefined}>
-      <td>
-        <code>{row.name}</code>
-        <span className="rsub gsrc">
-          {'runId' in source ? (
-            <>
-              from{' '}
-              <a className="more" href={href.run(source.runId)}>
-                {source.runId.slice(0, 10)}
-              </a>
-            </>
-          ) : (
-            source.text
-          )}
+      <td className="gg">
+        <code className="gn">{row.name}</code>
+        <span className="gmeta">
+          <span className="chip" data-tip={tipText(row.modeHint)}>
+            {row.modeLabel}
+          </span>
+          {showHistory ? (
+            <span className="gstrip" aria-hidden="true">
+              {row.history.map((h, i) => (
+                <i key={`${h.revision}:${i}`} className={cellClass(h)} />
+              ))}
+            </span>
+          ) : null}
+          <span className="gsrc">
+            {'runId' in source ? (
+              <>
+                from{' '}
+                <a className="dlink" href={href.run(source.runId)}>
+                  <code>{source.runId.slice(0, 10)}</code>
+                </a>
+              </>
+            ) : (
+              source.text
+            )}
+          </span>
+        </span>
+        <span className="chk gin">
+          <Checks row={row} />
         </span>
       </td>
-      <td className="hide-sm">
-        <span className="chip" data-tip={tipText(row.modeHint)}>
-          {row.modeLabel}
-        </span>
-      </td>
-      <td className="chk hide-sm">
+      <td className="chk gck">
         <Checks row={row} />
       </td>
       {showHistory ? (
-        <td className="hist hide-sm">
+        <td className="hist">
           {row.history.map((h, i) => {
             const t = historyTip(h, row.name);
             return (
               <i
                 key={`${h.revision}:${i}`}
-                className={`${h.verdict === 'inconclusive' ? 'inc' : (h.result ?? 'none')}${h.updated ? ' upd' : ''}${h.runId ? ' go' : ''}`}
+                className={`${cellClass(h)} ${revClass(i, n)}${h.updated ? ' upd' : ''}${h.runId ? ' go' : ''}`}
                 data-tip={tipCard(t.title, [{ label: t.label, value: t.value, color: t.color }])}
                 onClick={
                   h.runId
@@ -389,7 +412,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
           })}
         </td>
       ) : null}
-      <td>
+      <td className="glast">
         {last.verdict === 'inconclusive' ? (
           <span className="st warn">
             <i />

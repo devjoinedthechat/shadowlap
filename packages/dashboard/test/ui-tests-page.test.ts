@@ -12,7 +12,8 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
  * Tests tells the truth about checks, CI and judges: each check is marked by how the golden's last
  * result came out on it (no tick on one that failed, none at all before a result), the page says CI
  * replays goldens offline and runs those marked fork live, with the one documented command, and a
- * judge a replay golden couldn't ask offline is settled by Update golden, which asks first.
+ * judge a replay golden couldn't ask offline is settled by Update golden, which asks first. The
+ * table keeps Last result on screen at every width, by the container queries the mock's .gtw has.
  */
 
 const T0 = Date.UTC(2026, 9, 20, 10, 0);
@@ -149,6 +150,23 @@ describe('the Tests page', () => {
     await page.click(page.byText('.dialog button', 'Update'));
     expect(started).toEqual([{ kind: 'test-update', fields: { golden: 'goldens/judged' } }]);
   });
+
+  it('lays the table out as the mock does: mode and source under the name, a strip for phones, revisions that give way, Last result last', async () => {
+    const page = await open();
+    expect(page.one('section.panel.gtw .tscroll table.t.gt')).toBeTruthy();
+    expect(page.all('table.gt thead th').map((th) => th.className)).toEqual(['gg', 'gck', 'hist', 'glast']);
+    const row = page.all('table.gt tbody tr')[0]!;
+    expect(all(row, 'td').map((td) => td.className)).toEqual(['gg', 'chk gck', 'hist', 'glast']);
+    expect(one(row, 'td.gg .gmeta .chip').textContent).toBe('replay');
+    expect(all(row, 'td.gg .gmeta .gstrip i')).toHaveLength(1);
+    // The checks are under the name too, for a narrow panel to show instead of their column.
+    expect(one(row, 'td.gg .chk.gin').textContent).toBe(one(row, 'td.gck').textContent);
+    // The column is named, and its revisions are numbered from the newest, which keeps its place longest.
+    expect(page.all('table.gt th.hist span').map((s) => [s.className, s.textContent])).toEqual([
+      ['hn', 'By revision'],
+      ['r0', 'd2e8a1f'],
+    ]);
+  });
 });
 
 describe('the Tests page\'s styles', () => {
@@ -158,5 +176,16 @@ describe('the Tests page\'s styles', () => {
     expect(css).not.toMatch(/\.chk span::before/);
     expect(css).toMatch(/table\.gt \.chk \.ck\.failed \.cm \{ color: var\(--err\); \}/);
     expect(css).toMatch(/table\.gt \.chk \.ck\.inconclusive \.cm \{ color: var\(--warn\); \}/);
+  });
+
+  it('fit the table to its panel by its own width, keeping Last result a fixed width', () => {
+    expect(css).toMatch(/\.gtw \{ container-type: inline-size; \}/);
+    expect(css).toMatch(/\.gtw \.tscroll table\.gt \{ min-width: 0; \}/);
+    expect(css).toMatch(/\.gtw table\.gt th\.glast \{ width: 250px; \}/);
+    expect(css).toMatch(/@container \(max-width: 1000px\) \{\s*\.gtw table\.gt \.hist \.r3, \.gtw table\.gt \.hist \.r4, \.gtw table\.gt \.hist \.r5 \{ display: none; \}/);
+    expect(css).toMatch(/@container \(max-width: 820px\) \{\s*\.gtw table\.gt th\.gck, \.gtw table\.gt td\.gck \{ display: none; \}\s*\.gtw table\.gt \.chk\.gin \{ display: block; \}/);
+    expect(css).toMatch(/@container \(max-width: 640px\) \{\s*\.gtw table\.gt th\.hist, \.gtw table\.gt td\.hist \{ display: none; \}\s*\.gtw table\.gt \.gstrip \{ display: inline-flex; \}\s*\.gtw table\.gt td\.glast \{ min-width: 0; width: 46%; \}/);
+    // The viewport rule that hid revisions by the window's width, not the table's, is gone.
+    expect(css).not.toMatch(/td\.hist i:nth-last-child/);
   });
 });
