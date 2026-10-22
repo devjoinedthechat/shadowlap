@@ -255,15 +255,17 @@ shadowlap run -- node agent.mjs
 
 ## Integrations
 
-- **[Providers](docs/providers.md):** Anthropic, OpenAI and compatible servers (Ollama, vLLM, OpenRouter, Groq), Gemini, Azure&nbsp;OpenAI, Vertex&nbsp;AI, Amazon&nbsp;Bedrock
-- **[SDKs](docs/sdk.md):** TypeScript and Python; any other language over the [wire&nbsp;protocol](docs/protocol.md)
-- **[Frameworks](docs/frameworks.md):** Vercel&nbsp;AI&nbsp;SDK, OpenAI&nbsp;Agents&nbsp;SDK, Mastra, LangChain and LangGraph, the Anthropic tool runner; in Python, OpenAI&nbsp;Agents&nbsp;SDK, LangChain and LangGraph, CrewAI, Pydantic&nbsp;AI
-- **[Test suites](docs/testing.md):** pytest, Vitest and node:test; a test records once, then replays&nbsp;offline
-- **[MCP](docs/mcp.md):** servers over stdio or Streamable HTTP, behind <code>shadowlap&nbsp;mcp</code>
-- **[CI](docs/ci.md):** the GitHub Action; JUnit, JSON and Markdown reports for any other CI
-- **[Coding agents](docs/agents.md):** Claude Code, Cursor and Codex drive the CLI through its JSON; <code>shadowlap&nbsp;skill&nbsp;install</code> adds the plugin or the&nbsp;rule
-- **[Imports](docs/cli.md#import):** HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse,&nbsp;LangSmith
-- **[Exports](docs/cli.md#export-html):** packs, one-file HTML reports, HAR, OpenTelemetry, eval&nbsp;datasets, preference&nbsp;pairs
+| Area | Works with |
+|:---|:---|
+| [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure&nbsp;OpenAI, Vertex&nbsp;AI, Amazon&nbsp;Bedrock and OpenAI&#8209;compatible servers (Ollama,&nbsp;vLLM, OpenRouter,&nbsp;Groq) |
+| [SDKs](docs/sdk.md) | TypeScript and Python; any other language over the&nbsp;[wire&nbsp;protocol](docs/protocol.md) |
+| [Frameworks](docs/frameworks.md) | In&nbsp;TypeScript, Vercel&nbsp;AI&nbsp;SDK, OpenAI&nbsp;Agents&nbsp;SDK, Mastra, LangChain and LangGraph, the Anthropic tool runner; in&nbsp;Python, OpenAI&nbsp;Agents&nbsp;SDK, LangChain and LangGraph, CrewAI,&nbsp;Pydantic&nbsp;AI |
+| [Test suites](docs/testing.md) | pytest, Vitest and node:test; a test records&nbsp;once, then&nbsp;replays&nbsp;offline |
+| [MCP](docs/mcp.md) | Servers over stdio or Streamable&nbsp;HTTP, recorded through the <code>shadowlap&nbsp;mcp</code>&nbsp;proxy |
+| [CI](docs/ci.md) | The GitHub Action; JUnit, JSON and Markdown reports for any&nbsp;other&nbsp;CI |
+| [Coding&nbsp;agents](docs/agents.md) | Claude Code, Cursor and Codex drive the CLI through its JSON&nbsp;output; <code>skill&nbsp;install</code> adds a Claude&nbsp;Code plugin or a&nbsp;Cursor&nbsp;rule |
+| [Imports](docs/cli.md#import) | HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse,&nbsp;LangSmith |
+| [Exports](docs/cli.md#export-html) | Packs (a run as a folder), one&#8209;file HTML reports, HAR, OpenTelemetry, eval&nbsp;datasets and&nbsp;preference&nbsp;pairs |
 
 ## Security
 
