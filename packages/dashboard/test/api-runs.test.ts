@@ -64,7 +64,7 @@ describe('a run’s page and lineage', () => {
       const rec = addRun(local, { startedAt: NOW - DAY, status: 'failed', calls: 'llll' });
       const again = addRun(local, { parent: rec, startedAt: NOW - HOUR, status: 'failed', calls: 'rrrr' });
       expect(runDetail(local, again)).toMatchObject({ label: 'clean replay', parent: { runId: rec, label: 'recording' } });
-      expect(runDetail(local, rec)!.children).toEqual([{ runId: again, label: 'clean replay', startedAt: NOW - HOUR }]);
+      expect(runDetail(local, rec)!.children).toEqual([{ runId: again, label: 'clean replay', kind: 'clean', startedAt: NOW - HOUR }]);
       expect(lineage(local, again)!.map((n) => [n.runId, n.label])).toEqual([
         [rec, 'recording'],
         [again, 'clean replay'],

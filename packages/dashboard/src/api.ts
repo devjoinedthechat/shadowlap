@@ -102,11 +102,12 @@ export interface RunDetail extends RunPageFacts {
   calls: CallRow[];
   parent: { runId: string; label: string } | null;
   /**
-   * The runs made from it, oldest first. `attempt` marks one bundled under it as the lists bundle it
-   * (a blame probe, a verify or `--repeat` attempt, a model's scoring attempt): Compare on a recording
-   * opens its first fork or replay, never one of those.
+   * The runs made from it, oldest first, each with its kind as the run list classifies it (`fork`,
+   * `clean`, `test`…). `attempt` marks one bundled under it as the lists bundle it (a blame probe, a
+   * verify or `--repeat` attempt, a model's scoring attempt): Compare on a recording opens its first
+   * fork or replay, never one of those, and Compare given only this run pairs it with its newest fork.
    */
-  children: Array<{ runId: string; label: string; startedAt: number; attempt?: true }>;
+  children: Array<{ runId: string; label: string; kind: RunKind | null; startedAt: number; attempt?: true }>;
   /** Actions that need no selected call: replay, stub writes, add the suggested normalizer, pack. */
   actions: ActionItem[];
   /** The fix the run takes part in, and how (Fixes' fixForRun): the banner's fix, blame and Run blame. */
@@ -232,7 +233,10 @@ export function lookupRun(store: Store, idOrPrefix: string): RunRecord | null {
 /** A run's children for its page, each attempt marked as the run lists bundle it. */
 function childRows(store: Store, runId: string): RunDetail['children'] {
   const index = loadRunIndex(store);
-  return store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), startedAt: r.startedAt, ...(index.byId.get(r.runId)?.bundled ? { attempt: true as const } : {}) }));
+  return store.childRuns(runId).map((r) => {
+    const listed = index.byId.get(r.runId);
+    return { runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), kind: listed?.kind ?? null, startedAt: r.startedAt, ...(listed?.bundled ? { attempt: true as const } : {}) };
+  });
 }
 
 export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions = {}, part: { after?: number } = {}): RunDetail | null {

@@ -463,6 +463,11 @@ class FakeWindow {
   heard(type: string): Listener[] {
     return [...(this.listeners.get(type) ?? [])];
   }
+  /** An event the page sends itself (the router's, when it rewrites the address): its listeners hear it. */
+  dispatchEvent(e: { type: string }): boolean {
+    for (const fn of this.heard(e.type)) fn(e as FakeEvent);
+    return true;
+  }
 }
 
 /** The elements Tab steps through, in the page's order: what takes the focus with a tabindex of 0 or more. */

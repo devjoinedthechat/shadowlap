@@ -741,6 +741,8 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .stepempty { padding: 22px 22px 24px; }
 .stepempty h3 { margin: 0; font: 600 17px var(--disp); letter-spacing: -.02em; }
 .stepempty p { margin: 6px 0 14px; color: var(--dim); max-width: 70ch; }
+/* a run id named in the sentence (a run not in the store) breaks anywhere rather than widen a phone's page */
+.stepempty p code { overflow-wrap: anywhere; }
 .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .trio b { display: block; margin-top: 6px; font: 700 22px var(--disp); letter-spacing: -.03em; }
 .vchips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }

@@ -200,3 +200,23 @@ export function pickable<R extends { runId: string; startedAt: number }>(runs: r
 export function pickerLabel(r: RunLike): string {
   return `${shortId(r.runId)} · ${runType(r) === 'clean' ? 'clean' : kindWord(r)}`;
 }
+
+/**
+ * The pair Compare opens with one run named (`#/compare/<id>`), as the design pairs it: the run
+ * with its newest fork, else its newest replay that isn't a test's, else its newest test replay;
+ * with none, its parent and it. An attempt bundled under it is never one, nor a run `usable` turns
+ * down (one still recording, or one an exported copy doesn't hold). Null when there is no such run:
+ * nothing to compare yet.
+ */
+export function oneRunPair(d: { run: { runId: string }; parent: { runId: string } | null; children: ReadonlyArray<{ runId: string; kind?: string | null; startedAt: number; attempt?: unknown }> }, usable: (runId: string) => boolean = () => true): [string, string] | null {
+  const kids = d.children.filter((c) => !c.attempt && usable(c.runId));
+  const newest = (list: typeof kids) => [...list].sort((x, y) => y.startedAt - x.startedAt)[0];
+  const kid = newest(kids.filter((c) => c.kind === 'fork')) ?? newest(kids.filter((c) => c.kind !== 'test')) ?? newest(kids);
+  if (kid) return [d.run.runId, kid.runId];
+  return d.parent && usable(d.parent.runId) ? [d.parent.runId, d.run.runId] : null;
+}
+
+/** The command that gives a run something to compare with: its replay, with the agent's command for a capture, which has none of its own. */
+export function replayCommand(d: { run: { runId: string }; source: string | null }): string {
+  return `shadowlap replay ${shortId(d.run.runId)}${d.source ? ' -- <your command>' : ''}`;
+}
