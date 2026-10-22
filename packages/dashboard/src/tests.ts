@@ -1193,13 +1193,14 @@ export function testsSummary(store: Store, options: { goldens: GoldenList; now?:
 
 /**
  * The Tests passing number of the Overview's outcome strip, in the shape its `tests` hook takes:
- * goldens with a result, how many pass, how many passed when this week started, the regressions
- * caught, and when the tests last ran. Null when there are no goldens yet.
+ * the goldens on disk, each by its newest result as Tests shows it (passing, failed, inconclusive,
+ * or not run yet), how many passed when this week started, and when the tests last ran. Null when
+ * there are no goldens yet.
  */
-export function overviewTests(store: Store, asOf: { now: number; weekStart: number }, options: { goldens: GoldenList }): { goldens: number; passing: number; inconclusive: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
+export function overviewTests(store: Store, asOf: { now: number; weekStart: number }, options: { goldens: GoldenList }): { goldens: number; passing: number; inconclusive: number; untested: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
   const s = testsSummary(store, { goldens: options.goldens, now: asOf.now, weekStart: asOf.weekStart });
   if (s.empty) return null;
-  return { goldens: s.total, passing: s.passing, inconclusive: s.inconclusive, lastWeek: s.lastWeek ? s.lastWeek.passing : null, regressions: s.failing, lastRunAt: s.lastRunAt };
+  return { goldens: s.total, passing: s.passing, inconclusive: s.inconclusive, untested: s.untested, lastWeek: s.lastWeek ? s.lastWeek.passing : null, regressions: s.failing, lastRunAt: s.lastRunAt };
 }
 
 export interface FailingTest {

@@ -652,7 +652,9 @@ describe('tests on the Overview and in Needs a look', () => {
     expect(testsSummary(store, { goldens: ['goldens/refund-flow', 'goldens/new'], now: T0 + DAY })).toMatchObject({ total: 2, passing: 1, failing: 0, untested: 1, line: 'no regressions' });
     expect(testsSummary(Store.open(':memory:'), { goldens: [] })).toMatchObject({ empty: true, total: 0, line: 'no goldens yet', lastRunAt: null, lastWeek: null });
     // The Overview's outcome strip compares with when its week started.
-    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY }, { goldens })).toEqual({ goldens: 3, passing: 2, inconclusive: 0, lastWeek: 2, regressions: 1, lastRunAt: T0 + 100 });
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY }, { goldens })).toEqual({ goldens: 3, passing: 2, inconclusive: 0, untested: 0, lastWeek: 2, regressions: 1, lastRunAt: T0 + 100 });
+    // A golden that never ran is counted, so passing and the rest add up to the goldens on disk.
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY }, { goldens: [...goldens.map((g) => g.path), 'goldens/new'] })).toMatchObject({ goldens: 4, passing: 2, regressions: 1, untested: 1 });
     expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - 3 * DAY }, { goldens })).toMatchObject({ lastWeek: 1 });
     expect(overviewTests(Store.open(':memory:'), { now: T0, weekStart: T0 - DAY }, { goldens: [] })).toBeNull();
     store.close();

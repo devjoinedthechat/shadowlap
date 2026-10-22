@@ -66,21 +66,50 @@ export function lastRunText(at: number, now: number): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-/** Tests passing: its value and its line, or a dash with no goldens yet. */
-export function testsKpi(t: TestsTile | null, now: number): { value: string; note: string; failing: boolean } {
-  if (!t || !t.goldens) return { value: '—', note: 'no goldens yet', failing: false };
-  const caught = t.regressions ? `${plural(t.regressions, 'regression')} caught` : 'no regressions';
-  // Inconclusive goldens count apart: neither passing nor a regression.
-  const unsure = t.inconclusive ? ` · ${num(t.inconclusive)} inconclusive` : '';
-  return { value: `${num(t.passing)} / ${num(t.goldens)}`, note: `${caught}${unsure} · ${t.lastRunAt ? `last run ${lastRunText(t.lastRunAt, now)}` : 'not run yet'}`, failing: t.regressions > 0 };
+/**
+ * The goldens that didn't pass, each by its newest result as Tests shows it, in its words: "1 failed
+ * · 1 not run yet", inconclusive ones apart. Empty when every golden passed.
+ */
+export function goldensNotPassing(t: Pick<TestsTile, 'regressions' | 'inconclusive'> & { untested?: number }): string[] {
+  return [t.regressions ? `${num(t.regressions)} failed` : null, t.inconclusive ? `${num(t.inconclusive)} inconclusive` : null, t.untested ? `${num(t.untested)} not run yet` : null].filter((x): x is string => x !== null);
 }
 
-/** The Today tile's Tests line: failures first, inconclusive goldens apart, else how they went. */
-export function todayTestsLine(t: { count: number; failed: number; inconclusive?: number }, failure: string | null): { text: string; icon: 'fail' | 'warn' | 'test' } {
-  const unsure = t.inconclusive ?? 0;
-  if (t.failed) return { text: `${num(t.failed)} failed${failure ? ` · ${failure}` : ''}${unsure ? ` · ${num(unsure)} inconclusive` : ''}`, icon: 'fail' };
-  if (unsure) return { text: `${num(unsure)} inconclusive`, icon: 'warn' };
-  return { text: t.count ? 'all clean' : 'none yet today', icon: 'test' };
+/** Parts of a line joined by dots, each kept whole, so a line that wraps breaks only after a dot: "1 failed ·" / "last run 10:02". */
+export function dotLine(parts: readonly string[]): string {
+  return parts.map((p) => p.replace(/ /g, '\u00a0')).join('\u00a0· ');
+}
+
+/**
+ * Tests passing: its value, its line and its tone, with every golden on disk accounted for as Tests
+ * counts them ("5 / 7 · 1 failed · 1 not run yet"), or a dash with no goldens yet. Red when a golden
+ * failed; amber when the only goldens not passing are inconclusive.
+ */
+export function testsKpi(t: TestsTile | null, now: number): { value: string; note: string; tone: '' | 'err' | 'warn' } {
+  if (!t || !t.goldens) return { value: '—', note: 'no goldens yet', tone: '' };
+  const not = goldensNotPassing(t);
+  const how = not.length ? not : [t.goldens === 1 ? 'passed' : 'all passed'];
+  return { value: `${num(t.passing)} / ${num(t.goldens)}`, note: dotLine([...how, ...(t.lastRunAt ? [`last run ${lastRunText(t.lastRunAt, now)}`] : [])]), tone: t.regressions ? 'err' : t.inconclusive ? 'warn' : '' };
+}
+
+/**
+ * Today's Tests line: each golden by its newest result, as Tests passing counts them ("1 failed · 1
+ * not run yet", or "all passed"), how many goldens there are on the right, and the test replays that
+ * ran today on hover, with how many failed and the newest failure.
+ */
+export function todayTestsLine(t: TestsTile | null, replays: { count: number; failed: number; inconclusive?: number }, failure: string | null): { text: string; icon: 'fail' | 'warn' | 'test'; count: string; title: string } {
+  const unsure = replays.inconclusive ?? 0;
+  const title = replays.count ? `${plural(replays.count, 'test replay')} today${replays.failed ? ` · ${num(replays.failed)} failed${failure ? `, the newest ${failure}` : ''}` : ''}${unsure ? ` · ${num(unsure)} inconclusive` : ''}` : 'No test replays today';
+  if (!t || !t.goldens) return { text: 'no goldens yet', icon: 'test', count: plural(0, 'golden'), title };
+  const not = goldensNotPassing(t);
+  return { text: not.length ? dotLine(not) : t.goldens === 1 ? 'passed' : 'all passed', icon: t.regressions ? 'fail' : t.inconclusive ? 'warn' : 'test', count: plural(t.goldens, 'golden'), title };
+}
+
+/**
+ * Today's Blame line, on the right: the blames that ran today, counted as the lines beside it count
+ * replays and forks; on hover, the model calls they probed and their attempts.
+ */
+export function todayBlameCount(b: Pick<OverviewSummary['today']['blame'], 'blames' | 'probes' | 'attempts'>): { count: string; title: string } {
+  return { count: `${num(b.blames)} today`, title: `${plural(b.probes, 'probe')} · ${plural(b.attempts, 'attempt')}` };
 }
 
 /** The line under Spent live: the receipt, what replaying saved. */

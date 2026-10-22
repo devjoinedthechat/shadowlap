@@ -71,7 +71,7 @@ export function OverviewPage() {
         <WeekGrid grid={s.grid} now={s.now} />
         <div className="ovside">
           <NeedsLook items={s.needsLook.items} total={s.needsLook.total} />
-          <TodayCard today={s.today} live={live} />
+          <TodayCard today={s.today} live={live} tests={s.outcomes.testsPassing} />
         </div>
       </div>
       <div className="ovg">

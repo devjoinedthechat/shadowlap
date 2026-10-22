@@ -784,6 +784,7 @@ table.calls .det.err { color: var(--err); }
 /* overview */
 a.kpi { display: block; text-decoration: none; color: inherit; }
 .kpi b.err { color: var(--err); }
+.kpi b.warn { color: var(--warn); }
 
 /* sidebar: project and settings */
 .proj { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 10px; padding: 7px 10px 7px 7px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); color: var(--ink); text-align: left; cursor: pointer; }

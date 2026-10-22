@@ -987,7 +987,10 @@ export interface FixesSummary {
   attempts: number;
   upstreamRequests: number;
   spent: number;
-  /** Failures blame reproduced (it replays a run exactly before it probes), by the time of a run's first blame. */
+  /**
+   * Failures blame reproduced (it replays a run exactly before it probes), by the time of each fix's
+   * first blame: a failure is a fix, however many of its runs were blamed, as the funnel counts it.
+   */
   reproduced: { thisWeek: number; lastWeek: number; total: number };
   /** Accepted verdicts that count for a fix. */
   verified: { thisWeek: number; lastWeek: number; total: number };
@@ -1016,8 +1019,8 @@ export function fixesSummary(store: Store, now: number = Date.now(), windows?: W
   const week = (at: number) => (at >= w.week.from && at < w.week.to ? 'this' : at >= w.lastWeek.from && at < w.lastWeek.to ? 'last' : null);
   const tally = (ats: number[]) => ({ thisWeek: ats.filter((a) => week(a) === 'this').length, lastWeek: ats.filter((a) => week(a) === 'last').length, total: ats.length });
 
-  const firstBlame = new Map<string, number>();
-  for (const b of store.listBlames()) if (!firstBlame.has(b.runId)) firstBlame.set(b.runId, b.at);
+  // A failure is a fix, as the funnel and Fixes count it: blaming three of its runs reproduced one failure.
+  const firstBlames = records.flatMap((r) => (r.blames[0] ? [r.blames[0].at] : []));
   // A verdict shared by several fixes is one verdict.
   const accepted = new Map<string, number>();
   const rejected = new Map<string, number>();
@@ -1037,7 +1040,7 @@ export function fixesSummary(store: Store, now: number = Date.now(), windows?: W
     attempts: cost.attempts,
     upstreamRequests: cost.upstreamRequests,
     spent: cost.spent,
-    reproduced: tally([...firstBlame.values()]),
+    reproduced: tally(firstBlames),
     verified: tally([...accepted.values()]),
     rejected: tally([...rejected.values()]),
   };

@@ -66,16 +66,16 @@ export interface TodayPanel {
   replays: number;
   /** Forks today (the one blame rescued a run with among them), the calls that went live in them, and the writes they blocked. */
   forks: { count: number; live: number; blocked: number };
-  /** Test runs today, the failures among them, and the newest failure. */
   /** Test replays today: how many, how many failed, how many belong to a golden whose result is inconclusive (counted apart), and the newest failure. */
   tests: { count: number; failed: number; inconclusive: number; latestFailure: { runId: string; outcome: RunOutcome } | null };
   /**
-   * Blame today: the model calls it probed, its attempts (bundled under the run they probed), and
-   * the runs it probed, each with how its blame came out (null while it is still probing), where
-   * it was lost, and the fix it belongs to.
+   * Blame today: how many blames ran (one `shadowlap blame` each, a run blamed twice counted twice),
+   * the model calls they probed, their attempts (bundled under the run they probed), and the runs
+   * they probed, newest first, each with how its blame came out (null while it is still probing;
+   * `unsettled` when it placed the failure on no call only because its first probe couldn't tell),
+   * where it was lost, and the fix it belongs to.
    */
-  /** Each blamed run's outcome; `unsettled` when it placed the failure on no call only because its first probe couldn't tell. */
-  blame: { probes: number; attempts: number; runs: Array<{ runId: string; outcome: BlameOutcome | null; unsettled?: true; lostAt: number | null; title: string | null; fixId: string | null }> };
+  blame: { blames: number; probes: number; attempts: number; runs: Array<{ runId: string; outcome: BlameOutcome | null; unsettled?: true; lostAt: number | null; title: string | null; fixId: string | null }> };
 }
 
 /** How a blame came out (`meta.blame.outcome`): it found the model call that lost the run, no model call rescued it, or it stopped before the search finished. */
@@ -126,12 +126,17 @@ export interface RunGrid {
   more: number;
 }
 
-/** Tests passing: the goldens on disk with a result, those passing now and when this week started, the regressions caught, the last run. */
+/**
+ * Tests passing: the goldens on disk, each by its newest result as Tests shows it, those passing now
+ * and when this week started, those that failed (`regressions`), and the last run.
+ */
 export interface TestsTile {
   goldens: number;
   passing: number;
   /** Goldens whose last result is inconclusive, counted apart from passing and the regressions. */
   inconclusive: number;
+  /** Goldens with no result yet: what the passing ones and the rest are counted out of, said. */
+  untested: number;
   /** Passing as the tests stood when this week started; null without results that old. */
   lastWeek: number | null;
   regressions: number;
@@ -139,7 +144,10 @@ export interface TestsTile {
 }
 
 export interface OutcomeStrip {
-  /** Failures blame replayed exactly before probing (by a run's first blame), this week and last, and the fixes still open. */
+  /**
+   * Failures blame replayed exactly before probing, by each fix's first blame (a failure is a fix,
+   * as the fixes funnel counts it), this week and last, and the fixes still open.
+   */
   reproduced: { value: number; lastWeek: number; open: number };
   /** Accepted verify verdicts that count for a fix, this week and last, and those rejected this week before they shipped. */
   fixesVerified: { value: number; lastWeek: number; rejected: number };
@@ -359,6 +367,13 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
   // Blame's runs today: the attempts bundled under the run they probed, and the fork it rescued a run with.
   const probes = runs.filter((r) => r.meta.probe && ((r.bundled && r.attemptKind === 'probe') || r.rescues));
   const probedRun = (r: IndexedRun) => r.rescues ?? r.attemptOf!;
+  // Which blame made a probe: blame marks its attempts `<blame>-<call>` (`meta.repeat.group`), so a
+  // run blamed twice is two blames; a probe without the mark counts with its run's.
+  const blameOf = (r: IndexedRun) => {
+    const group = r.meta.repeat?.group ?? '';
+    const at = group.lastIndexOf('-');
+    return at > 0 ? `${probedRun(r)} ${group.slice(0, at)}` : probedRun(r);
+  };
   return {
     day: today.key,
     served: sum(shown, (s) => s.origins.r),
@@ -368,6 +383,7 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
     forks: { count: forks.length, live: sum(forks, (s) => s.origins.l), blocked: sum(forks, (s) => s.origins.b) },
     tests: { count: tests.length, failed: failedTests.length, inconclusive: inconclusiveTests.length, latestFailure: failedTests[0] ? { runId: failedTests[0].runId, outcome: failedTests[0].outcome } : null },
     blame: {
+      blames: new Set(probes.map(blameOf)).size,
       probes: new Set(probes.map((r) => `${probedRun(r)}#${r.meta.probe!.callNo}`)).size,
       attempts: probes.filter((r) => r.bundled).length,
       runs: [...new Set(probes.map(probedRun))].map((runId) => {

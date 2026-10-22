@@ -6,8 +6,8 @@ import { useStored } from '../hooks.js';
 import { cents, clock, ktok, money, num, plural, shortId, whenShort } from '../format.js';
 import { ORIGIN_CODE, ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
 import { href } from '../route.js';
-import type { ActivityItem, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, LiveRun, NeedsLookRow, OverviewSummary, RunGrid, TodayPanel as Today } from '../types.js';
-import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, todayTestsLine, verifiedNote } from './model.js';
+import type { ActivityItem, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, LiveRun, NeedsLookRow, OverviewSummary, RunGrid, TestsTile, TodayPanel as Today } from '../types.js';
+import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from './model.js';
 
 /**
  * The Overview's panels, as the mock draws them: the outcome strip, this week's runs as rows of
@@ -25,7 +25,7 @@ export function Outcomes({ o, now }: { o: OverviewSummary['outcomes']; now: numb
     <div className="panel kstrip">
       <Kpi k="Failures reproduced" value={num(o.reproduced.value)} pill={<DeltaPill now={o.reproduced.value} then={o.reproduced.lastWeek} format={num} />} note={reproducedNote(o.reproduced)} href={href.fixes()} />
       <Kpi k="Fixes verified" value={num(o.fixesVerified.value)} tone="lime" pill={<DeltaPill now={o.fixesVerified.value} then={o.fixesVerified.lastWeek} format={num} good="up" />} note={verifiedNote(o.fixesVerified)} href={href.fixes()} />
-      <Kpi k="Tests passing" value={tests.value} tone={tests.failing ? 'err' : ''} pill={t && t.goldens && t.lastWeek !== null ? <DeltaPill now={t.passing} then={t.lastWeek} format={num} good="up" /> : null} note={tests.note} href={href.tests()} />
+      <Kpi k="Tests passing" value={tests.value} tone={tests.tone} pill={t && t.goldens && t.lastWeek !== null ? <DeltaPill now={t.passing} then={t.lastWeek} format={num} good="up" /> : null} note={tests.note} href={href.tests()} />
       <Kpi k="Spent live" value={cents(o.spent.value)} pill={<DeltaPill now={o.spent.value} then={o.spent.lastWeek} format={cents} good="down" />} note={spentNote(o.spent)} />
     </div>
   );
@@ -172,10 +172,16 @@ function outcomeWords(o: { kind: string; callNo?: number }): string {
   return 'failed';
 }
 
-/** What ran today: one line each, with a count or a status on the right. */
-export function TodayCard({ today, live }: { today: Today; live: readonly LiveRun[] }) {
+/**
+ * What ran today: one line each, with a count or a status on the right. Tests counts each golden by
+ * its newest result, as Tests passing does, with today's test replays on hover; Blame counts the
+ * blames, with their probes on hover.
+ */
+export function TodayCard({ today, live, tests: tile }: { today: Today; live: readonly LiveRun[]; tests: TestsTile | null }) {
   const tests = today.tests;
   const blamed = today.blame.runs[0];
+  const testsLine = todayTestsLine(tile, tests, tests.latestFailure ? outcomeWords(tests.latestFailure.outcome) : null);
+  const blames = todayBlameCount(today.blame);
   return (
     <section className="panel ovtoday">
       <header>
@@ -226,16 +232,16 @@ export function TodayCard({ today, live }: { today: Today; live: readonly LiveRu
           </span>
           <span className="go">{num(today.forks.count)} today</span>
         </a>
-        <a href={tests.latestFailure ? href.run(tests.latestFailure.runId) : href.tests()}>
-          <EventIcon kind={todayTestsLine(tests, tests.latestFailure ? outcomeWords(tests.latestFailure.outcome) : null).icon} />
+        <a href={href.tests()} title={testsLine.title}>
+          <EventIcon kind={testsLine.icon} />
           <span>
             <span className="t">Tests</span>
-            <span className="d">{todayTestsLine(tests, tests.latestFailure ? outcomeWords(tests.latestFailure.outcome) : null).text}</span>
+            <span className="d">{testsLine.text}</span>
           </span>
-          <span className="go">{num(tests.count)} today</span>
+          <span className="go">{testsLine.count}</span>
         </a>
         {today.blame.probes && blamed ? (
-          <a href={blamed.fixId ? href.fixes(blamed.fixId, 'blame') : href.run(blamed.runId)}>
+          <a href={blamed.fixId ? href.fixes(blamed.fixId, 'blame') : href.run(blamed.runId)} title={blames.title}>
             <EventIcon kind="blame" />
             <span>
               <span className="t">Blame</span>
@@ -244,7 +250,7 @@ export function TodayCard({ today, live }: { today: Today; live: readonly LiveRu
                 {blameWords(blamed)}
               </span>
             </span>
-            <span className="go">{plural(today.blame.probes, 'probe')}</span>
+            <span className="go">{blames.count}</span>
           </a>
         ) : null}
       </div>
