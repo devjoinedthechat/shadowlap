@@ -25,9 +25,9 @@
   <a href="docs/compare.md">Compare</a>
 </p>
 
-Your agent refunded $240 it should have escalated. Run it again and it behaves: you can't make it fail on demand, so you can't prove a fix&nbsp;worked.
+Your agent refunded $240 it should have escalated. Run it again and it behaves, so you can't make it fail on demand or prove&nbsp;a&nbsp;fix&nbsp;worked.
 
-Shadowlap records your agent's model calls and the tools you wrap, then replays your real code against the recording. Every call is served from it, the refund included: nothing goes upstream and nothing happens twice. Change one thing and the run forks at the first request that&nbsp;differs.
+Shadowlap records your agent's model calls and the tools you wrap, then replays your real code against the recording. Every call is answered from the recording, the refund included: nothing goes upstream and nothing happens twice. Change one thing and the run forks at the first request&nbsp;that&nbsp;differs.
 
 <p align="center">
   <picture>
@@ -44,11 +44,13 @@ Shadowlap records your agent's model calls and the tools you wrap, then replays 
 
 ## From failure to proof
 
-One order, start to finish. The support agent refunds order A-1042 for $240, though its policy sends refunds above $100 to a manager. Two more $240 orders go the same way. The three runs are labelled `refund-bug`, and a run that refunds $60, within the limit, is labelled&nbsp;`good`.
+One order, start to finish. The support agent refunds order&nbsp;A&#8209;1042 for $240, though its policy sends refunds above $100 to a manager. Two more $240 orders go&nbsp;the&nbsp;same&nbsp;way.
+
+All three runs are labelled `refund-bug`. A fourth run refunds $60, within the limit, and is&nbsp;labelled&nbsp;`good`.
 
 ### Find the call that lost the run
 
-[Blame](docs/blame.md) asks model calls again, each from a fork that replays everything before it, and names the last one whose new answer can still save the run. A passing run never calls `issue_refund` for&nbsp;$240:
+[`shadowlap blame`](docs/blame.md) asks model calls again, each from a fork that replays everything before it. It names the last call whose new answer can still save the run. Here a passing run never calls `issue_refund`&nbsp;for&nbsp;$240:
 
 ```console
 $ shadowlap blame 01M5FYD21R --expect @refund-check.json
@@ -67,7 +69,7 @@ $ shadowlap blame 01M5FYD21R --expect @refund-check.json
 
 ### Prove the fix
 
-[Repair](docs/repair.md) asks a model, or your own Claude Code, to rewrite the system prompt or a tool description. It keeps the smallest rewrite that fixes the failing runs, held-out ones too, and breaks no good run. Here it rewrites one line of the system&nbsp;prompt:
+[`shadowlap repair`](docs/repair.md) asks a model, or your own Claude&nbsp;Code, to rewrite the system prompt or a tool description. It keeps the smallest rewrite that fixes the failing runs, even held&#8209;out runs the model never saw, and breaks no good run. Here it rewrites one line of&nbsp;the&nbsp;system&nbsp;prompt:
 
 ```console
 $ shadowlap repair --fixes label:refund-bug --keeps label:good \
@@ -83,23 +85,27 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
 …
 ```
 
-`--repairer anthropic` needs the Anthropic SDK beside the CLI: <code>npm&nbsp;install&nbsp;-g&nbsp;@anthropic-ai/sdk</code>.
+`--repairer anthropic` needs the Anthropic&nbsp;SDK beside&nbsp;the&nbsp;CLI:
+
+```sh
+npm install -g @anthropic-ai/sdk
+```
+
+`shadowlap verify` runs the same [proof](docs/verify.md) on a fix you write yourself, and exits&nbsp;1 unless it accepts&nbsp;the&nbsp;fix.
 
 <p align="center">
   <picture>
     <source media="(max-width: 600px)" srcset=".github/assets/readme/dashboard-fix-phone.png" width="390">
     <source media="(max-width: 1279px)" srcset=".github/assets/readme/dashboard-fix-medium.png" width="640">
-    <img src=".github/assets/readme/dashboard-fix.png" alt="The Shadowlap Fixes page for 'issue_refund called with amount 240', applied: blame found the runs were lost at model call #5, repair proposed the prompt change, and verify's verdict is that every failing run is fixed and every good run kept." width="880">
+    <img src=".github/assets/readme/dashboard-fix.png" alt="The Shadowlap Fixes page for the applied fix 'issue_refund called with amount 240': blame found the runs were lost at model call #5, repair proposed the prompt change, and verify accepted it, with every failing run fixed and every good run kept." width="880">
   </picture>
   <br>
   <sub>The same fix in the dashboard. A&nbsp;scripted&nbsp;model&nbsp;stands&nbsp;in&nbsp;for&nbsp;Claude&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
 
-`shadowlap verify` gives a fix you wrote yourself the same [proof](docs/verify.md), and exits 1 unless it accepts the&nbsp;fix.
-
 ### Keep it fixed in CI
 
-Apply the fix that blame opened: the patch goes in, the fixed runs become goldens, and their tests&nbsp;run.
+Blame opened a fix for this failure, and repair verified it. Apply it: the patch goes into your working tree, the fixed runs become goldens (recordings kept as tests), and those&nbsp;tests&nbsp;run.
 
 ```console
 $ shadowlap fix apply fx-01M5FYD8YZ
@@ -110,7 +116,7 @@ $ shadowlap fix apply fx-01M5FYD8YZ
   3 of 3 goldens copied to goldens/, shadowlap test passed
 ```
 
-Commit the goldens with the fix. In CI, `shadowlap test` replays them offline, with no real key, and fails on a changed request, a live call, an error exit or a failed [check](docs/checks.md). On GitHub, add one step after your checkout, Node and build steps ([workflow](docs/ci.md#github-actions)):
+Commit the goldens with the fix. In CI, <code>shadowlap&nbsp;test</code> replays them offline, with no real key. It fails on a changed request, a live call, an error exit or a failed [check](docs/checks.md). On GitHub, add one step after checkout, Node&nbsp;setup and&nbsp;your&nbsp;build&nbsp;([full&nbsp;workflow](docs/ci.md#github-actions)):
 
 ```yaml
 - uses: devjoinedthechat/shadowlap@v0.1.0
@@ -119,7 +125,7 @@ Commit the goldens with the fix. In CI, `shadowlap test` replays them offline, w
     recordings: goldens/*
 ```
 
-With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix for a golden that fails a check, and opens a pull request once verify accepts it.
+With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix for a golden that fails a check, and opens a pull request once&nbsp;verify&nbsp;accepts&nbsp;it.
 
 ### Change models and prompts safely
 
