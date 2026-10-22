@@ -795,3 +795,10 @@ describe('a run’s calls in the views', () => {
     expect(tokensText(call(1, 'api'))).toBe('3.0k → 80');
   });
 });
+    // A model call that asked for no tool: what it answered, under the call, with how it stopped beside it.
+    const answer = call(30, 'api', { stopReason: 'end_turn', resultShort: 'Refunded $240 for order A-1042 and emailed the customer.', asks: [] });
+    expect(resultLine(answer)).toEqual({ text: 'Refunded $240 for order A-1042 and emailed the customer.', err: false });
+    expect(callDetail(answer, null)).toEqual({ text: 'end_turn', err: false });
+    // One that asked for tools says which on its line; what it said is Turns' to show.
+    expect(resultLine(call(3, 'api', { resultShort: 'Looking up the order.', asks: ['lookup_order'] }))).toBeNull();
+    expect(resultLine(call(3, 'api', { outcome: 'error', status: 529, resultShort: null, asks: [] }))).toBeNull();

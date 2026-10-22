@@ -92,8 +92,8 @@ export function callDetail(c: CallLike, asked?: string | null): { text: string; 
     // No tool call of the run says this model call asked for it (a capture records none, a tool that
     // isn't wrapped leaves none): the answer does.
     if (c.asks?.length) return { text: `→ ${toolNames(c.asks)}`, err: false };
-    if (asked === undefined && c.resultShort) return { text: c.resultShort, err: false };
-    // Known to have asked for nothing: how it stopped. Not known (an older server): the model too.
+    // Known to have asked for nothing: how it stopped, with what it answered on the line under it
+    // (resultLine). Not known (an older server): the model too.
     return { text: (asked === undefined && !c.asks ? [c.model, c.stopReason] : [c.stopReason]).filter(Boolean).join(' · '), err: false };
   }
   if (c.kind === 'clock' || c.kind === 'random') return { text: c.resultShort ?? c.detail, err: false };
@@ -101,8 +101,13 @@ export function callDetail(c: CallLike, asked?: string | null): { text: string; 
   return { text: c.detail, err: false };
 }
 
-/** What a tool returned, on the line under it: the server's short result, or what fenced it. */
+/**
+ * What a call came back with, on the line under it: a tool's short result, or what fenced it; for a
+ * model call that asked for no tool, what it answered (the agent's final answer), as the server
+ * reads it from the response.
+ */
 export function resultLine(c: CallLike): { text: string; err: boolean } | null {
+  if (c.kind === 'api') return c.outcome !== 'error' && c.resultShort && !c.asks?.length ? { text: c.resultShort, err: false } : null;
   if (c.kind !== 'tool') return null;
   if (c.origin === 'blocked') return { text: 'blocked', err: true };
   // The server's line already says `stubbed …` for a write its stand-in answered.
