@@ -9,7 +9,8 @@ import { useLoad } from '../hooks.js';
 import { displayOrigin } from '../origins.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { defaultComparePair, isAttempt, runTag, type RunLike } from '../runs.js';
+import { runLikeOf } from '../run/model.js';
+import { defaultComparePair, isAttempt, kindTag } from '../runs.js';
 import { useApp } from '../state.js';
 
 /**
@@ -319,7 +320,8 @@ function FirstDifference({ c }: { c: CompareView }) {
 }
 
 function PathColumn({ run, calls, same, from, answer }: { run: RunDetail; calls: CallRow[]; same: boolean[]; from: number; answer: string | null | undefined }) {
-  const tag = runTag({ ...(run.run as unknown as RunLike), calls: run.calls.length, divergence: run.run.divergence, mode: run.run.mode, status: run.run.status } as RunLike);
+  // Each side by its kind, as the run page's eyebrow names it (a fork that failed is still fork @7): its paths show what it did.
+  const tag = kindTag(runLikeOf(run));
   const shown = calls.slice(0, 200);
   const recording = run.run.status === 'running';
   return (

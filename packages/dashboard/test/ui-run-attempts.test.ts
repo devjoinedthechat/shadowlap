@@ -6,7 +6,7 @@ import { attemptOutcome, bannerFor, type BannerInput } from '../ui/run/banner.js
 import { ForksView } from '../ui/run/ForksView.js';
 import { attemptLinks, attemptOf, forkKindWords } from '../ui/run/model.js';
 import { Banner, DiffPanel, type BannerProps } from '../ui/run/parts.js';
-import { familyLine, runTag, type RunLike } from '../ui/runs.js';
+import { familyLine, kindTag, runTag, type RunLike } from '../ui/runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { LineageNode, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
@@ -85,6 +85,17 @@ describe('a fork that failed', () => {
   it('says FAILED beside its id, as any run that failed does; one that passed names its fork', () => {
     expect(runTag(like)).toEqual({ cls: 'fail', text: 'failed' });
     expect(runTag({ ...like, outcome: { kind: 'none' }, failed: false })).toEqual({ cls: 'fork', text: 'fork @7' });
+  });
+
+  it('keeps its kind in Compare, where each side is tagged by what it is: a fork by where it forked, failed or not', () => {
+    expect(kindTag(like)).toEqual({ cls: 'fork', text: 'fork @7' });
+    expect(kindTag({ ...like, outcome: { kind: 'none' }, failed: false })).toEqual({ cls: 'fork', text: 'fork @7' });
+    // A fork whose agent exited with an error, as a verify attempt that failed did: the same tag.
+    expect(kindTag({ ...like, status: 'failed', outcome: { kind: 'check-failed', check: null } })).toEqual({ cls: 'fork', text: 'fork @7' });
+    // A recording or a test that failed says so there, as on its page.
+    const recording: RunLike = { ...like, mode: 'record', parentRunId: null, divergence: null, kind: 'recording' };
+    expect(kindTag(recording)).toEqual({ cls: 'fail', text: 'failed' });
+    expect(kindTag({ ...recording, outcome: { kind: 'none' }, failed: false })).toEqual({ cls: '', text: 'recording' });
   });
 
   it('keeps its fork banner, which says it failed, so Run blame applies to it', () => {
