@@ -39,6 +39,9 @@
     "packages/dashboard/test/ui-strip.test.ts",
     "packages/dashboard/test/ui-run-width.test.ts",
     "packages/dashboard/test/ui-run-scale.test.ts",
+    "packages/dashboard/test/ui-check-words.test.ts",
+    "packages/dashboard/test/ui-run-attempts.test.ts",
+    "packages/dashboard/test/ui-compare-states.test.ts",
     // These render the shell's dialogs and palette, or ask through the page's client.
     "packages/dashboard/test/ui-dialog-tab.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",

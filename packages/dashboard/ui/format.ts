@@ -4,6 +4,7 @@
  */
 export { formatDuration, formatUsd, shortModel } from '../../engine/src/prices.js';
 export { shortCallName as callName } from '../../engine/src/labels.js';
+import { formatTokens } from '../../engine/src/tokens.js';
 
 /** Dollars as the mock writes them: up to four decimals below a cent, trailing zeros dropped. */
 export function money(v: number): string {
@@ -27,11 +28,8 @@ export function approx(v: number): string {
   return `≈$${v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}`;
 }
 
-export function ktok(v: number): string {
-  if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
-  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
-  return String(Math.round(v));
-}
+/** A token count as the CLI writes it too (`1.8k`, `1.23M`): one formatter, so the page and `show` agree. */
+export const ktok = (v: number): string => formatTokens(v);
 
 /** A call's duration: 840 ms, 2.9 s, 1m 4s. */
 export function dur(ms: number): string {

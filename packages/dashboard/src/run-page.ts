@@ -6,6 +6,7 @@ import {
   hasRecordedCommand,
   isJudgeCall,
   LiveConversations,
+  normalizeResponse,
   previewRedaction,
   recordedDurations,
   responseInfo,
@@ -206,6 +207,7 @@ const resultLines = new WeakMap<Store, Lru<string, string | null>>();
 
 function resultShortOf(store: Store, c: CallRecord): string | null {
   if (c.kind === 'clock' || c.kind === 'random') return valueLineOf(store, c);
+  if (c.kind === 'api') return saidLineOf(store, c);
   if (c.kind !== 'tool') return null;
   if (c.origin === 'blocked' || !c.end) return toolResultLine(c, null);
   let lines = resultLines.get(store);
@@ -220,6 +222,40 @@ function resultShortOf(store: Store, c: CallRecord): string | null {
     payload = null;
   }
   const line = toolResultLine(c, payload);
+  lines.set(key, line);
+  return line;
+}
+
+/** How much of what a model said its line keeps. */
+const SAID_MAX = 200;
+
+/**
+ * What a model call's answer said, in a line: its text, without its thinking or the tools it called,
+ * the whitespace closed up and cut at about 200 characters. Turns shows it under the call, and Calls
+ * beside a call that asked for no tool (the agent's final answer). Null for an answer that said
+ * nothing (it only called tools), and for one that failed or can't be read. Cached by response blob.
+ */
+function saidLineOf(store: Store, c: CallRecord): string | null {
+  const ref = c.end?.responseRef;
+  if (!ref || c.end?.outcome !== 'ok') return null;
+  let lines = resultLines.get(store);
+  if (!lines) resultLines.set(store, (lines = new Lru(20_000)));
+  const key = `${ref}\nsaid`;
+  const known = lines.get(key);
+  if (known !== undefined) return known;
+  let line: string | null = null;
+  try {
+    const provider = c.end.meta.provider ?? c.meta.provider;
+    const r = normalizeResponse(store.getBlob(ref), c.end.meta.headers?.['content-type'], c.end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined);
+    const text = r.blocks
+      .flatMap((b) => (b.type === 'text' ? [b.text] : []))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    line = text ? (text.length > SAID_MAX ? `${text.slice(0, SAID_MAX - 1)}…` : text) : null;
+  } catch {
+    line = null;
+  }
   lines.set(key, line);
   return line;
 }

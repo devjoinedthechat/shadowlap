@@ -17,7 +17,7 @@ Claude Code, Cursor, Codex and other coding agents can debug an agent with Shado
 | Find where a failed run went wrong | `shadowlap blame <run> --expect '<checks>' --json` | The model call that lost the run, what the model answered there in the recording and in a fork that passed, and that fork's run id ([fields](./blame.md#json)) |
 | Check a fix before calling it done | `shadowlap verify --fixes <runs> --keeps label:good --expect '<checks>' --json` | Accepted or rejected, and for each run whether it is fixed, kept or broken ([fields](./verify.md#json)) |
 | Get a verified fix to the prompt | `shadowlap repair --fixes <runs> --keeps label:good --expect '<checks>' --json` | The accepted rewrite and its patch, or why none passed; where each run was lost, as a brief for a fix in code ([details](./repair.md)) |
-| Compare two runs | `shadowlap diff <a> <b> --json` | What changed, the first differing request, each run's course after it |
+| Compare two runs | `shadowlap diff <a> <b> --json` | What changed, what made a fork when its flag changed an answer, the first differing request, each run's course after it |
 | See what is being fixed | `shadowlap fix ls --json` | Each failure blame opened a fix for: where its run was lost, and how far its fix got ([fields](./cli.md#fix)) |
 | Find ids and temp paths that change every run | `shadowlap calibrate --json` | Proposed normalizers |
 | Run the recorded tests | `shadowlap test <pack...> --json report.json` | Per recording: result, divergence, checks |

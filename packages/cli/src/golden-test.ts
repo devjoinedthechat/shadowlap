@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { agentCallsOf, decide, decideCount, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { agentCallsOf, decide, decideCount, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { oracleLabels } from './attempts.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
@@ -410,7 +410,7 @@ export function tokensOf(calls: readonly CallRecord[], o: { live?: boolean; outp
 type Summary = TestAttempt['ended']['summary'];
 /** Calls by origin, as the reports and the history show them: overridden calls count as replayed. */
 const callsOf = (s: Summary) => ({ total: s.total, replayed: s.byOrigin.replayed + s.byOrigin.overridden, live: s.byOrigin.live, blocked: s.byOrigin.blocked, stubbed: s.byOrigin.stubbed });
-const notRespentOf = (s: Summary) => s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
+const notRespentOf = (s: Summary) => wholeInput(s.tokensNotRespent);
 /** Every request a golden's replays sent upstream, a judge check's included: none, for one replayed offline. */
 export const upstreamOf = (attempts: readonly TestAttempt[]) => attempts.reduce((n, a) => n + a.ended.summary.upstreamRequests + (a.ended.summary.judge?.upstreamRequests ?? 0), 0);
 /** USD the attempts spent on live calls. */

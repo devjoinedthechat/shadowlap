@@ -776,8 +776,11 @@ export function evaluateChecks(spec: ExpectSpec | TestSpec, input: CheckInput, o
     const withArgs = t.args ? ` with ${JSON.stringify(t.args)}` : '';
     let detail: string | null = null;
     if (!inRange(n, t.count)) {
-      const fenced = matching.filter((c) => c.origin === 'blocked' || c.origin === 'stubbed').length;
-      detail = `called ${formatCount({ min: n, max: n })}${fenced ? ` (${fenced} blocked or stubbed)` : ''}`;
+      // Writes fenced after a fork count too, said exactly: `(2 blocked)`, `(1 stubbed)`, `(1 blocked, 1 stubbed)`.
+      const blocked = matching.filter((c) => c.origin === 'blocked').length;
+      const stubbed = matching.filter((c) => c.origin === 'stubbed').length;
+      const fenced = [blocked ? `${blocked} blocked` : '', stubbed ? `${stubbed} stubbed` : ''].filter(Boolean).join(', ');
+      detail = `called ${formatCount({ min: n, max: n })}${fenced ? ` (${fenced})` : ''}`;
       if (t.args && named.length > n) detail += `; ${named.length} call${named.length === 1 ? '' : 's'} with other arguments`;
       if (named.length === 0 && tools.length) detail += `; tools called: ${[...new Set(tools.map((c) => c.name))].join(', ')}`;
     }

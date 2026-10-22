@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { EXTERNAL_COMMAND, endedEarlyCount, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, endedEarlyCount, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -152,8 +152,12 @@ export function envLines(env: Record<string, string>, platform: NodeJS.Platform 
   return lines.join('\n');
 }
 
-/** The one-line result of a golden that passed: `30/30 replayed, 12k input tokens not re-spent, 2 checks passed`. */
-function passedLine(o: GoldenOutcome): string {
+/**
+ * The one-line result of a golden that passed: `30/30 replayed, 12k input tokens not re-spent, 2
+ * checks passed`. Input tokens as `show` and the dashboard count them: uncached, written to the
+ * cache and read from it.
+ */
+export function passedLine(o: GoldenOutcome): string {
   const r = o.result!;
   const s = r.shown.ended.summary;
   // Out of what the recording holds, not what this replay made: one that stopped short never reads as whole.
@@ -165,7 +169,7 @@ function passedLine(o: GoldenOutcome): string {
       : s.divergence
         ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed`
         : `${replayed}/${replayed + s.notReached.length} replayed`,
-    `${formatTokens(s.tokensNotRespent.inputTokens)} input tokens not re-spent`,
+    `${formatTokens(wholeInput(s.tokensNotRespent))} input tokens not re-spent`,
     ...(r.shown.checks?.length ? [statusTally(r.shown.checks)] : []),
     // An attempt a check could not decide, after the count was met, is counted apart: it did not fail.
     ...(r.attempts.length > 1 && !r.gate ? [`${r.passed}/${r.attempts.length} attempts passed${r.inconclusive ? ` (${r.inconclusive} inconclusive)` : ''}`] : []),

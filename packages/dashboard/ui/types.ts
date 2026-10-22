@@ -224,6 +224,15 @@ export interface RunDetailExtras {
   fixRole?: string | null;
   /** A failed run never blamed: the check a fix's labels suggest, for Run blame to use (`--expect`). */
   blameExpect?: unknown;
+  /** A blame probe's attempt: the run it probed and the model call it asked again, which its banner links back to. */
+  probeOf?: { of: string; callNo: number } | null;
+  /** A verify attempt: where the verdict it counted towards opens. */
+  verifyOf?: { href: string } | null;
+  /**
+   * An attempt made with others (a probe's, a verify's, a `--repeat`'s): its place among them and how
+   * many were made, which its record's `repeat.of` (the most that could be) is not. Absent from an older server.
+   */
+  attemptPlace?: { k: number; n: number } | null;
   /** The run's models by the short name a call row carries, as the run page names them (`claude-opus-5`). */
   models?: Record<string, string>;
 }
@@ -274,7 +283,8 @@ export type CallDetail = Omit<ServerCallDetail, 'call' | 'actions'> & {
   forkTitle?: string;
 };
 
-export type LineageNode = ServerLineageNode & { probe?: unknown; verify?: unknown; origins?: string | string[] | null };
+/** A run of a family: what an older server or a copy leaves out (its origins, its test) is optional. */
+export type LineageNode = Omit<ServerLineageNode, 'origins' | 'test'> & { probe?: unknown; verify?: unknown; origins?: string | string[] | null; test?: ServerLineageNode['test'] | null };
 
 /**
  * What the run page offers for a run beyond its record (`/api/runs/:id/offers`): how many redaction

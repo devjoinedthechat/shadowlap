@@ -90,18 +90,35 @@ function answeredLine(c: Pick<CompareView, 'responseDifferences'>, toSame: boole
   return again ? `${plural(again, 'call')} got the same answer in ${responses(again)}` : null;
 }
 
-/** The line beside the identical prefix: how far the runs agree, and where they part. */
-export function prefixLine(c: Pick<CompareView, 'identicalPrefix' | 'firstRequestDifference' | 'responseDifferences' | 'onlyInA' | 'onlyInB'>): { lead: string; rest: string } {
+/**
+ * What made the fork, as the line beside the identical prefix leads with it when no request shows it:
+ * `#19 got HTTP 529 instead of an answer`, naming the run it made when that is A. Null when the pair
+ * isn't a run and its replay, or the replay's flag changed a request (the cards and the first
+ * difference say that), and from a copy or a server older than comparisons that carry it.
+ */
+export function madeBy(c: { a?: Pick<CompareView['a'], 'runId'>; intervention?: CompareView['intervention'] }): string | null {
+  const iv = c.intervention ?? null;
+  return iv ? `${iv.words}${iv.run === 'a' && c.a ? ` in ${shortId(c.a.runId)}` : ''}` : null;
+}
+
+/** The line beside the identical prefix: how far the runs agree, what made the fork when no request shows it, and where they part. */
+export function prefixLine(c: Pick<CompareView, 'identicalPrefix' | 'firstRequestDifference' | 'responseDifferences' | 'onlyInA' | 'onlyInB'> & { a?: Pick<CompareView['a'], 'runId'>; intervention?: CompareView['intervention'] }): { lead: string; rest: string } {
   const n = c.identicalPrefix;
   const first = c.firstRequestDifference?.callNo ?? null;
   const lead = n ? `#1–#${num(n)} identical.` : 'No identical prefix.';
+  const made = madeBy(c);
+  // The answer the flag changed is said by what made the fork: the others are counted as before.
+  const flagged = made ? (c.intervention?.callNo ?? null) : null;
+  const others = { responseDifferences: c.responseDifferences.filter((r) => r.callNo !== flagged) };
   if (first) {
-    const answered = answeredLine(c, true);
-    return { lead, rest: `The first request that differs is #${first}${answered ? `; before it, ${answered}` : ''}.` };
+    const answered = answeredLine(others, true);
+    const where = `the first request that differs is #${first}${answered ? `; before it, ${answered}` : ''}`;
+    return { lead, rest: made ? `${made}; ${where}.` : `T${where.slice(1)}.` };
   }
   // A run that went on past the other's end (one still recording): only the requests both made match.
   const shared = c.onlyInA || c.onlyInB ? 'Every request they share matches' : 'Every request matches';
-  const answered = answeredLine(c, false);
+  const answered = answeredLine(others, false);
+  if (made) return { lead, rest: `${made}; ${shared.toLowerCase()}${answered ? `, and ${answered}` : ''}.` };
   if (answered) return { lead, rest: `${shared}; ${answered}.` };
   if (c.onlyInA || c.onlyInB) return { lead, rest: `${shared}.` };
   return { lead, rest: 'Every call matches.' };
@@ -182,4 +199,24 @@ export function pickable<R extends { runId: string; startedAt: number }>(runs: r
 /** A run as the pickers list it, in the words every list uses: `01K5CQ4N7G · recording`, `01K5CQ4P2R · fork @17`, `01K5CQ4N9A · clean replay`. */
 export function pickerLabel(r: RunLike): string {
   return `${shortId(r.runId)} · ${kindWord(r)}`;
+}
+
+/**
+ * The pair Compare opens with one run named (`#/compare/<id>`), as the design pairs it: the run
+ * with its newest fork, else its newest replay that isn't a test's, else its newest test replay;
+ * with none, its parent and it. An attempt bundled under it is never one, nor a run `usable` turns
+ * down (one still recording, or one an exported copy doesn't hold). Null when there is no such run:
+ * nothing to compare yet.
+ */
+export function oneRunPair(d: { run: { runId: string }; parent: { runId: string } | null; children: ReadonlyArray<{ runId: string; kind?: string | null; startedAt: number; attempt?: unknown }> }, usable: (runId: string) => boolean = () => true): [string, string] | null {
+  const kids = d.children.filter((c) => !c.attempt && usable(c.runId));
+  const newest = (list: typeof kids) => [...list].sort((x, y) => y.startedAt - x.startedAt)[0];
+  const kid = newest(kids.filter((c) => c.kind === 'fork')) ?? newest(kids.filter((c) => c.kind !== 'test')) ?? newest(kids);
+  if (kid) return [d.run.runId, kid.runId];
+  return d.parent && usable(d.parent.runId) ? [d.parent.runId, d.run.runId] : null;
+}
+
+/** The command that gives a run something to compare with: its replay, with the agent's command for a capture, which has none of its own. */
+export function replayCommand(d: { run: { runId: string }; source: string | null }): string {
+  return `shadowlap replay ${shortId(d.run.runId)}${d.source ? ' -- <your command>' : ''}`;
 }

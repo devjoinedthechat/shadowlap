@@ -38,7 +38,7 @@ Output, when one agent puts a new UUID in every request's metadata:
     ⑂ Forked at call 1: 0 calls replayed, then 1 live; 0 upstream requests
       the agent process exited with an error
     │ summarize-thread: 503 {"type":"error","error":{"type":"shadowlap_offline","message":"shadowlap is offline: call #1 (POST /v1/messages) was not served from the recording and would need the network"}}
-✓ triage-inbox: 30/30 replayed, 12k input tokens not re-spent
+✓ triage-inbox: 30/30 replayed, 12.3k input tokens not re-spent
 
 1 passed, 1 failed · 0 upstream requests
 ```
@@ -53,7 +53,7 @@ An agent can stop before its recording did and still exit 0: an exception it cat
 
 ```
 ✗ research: ended early at call 11 (api POST /v1/messages): 10 of 30 recorded calls replayed
-    ✗ Ended early at call 11: 10 of 30 recorded calls replayed (3 api, 5 tool, 2 clock/random), 0 upstream requests, 3k input tokens not re-spent
+    ✗ Ended early at call 11: 10 of 30 recorded calls replayed (3 api, 5 tool, 2 clock/random), 0 upstream requests, 3.2k input tokens not re-spent
       20 recorded calls not reached: #11 POST /v1/messages, #12 read_file, #13 read_file, …
 ```
 
@@ -200,7 +200,7 @@ Each golden that diverged is re-recorded live from its first call, with every wr
       re-recorded as run 01K5CQ9T2W: 31 calls, was 30 · model calls 11 → 12 · escalate 0 → 1, issue_refund 1 → 0 · $0.072 live · 12 upstream requests
       what changed: system prompt changed · call 3 (api POST /v1/messages): ~ $.system
       replaced goldens/refund-flow in the working tree; review the change in your pull request
-✓ refund-flow: 31/31 replayed, 12k input tokens not re-spent (updated)
+✓ refund-flow: 31/31 replayed, 12.4k input tokens not re-spent (updated)
 ```
 
 Only goldens that diverged are updated. One that fails a check, or exits with an error, is left alone: the agent needs the fix, not its golden. One that replayed clean but holds no verdict for a [judge check](./judges.md) keeps its recording: the judge is asked live, and its call is added to the golden. A golden that [forks on purpose](#recordings-that-fork-on-purpose) passes wherever it forks, so it is updated only when its test forked before the call its [task](./training.md#tasks) takes over at: no model can be scored on it there, since an attempt replays the recording only up to the fork. `shadowlap test` names such a golden after its totals:

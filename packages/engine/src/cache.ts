@@ -2,6 +2,7 @@ import { importedRecording } from './classify.js';
 import { Lru, runConversations, type RunConversations } from './conversations.js';
 import { isJudgeCall } from './judge-scope.js';
 import { storedModelResolver, type ModelResolver } from './report.js';
+import { wholeInput } from './tokens.js';
 import { shortModel } from './prices.js';
 import type { Store } from './store.js';
 import type { CallRecord, Usage } from './types.js';
@@ -21,11 +22,6 @@ import type { CallRecord, Usage } from './types.js';
 
 /** The smallest shortfall that counts as a miss: below it, the difference is the newest turn, not a broken prefix. */
 export const CACHE_MISS_MIN_TOKENS = 1024;
-
-/** Every input token of a call: uncached, written to the cache and read from it. */
-export function wholeInput(u: Usage): number {
-  return u.inputTokens + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0);
-}
 
 export interface CacheMiss {
   callNo: number;

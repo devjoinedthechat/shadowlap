@@ -1,4 +1,5 @@
 import { importedRecording } from './classify.js';
+import { formatTokens, wholeInput } from './tokens.js';
 import { firstDifference } from './diff.js';
 import { isJudgeCall } from './judge-scope.js';
 import { normalizeAddCommand } from './volatile.js';
@@ -7,6 +8,9 @@ import { estimateCost, formatUsd, type Price } from './prices.js';
 import { safeLine, safeText } from './text.js';
 import type { Store } from './store.js';
 import type { CallKind, CallRecord, DivergenceReport, JudgeSummary, NotReached, Origin, RunRecord, RunSummary, Usage } from './types.js';
+
+/** A token count, as every report and the dashboard write one (tokens.ts). */
+export { formatTokens };
 
 /** The model a call was made with: stored at record time, or supplied by a resolver that can read the request. */
 export type ModelResolver = (call: CallRecord) => string | null | undefined;
@@ -162,12 +166,6 @@ export interface Palette {
 
 export const plain: Palette = { green: (s) => s, red: (s) => s, yellow: (s) => s, dim: (s) => s, bold: (s) => s, cyan: (s) => s };
 
-export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
-}
-
 function shortId(id: string): string {
   return id.length > 10 ? `${id.slice(0, 10)}…` : id;
 }
@@ -182,10 +180,10 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
     lines.push(`${p.green('●')} Recorded ${p.bold(s.runId)}: ${s.total} calls (${kinds}), ${s.upstreamRequests} upstream requests${s.cost.spent ? `, ≈${formatUsd(s.cost.spent)}` : ''}`);
   } else if (s.divergence?.type === 'ended_early') {
     const d = s.divergence;
-    const saved = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
+    const saved = wholeInput(s.tokensNotRespent);
     lines.push(`${p.red('✗')} Ended early at call ${d.callNo}: ${endedEarlyCount(d)} replayed (${kinds}), ${s.upstreamRequests} upstream requests, ${formatTokens(saved)} input tokens not re-spent`);
   } else if (!s.divergence) {
-    const saved = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
+    const saved = wholeInput(s.tokensNotRespent);
     lines.push(
       `${p.green('✓')} Replay clean: ${s.byOrigin.replayed}/${s.total} calls replayed (${kinds}), ${s.upstreamRequests} upstream requests, ${formatTokens(saved)} input tokens not re-spent${s.cost.saved ? ` (≈${formatUsd(s.cost.saved)})` : ''}`,
     );
@@ -206,7 +204,8 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
         (refused ? `, ${refused} refused` : '') +
         fenced +
         `; ${s.upstreamRequests} upstream requests` +
-        (s.cost.spent || s.cost.saved ? ` (≈${formatUsd(s.cost.spent)} spent, ${formatUsd(s.cost.saved)} saved)` : ''),
+        // What replaying didn't spend again, in the words `show` and the dashboard's receipt use.
+        (s.cost.spent || s.cost.saved ? ` (≈${formatUsd(s.cost.spent)} spent, ${formatUsd(s.cost.saved)} not re-spent)` : ''),
     );
   }
   if (s.status === 'failed' || s.status === 'crashed') lines.push(p.red(`  the agent process ${s.status === 'crashed' ? 'was interrupted' : 'exited with an error'}`));
@@ -264,15 +263,32 @@ export function divergenceLine(d: Pick<DivergenceReport, 'type' | 'callNo' | 'ki
   return d.type === 'ended_early' ? `ended early at ${at}: ${endedEarlyCount(d)} replayed` : `diverged at ${at}`;
 }
 
-/** The divergence report: the first unmatched call, its closest counterpart, and a structural diff. */
-export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEntries = 12): string {
+/**
+ * What a replay served from its recording before it diverged: `16 calls replayed`, or, given the
+ * run's calls, with those an override answered instead named apart (`15 calls replayed and #16
+ * overridden`), as the run's page says it and its Calls view shows each call.
+ */
+export function replayedBeforeWords(d: Pick<DivergenceReport, 'callNo' | 'replayedBefore'>, calls?: ReadonlyArray<Pick<CallRecord, 'callNo' | 'origin'>>): string {
+  const over = (calls ?? []).filter((c) => c.origin === 'overridden' && c.callNo < d.callNo).map((c) => `#${c.callNo}`);
+  const n = Math.max(0, d.replayedBefore - over.length);
+  const replayed = `${n} ${n === 1 ? 'call' : 'calls'} replayed`;
+  if (!over.length) return replayed;
+  const named = over.length > 1 ? `${over.slice(0, -1).join(', ')} and ${over.at(-1)}` : over[0];
+  return `${replayed} and ${named} overridden`;
+}
+
+/**
+ * The divergence report: the first unmatched call, its closest counterpart, and a structural diff.
+ * Given the run's calls, the calls an override answered before it are named apart from those replayed.
+ */
+export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEntries = 12, calls?: ReadonlyArray<Pick<CallRecord, 'callNo' | 'origin'>>): string {
   const lines: string[] = [];
   if (d.type === 'ended_early') {
     lines.push(`${p.red('✗')} Ended early at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${endedEarlyCount(d)} replayed`);
     lines.push(p.dim(`  every request the agent sent matched, but it stopped before its recording did, without making #${d.callNo}`));
     return lines.join('\n');
   }
-  const head = `${p.red('✗')} Diverged at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${d.replayedBefore} calls replayed before divergence`;
+  const head = `${p.red('✗')} Diverged at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${replayedBeforeWords(d, calls)} before divergence`;
   lines.push(head);
   switch (d.type) {
     case 'forced':

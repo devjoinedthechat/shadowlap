@@ -86,7 +86,7 @@ const FIX_ROLES = ['failing', 'good', 'probe', 'rescued', 'verify', 'unblamed'];
  * For a failing run that one also carries its blame, with what asking again did in a few words; a
  * probe's or a rescued fork's blame is the blame of the run it came from, so it is not this run's.
  */
-export function normalizeFix(v: unknown): { fix: FixView | null; role: string | null; blame: BlameView | null; expect: unknown } {
+export function normalizeFix(v: unknown): { fix: FixView | null; role: string | null; blame: BlameView | null; expect: unknown; probe?: { of: string; callNo: number }; verify?: { href: string } } {
   const none = { fix: null, role: null, blame: null, expect: undefined };
   if (!isObject(v)) return none;
   if (typeof v.id === 'string') return { ...none, fix: { id: v.id, status: str(v.status) ?? 'open', title: str(v.title) ?? v.id, href: str(v.href) } };
@@ -102,7 +102,12 @@ export function normalizeFix(v: unknown): { fix: FixView | null; role: string | 
     const outcome = b.outcome === 'blamed' || b.outcome === 'unrescuable' || b.outcome === 'stopped' ? b.outcome : null;
     blame = { callNo: int(b.lostAt), modelCall: k !== null && m !== null && k >= 1 && k <= m ? { k, m } : null, confidence: str(b.confidence), rescuedRunId: str(b.rescuedRunId), scope: null, outcome, ...(b.unsettled === true ? { unsettled: true } : {}), short: str(b.short) };
   }
-  return { fix, role, blame, expect: role === 'unblamed' && v.expect !== undefined && v.expect !== null ? v.expect : undefined };
+  // An attempt's banner links back to its probe on the fix's Blame step, or to the verdict it counted towards.
+  const p = v.probe;
+  const probe = isObject(p) && typeof p.of === 'string' && int(p.callNo) !== null ? { of: p.of, callNo: int(p.callNo)! } : null;
+  const vf = v.verify;
+  const verify = isObject(vf) && typeof vf.href === 'string' && vf.href.startsWith('#/') ? { href: vf.href } : null;
+  return { fix, role, blame, expect: role === 'unblamed' && v.expect !== undefined && v.expect !== null ? v.expect : undefined, ...(probe ? { probe } : {}), ...(verify ? { verify } : {}) };
 }
 
 function normalizeChecks(v: unknown): CheckView[] | null {
@@ -190,11 +195,19 @@ export function normalizeRunDetail(d: RunDetail): RunDetail {
   if (d.intervention !== undefined) out.intervention = normalizeIntervention(d.intervention);
   if (d.notWaitedMs !== undefined) out.notWaitedMs = num(d.notWaitedMs);
   if (d.forkAt !== undefined) out.forkAt = int(d.forkAt);
+  if (d.attemptPlace !== undefined) {
+    const p: unknown = d.attemptPlace;
+    const k = isObject(p) ? int(p.k) : null;
+    const n = isObject(p) ? int(p.n) : null;
+    out.attemptPlace = k !== null && n !== null && k >= 1 && k <= n ? { k, n } : null;
+  }
   if (d.fix !== undefined) {
     const f = normalizeFix(d.fix);
     out.fix = f.fix;
     if (f.role) out.fixRole = f.role;
     if (f.expect !== undefined) out.blameExpect = f.expect;
+    if (f.probe) out.probeOf = f.probe;
+    if (f.verify) out.verifyOf = f.verify;
     // The run page's own blame wins; the fix adds what asking again did, or the blame when there is none.
     if (f.blame) out.blame = out.blame ? { ...out.blame, short: out.blame.short ?? f.blame.short ?? null } : f.blame;
   }

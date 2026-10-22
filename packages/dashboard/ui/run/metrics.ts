@@ -12,11 +12,13 @@ export interface MetricInput {
   byKind: { api: number; tool: number };
   upstreamRequests: number;
   cost: { spent: number; saved: number; captured: number; unknownModels: readonly string[] };
-  /** Input tokens the replayed calls did not send again. */
+  /** Input tokens the replayed calls did not send again: uncached, written to the cache and read from it, as `show` and `test` count them. */
   tokensNotRespent: number;
   counts: OriginCounts;
   /** A run imported from a capture: its cost is what the traffic cost where it ran. */
   capture: boolean;
+  /** False for a capture that recorded the model calls alone (a nock or VCR file of the provider's traffic): it never saw the tools. */
+  toolsCaptured?: boolean;
   /**
    * A run pulled from the team store: who recorded it, by name. What it spent was spent there, and
    * says so ("spent · by maya"). Absent for a run made here, or one that names no one.
@@ -45,7 +47,8 @@ export function metricItems(m: MetricInput): MetricItem[] {
     const items: MetricItem[] = [
       [m.total, m.live ? (m.total === 1 ? 'call so far' : 'calls so far') : m.total === 1 ? 'call' : 'calls'],
       [m.byKind.api, m.byKind.api === 1 ? 'model call' : 'model calls'],
-      [m.byKind.tool, m.byKind.tool === 1 ? 'tool call' : 'tool calls'],
+      // A capture of the model calls alone never saw the tools: none were captured, which is no count of them.
+      m.toolsCaptured === false && !m.byKind.tool ? ['—', 'tool calls not captured'] : [m.byKind.tool, m.byKind.tool === 1 ? 'tool call' : 'tool calls'],
     ];
     if (n.fail) items.push(failed);
     items.push(upstream, spent);
@@ -61,7 +64,7 @@ export function metricItems(m: MetricInput): MetricItem[] {
   if (n.fail) items.push(failed);
   if (n.block + n.stub) items.push([n.block + n.stub, n.block && n.stub ? 'fenced' : n.stub ? 'stubbed' : 'blocked']);
   items.push(upstream, spent);
-  if (m.cost.saved || m.tokensNotRespent) items.push([money(m.cost.saved), `not re-spent${m.tokensNotRespent ? ` · ${ktok(m.tokensNotRespent)} tokens` : ''}`, 'q']);
+  if (m.cost.saved || m.tokensNotRespent) items.push([money(m.cost.saved), `not re-spent${m.tokensNotRespent ? ` · ${ktok(m.tokensNotRespent)} input tokens` : ''}`, 'q']);
   if (m.notWaitedMs) items.push([receiptDuration(m.notWaitedMs), 'not waited', 'q']);
   return items;
 }

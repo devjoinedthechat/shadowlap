@@ -13,8 +13,8 @@ import { bulkToast, deleteText, deleteWhat } from '../runspage/bulk.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
-import { failureText, fixCheckShort } from './banner.js';
-import { checksOf, recordingWords, runLikeOf } from './model.js';
+import { failureText, fixCheckText } from './banner.js';
+import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
 
@@ -39,24 +39,26 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const failed = isFailed(like);
   const cut = isInterrupted(like);
   const outcome = like.outcome ?? null;
-  // Why it failed, in a few words: what the run did against the check it failed ("send_email called
-  // 1 time"; the banner says what was expected), the agent's exit, a fix's check. A test that
-  // diverged failed there, as `shadowlap test` says it; one whose golden may fork, on its checks.
+  // Why it failed, in the CLI's words: the check it failed and what the run did against it
+  // ("send_email called 1 time, but called 2 times (2 blocked)"), the agent's exit, a fix's check. A
+  // test that diverged failed there, as `shadowlap test` says it; one whose golden may fork, on its checks.
   const d = r.divergence;
   const failure = !failed
     ? null
     : type === 'test' && d && (!outcome || outcome.kind === 'diverged')
       ? `diverged at call ${d.callNo} (${d.kind} ${d.name})`
-      : (failureText({ status: r.status, checks: checksOf(run), blame: null, outcome, calls: run.calls }, true) ?? (run.fix?.check ? fixCheckShort(run.fix.check, run.calls, true) : null));
+      : (failureText({ status: r.status, checks: checksOf(run), blame: null, outcome, calls: run.calls }) ?? (run.fix?.check ? fixCheckText(run.fix.check, run.calls) : null));
   // A check (blame's among them), or the agent's exit: the word Runs and the sidebar use.
   const checkFailed = !!failure?.startsWith('check failed') || (failed && failedWord(like) === 'check failed');
   // An interrupted run says so after what it is, in grey: it stopped, it did not fail.
   const stopped = cut ? ' · interrupted' : '';
+  // An attempt says it is one (its banner says which and how it came out); a fork, where it forked.
+  const forkWords = forkKindWords(run, type, rescued);
   const eyebrow = live ? (
     <Eyebrow>recording</Eyebrow>
-  ) : type === 'fork' ? (
+  ) : forkWords ? (
     <Eyebrow tone="fork">
-      {rescued ? 'rescued by blame · ' : ''}fork @{r.divergence!.callNo}
+      {forkWords}
       {parent ? <> of {parent}</> : null}
       {/* A fork keeps its own colour; that it stopped is said in grey, as on every other run. */}
       {cut ? <span className="n">{stopped}</span> : null}
@@ -115,7 +117,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
             </span>
           ) : null}
           <span>{stamp(r.startedAt)}</span>
-          <span>{live ? 'recording…' : run.summary.durationMs !== null ? dur(run.summary.durationMs) : ''}</span>
+          {live ? <span>recording…</span> : runDuration(run) !== null ? <span>{dur(runDuration(run)!)}</span> : null}
           {failure ? <span className="bad">{failure}</span> : null}
         </div>
       </div>

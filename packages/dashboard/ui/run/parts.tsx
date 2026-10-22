@@ -1,9 +1,11 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { wholeInput } from '../../../engine/src/tokens.js';
 import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
+import type { TestBannerOffer } from '../types.js';
 import { CmdLine } from '../components/bits.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
-import { callName, clip, glued, jsonText, num, shortId } from '../format.js';
+import { callName, clip, glued, GLUED_SEPARATOR, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { href } from '../route.js';
@@ -14,8 +16,8 @@ import type { PendingAction } from './actions.js';
 import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, type MetricInput } from './metrics.js';
-import { originOf, pulledSpender, runLikeOf } from './model.js';
-import { blameOfferFor, blameTitle, divergedActions, goldenName, updateGoldenCopy } from './offers.js';
+import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './model.js';
+import { blameOfferFor, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from './offers.js';
 import { UpdateGoldenDialog } from './RunDialogs.js';
 
 /** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
@@ -35,9 +37,10 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
     byKind: s.byKind,
     upstreamRequests: s.upstreamRequests,
     cost: s.cost,
-    tokensNotRespent: s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0),
+    tokensNotRespent: wholeInput(s.tokensNotRespent),
     counts: countOrigins(run.calls.map(originOf)),
     capture: runType(runLikeOf(run)) === 'capture',
+    toolsCaptured: toolsCaptured(run),
     ...spentBy(run),
     live: run.run.status === 'running',
     notWaitedMs,
@@ -53,6 +56,12 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
       ))}
     </section>
   );
+}
+
+/** Whether the run saw its tools: a partial recording (a capture) covers tools only when its kinds name them (`tool`, `tool:<name>`). */
+function toolsCaptured(run: RunDetail): boolean {
+  const covers = run.run.meta?.covers;
+  return !covers?.length || covers.some((k) => k === 'tool' || k.startsWith('tool:'));
 }
 
 /** Who spent what a run pulled from the team store spent (`pulledSpender`); nothing for a run made here. */
@@ -94,9 +103,14 @@ function Why({ children, code }: { children: string; code?: string | readonly st
   const text = count < parts.length ? `${parts.slice(0, count).join(' · ')} · …` : children;
   return (
     <span className="why" ref={ref}>
-      {codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? glued(p) : <code key={i}>{p.code}</code>))}
+      {said(text, code)}
     </span>
   );
+}
+
+/** A line as the banner sets it: wrapping only after a separator, never before its dot, with the flag in it set as code. */
+function said(text: string, code?: string | readonly string[] | null): ReactNode[] {
+  return codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? glued(p) : <code key={i}>{p.code}</code>));
 }
 
 /** A one-line JSON value with a place to break after each comma, for a pane that wraps it (a narrow window's). */
@@ -160,6 +174,8 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     ...(run.state ? { outcome: run.state.outcome, interrupted: run.state.interrupted, failed: run.state.failed } : {}),
     calls: run.calls,
     callCount: run.calls.length,
+    attempt: attemptOf(run),
+    codeVersion: r.codeVersion,
   });
   if (!b) return null;
   const job = (kind: string, fields: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(kind, fields)));
@@ -174,6 +190,23 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     </button>
   );
   const off = app.actionsOff;
+  // Run blame: the fixes' blame job, which finds the check the run failed (asking when nothing names
+  // it) and ends with a link to the fix. Not for a run blame has been run on already, nor in a copy.
+  const runBlame = (blamed: boolean) => {
+    if (blamed || app.exported) return null;
+    const offer = blameOfferFor(offers, {
+      blamed,
+      capture: !!run.source,
+      argv: r.command.argv,
+      status: r.status,
+      failed: checks.filter((c) => !c.ok).map((c) => c.label),
+      fixExpect: run.blameExpect,
+      ownExpect: r.meta?.expect,
+      modelCalls: run.summary.byKind.api,
+    });
+    // The server picks the check, as the CLI judges the run; disabled with why on a read-only dashboard or while a repair holds the tree.
+    return offer ? <RunBlameButton runId={r.runId} failed={offer.failed} title={blameTitle(offer)} /> : null;
+  };
   const fixLink = (step?: string) =>
     run.fix ? (
       <a className="more" href={run.fix.href ?? href.fixes(run.fix.id, step ?? null)}>
@@ -187,15 +220,6 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           <span className="dotlive" />
           <span className="bk">recording</span>
           <Why>calls arrive as they happen · replay and fork once it finishes</Why>
-        </section>
-      );
-    case 'rescued':
-      return (
-        <section className="banner fork">
-          <span className="bk">forked at</span>
-          {b.callNo !== null ? call(b.callNo) : null}
-          <Why>{b.why}</Why>
-          <span className="end">{fixLink('blame')}</span>
         </section>
       );
     case 'diverged': {
@@ -273,6 +297,34 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
         </section>
       );
     }
+    case 'attempt': {
+      // An attempt, as the design draws every one: how it came out first, in its colour, then what was
+      // asked again with which attempt it is, and the writes; the whole line wraps rather than cut a
+      // word. Then the way back to where it counted (its probe, its verdict) and to its bundle; the
+      // fork blame rescued a run with leads to its fix.
+      const a = attemptOf(run);
+      const links = b.of === 'rescued' ? [] : a ? attemptLinks(run, a) : [];
+      return (
+        <section className="banner fork wrap">
+          <span className="bk">{b.callNo !== null ? 'forked at' : 'replayed'}</span>
+          {b.callNo !== null ? call(b.callNo) : null}
+          <span className="why">
+            <em className={b.outcome.tone}>{b.outcome.text}</em>
+            {GLUED_SEPARATOR}
+            {said(b.why, b.flag)}
+          </span>
+          <span className="end">
+            {b.diff ? diffToggle : null}
+            {b.of === 'rescued' ? fixLink('blame') : null}
+            {links.map((l) => (
+              <a key={l.label} className="more" href={l.href}>
+                {l.label}
+              </a>
+            ))}
+          </span>
+        </section>
+      );
+    }
     case 'fork': {
       const normalizer = run.actions.find((a) => a.key === 'n');
       return (
@@ -289,6 +341,8 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
               </button>
             ) : null}
             {b.diff ? diffToggle : null}
+            {/* A fork that failed is blamed as any failed run is: its fix, or Run blame. */}
+            {b.failed ? (run.fix ? fixLink() : runBlame(!!blame)) : null}
           </span>
         </section>
       );
@@ -337,47 +391,57 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
         </section>
       );
     case 'failed': {
-      // Run blame: the fixes' blame job, which finds the check the run failed (asking when nothing
-      // names it) and ends with a link to the fix. Not for a run blame has been run on already.
-      const offer = b.blamed
-        ? null
-        : blameOfferFor(offers, {
-            blamed: b.blamed,
-            capture: !!run.source,
-            argv: r.command.argv,
-            status: r.status,
-            failed: checks.filter((c) => !c.ok).map((c) => c.label),
-            fixExpect: run.blameExpect,
-            ownExpect: r.meta?.expect,
-            modelCalls: run.summary.byKind.api,
-          });
+      const blameButton = b.fix ? null : runBlame(b.blamed);
       return (
         <section className="banner blame">
           <span className="bk">failed</span>
           <Why>{b.why}</Why>
-          {b.fix ? (
-            <span className="end">{fixLink()}</span>
-          ) : offer && !app.exported ? (
-            <span className="end">
-              {/* The server picks the check, as the CLI judges the run; disabled with why on a read-only dashboard or while a repair holds the tree. */}
-              <RunBlameButton runId={r.runId} failed={offer.failed} title={blameTitle(offer)} />
-            </span>
-          ) : null}
+          {b.fix ? <span className="end">{fixLink()}</span> : blameButton ? <span className="end">{blameButton}</span> : null}
         </section>
       );
     }
   }
 }
 
-/** The request that changed at the fork: what the recording sent, and what this run sent. */
-export function DiffPanel({ run }: { run: RunDetail }) {
+/**
+ * What a diverged test's banner found, said again under the diff: the value made anew on every run,
+ * what it looks like, and what its normalizer does; that one the recording never had needs the
+ * golden updated after the rule, and that one that may be a real change should be looked at first.
+ */
+function VolatileHint({ v, updates }: { v: NonNullable<TestBannerOffer['volatile']>; updates: boolean }) {
+  return (
+    <span>
+      {' '}
+      {v.op === 'added' ? (
+        <>
+          A value the recording never had, at <code>{v.path}</code>, looks like {v.looks}
+        </>
+      ) : (
+        <>
+          Only a value changed at <code>{v.path}</code>, and it looks like {v.looks}
+        </>
+      )}
+      {v.certain ? ': the agent makes a new one on every run.' : ', though it may be a real change: look at it before masking it.'} A normalizer masks it before matching
+      {updates ? '; the request still carries the field the recording lacks, so the golden is updated after it.' : ', and older recordings match too.'}
+    </span>
+  );
+}
+
+/**
+ * The request that changed at the fork: what the recording sent, and what this run sent. A diverged
+ * test's value made anew on every run is the test offer's finding (the banner's), judged on all its
+ * changes: the panel says so, with its normalizer, and says none is suggested only when neither the
+ * divergence's hints nor the finding suggest one.
+ */
+export function DiffPanel({ run, test = null }: { run: RunDetail; test?: TestBannerOffer | null }) {
   const d = run.run.divergence;
   if (!d) return null;
   const diff = d.diff ?? [];
   const parent = run.parent ? shortId(run.parent.runId) : 'the recording';
   const hint = d.hints?.find((h) => h.normalizer);
   const n = hint?.normalizer;
-  const command = n ? `shadowlap normalize add${n.kind ? ` --kind ${n.kind}` : ''}${n.name ? ` --name ${n.name}` : ''} --path '${n.path ?? '$'}'${n.pattern ? ` --pattern ${n.pattern}` : ''} --replace '${n.replace}'` : null;
+  const v = test?.volatile ?? null;
+  const command = v?.command ?? (n ? `shadowlap normalize add${n.kind ? ` --kind ${n.kind}` : ''}${n.name ? ` --name ${n.name}` : ''} --path '${n.path ?? '$'}'${n.pattern ? ` --pattern ${n.pattern}` : ''} --replace '${n.replace}'` : null);
   return (
     <section className="diffpanel">
       <div>
@@ -410,10 +474,12 @@ export function DiffPanel({ run }: { run: RunDetail }) {
       </div>
       <div className="hint">
         {diff.length ? `${diff.length === 1 ? 'One field' : `${diff.length} fields`} changed${diff.length > 12 ? '; the first 12 are shown' : ''}.` : null}
-        {d.hints?.map((h, i) => (
-          <span key={i}> {h.message}</span>
-        ))}
-        {!hint && diff.length ? ' Not a date or an id, so no normalizer is suggested.' : null}
+        {v ? (
+          <VolatileHint v={v} updates={!!test && updatesAfterRules(test)} />
+        ) : (
+          d.hints?.map((h, i) => <span key={i}> {h.message}</span>)
+        )}
+        {!hint && !v && diff.length ? ' Not a date or an id, so no normalizer is suggested.' : null}
         {command ? <CmdLine>{command}</CmdLine> : null}
       </div>
     </section>

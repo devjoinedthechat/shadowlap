@@ -334,6 +334,12 @@ table.runst .st.named .stc { display: block; width: 0; min-width: 100%; margin-t
    wraps, it breaks anywhere rather than widen the page on a phone. */
 .banner .why code, .banner .path { overflow-wrap: anywhere; }
 .banner .end { margin-left: auto; display: flex; gap: 14px; align-items: center; }
+/* How an attempt came out, leading its banner's line, in the consequence colours: passed, failed, inconclusive; interrupted in grey. */
+.banner .why em { font-style: normal; }
+.banner .why em.ok { color: var(--ok); }
+.banner .why em.no { color: var(--err); }
+.banner .why em.inc { color: var(--warn); }
+.banner .why em.n { color: var(--dim); }
 .diffpanel { border-top: 1px solid var(--line); padding: 14px 24px 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; background: var(--bg2); }
 .diffpanel h4 { margin: 0 0 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .diffpanel pre { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.7 var(--mono); color: var(--dim); overflow-x: auto; }
@@ -553,6 +559,8 @@ table.ctab tr.miss td { color: var(--warn); }
 .changes small { display: block; margin-top: 2px; font: 11.5px var(--mono); color: var(--faint); }
 .prefix { margin-top: 16px; display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--lime) 7%, transparent); }
 .prefix .ms { width: 260px; height: 12px; }
+/* what made a fork can quote a tool's JSON: the line wraps inside it rather than run past a narrow window */
+.prefix > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .paths { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .paths h4 { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .pcall { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font: 12.5px var(--mono); }
@@ -617,6 +625,8 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 /* ============ status bar + overlays ============ */
 .status { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--faint); background: var(--bg); white-space: nowrap; overflow: hidden; }
 .status .sep { width: 1px; height: 12px; background: var(--line2); flex: none; }
+/* Drawn over what scrolls under it: a switch (Format JSON) in the views pane would otherwise paint over the bar. */
+.status { position: relative; z-index: 2; }
 .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(5,6,4,.55); backdrop-filter: blur(2px); display: grid; place-items: center; padding: 24px; }
 /* A dialog never outgrows the window: its body scrolls, so its title and buttons stay in view. */
 .dialog { width: min(520px, 100%); max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden; }
@@ -763,6 +773,8 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .stepempty { padding: 22px 22px 24px; }
 .stepempty h3 { margin: 0; font: 600 17px var(--disp); letter-spacing: -.02em; }
 .stepempty p { margin: 6px 0 14px; color: var(--dim); max-width: 70ch; }
+/* a run id named in the sentence (a run not in the store) breaks anywhere rather than widen a phone's page */
+.stepempty p code { overflow-wrap: anywhere; }
 .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .trio b { display: block; margin-top: 6px; font: 700 22px var(--disp); letter-spacing: -.03em; }
 .vchips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
@@ -1199,6 +1211,9 @@ body.is-offline main.view { padding-top: 44px; }
   .banner > * { flex: none; }
   .banner .why { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+/* An attempt's banner wraps rather than cut its words, on every width, as the design's does. */
+.banner.wrap { flex-wrap: wrap; row-gap: 4px; }
+.banner.wrap .why { flex: 1 1 280px; white-space: normal; overflow: visible; text-overflow: clip; text-wrap: pretty; }
 
 
 /* long runs */
@@ -1639,6 +1654,8 @@ table.calls tbody tr.wspace:hover td, table.t tbody tr.wspace:hover td { backgro
 
 /* forks and provenance: a ledger row selects its call */
 .fnode .f2.block { display: block; }
+/* a gated golden's attempts in one session: its gate's rule, once, under the verdict */
+.fnode .f2 .frule { display: block; margin-top: 2px; font-size: 11.5px; }
 table.ledger tbody tr { cursor: pointer; }
 table.ledger tbody tr:hover td { background: var(--hover); }
 table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }

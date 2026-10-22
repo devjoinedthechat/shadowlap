@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CallRecord, Origin, RunRecord, Store } from '@shadowlap/engine';
-import { formatDuration, formatTokens, formatUsd, shortModel, summarizeRun, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
+import { formatDuration, formatTokens, formatUsd, shortModel, summarizeRun, wholeInput, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
 import { copyToClipboard } from '../clipboard.js';
 import { ago, kindFacts, loadRequest, loadResponseBytes, runLabel } from '../data.js';
 import { fitItems, truncate } from '../render.js';
@@ -64,7 +64,7 @@ function rowDetail(store: Store, c: CallRecord, modelOf?: ModelResolver): string
   if (c.kind === 'api') {
     const u = c.end?.meta.usage;
     const model = shortModel(c.end?.meta.model ?? c.meta.model ?? modelOf?.(c));
-    return [u ? `${formatTokens(u.inputTokens + (u.cacheReadInputTokens ?? 0))}>${formatTokens(u.outputTokens)} tok` : '', model, c.end?.meta.stopReason ?? ''].filter(Boolean).join(' · ');
+    return [u ? `${formatTokens(wholeInput(u))}>${formatTokens(u.outputTokens)} tok` : '', model, c.end?.meta.stopReason ?? ''].filter(Boolean).join(' · ');
   }
   if (c.kind === 'tool' && c.requestRef) {
     const req = store.getJson<{ args?: unknown }>(c.requestRef);
@@ -278,7 +278,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const nameWidth = Math.max(8, Math.min(18, innerWidth - fixedWithoutName));
   const detailWidth = Math.max(0, innerWidth - fixedWithoutName - nameWidth);
 
-  const saved = summary.tokensNotRespent.inputTokens + (summary.tokensNotRespent.cacheReadInputTokens ?? 0);
+  const saved = wholeInput(summary.tokensNotRespent);
   // The header is one line: what matters most comes first, so a narrow terminal leaves out the least
   // important part, whole stats at a time.
   const headerItems = [
@@ -289,7 +289,8 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     summary.byOrigin.blocked ? `${summary.byOrigin.blocked} blocked` : '',
     summary.byOrigin.stubbed ? `${summary.byOrigin.stubbed} stubbed` : '',
     summary.byOrigin.overridden ? `${summary.byOrigin.overridden} overridden` : '',
-    saved ? `${formatTokens(saved)} tok saved${summary.cost.saved ? ` (≈${formatUsd(summary.cost.saved)})` : ''}` : '',
+    // What replaying didn't spend again, in the words `show`, `ls` and the dashboard use.
+    summary.cost.saved ? `${formatUsd(summary.cost.saved)} not re-spent${saved ? ` (${formatTokens(saved)} input tokens)` : ''}` : saved ? `${formatTokens(saved)} input tokens not re-spent` : '',
     summary.cost.spent ? `≈${formatUsd(summary.cost.spent)} spent` : '',
     summary.cost.captured ? `≈${formatUsd(summary.cost.captured)} captured` : '',
     summary.durationMs !== null ? formatDuration(summary.durationMs) : '',

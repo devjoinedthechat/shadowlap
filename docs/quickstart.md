@@ -38,7 +38,7 @@ shadowlap replay 01M2NH0DMC
 
 ```
 …
-✓ Replay clean: 30/30 calls replayed (11 api, 17 tool, 2 clock/random), 0 upstream requests, 12k input tokens not re-spent (≈$0.072)
+✓ Replay clean: 30/30 calls replayed (11 api, 17 tool, 2 clock/random), 0 upstream requests, 12.3k input tokens not re-spent (≈$0.072)
   shadowlap show 01M2NH0F3K
 ```
 
@@ -50,7 +50,7 @@ AGENT_SYSTEM_SUFFIX="Be brief." shadowlap replay 01M2NH0DMC
 
 ```
 …
-⑂ Forked at call 3: 2 calls replayed, then 21 live, 1 write blocked; 11 upstream requests (≈$0.072 spent, $0 saved)
+⑂ Forked at call 3: 2 calls replayed, then 21 live, 1 write blocked; 11 upstream requests (≈$0.072 spent, $0 not re-spent)
   21 recorded calls left unused after the fork: #4 search_web, #6 POST /v1/messages, #7 fetch_page, …
 ✗ Diverged at call 3 (api POST /v1/messages): 2 calls replayed before divergence
   compared with run 01M2NH0DMC…, call 3
@@ -68,7 +68,7 @@ shadowlap replay 01M2NH0DMC --live-tool search_web --writes stub
 
 ```
 …
-⑂ Forked at call 4: 3 calls replayed, then 20 live, 1 write stubbed; 10 upstream requests (≈$0.066 spent, $0.0061 saved)
+⑂ Forked at call 4: 3 calls replayed, then 20 live, 1 write stubbed; 10 upstream requests (≈$0.066 spent, $0.0061 not re-spent)
   20 recorded calls left unused after the fork: #6 POST /v1/messages, #7 fetch_page, #8 fetch_page, …
 ✗ Diverged at call 4 (tool search_web): 3 calls replayed before divergence
   forced live by --live-tool search_web

@@ -55,7 +55,7 @@ describe('report formatting', () => {
     const s = summarizeRun(run, [call({}), call({ callNo: 2, kind: 'tool', name: 't', origin: 'replayed' })]);
     expect(s.upstreamRequests).toBe(0);
     expect(s.tokensNotRespent.inputTokens).toBe(1000);
-    expect(formatSummary(s, plain)).toContain('Replay clean: 2/2 calls replayed (1 api, 1 tool), 0 upstream requests, 1k input tokens not re-spent');
+    expect(formatSummary(s, plain)).toContain('Replay clean: 2/2 calls replayed (1 api, 1 tool), 0 upstream requests, 1.0k input tokens not re-spent');
   });
 
   it('formats a divergence with a diff and a hint', () => {

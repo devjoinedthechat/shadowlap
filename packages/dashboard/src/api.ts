@@ -1,4 +1,4 @@
-import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
@@ -80,7 +80,9 @@ export interface CallRow extends CallFacts {
   responseRef: string | null;
   /**
    * A tool's result in one line of about 72 characters (`stubbed …`, `blocked`), shown under the call;
-   * for a clock read or a random value, the value it gave, shown beside it; null for model calls.
+   * for a clock read or a random value, the value it gave, shown beside it; for a model call, what it
+   * said (its text, about 200 characters at most), which Turns shows and Calls shows under a final
+   * answer; null for one that said nothing or failed.
    */
   resultShort: string | null;
   /** A recorded user input: a person's answer the agent read, recorded like a read tool (`user_input`). */
@@ -102,11 +104,12 @@ export interface RunDetail extends RunPageFacts {
   calls: CallRow[];
   parent: { runId: string; label: string } | null;
   /**
-   * The runs made from it, oldest first. `attempt` marks one bundled under it as the lists bundle it
-   * (a blame probe, a verify or `--repeat` attempt, a model's scoring attempt): Compare on a recording
-   * opens its first fork or replay, never one of those.
+   * The runs made from it, oldest first, each with its kind as the run list classifies it (`fork`,
+   * `clean`, `test`…). `attempt` marks one bundled under it as the lists bundle it (a blame probe, a
+   * verify or `--repeat` attempt, a model's scoring attempt): Compare on a recording opens its first
+   * fork or replay, never one of those, and Compare given only this run pairs it with its newest fork.
    */
-  children: Array<{ runId: string; label: string; startedAt: number; attempt?: true }>;
+  children: Array<{ runId: string; label: string; kind: RunKind | null; startedAt: number; attempt?: true }>;
   /**
    * How many attempts are bundled under it, at any depth (a `--repeat` of one of blame's probes too),
    * as Runs counts them: what deleting it takes with it, which its Delete names.
@@ -123,6 +126,14 @@ export interface RunDetail extends RunPageFacts {
    * reads `crashed`, ended at its last call (`run.endedAt`), as gc would end it.
    */
   state: RunState | null;
+  /**
+   * For an attempt made with others (`meta.repeat`: a blame probe's, a verify's, a `--repeat`'s), its
+   * place among them and how many were made: the runs under the same parent that share its group, in
+   * the order they were made. The record's `repeat.of` is the most that could be made (a gate's
+   * limit, `--attempts`, the count `--repeat` asked for), which a probe or a verify that settles
+   * early never reaches. Null for any other run.
+   */
+  attemptPlace: { k: number; n: number } | null;
   /**
    * Set on an answer to `?after=<n>`, a recording's page following it: `calls` holds only the calls
    * numbered after `n`, and the page keeps the ones it has up to there. Everything else is the whole run's.
@@ -234,10 +245,34 @@ export function lookupRun(store: Store, idOrPrefix: string): RunRecord | null {
   }
 }
 
+/**
+ * Whether a run id prefix matches several runs and no run whole: `lookupRun` finds none for it, as
+ * the CLI refuses it, and the dashboard says so rather than that there is no such run.
+ */
+export function ambiguousRunId(store: Store, idOrPrefix: string): boolean {
+  if (!/^[0-9A-Za-z]{1,26}$/.test(idOrPrefix)) return false;
+  const want = idOrPrefix.toUpperCase();
+  let n = 0;
+  for (const r of loadRunIndex(store).runs) {
+    if (r.runId === want) return false;
+    if (r.runId.startsWith(want)) n++;
+  }
+  return n > 1;
+}
+
+/** The error for a run id that names no single run: several runs (409), or none (404). */
+export function noSuchRun(store: Store, idOrPrefix: string): { status: number; message: string } {
+  const id = idOrPrefix.slice(0, 40);
+  return ambiguousRunId(store, idOrPrefix) ? { status: 409, message: `run id prefix ${id} matches several runs: use more of the id` } : { status: 404, message: `no run ${id}` };
+}
+
 /** A run's children for its page, each attempt marked as the run lists bundle it. */
 function childRows(store: Store, runId: string): RunDetail['children'] {
   const index = loadRunIndex(store);
-  return store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), startedAt: r.startedAt, ...(index.byId.get(r.runId)?.bundled ? { attempt: true as const } : {}) }));
+  return store.childRuns(runId).map((r) => {
+    const listed = index.byId.get(r.runId);
+    return { runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), kind: listed?.kind ?? null, startedAt: r.startedAt, ...(listed?.bundled ? { attempt: true as const } : {}) };
+  });
 }
 
 export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions = {}, part: { after?: number } = {}): RunDetail | null {
@@ -268,8 +303,25 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     ...runPageFacts(store, run, calls),
     fix: fixForRun(store, run.runId),
     state,
+    attemptPlace: attemptPlace(store, run),
     ...(after === undefined ? {} : { after }),
   };
+}
+
+/**
+ * An attempt's place among the attempts made with it, and how many those are (`RunDetail.attemptPlace`):
+ * the runs of its parent that share its `repeat.group`, ordered by the attempt each says it is, then
+ * by when it started. The fork blame rescued a run with is one of its probe's attempts, though the
+ * lists show it as a fork of its own, so every run of the parent is read, not the run index's
+ * bundles alone. Null for a run that names no group.
+ */
+export function attemptPlace(store: Store, run: Pick<RunRecord, 'runId' | 'parentRunId' | 'meta'>): { k: number; n: number } | null {
+  const group: unknown = run.meta?.repeat?.group;
+  if (typeof group !== 'string' || !group || !run.parentRunId) return null;
+  const same = loadRunIndex(store).runs.filter((r) => r.parentRunId === run.parentRunId && r.meta.repeat?.group === group);
+  same.sort((a, b) => a.meta.repeat!.attempt - b.meta.repeat!.attempt || a.startedAt - b.startedAt || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0));
+  const k = same.findIndex((r) => r.runId === run.runId) + 1;
+  return k > 0 ? { k, n: same.length } : null;
 }
 
 /** The run's record for the Provenance tab: command, code version, times in UTC, models, providers, lineage, and what a copy would mask. */
@@ -461,6 +513,18 @@ export interface LineageNode {
   startedAt: number;
   repeat: { group: string; attempt: number; of: number } | null;
   checks: { passed: number; total: number } | null;
+  /**
+   * One character per call, as the run list encodes them (r replayed, l live, o overridden, i
+   * injected, f failed, b blocked, s stubbed): an attempt the list leaves out says what it did too.
+   */
+  origins: string;
+  /**
+   * A replay made by `shadowlap test`: its golden and session, and which of the golden's attempts in
+   * the session it is. For a golden replayed more than once in the session, `gate` is what its gate
+   * made of those attempts, as Tests says it: the verdict word, the tally and the Wilson bound, and
+   * the rule, stated once; null when the golden has no gate, or it decided nothing.
+   */
+  test: { golden: string; session: string; attempt: number | null; gate?: { verdict: string; rule: string | null } | null } | null;
   /** How the run stands as the run list says it: its kind, how it came out, and whether that failed. */
   kind?: RunKind;
   outcome?: RunOutcome;
@@ -485,6 +549,13 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
   }
   const modelOf = modelResolver(store);
   const stateOf = runStates(store);
+  // Each golden's gate in a session, read once however many of its attempts the family holds.
+  const gates = new Map<string, { verdict: string; rule: string | null } | null>();
+  const sessionGateOf = (t: NonNullable<LineageNode['test']>) => {
+    const key = `${t.session}\n${t.golden}`;
+    if (!gates.has(key)) gates.set(key, sessionGate(store, t.session, t.golden));
+    return gates.get(key)!;
+  };
   const out: LineageNode[] = [];
   const walk = (r: RunRecord, depth: number) => {
     if (out.length >= 1000) return;
@@ -508,11 +579,43 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
       startedAt: r.startedAt,
       repeat: r.meta?.repeat ?? null,
       checks: checksOf(r),
+      origins: calls.map((c) => ORIGIN_CODE[displayOrigin(c.origin, c.end ? { outcome: c.end.outcome, injected: c.end.meta.injected } : null)]).join(''),
+      test: withGate(testOf(r), sessionGateOf),
     });
     for (const child of store.childRuns(r.runId).sort((a, b) => a.startedAt - b.startedAt)) walk(child, depth + 1);
   };
   walk(root, 0);
   return out;
+}
+
+/** A golden's attempt in a test session that replayed it more than once, with its gate's verdict on them; any other test as it is. */
+function withGate(t: LineageNode['test'], gateFor: (t: NonNullable<LineageNode['test']>) => { verdict: string; rule: string | null } | null): LineageNode['test'] {
+  return t && t.attempt !== null ? { ...t, gate: gateFor(t) } : t;
+}
+
+/**
+ * What a golden's gate made of its attempts in one test session, as Tests says it: the
+ * verdict word, the tally and the Wilson bound, and the rule apart, to be stated once. A clean
+ * replay's one attempt settles it, with no rule to state. Null when the golden has no gate, the gate
+ * decided nothing (stopped by a check it couldn't judge, or by a signal), or what was kept can't be read.
+ */
+function sessionGate(store: Store, session: string, golden: string): { verdict: string; rule: string | null } | null {
+  try {
+    const g = store.listTestResults({ sessionId: session, golden, limit: 1 })[0]?.data?.gate;
+    if (!g || g.decision === 'continue') return null;
+    return g.clean ? { verdict: `${verdictLine(g)}, so its one attempt settles it`, rule: null } : { verdict: verdictLine(g), rule: `gate: ${describeGate(gateOf(g))}` };
+  } catch {
+    return null;
+  }
+}
+
+/** A test replay's golden, session and attempt, as its record keeps them; checked, since a run can come from someone else's pack. */
+function testOf(r: RunRecord): LineageNode['test'] {
+  const t: unknown = r.meta?.test;
+  if (typeof t !== 'object' || t === null) return null;
+  const { golden, session, attempt } = t as Record<string, unknown>;
+  if (typeof golden !== 'string' || typeof session !== 'string') return null;
+  return { golden, session, attempt: Number.isInteger(attempt) ? (attempt as number) : null };
 }
 
 export function compare(store: Store, a: string, b: string): RunComparison | null {

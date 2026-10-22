@@ -3,12 +3,12 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { kindFacts } from '@shadowlap/tui/data';
-import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, unrescuedWords, untrustedReads, withLabels, withNote, type RunRecord, type TrustSource } from '@shadowlap/engine';
+import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatTokens, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, unrescuedWords, untrustedReads, wholeInput, withLabels, withNote, type RunRecord, type TrustSource } from '@shadowlap/engine';
 import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
 import { projectGoldens } from '../goldens.js';
-import { describeCall, missingStoreNote, openStore, parseIntArg, readStore, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
+import { describeCall, leftRunning, missingStoreNote, openStore, parseIntArg, readStore, requireRun, statusWord, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { dashboardTasks } from '../tasks.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
 
@@ -162,6 +162,7 @@ export function register(program: Command): void {
       // A run pulled from the team store spent what it spent where it was recorded, by its author.
       const author = pulledRun(run) && typeof run.meta?.author === 'string' && run.meta.author ? run.meta.author : null;
       const by = author ? ` by ${safe(author.includes('@') ? author.split('@')[0]! : author)}` : '';
+      const notRespent = wholeInput(s.tokensNotRespent);
       const facts = [
         s.durationMs !== null ? formatDuration(s.durationMs) : '',
         s.upstreamRequests ? `${s.upstreamRequests} upstream ${s.upstreamRequests === 1 ? 'request' : 'requests'}` : '',
@@ -169,11 +170,15 @@ export function register(program: Command): void {
         s.cost.spent ? `≈${formatUsd(s.cost.spent)} spent${by}` : '',
         // An imported run's calls were paid for wherever the traffic happened, not here.
         s.cost.captured ? `≈${formatUsd(s.cost.captured)} of traffic captured` : '',
-        s.cost.saved ? `${formatUsd(s.cost.saved)} saved by replay` : '',
+        // What replaying it didn't spend again, as the dashboard's receipt says it, with its input tokens
+        // (a model with no price still says its tokens, as a replay's summary does).
+        s.cost.saved ? `${formatUsd(s.cost.saved)} not re-spent${notRespent ? ` (${formatTokens(notRespent)} input tokens)` : ''}` : notRespent ? `${formatTokens(notRespent)} input tokens not re-spent` : '',
         s.cost.unknownModels.length ? `no price for ${s.cost.unknownModels.join(', ')}` : '',
       ].filter(Boolean);
+      // Stopped before it ended, or left by a recorder that went away: interrupted, as every page says it.
+      const status = statusWord(run.status, leftRunning(store, [run]).has(run.runId));
       const head = [
-        `${p.bold(run.runId)}  ${run.mode === 'record' ? 'recording' : `replay of ${run.parentRunId ?? '?'}`}  ${run.status}  ${p.dim(ago(run.startedAt))}`,
+        `${p.bold(run.runId)}  ${run.mode === 'record' ? 'recording' : `replay of ${run.parentRunId ?? '?'}`}  ${status}  ${p.dim(ago(run.startedAt))}`,
         p.dim(`  ${safe(run.command.argv.join(' '))}${run.codeVersion ? `  @ ${safe(run.codeVersion)}` : ''}`),
         ...(facts.length ? [p.dim(`  ${facts.join(' · ')}`)] : []),
       ];
@@ -225,7 +230,8 @@ export function register(program: Command): void {
         return row;
       });
       process.stdout.write(table(rows, '  ') + '\n');
-      if (run.divergence) process.stdout.write('\n' + formatDivergence(run.divergence, p) + '\n');
+      // The calls an override answered before the fork are named apart from those replayed, as the run's page says it.
+      if (run.divergence) process.stdout.write('\n' + formatDivergence(run.divergence, p, 12, calls) + '\n');
       store.close();
     });
 
@@ -273,8 +279,11 @@ export function register(program: Command): void {
         process.stdout.write(p.dim(labelled ? `no runs labelled ${flags.label.map((l) => safe(l)).join(' and ')}\n` : note ? `no runs: ${note}\n` : 'no runs yet: shadowlap run -- <command>\n'));
         return;
       }
+      // A run stopped before it ended reads interrupted, in a neutral tone, as the dashboard lists it.
+      const left = leftRunning(store, runs);
       const row = (r: RunRecord, indent: string): string[] => {
-        const state = r.status === 'running' ? p.yellow(r.status) : r.status === 'completed' ? p.green(r.status) : p.red(r.status);
+        const word = statusWord(r.status, left.has(r.runId));
+        const state = word === 'interrupted' ? p.dim(word) : r.status === 'running' ? p.yellow(word) : r.status === 'completed' ? p.green(word) : p.red(word);
         const calls = store.countCalls(r.runId);
         const k = runKind(r, kindFacts(store, r, calls));
         // A replay that stopped before its recording did is no clean one: `ended early @11`, in red.

@@ -47,12 +47,12 @@ export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
-export type { CallDifference, RunComparison } from './compare.js';
+export type { CallDifference, ComparedIntervention, RunComparison } from './compare.js';
 export type { RequestManifest } from './manifest.js';
 export { deepEqual, firstDifference, headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
 export { DEFAULT_REPLAY_OPTIONS, Session } from './session.js';
 export type { Decision, ReplayOptions, ResolveInput, SessionOptions } from './session.js';
-export { divergenceLine, endedEarlyCount, formatDivergence, formatSummary, formatTokens, plain, storedModelResolver, summarizeRun } from './report.js';
+export { divergenceLine, endedEarlyCount, formatDivergence, formatSummary, formatTokens, plain, replayedBeforeWords, storedModelResolver, summarizeRun } from './report.js';
 export type { ModelResolver, SummaryOptions } from './report.js';
 // Judge checks: the reserved scope replay strictness leaves out, what a judge reads, the request it is sent, its verdict and its cost.
 export { JUDGE_INSTRUCTIONS, JUDGE_KEYS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, MATERIAL_LIMIT, RESERVED_SCOPE_PREFIX, VERDICT_SCHEMA, agentCallsOf, claudeTakes, escapeMaterial, isJudgeCall, judgeAskId, judgeCallsOf, judgedAnswers, judgeMaterial, judgePrompt, judgeRequest, judgeRules, judgeTarget, matchedClockOf, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, reachesJudgeRequest, readVerdict } from './judge.js';
@@ -99,7 +99,8 @@ export type { PackOptions, PackResult, RecordingMismatch, UnpackResult } from '.
 export type { Palette } from './report.js';
 export { conversationRequest, conversationRequestFor, LiveConversations, Lru, responseInfo, runConversations, runStamp } from './conversations.js';
 export type { CallConversation, ConversationOptions, ConversationSpan, RequestedTool, RunConversations } from './conversations.js';
-export { CACHE_MISS_MIN_TOKENS, cacheMisses, cacheRead, cacheUse, importedRecording, runCache, runCacheUse, sumCacheUse, wholeInput } from './cache.js';
+export { CACHE_MISS_MIN_TOKENS, cacheMisses, cacheRead, cacheUse, importedRecording, runCache, runCacheUse, sumCacheUse } from './cache.js';
+export { wholeInput } from './tokens.js';
 export type { CacheMiss, CacheUse, CacheUseMiss, CacheUseOptions, RunCache, RunCacheUse } from './cache.js';
 export { notWaited, recordedDurations } from './waits.js';
 export type { NotWaited, RunSelection } from './waits.js';

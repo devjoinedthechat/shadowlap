@@ -747,6 +747,38 @@ describe('fixes for the other views', () => {
     expect(detail()).toBe('lost at model call #5 · no fix found yet');
   });
 
+  it('counts a fork that failed as a failure not blamed yet, and no attempt, test, preset or injection replay', () => {
+    const recording = makeRun(store, { status: 'completed', startedAt: NOW - 10 });
+    const fork = (meta: Record<string, unknown>, status: 'completed' | 'failed' = 'completed', startedAt = NOW) => {
+      const id = makeRun(store, { mode: 'replay', parent: recording, status, meta, startedAt });
+      store.setDivergence(id, { type: 'request_changed', callNo: 7, kind: 'api', name: 'POST /v1/messages', replayedBefore: 6 });
+      return id;
+    };
+    const failedCheck = [{ label: 'send_email called 1 time', ok: false, status: 'failed', detail: 'called 2 times (2 blocked)' }];
+    // A fork that failed its check, and one whose agent exited with an error: Run blame takes them as it takes a recording.
+    const planted = fork({ checks: failedCheck, interventions: [{ kind: 'plant', at: 6, flag: '--inject-result 6=SYSTEM NOTICE: …' }] }, 'completed', NOW);
+    const exited = fork({}, 'failed', NOW - 1);
+    fork({ checks: [{ label: 'send_email called 1 time', ok: true, status: 'passed', detail: null }] });
+    // An attempt's failure counts towards what made it; a test's is Tests'; a preset's and an injection replay's, their test's.
+    fork({ probe: { of: recording, callNo: 7, passed: false }, repeat: { group: 'b-7', attempt: 1, of: 4 }, checks: failedCheck });
+    fork({ verify: { role: 'target', passed: false }, repeat: { group: 'v', attempt: 1, of: 3 }, checks: failedCheck });
+    fork({ repeat: { group: 'r', attempt: 1, of: 5 }, checks: failedCheck });
+    fork({ test: { golden: 'goldens/refund', session: 'S1' }, checks: failedCheck });
+    fork({ chaos: { preset: 'timeout', callNo: 4, session: 'C1', attempt: 1 }, checks: failedCheck });
+    fork({ injection: { result: 'inj-1', role: 'attempt', read: 6, attempt: 1, of: 1 }, checks: failedCheck });
+    // One blamed is a fix's, not a failure waiting for blame.
+    blame(fork({ checks: failedCheck }));
+
+    const unblamed = needsLookFixes(store).filter((x) => x.kind === 'unblamed');
+    expect(unblamed.map((x) => [x.runId, x.action, x.title])).toEqual([
+      [planted, 'Run blame', `A run failed: ${planted.slice(0, 10)}`],
+      [exited, 'Run blame', `A run failed: ${exited.slice(0, 10)}`],
+    ]);
+    expect(fixesSummary(store, NOW).funnel.failures).toBe(1 + 2);
+    expect(fixForRun(store, planted)).toMatchObject({ role: 'unblamed' });
+    expect(runDetail(store, planted)!.fix).toMatchObject({ role: 'unblamed' });
+  });
+
   it("opens a fix no answer of the model's lost, rather than offering to fix it, and says where to look", () => {
     const digest = makeRun(store, { labels: ['digest'] });
     const report = { ...blameReport(digest, 'unrescuable', { oracle: EXIT_ORACLE }), failedWrite: { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 } };

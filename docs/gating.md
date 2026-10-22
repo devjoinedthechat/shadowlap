@@ -38,12 +38,12 @@ It reads: tell an agent that passes 90% of the time or more from one that passes
 ```
 
 ```
-✗ reference-agent: failed · 0 of 3 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts. Attempt 1: check failed: send_email called 0 times, but called 1 time (1 blocked or stubbed)
-    ✗ send_email called 0 times: called 1 time (1 blocked or stubbed)
+✗ reference-agent: failed · 0 of 3 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts. Attempt 1: check failed: send_email called 0 times, but called 1 time (1 blocked)
+    ✗ send_email called 0 times: called 1 time (1 blocked)
     0 of 3 passed · rate <= 0.56 (95%)
-    attempt 1  ✗ check failed: send_email called 0 times, but called 1 time (1 blocked or stubbed)
-    attempt 2  ✗ check failed: send_email called 0 times, but called 1 time (1 blocked or stubbed)
-    attempt 3  ✗ check failed: send_email called 0 times, but called 1 time (1 blocked or stubbed)
+    attempt 1  ✗ check failed: send_email called 0 times, but called 1 time (1 blocked)
+    attempt 2  ✗ check failed: send_email called 0 times, but called 1 time (1 blocked)
+    attempt 3  ✗ check failed: send_email called 0 times, but called 1 time (1 blocked)
 ```
 
 - **A clean replay settles it in one attempt.** A replay that forks nowhere and runs nothing live served every call from the recording, so every attempt would come out the same: its one attempt decides, and costs nothing.

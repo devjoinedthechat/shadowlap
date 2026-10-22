@@ -174,6 +174,23 @@ describe('GET /api/compare', () => {
     expect(compareTarget(recording, detail.children)).toEqual([recording.runId, fork.runId]);
   });
 
+  it('says a prefix of several runs’ ids matches several runs, on the run endpoint and here, and a missing run is not there', async () => {
+    let shared = 0;
+    while (ids.before![shared] === ids.after![shared]) shared++;
+    const prefix = ids.before!.slice(0, shared);
+    const ask = (path: string) => fetch(`${dash.url}${path}`, { headers: { 'x-shadowlap-token': dash.token } });
+    const several = await ask(`/api/runs/${prefix}`);
+    expect(several.status).toBe(409);
+    expect(await several.json()).toEqual({ error: `run id prefix ${prefix} matches several runs: use more of the id` });
+    const compared = await ask(`/api/compare?a=${prefix}&b=${ids.after}`);
+    expect(compared.status).toBe(409);
+    expect(((await compared.json()) as { error: string }).error).toBe(`run id prefix ${prefix} matches several runs: use more of the id`);
+    const none = await ask('/api/runs/01ZZZZZZZZ');
+    expect(none.status).toBe(404);
+    expect(await none.json()).toEqual({ error: 'no run 01ZZZZZZZZ' });
+    expect((await ask(`/api/compare?a=01ZZZZZZZZ&b=${ids.after}`)).status).toBe(404);
+  });
+
   it('names what differs in the first request that differs, as the design does, with its path kept', async () => {
     const c = await get(ids.recorded!, ids.forked!);
     expect(c.firstRequestDifference?.diff).toEqual([{ path: '$.messages[2].content[0].content', op: 'changed', before: '{"approval":"tier2"}', after: '{"refund_limit":100,"approval":"tier2"}', what: 'tool_result lookup_policy' }]);

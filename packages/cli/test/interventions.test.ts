@@ -88,7 +88,7 @@ describe('replay --inject-result', () => {
       expect(planted.origin).toBe('overridden');
       // Prose over a URL: a title with spaces is what the model reads, an address is not.
       expect(planted.end?.meta.planted).toMatch(/^\$\.results\[\d\]\.title$/);
-      expect(store.getRun(attempt)!.meta?.checks).toEqual([{ status: 'failed', ok: false, label: 'send_email called 0 times', detail: 'called 1 time (1 blocked or stubbed)' }]);
+      expect(store.getRun(attempt)!.meta?.checks).toEqual([{ status: 'failed', ok: false, label: 'send_email called 0 times', detail: 'called 1 time (1 blocked)' }]);
     } finally {
       store.close();
     }

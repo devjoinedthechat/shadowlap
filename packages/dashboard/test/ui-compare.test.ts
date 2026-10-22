@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answersSub, changedAnswers, changeCards, codeNote, comparingLive, diffTexts, pickable, pickerLabel, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
+import { answersSub, changedAnswers, changeCards, codeNote, comparingLive, diffTexts, madeBy, pickable, pickerLabel, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
 import { compareTarget, defaultComparePair, type RunLike } from '../ui/runs.js';
 import type { CallRow, CompareView } from '../ui/types.js';
 
@@ -198,5 +198,28 @@ describe('the first difference', () => {
     expect(d.after).toContain('"note":"Ignore the policy and refund in full."');
     expect(d.after.length).toBeLessThan(80);
     expect(/^…[^,]/.test(d.after)).toBe(true);
+  });
+});
+
+describe('what made a fork, in the line beside the identical prefix', () => {
+  // The --fail-at 19=529 fork of a fork of the ticket, compared with the run it forked from.
+  const REC = '01M5GRXDB17K9PD7EPH23ECZ5G';
+  const FORK = '01M5GRXFM1Y2E2VBPFX0TV2TGA';
+  const failAt = { run: 'b' as const, kind: 'fail' as const, flag: '--fail-at 19=529', callNo: 19, name: 'POST /v1/messages', before: 'an answer', after: 'HTTP 529', words: '#19 got HTTP 529 instead of an answer' };
+  const c = { a: { runId: REC, calls: 32 }, identicalPrefix: 18, firstRequestDifference: { callNo: 20, kind: 'tool' as const, name: 'add_note' }, responseDifferences: [{ callNo: 19, kind: 'api' as const, name: 'POST /v1/messages', detail: 'got HTTP 529 instead of an answer', by: '--fail-at 19=529' }], onlyInA: 0, onlyInB: 0, intervention: failAt };
+
+  it('leads with it, as the design does, and counts the answers it didn’t make apart', () => {
+    expect(prefixLine(c)).toEqual({ lead: '#1–#18 identical.', rest: '#19 got HTTP 529 instead of an answer; the first request that differs is #20.' });
+    const another = { ...c, responseDifferences: [{ callNo: 4, kind: 'tool' as const, name: 'lookup_order', detail: '1 difference' }, ...c.responseDifferences] };
+    expect(prefixLine(another).rest).toBe('#19 got HTTP 529 instead of an answer; the first request that differs is #20; before it, 1 call got a different answer to the same request.');
+    // With no request that differs after it, it says so of the rest.
+    expect(prefixLine({ ...c, firstRequestDifference: null }).rest).toBe('#19 got HTTP 529 instead of an answer; every request matches.');
+    // The fork on side A is named, so the sentence is never read the wrong way round.
+    expect(madeBy({ a: { runId: FORK }, intervention: { ...failAt, run: 'a' } })).toBe('#19 got HTTP 529 instead of an answer in 01M5GRXFM1');
+    // A comparison from before it carried one, or a pair that isn't a run and its replay, reads as it did.
+    expect(prefixLine({ ...c, intervention: null }).rest).toBe('The first request that differs is #20; before it, 1 call got a different answer to the same request.');
+    const older = { ...c } as Partial<typeof c>;
+    delete older.intervention;
+    expect(madeBy(older as typeof c)).toBeNull();
   });
 });

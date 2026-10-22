@@ -147,3 +147,21 @@ describe('summarizeRun: where the calls were answered and paid for', () => {
     expect(formatSummary(s)).toContain('then 0 live, 1 refused; 0 upstream requests');
   });
 });
+
+describe('formatDivergence: what came before a fork', () => {
+  const fork: DivergenceReport = { type: 'request_changed', callNo: 17, kind: 'api', name: 'POST /v1/messages', replayedBefore: 16 };
+  const calls = [...Array.from({ length: 15 }, (_, i) => call(i + 1, i % 2 ? 'tool' : 'api', 'x', 'replayed')), call(16, 'tool', 'lookup_policy', 'overridden'), call(17, 'api', 'POST /v1/messages', 'live')];
+
+  it('names the calls an override answered apart from those replayed, as the run page does, given the run’s calls', () => {
+    expect(formatDivergence(fork, undefined, 12, calls).split('\n')[0]).toBe('✗ Diverged at call 17 (api POST /v1/messages): 15 calls replayed and #16 overridden before divergence');
+    // Without them, the count the divergence kept.
+    expect(formatDivergence(fork).split('\n')[0]).toBe('✗ Diverged at call 17 (api POST /v1/messages): 16 calls replayed before divergence');
+    // An override after the fork is none of what came before it.
+    expect(formatDivergence(fork, undefined, 12, [...calls.slice(0, 15), call(16, 'tool', 'lookup_policy', 'replayed'), call(18, 'tool', 'escalate', 'overridden')]).split('\n')[0]).toContain(': 16 calls replayed before divergence');
+  });
+
+  it('counts one call replayed as one call', () => {
+    expect(formatDivergence({ ...fork, callNo: 2, replayedBefore: 1 }).split('\n')[0]).toBe('✗ Diverged at call 2 (api POST /v1/messages): 1 call replayed before divergence');
+    expect(formatDivergence({ ...fork, callNo: 3, replayedBefore: 2 }, undefined, 12, [call(1, 'api', 'x', 'replayed'), call(2, 'tool', 'lookup_policy', 'overridden')]).split('\n')[0]).toContain(': 1 call replayed and #2 overridden before divergence');
+  });
+});

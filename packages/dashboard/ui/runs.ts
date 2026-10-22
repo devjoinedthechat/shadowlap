@@ -164,17 +164,30 @@ export function runGlyph(r: RunLike): { kind: GlyphKind; label: string } {
   return failed ? { kind: 'fail', label: 'Recording, failed' } : { kind: 'rec', label: `Recording${cut}` };
 }
 
-/** The tag beside a run's id on its page and in Compare: an interrupted recording, replay or test says so, in grey. */
+/**
+ * The chip beside a run's id on its page, its status: an interrupted recording, replay or test says
+ * so, in grey; a run that failed says FAILED, a fork as any other (its eyebrow names the fork).
+ * Compare's path headers name each side by its kind instead (`kindTag`).
+ */
 export function runTag(r: RunLike): { cls: string; text: string } {
   if (isLive(r)) return { cls: 'live', text: 'recording' };
   const t = runType(r);
   if (isInterrupted(r) && (t === 'recording' || t === 'replay' || t === 'test')) return { cls: '', text: 'interrupted' };
   if (t === 'recording') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'recording' };
   if (t === 'clean') return { cls: 'clean', text: 'clean' };
-  if (t === 'fork') return { cls: 'fork', text: forkAt(r.divergence!) };
+  if (t === 'fork') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: 'fork', text: forkAt(r.divergence!) };
   if (t === 'capture') return { cls: 'cap', text: 'capture' };
   if (t === 'test') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: 'test', text: 'test' };
   return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'replay' };
+}
+
+/**
+ * The tag Compare's path headers give each side, as the design's `typeTag` does: what kind of run it
+ * is, a fork by where it forked (`fork @7`) whether or not it failed, since the paths under it show
+ * what it did; a recording or a test that failed says FAILED, as on its page.
+ */
+export function kindTag(r: RunLike): { cls: string; text: string } {
+  return runType(r) === 'fork' && !isLive(r) ? { cls: 'fork', text: forkAt(r.divergence!) } : runTag(r);
 }
 
 /** What kind of run it is, in a word or two: recording, clean replay, replay, fork @17, capture, test. */
@@ -438,7 +451,12 @@ export function familyLine(r: RunLike): string {
     return `${forkAt(r.divergence)} · ${went} · ${approx(r.spent)}`;
   }
   if (t === 'clean') return n && n.rep === r.calls ? `clean replay · ${num(r.calls)}/${num(r.calls)} · 0 upstream` : `clean replay · ${plural(r.calls, 'call')}`;
-  if (t === 'test') return `test · replayed offline · ${plural(r.calls, 'call')}`;
+  // A test of a golden that may fork went live from where it left the recording: what it did there, as
+  // the sidebar says it. One that left it where its golden may not diverged there, and failed.
+  if (t === 'test') {
+    if (r.divergence && r.outcome?.kind === 'diverged') return `test · diverged at #${r.divergence.callNo} · ${plural(r.calls, 'call')}`;
+    return n && n.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(n.live)} live · ${approx(r.spent)}` : `test · replayed offline · ${plural(r.calls, 'call')}`;
+  }
   if (t === 'capture') return `capture · ${plural(r.calls, 'call')} · ${money(r.captured)} as captured`;
   if (t === 'replay') return `replay · ${plural(r.calls, 'call')} · ${r.status === 'completed' ? 'finished' : r.status}`;
   return `${isFailed(r) ? `${failedWord(r)} · ` : 'recording · '}${plural(r.calls, 'call')} · ${approx(r.spent)}`;
@@ -472,9 +490,10 @@ export interface RepeatAttempt {
  * checks did, or, without checks, when it exited cleanly (the first check of every outcome check is
  * the exit code). An attempt that left the path somewhere else than the others says where. One that
  * was stopped before it ended (Ctrl-C, its recorder killed) neither passed nor failed: it is counted
- * apart and marked `cut`, shown in grey as every list shows an interrupted run.
+ * apart and marked `cut`, shown in grey as every list shows an interrupted run. `title` names
+ * attempts made together otherwise: a golden's attempts in one test session (`test · refund-flow`).
  */
-export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: string; line: string; attempts: Array<{ runId: string; text: string; ok: boolean; cut?: true }> } {
+export function repeatBundle(attempts: readonly RepeatAttempt[], title?: string): { title: string; line: string; attempts: Array<{ runId: string; text: string; ok: boolean; cut?: true }> } {
   const sorted = [...attempts].sort((a, b) => (a.repeat?.attempt ?? 0) - (b.repeat?.attempt ?? 0) || a.startedAt - b.startedAt);
   // Passed: no check failed or could not be decided; one that did not apply is no failure.
   const ok = (n: RepeatAttempt) => (n.checks ? checksFailed(n.checks) === 0 && !n.checks.inconclusive : n.status === 'completed');
@@ -484,7 +503,7 @@ export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: strin
   const passed = sorted.filter(ok).length;
   const stopped = sorted.filter(cut).length;
   return {
-    title: `replay --repeat ${sorted[0]?.repeat?.of ?? sorted.length}`,
+    title: title ?? `replay --repeat ${sorted[0]?.repeat?.of ?? sorted.length}`,
     line: `${forkAt !== null ? 'forked ' : ''}${plural(sorted.length, 'attempt')}, ${num(passed)} passed${stopped ? `, ${num(stopped)} interrupted` : ''}${spent ? ` · ${approx(spent)}` : ''}`,
     attempts: sorted.map((n) => {
       const where = n.divergence && n.divergence.callNo !== forkAt ? ` · forked at #${n.divergence.callNo}` : '';
@@ -516,6 +535,13 @@ export function copyRunId(runIds: readonly string[], id: string): string {
   const want = id.toUpperCase();
   const hits = runIds.filter((r) => r.toUpperCase().startsWith(want));
   return hits.length === 1 ? hits[0]! : id;
+}
+
+/** Whether an id names no run of a copy whole but starts several of their ids: the copy says so, as the server does. */
+export function copyAmbiguous(runIds: readonly string[], id: string): boolean {
+  if (runIds.includes(id) || !/^[0-9A-Za-z]{1,26}$/.test(id)) return false;
+  const want = id.toUpperCase();
+  return runIds.filter((r) => r.toUpperCase().startsWith(want)).length > 1;
 }
 
 /** Whether an exported copy has Compare: it holds two runs or more. A copy of one run has nothing to compare it with. */

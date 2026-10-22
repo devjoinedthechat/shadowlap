@@ -244,8 +244,8 @@ describe('test reports', () => {
 
   it('writes Markdown that survives pipes and backticks in its content', () => {
     const md = markdownReport(testReport([clean, failed]));
-    expect(md).toContain('| ✅ | `triage` | clean | 30/30 | 1k |');
-    expect(md).toContain('| ❌ | `summarize\\|thread` | diverged at call 3 (api POST /v1/messages) | 2/5 | 1k |');
+    expect(md).toContain('| ✅ | `triage` | clean | 30/30 | 1.2k |');
+    expect(md).toContain('| ❌ | `summarize\\|thread` | diverged at call 3 (api POST /v1/messages) | 2/5 | 1.2k |');
     expect(md).toContain('````text\na ``` fence');
     // What to do about a divergence that was meant: the update, by the pack directory as given.
     expect(md).toContain('Once you mean it, update the golden: `shadowlap test goldens/summarize --update` re-records it live with writes stubbed');
@@ -266,8 +266,8 @@ describe('test reports', () => {
     const md = markdownReport(testReport([passed, unsure, failed]));
     expect(md).toContain('### Shadowlap: 1 of 3 recordings failed, 1 inconclusive');
     // The verdict word, the tally, the Wilson bound and the rule, stated once; never a claimed rate.
-    expect(md).toContain('| ✅ | `refund-passed` | passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00 · forked at call 3 | 2/5 | 1k |');
-    expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 0.28 | 2/5 | 1k |');
+    expect(md).toContain('| ✅ | `refund-passed` | passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00 · forked at call 3 | 2/5 | 1.2k |');
+    expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 0.28 | 2/5 | 1.2k |');
     expect(md).not.toMatch(/at least|at most|% confidence/);
     expect(md).toContain('It fails the run unless `--inconclusive warn` is given.');
     // Under --inconclusive warn it is let through, and says so; the heading still counts it.

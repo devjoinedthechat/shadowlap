@@ -133,7 +133,23 @@ describe('the run page: time not waited, blobs and results', () => {
     expect(d.calls[0]!.fingerprint).toBe('fp-1');
     expect(recorded.calls.map((c) => c.recordedMs)).toEqual([null, null, null]);
     expect(recorded.notWaitedMs).toBe(0);
-    expect(recorded.calls.map((c) => c.resultShort)).toEqual([null, '["a","b"]', null]);
+    // A tool's result in a line; a model call's, what it said: nothing for one that only called a tool.
+    expect(recorded.calls.map((c) => c.resultShort)).toEqual([null, '["a","b"]', 'Done.']);
+    store.close();
+  });
+
+  it('says in a line what each model call answered, for Turns and for the final answer in Calls', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    b.model({ messages: [user('Refund A-1042.')] }, [text('Let me look the order up\n first.'), toolUse('lookup_order', { order_id: 'A-1042' }, 'toolu_1')]);
+    b.tool('lookup_order', { order_id: 'A-1042' }, { amount: 240 });
+    b.model({ messages: [user('Refund A-1042.')] }, [text(`Refunded $240. ${'Thanks for waiting. '.repeat(20)}`)]);
+    b.end();
+    const [first, , last] = runDetail(store, b.runId)!.calls;
+    expect(first!.resultShort).toBe('Let me look the order up first.');
+    expect(first!.asks).toEqual(['lookup_order']);
+    expect(last!.resultShort).toHaveLength(200);
+    expect(last!.resultShort).toMatch(/^Refunded \$240\. Thanks for waiting\. .*…$/);
     store.close();
   });
 

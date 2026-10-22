@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { dirname, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { InvalidArgumentError } from 'commander';
-import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
+import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, wholeInput, type CallRecord, type RecordEventInput, type RunRecord, type RunStatus } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { defaultDbPath } from './config.js';
 import { Telemetry, type EventInput } from './telemetry.js';
@@ -32,7 +32,7 @@ export function usageOf(result: EndRunResultLike, durationMs: number, exitCode: 
     stubbed: s.byOrigin.stubbed,
     overridden: s.byOrigin.overridden,
     divergence: s.divergence?.type ?? null,
-    tokensNotRespent: s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0),
+    tokensNotRespent: wholeInput(s.tokensNotRespent),
     durationMs,
     exitCode,
   };
@@ -238,6 +238,22 @@ export function printOutcome(summary: ReturnType<Sidecar['endRun']>['summary']):
   process.stderr.write(p.dim(`  shadowlap show ${shortId(summary.runId)}\n`));
 }
 
+/**
+ * A run's status as `ls` and `show` print it, in the dashboard's words: a run stopped before it ended
+ * (Ctrl-C, a kill, a crash, or a recorder that went away, `left`) is interrupted. JSON and the
+ * recording format keep `crashed`.
+ */
+export function statusWord(status: RunStatus, left = false): string {
+  if (status === 'crashed' || (status === 'running' && left)) return 'interrupted';
+  return status;
+}
+
+/** The runs whose recorder went away while they were marked running, when any of `runs` is: they read as interrupted. */
+export function leftRunning(store: Store, runs: readonly Pick<RunRecord, 'status'>[]): ReadonlySet<string> {
+  if (!runs.some((r) => r.status === 'running')) return new Set();
+  return new Set(store.recordingRuns().abandoned.map((a) => a.run.runId));
+}
+
 export function describeCall(store: Store, c: CallRecord): string[] {
   const end = c.end;
   const outcome = end ? (end.outcome === 'ok' ? p.green('ok') : p.red(end.meta.status ? `error ${end.meta.status}` : 'error')) : p.yellow('pending');
@@ -248,7 +264,8 @@ export function describeCall(store: Store, c: CallRecord): string[] {
   let detail = '';
   if (c.kind === 'api') {
     const u = end?.meta.usage;
-    if (u) detail = `${formatTokens(u.inputTokens + (u.cacheReadInputTokens ?? 0))}→${formatTokens(u.outputTokens)} tok`;
+    // Input tokens as every page counts them: uncached, written to the cache and read from it.
+    if (u) detail = `${formatTokens(wholeInput(u))}→${formatTokens(u.outputTokens)} tok`;
     const model = shortModel(end?.meta.model ?? c.meta.model);
     detail = [detail, model, end?.meta.stopReason ?? ''].filter(Boolean).join(' · ');
   } else if (c.kind === 'tool' && c.requestRef) {

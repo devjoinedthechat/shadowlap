@@ -195,7 +195,7 @@ shadowlap tasks models
 ```
 
 ```
-Models to score on 1 ready task · an attempt uses about 3k input and 57 output tokens after its takeover
+Models to score on 1 ready task · an attempt uses about 3.1k input and 57 output tokens after its takeover
 Recorded with
   claude-sonnet-5  ≈$0.0064 an attempt · scored 1.00
 Anthropic API

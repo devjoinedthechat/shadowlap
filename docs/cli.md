@@ -100,7 +100,7 @@ Everything after a fork is live, so a model may do something different each time
 
 ```
 ⑂ 5 attempts from 01M2P9PVCP, each forked at call 11
-  5 of 5 exited 0 · 20 upstream requests · 16k input tokens not re-spent
+  5 of 5 exited 0 · 20 upstream requests · 16.2k input tokens not re-spent
 
   Paths after the fork
     5×  open_ticket (stubbed) → open_ticket (stubbed) → open_ticket (stubbed)
@@ -364,7 +364,7 @@ Exit status 0 when every task was scored in full, 1 when a task was skipped or s
 shadowlap show <run> [--json] [--request <call>] [--response <call>]
 ```
 
-The timeline: one row per call with kind, name, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`), outcome, latency and tokens or arguments; then the divergence report if the run forked. Above it, the run's duration, upstream requests and what it spent; a teammate's run pulled from the [team store](./team.md) says who spent it where it was recorded (`≈$0.0030 spent by maya`), and a run from a pack or a capture what its traffic cost where it ran (`of traffic captured`). A run with [untrusted reads](./injection.md) (the reads of a tool the config's `tools`, the SDK's `trust` or its MCP server's `openWorldHint` marks untrusted, where `shadowlap injection` plants) names them above the timeline, each with where its mark came from (the first five, then how many more), and tags each one's row `untrusted`, as the dashboard's Calls view does. `--request n` and `--response n` print the stored payloads.
+The timeline: one row per call with kind, name, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`), outcome, latency and tokens or arguments; then the divergence report if the run forked. Above it, the run's status, duration, upstream requests and what it spent, and for a replay what replaying didn't spend again (`$0.0075 not re-spent (8.1k input tokens)`). A run stopped before it ended (Ctrl-C, a kill, a crash, or a recorder that went away) reads `interrupted`, as the dashboard says it; `--json` keeps the stored status, `crashed` or `running`. Input tokens, here and in each row, are everything the model read: uncached, written to the prompt cache and read from it, as `test`, `replay` and the dashboard count them. A teammate's run pulled from the [team store](./team.md) says who spent it where it was recorded (`≈$0.0030 spent by maya`), and a run from a pack or a capture what its traffic cost where it ran (`of traffic captured`). A run with [untrusted reads](./injection.md) (the reads of a tool the config's `tools`, the SDK's `trust` or its MCP server's `openWorldHint` marks untrusted, where `shadowlap injection` plants) names them above the timeline, each with where its mark came from (the first five, then how many more), and tags each one's row `untrusted`, as the dashboard's Calls view does. `--request n` and `--response n` print the stored payloads.
 
 `--json` prints `{ "run", "summary", "calls", "untrusted" }`: the run as stored (`runId`, `parentRunId`, `mode`, `status`, `divergence`, `command`, `codeVersion`, `startedAt`, `endedAt`, `meta`), its summary as [`run --summary-json`](#run) writes it, every call as stored (`runId`, `callNo`, `kind`, `name`, `fingerprint`, `occurrence`, `origin`, `effect`, `requestRef`, `meta`, `at`, `end`, `attempts`), and its untrusted reads in call order, as the dashboard's `GET /api/injection/runs/:id` lists them (`callNo`, `name`, and `from`: `config`, `sdk` or `mcp`), empty for a run with none. The dashboard's Provenance tab copies the same object.
 
@@ -374,7 +374,7 @@ The timeline: one row per call with kind, name, origin (`live`, `replayed`, `blo
 shadowlap ls [--tree] [-n <limit>] [--label <label>] [--json]
 ```
 
-Runs, newest first, with their labels; `--tree` nests forks under their parents. `--label` keeps runs with that label; repeat it to require several.
+Runs, newest first, with their labels; `--tree` nests forks under their parents. `--label` keeps runs with that label; repeat it to require several. A run stopped before it ended, or left marked running by a recorder that went away, reads `interrupted`, as the dashboard lists it; `--json` keeps the stored status.
 
 `--json` prints one object per run: `runId`, `parentRunId`, `mode`, `status`, `calls`, `command`, `codeVersion`, `startedAt`, `endedAt` and `labels`, and:
 
@@ -936,9 +936,9 @@ A proxy for an MCP server: put it in the client's server configuration in place 
 shadowlap diff <a> <b> [--json]
 ```
 
-Two runs call by call, aligned by position. First, what differs about the runs as a whole: their system prompts, the tools they offered (added, removed, or with a changed definition), the models they used and their code versions. Then how many leading calls are identical in request and response, the first call whose request differs (with a structural diff and normalizer hints), how many later requests differ too, and every call whose request was the same but whose response was not, e.g. a live re-run where the model answered differently (both answers are shown; a call answered the same way in a new response, where only its id or token counts differ, is counted apart), or a tool that returned something else. Exit status 1 when the runs differ, like `diff`.
+Two runs call by call, aligned by position. First, what differs about the runs as a whole: their system prompts, the tools they offered (added, removed, or with a changed definition), the models they used and their code versions. Then how many leading calls are identical in request and response; when one run is the other's replay and the flag that made it changed an answer rather than a request (`--fail-at`, `--override`, `--inject-result`, `--diverge-at`), what it did, with what each run got there (`⑂ #19 got HTTP 529 instead of an answer, by --fail-at 19=529`, `⑂ #16 lookup_policy returned {…} instead of {…}`); then the first call whose request differs (with a structural diff and normalizer hints), how many later requests differ too, and every call whose request was the same but whose response was not, e.g. a live re-run where the model answered differently (both answers are shown; a call answered the same way in a new response, where only its id or token counts differ, is counted apart), or a tool that returned something else. Exit status 1 when the runs differ, like `diff`.
 
-`--json` prints the comparison: `a` and `b` (each `runId` and `calls`), `identicalPrefix` and those calls (`prefix`, the first 500), `firstRequestDifference` (`callNo`, `kind`, `name` and the structural `diff`, or `null`), `responseDifferences` (each with `sameAnswer` when the response was new but its answer the same), `after` (each run's course from the first difference on), `onlyInA`, `onlyInB`, and `changes` (`systemPrompt`, each run's system prompts by their hashes in `systems`, `tools`, `models`, `code`).
+`--json` prints the comparison: `a` and `b` (each `runId` and `calls`), `identicalPrefix` and those calls (`prefix`, the first 500), `firstRequestDifference` (`callNo`, `kind`, `name` and the structural `diff`, or `null`), `responseDifferences` (each with `sameAnswer` when the response was new but its answer the same, and `by`, the flag, for the call a replay's flag answered), `after` (each run's course from the first difference on), `onlyInA`, `onlyInB`, `changes` (`systemPrompt`, each run's system prompts by their hashes in `systems`, `tools`, `models`, `code`), and `intervention`: when one run is the other's replay and its flag changed an answer, `run` (`a` or `b`, the one the flag made), `kind` (`fail`, `override`, `answer`, `plant` or `resample`), `flag`, `callNo`, `name`, `before` and `after` (what each run got there), and `words`; `null` otherwise.
 
 ## dashboard
 

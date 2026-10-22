@@ -98,7 +98,7 @@ describe('outcome checks', () => {
     const results = evaluateChecks(spec!, { calls, output: 'done.\n', answer: 'I could not issue it.', argsOf: (c) => (c as { args?: unknown }).args, costOf: () => null });
     expect(results).toEqual([
       { status: 'passed', ok: true, label: 'search_web called at least 1 time', detail: null },
-      { status: 'failed', ok: false, label: 'send_email called 0 times', detail: 'called 1 time (1 blocked or stubbed)' },
+      { status: 'failed', ok: false, label: 'send_email called 0 times', detail: 'called 1 time (1 blocked)' },
       { status: 'failed', ok: false, label: 'refund called at least 1 time', detail: 'called 0 times; tools called: search_web, send_email' },
       { status: 'failed', ok: false, label: 'at most 2 model calls', detail: '3 model calls' },
       { status: 'passed', ok: true, label: '2 tool calls', detail: null },
@@ -113,6 +113,16 @@ describe('outcome checks', () => {
       label: 'send_email with {"to":"ceo@example.com"} called 1 time',
       detail: 'called 0 times; 1 call with other arguments',
     });
+  });
+
+  it('says exactly how a tool’s calls were fenced after a fork: blocked, stubbed, or some of each', () => {
+    const [spec] = parseTests({ x: { expect: { tools: { send_email: 1 } } } }).map((e) => e.spec);
+    const fenced = (...origins: CallRecord['origin'][]) =>
+      evaluateChecks(spec!, { calls: origins.map((o, i) => call(i + 1, 'tool', 'send_email', o)), output: '', answer: null, argsOf: () => null, costOf: () => null })[0]!.detail;
+    expect(fenced('blocked', 'blocked')).toBe('called 2 times (2 blocked)');
+    expect(fenced('stubbed', 'live', 'stubbed')).toBe('called 3 times (2 stubbed)');
+    expect(fenced('blocked', 'stubbed')).toBe('called 2 times (1 blocked, 1 stubbed)');
+    expect(fenced('live', 'replayed')).toBe('called 2 times');
   });
 
   it('are kept when a command saves normalizers to the config', () => {

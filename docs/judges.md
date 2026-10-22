@@ -49,7 +49,7 @@ Every test of it after that is offline and free. The replay sends the judge the 
 
 ```
 $ shadowlap test goldens/research
-✓ research: 30/30 replayed, 12k input tokens not re-spent, 1 check passed
+✓ research: 30/30 replayed, 12.3k input tokens not re-spent, 1 check passed
     ✓ judge "summarizes" answers yes · It says runs replay exactly. (judged from the recording, free)
 
 1 passed, 0 failed · 0 upstream requests
@@ -70,7 +70,7 @@ $ shadowlap test goldens/research --update
     ↻ keeping the verdict of sources in goldens/research: asking the judge live
       ✓ judge "sources" answers yes · It names the docs it read. (judged live, <$0.001)
       kept in goldens/research · judge: 1 call · 1 live (<$0.001) · 1 upstream request; review the change in your pull request
-✓ research: 30/30 replayed, 12k input tokens not re-spent, 2 checks passed (judged)
+✓ research: 30/30 replayed, 12.3k input tokens not re-spent, 2 checks passed (judged)
 ```
 
 A golden keeps its run id when it gains a verdict. A teammate's store that holds the golden from before takes in the judge's calls from the new pack, as the same recording.
@@ -83,7 +83,7 @@ A check whose verdict the recording doesn't hold, where the judge can't be asked
 ? research: check inconclusive: judge "sources" answers yes, but not judged: no recorded verdict and the test runs offline
     ✓ judge "summarizes" answers yes · It says runs replay exactly. (judged from the recording, free)
     ? judge "sources" answers yes: inconclusive · not judged: no recorded verdict and the test runs offline
-    ✓ Replay clean: 30/30 calls replayed (11 api, 17 tool, 2 clock/random), 0 upstream requests, 12k input tokens not re-spent (≈$0.072)
+    ✓ Replay clean: 30/30 calls replayed (11 api, 17 tool, 2 clock/random), 0 upstream requests, 12.3k input tokens not re-spent (≈$0.072)
       judge: 1 call · 1 from the recording, free · 0 upstream requests
 
 0 passed, 0 failed, 1 inconclusive (failing the run: --inconclusive warn lets them through) · 0 upstream requests

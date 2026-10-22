@@ -25,16 +25,24 @@ export function matchesFilter(c: CallRow, f: OriginFilter, text: string, asked?:
   return `${callName(c.kind, c.name)} ${c.name} ${d} ${res} ${c.model ?? ''} #${c.callNo}`.toLowerCase().includes(text.toLowerCase());
 }
 
-export function CallsToolbar({ counts, filter, onFilter, text, onText, inputRef }: { counts: Record<OriginFilter, number>; filter: OriginFilter; onFilter: (f: OriginFilter) => void; text: string; onText: (t: string) => void; inputRef: React.RefObject<HTMLInputElement | null> }) {
-  const items: Array<[OriginFilter, string]> = [
+/**
+ * The origin filters: All, Live and Replayed, then Overridden, Injected and Failed when the run has
+ * any, and Fenced, which holds the writes blocked and stubbed after a fork, as the design names it.
+ */
+export function originFilters(counts: Pick<Record<OriginFilter, number>, 'over' | 'inject' | 'fail'>): Array<[OriginFilter, string]> {
+  return [
     ['all', 'All'],
     ['live', 'Live'],
     ['rep', 'Replayed'],
     ...(counts.over ? ([['over', 'Overridden']] as Array<[OriginFilter, string]>) : []),
     ...(counts.inject ? ([['inject', 'Injected']] as Array<[OriginFilter, string]>) : []),
     ...(counts.fail ? ([['fail', 'Failed']] as Array<[OriginFilter, string]>) : []),
-    ['block', 'Blocked'],
+    ['block', 'Fenced'],
   ];
+}
+
+export function CallsToolbar({ counts, filter, onFilter, text, onText, inputRef }: { counts: Record<OriginFilter, number>; filter: OriginFilter; onFilter: (f: OriginFilter) => void; text: string; onText: (t: string) => void; inputRef: React.RefObject<HTMLInputElement | null> }) {
+  const items = originFilters(counts);
   return (
     <div className="toolbar">
       <div className="ofilter" role="group" aria-label="Filter by origin">

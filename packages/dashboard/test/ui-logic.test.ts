@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { formatTokens } from '../../engine/src/tokens.js';
 import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '../ui/actions.js';
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
@@ -278,20 +279,30 @@ describe('cache misses', () => {
     ]);
   });
 
-  it('says where the cache stopped hitting, and for calls that never used it that each turn sent the history again', () => {
+  it('says where the cache missed, only there, and for calls that never used it that each turn sent the history again', () => {
     const cached = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700, 500)];
-    expect(cacheNote(cached, cacheMisses(cached))).toEqual({ lead: 'The cache stopped hitting at #17.', parts: ['2,300 tokens were sent again. A change early in the prompt does this to every call after it.'] });
-    // On a fork whose change made the miss: the path that changed.
-    expect(cacheNote(cached, cacheMisses(cached), { callNo: 17, path: '$.messages[16].content' }).parts).toEqual([
-      'The prompt changed at ',
-      { code: '$.messages[16].content' },
-      ', so everything after it was written to the cache again: 2,300 tokens. A change early in the prompt does this to every call after it.',
-    ]);
+    expect(cacheNote(cached, cacheMisses(cached))).toEqual({ lead: 'Only #17 missed the cache.', parts: ['#17 sent 2,300 tokens again and wrote the prompt to the cache anew.'] });
+    // A fork's change at #17: #17 wrote the prompt to the cache again, and the calls after it read it
+    // from there. It never says the change does this to every call after it: they hit.
+    const fork = [...cached, m(19, 3700, 60, 200), m(21, 3960, 50, 100)];
+    expect(cacheNote(fork, cacheMisses(fork), { callNo: 17, path: '$.model' })).toEqual({
+      lead: 'Only #17 missed the cache.',
+      parts: ['The prompt changed at ', { code: '$.model' }, ', so #17 sent 2,300 tokens again and wrote the prompt to the cache anew; the calls after it read it from there.'],
+    });
+    expect(cacheNote(fork, cacheMisses(fork)).parts.join('')).not.toMatch(/every call after it/);
     expect(cacheNote(cached, cacheMisses(cached), { callNo: 5, path: '$.messages[3]' }).parts).toHaveLength(1);
+    // A miss that wrote nothing to the cache says only what it sent again.
+    const unwritten = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700)];
+    expect(cacheNote(unwritten, cacheMisses(unwritten)).parts).toEqual(['#17 sent 2,300 tokens again.']);
     const never = [m(1, 0, 2000), m(2, 0, 2400), m(3, 0, 2800)];
     expect(cacheNote(never, cacheMisses(never))).toEqual({ lead: 'No model call here read from the prompt cache.', parts: ['Each turn sent the conversation so far again: 4,400 tokens.'] });
+    // Every call after the first missed: something early in the prompt changes on every call.
+    const churn = [m(1, 0, 200, 3000), m(2, 50, 200, 3100), m(3, 50, 200, 3250)];
+    expect(cacheNote(churn, cacheMisses(churn))).toEqual({ lead: 'Every model call after the first missed the cache.', parts: ['Something early in the prompt changes on every call (a time, an id), so each sent the whole prompt again: 6,450 tokens.'] });
+    const two = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700, 500), m(19, 3700, 60, 200), m(21, 1000, 2900, 300), m(23, 4000, 50, 100)];
+    expect(cacheNote(two, cacheMisses(two))).toEqual({ lead: 'The cache missed at #17 and #21.', parts: ['They sent 5,260 tokens again and wrote the prompt to the cache anew; the calls after each read it from there.'] });
     const many = Array.from({ length: 10 }, (_, i) => ({ callNo: i + 1, tokens: 1100 }));
-    expect(cacheNote(cached, many).lead).toBe('The cache stopped hitting at #1, #2, #3, #4, #5, #6, #7, #8 and 2 more.');
+    expect(cacheNote(cached, many).lead).toBe('The cache missed at #1, #2, #3, #4, #5, #6, #7, #8 and 2 more.');
     // No misses: the calls read the previous prompt from the cache, or nothing used it.
     expect(cacheNote([m(1, 0, 200, 3000), m(3, 3000, 100, 400)], [])).toEqual({ lead: null, parts: ['Every model call read the previous prompt from the cache.'] });
     expect(cacheNote([m(1, 0, 200, 3000, undefined, 1), m(3, 3000, 100, 400, undefined, 1)], []).parts[0]).toMatch(/^Each conversation starts its own context/);
@@ -337,6 +348,8 @@ describe('formatting', () => {
     expect(ktok(12400)).toBe('12.4k');
     expect(ktok(950)).toBe('950');
     expect(ktok(1_250_000)).toBe('1.25M');
+    // The CLI writes a token count the same way: show's line says what the receipt says.
+    for (const n of [950, 1834, 12_400, 1_250_000]) expect(ktok(n)).toBe(formatTokens(n));
     expect(dur(840)).toBe('840 ms');
     expect(dur(2900)).toBe('2.9 s');
     expect(dur(64_000)).toBe('1m 4s');
@@ -632,7 +645,7 @@ describe('job drawer', () => {
     '[shadowlap] replaying run 01M53NKBCHNWFMBS9RFZHCREE4',
     'T-8830: Refunded $45 for order A-1131 and emailed the customer.',
     '',
-    '⑂ Forked at call 3: 2 calls replayed, then 22 live, 3 writes blocked; 14 upstream requests (≈$0.016 spent, $0 saved)',
+    '⑂ Forked at call 3: 2 calls replayed, then 22 live, 3 writes blocked; 14 upstream requests (≈$0.016 spent, $0 not re-spent)',
     '  24 recorded calls left unused after the fork: #4 get_ticket, #5 POST /v1/messages, #6 lookup_order, …',
     '✗ Diverged at call 3 (api POST /v1/messages): 2 calls replayed before divergence',
     '  compared with run 01M53ND946…, call 3',
@@ -859,6 +872,13 @@ describe('a run’s calls in the views', () => {
     expect(resultLine(call(3, 'tool', { origin: 'stubbed', resultShort: 'stubbed {"sent":true}' }))).toEqual({ text: 'stubbed {"sent":true}', err: false });
     expect(resultLine(call(3, 'tool', { outcome: 'error', error: 'TimeoutError: 30 s' }))).toEqual({ text: 'TimeoutError: 30 s', err: true });
     expect(resultLine(call(1, 'api'))).toBeNull();
+    // A model call that asked for no tool: what it answered, under the call, with how it stopped beside it.
+    const answer = call(30, 'api', { stopReason: 'end_turn', resultShort: 'Refunded $240 for order A-1042 and emailed the customer.', asks: [] });
+    expect(resultLine(answer)).toEqual({ text: 'Refunded $240 for order A-1042 and emailed the customer.', err: false });
+    expect(callDetail(answer, null)).toEqual({ text: 'end_turn', err: false });
+    // One that asked for tools says which on its line; what it said is Turns' to show.
+    expect(resultLine(call(3, 'api', { resultShort: 'Looking up the order.', asks: ['lookup_order'] }))).toBeNull();
+    expect(resultLine(call(3, 'api', { outcome: 'error', status: 529, resultShort: null, asks: [] }))).toBeNull();
     const parent = indexCalls([{ callNo: 3, origin: 'live', latencyMs: 410 }]);
     expect(timeOf(call(3, 'tool', { origin: 'replayed', latencyMs: 1, replayedFrom: 3 }), [parent], false)).toEqual({ text: '410 ms', was: true });
     expect(timeOf(call(3, 'tool', { origin: 'replayed', latencyMs: 1 }), [], false)).toEqual({ text: '—', was: true });

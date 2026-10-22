@@ -56,6 +56,7 @@ import {
   unsettledFirst,
   unsettledReason,
 } from '@shadowlap/engine';
+import { loadRunIndex, type RunIndex } from './run-index.js';
 import { splitCommandLine } from './settings.js';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -1321,18 +1322,29 @@ export function fixesSummary(store: Store, now: number = Date.now(), windows?: W
 }
 
 /**
- * A failed run that is not a fix yet: a recording whose agent exited with an error, with no blame
- * kept and in no fix. A blame from before Fixes kept blames (only `meta.blame` on the run) does not
- * count: blaming it again opens its fix. Attempts, tests and forks are not recordings, so a failed
- * fork is not counted.
+ * A failed run that is not a fix yet, with no blame kept and in no fix: a recording whose agent
+ * exited with an error, or a fork that failed as the run list judges it (its own check, or its
+ * agent's exit), which Run blame takes as it takes a recording. Attempts are not: a blame probe's,
+ * a verify's, a `--repeat`'s or a preset's failure counts towards what made them, a test's is
+ * Tests', and an injection test's replay is judged by that test. A blame from before Fixes kept
+ * blames (only `meta.blame` on the run) does not count: blaming it again opens its fix.
  */
-function isUnblamedFailure(store: Store, run: RunRecord): boolean {
-  if (run.mode !== 'record' || run.status !== 'failed') return false;
+function isUnblamedFailure(store: Store, run: RunRecord, index: RunIndex = loadRunIndex(store)): boolean {
+  if (run.mode === 'record' ? run.status !== 'failed' : !failedFork(index, run)) return false;
   return store.blamesOfRun(run.runId).length === 0 && store.linksTo(run.runId, 'failing').length === 0;
 }
 
+/** A fork the run list counts as failed that stands on its own: no attempt of anything, no test's, and not the fork blame rescued a run with. */
+function failedFork(index: RunIndex, run: RunRecord): boolean {
+  const r = index.byId.get(run.runId);
+  if (!r || r.kind !== 'fork' || !r.failed || r.rescues) return false;
+  const m = r.meta;
+  return !r.attemptOf && !m.probe && !m.verify && !m.repeat && !m.test && !m.chaos && !run.meta?.injection;
+}
+
 function unblamedFailures(store: Store): RunRecord[] {
-  return store.allRuns().filter((r) => isUnblamedFailure(store, r));
+  const index = loadRunIndex(store);
+  return store.allRuns().filter((r) => isUnblamedFailure(store, r, index));
 }
 
 /**
