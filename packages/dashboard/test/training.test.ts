@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { inconclusiveTestNote, INCONCLUSIVE_TEST_NOTE, Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
-import { approx, exportPairsJob, money, readTraining, scoreDialogView, scoreModelJob, scoreNote, taskUpdate, taskUpdateJob, trainingView } from '../src/training.js';
+import { approx, exportPairsJob, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, taskUpdate, taskUpdateJob, trainingView } from '../src/training.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
 
 /**
@@ -147,6 +147,12 @@ describe('the Training read model', () => {
       { value: 'high', label: 'High confidence only (2)' },
       { value: 'medium', label: 'High and medium (3)' },
     ]);
+    // Labels that fit the dialog's select, and the file the job writes, which the dialog names.
+    expect(view.exportDialog.formats).toEqual([
+      { value: 'openai-preference', label: 'OpenAI preference' },
+      { value: 'trl', label: 'TRL preference' },
+    ]);
+    expect(view.exportDialog.out).toBe(PAIRS_EXPORT_FILE);
     s.close();
   });
 

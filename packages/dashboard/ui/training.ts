@@ -1,3 +1,4 @@
+import { commandText } from './goldens.js';
 import { href } from './route.js';
 import type { ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
 
@@ -101,6 +102,32 @@ export function pickNote(dialog: ScoreDialogView | null, pick: string, endpoint:
   if (pick !== ENDPOINT) return pickedOption(dialog, pick)?.note ?? '';
   const before = dialog.options.find((o) => o.baseUrl !== null && o.id === endpoint.model.trim() && trimUrl(o.baseUrl) === trimUrl(endpoint.baseUrl) && o.lastScore !== null);
   return before ? `${dialog.endpoint.note} · replaces its score of ${before.lastScore!.toFixed(2)}` : dialog.endpoint.note;
+}
+
+/**
+ * The command Export pairs runs, as the server builds it from what the dialog sends (`exportPairsJob`):
+ * the confidence, the format, and the file in the project folder it writes.
+ */
+export function exportCommand(format: string, minConfidence: 'high' | 'medium', out: string): string {
+  return commandText(['export', 'pairs', '--min-confidence', minConfidence, '--format', format, '--out', out]);
+}
+
+/**
+ * The command Score a model runs, as the server builds it from what the dialog sends
+ * (`scoreModelJob`): the tasks it scores (the model's own, else every ready one), the model, its
+ * endpoint, and the attempts per task. Null until the dialog has a model to send.
+ */
+export function scoreCommand(fields: ScoreFields | null, ready: readonly string[]): string | null {
+  if (!fields) return null;
+  let base: string | null = null;
+  if (fields.baseUrl) {
+    try {
+      base = new URL(fields.baseUrl.trim()).toString().replace(/\/+$/, '');
+    } catch {
+      return null;
+    }
+  }
+  return commandText(['tasks', 'score', ...(fields.goldens ?? ready), '--model', fields.model.trim(), ...(base ? ['--base-url', base] : []), '--attempts', String(fields.attempts)]);
 }
 
 /** The providers that couldn't be listed, in one line: `Not listed: OpenAI API (OPENAI_API_KEY is not set) · Ollama, on this machine (isn't running)`. */

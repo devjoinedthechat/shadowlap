@@ -73,6 +73,28 @@ describe('models to score', () => {
     expect(asked.some((u) => u.includes('anthropic'))).toBe(false);
   });
 
+  it('says why in one level of parentheses, and asks Ollama once when the OpenAI-compatible endpoint is Ollama', async () => {
+    // A fetch that fails for another reason than a refused connection or a timeout (a port fetch won't use, say).
+    const asked: string[] = [];
+    const badPort = (async (input: string | URL | Request) => {
+      asked.push(String(input));
+      throw Object.assign(new TypeError('fetch failed'), { cause: { message: 'bad port' } });
+    }) as typeof fetch;
+    // OPENAI_BASE_URL is Ollama's own server: one note for it, under Ollama's name, and one request.
+    const env = { OPENAI_BASE_URL: 'http://127.0.0.1:9/v1', OLLAMA_HOST: 'http://127.0.0.1:9' };
+    const listing = await listModelChoices({ recorded: [], tokens: null, env, fetch: badPort });
+    expect(listing.notes).toEqual([
+      { group: 'Anthropic API', note: 'ANTHROPIC_API_KEY is not set' },
+      { group: 'Ollama, on this machine', note: "couldn't be listed: fetch failed: bad port" },
+    ]);
+    expect(asked).toEqual(['http://127.0.0.1:9/api/tags']);
+    // Its models are listed once too, as Ollama's.
+    const { fetch } = fakeFetch({ 'http://127.0.0.1:11434/api/tags': { body: { models: [{ name: 'qwen2.5:7b' }] } } });
+    const both = await listModelChoices({ recorded: [], tokens: null, env: { OPENAI_BASE_URL: 'http://127.0.0.1:11434/v1' }, fetch });
+    expect(both.choices.map((c) => [c.group, c.id, c.baseUrl])).toEqual([['Ollama, on this machine', 'qwen2.5:7b', 'http://127.0.0.1:11434/v1']]);
+    expect(both.notes).toEqual([{ group: 'Anthropic API', note: 'ANTHROPIC_API_KEY is not set' }]);
+  });
+
   it('asks no provider when told not to, and lists only the recorded models and those scored before', async () => {
     const { fetch, asked } = fakeFetch({ 'https://api.anthropic.com/v1/models?limit=100': { body: { data: [{ id: 'claude-haiku-4-5' }] } } });
     const listing = await listModelChoices({ recorded: [{ model: 'claude-sonnet-5', provider: 'anthropic' }], scored: [{ model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1', via: 'on this machine' }], tokens: TOKENS, env: { ANTHROPIC_API_KEY: 'sk-ant' }, fetch, ask: false });

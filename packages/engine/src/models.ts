@@ -144,13 +144,16 @@ async function getJson(fetchImpl: typeof fetch, url: string, headers: Record<str
   return (await res.json()) as unknown;
 }
 
-/** Why a provider couldn't be listed, in a few words: the group it belongs to says whose list it is. */
+/**
+ * Why a provider couldn't be listed, in a few words: the group it belongs to says whose list it is.
+ * No parentheses of its own, since a note is shown in them (`Ollama, on this machine (isn't running)`).
+ */
 function reason(err: unknown): string {
   const e = err as { name?: string; message?: string; cause?: { code?: string; message?: string } };
   if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return "didn't answer in time";
   if (e?.cause?.code === 'ECONNREFUSED') return "isn't running";
   if (/is not set$/.test(e?.message ?? '')) return e.message!;
-  return `couldn't be listed (${[e?.message ?? String(err), e?.cause?.message].filter(Boolean).join(': ')})`;
+  return `couldn't be listed: ${[e?.message ?? String(err), e?.cause?.message].filter(Boolean).join(': ')}`;
 }
 
 /** A provider's own API, in words. */
@@ -230,16 +233,19 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     return names.map((name) => ({ group, id: name, via: group, where: group, baseUrl: `${base}/v1`, flags: ['--model', name, '--base-url', `${base}/v1`], perAttempt: price(name, local), local }));
   };
 
-  const listed = input.ask === false ? [] : await Promise.allSettled([anthropic(), openai(), ollama()]);
   const openaiAt = openAIBase(env);
   const ollamaAt = ollamaBase(env);
-  const names = ['Anthropic API', openaiAt === OFFICIAL.openai ? 'OpenAI API' : `OpenAI-compatible, ${endpointVia(openaiAt, env)}`, isLoopback(ollamaAt) ? 'Ollama, on this machine' : `Ollama, ${new URL(ollamaAt).host}`];
+  const ollamaGroup = isLoopback(ollamaAt) ? 'Ollama, on this machine' : `Ollama, ${new URL(ollamaAt).host}`;
+  // An OpenAI-compatible endpoint that is Ollama's own server lists what Ollama's list does: it is
+  // asked once, as Ollama, so its models, or why it couldn't be listed, show once.
+  const openaiIsOllama = openaiAt !== OFFICIAL.openai && endpointVia(openaiAt, env) === ollamaGroup;
+  const listed = input.ask === false ? [] : await Promise.allSettled([anthropic(), openaiIsOllama ? Promise.resolve(null) : openai(), ollama()]);
+  const names = ['Anthropic API', openaiAt === OFFICIAL.openai ? 'OpenAI API' : `OpenAI-compatible, ${endpointVia(openaiAt, env)}`, ollamaGroup];
   listed.forEach((r, i) => {
-    if (r.status === 'fulfilled') {
+    if (r.status === 'rejected') notes.push({ group: names[i]!, note: reason(r.reason) });
+    else if (r.value) {
       for (const c of r.value) add(c);
       if (!r.value.length) notes.push({ group: names[i]!, note: i === 2 ? 'no models installed' : 'no models listed' });
-    } else {
-      notes.push({ group: names[i]!, note: reason(r.reason) });
     }
   });
 

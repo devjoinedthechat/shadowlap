@@ -1,17 +1,19 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CAPS_ONLY_NOTE, Store, type ModelListing, type Task } from '@shadowlap/engine';
-import { modelsView, readTraining, trainingView } from '../src/training.js';
+import { exportPairsJob, modelsView, readTraining, scoreModelJob, trainingView } from '../src/training.js';
 import type { Client } from '../ui/api.js';
+import { commandText } from '../ui/goldens.js';
 import { TrainingPage } from '../ui/pages/Training.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { exportCommand, scoreCommand } from '../ui/training.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
  * Training says only what is true: what the pairs and tasks come from, what the last export wrote,
- * which golden's checks are too weak to be a task, and that the training loop's request and answer
- * are an example.
+ * which golden's checks are too weak to be a task, that the training loop's request and answer are an
+ * example, and, in its dialogs, the command each runs and the file Export pairs writes.
  */
 
 const task = (golden: string, status: Task['status'], note: string | null, extra: Partial<Task> = {}): Task => ({
@@ -120,5 +122,50 @@ describe('the Training page', () => {
     // A golden that is no task has no call to take over.
     const rows = r.all('table.tasks tbody tr').map((tr) => tr.textContent);
     expect(rows.find((t) => t.includes('refund-flow-budget'))).toContain('no call to take over');
+  });
+
+  it('shows the file Export pairs writes and the command it runs, as the format and confidence change', async () => {
+    const started: Array<{ kind: string; fields: Record<string, unknown> }> = [];
+    r = await render(page('pairs', started));
+    await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Export pairs'));
+    await r.click(r.byText('button', 'Export pairs'));
+    const dialog = () => r!.one('.dialog');
+    expect(dialog().textContent).toContain('It writes .shadowlap/exports/pairs.jsonl in the project folder');
+    expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence high --format openai-preference --out .shadowlap/exports/pairs.jsonl');
+    expect(r.all('.dialog select')[0]!.children.map((o) => o.textContent)).toEqual(['OpenAI preference', 'TRL preference']);
+    await r.type(r.all('.dialog select')[0]!, 'trl');
+    await r.type(r.all('.dialog select')[1]!, 'medium');
+    expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence medium --format trl --out .shadowlap/exports/pairs.jsonl');
+    await r.click(r.byText('.dialog button', 'Export'));
+    expect(started).toEqual([{ kind: 'pairs', fields: { format: 'trl', minConfidence: 'medium' } }]);
+  });
+
+  it('shows the command Score a model runs for the model picked', async () => {
+    r = await render(page('tasks'));
+    await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Score a model'));
+    await r.click(r.byText('button', 'Score a model'));
+    await r.until('the models to be listed', () => r!.all('.dialog .cmdline').length === 1);
+    expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap tasks score goldens/01M5GS0TFN goldens/01M5GS0VWV --model claude-haiku-4-5 --attempts 5');
+    expect(r.one('.dialog p.trnotes').textContent).toBe("Not listed: Ollama, on this machine (isn't running)");
+  });
+});
+
+describe('the commands the Training dialogs show', () => {
+  it('are the ones the server runs for what the dialog sends', () => {
+    for (const [format, min] of [['openai-preference', 'high'], ['trl', 'medium']] as const) {
+      const job = exportPairsJob({ format, minConfidence: min });
+      if ('error' in job) throw new Error(job.error);
+      expect(exportCommand(format, min, job.out)).toBe(commandText(job.args));
+    }
+    const ready = TASKS.filter((t) => t.status === 'ready');
+    for (const fields of [
+      { model: 'claude-haiku-4-5', baseUrl: null, attempts: 5, goldens: null },
+      { model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1/', attempts: 10, goldens: ['goldens/01M5GS0VWV'] },
+    ]) {
+      const job = scoreModelJob(fields, ready);
+      if ('error' in job) throw new Error(job.error);
+      expect(scoreCommand(fields, ready.map((t) => t.golden))).toBe(commandText(job.args));
+    }
+    expect(scoreCommand(null, [])).toBeNull();
   });
 });

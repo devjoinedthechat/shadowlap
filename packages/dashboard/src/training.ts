@@ -357,7 +357,8 @@ export interface TrainingView {
   };
   scores: { sub: string; empty: string | null; cards: ModelCardView[]; rows: ScoreRowView[]; footnote: string };
   serve: { command: string; request: string; response: string } | null;
-  exportDialog: { title: string; text: string; high: number; all: number; formats: Array<{ value: PairFormat; label: string }>; levels: Array<{ value: 'high' | 'medium'; label: string }> };
+  /** Export pairs: the formats and confidences it offers, and the file the job writes (`out`, in the project folder). */
+  exportDialog: { title: string; text: string; high: number; all: number; out: string; formats: Array<{ value: PairFormat; label: string }>; levels: Array<{ value: 'high' | 'medium'; label: string }> };
   scoreDialog: ScoreDialogView | null;
 }
 
@@ -721,9 +722,10 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
       text: 'One JSON line per pair: the conversation as the model saw it at that call, the answer to prefer and the one to avoid. Redaction rules apply to the copy.',
       high: counts.high,
       all: counts.all,
+      out: PAIRS_EXPORT_FILE,
       formats: [
-        { value: 'openai-preference', label: 'OpenAI preference fine-tuning' },
-        { value: 'trl', label: 'prompt, chosen, rejected (TRL)' },
+        { value: 'openai-preference', label: 'OpenAI preference' },
+        { value: 'trl', label: 'TRL preference' },
       ],
       levels: [
         { value: 'high', label: `High confidence only (${counts.high})` },

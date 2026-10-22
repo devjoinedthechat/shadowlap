@@ -13,7 +13,7 @@ import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
-import { ENDPOINT, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
+import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreCommand, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
 
 /**
  * Training (#/training, #/training/tasks): preference pairs read from the attempts blame, verify and
@@ -564,6 +564,10 @@ function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () 
           </select>
         </label>
       </div>
+      <p className="muted trnote">
+        It writes <code>{d.out}</code> in the project folder, and the job’s drawer offers it for download.
+      </p>
+      <CmdLine>{exportCommand(format, min, d.out)}</CmdLine>
     </Dialog>
   );
 }
@@ -636,6 +640,8 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
   }, [pick]);
   const current = pick ?? '';
   const fields = pick === null ? null : scoreFields(d, current, endpoint, attempts);
+  // What the job runs: the tasks the picked model can answer, else every ready one.
+  const command = scoreCommand(fields, view.tasks.rows.filter((r) => r.status.key === 'ready').map((r) => r.golden));
   const notes = models.data ? notesLine(models.data.notes) : null;
   const leftOut = d ? leftOutLine(d.leftOut) : null;
   const note = models.error ? `The models couldn’t be listed (${models.error.message}). Your own endpoint still works.` : !listed ? 'Asking each provider for its models…' : pickNote(d, current, endpoint);
@@ -701,6 +707,7 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
         </div>
       ) : null}
       {note ? <p className="muted trnote">{note}</p> : null}
+      {command ? <CmdLine>{command}</CmdLine> : null}
       {busy ? <p className="trbusy">{busy}</p> : null}
       {/* Why a provider's models aren't in the list: beside the list, not beside your own endpoint, unless the endpoint is all there is. */}
       {notes && (pick !== ENDPOINT || !d?.options.length) ? <p className="trnotes">{notes}</p> : null}
