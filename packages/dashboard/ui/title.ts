@@ -14,7 +14,9 @@ export const TITLE_END = ' — shadowlap';
 
 /**
  * The most of a run's about line a title holds. A tab can't be measured, so this is the one place a
- * line is fitted by a count: one that doesn't fit is left out, never cut mid-word.
+ * line is fitted by a count: the shell passes the longest of its forms that keeps to it (`tabAbout`
+ * in about.ts, one that keeps the line's end first, as the design's docTitle has it), and one that
+ * still doesn't fit is left out, never cut mid-word.
  */
 export const TAB_ABOUT_MAX = 26;
 

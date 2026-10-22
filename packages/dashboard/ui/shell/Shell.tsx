@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { tabAbout } from '../about.js';
 import { JobDrawer } from '../components/Drawer.js';
 import { HoverCardLayer } from '../components/HoverCard.js';
 import { Sprite } from '../components/Icon.js';
@@ -22,7 +23,7 @@ import { href, type Route } from '../route.js';
 import { navigate, useRoute } from '../router.js';
 import { copyCompares, exportStartRun } from '../runs.js';
 import { useApp } from '../state.js';
-import { docTitle } from '../title.js';
+import { docTitle, TAB_ABOUT_MAX } from '../title.js';
 import { ExpiredCard, OfflineBar } from './Connection.js';
 import { Keyboard } from './Keyboard.js';
 import { Palette } from './Palette.js';
@@ -85,8 +86,9 @@ function useDocTitle(route: Route): void {
   const fixTitle = useFixTitle(route.page === 'fixes' ? route.id : null);
   const setup = setupShowsOn(route, { exported, meta, runs });
   const row = route.page === 'run' ? runs?.find((r) => r.runId === route.id || (route.id.length >= 10 && r.runId.startsWith(route.id))) : undefined;
-  // The about line (decision 10), once the run list carries one.
-  const about = row && 'about' in row && typeof row.about === 'string' ? row.about : null;
+  // The about line (decision 10), once the run list carries one, as a tab can hold it: the longest
+  // of its forms that keeps to the count, keeping the line's end, as the design's docTitle does.
+  const about = tabAbout(row?.about, TAB_ABOUT_MAX);
   const problem = meta?.project?.problem ? { name: meta.project.name } : null;
   const title = docTitle(route, { setup, problem, fixTitle, about });
   useEffect(() => {
