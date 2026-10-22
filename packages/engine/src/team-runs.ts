@@ -25,6 +25,11 @@ export interface TeamRunCounts {
   queued: number;
   /** Runs here that this machine pushed (rather than pulled), in the store's index. */
   pushedHere: number;
+  /**
+   * Runs here the store's index lists too, pushed from here or pulled: deleting this machine's
+   * recordings leaves them in the store.
+   */
+  listedHere: number;
 }
 
 /** The run columns and the few fields of `meta` that say whether a run is an attempt, for every run. */
@@ -113,14 +118,16 @@ export function teamRunCounts(store: Store, remote: string, limit = 500, ended: 
   let inStore = 0;
   let queued = 0;
   let pushedHere = 0;
+  let listedHere = 0;
   for (const [id, t] of team) {
     const run = byId.get(id);
     const under = run ? run.under : t.under !== null && (byId.has(t.under) || listed(t.under)) ? t.under : null;
     if (under) continue;
     if (t.listed) {
       inStore++;
+      if (run) listedHere++;
       if (run && t.state === 'pushed') pushedHere++;
     } else if (t.queued && run?.status === 'running') queued++; // ended since, it goes with the next push; deleted, it goes nowhere
   }
-  return { inStore, onlyLocal, localRuns, localAttempts, queued, pushedHere };
+  return { inStore, onlyLocal, localRuns, localAttempts, queued, pushedHere, listedHere };
 }

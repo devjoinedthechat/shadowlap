@@ -9,7 +9,9 @@ import type { Provider, StoreLocation } from './url.js';
  * request, which can change this file, from the protected branches' credentials. R2 has no OIDC and
  * its tokens can't be kept to a folder, so pull requests run the tests there without pushing. On
  * GitHub, a pull request from a fork gets no OIDC token, so its job skips the credentials step it
- * could only fail on, and push, finding no credentials, warns while the tests decide the job.
+ * could only fail on, and push, finding no credentials, warns while the tests decide the job. A
+ * golden that runs live (one marked fork, or with an injection gate) calls the agent's providers,
+ * so the step that runs the tests gets their keys too, as the caller names them.
  */
 
 export type CiProvider = 'github' | 'gitlab' | 'other';
@@ -30,13 +32,65 @@ export interface CiStep {
   notes: string[];
 }
 
+/**
+ * The keys of the providers the goldens that run live call, which the step that runs the tests
+ * needs: by name (`ANTHROPIC_API_KEY`), and whether one of those goldens calls a provider whose key
+ * can't be named (its pack can't be read, or Vertex AI's token).
+ */
+export interface CiStepKeys {
+  keys?: readonly string[];
+  keysUnknown?: boolean;
+}
+
+/** `A`, `A and B`, `A, B and C`. */
+function andList(items: readonly string[]): string {
+  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+}
+
+/** Where a key can't be named (an unreadable pack, Vertex AI's token): the agent's own, after those that are. */
+const unknownKeys = (named: boolean) => `${named ? 'and ' : ''}your agent's own provider keys: the goldens that run live call them`;
+
+/** A GitHub step's env lines for the providers' keys, at `indent`: each from the repository's secrets, then what can't be named. */
+function githubKeys(o: CiStepKeys, indent: string): string[] {
+  const keys = [...new Set(o.keys ?? [])];
+  return [...keys.map((k) => `${indent}${k}: \${{ secrets.${k} }}`), ...(o.keysUnknown ? [`${indent}# ${unknownKeys(keys.length > 0)}`] : [])];
+}
+
+/**
+ * A GitHub step's own env for the providers' keys, at the step's `indent`. With none to name, an
+ * `env:` holding only the comment is empty, which GitHub refuses: the comment goes under a
+ * commented-out `env:` instead, where the keys are to be added.
+ */
+function githubEnv(o: CiStepKeys, indent: string): string[] {
+  if ((o.keys ?? []).length) return [`${indent}env:`, ...githubKeys(o, `${indent}  `)];
+  return o.keysUnknown ? [`${indent}# env:`, `${indent}#   ${unknownKeys(false)}`] : [];
+}
+
+/** What the goldens that run live need, as a note under the step: where each CI keeps the keys. */
+function keysNote(ci: CiProvider, o: CiStepKeys): string[] {
+  const keys = [...new Set(o.keys ?? [])];
+  if (!keys.length && !o.keysUnknown) return [];
+  const what = [...(keys.length ? [andList(keys)] : []), ...(o.keysUnknown ? [`your agent's ${keys.length ? 'other' : 'own'} provider keys`] : [])].join(', and ');
+  const many = keys.length > 1 || !!o.keysUnknown;
+  const where = ci === 'github' ? (many ? "as repository secrets, which the step's env passes on" : "as a repository secret, which the step's env passes on") : ci === 'gitlab' ? (many ? 'as masked CI/CD variables, which the job gets in its environment' : 'as a masked CI/CD variable, which the job gets in its environment') : "to the job's environment";
+  return [`The goldens that run live (marked fork, or with an injection gate) call your agent's providers: add ${what}${o.keysUnknown && keys.length ? ',' : ''} ${where}.`];
+}
+
 /** Where a pull (or merge) request's job pushes, in the CI's own words. */
 function ownFolderNote(request: 'pull request' | 'merge request'): string {
   return `A ${request}'s job pushes its runs to pr/<number>/ in the store, which Shadowlap finds from the CI's own variables; a teammate's pull brings them only with --include-pr.`;
 }
 
-function github(loc: StoreLocation, run: string): CiStep {
+/**
+ * The steps before the tests on GitHub: the repository, Node 22.16 or later and not 23 (the CLI
+ * says so on another), and the agent's own dependencies, which only the project knows: a
+ * placeholder to make its own.
+ */
+const GITHUB_SETUP = ['  - uses: actions/checkout@v7', '  - uses: actions/setup-node@v7', '    with:', '      node-version: 22', '  - run: npm ci && npm run build   # whatever your agent needs to run'];
+
+function github(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
   const provider = loc.provider;
+  const keys = githubKeys(o, '      ');
   const region = loc.region ?? '<your bucket region>';
   const writerIf = "${{ !startsWith(github.event_name, 'pull_request') }}";
   const prIf = "startsWith(github.event_name, 'pull_request')";
@@ -47,14 +101,16 @@ function github(loc: StoreLocation, run: string): CiStep {
   if (provider === 'r2') {
     const text = [
       'steps:',
-      '  - uses: actions/checkout@v7',
+      ...GITHUB_SETUP,
       `  - if: ${writerIf}`,
       `    run: ${run} --push`,
       '    env:',
       '      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}',
       '      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}',
+      ...keys,
       `  - if: ${prIf}   # R2 tokens can't be kept to pr/: pull requests test without pushing`,
       `    run: ${run}`,
+      ...githubEnv(o, '    '),
     ].join('\n');
     return {
       ci: 'github',
@@ -65,6 +121,7 @@ function github(loc: StoreLocation, run: string): CiStep {
       pullRequests: 'no-push',
       notes: [
         "R2 has no OIDC: add an R2 API token's keys as secrets. R2 tokens can't be kept to a folder, so pull requests run the tests without pushing; to keep a pull request's workflow from reading the keys at all, move the push step to a job of its own with an environment only protected branches can use.",
+        ...keysNote('github', o),
       ],
     };
   }
@@ -85,13 +142,14 @@ function github(loc: StoreLocation, run: string): CiStep {
     '  contents: read',
     '',
     'steps:',
-    '  - uses: actions/checkout@v7',
+    ...GITHUB_SETUP,
     `  - if: ${writerIf}`,
     ...auth[provider](false),
     "  # a pull request's own credentials, which write only under pr/; a fork's job gets none",
     `  - if: ${ownPrIf}`,
     ...auth[provider](true),
     `  - run: ${run} --push`,
+    ...githubEnv(o, '    '),
   ].join('\n');
   const trust: Record<Exclude<Provider, 'r2'>, string> = {
     s3: 'Create two roles that trust token.actions.githubusercontent.com: shadowlap-ci for repo:<owner>/<repo>:ref:refs/heads/main only, with the first policy from shadowlap store policy --provider s3, and shadowlap-ci-pr for repo:<owner>/<repo>:pull_request, with the second.',
@@ -109,11 +167,15 @@ function github(loc: StoreLocation, run: string): CiStep {
       `${trust[provider]} That trust, not this file, keeps a pull request from the first credentials: a pull request can change the workflow.`,
       ownFolderNote('pull request'),
       "A pull request from a fork gets no OIDC token from GitHub, so its job skips the credentials and runs the tests without pushing; push says so in a warning.",
+      ...keysNote('github', o),
     ],
   };
 }
 
-function gitlab(loc: StoreLocation, run: string): CiStep {
+/** A GitLab job's first script line: the agent's own dependencies, which only the project knows. */
+const GITLAB_INSTALL = '    - npm ci && npm run build   # whatever your agent needs to run';
+
+function gitlab(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
   const provider = loc.provider;
   const region = loc.region ?? '<your bucket region>';
   const mr = '$CI_PIPELINE_SOURCE == "merge_request_event"';
@@ -125,12 +187,14 @@ function gitlab(loc: StoreLocation, run: string): CiStep {
       '  rules:',
       `    - if: ${main}`,
       '  script:',
+      GITLAB_INSTALL,
       `    - ${run} --push`,
       'shadowlap-merge-request:',
       '  image: node:22',
       '  rules:',
       `    - if: ${mr}`,
       '  script:',
+      GITLAB_INSTALL,
       `    - ${run}   # R2 tokens can't be kept to pr/: merge requests test without pushing`,
     ].join('\n');
     return {
@@ -140,7 +204,7 @@ function gitlab(loc: StoreLocation, run: string): CiStep {
       text,
       oidc: false,
       pullRequests: 'no-push',
-      notes: ["R2 has no OIDC: add R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY as masked, protected CI/CD variables, which only protected branches get. R2 tokens can't be kept to a folder, so merge requests run the tests without pushing."],
+      notes: ["R2 has no OIDC: add R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY as masked, protected CI/CD variables, which only protected branches get. R2 tokens can't be kept to a folder, so merge requests run the tests without pushing.", ...keysNote('gitlab', o)],
     };
   }
   // An ID token per job, exchanged by Shadowlap itself (web identity, federation); a merge request's
@@ -187,6 +251,7 @@ function gitlab(loc: StoreLocation, run: string): CiStep {
     `        ${b.prVar}   # the merge request's own credentials: they write only under pr/ in the store`,
     `    - if: ${main}`,
     '  script:',
+    GITLAB_INSTALL,
     ...[...b.script, `${run} --push`].map((l) => `    - ${l}`),
   ].join('\n');
   return {
@@ -196,11 +261,11 @@ function gitlab(loc: StoreLocation, run: string): CiStep {
     text,
     oidc: true,
     pullRequests: 'own-folder',
-    notes: [`${b.trust} That trust, not this file, keeps a merge request from the first credentials: a merge request can change the pipeline.`, ownFolderNote('merge request')],
+    notes: [`${b.trust} That trust, not this file, keeps a merge request from the first credentials: a merge request can change the pipeline.`, ownFolderNote('merge request'), ...keysNote('gitlab', o)],
   };
 }
 
-function other(loc: StoreLocation, run: string): CiStep {
+function other(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
   const provider = loc.provider;
   const env: Record<Provider, string> = {
     s3: 'AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or AWS_ROLE_ARN and AWS_WEB_IDENTITY_TOKEN_FILE for a web identity',
@@ -217,7 +282,7 @@ function other(loc: StoreLocation, run: string): CiStep {
       text: [...head, "# In a pull request's build, without the token (R2 tokens can't be kept to a folder):", run].join('\n'),
       oidc: false,
       pullRequests: 'no-push',
-      notes: [],
+      notes: keysNote('other', o),
     };
   }
   return {
@@ -227,13 +292,19 @@ function other(loc: StoreLocation, run: string): CiStep {
     text: [...head, "# In a pull request's build, with credentials for the second policy, and the pull request's number:", `SHADOWLAP_PR=<number> ${run} --push`].join('\n'),
     oidc: false,
     pullRequests: 'own-folder',
-    notes: ["Shadowlap recognises pull requests on GitHub Actions and GitLab CI by their own variables; on any other CI, SHADOWLAP_PR names the pull request, and its runs go to pr/<number>/ in the store."],
+    notes: ["Shadowlap recognises pull requests on GitHub Actions and GitLab CI by their own variables; on any other CI, SHADOWLAP_PR names the pull request, and its runs go to pr/<number>/ in the store.", ...keysNote('other', o)],
   };
 }
 
-export function ciStep(ci: CiProvider, loc: StoreLocation, packs = 'goldens/*'): CiStep {
-  const run = `npx shadowlap test ${packs}`;
-  if (ci === 'github') return github(loc, run);
-  if (ci === 'gitlab') return gitlab(loc, run);
-  return other(loc, run);
+/**
+ * The CI step for a store, its tests run by the CLI at `version` (the release the caller is at, as
+ * the GitHub Action's step pins it), on the packs given (`goldens/*`), with the keys the goldens
+ * that run live need (`keys`, `keysUnknown`): in the env of the GitHub steps that run the tests, and
+ * in a note on where each CI keeps them.
+ */
+export function ciStep(ci: CiProvider, loc: StoreLocation, o: { version: string; packs?: string } & CiStepKeys): CiStep {
+  const run = `npx shadowlap@${o.version} test ${o.packs ?? 'goldens/*'}`;
+  if (ci === 'github') return github(loc, run, o);
+  if (ci === 'gitlab') return gitlab(loc, run, o);
+  return other(loc, run, o);
 }

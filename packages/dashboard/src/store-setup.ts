@@ -15,11 +15,13 @@ import {
   storeKey,
   storeKindName,
   type CiProvider,
+  type CiStepKeys,
   type LastCheck,
   type PolicyPart,
   type Provider,
   type StoreLocation,
 } from '@shadowlap/remote';
+import { VERSION } from './ci-yaml.js';
 import { nextSetupStep, type SetupFacts } from './store-steps.js';
 import { countsOf, type TeamStoreInput } from './team-store.js';
 
@@ -154,8 +156,11 @@ export function setupUnderWay(store: Store, input: TeamStoreInput): { step: numb
   return nextSetupStep(setupFacts(store, key, setup));
 }
 
-/** What the setup page shows: the providers, where the setup stands, the CI steps and the commit. */
-export function storeSetupView(store: Store, input: TeamStoreInput, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): StoreSetupView {
+/**
+ * What the setup page shows: the providers, where the setup stands, the CI steps (with the keys the
+ * goldens that run live need, `keys`, as `liveKeys` gives them) and the commit.
+ */
+export function storeSetupView(store: Store, input: TeamStoreInput, options: { env?: NodeJS.ProcessEnv; home?: string; keys?: CiStepKeys } = {}): StoreSetupView {
   const loc = locationOf(input.store);
   const key = loc ? storeKey(loc) : null;
   const setup: SetupRecord = key ? setupRecord(store, key) : { startedAt: null, ci: null, ciProvider: null, finishedAt: null };
@@ -180,7 +185,7 @@ export function storeSetupView(store: Store, input: TeamStoreInput, options: { e
     })),
     ci: loc
       ? CI_PROVIDERS.map((ci) => {
-          const step = ciStep(ci, loc);
+          const step = ciStep(ci, loc, { version: VERSION, ...(options.keys ?? {}) });
           return { ci, name: CI_NAMES[ci], file: step.file, text: step.text, oidc: step.oidc, notes: step.notes, command: `shadowlap store ci --provider ${ci}` };
         })
       : null,

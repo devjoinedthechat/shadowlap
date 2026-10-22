@@ -1,10 +1,12 @@
 import { sep } from 'node:path';
 import { ProjectError, calibrationOutcome, checkFolder, goldenPath, runTotals, setupJobArgs, suggestFolders, tildePath, type CalibrationOutcome, type ProjectEntry, type ProjectHost } from '@shadowlap/engine';
+import { parseStoreUrl, storeKey } from '@shadowlap/remote';
 import type { ProjectConfig, RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobNotice } from '../jobs.js';
 import { addedMessage, addProjectPage, projectSwitcher, removeDialog, setupView, type PickedFolder, type SetupView } from '../projects.js';
 import type { Router } from '../router.js';
+import { countsOf, readTeamStoreInput } from '../team-store.js';
 import { sessionBusy, testsBusy } from './tests.js';
 
 /**
@@ -35,6 +37,21 @@ import { sessionBusy, testsBusy } from './tests.js';
  */
 
 const ONE_STORE = 'this dashboard serves one store: start shadowlap dashboard to add and switch projects';
+
+/**
+ * How a project's runs here stand with the team store its config names, for the Remove dialog: how
+ * many of them the store's index lists too, which deleting the recordings here leaves there. Null
+ * without a store, or when it can't be read.
+ */
+function teamOf(h: ProjectHost<ProjectConfig>, project: ProjectEntry): { listed: number } | null {
+  const input = readTeamStoreInput({ cwd: project.path });
+  if (!input.store) return null;
+  try {
+    return { listed: countsOf(h.context(project.id).store(), storeKey(parseStoreUrl(input.store))).listedHere };
+  } catch {
+    return null;
+  }
+}
 
 export function register(router: Router, ctx: RouteContext): void {
   const projects = ctx.options.projects ?? null;
@@ -124,7 +141,8 @@ export function register(router: Router, ctx: RouteContext): void {
     const h = need();
     const list = h.list();
     const project = entryOf(h, r.params.id!);
-    r.json(removeDialog({ project, stats: h.statsOf(project.id), projects: list.length, home: h.registry.realHome }));
+    const stats = h.statsOf(project.id);
+    r.json(removeDialog({ project, stats, projects: list.length, home: h.registry.realHome, team: stats.runs && !stats.missing && !stats.unreadable ? teamOf(h, project) : null }));
   });
 
   router.post(

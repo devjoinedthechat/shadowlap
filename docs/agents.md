@@ -1,6 +1,6 @@
 # Coding agents
 
-Claude Code, Cursor, Codex and other coding agents can debug an agent with Shadowlap the way you would: record a failing run, read where it went wrong, change the code, and replay to check the fix, without paying for the model calls that didn't change. They need no plugin or MCP server: the CLI is the interface, and every command they need reads and writes JSON. What they need to know about it comes packaged, as a [Claude Code plugin](#claude-code) or a [Cursor rule](#cursor) that `shadowlap skill install` puts into the project, or as a [section to paste](#instructions-to-give-it) into any other agent's instructions.
+Claude Code, Cursor, Codex and other coding agents can debug an agent with Shadowlap the way you would: record a failing run, read where it went wrong, change the code, and replay to check the fix, without paying for the model calls that didn't change. The CLI is their interface, with no MCP server to run: every command they need reads and writes JSON. What they need to know about it comes packaged, as a [Claude Code plugin](#claude-code) or a [Cursor rule](#cursor) that `shadowlap skill install` puts into the project, or as a [section to paste](#instructions-to-give-it) into any other agent's instructions.
 
 ## What an agent uses
 
@@ -53,7 +53,7 @@ A project rule, which Agent applies when it finds it relevant, holding the skill
 shadowlap skill install cursor
 ```
 
-It writes the rule to `.cursor/rules/shadowlap.mdc` from the copy that comes with the CLI, beside the project's own rules; `--force` replaces another version's rule, or one edited here. The rule is also in the repository: [coding-agents/cursor/shadowlap.mdc](https://github.com/devjoinedthechat/shadowlap/blob/main/coding-agents/cursor/shadowlap.mdc). Settings → Coding agents in the [dashboard](./dashboard.md) shows `.cursor/rules` as mentioning Shadowlap from then on.
+It writes the rule to `.cursor/rules/shadowlap.mdc` from the copy that comes with the CLI, beside the project's own rules; `--force` replaces another version's rule, or one edited here. The rule is also in the repository: [coding-agents/cursor/shadowlap.mdc](https://github.com/devjoinedthechat/shadowlap/blob/main/coding-agents/cursor/shadowlap.mdc). In the [dashboard](./dashboard.md), Settings → Coding agents does the same with **Add the Cursor rule** on the `.cursor/rules` row, which then reads *found · shadowlap.mdc* with the version.
 
 ## Instructions to give it
 

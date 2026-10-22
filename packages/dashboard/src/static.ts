@@ -15,7 +15,8 @@ import type { MetaView } from './views.js';
  *
  * It is a copy of recorded data, so the redaction rules in shadowlap.config.json apply by default,
  * as they do to `shadowlap pack`, and to the run's command line, labels and notes too; as a pack,
- * it leaves out who made each run. Actions, search and live updates are not in an exported copy.
+ * it leaves out who made each run, and it names no folder of the machine it was made on, not even
+ * the one each run was recorded in. Actions, search and live updates are not in an exported copy.
  * A run its recorder left marked running (killed, out of memory) is in it as interrupted, as every
  * screen shows it.
  */
@@ -66,6 +67,14 @@ function withoutAuthor(run: RunRecord): RunRecord {
 }
 
 /**
+ * A run record as a copy that is only read holds it: without the folder it was recorded in, an
+ * absolute path of the machine that made it. A replay needs the folder; nothing in the file does.
+ */
+function withoutFolder(run: RunRecord): RunRecord {
+  return { ...run, command: { ...run.command, cwd: '' } };
+}
+
+/**
  * A row of the runs list or the lineage without its author, should a read model carry one: the
  * file names nobody, whatever shape the rows take.
  */
@@ -73,7 +82,7 @@ function anonymous<T extends object>(row: T): T {
   return 'author' in row ? { ...row, author: null } : row;
 }
 
-function payload(store: Store, runIds: string[], opts: { prices?: Record<string, Price>; version?: string | null; redacted: boolean; now: number; keepAuthor: boolean }): { data: StaticPayload; calls: number } {
+function payload(store: Store, runIds: string[], opts: { prices?: Record<string, Price>; version?: string | null; rules: number; now: number; keepAuthor: boolean }): { data: StaticPayload; calls: number } {
   const read = opts.prices ? { prices: opts.prices } : {};
   const responses: Record<string, unknown> = {};
   const keep = opts.keepAuthor;
@@ -97,7 +106,9 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     static: true,
     exportedAt: opts.now,
     runIds,
-    redacted: opts.redacted,
+    redacted: opts.rules > 0,
+    // What Provenance says of the copy: when it was made, and with how many rules.
+    redactedRules: opts.rules,
     // Compare offers only the pairs the file holds.
     compareWith: runIds.length > COMPARE_ALL_UPTO ? runIds[0]! : null,
   };
@@ -109,7 +120,7 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     const record = store.getRun(runId);
     if (!detail || !record) continue;
     // Only runs in the file are linked from it: a Compare or parent link to a run left out would dead-end.
-    responses[`runs/${runId}`] = { ...detail, run: keep ? detail.run : withoutAuthor(detail.run), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
+    responses[`runs/${runId}`] = { ...detail, run: withoutFolder(keep ? detail.run : withoutAuthor(detail.run)), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
     responses[`runs/${runId}/lineage`] = { nodes: (lineage(store, runId, read) ?? []).filter((n) => runIds.includes(n.runId)).map((n) => (keep ? n : anonymous(n))) };
     // Every call's details from one read of the run and one analysis of it: asking for each call on
     // its own read the whole run again, so a run's export took time with the square of its length.
@@ -128,7 +139,7 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     const c = compare(store, a, b);
     if (c) responses[`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`] = c;
   }
-  return { data: { shadowlap: opts.version ?? null, exportedAt: opts.now, runIds, redacted: opts.redacted, responses }, calls };
+  return { data: { shadowlap: opts.version ?? null, exportedAt: opts.now, runIds, redacted: opts.rules > 0, responses }, calls };
 }
 
 /** The bundled script and stylesheet inside their elements: only `</` can end either early. */
@@ -173,11 +184,12 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
     store = scratch;
   }
   try {
-    const { data, calls } = payload(store, asked, { ...(opts.prices ? { prices: opts.prices } : {}), version: opts.version ?? null, redacted: rules.length > 0, now: opts.now ?? Date.now(), keepAuthor: opts.keepAuthor === true });
+    const { data, calls } = payload(store, asked, { ...(opts.prices ? { prices: opts.prices } : {}), version: opts.version ?? null, rules: rules.length, now: opts.now ?? Date.now(), keepAuthor: opts.keepAuthor === true });
     const css = readFileSync(join(uiDir, 'assets', 'app.css'), 'utf8').replace(/url\(["']?\.\/fonts\/([\w.-]+)["']?\)/g, (_m, name: string) => `url(${dataUri(join(uiDir, 'assets', 'fonts', name), 'font/woff2')})`);
     const js = readFileSync(join(uiDir, 'assets', 'app.js'), 'utf8');
     const favicon = dataUri(join(uiDir, 'assets', 'favicon.svg'), 'image/svg+xml');
-    const title = `Shadowlap · ${asked[0]!.slice(0, 10)}`;
+    // The run it opens on, by its id, as the page's own title names it (ui/title.ts) once it has drawn.
+    const title = `${asked[0]!.slice(0, 10)} — shadowlap`;
     const html = `<!doctype html>
 <html lang="en">
 <head>

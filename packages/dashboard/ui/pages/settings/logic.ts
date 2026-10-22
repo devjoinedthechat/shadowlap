@@ -1,3 +1,4 @@
+import type { AgentOffer } from '../../../src/agent-skill.js';
 import { repeatsARepeat } from '../../../src/regex-shape.js';
 import type { CiWorkflowOptions, CiWorkflowsView } from '../../types.js';
 
@@ -21,6 +22,113 @@ export function runListKey(runs: ReadonlyArray<{ runId: string; status: string }
   if (!runs) return `${project ?? ''}:-`;
   const running = runs.reduce((n, r) => n + (r.status === 'running' ? 1 : 0), 0);
   return `${project ?? ''}:${runs.length}:${runs[0]?.runId ?? ''}:${runs[runs.length - 1]?.runId ?? ''}:${running}`;
+}
+
+// ---- what leaves the machine ----
+
+/**
+ * What Redaction says after the copies the rules apply to, every export, pack and share link: the
+ * local store is never touched; with a team store, push copies runs there as recorded, so teammates
+ * can replay them; and what is never stored to begin with, which is only a credential sent the way
+ * providers and services take it (a key the agent puts in a tool's arguments is stored).
+ */
+export function redactionNotes(teamStore: boolean): string {
+  return [
+    'The local store is never modified.',
+    ...(teamStore ? ['Push copies runs to your team store as recorded, so teammates can replay them.'] : []),
+    'A model call’s key and authorization headers, and a captured HTTP call’s credentials, are never stored at all.',
+  ].join(' ');
+}
+
+/** What Add a redaction rule says it does, with or without a team store. */
+export function redactRuleText(teamStore: boolean): string {
+  return `Masks stored content in every export, pack and share link of a run.${teamStore ? ' Push copies runs to your team store as recorded.' : ''} A redacted pack still replays: its rules apply as normalizers.`;
+}
+
+/**
+ * The Store tab's Share links row: the report behind a link applies every redaction rule, so it
+ * says how many, and warns when there are none (the report then holds what was recorded) or when
+ * they can't be read (`null`: a share stops until the file is fixed).
+ */
+export function shareLinksLine(rules: number | null): { text: string; warn: string | null } {
+  const applied = rules ? ` with ${rules === 1 ? '1 redaction rule' : `${rules.toLocaleString('en-US')} redaction rules`} applied` : '';
+  const text = `A report in the bucket${applied}, behind a link that expires after 7 days. Anyone with the link can open it, without an account.`;
+  if (rules === null) return { text, warn: 'The redaction rules can’t be read, so a share link waits until shadowlap.config.json is fixed.' };
+  if (rules === 0) return { text, warn: 'No redaction rules: the report holds the prompts and tool data as recorded. Add rules before you share a run.' };
+  return { text, warn: null };
+}
+
+// ---- coding agents ----
+
+/** The job that puts the Cursor rule or the Claude Code plugin into the project: `shadowlap skill install <agent>`. */
+export const SKILL_INSTALL_KIND = 'skill-install';
+
+/** What an install button says, and whether it asks first: it replaces a copy edited here. */
+export interface AgentAction {
+  label: string;
+  ask: boolean;
+}
+
+/** A row of the instruction files, in words, and its tone: ok (dim), warn (amber), or muted. */
+export interface AgentFileWords {
+  text: string;
+  tone: 'ok' | 'warn' | 'muted';
+}
+
+/**
+ * An instruction file's row, as the design words it: found and mentioning Shadowlap, found without
+ * a Shadowlap section yet (amber), or not in this project. CLAUDE.md needs no section once the skill
+ * is in the project (`skillHere`): Claude Code has it through the skill.
+ */
+export function agentFileWords(file: { found: boolean; mentions: boolean }, skillHere = false): AgentFileWords {
+  if (!file.found) return { text: 'not in this project', tone: 'muted' };
+  if (file.mentions) return { text: 'found · mentions Shadowlap', tone: 'ok' };
+  if (skillHere) return { text: 'found · the skill gives Claude Code the section', tone: 'ok' };
+  return { text: 'found · no Shadowlap section yet', tone: 'warn' };
+}
+
+/**
+ * The `.cursor/rules` row with the Cursor rule (the design's codingAgentsPanel, and the states it
+ * doesn't show from `skillOffer()`): this version's rule reads "found · shadowlap.mdc, 0.1.0" with
+ * nothing to do; with none yet, the folder's own words and Add the Cursor rule; one edited here, or
+ * another version's (a rule says no version), Replace with 0.1.0's copy…, which asks first; a way
+ * that is blocked, the folder's words and why (`why`), with no button.
+ */
+export function cursorRuleWords(
+  file: { found: boolean; mentions: boolean },
+  offer: Pick<AgentOffer, 'state' | 'blocked' | 'install'>,
+  version: string | null,
+): AgentFileWords & { action: AgentAction | null; why: string | null } {
+  const own = agentFileWords(file);
+  if (offer.blocked) return { ...own, action: null, why: offer.blocked };
+  if (offer.state === 'current') return { text: `found · shadowlap.mdc${version ? `, ${version}` : ''}`, tone: 'ok', action: null, why: null };
+  if (offer.state === 'missing') return { ...own, action: offer.install ? { label: 'Add the Cursor rule', ask: false } : null, why: null };
+  return { text: 'found · shadowlap.mdc, edited here or another version’s', tone: 'warn', action: offer.install ? { label: `Replace with ${version ?? 'this version'}’s copy…`, ask: true } : null, why: null };
+}
+
+/**
+ * The skill's row once the owner has published the plugin (the design's skillPanelRows, and the
+ * states MISSING.md words from `skillOffer()`): nothing there, its command and Install the skill;
+ * this version's copy, installed; another version's, "0.0.9 in the project" and Update to 0.1.0,
+ * asking nothing; one edited here, "Edited here." and Replace with 0.1.0's copy…, which asks first;
+ * a way that is blocked, why, with no command and no button.
+ */
+export function skillWords(
+  offer: Pick<AgentOffer, 'state' | 'blocked' | 'install'> & { installedVersion: string | null },
+  version: string | null,
+): { installed: boolean; line: string | null; tone: '' | 'warn'; command: string | null; action: AgentAction | null } {
+  const command = offer.install?.command ?? null;
+  if (offer.blocked) return { installed: false, line: offer.blocked, tone: 'warn', command: null, action: null };
+  switch (offer.state) {
+    case 'current':
+      return { installed: true, line: null, tone: '', command: null, action: null };
+    case 'missing':
+      return { installed: false, line: null, tone: '', command: command ?? 'shadowlap skill install claude-code', action: command ? { label: 'Install the skill', ask: false } : null };
+    case 'other-version':
+      return { installed: false, line: `${offer.installedVersion ?? 'Another version'} in the project.`, tone: 'warn', command, action: command ? { label: `Update to ${version ?? 'this version'}`, ask: false } : null };
+    case 'changed':
+      return { installed: false, line: 'Edited here.', tone: 'warn', command, action: command ? { label: `Replace with ${version ?? 'this version'}’s copy…`, ask: true } : null };
+  }
 }
 
 // ---- the Add dialog ----
@@ -498,6 +606,7 @@ export function ciShown(changed: Partial<CiWorkflowOptions>, view: CiWorkflowsVi
     repairer: changed.repairer ?? view.fixOnFailure.repairer,
     onlyMain: changed.onlyMain ?? view.alerts.onlyMain,
     secret: changed.secret ?? view.alerts.secret,
+    inconclusive: changed.inconclusive ?? view.alerts.inconclusive ?? 'fail',
   };
 }
 

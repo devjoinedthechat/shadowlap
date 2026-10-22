@@ -55,7 +55,7 @@ function parsePort(value: string): number {
   return n;
 }
 
-/** The redaction line every copy that leaves the machine prints. */
+/** The redaction line every export of pairs prints. */
 function redactionLine(rules: number, skipped: boolean): string {
   if (skipped) return p.yellow('  redaction skipped (--no-redact): the copy holds what was recorded');
   if (!rules) return p.yellow('  no redaction rules: the copy holds what was recorded (shadowlap redact add)');

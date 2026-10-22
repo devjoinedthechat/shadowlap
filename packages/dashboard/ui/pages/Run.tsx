@@ -274,12 +274,13 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   useEffect(() => {
     const items: PaletteCommand[] = [];
     const replay = run.actions.find((a) => a.key === 'r');
-    if (!exported && !actionsOff && replay && !live) items.push({ group: 'This run', label: `Replay ${shortId(runId)}`, hint: 'shadowlap replay', run: () => actions.run({ action: replay, callNo: null }) });
+    if (!exported && !actionsOff && replay && !live) items.push({ group: 'This run', label: `Replay ${shortId(runId)}`, hint: 'shadowlap replay', job: true, run: () => actions.run({ action: replay, callNo: null }) });
     if (canFork && selected !== null)
       items.push({
         group: 'This run',
         label: `Fork at #${selected}…`,
         hint: 'inject, override, fail, switch the model',
+        job: true,
         run: () => {
           const btn = document.getElementById('forkBtn');
           if (btn) setTimeout(() => forkMenu.openAt(btn));
@@ -290,12 +291,13 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
         group: 'This run',
         label: 'Share…',
         hint: 'HTML, pack, dataset, OpenTelemetry, HAR',
+        job: true,
         run: () => {
           const btn = document.querySelector<HTMLElement>('.rhead .actions [aria-haspopup="menu"]');
           if (btn) setTimeout(() => btn.click());
         },
       });
-    if (!exported && !actionsOff && !live && !run.source && app.hasKind(JOB_KINDS.bisect)) items.push({ group: 'This run', label: `${bisectLabel(offers?.bisect).label}…`, hint: 'shadowlap bisect', run: () => findCommit.current() });
+    if (!exported && !actionsOff && !live && !run.source && app.hasKind(JOB_KINDS.bisect)) items.push({ group: 'This run', label: `${bisectLabel(offers?.bisect).label}…`, hint: 'shadowlap bisect', job: true, run: () => findCommit.current() });
     items.push({ group: 'This run', label: 'Provenance', hint: 'the run’s record, call by call', run: () => setView('provenance') });
     if (run.parent) items.push({ group: 'This run', label: 'Compare with parent', hint: shortId(run.parent.runId), run: () => navigate(href.compare(run.parent!.runId, runId)) });
     setRunCommands(items);

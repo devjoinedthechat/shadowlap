@@ -429,7 +429,7 @@ export function defaultFrom(use: ReturnType<typeof modelUse>, kind: 'decisions' 
   return { models: [use[0]!.model], why: 'most' };
 }
 
-/** What the report may carry of a run's values: the project's redaction rules applied, as to every copy of a run that leaves the machine. */
+/** What the report may carry of a run's values: the project's redaction rules applied, as to every export, pack and share link of a run. */
 export interface Mask {
   args: (tool: string, args: unknown) => unknown;
   text: (text: string) => string;
@@ -1122,7 +1122,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     if (s.fromCode) notes.push('Nothing ran to read the prompt: each run was replayed offline under the working tree, its model calls matched without their prompt and tools.');
     // What a judge reads goes to its model: the same rules masked it first (decisions-judge.ts). Said
     // only when a judge read something, now, before, or in the recording.
-    if (rules.length) notes.push(`The project's redaction rules masked the values this report shows${judge.read ? ', and what each judge check read' : ''}, as they mask every copy of a run that leaves the machine.`);
+    if (rules.length) notes.push(`The project's redaction rules masked the values this report shows${judge.read ? ', and what each judge check read' : ''}, as they mask every export, pack and share link.`);
     for (const plan of planned) if (plan.skip) warnings.push(`#${plan.call.callNo} of ${shortId(plan.target.run.runId)} not asked: ${mask.text(plan.skip)}`);
     const failures = allSteps.filter((x) => !x.samples.answered && x.samples.asked && x.error);
     if (failures.length) warnings.push(`${failures.length} step${failures.length === 1 ? '' : 's'} got no answer: ${[...new Set(failures.map((x) => x.error))].slice(0, 3).join('; ')}`);

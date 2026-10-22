@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { CodeBlock } from '../../components/bits.js';
 import { Tile } from '../../components/Icon.js';
 import { shortFixId } from '../../fixes/model.js';
@@ -8,7 +8,7 @@ import { href } from '../../route.js';
 import type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
 import { useApp } from '../../state.js';
 import { TeamStoreRow } from './CiTeamStore.js';
-import { LoadProblem, Loading } from './common.js';
+import { ConfigProblem, LoadProblem, Loading } from './common.js';
 import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
 
@@ -18,8 +18,9 @@ import { ciShown, typedSecret } from './logic.js';
  * across the bottom with Copy. The panels come from `GET /api/ci/workflows` (src/ci-workflows.ts),
  * asked again as you pick, which fills in the project's goldens, its newest verified fix, its
  * repository, its default branch and its team store: Fix on failure follows Push from CI, which
- * Settings → Store sets, and with it on the step pushes each fix there too. Nothing is stored: the
- * steps go into your own workflow file and run in your CI.
+ * Settings → Store sets, and with it on the step pushes each fix there too. While
+ * shadowlap.config.json can't be read, the tab says so as the others do, and each step says what it
+ * leaves out. Nothing is stored: the steps go into your own workflow file and run in your CI.
  */
 
 /** What the panels were changed to, kept while the dashboard is open; what isn't changed is the server's default. */
@@ -46,6 +47,8 @@ export function CiTab() {
   const o = ciShown(changed, view);
   return (
     <>
+      {/* The steps read the goldens' tests and the store from it: each says what it leaves out until it is fixed. */}
+      {view.configError ? <ConfigProblem error={view.configError} /> : null}
       <FixOnFailure
         o={o}
         view={view}
@@ -96,14 +99,28 @@ function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView 
   return served;
 }
 
+/**
+ * A list of rows, each with its dot: the row's own tone (a failure red, one that can't be decided
+ * amber), else the list's. A value that lists several (the providers' keys) breaks only after a
+ * comma, each one whole.
+ */
 function CiList({ rows, tone = '' }: { rows: readonly CiListRow[]; tone?: '' | 'err' }) {
   return (
     <ul className="cilist">
       {rows.map((r) => (
         <li key={`${r.label}\u0000${r.value}`}>
-          <i className={tone || undefined} aria-hidden="true" />
+          <i className={(r.tone ?? tone) || undefined} aria-hidden="true" />
           <span>{r.label}</span>
-          {r.value ? <code>{r.value}</code> : null}
+          {r.value ? (
+            <code>
+              {r.value.split(', ').map((v, i) => (
+                <Fragment key={i}>
+                  {i ? ', ' : null}
+                  <span className="nw">{v}</span>
+                </Fragment>
+              ))}
+            </code>
+          ) : null}
         </li>
       ))}
     </ul>
@@ -242,7 +259,28 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
   );
 }
 
+/**
+ * What each choice for an inconclusive golden (a gate, a judge or an injection test that can't
+ * decide) does, in the design's words for its "in CI" row (the Gates panel's), and that it sets
+ * both panels' steps, as the action's `inconclusive` input takes it.
+ */
+const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', ReactNode> = {
+  fail: <>Fails the step, as a failed one does. Run more attempts can settle it. It sets Fix on failure’s step too.</>,
+  warn: (
+    <>
+      Lets the step pass with a warning: <code>inconclusive: warn</code>. Every report still says inconclusive. It sets Fix on failure’s step too.
+    </>
+  ),
+};
+
+/** What the toast says when the choice changes. */
+const INCONCLUSIVE_TOAST: Record<'fail' | 'warn', string> = {
+  fail: 'An inconclusive golden fails the step, the default',
+  warn: 'An inconclusive golden warns · both steps say inconclusive: warn',
+};
+
 function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
+  const { toast } = useApp();
   const a = view.alerts;
   const toggle = () => set({ onlyMain: !o.onlyMain });
   return (
@@ -284,6 +322,28 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
               <span>The repository secret that holds the Slack webhook URL.</span>
             </div>
             <input className="inp" type="text" spellCheck={false} autoComplete="off" aria-label="Webhook secret" value={o.secret} onChange={(e) => set({ secret: typedSecret(e.target.value) })} />
+          </div>
+          <div className="setrow tight">
+            <div>
+              <b>An inconclusive golden</b>
+              <span>{INCONCLUSIVE_WORDS[o.inconclusive ?? 'fail']}</span>
+            </div>
+            <div className="seg" role="group" aria-label="An inconclusive golden in CI">
+              {(['fail', 'warn'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={(o.inconclusive ?? 'fail') === k}
+                  onClick={() => {
+                    if ((o.inconclusive ?? 'fail') === k) return;
+                    set({ inconclusive: k });
+                    toast(INCONCLUSIVE_TOAST[k]);
+                  }}
+                >
+                  {k === 'fail' ? 'Fails' : 'Warns'}
+                </button>
+              ))}
+            </div>
           </div>
           <span className="k cineeds">it needs</span>
           <CiList rows={a.needs} />

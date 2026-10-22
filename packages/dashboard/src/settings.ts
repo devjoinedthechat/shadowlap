@@ -28,8 +28,9 @@ import {
   type RunRecord,
   type Store,
 } from '@shadowlap/engine';
-import { ciStep, parseStoreUrl, type StoreLocation } from '@shadowlap/remote';
+import { ciStep, parseStoreUrl, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
 import { skillOffer, type SkillOffer } from './agent-skill.js';
+import { VERSION } from './ci-yaml.js';
 import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type PreviewLimitsConfig } from './redaction-preview.js';
 import { countRuns } from './runs-list.js';
 import { teamStoreStatus, type TeamStoreInput, type TeamStoreStatus } from './team-store.js';
@@ -120,7 +121,7 @@ export interface RedactionSettings {
   config: ConfigInfo;
   rules: RuleRow[];
   form: RuleForm;
-  /** Every way a run's content leaves the machine, which rules each applies and what it does with the run's details (decision 6). */
+  /** Every export, pack and share link, which rules each applies and what it does with the run's details (decision 6). A push copies runs to the team store as recorded. */
   where: readonly RedactionExport[];
   /**
    * Runs a preview can be made for: every run but those still recording, newest first. The preview
@@ -311,6 +312,11 @@ function loadConfigFile(cwd: string, list?: RuleList): { info: ConfigInfo; file:
   } catch (err) {
     return { info: { file: CONFIG_FILE, path, exists: existsSync(path), version: null, error: err instanceof Error ? err.message : String(err) }, file: null };
   }
+}
+
+/** Why shadowlap.config.json in `cwd` can't be read, in the words Settings' tabs say it (`ConfigInfo.error`); null when it reads. */
+export function configFileError(cwd: string): string | null {
+  return loadConfigFile(cwd).info.error;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -1432,22 +1438,30 @@ export interface StoreSettings {
   status: TeamStoreStatus | null;
   /** "Copy CI step": the GitHub Actions step `shadowlap store ci --provider github` prints. */
   ciStep: { file: string; text: string; oidc: boolean } | null;
+  /**
+   * The redaction rules a share link's report applies (every rule, always): how many, or null when
+   * they can't be read (the file, or a rule in it), so a share stops until they can.
+   */
+  redactRules: number | null;
 }
 
 /**
- * Settings → Store, the team store: what `shadowlap store show` says, offline. Push and pull are
- * jobs; Push from CI is a config edit. Nothing here reaches the bucket.
+ * Settings → Store, the team store: what `shadowlap store show` says, offline, and the CI step to
+ * copy, with the keys the goldens that run live need (`keys`, as `liveKeys` gives them). Push and
+ * pull are jobs; Push from CI is a config edit. Nothing here reaches the bucket.
  */
-export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input: TeamStoreInput): StoreSettings {
-  const { info } = loadConfigFile(ctx.cwd);
+export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input: TeamStoreInput, keys: CiStepKeys = {}): StoreSettings {
+  const { info, file } = loadConfigFile(ctx.cwd);
+  const rules = file && !info.error && (file.data.redact === undefined || Array.isArray(file.data.redact)) ? readRules(file, 'redact') : null;
+  const redactRules = rules && !rules.some((r) => r.error) ? rules.length : null;
   const configured = input.store;
-  if (!configured) return { config: info, configured: null, error: info.error, status: null, ciStep: null };
+  if (!configured) return { config: info, configured: null, error: info.error, status: null, ciStep: null, redactRules };
   let loc: StoreLocation;
   try {
     loc = parseStoreUrl(configured);
   } catch (err) {
-    return { config: info, configured, error: `${CONFIG_FILE} names a store that can't be used: ${err instanceof Error ? err.message : String(err)}`, status: null, ciStep: null };
+    return { config: info, configured, error: `${CONFIG_FILE} names a store that can't be used: ${err instanceof Error ? err.message : String(err)}`, status: null, ciStep: null, redactRules };
   }
-  const step = ciStep('github', loc);
-  return { config: info, configured, error: info.error, status: teamStoreStatus(ctx.store, input), ciStep: { file: step.file, text: step.text, oidc: step.oidc } };
+  const step = ciStep('github', loc, { version: VERSION, ...keys });
+  return { config: info, configured, error: info.error, status: teamStoreStatus(ctx.store, input), ciStep: { file: step.file, text: step.text, oidc: step.oidc }, redactRules };
 }

@@ -87,6 +87,7 @@ addPaletteSource(({ app, go }) =>
           group: 'Actions',
           label: 'Import a capture…',
           hint: 'HAR, nock, VCR, LiteLLM, OpenTelemetry, a Langfuse or LangSmith trace',
+          job: true,
           run: () =>
             app.guard(() => {
               importAsked = true;

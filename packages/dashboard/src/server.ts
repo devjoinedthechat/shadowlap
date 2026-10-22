@@ -311,7 +311,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       },
       get project() {
         const notice = s.failed.length ? `Part of the dashboard couldn’t start for ${pc.name}: ${s.failed.join('; ')}. Its pages there say they aren’t found.` : null;
-        return { ...projectView(pc), ...(problem ? { problem } : {}), ...(notice ? { notice } : {}) };
+        return { ...projectView(pc), ...(problem ? { problem, ...(existsSync(pc.path) ? {} : { missing: true }) } : {}), ...(notice ? { notice } : {}) };
       },
       config,
       readOnly,

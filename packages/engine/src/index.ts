@@ -38,7 +38,7 @@ export { LOCK_STALE_MS, releaseLock, takeLock, withLockFile, type HeldLock, type
 export { ProjectError, ProjectHost, ProjectRegistry, emptySetup, nameConfirms, projectDbPath, setupRunOf, tildePath } from './projects/index.js';
 export { checkFolder, describeFolder, suggestFolders } from './projects/index.js';
 export { UPSTREAM_ENV, defaultGolden, freeGoldenPath, goldenPath, modelServerFinding, parseAgentCommand, planRecording, setupCommands, setupJobArgs } from './projects/index.js';
-export { SETUP_STAGES, calibrationOutcome, deriveSetup, emptyStoreFacts, readStoreFacts, runTotals, stageAtLeast, storeFacts, unwrappedTools } from './projects/index.js';
+export { AGENT_NODE_MIN, SETUP_STAGES, calibrationOutcome, deriveSetup, emptyStoreFacts, nodePinTooOld, readStoreFacts, runTotals, stageAtLeast, storeFacts, unwrappedTools } from './projects/index.js';
 export type { AddedProject, ConfirmedCommand, ProjectContext, ProjectCounts, ProjectEntry, ProjectErrorCode, ProjectHostOptions, ProjectSetup, RegistryOptions, RemovedProject } from './projects/index.js';
 export type { FolderCheck, FolderKind, FolderSuggestion, FolderSuggestions, SuggestOptions } from './projects/index.js';
 export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, RecordPlanResult } from './projects/index.js';

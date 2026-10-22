@@ -864,6 +864,7 @@ pre.report .no, pre.report .del { color: var(--err); } pre.report .add { color: 
 .setrow > div:first-child { flex: 1; min-width: 0; }
 .setrow b { display: block; font-weight: 500; }
 .setrow span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
+.setrow span.fieldnote { margin-top: 6px; }
 .preview { border-top: 1px solid var(--line); }
 .pvhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .pick { position: relative; display: inline-flex; }
@@ -1137,6 +1138,25 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 .agentfiles div { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .agentfiles code { min-width: 110px; }
 .agentfiles .warn { color: var(--warn); }
+/* Settings → Coding agents, as the design has it: the Cursor rule's install on its row, small and to the right, or why it
+   can't go in; the skill once published, with its install command and the commands for every project on the machine */
+.agentfiles div .btn, .agentfiles div .agwhy { margin-left: auto; }
+.agentfiles div .agwhy { text-align: right; }
+@media (max-width: 640px) { .agentfiles div:has(.btn, .agwhy) { flex-wrap: wrap; } .agentfiles div:has(.btn, .agwhy) :is(.btn, .agwhy) { margin: 4px 0 0 auto; } }
+.agentsgone { margin: 4px 0 12px; }
+.skrow { align-items: flex-start; }
+.skrow > div:first-child > span + span { margin-top: 6px; }
+.skrow > div:first-child > span { max-width: 96ch; text-wrap: pretty; }
+.skrow > div:first-child > span.warn { color: var(--warn); }
+.skrow > .btn, .skrow > .st { margin-top: 2px; }
+.skrow .skcmd { margin-top: 10px; max-width: 520px; }
+.skrow .cmdline span { margin: 0; max-width: none; color: inherit; font-size: inherit; }
+.skrow .cmdline:not(.words) span { display: inline; }
+.skrow .cmdline b { display: inline; font-weight: 400; }
+.skrow .skall { margin-top: 10px; margin-left: -7px; }
+.skrow .skall svg { transition: transform .15s; transform: rotate(-90deg); }
+.skrow .skall[aria-expanded="true"] svg { transform: none; }
+.skrow .skall + .cmdline + .linkbtn { margin-top: 6px; margin-left: -7px; }
 .codebox.md { white-space: pre-wrap; max-height: 260px; overflow: auto; }
 
 /* import */
@@ -1165,6 +1185,9 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 .palg { padding: 10px 10px 4px; font: 500 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
 .palit { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border: 0; border-radius: 9px; background: none; color: var(--ink); text-align: left; cursor: pointer; }
 .palit.on { background: var(--sel); }
+/* an action that starts a job, while it can't: dimmed, its reason as its hint, and Enter says why */
+.palit.waits .pl { color: var(--faint); }
+.palit.waits { cursor: default; }
 .palit .pl { font-size: 13.5px; white-space: nowrap; }
 .palit .pl.mono { font: 12.5px var(--mono); }
 .palit .ph2 { flex: 1; min-width: 0; color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1189,6 +1212,7 @@ body.is-offline main.view { padding-top: 44px; }
 .connblock h2 { margin: 0 0 8px; font: 600 20px var(--disp); letter-spacing: -.025em; }
 .connblock p { margin: 0 0 10px; color: var(--dim); font-size: 13.5px; line-height: 1.55; }
 .connblock .cmdline { margin: 6px 0 14px; }
+.connblock .actions .fieldnote { flex-basis: 100%; margin: 4px 0 0; }
 @media (max-width: 1000px) { .connbar { left: 0; padding: 10px 16px; flex-wrap: wrap; } }
 
 
@@ -1585,12 +1609,14 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .cip .alertgrid .cimain { padding-bottom: 8px; }
 .cip .alertgrid .cimain .setrow:last-child { border-bottom: 0; }
 .cilist { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
-.cilist li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; font-size: 13px; color: var(--dim); }
+/* The label keeps room for a few words beside a long value, which breaks after a comma, each part whole. */
+.cilist li { display: grid; grid-template-columns: 8px minmax(min(150px, 40%), 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; font-size: 13px; color: var(--dim); }
 .cilist li + li { border-top: 1px solid var(--line); }
 .cilist li i { width: 8px; height: 8px; border-radius: 50%; background: var(--line2); }
 .cilist li i.err { background: var(--err); }
-.cilist li span { text-wrap: balance; }
-.cilist li code { font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
+.cilist li i.warn { background: var(--warn); }
+.cilist li > span { text-wrap: balance; }
+.cilist li code { font: 11.5px var(--mono); color: var(--faint); }
 .slackmsg { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 12px; background: var(--bg2); }
 .slackmsg .tile { width: 32px; height: 32px; border-radius: 8px; flex: none; }
 .slackmsg .sm { min-width: 0; }
@@ -1624,6 +1650,12 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .proj.is-static:hover { border-color: var(--line); }
 a.livechip { text-decoration: none; }
 a.livechip:hover { color: var(--ink); }
+/* the jobs running, from every tab: a click opens the newest one's drawer again; on a phone too, without "running" */
+button.jobchip { border: 0; background: none; padding: 0; cursor: pointer; flex: none; white-space: nowrap; }
+button.jobchip:hover { color: var(--ink); }
+.jobchip .spin { width: 10px; height: 10px; flex: none; }
+@media (max-width: 1000px) { .livechip.jobchip { display: inline-flex; } }
+@media (max-width: 640px) { .jobchip .jrun { display: none; } }
 .empty.tall { padding: 80px 0; }
 .rmain { min-width: 0; }
 .rv.loading { flex: 1; }
@@ -1956,7 +1988,7 @@ code.tipped { cursor: help; }
 .pvrule .pvs span { overflow-wrap: anywhere; }
 .set .pvrule { grid-template-columns: auto minmax(34px, max-content) minmax(0, 1fr); }
 @media (max-width: 640px) { .set .pvrule { grid-template-columns: auto minmax(28px, max-content) minmax(0, 1fr); } }
-.agentfiles .ok { color: var(--accent); }
+.agentfiles .ok { color: var(--dim); }
 .egrp p.none { margin: 0; }
 .egrp.mcp p.none { margin: 0 0 12px; }
 .egrp.mcp .tscroll { margin: 4px 0 12px; }

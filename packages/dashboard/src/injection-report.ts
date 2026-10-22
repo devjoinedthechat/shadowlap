@@ -9,7 +9,7 @@ import { applyNormalizers, cleanBound, cleanDecided, cleanRule, describeIdentifi
  *
  * Everything it shows from the recordings (a read's arguments, a write's, the neutral result, tool
  * names, a value that carried the canary) goes through the project's redaction rules first, as every
- * copy that leaves the machine does: arguments under the stored request's shape (`$.args.to`), a
+ * export, pack and share link does: arguments under the stored request's shape (`$.args.to`), a
  * result under `$.result`, as pack and export read them. A canary is never masked: it is a value
  * Shadowlap made up, and it is the proof.
  */

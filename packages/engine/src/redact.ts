@@ -1157,9 +1157,9 @@ function zeroNote(rule: Normalizer, scoped: number, reached: { requests: number;
 
 // ---- where the rules apply ----
 
-/** An export a run can leave the machine by, and which redaction rules it applies (decision 6). */
+/** A copy a run can leave the machine as, and which redaction rules it applies (decision 6). */
 export interface RedactionExport {
-  id: 'pack' | 'html' | 'har' | 'dataset' | 'pairs' | 'otel';
+  id: 'pack' | 'html' | 'har' | 'dataset' | 'pairs' | 'otel' | 'share';
   command: string;
   /**
    * `all`: every rule, on every request and response it copies and the errors with them (a pack
@@ -1181,10 +1181,12 @@ export interface RedactionExport {
 }
 
 /**
- * Where the project's redaction rules apply: every way a run's content leaves this machine, as
- * decision 6 has it (packages/cli/test/redaction-exports.test.ts holds each export this build has
- * to its entry). The local store is never modified, and API keys and authorization headers are
- * never stored at all.
+ * Where the project's redaction rules apply: every export, pack and share link, as decision 6 has
+ * it (packages/cli/test/redaction-exports.test.ts holds each one this build has to its entry). The
+ * local store is never modified, and a push copies runs to the team store as recorded, so teammates
+ * can replay them. A model call's key and authorization headers, and a captured HTTP call's
+ * credentials, are never stored at all; a key the agent puts anywhere else is stored like any other
+ * value.
  */
 export const REDACTION_EXPORTS: readonly RedactionExport[] = [
   { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule on the requests it copies, and the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise, but for a clock or random read, which stays as recorded; the command line, labels and notes are copied as recorded, since a replay runs the command' },
@@ -1193,4 +1195,5 @@ export const REDACTION_EXPORTS: readonly RedactionExport[] = [
   { id: 'dataset', command: 'shadowlap export dataset', applies: 'messages', details: 'masked', note: 'every rule on the conversations and answers it keeps, as export html applies them, and the rules without a path on the rest of each row: command line, labels and notes' },
   { id: 'pairs', command: 'shadowlap export pairs', applies: 'messages', details: 'absent', note: 'the rules on the conversations and answers it keeps: path rules on the request and on tool arguments and results, and the rules without a path on every string' },
   { id: 'otel', command: 'shadowlap export otel', applies: 'attributes', details: 'masked', note: 'no prompt text leaves; the rules without a path on the names, command line and errors it keeps' },
+  { id: 'share', command: 'shadowlap share', applies: 'all', details: 'masked', note: 'every rule, always, as export html applies them: the link opens the run’s HTML report to anyone who has it' },
 ];

@@ -292,10 +292,17 @@ describe('the switcher', () => {
     w.registry.add(gone);
     rmSync(gone, { recursive: true, force: true });
     await w.api('projects/old-agent/select', { method: 'POST' });
-    const meta = await w.api<{ project: { id: string; problem: string }; counts: { runs: number } }>('meta');
+    const meta = await w.api<{ project: { id: string; problem: string; missing?: boolean }; counts: { runs: number } }>('meta');
     expect(meta.status).toBe(200);
-    expect(meta.body.project).toMatchObject({ id: 'old-agent', problem: '~/old-agent doesn’t exist any more. Remove the project, or put the folder back.' });
+    expect(meta.body.project).toMatchObject({ id: 'old-agent', problem: '~/old-agent doesn’t exist any more. Remove the project, or put the folder back.', missing: true });
     expect(meta.body.counts.runs).toBe(0);
+    // Settings changes nothing there, and says why in the page's words rather than with ENOENT.
+    const refused = { status: 409, body: { error: 'old-agent’s folder is gone: put it back or remove the project' } };
+    expect(await w.api('settings/rules/normalize', { method: 'POST', body: { rule: { path: '$.a' }, expect: 'absent' } })).toMatchObject(refused);
+    expect(await w.api('settings/clock', { method: 'PUT', body: { mode: 'exact', expect: 'absent' } })).toMatchObject(refused);
+    expect(await w.api('settings/store/ci-push', { method: 'PUT', body: { on: false, expect: 'absent' } })).toMatchObject(refused);
+    // Nothing was made where it was.
+    expect(existsSync(gone)).toBe(false);
     expect((await w.api<{ runs: unknown[] }>('runs')).body.runs).toEqual([]);
     const list = await w.api<{ items: Array<{ id: string; detail: string }> }>('projects');
     expect(list.body.items.find((i) => i.id === 'old-agent')?.detail).toBe('~/old-agent · folder not found');
@@ -530,6 +537,22 @@ describe('removing a project', () => {
     expect(gone.body.deleted).toContain('.shadowlap/shadowlap.db');
     expect(existsSync(projectDbPath(w.support))).toBe(false);
     expect(existsSync(join(w.support, 'pyproject.toml'))).toBe(true);
+  });
+
+  it('says which of the runs the team store has too, and stay there, when the project has one', async () => {
+    const w = await world();
+    w.registry.add(w.triage);
+    const detail = async () => (await w.api<{ deleteZone: { detail: string } }>('projects/support-agent/remove')).body.deleteZone.detail;
+    // No store: nothing said of one.
+    expect(await detail()).toBe('2 runs and their attempts.');
+    const url = 's3://northwind-agent-runs/support-agent';
+    writeFileSync(join(w.support, 'shadowlap.config.json'), JSON.stringify({ store: url }));
+    expect(await detail()).toBe('2 runs and their attempts. None of them is in the team store: they exist only here.');
+    // One of them pushed: it stays in the bucket whatever is deleted here.
+    const store = Store.open(projectDbPath(w.support));
+    store.setTeamRun(url, { runId: w.supportRuns[0]!, state: 'pushed', at: Date.now(), base: {}, baseHash: 'h', remoteHash: 'h', entry: { runId: w.supportRuns[0]! } });
+    store.close();
+    expect(await detail()).toBe('2 runs and their attempts. 1 of them is in the team store too and stays there; 1 exists only here.');
   });
 });
 

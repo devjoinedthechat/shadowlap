@@ -13,6 +13,7 @@ import { RemoveProjectDialog } from '../shell/RemoveProject.js';
 import { useTestsWait, useTreeBusy } from '../fixes/tree.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
+import { SETUP_INTRO } from '../../src/setup-words.js';
 import { NotFoundPage } from './NotFound.js';
 
 /**
@@ -179,7 +180,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
     const name = projectOf(meta)?.name ?? 'this project';
     return (
       <Page>
-        <PageHeader eyebrow={name} title="No runs yet" text="Record the agent once. Every lap after that replays for free." />
+        <PageHeader eyebrow={name} title="No runs yet" text={SETUP_INTRO} />
         <StepList steps={setupSteps()} />
       </Page>
     );
@@ -290,10 +291,23 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
  * works, and once the folder is back the project's pages come back with it.
  */
 function ProjectProblem({ id, name, problem }: { id: string; name: string; problem: string }) {
+  return (
+    <Page>
+      <ProblemHeader id={id} name={name} problem={problem} />
+    </Page>
+  );
+}
+
+/**
+ * Why a project can't be opened (its folder is gone, its store is a newer Shadowlap's), as the
+ * page's header, with Remove from the dashboard: on its setup in place of every page, and on Settings
+ * above its tabs, which it can still show.
+ */
+export function ProblemHeader({ id, name, problem }: { id: string; name: string; problem: string }) {
   const { actionsOff } = useApp();
   const [removing, setRemoving] = useState(false);
   return (
-    <Page>
+    <>
       <PageHeader
         eyebrow={name}
         eyebrowTone="err"
@@ -306,7 +320,7 @@ function ProjectProblem({ id, name, problem }: { id: string; name: string; probl
         }
       />
       {removing ? <RemoveProjectDialog id={id} onClose={() => setRemoving(false)} /> : null}
-    </Page>
+    </>
   );
 }
 
@@ -401,6 +415,16 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
             ) : null}
             <button className="btn" type="button" disabled={!!why} title={why ?? undefined} onClick={() => onInspect(true)}>
               {step.warning.recheck.label}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {step.node ? (
+        <div className="warnbox">
+          <b>{step.node.title}</b> {step.node.text}
+          <div className="actions">
+            <button className="btn" type="button" disabled={!!why} title={why ?? undefined} onClick={() => onInspect(true)}>
+              {step.node.recheck.label}
             </button>
           </div>
         </div>

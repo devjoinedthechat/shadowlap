@@ -155,7 +155,9 @@ describe('addProjectPage', () => {
 describe('setupView', () => {
   it('starts with the folder to inspect, and the other steps waiting', () => {
     const v = view(entry('research-agent'), facts());
-    expect(v).toMatchObject({ eyebrow: 'research-agent · ~/research-agent', title: 'No runs yet', intro: 'Record the agent once. Every lap after that replays for free.', skip: null, done: null, shows: 'everywhere' });
+    // What the setup is for: reproducing and testing the agent, not replays that cost nothing (a fork's live part is paid for).
+    expect(v).toMatchObject({ eyebrow: 'research-agent · ~/research-agent', title: 'No runs yet', intro: 'Record the agent once. Then reproduce it exactly, fork it at any call, and keep it as a test.', skip: null, done: null, shows: 'everywhere' });
+    expect(v.intro).not.toMatch(/free|lap/);
     expect(v.steps.map((s) => [s.title, s.state, s.cli])).toEqual([
       ['Inspect the folder', 'current', ['shadowlap init']],
       ['Record a first run', 'todo', ['shadowlap run -- <the command that starts your agent>']],
@@ -211,6 +213,25 @@ describe('setupView', () => {
       command: { enabled: false },
       button: { enabled: false },
     });
+  });
+
+  it('flags a Node pinned before 18.18, where the agent wouldn’t start, and keeps Record off until it is raised', () => {
+    const node = (version: string) => findings({ language: `Node ${version} · npm`, tools: [], wrap: [], nodePin: { version, from: '.nvmrc' } });
+    const old = view(entry('triage-bot', { stage: 'inspected', findings: node('18.17') }), facts());
+    expect(old.inspect.findings!.rows[0]).toMatchObject({ label: 'Language', value: 'Node 18.17 · npm' });
+    expect(old.inspect.node).toEqual({
+      title: 'Node 18.17 is too old for Shadowlap’s guard.',
+      text: '.nvmrc pins it, and an agent on a Node before 18.18 never starts under Shadowlap: that Node refuses the guard Shadowlap loads into it. Pin 18.18 or later to record.',
+      recheck: { label: 'I raised it, check again', action: 'recheck' },
+    });
+    expect(old.record).toMatchObject({ text: 'Waits for a Node pin of 18.18 or later: .nvmrc pins 18.17, where the agent wouldn’t start under Shadowlap.', command: { enabled: false }, button: { label: 'Record a run', enabled: false } });
+    // Raised, or a major alone (its newest release), or none at all: nothing to flag, and Record is on.
+    for (const pin of ['18.18', '18', '22']) {
+      const ok = view(entry('triage-bot', { stage: 'inspected', findings: node(pin) }), facts());
+      expect(ok.inspect.node, pin).toBeNull();
+      expect(ok.record.button, pin).toMatchObject({ enabled: true });
+    }
+    expect(view(entry('research-agent', { stage: 'inspected', findings: findings() }), facts()).inspect.node).toBeNull();
   });
 
   it('follows the recording as it streams in', () => {
@@ -477,6 +498,19 @@ describe('removeDialog', () => {
     expect(nameMatches('support-agen', 'support-agent')).toBe(false);
     expect(nameMatches('Support-agent', 'support-agent')).toBe(false);
     expect(nameMatches('Bücher-agent', 'Bu\u0308cher-agent')).toBe(true);
+  });
+
+  it('says which runs the team store has too, and stay there, and which exist only here', () => {
+    const remove = (runs: number, listed: number | null) => removeDialog({ project: entry('support-agent', { stage: 'done' }), stats: { runs, attempts: 0, goldens: 0 }, projects: 2, home: HOME, team: listed === null ? null : { listed } }).deleteZone!.detail;
+    expect(remove(52, 40)).toBe('52 runs and their attempts. 40 of them are in the team store too and stay there; 12 exist only here.');
+    expect(remove(52, 1)).toBe('52 runs and their attempts. 1 of them is in the team store too and stays there; 51 exist only here.');
+    expect(remove(2, 1)).toBe('2 runs and their attempts. 1 of them is in the team store too and stays there; 1 exists only here.');
+    expect(remove(47, 47)).toBe('47 runs and their attempts. All 47 runs are in the team store too, and stay there.');
+    expect(remove(1, 1)).toBe('1 run and its attempts. It is in the team store too, and stays there.');
+    expect(remove(3, 0)).toBe('3 runs and their attempts. None of them is in the team store: they exist only here.');
+    expect(remove(1, 0)).toBe('1 run and its attempts. It isn’t in the team store: it exists only here.');
+    // No team store: nothing said of one.
+    expect(remove(3, null)).toBe('3 runs and their attempts.');
   });
 
   it('names the repair reports and exports that deleting the recordings leaves', () => {

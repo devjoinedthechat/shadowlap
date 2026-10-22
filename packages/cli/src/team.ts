@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { liveKeys } from '@shadowlap/dashboard';
 import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, repairMarkdown, resolveAuthor, safeText, Store, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
 import {
   accessPolicy,
@@ -38,11 +39,13 @@ import {
   type StoreCheck,
   type StoreLocation,
 } from '@shadowlap/remote';
-import { CONFIG_FILE, configPath, defaultDbPath, loadConfig, type ShadowlapConfig } from './config.js';
+import { specFor, type TestEntry } from './checks.js';
+import { CONFIG_FILE, configPath, defaultDbPath, loadConfig, loadTests, type ShadowlapConfig } from './config.js';
+import { expandRecordings, goldenMode, goldenName } from './goldens.js';
 import { emitJobEvent, inDashboardJob } from './job-events.js';
 import type { TestReport } from './test-report.js';
 import { palette as p, safe, shortId } from './ui.js';
-import { ancestorsOf, stillRecording } from './shared.js';
+import { ancestorsOf, stillRecording, VERSION } from './shared.js';
 
 /**
  * The team store: the project's runs in a bucket the team owns, free like the rest of Shadowlap.
@@ -376,9 +379,33 @@ export function storePolicy(t: TeamEnv, flags: { provider?: Provider; json?: boo
   return 0;
 }
 
+/**
+ * The goldens a CI step's packs name (`goldens/*`), with how the config tests each, as Tests lists
+ * them: which run live, and so which providers' keys the step needs. A config that can't be read
+ * leaves out how they are tested; a pattern that can't be expanded names none.
+ */
+function goldensOf(cwd: string, packs: string): Array<ReturnType<typeof goldenMode> & { path: string }> {
+  let entries: TestEntry[] = [];
+  try {
+    entries = loadTests(cwd);
+  } catch {
+    // the config being edited: the packs alone
+  }
+  let dirs: string[] = [];
+  try {
+    dirs = expandRecordings(packs.split(/\s+/).filter(Boolean), cwd).dirs;
+  } catch {
+    return [];
+  }
+  return dirs.map((d) => ({ path: goldenName(d, cwd), ...goldenMode(specFor(entries, resolve(cwd, d), cwd)) }));
+}
+
 export function storeCi(t: TeamEnv, flags: { provider: CiProvider; packs?: string; json?: boolean }): number {
   const loc = requireStore(t);
-  const step = ciStep(flags.provider, loc, flags.packs ?? 'goldens/*');
+  const packs = flags.packs ?? 'goldens/*';
+  // The tests run by this CLI's own release, as the Action's step pins it, with the keys of the
+  // providers the goldens that run live call.
+  const step = ciStep(flags.provider, loc, { version: VERSION, packs, ...liveKeys(t.cwd, goldensOf(t.cwd, packs)) });
   if (flags.json) {
     line(t, JSON.stringify(step, null, 2));
     return 0;

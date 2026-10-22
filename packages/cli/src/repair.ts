@@ -319,7 +319,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
 
   const config = loadConfig(cwd);
   // The repairer is a model of the user's choosing, often another machine's: what it is shown of a
-  // run goes through the redaction rules first, as every copy of a run that leaves the machine does.
+  // run goes through the redaction rules first, as every export, pack and share link of a run does.
   let rules: Normalizer[];
   try {
     rules = config.redact;

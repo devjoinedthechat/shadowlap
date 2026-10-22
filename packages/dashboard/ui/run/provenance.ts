@@ -71,6 +71,26 @@ export function copyRules(rules: number | null | undefined, masked: number | nul
   return uncounted ? `${named}; what ${they} would mask in this run wasn’t counted` : named;
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * What an exported copy's Provenance says in place of what a copy made now would apply: the copy's
+ * own redaction, when it was made and with how many rules ("Exported Oct 22 with 3 redaction rules
+ * applied"), the year too when it isn't this one. A copy made before it kept the count says only
+ * whether rules applied.
+ */
+export function exportedLine(o: { exportedAt?: number | null; rules?: number | null; redacted?: boolean | null }, now = Date.now()): string {
+  let when = '';
+  if (typeof o.exportedAt === 'number') {
+    const d = new Date(o.exportedAt);
+    when = ` ${MONTHS[d.getMonth()]} ${d.getDate()}${d.getFullYear() !== new Date(now).getFullYear() ? `, ${d.getFullYear()}` : ''}`;
+  }
+  const rules = typeof o.rules === 'number' ? o.rules : o.redacted === false ? 0 : null;
+  if (rules === 0) return `Exported${when} with no redaction rules: it holds what was recorded.`;
+  if (rules === null) return `Exported${when} with the project’s redaction rules applied.`;
+  return `Exported${when} with ${num(rules)} redaction ${rules === 1 ? 'rule' : 'rules'} applied.`;
+}
+
 /**
  * How many redaction rules a copy made now applies, for the Share menu's note: the server's count
  * when it sends one (`meta.redactRules`), else the run's provenance record's; null when neither says.

@@ -23,6 +23,8 @@ export interface TestsPaletteCommand {
   label: string;
   hint: string;
   mono: boolean;
+  /** It opens what starts a job (Update goldens…): paused while the server can't be reached. */
+  job?: boolean;
   run: () => void;
 }
 
@@ -71,6 +73,7 @@ export function testsPaletteCommands(app: TestsPaletteApp, go: (to: string) => v
     label: e.label,
     hint: e.hint,
     mono: e.mono,
+    ...(e.job ? { job: true } : {}),
     run: () => (e.group === 'Actions' ? app.guard(() => go(e.to)) : go(e.to)),
   }));
 }

@@ -26,6 +26,8 @@ export interface GoldenSource {
   checks: string[];
   /** Its tests entry gives it an injection test, which `shadowlap test` runs live from each planted payload. */
   injection?: boolean;
+  /** The models of its judge checks, which a golden that forks asks live. */
+  judges?: string[];
   /** Why the pack can't be read, when it can't. */
   error?: string | null;
 }

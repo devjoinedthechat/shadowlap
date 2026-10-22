@@ -341,10 +341,12 @@ function writeTarget(path: string): string {
 
 /**
  * A file beside the config could not be created: the folder is read-only (a checkout mounted
- * read-only, a folder owned by someone else), even when the config file itself is writable.
+ * read-only, a folder owned by someone else), even when the config file itself is writable, or it
+ * is gone (moved or deleted while a dashboard still lists the project).
  */
 function notWritable(err: unknown, target: string): Error {
   const code = (err as NodeJS.ErrnoException).code;
+  if (code === 'ENOENT') return new ConfigFileError(`${CONFIG_FILE} can't be edited: its folder ${dirname(target)} is gone`);
   if (code !== 'EACCES' && code !== 'EPERM' && code !== 'EROFS') return err as Error;
   return new ConfigFileError(`${CONFIG_FILE} can't be edited: its folder ${dirname(target)} is not writable (${code}), and an edit writes a lock file and a temporary file beside it`);
 }

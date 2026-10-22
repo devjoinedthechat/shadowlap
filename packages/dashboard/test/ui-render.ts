@@ -28,6 +28,8 @@ export class FakeText {
 const NATURAL = new Set(['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
 
 export class FakeElement {
+  /** An element's, as react-dom's createPortal checks of the element a dialog is drawn into. */
+  readonly nodeType = 1;
   parentNode: FakeElement | null = null;
   readonly childNodes: Child[] = [];
   readonly attributes = new Map<string, string>();
@@ -49,6 +51,28 @@ export class FakeElement {
   }
   get className(): string {
     return this.attributes.get('class') ?? '';
+  }
+  /** No layout here: every box sits at 0, 0 with no size (`clientWidth` below too), and nothing scrolls. */
+  scrollLeft = 0;
+  scrollTop = 0;
+  readonly clientHeight = 0;
+  getBoundingClientRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number; x: number; y: number } {
+    return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 };
+  }
+  /** The classes, as the shell marks the page's body with a state (`is-offline`, `is-expired`). */
+  get classList(): { add(c: string): void; remove(c: string): void; toggle(c: string, on?: boolean): boolean; contains(c: string): boolean } {
+    const list = () => this.className.split(/\s+/).filter(Boolean);
+    const write = (classes: string[]) => this.attributes.set('class', classes.join(' '));
+    return {
+      add: (c) => write([...new Set([...list(), c])]),
+      remove: (c) => write(list().filter((x) => x !== c)),
+      toggle: (c, on) => {
+        const now = on ?? !list().includes(c);
+        write(now ? [...new Set([...list(), c])] : list().filter((x) => x !== c));
+        return now;
+      },
+      contains: (c) => list().includes(c),
+    };
   }
   getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;

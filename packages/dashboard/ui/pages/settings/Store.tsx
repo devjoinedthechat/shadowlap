@@ -5,9 +5,9 @@ import { href } from '../../route.js';
 import type { StoreSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import type { StoreSetupView } from '../../store-api.js';
-import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
+import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { stepWords } from '../../../src/store-steps.js';
-import { syncText } from './logic.js';
+import { shareLinksLine, syncText } from './logic.js';
 
 /**
  * Store: the team store, the project's runs in a bucket you own. Free, with nothing hosted: push
@@ -23,6 +23,7 @@ export function StoreTab() {
   // A server without the setup routes still shows the store: the setup is left out.
   const setup = useSettingsData<StoreSetupView | null>(() => client.storeSetup.view().catch(() => null), 'store:setup');
   const editor = useEditor(data?.config.version ?? null, reload);
+  const gone = useFolderGone();
   if (error && !data) return <LoadProblem error={error} />;
   if (!data || (setup.loading && !setup.data)) return <Loading title="Store" />;
   const view = setup.data;
@@ -31,16 +32,17 @@ export function StoreTab() {
       <>
         {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
         {data.configured && data.error ? <p className="fieldnote err storeerr">{data.error}</p> : null}
-        <NoStore setup={!!view} />
+        <NoStore setup={!!view} unreadable={!!data.config.error} gone={!!gone} />
       </>
     );
   }
   const s = data.status;
   const version = data.config.version ?? 'absent';
-  const off = app.actionsOff ?? (editor.busy ? SAVING : null);
+  const off = app.actionsOff ?? gone ?? (editor.busy ? SAVING : null);
   const push = jobButton(app, JOB_KINDS.push, 'shadowlap push --all');
   const pull = jobButton(app, JOB_KINDS.pull, 'shadowlap pull');
   const ci = ciStepOf(data, view);
+  const share = shareLinksLine(data.redactRules);
   return (
     <>
       {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
@@ -136,7 +138,15 @@ export function StoreTab() {
         <div className="setrow">
           <div>
             <b>Share links</b>
-            <span>A redacted report written to the bucket, behind a link that expires after 7 days. Anyone with the link can open it, without an account.</span>
+            <span>{share.text}</span>
+            {share.warn ? (
+              <span className="fieldnote warn">
+                {share.warn}{' '}
+                <a className="more" href={href.settings('redaction')}>
+                  Redaction
+                </a>
+              </span>
+            ) : null}
           </div>
         </div>
       </section>
@@ -187,10 +197,20 @@ function CiStepButton({ step }: { step: CopiedStep }) {
 
 /**
  * A project with no store: what one is, and Set up the store, which opens the setup's page as the
- * design's Set up Team does; its command where the dashboard has no setup. Read-only, it says why not.
+ * design's Set up Team does; its command where the dashboard has no setup. Read-only, it says why
+ * not. While shadowlap.config.json can't be read, whether it names a store is unknown, and the setup
+ * would write into the file every command refuses: no setup is offered, only what to do first. With
+ * the project's folder gone, the file went with it, and there is nowhere to set one up.
  */
-function NoStore({ setup }: { setup: boolean }) {
+function NoStore({ setup, unreadable, gone }: { setup: boolean; unreadable: boolean; gone: boolean }) {
   const { actionsOff } = useApp();
+  if (unreadable || gone)
+    return (
+      <section className="panel stepempty nostore">
+        <h3>The store can’t be read</h3>
+        <p>{gone ? `Settings reads the team store from ${CONFIG_FILE}, in the project’s folder, which is gone.` : `Settings reads the team store from ${CONFIG_FILE}, which can’t be read until it is fixed.`}</p>
+      </section>
+    );
   return (
     <section className="panel stepempty nostore">
       <h3>No store yet</h3>

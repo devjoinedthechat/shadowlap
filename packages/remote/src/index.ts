@@ -22,7 +22,7 @@ export type { PullOptions, PullResult, PushOptions, PushResult, RunProblem, Sync
 export { checkStore, objectLockHint, versioningHint } from './check.js';
 export type { CheckStep, CheckStepName, StoreCheck } from './check.js';
 export { accessPolicy, policyTitle, type AccessPolicy, type PolicyPart } from './policy.js';
-export { CI_PROVIDERS, ciStep, type CiProvider, type CiStep } from './ci.js';
+export { CI_PROVIDERS, ciStep, type CiProvider, type CiStep, type CiStepKeys } from './ci.js';
 export { SHARE_DAYS, shareReport, type Share } from './share.js';
 export { envFetch, send, HttpError, type FetchLike, type HttpRequest, type HttpResponse, type SendOptions } from './http.js';
 export { eachLimit } from './pool.js';

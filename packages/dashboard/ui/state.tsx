@@ -22,6 +22,8 @@ export interface PaletteCommand {
   label: string;
   hint: string;
   mono?: boolean;
+  /** It starts a job, or opens what starts one: dimmed and paused while the server can't be reached. */
+  job?: boolean;
   run: () => void;
 }
 
@@ -83,6 +85,11 @@ export interface AppState {
   /** Shows a started job in the drawer and follows it to the end. */
   watchJob: (p: Promise<JobView>) => void;
   jobs: WatchedJob[];
+  /**
+   * Opens a job's drawer again: one this page follows, or one it doesn't (started in another tab, or
+   * before the page loaded), which it then follows to its end.
+   */
+  openJob: (id: string) => void;
   closeJob: (id: string) => void;
   /** Closes every job's drawer, as leaving a page does; running jobs go on and say when they finish. */
   closeJobs: () => void;
@@ -362,7 +369,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       ? (meta?.readOnlyReason ??
         (meta?.readOnly ? 'This dashboard is read-only: it was started with --read-only.' : 'Actions run the CLI: start the dashboard with shadowlap dashboard.'))
       : conn === 'expired'
-        ? 'This link has expired.'
+        ? 'This link’s session token isn’t this dashboard’s.'
         : null;
   const hasKind = useCallback((kind: string) => (meta?.jobKinds ? meta.jobKinds.includes(kind) : false), [meta]);
   const guard = useCallback(
@@ -444,6 +451,13 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     [follow, fail, toast],
   );
 
+  const openJob = useCallback(
+    (id: string) => {
+      if (jobsNow.current.some((w) => w.job.id === id)) setJobs((list) => list.map((w) => ({ ...w, open: w.job.id === id })));
+      else watchJob(client.job(id, 0));
+    },
+    [client, jobsNow, watchJob],
+  );
   const closeJob = useCallback((id: string) => setJobs((list) => list.map((w) => (w.job.id === id ? { ...w, open: false } : w)).filter((w) => w.open || (!w.job.done && !w.lost))), []);
   const closeJobs = useCallback(() => setJobs((list) => (list.some((w) => w.open) ? list.filter((w) => !w.job.done && !w.lost).map((w) => ({ ...w, open: false })) : list)), []);
 
@@ -495,6 +509,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       toastText,
       watchJob,
       jobs,
+      openJob,
       closeJob,
       closeJobs,
       registerLayer,
@@ -510,7 +525,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       runCommands,
       setRunCommands,
     }),
-    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
+    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, openJob, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

@@ -323,6 +323,13 @@ A fix changes what the agent sends, so a golden that must replay exactly would d
 
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write }
+- uses: actions/checkout@v7
+  with:
+    ref: ${{ github.head_ref || github.ref }}
+- uses: actions/setup-node@v7
+  with:
+    node-version: 22
+- run: npm ci && npm run build   # whatever your agent needs to run
 - run: npm install -g @anthropic-ai/claude-code
 - uses: devjoinedthechat/shadowlap@v0.1.0
   with:
@@ -337,19 +344,16 @@ A fix changes what the agent sends, so a golden that must replay exactly would d
     # and your agent's own provider keys: blame and verify run it live
 ```
 
-It needs:
+They are the steps of a job of their own: the branch checked out, Node 22.16 or later, the agent's dependencies (put your project's in place of `npm ci && npm run build`), then the action. It needs:
 
 - a model key for the repairer: `ANTHROPIC_API_KEY` for `claude-code` and `anthropic`, `OPENAI_API_KEY` for `openai:<model>`. The `claude-code` repairer runs Claude Code in print mode, so the runner needs it installed, which the first step does; `anthropic` and `openai:<model>` need nothing installed. An `anthropic` repairer without its key (a secret not set, or a pull request from a fork, which gets none) is found out before anything is blamed, so the job spends nothing on it and its summary says *the repairer could not be asked: no Anthropic credentials*;
 - your agent's own provider keys in the same `env`, as for `shadowlap run`: blame re-runs the failing replay live from the call it probes, and verify runs the agent with the fix. An agent on OpenAI with the `anthropic` repairer needs `OPENAI_API_KEY` as well as `ANTHROPIC_API_KEY`; without its keys, blame fails and no fix is proposed;
 - permission to push a branch (`contents: write`) and to open the pull request (`pull-requests: write`), in the job's `permissions`, and `GH_TOKEN` for `gh`;
 - with Push from CI on, the bucket's credentials, so each fix reaches the [team store](#fixes-in-the-team-store) too;
-- a branch checked out. A pull request's own workflow checks out a detached merge commit, so check out its branch, and the fix becomes a pull request into it:
+- a branch checked out, as the first step does (`ref: ${{ github.head_ref || github.ref }}`). A pull request's own workflow checks out a detached merge commit, so it checks out its branch, and the fix becomes a pull request into it;
+- Node 22.16 or later on the runner, not 23, as the second step sets up.
 
-```yaml
-- uses: actions/checkout@v7
-  with:
-    ref: ${{ github.head_ref || github.ref }}
-```
+The dashboard's Settings → CI writes the agent's provider keys into the step's `env` by name, from the providers its goldens' recordings called, in place of that last comment; the comment stays after them when a golden's keys can't be named (its pack can't be read, or it calls Vertex AI, which signs in with a token).
 
 It never opens a pull request for a divergence (most are intended: [update the golden](#update-a-golden-after-an-intended-change) or add a normalizer), nor for a golden whose only failing check is a cost check on a model with no price (add it under `prices`), never keeps a fix that verify rejected, never spends past the budget (each failing golden gets `fix-budget` dollars for blame, the repairer and verify together, goldens repaired together their budgets added up, and repair starts nothing once it is spent), and never merges anything: you review every fix. A failed check still fails the build. The job summary lists each failing golden, or the goldens repaired together, with the pull request opened (whether its goldens were re-recorded, and the other goldens it leaves diverging), or why there is none (*the repairer could not be asked: claude was not found*, when Claude Code isn't on the runner), and what it spent of its budget. The fix commit is made by GitHub's Actions bot when git has no identity of its own on the runner. A session stopped by a signal, as when the job is cancelled, starts no fix. The fix in the store the job used (the `store` input) records the pull request it went to (`shadowlap fix pr`), so a dashboard on that store lists it as *from CI · PR #138*, and once the pull request is merged or closed, *from CI · PR #138 merged*: the dashboard reads its state from GitHub with `gh`, in the background, while Fixes is open.
 
@@ -359,8 +363,15 @@ A job's store usually goes with the job, so to reach your teammates a fix has to
 
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write, id-token: write }
-# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints
+- uses: actions/checkout@v7
+  with:
+    ref: ${{ github.head_ref || github.ref }}
+- uses: actions/setup-node@v7
+  with:
+    node-version: 22
+- run: npm ci && npm run build   # whatever your agent needs to run
 - run: npm install -g @anthropic-ai/claude-code
+# here, the bucket's credentials: the two if: steps shadowlap store ci prints
 - uses: devjoinedthechat/shadowlap@v0.1.0
   with:
     version: 0.1.0
@@ -377,13 +388,20 @@ A job's store usually goes with the job, so to reach your teammates a fix has to
 
 `push: true` pushes the test runs as `shadowlap test --push` does, and once a fix's pull request is open, every run the job made (`shadowlap push --all`), which takes the fix with its blame, repair and verdicts along. A teammate's `shadowlap pull` then brings it to their Fixes page, as *from CI · PR #138*. Settings → CI has no switch of its own for this: the step follows Push from CI, and while that is off, or the project has no team store, it is the step above without the push lines.
 
-Pushing needs the bucket's credentials in the job, besides the permissions the fix needs. Amazon S3, Cloud Storage and Azure give a job short-lived credentials: add `id-token: write` to the job's permissions, as the first comment says, and copy the two `if:` steps that `shadowlap store ci --provider github` prints (Settings → Store's **Copy CI step**) into the job, after its checkout and before this step. The first gives your branches' jobs the credentials that write to the store; the second gives a pull request's job its own, which write only under `pr/`. Copy only those two steps. The rest of what `store ci` prints is a job of its own, and around this step it would keep fixes from opening: its `run:` step tests first and fails the job on a failed check, so this step never runs; its checkout leaves a pull request's job on a detached merge commit; and its `contents: read` can't push a fix's branch. This step runs the tests itself and pushes them as that `run:` step does, so a workflow that already has the `store ci` job can put this step in place of its `run:` step, with the permissions and the checkout the fix needs.
+Pushing needs the bucket's credentials in the job, besides the permissions the fix needs. Amazon S3, Cloud Storage and Azure give a job short-lived credentials: add `id-token: write` to the job's permissions, as the first comment says, and copy the two `if:` steps that `shadowlap store ci --provider github` prints (Settings → Store's **Copy CI step**) into the job where the comment stands, after the checkout and right before the action. The first gives your branches' jobs the credentials that write to the store; the second gives a pull request's job its own, which write only under `pr/`. Copy only those two steps. The rest of what `store ci` prints is a job of its own, and around this step it would keep fixes from opening: its `run:` step tests first and fails the job on a failed check, so this step never runs; its checkout leaves a pull request's job on a detached merge commit; and its `contents: read` can't push a fix's branch. This step runs the tests itself and pushes them as that `run:` step does, so a workflow that already has the `store ci` job can put this step in place of its `run:` step, with the permissions and the checkout the fix needs.
 
 Cloudflare R2 has no OIDC, and an R2 token can't be kept to a pull request's folder. A pull request's job runs the agent as the pull request changed it, so it never gets the keys: for an R2 store, the step gives `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, from the repository's secrets, only to jobs that aren't a pull request's, and pushes only from those, as `store ci` writes it for R2:
 
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write }
 # and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push
+- uses: actions/checkout@v7
+  with:
+    ref: ${{ github.head_ref || github.ref }}
+- uses: actions/setup-node@v7
+  with:
+    node-version: 22
+- run: npm ci && npm run build   # whatever your agent needs to run
 - run: npm install -g @anthropic-ai/claude-code
 - uses: devjoinedthechat/shadowlap@v0.1.0
   with:
@@ -413,6 +431,11 @@ A push that can't happen never fails the job and never keeps a fix's pull reques
 To hear about failures in Slack, let the action count them without failing, post the count, then fail the job:
 
 ```yaml
+- uses: actions/checkout@v7
+- uses: actions/setup-node@v7
+  with:
+    node-version: 22
+- run: npm ci && npm run build   # whatever your agent needs to run
 - uses: devjoinedthechat/shadowlap@v0.1.0
   id: goldens
   with:
@@ -434,7 +457,7 @@ To hear about failures in Slack, let the action count them without failing, post
   run: exit 1
 ```
 
-They need an incoming webhook from your Slack workspace, its URL as a repository secret (`SLACK_WEBHOOK_URL` here), and the test step's `id`. The `github.ref` condition keeps pull requests quiet, since their checks already show a failure; drop it to post for every branch. The dashboard's Settings → CI writes your repository's default branch there, and as the base of a fix pull request: the branch origin's HEAD names, else `main` or `master`, whichever the repository has. A golden counts as failed when its replay diverges, it tries a live call, the agent exits with an error, a check fails (token and cost budgets included) or its injection gate fails, and when its verdict is inconclusive, unless the step says `inconclusive: warn`.
+They need an incoming webhook from your Slack workspace, its URL as a repository secret (`SLACK_WEBHOOK_URL` here), the test step's `id`, and Node 22.16 or later, not 23. A golden that runs live, one marked `fork` (a gate's golden is one) or with an [injection gate](#injection-gates), needs its providers' keys in the test step's `env`, or it fails and Slack hears of it on every run: the dashboard's Settings → CI adds them by name, from the providers those goldens' recordings called and their judges' (`2 goldens run live (fork) · ANTHROPIC_API_KEY`), and where it can't name them, a comment in that `env` says to add your agent's own. The `github.ref` condition keeps pull requests quiet, since their checks already show a failure; drop it to post for every branch. The dashboard's Settings → CI writes your repository's default branch there, and as the base of a fix pull request: the branch origin's HEAD names, else `main` or `master`, whichever the repository has. A golden counts as failed when its replay diverges, it tries a live call where it must replay offline, the agent exits with an error, a check fails (token and cost budgets included) or its injection gate fails, and when a gate, a judge or an injection test can't decide (inconclusive), unless the step says `inconclusive: warn`. Settings → CI's **An inconclusive golden** (**Fails** or **Warns**) sets that for both steps. While `shadowlap.config.json` can't be read, Settings → CI says so, and each step says in its `env` what it leaves out until the file is fixed: which goldens run live and their keys, and whether Fix on failure pushes.
 
 ## Keeping goldens honest
 

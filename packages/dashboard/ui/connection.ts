@@ -132,3 +132,27 @@ export function familyRefresh(runsTick: number, live: readonly { runId: string; 
   const growing = live.filter((l) => family.has(l.runId)).map((l) => `${l.runId}:${l.calls}`);
   return growing.length ? `${runsTick}|${growing.join(',')}` : String(runsTick);
 }
+
+/** The hosts a dashboard's link names: it listens on the loopback interface only. */
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * The link a dashboard printed, pasted on the card a refused session token shows: where to go with
+ * it. The same server (this page's origin): its fragment, which the page reads the token from and
+ * starts again with. Another one (the dashboard came back on another port): the whole link. Null for
+ * anything else, so text from the clipboard never sends the page anywhere but a dashboard on this
+ * machine.
+ */
+export function pastedLink(text: string, origin: string): { kind: 'hash'; hash: string } | { kind: 'go'; url: string } | null {
+  const t = text.trim();
+  if (!/^https?:\/\//i.test(t) || /\s/.test(t)) return null;
+  let url: URL;
+  try {
+    url = new URL(t);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' || !LOOPBACK.has(url.hostname) || url.username || url.password) return null;
+  if (!/(?:^#|&)token=[A-Za-z0-9_-]+/.test(url.hash)) return null;
+  return url.origin === origin ? { kind: 'hash', hash: url.hash } : { kind: 'go', url: url.href };
+}

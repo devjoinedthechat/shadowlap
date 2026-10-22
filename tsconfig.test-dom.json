@@ -26,7 +26,13 @@
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
     "packages/dashboard/test/ui-fix-page.test.ts",
     "packages/dashboard/test/ui-tests-page.test.ts",
-    "packages/dashboard/test/ui-training-page.test.ts"
+    "packages/dashboard/test/ui-training-page.test.ts",
+    "packages/dashboard/test/ui-job-stop.test.ts",
+    "packages/dashboard/test/ui-palette-modes.test.ts",
+    "packages/dashboard/test/ui-token-card.test.ts",
+    "packages/dashboard/test/ui-exported-provenance.test.ts",
+    "packages/dashboard/test/ui-settings-states.test.ts",
+    "packages/dashboard/test/ui-ci-tab.test.ts"
   ],
   "exclude": []
 }

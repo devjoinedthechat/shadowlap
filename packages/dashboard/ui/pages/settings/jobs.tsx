@@ -112,5 +112,5 @@ addPaletteSource(({ app }) => {
     );
   }
   if (before) return [];
-  return [{ group: 'Actions', label: 'Calibrate', hint: 'propose normalizers', run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, {}))) }];
+  return [{ group: 'Actions', label: 'Calibrate', hint: 'propose normalizers', job: true, run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, {}))) }];
 });

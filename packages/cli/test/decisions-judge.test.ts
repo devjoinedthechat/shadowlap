@@ -205,7 +205,7 @@ describe('a text-only change a judge check reads', () => {
     const step = report.runs[0]!.decisions[0]!;
     expect(step).toMatchObject({ rank: 2, now: { text: 'Done. Recorded runs replay <masked>.' } });
     expect(step.judge!.map((j) => [j.recorded.source, j.now.source, j.changed])).toEqual([['recording', 'live', true]]);
-    expect(report.notes).toContain("The project's redaction rules masked the values this report shows, and what each judge check read, as they mask every copy of a run that leaves the machine.");
+    expect(report.notes).toContain("The project's redaction rules masked the values this report shows, and what each judge check read, as they mask every export, pack and share link.");
     expect(r.stdout).not.toContain('deterministically');
   }, 120_000);
 
@@ -267,7 +267,7 @@ describe('a judge check that cannot be asked', () => {
     // the redaction rules masked what the report shows, not what a judge read.
     expect(report.notes).toContain('A judge check of the runs reads the words of 1 text-only step: 1 could not be judged (the warnings say why).');
     expect(report.notes.join('\n')).not.toMatch(/came out as recorded|what each judge check read/);
-    expect(report.notes).toContain("The project's redaction rules masked the values this report shows, as they mask every copy of a run that leaves the machine.");
+    expect(report.notes).toContain("The project's redaction rules masked the values this report shows, as they mask every export, pack and share link.");
     expect(judgeRequests(mock.requests).length).toBe(asked);
     const warned = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--inconclusive', 'warn']);
     expect(warned.code, warned.out).toBe(0);

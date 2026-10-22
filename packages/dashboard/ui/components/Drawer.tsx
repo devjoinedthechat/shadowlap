@@ -1,20 +1,24 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { JOB_KINDS } from '../api.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { shortId } from '../format.js';
 import { jobFooter } from '../job-actions.js';
-import { calibrationTarget, forkDivergedEarly, jobCommand, jobStatus, jobTitle, lineTone, replayDivergence } from '../jobs.js';
+import { calibrationTarget, forkDivergedEarly, jobCommand, jobStatus, jobTitle, lineTone, replayDivergence, stopAsk } from '../jobs.js';
 import { href } from '../route.js';
 import { switchProject } from '../shell/ProjectBlock.js';
 import { useApp, useLayer, type WatchedJob } from '../state.js';
 import { errorText } from '../toast.js';
 import { Spin } from './bits.js';
+import { Dialog } from './Dialog.js';
 import { Icon } from './Icon.js';
 
 /**
  * The job drawer: a CLI run the dashboard started. Its title names the job, its output streams in,
- * it ends on the outcome and the exit code, and links to what the job made. Closed early, a toast
- * says when the job finishes. A Replay that diverged offers Calibrate beside the run it made.
+ * it ends on the outcome and the exit code, and links to what the job made. While it runs, Stop
+ * ends it as Ctrl-C would, asking first when it is changing the working tree. Closed early, a toast
+ * says when the job finishes, and the top bar's chip opens it again meanwhile. A Replay that
+ * diverged offers Calibrate beside the run it made.
  */
 export function JobDrawer() {
   const { jobs } = useApp();
@@ -45,6 +49,25 @@ function Drawer({ watched }: { watched: WatchedJob }) {
   }, [lines.length]);
   const title = jobTitle(job);
   const status = jobStatus(job, lines, lost);
+  const running = !job.done && !lost;
+  // Stop: sent once, then the job's own view says it is stopping until it has ended.
+  const [asking, setAsking] = useState(false);
+  const [sent, setSent] = useState(false);
+  const stopping = running && (sent || job.stopped === true);
+  const ask = stopAsk(job);
+  const stop = () =>
+    guard(() => {
+      setSent(true);
+      client.stopJob(job.id).then(
+        (r) => {
+          if (!r.stopped) toast(`${title} had ended already`);
+        },
+        (err: unknown) => {
+          setSent(false);
+          toast(errorText(err), 'error');
+        },
+      );
+    });
   const files = job.files ?? [];
   const folders = files.filter((f) => f.directory);
   const links = job.links ?? [];
@@ -67,6 +90,11 @@ function Drawer({ watched }: { watched: WatchedJob }) {
         {elsewhere ? <span className="st2 jin">in {elsewhere.name}</span> : null}
         <span className={`st2${status.tone ? ` ${status.tone}` : ''}`}>{status.text}</span>
         <span className="sp" />
+        {running ? (
+          <button className="btn sm" type="button" disabled={stopping} title={stopping ? 'Asked to stop: it ends once its command has' : `Stops ${jobCommand(job.args)} as Ctrl-C would`} onClick={() => (ask ? setAsking(true) : stop())}>
+            {stopping ? 'Stopping…' : 'Stop'}
+          </button>
+        ) : null}
         <button className="ibtn" type="button" aria-label="Close" onClick={close}>
           <Icon name="x" />
         </button>
@@ -138,6 +166,24 @@ function Drawer({ watched }: { watched: WatchedJob }) {
           </a>
         ) : null}
       </footer>
+      {asking && ask && running
+        ? createPortal(
+            <Dialog
+              title={ask.title}
+              text={ask.text}
+              ok={ask.ok}
+              tone="solid"
+              initialFocus="cancel"
+              cancel="Keep it running"
+              onClose={() => setAsking(false)}
+              onOk={() => {
+                setAsking(false);
+                stop();
+              }}
+            />,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

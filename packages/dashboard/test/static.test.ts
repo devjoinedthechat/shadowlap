@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, unpackRun } from '@shadowlap/engine';
 import { exportHtml, withAncestors, type StaticPayload } from '../src/index.js';
+import { parseRoute } from '../ui/route.js';
 import { defaultComparePair, type RunLike } from '../ui/runs.js';
+import { docTitle } from '../ui/title.js';
 
 /** `shadowlap export html`: a run as one file, with the dashboard's answers built in. */
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent', import.meta.url));
@@ -120,6 +122,24 @@ describe('export html', () => {
     expect(result.html).toContain("default-src 'none'");
     // The bundled script survives intact, including the text that would have closed its tag.
     expect(result.html).toContain('const end = "<\\/script>"');
+  });
+
+  it('names its tab by the run it opens on, as the page’s own title does once it has drawn', () => {
+    const { html } = exportHtml({ store, runIds: [forkId, runId], uiDir });
+    expect(/<title>([^<]*)<\/title>/.exec(html)?.[1]).toBe(docTitle(parseRoute(`#/run/${forkId}`)));
+    expect(html).toContain(`<title>${forkId.slice(0, 10)} — shadowlap</title>`);
+  });
+
+  it('names no folder of the machine it was made on, not even the one a run was recorded in', () => {
+    const folder = join(tmpdir(), 'dana', 'projects', 'support-agent');
+    const here = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: folder } });
+    store.endRun(here.runId, 'completed');
+    for (const redact of [[], [{ pattern: 'email', replace: '<EMAIL>' }]]) {
+      const { html } = exportHtml({ store, runIds: [here.runId], uiDir, redact });
+      expect(html).not.toContain(folder);
+      // The command stays: the page shows it. Where it ran is left out.
+      expect(embedded(html).responses[`runs/${here.runId}`]).toMatchObject({ run: { command: { argv: ['node', 'agent.js'], cwd: '' } } });
+    }
   });
 
   it('leaves out the runs it was not asked for, and links only what it holds', () => {

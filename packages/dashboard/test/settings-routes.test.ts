@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store, storeApiRequest, type CallMeta, type RunMeta } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type Dashboard, type JobView } from '../src/index.js';
+import { VERSION } from '../src/ci-yaml.js';
 import { PREVIEW_LIMITS } from '../src/redaction-preview.js';
 import { cpuOnceAsync, times, timesOf } from '../../engine/test/timing.js';
 
@@ -106,9 +107,48 @@ describe('reading the tabs', () => {
     expect(s.configured).toBe('s3://northwind-agent-runs/support-agent?region=eu-central-1');
     expect(s.status).toMatchObject({ bucket: 'northwind-agent-runs', region: 'eu-central-1', ciPush: false, inStore: 0 });
     expect(s.ciStep.file).toMatch(/^\.github\/workflows\//);
-    expect(s.ciStep.text).toContain('npx shadowlap test goldens/* --push');
+    // At the release Settings → CI pins, with Node and the agent's dependencies before it.
+    expect(s.ciStep.text).toContain(`npx shadowlap@${VERSION} test goldens/* --push`);
+    expect(s.ciStep.text).toContain('  - uses: actions/setup-node@v7\n    with:\n      node-version: 22\n');
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: 'ftp://nope' }));
     expect(await get('settings/store')).toMatchObject({ configured: 'ftp://nope', status: null, error: expect.stringMatching(/names a store that can't be used/) });
+  });
+
+  it('gives the CI step the keys of the providers its goldens that run live call, as Settings → CI does', async () => {
+    // A golden marked fork runs live in CI: the agent calls Anthropic, so the step that runs it needs that key.
+    const pack = join(project, 'goldens', 'refund-over-limit');
+    mkdirSync(pack, { recursive: true });
+    writeFileSync(join(pack, 'run.json'), '{}');
+    writeFileSync(join(pack, 'calls.jsonl'), `${JSON.stringify({ runId: 'R', callNo: 1, kind: 'api', meta: { provider: 'anthropic' } })}\n`);
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' }));
+    const goldens = () => [{ path: 'goldens/refund-over-limit', runId: null, packedAt: null, mode: 'fork' as const, repeat: 1, passes: 1, checks: [] }];
+    const withGoldens = await startDashboard({ store, dbPath, spawnCli: cliSpawner({ command: [process.execPath, FAKE], dbPath, cwd: project }), project: { path: project }, goldens });
+    try {
+      const read = async <T,>(path: string) => (await (await api(path, {}, withGoldens)).json()) as T;
+      const s = await read<{ ciStep: { text: string } }>('settings/store');
+      expect(s.ciStep.text).toContain(`  - run: npx shadowlap@${VERSION} test goldens/* --push\n    env:\n      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}`);
+      // The store's setup page hands over the same step, and each CI says where the key goes.
+      const setup = await read<{ ci: Array<{ ci: string; text: string; notes: string[] }> }>('store/setup');
+      expect(setup.ci[0]!.text).toBe(s.ciStep.text);
+      expect(setup.ci.find((c) => c.ci === 'gitlab')!.notes.at(-1)).toBe("The goldens that run live (marked fork, or with an injection gate) call your agent's providers: add ANTHROPIC_API_KEY as a masked CI/CD variable, which the job gets in its environment.");
+    } finally {
+      await withGoldens.close();
+    }
+    // Without goldens that run live, the step is the one it was.
+    expect((await get<{ ciStep: { text: string } }>('settings/store')).ciStep.text).not.toContain('ANTHROPIC_API_KEY');
+  });
+
+  it('counts the redaction rules a share link applies, and says when they can’t be read', async () => {
+    const store = 's3://northwind-agent-runs/support-agent';
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store }));
+    expect(await get('settings/store')).toMatchObject({ redactRules: 0 });
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store, redact: [{ pattern: 'email', replace: '<EMAIL>' }, { kind: 'tool', path: '$.args.api_key', replace: '<KEY>' }] }));
+    expect(await get('settings/store')).toMatchObject({ redactRules: 2 });
+    // A rule share would stop on, and a file that can't be read: no count to give.
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store, redact: [{ pattern: 'emial', replace: 'x' }] }));
+    expect(await get('settings/store')).toMatchObject({ redactRules: null });
+    writeFileSync(join(project, 'shadowlap.config.json'), '{ "store": ');
+    expect(await get('settings/store')).toMatchObject({ redactRules: null });
   });
 
   it("gives the shadowlap mcp line for a server, with credentials hidden, and refuses what isn't one", async () => {

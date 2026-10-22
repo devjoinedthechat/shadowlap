@@ -2,13 +2,16 @@ import { useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { useTreeBusy } from '../../fixes/tree.js';
 import { useApp } from '../../state.js';
-import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
+import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
 
 /**
  * Matching: the normalizers (what isn't part of a request's identity), the clock that lets dates
  * near a run's start match across days, and Calibrate, which replays a recording until it is clean
- * and proposes a normalizer for each value that changed.
+ * and proposes a normalizer for each value that changed. While shadowlap.config.json can't be read
+ * there are no rules to show and nothing to calibrate against (every command refuses the file), so
+ * the table says so, the clock shows no mode as chosen, and Calibrate isn't offered; the same with
+ * the project's folder gone, where nothing is edited either.
  */
 export function MatchingTab() {
   const app = useApp();
@@ -18,13 +21,16 @@ export function MatchingTab() {
   const editor = useEditor(data?.config.version ?? null, reload);
   // Calibrate replays the agent from the project's working tree: not while a repair or an apply changes it.
   const tree = useTreeBusy('reads', 'calibrate');
+  const gone = useFolderGone();
   if (error && !data) return <LoadProblem error={error} />;
   if (!data) return <Loading title="Matching" />;
-  const off = app.actionsOff ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
+  const off = app.actionsOff ?? gone ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
   const version = data.config.version ?? 'absent';
+  // No rules to show, and nothing to calibrate against: the file can't be read, or the folder is gone.
+  const unreadable = rulesUnreadable(data.config.error, gone);
   const cal = data.calibrate;
-  const canCalibrate = !!cal.argv && !app.actionsOff && app.hasKind(JOB_KINDS.calibrate) && !tree;
-  const calibrateTitle = !cal.argv ? 'Calibrate replays a finished recording made here' : (app.actionsOff ?? (!app.hasKind(JOB_KINDS.calibrate) ? 'This dashboard doesn’t run calibrate: shadowlap calibrate in a terminal' : (tree ?? `${cal.command}${cal.source === 'setup' ? ' · the run this project’s setup recorded' : ''}`)));
+  const canCalibrate = !!cal.argv && !app.actionsOff && !gone && app.hasKind(JOB_KINDS.calibrate) && !tree;
+  const calibrateTitle = gone ?? (!cal.argv ? 'Calibrate replays a finished recording made here' : (app.actionsOff ?? (!app.hasKind(JOB_KINDS.calibrate) ? 'This dashboard doesn’t run calibrate: shadowlap calibrate in a terminal' : (tree ?? `${cal.command}${cal.source === 'setup' ? ' · the run this project’s setup recorded' : ''}`))));
   return (
     <>
       {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
@@ -44,6 +50,7 @@ export function MatchingTab() {
           list="normalize"
           rows={data.rules}
           off={off}
+          unreadable={unreadable}
           onRemove={(row) => void editor.run(() => client.settings.removeRule('normalize', row.n, version), (r) => removedText('normalize', r.n))}
         />
         <div className="setrow">
@@ -56,7 +63,8 @@ export function MatchingTab() {
               <button
                 key={k}
                 type="button"
-                aria-pressed={data.clock.mode === k}
+                // Which the file says isn't known while it can't be read: neither is shown as chosen.
+                aria-pressed={!unreadable && data.clock.mode === k}
                 disabled={!!off}
                 title={off ?? (k === 'exact' ? 'Dates must match exactly' : 'Dates near each run’s start match across days')}
                 onClick={() => {
@@ -70,15 +78,17 @@ export function MatchingTab() {
             ))}
           </div>
         </div>
-        <div className="setrow">
-          <div>
-            <b>Calibrate</b>
-            <span>Replays a recording offline with the same code until it is clean, and proposes a normalizer for every value that changed. No model calls; writes are blocked.</span>
+        {unreadable ? null : (
+          <div className="setrow">
+            <div>
+              <b>Calibrate</b>
+              <span>Replays a recording offline with the same code until it is clean, and proposes a normalizer for every value that changed. No model calls; writes are blocked.</span>
+            </div>
+            <button className="btn" type="button" disabled={!canCalibrate} title={calibrateTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.calibrate, { runId: cal.runId })))}>
+              {cal.label}
+            </button>
           </div>
-          <button className="btn" type="button" disabled={!canCalibrate} title={calibrateTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.calibrate, { runId: cal.runId })))}>
-            {cal.label}
-          </button>
-        </div>
+        )}
       </section>
       {adding ? (
         <RuleDialog

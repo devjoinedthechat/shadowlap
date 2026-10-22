@@ -714,7 +714,7 @@ describe('the rewrite observer', () => {
 });
 
 describe('REDACTION_EXPORTS', () => {
-  it('names every export decision 6 covers, and what each does with the run\'s details', () => {
+  it('names every export, pack and share link decision 6 covers, and what each does with the run\'s details', () => {
     expect(REDACTION_EXPORTS.map((e) => [e.id, e.applies, e.details])).toEqual([
       ['pack', 'all', 'kept'],
       ['html', 'all', 'masked'],
@@ -722,8 +722,10 @@ describe('REDACTION_EXPORTS', () => {
       ['dataset', 'messages', 'masked'],
       ['pairs', 'messages', 'absent'],
       ['otel', 'attributes', 'masked'],
+      // A share link's report is an HTML copy, which anyone with the link opens: every rule, always.
+      ['share', 'all', 'masked'],
     ]);
-    for (const e of REDACTION_EXPORTS) expect(e.command).toBe(e.id === 'pack' ? 'shadowlap pack' : `shadowlap export ${e.id}`);
+    for (const e of REDACTION_EXPORTS) expect(e.command).toBe(e.id === 'pack' || e.id === 'share' ? `shadowlap ${e.id}` : `shadowlap export ${e.id}`);
   });
 });
 

@@ -33,10 +33,10 @@ export { ghEnv, ghReader, GH_TIMEOUT_MS, isGithubPr, openPullRequest, parsePrSta
 // Tests: the read model behind the Tests screen, and the Settings → CI workflow steps.
 export { bisectArgs, bisectChoices, bisectJob, checkedRevision, failingTests, gatePreview, gateResultView, liveTestSession, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, shortReason, testPatterns, testRunBanner, testsSummary, testsView, underChecks, updateGoldensJob, verdictOfResult } from './tests.js';
 export type { BisectChoices, BisectMiss, BisectRange, BisectRevision, DivergenceView, FailingTest, FailureView, FoundCommit, GatePreview, GateResultView, GateView, GoldenList, GoldenRow, GoldenSource, GoldenVerdict, HistoryCell, InconclusiveView, SinceResult, TestRunBanner, TestsJob, TestsOptions, TestsSessionView, TestsSummary, TestsVerdict, TestsView } from './tests.js';
-export { ACTION, ALERT_FAILURES, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, repairerKey, WORKFLOW_FILE } from './ci-yaml.js';
-export type { AlertsSettings, BucketCredentials, FixOnFailureSettings } from './ci-yaml.js';
-export { ciTeamStore, ciWorkflows, CI_DEFAULTS, fixPreview, gitFacts, parseCiOptions } from './ci-workflows.js';
-export type { CiListRow, CiTeamStore, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from './ci-workflows.js';
+export { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, repairerKey, WORKFLOW_FILE } from './ci-yaml.js';
+export type { AlertsSettings, BucketCredentials, FixOnFailureSettings, LiveGoldens } from './ci-yaml.js';
+export { ciFixBranch, ciTeamStore, ciWorkflows, CI_DEFAULTS, fixPreview, gitFacts, goldenProviders, liveGoldens, liveKeys, parseCiOptions, PROVIDER_KEYS, verifyLine } from './ci-workflows.js';
+export type { CiListRow, CiTeamStore, CiWorkflowOptions, CiWorkflowsView, GoldenProviders, PullRequestPreview } from './ci-workflows.js';
 export { inTestFamily, sessionBusy, TEST_JOB_KINDS, testsBuild, testsBusy } from './routes/tests.js';
 export { choicesHere, choicesInCheckout, commitsHere, commitSubjects, forgetCommits, rangeHere, revisionsHere } from './commits-here.js';
 // Settings: one read model per tab; edits go through the engine's config-file module.

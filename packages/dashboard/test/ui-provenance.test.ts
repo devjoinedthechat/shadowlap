@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { copyRules, endpointSamples, lineageWords, redactRuleCount, tallyProviders } from '../ui/run/provenance.js';
+import { copyRules, endpointSamples, exportedLine, lineageWords, redactRuleCount, tallyProviders } from '../ui/run/provenance.js';
 import type { RunLike } from '../ui/runs.js';
 
 // Provenance names the provider a run's model calls went to, and what a copy made now would apply,
@@ -50,6 +50,19 @@ describe('what a copy made now applies', () => {
     expect(copyRules(1, null, true, true)).toBe('1 redaction rule; what it would mask in this run is being counted');
     expect(copyRules(0, 0)).toBe('no redaction rules: it would hold what was recorded');
     expect(copyRules(undefined, null)).toBe('the redaction rules in shadowlap.config.json');
+  });
+
+  it('says in an exported copy how the copy itself was made', () => {
+    const now = Date.UTC(2026, 9, 30, 12);
+    const at = Date.UTC(2026, 9, 22, 12);
+    expect(exportedLine({ exportedAt: at, rules: 3, redacted: true }, now)).toBe('Exported Oct 22 with 3 redaction rules applied.');
+    expect(exportedLine({ exportedAt: at, rules: 1, redacted: true }, now)).toBe('Exported Oct 22 with 1 redaction rule applied.');
+    expect(exportedLine({ exportedAt: at, rules: 0, redacted: false }, now)).toBe('Exported Oct 22 with no redaction rules: it holds what was recorded.');
+    // Read in another year, it names the year.
+    expect(exportedLine({ exportedAt: at, rules: 3 }, Date.UTC(2027, 2, 1))).toBe('Exported Oct 22, 2026 with 3 redaction rules applied.');
+    // A copy made before it kept the count says only whether rules applied.
+    expect(exportedLine({ exportedAt: at, redacted: true }, now)).toBe('Exported Oct 22 with the project’s redaction rules applied.');
+    expect(exportedLine({ exportedAt: at, redacted: false }, now)).toBe('Exported Oct 22 with no redaction rules: it holds what was recorded.');
   });
 
   it('counts the Share menu’s rules from the server, else from the run’s provenance record', () => {

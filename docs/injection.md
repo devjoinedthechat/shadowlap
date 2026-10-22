@@ -305,7 +305,7 @@ payloads matrix with obeyed, influenced, ignored and inconclusive over the attem
 each obeyed or influenced cell, why the inconclusive ones show nothing, the `--clean` verdicts, and
 the payloads themselves. Everything it shows from the recordings (a read's arguments, a write's,
 the neutral result, tool names, a value that carried the canary) has the project's redaction rules
-applied, as every copy that leaves the machine does: a call's arguments as the stored request holds
+applied, as every export, pack and share link does: a call's arguments as the stored request holds
 them, so a path rule is written `$.args.to`, and a result as `$.result`, as for `pack` and `export`.
 A value a rule masks whole keeps its canary after the mask: `send_email.body = <BODY>
 x7f3kq2m@canary.invalid`. `--no-redact` leaves the rules out. It runs no script and fetches nothing

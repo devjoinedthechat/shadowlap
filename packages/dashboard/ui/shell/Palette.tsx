@@ -4,7 +4,7 @@ import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { callName, shortId } from '../format.js';
 import { jobRunning } from '../jobs.js';
-import { highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts } from '../palette.js';
+import { highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts } from '../palette.js';
 import { onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
@@ -63,7 +63,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
     for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', run: () => go(to) });
     // Not a second session while one started here runs: Tests' own button says so meanwhile.
     if (!app.actionsOff && app.hasKind(JOB_KINDS.tests) && !jobRunning(app.jobs, TEST_KINDS))
-      out.push({ group: 'Actions', label: 'Run the tests', hint: 'shadowlap test goldens/*', run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.tests, {}))) });
+      out.push({ group: 'Actions', label: 'Run the tests', hint: 'shadowlap test goldens/*', job: true, run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.tests, {}))) });
     out.push({ group: 'Actions', label: 'Keyboard shortcuts', hint: '?', run: () => app.setHelp(true) });
     for (const source of paletteSources()) {
       try {
@@ -152,9 +152,12 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
     list.current?.querySelector('.palit.on')?.scrollIntoView({ block: 'nearest' });
   }, [at, shown.length]);
 
+  // Without the server, a job's entry stays in its place, dimmed: picked, it says why nothing runs.
+  const offline = app.conn === 'offline';
   const pick = (n: number) => {
     const x = shown[n];
     if (!x) return;
+    if (offline && x.job) return app.toast('Actions are paused until the dashboard server is back.');
     close();
     x.run();
   };
@@ -169,7 +172,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           <input
             ref={input}
             type="text"
-            placeholder={app.exported ? 'Search runs and pages' : 'Search runs, pages, actions and what runs recorded'}
+            placeholder={palettePlaceholder({ exported: app.exported, actions: !app.actionsOff, offline })}
             autoComplete="off"
             spellCheck={false}
             value={q}
@@ -201,10 +204,11 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
             const head = x.group !== group ? <div className="palg">{x.group}</div> : null;
             group = x.group;
             const mark = highlight(x.label, q);
+            const paused = offline && x.job === true;
             return (
               <Fragment key={`${x.group}:${x.label}:${n}`}>
                 {head}
-                <button type="button" role="option" aria-selected={n === at} className={`palit${n === at ? ' on' : ''}`} onMouseMove={() => n !== at && setI(n)} onClick={() => pick(n)}>
+                <button type="button" role="option" aria-selected={n === at} aria-disabled={paused || undefined} className={`palit${n === at ? ' on' : ''}${paused ? ' waits' : ''}`} onMouseMove={() => n !== at && setI(n)} onClick={() => pick(n)}>
                   <span className={`pl${x.mono ? ' mono' : ''}`}>
                     {mark ? (
                       <>
@@ -217,7 +221,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
                     )}
                   </span>
                   <span className="ph2">
-                    {x.hint}
+                    {paused ? PAUSED_HINT : x.hint}
                     {x.snippet ? (
                       <>
                         {' · '}

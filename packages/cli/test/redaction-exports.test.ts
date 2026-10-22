@@ -5,21 +5,26 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, storeApiRequest, type RedactionExport } from '@shadowlap/engine';
+import { startFakeS3, type FakeS3 } from '../../remote/test/fakes/s3.js';
 
 /**
- * Every way a run leaves the machine, held to what REDACTION_EXPORTS (and so the Settings page and
+ * Every export, pack and share link, held to what REDACTION_EXPORTS (and so the Settings page and
  * the docs) says it does. A run carries a value for each form of rule and for each of its own
- * details; each export is made through the CLI and searched for them. A new export fails here until
+ * details; each copy is made through the CLI and searched for them. A new export fails here until
  * it has an entry.
  *
  * REDACTION_EXPORTS describes decision 6. Every export the CLI has must take `--no-redact`, which
  * every export that applies the rules takes; one listed that the CLI doesn't have is checked once it
- * does.
+ * does. A share link takes no `--no-redact`: anyone with the link opens it, so every rule applies,
+ * always. Its report is read from a bucket in an S3 of the test's own.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 
 let cwd: string;
 let runId: string;
+let s3: FakeS3;
+const S3_KEY = 'AKIDREDACTEXAMPLE';
+const S3_SECRET = 'redact/secret/key';
 
 /** One value per form of rule and per detail of the run, and what replaces it. */
 const VALUES = {
@@ -75,6 +80,8 @@ const EXPECT: Record<RedactionExport['id'], { kept: Value[]; masked: Value[] } |
   pairs: null,
   // No prompt text: the command line and the error message, masked.
   otel: { kept: [], masked: ['command', 'flag', 'error'] },
+  // The run's HTML report in the bucket: everything, as export html.
+  share: { kept: [], masked: ['system', 'account', 'user', 'key', 'ticket', 'answer', 'error', 'command', 'flag', 'label', 'note'] },
 };
 
 /** Each export as the CLI makes it, read back as text. */
@@ -97,6 +104,13 @@ const MAKE: Record<RedactionExport['id'], () => Promise<string>> = {
   dataset: () => ok(['export', 'dataset', runId, '--calls', 'model']),
   pairs: () => ok(['export', 'pairs']),
   otel: () => ok(['export', 'otel', runId]),
+  // The report behind the link, as anyone who has the link opens it.
+  share: async () => {
+    const out = await ok(['share', runId, '--json'], { AWS_ACCESS_KEY_ID: S3_KEY, AWS_SECRET_ACCESS_KEY: S3_SECRET });
+    const res = await fetch((JSON.parse(out) as { url: string }).url);
+    expect(res.status).toBe(200);
+    return res.text();
+  },
 };
 
 /** The CLI's help for a command, as this build has it. */
@@ -106,15 +120,21 @@ function help(args: string[]): string {
 const EXPORT_HELP = help(['export']);
 /** `shadowlap export <name>` commands this build has. */
 const EXPORTS = [...EXPORT_HELP.slice(EXPORT_HELP.indexOf('Commands:')).matchAll(/^ {2}(\w[\w-]*)/gm)].map((m) => m[1]!).filter((c) => c !== 'help');
-const argsOf = (e: RedactionExport) => (e.id === 'pack' ? ['pack'] : ['export', e.id]);
-const inThisBuild = (e: RedactionExport) => e.id === 'pack' || EXPORTS.includes(e.id);
-const appliesRules = (e: RedactionExport) => inThisBuild(e) && help(argsOf(e)).includes('--no-redact');
+const argsOf = (e: RedactionExport) => (e.id === 'pack' || e.id === 'share' ? [e.id] : ['export', e.id]);
+const inThisBuild = (e: RedactionExport) => e.id === 'pack' || e.id === 'share' || EXPORTS.includes(e.id);
+/** A copy that applies every rule whatever it is asked: a share link, which anyone with it opens. */
+const ALWAYS: Partial<Record<RedactionExport['id'], true>> = { share: true };
+const appliesRules = (e: RedactionExport) => inThisBuild(e) && (ALWAYS[e.id] === true || help(argsOf(e)).includes('--no-redact'));
 /** Exports whose rules are still to come, so this build may not apply them yet: none now. */
 const PENDING: Partial<Record<RedactionExport['id'], string>> = {};
 
-beforeAll(() => {
+/** The project's config: the rules, and a team store for share links. */
+const config = (redact: unknown[] = RULES) => JSON.stringify({ store: `s3://redact-exports/project?endpoint=${s3.url}`, redact }, null, 2);
+
+beforeAll(async () => {
+  s3 = await startFakeS3({ keys: { [S3_KEY]: S3_SECRET }, bucket: 'redact-exports' });
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-redact-exports-')));
-  writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ redact: RULES }, null, 2));
+  writeFileSync(join(cwd, 'shadowlap.config.json'), config());
   const store = Store.open(join(cwd, '.shadowlap', 'shadowlap.db'));
   const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js', '--notify', VALUES.command.value, '--api-key', VALUES.flag.value], cwd } });
   runId = run.runId;
@@ -136,11 +156,14 @@ beforeAll(() => {
   store.endRun(runId, 'failed', 7);
   store.close();
 });
-afterAll(() => rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+afterAll(async () => {
+  await s3.close();
+  rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
 
-function cli(args: string[]): Promise<{ code: number | null; out: string; err: string }> {
+function cli(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     child.stdout!.on('data', (d: Buffer) => (out += d.toString()));
@@ -149,8 +172,8 @@ function cli(args: string[]): Promise<{ code: number | null; out: string; err: s
   });
 }
 
-async function ok(args: string[]): Promise<string> {
-  const r = await cli(args);
+async function ok(args: string[], env: NodeJS.ProcessEnv = {}): Promise<string> {
+  const r = await cli(args, env);
   expect(r.code, `${args.join(' ')}: ${r.err}`).toBe(0);
   return r.out;
 }
@@ -186,21 +209,23 @@ describe('where the redaction rules apply', () => {
       if (entry.details === 'masked') expect(text).toContain(`--notify ${VALUES.command.marker}`);
       if (entry.details === 'absent') expect(text).not.toContain('--notify');
       if (entry.applies === 'attributes') expect(text).not.toContain('You help the owner');
+      // A copy that is only read names no folder of the machine it was made on: not even where the run was recorded.
+      if (entry.id === 'html' || entry.id === 'share') expect(text).not.toContain(cwd);
     });
   }
 
   it('skips the rules with --no-redact, and stops on a rule it cannot read', async () => {
     expect(await ok(['export', 'otel', runId, '--no-redact'])).toContain(VALUES.command.value);
     expect(await ok(['export', 'dataset', runId, '--no-redact'])).toContain(VALUES.system.value);
-    writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ redact: [...RULES, { pattern: 'emial', replace: 'x' }] }));
+    writeFileSync(join(cwd, 'shadowlap.config.json'), config([...RULES, { pattern: 'emial', replace: 'x' }]));
     try {
-      for (const args of [['export', 'otel', runId], ['export', 'dataset', runId], ['export', 'html', runId, join(cwd, 'x.html')]]) {
-        const r = await cli(args);
+      for (const args of [['export', 'otel', runId], ['export', 'dataset', runId], ['export', 'html', runId, join(cwd, 'x.html')], ['share', runId]]) {
+        const r = await cli(args, { AWS_ACCESS_KEY_ID: S3_KEY, AWS_SECRET_ACCESS_KEY: S3_SECRET });
         expect(r.code, args.join(' ')).toBe(1);
         expect(r.err).toContain('shadowlap.config.json: redaction rule #7: unknown pattern "emial"');
       }
     } finally {
-      writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ redact: RULES }, null, 2));
+      writeFileSync(join(cwd, 'shadowlap.config.json'), config());
     }
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { gateResult, type SprtGate } from '../../engine/src/stats.js';
+import { goldenHint } from '../ui/goldens.js';
 import { keepTests, loadTests, onTestsChanged, testsPaletteCommands, type TestsPaletteApp } from '../ui/tests-palette.js';
-import type { GoldenRow, TestsView } from '../ui/types.js';
+import type { GateResultView, GoldenRow, TestsView } from '../ui/types.js';
 
 /**
  * The palette's Tests group from any page, without a browser: the source answers with what it has,
@@ -70,9 +72,11 @@ describe('the palette\'s Tests group', () => {
     const entries = testsPaletteCommands(s.app, s.go, { update: true });
     expect(entries.map((e) => [e.group, e.label, e.hint])).toEqual([
       ['Actions', 'Update goldens…', 'shadowlap test --update'],
-      ['Tests', 'refund-flow', 'passing'],
-      ['Tests', 'limit-two', 'failing'],
+      ['Tests', 'refund-flow', 'passed'],
+      ['Tests', 'limit-two', 'failed'],
     ]);
+    // Update goldens… opens what starts a job: offline, the palette shows it paused.
+    expect(entries.map((e) => e.job === true)).toEqual([true, false, false]);
     // The same answer again changes nothing an open palette shows.
     await loadTests(s.client);
     expect(changed).toBe(1);
@@ -97,10 +101,29 @@ describe('the palette\'s Tests group', () => {
     expect(changed).toBe(1);
     const s = stand({ answer: view([]) });
     expect(testsPaletteCommands(s.app, s.go, { update: true }).map((e) => [e.label, e.hint])).toEqual([
-      ['refund-flow', 'passing'],
-      ['limit-two', 'passing'],
+      ['refund-flow', 'passed'],
+      ['limit-two', 'passed'],
     ]);
     off();
+  });
+
+  // The hints said passing and failing, words no other page uses for a verdict.
+  it('says each golden’s verdict in the words Tests uses, a gate’s with its tally and bound', () => {
+    expect(goldenHint(row('refund-flow', 'pass'))).toBe('passed');
+    expect(goldenHint(row('limit-two', 'fail'))).toBe('failed');
+    expect(goldenHint(row('new-one', null))).toBe('not run yet');
+    expect(goldenHint({ ...row('broken', null), error: 'not a pack' })).toBe('can’t be read');
+    const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 40 };
+    const gated = (outcomes: boolean[], verdict: 'passed' | 'failed' | 'inconclusive', decision?: 'inconclusive'): GoldenRow => {
+      const g = gateResult(gate, outcomes, decision ? { decision } : {});
+      const view: GateResultView = { ...g, tally: '', perAttempt: null, more: null };
+      return { ...row('refund-over-limit', verdict === 'passed' ? 'pass' : 'fail'), last: { ...row('refund-over-limit', null).last, result: verdict === 'passed' ? 'pass' : 'fail', verdict, gate: view } };
+    };
+    expect(goldenHint(gated(Array(12).fill(true), 'passed'))).toMatch(/^passed · 12 of 12 · rate >= 0\.\d+ \(95%\)$/);
+    expect(goldenHint(gated([false, false, false], 'failed'))).toMatch(/^failed · 0 of 3 · rate <= 0\.\d+ \(95%\)$/);
+    expect(goldenHint(gated([true, false, true, true, false, true], 'inconclusive', 'inconclusive'))).toMatch(/^inconclusive · 4 of 6 · rate 0\.\d+ to 0\.\d+ \(95%\)$/);
+    // Never the old words.
+    for (const r of [row('a', 'pass'), row('b', 'fail')]) expect(goldenHint(r)).not.toMatch(/passing|failing/);
   });
 
   it('lists nothing in an exported copy, and loads nothing there', () => {

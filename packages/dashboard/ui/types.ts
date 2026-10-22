@@ -312,6 +312,8 @@ export interface Meta {
   static?: boolean;
   exportedAt?: number;
   redacted?: boolean;
+  /** An exported copy: how many redaction rules were applied to it. */
+  redactedRules?: number;
   runIds?: string[];
   /** An exported copy of many runs compares each with this one only (Compare's pickers offer those pairs). */
   compareWith?: string | null;
@@ -330,10 +332,10 @@ export interface Meta {
   uploadLimit?: number | null;
   /**
    * With several projects: its `id` in the list, its folder as the switcher shows it (`display`),
-   * whether its setup is finished, why its store can't be opened (`problem`), and what part of the
-   * dashboard couldn't start for it (`notice`).
+   * whether its setup is finished, why its store can't be opened (`problem`; `missing` when its
+   * folder is gone from disk), and what part of the dashboard couldn't start for it (`notice`).
    */
-  project?: { name: string; path: string; id?: string; display?: string; settingUp?: boolean; problem?: string; notice?: string } | null;
+  project?: { name: string; path: string; id?: string; display?: string; settingUp?: boolean; problem?: string; missing?: boolean; notice?: string } | null;
   /** How many redaction rules a copy made now applies. */
   redactRules?: number | null;
 }
@@ -369,6 +371,8 @@ export interface JobView {
   opensRun: boolean;
   startedAt: number;
   done: boolean;
+  /** Someone asked it to stop (Stop in its drawer, or another tab's): its end is that stop. */
+  stopped?: boolean;
   code: number | null;
   newRunId: string | null;
   lines: string[];

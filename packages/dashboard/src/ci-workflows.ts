@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import type { Store } from '@shadowlap/engine';
-import { ciStep, parseStoreUrl, shortStoreName, type StoreLocation } from '@shadowlap/remote';
-import { ACTION, ALERT_FAILURES, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, WORKFLOW_FILE, type BucketCredentials } from './ci-yaml.js';
+import { judgeTarget, type Store } from '@shadowlap/engine';
+import { ciStep, parseStoreUrl, shortStoreName, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
+import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, VERSION, WORKFLOW_FILE, type BucketCredentials, type LiveGoldens } from './ci-yaml.js';
 import { fixDetail, fixList } from './fixes.js';
 import type { TeamStoreInput } from './team-store.js';
 
@@ -35,6 +35,8 @@ export const CI_DEFAULTS: CiWorkflowOptions = { fix: false, budget: '2.00', repa
 export interface CiListRow {
   label: string;
   value: string;
+  /** A failure's dot: red for one that fails a golden, amber for one that can't be decided. */
+  tone?: 'err' | 'warn';
 }
 
 /** The pull request a fix opens, as GitHub shows it: from the newest verified fix in this store, or an example. */
@@ -44,9 +46,12 @@ export interface PullRequestPreview {
   author: string;
   base: string;
   branch: string;
-  /** `target 3 of 3 · held-out 2 of 2 · good 5 of 5`. */
+  /**
+   * As the pull request's body says it: `fixes 3 of 3 target runs, 2 of 2 held-out, keeps 5 of 5
+   * good, each by its gate, which tells 90%+ from 70%- at <= 5% risk`, the rule stated once.
+   */
   verify: string | null;
-  /** `lost at model call #5 · confidence high`. */
+  /** Where the failing run was lost, as the body's table has it: `lost at model call #5 (3 of 5)`. */
   blame: string | null;
   /** The file the fix changes and its lines: `prompts/refund.md +1 −0`. */
   change: string | null;
@@ -102,8 +107,10 @@ export interface CiWorkflowsView {
     secret: string;
     yaml: string;
     needs: CiListRow[];
-    /** What counts as a failure, each with its tag. */
+    /** What counts as a failure, each with its tag, and its tone. */
     failures: CiListRow[];
+    /** What an inconclusive golden does to the steps: fails them (counted in `failed`), or warns. */
+    inconclusive: 'fail' | 'warn';
     /** The message as Slack shows it. */
     message: { app: string; text: string; link: string; at: number | null };
   };
@@ -111,6 +118,12 @@ export interface CiWorkflowsView {
   recordings: string;
   /** `owner/repo` from the project's git remote, or null. */
   repository: string | null;
+  /**
+   * Why shadowlap.config.json can't be read, as Settings' other tabs say it; null when it reads. The
+   * steps then can't tell which goldens run live or whether Fix on failure pushes: each says what it
+   * leaves out, and a needs row says why.
+   */
+  configError: string | null;
 }
 
 const BOOL: Record<string, boolean> = { on: true, off: false, true: true, false: false, '1': true, '0': false, yes: true, no: false };
@@ -148,17 +161,40 @@ export function parseCiOptions(q: URLSearchParams): CiWorkflowOptions | { error:
 }
 
 const dollars = (n: number) => `$${n.toFixed(2)}`;
-const rows = (list: ReadonlyArray<readonly [string, string]>): CiListRow[] => list.map(([label, value]) => ({ label, value }));
+const rows = (list: ReadonlyArray<readonly [string, string, ('err' | 'warn')?]>): CiListRow[] => list.map(([label, value, tone]) => ({ label, value, ...(tone ? { tone } : {}) }));
 
-/** The example a panel shows before any fix was verified here: the mock's own, into the repository's default branch. */
+/**
+ * The branch CI opens a golden's fix on, as the action names it (action/fix.mjs, branchName): the
+ * golden's folder without `goldens/`, then the end of the failing replay's id, which only CI's own
+ * run has: `shadowlap/fix-refund-over-limit-…`. `<golden>` when the fix isn't a golden's.
+ */
+export function ciFixBranch(golden: string | null): string {
+  const slug = golden ? golden.toLowerCase().replace(/^goldens\//, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'golden' : '<golden>';
+  return `shadowlap/fix-${slug}-…`;
+}
+
+/**
+ * Verify's line in the pull request's body (repair's report.md): the runs it fixed and kept, by
+ * role, then how each was decided, its gate's rule stated once.
+ */
+export function verifyLine(roles: ReadonlyArray<{ role: 'target' | 'held-out' | 'good'; held: number; of: number }>, rule: string | null): string | null {
+  const of = (role: string) => roles.find((r) => r.role === role);
+  const t = of('target');
+  const h = of('held-out');
+  const g = of('good');
+  const counts = [t ? `fixes ${t.held} of ${t.of} target run${t.of === 1 ? '' : 's'}` : '', h ? `${h.held} of ${h.of} held-out` : '', g ? `keeps ${g.held} of ${g.of} good` : ''].filter(Boolean).join(', ');
+  return counts ? `${counts}${rule ? `, ${rule}` : ''}` : null;
+}
+
+/** The example a panel shows before any fix was verified here: the mock's own, as CI opens it, into the repository's default branch. */
 function examplePreview(budget: string, base: string): PullRequestPreview {
   return {
     title: 'Escalate refunds above the policy limit',
     author: 'github-actions',
     base,
-    branch: 'shadowlap/fix-refund-limit',
-    verify: 'target 3 of 3 · held-out 2 of 2 · good 5 of 5',
-    blame: 'lost at model call #5 · confidence high',
+    branch: ciFixBranch('goldens/refund-limit'),
+    verify: 'fixes 3 of 3 target runs, 2 of 2 held-out, keeps 5 of 5 good, each by its gate, which tells 90%+ from 70%- at <= 5% risk',
+    blame: 'lost at model call #5 (3 of 5)',
     change: 'prompts/refund.md +1 −0',
     spent: `≈$0.84 of $${budget}`,
     fixId: null,
@@ -167,9 +203,11 @@ function examplePreview(budget: string, base: string): PullRequestPreview {
 }
 
 /**
- * The pull request the newest verified fix in this store would be, opened by CI: its commit title,
- * branch, verify's counts, where blame found the run was lost, the file it changes and what it cost.
- * Null when no fix here has an accepted repair.
+ * The pull request the newest verified fix in this store would be, opened by CI as the action opens
+ * one: its commit title, the branch CI names after the golden that failed (the golden one of the
+ * fix's failing runs is a test replay of), verify's line as the body says it, where blame found the
+ * first failing run was lost, the file it changes and what it cost. Null when no fix here has an
+ * accepted repair.
  */
 export function fixPreview(store: Store, budget: string): PullRequestPreview | null {
   const verified = fixList(store, { status: 'verified' }).fixes.sort((a, b) => (b.verifiedAt ?? 0) - (a.verifiedAt ?? 0));
@@ -179,13 +217,16 @@ export function fixPreview(store: Store, budget: string): PullRequestPreview | n
     if (!fix || !repair?.accepted) continue;
     const spent = repair.cost.blame + (repair.cost.repairer ?? 0) + repair.cost.verify + (repair.cost.judge ?? 0);
     const patch = repair.files.find((f) => f.name === 'fix.patch')?.note.replace(/^1 file · /, '') ?? null;
+    const golden = fix.failingRuns.map((r) => store.getRun(r.runId)?.meta?.test?.golden).find((g): g is string => typeof g === 'string') ?? null;
+    // The first failing run's place, as the body's Lost at column has it (who rescued it is a column of its own there).
+    const lost = repair.lost.map((l) => /^model call #\d+ \(\d+ of \d+\)/.exec(l.at)?.[0]).find((x): x is string => !!x) ?? (fix.blame?.lostAt ? `model call #${fix.blame.lostAt}${fix.blame.step ? ` (${fix.blame.step} of ${fix.blame.steps})` : ''}` : null);
     return {
       title: repair.title,
       author: 'github-actions',
       base: 'main',
-      branch: repair.output.branch ?? `shadowlap/fix-${fix.fixId.replace(/^fx-/, '')}`,
-      verify: repair.roles.length ? repair.roles.map((r) => `${r.role} ${r.held} of ${r.of}`).join(' · ') : null,
-      blame: fix.blame?.lostAt ? `lost at model call #${fix.blame.lostAt} · confidence ${fix.blame.confidence}` : null,
+      branch: ciFixBranch(golden),
+      verify: verifyLine(repair.roles, repair.rule),
+      blame: lost ? `lost at ${lost}` : null,
       change: repair.change ? `${repair.change.file}${patch ? ` ${patch}` : ''}` : patch,
       spent: `≈${dollars(spent)} of $${budget}`,
       fixId: fix.fixId,
@@ -203,7 +244,9 @@ export function fixPreview(store: Store, budget: string): PullRequestPreview | n
  * to its own folder, with short-lived credentials, and with R2's keys, which can't be kept to that
  * folder, nothing at all.
  */
-export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | null): CiTeamStore {
+export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | null, unreadable = false): CiTeamStore {
+  // The config names the store: while it can't be read, there is no telling whether the step pushes.
+  if (unreadable) return { push: false, name: null, credentials: null, note: 'shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.', lands: [] };
   let loc: StoreLocation | null = null;
   try {
     loc = input?.store ? parseStoreUrl(input.store) : null;
@@ -212,7 +255,7 @@ export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | nu
   }
   if (!loc) return { push: false, name: null, credentials: null, note: 'None yet, so fixes stay in GitHub. With one, this follows Push from CI.', lands: [] };
   const push = input?.ciPush !== false;
-  const credentials: BucketCredentials = ciStep('github', loc).oidc ? 'oidc' : 'keys';
+  const credentials: BucketCredentials = ciStep('github', loc, { version: VERSION }).oidc ? 'oidc' : 'keys';
   return {
     push,
     name: shortStoreName(loc),
@@ -301,6 +344,106 @@ export function gitFacts(project: string | null): { repository: string | null; b
 }
 
 /**
+ * A golden as the CI steps need it: whether it runs live in CI, and the keys its agent calls with.
+ * A golden that may fork runs live from where it diverges (a gate's golden is one), and its judges
+ * are asked live there; one with an injection gate runs live from the call that reads the payload.
+ * Any golden's agent runs live under blame and verify, so Fix on failure needs every golden's keys.
+ */
+export interface GoldenProviders {
+  /** Its pack folder: `goldens/refund-flow`. */
+  path: string;
+  /** Why it runs live in CI; empty when it replays offline. */
+  live: Array<'fork' | 'injection gate'>;
+  /** The key variables of the providers its recording called, and of its judges' when it forks. */
+  keys: string[];
+  /**
+   * Its keys are all named in `keys`: its pack's calls were read, and each provider it calls (and,
+   * where it forks, each judge's) takes its key from a variable. False for a pack that can't be
+   * read, Vertex AI (which signs in with a token) or a judge whose provider can't be told.
+   */
+  known: boolean;
+}
+
+/** The goldens that run live in CI, as a needs row says them, with the keys they need; null when none does. */
+export function liveGoldens(goldens: readonly GoldenProviders[]): LiveGoldens | null {
+  const live = goldens.filter((g) => g.live.length);
+  if (!live.length) return null;
+  const why = (['fork', 'injection gate'] as const).filter((w) => live.some((g) => g.live.includes(w)));
+  return { count: live.length, why, keys: [...new Set(live.flatMap((g) => g.keys))], unknown: live.filter((g) => !g.known).length };
+}
+
+/**
+ * The keys the store's CI step needs for the project's goldens that run live (`ciStep`'s `keys` and
+ * `keysUnknown`), as Settings → CI's Alerts step has them: the step runs the same goldens.
+ */
+export function liveKeys(project: string, goldens: ReadonlyArray<{ path: string; mode: 'replay' | 'fork'; injection?: boolean; judges?: readonly string[] }>): CiStepKeys {
+  const live = liveGoldens(goldenProviders(project, goldens));
+  return live ? { keys: live.keys, ...(live.unknown ? { keysUnknown: true } : {}) } : {};
+}
+
+/**
+ * The variable each provider's key is read from, as the sidecar names it for a replay that would go
+ * live without one (`keys.set`); Bedrock's two. Vertex AI signs in with a token, so it has none.
+ */
+export const PROVIDER_KEYS: Readonly<Record<string, readonly string[]>> = {
+  anthropic: ['ANTHROPIC_API_KEY'],
+  openai: ['OPENAI_API_KEY'],
+  gemini: ['GEMINI_API_KEY'],
+  azure: ['AZURE_OPENAI_API_KEY'],
+  bedrock: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
+};
+
+/** The providers a pack's recording called, by its calls.jsonl, kept while the file is the same. */
+const calledBy = new Map<string, { mtimeMs: number; size: number; providers: string[] }>();
+/** A pack's calls are read up to this much: a golden is small, and what is left out changes nothing here. */
+const CALLS_READ = 8 * 1024 * 1024;
+
+/** The providers a pack's recording called, or null when its calls can't be read. */
+function packProviders(dir: string): string[] | null {
+  const file = join(dir, 'calls.jsonl');
+  let st;
+  try {
+    st = statSync(file);
+  } catch {
+    return null;
+  }
+  const kept = calledBy.get(file);
+  if (kept && kept.mtimeMs === st.mtimeMs && kept.size === st.size) return kept.providers;
+  let text = '';
+  try {
+    text = st.size > CALLS_READ ? readFileSync(file).subarray(0, CALLS_READ).toString('utf8') : readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+  const providers = [...new Set([...text.matchAll(/"provider":"([a-z]+)"/g)].map((m) => m[1]!))].filter((p) => p in PROVIDER_KEYS || p === 'vertex');
+  calledBy.set(file, { mtimeMs: st.mtimeMs, size: st.size, providers });
+  return providers;
+}
+
+/**
+ * The project's goldens as the CI steps need them (`GoldenProviders`), from the goldens Tests lists
+ * (their mode, injection gate and judges, from the config's `tests`) and the providers each pack's
+ * recording called. A pack that can't be read calls nothing here, and its keys aren't known.
+ */
+export function goldenProviders(project: string, goldens: ReadonlyArray<{ path: string; mode: 'replay' | 'fork'; injection?: boolean; judges?: readonly string[] }>): GoldenProviders[] {
+  return goldens.map((g) => {
+    const live: GoldenProviders['live'] = [...(g.mode === 'fork' ? (['fork'] as const) : []), ...(g.injection ? (['injection gate'] as const) : [])];
+    const called = packProviders(resolve(project, g.path));
+    const providers = new Set(called ?? []);
+    let known = called !== null;
+    // A judge with no verdict for a new answer is asked live: only where the golden forks.
+    if (g.mode === 'fork')
+      for (const j of g.judges ?? []) {
+        const p = judgeTarget(j)?.provider;
+        if (p) providers.add(p);
+        else known = false;
+      }
+    if ([...providers].some((p) => !PROVIDER_KEYS[p])) known = false;
+    return { path: g.path, live, keys: [...providers].flatMap((p) => PROVIDER_KEYS[p] ?? []), known };
+  });
+}
+
+/**
  * Both panels for the options given. `context` is what the store and the project say: the pull
  * request preview (null: the example), the goldens failing now (the Slack message's count, 1 when
  * none fail), when the tests last ran, the repository, the branch checked out and the default
@@ -318,15 +461,27 @@ export function ciWorkflows(
     defaultBranch?: string | null;
     recordings?: string;
     teamStore?: Pick<TeamStoreInput, 'store' | 'ciPush'> | null;
+    /** What the goldens call, and which run live in CI (`goldenProviders`); unknown when left out. */
+    goldens?: readonly GoldenProviders[] | null;
+    /** Why shadowlap.config.json can't be read (its goldens' `tests`, its store and Push from CI with it), or null. */
+    configError?: string | null;
   },
 ): CiWorkflowsView {
   const recordings = context.recordings ?? 'goldens/*';
+  const goldens = context.goldens ?? null;
+  const configError = context.configError ?? null;
+  const unreadable = configError !== null;
+  // The keys every golden's agent calls with, for blame and verify; those of the goldens that run live, for the test step itself.
+  const keys = goldens ? [...new Set(goldens.flatMap((g) => g.keys))] : [];
+  const keysUnknown = !!goldens?.some((g) => !g.known);
+  const live = goldens ? liveGoldens(goldens) : null;
+  const inconclusive = o.inconclusive ?? 'fail';
   const main = context.defaultBranch || 'main';
   const branch = o.onlyMain ? main : context.branch && context.branch !== main ? context.branch : 'your-branch';
   const repo = context.repository ?? 'owner/repo';
   const message = alertsMessage({ failed: Math.max(1, context.failing), branch, runUrl: `github.com/${repo}/actions/runs/…` });
   // With Push from CI on, the step pushes too and needs the bucket's credentials; off, it is as it was.
-  const teamStore = ciTeamStore(context.teamStore ?? null);
+  const teamStore = ciTeamStore(context.teamStore ?? null, unreadable);
   const push = teamStore.push ? teamStore.credentials : null;
   return {
     file: WORKFLOW_FILE,
@@ -338,8 +493,8 @@ export function ciWorkflows(
       budgets: FIX_BUDGETS.map((b) => ({ value: b, label: `$${Number(b)}` })),
       repairers: REPAIRERS.map((r) => ({ ...r })),
       offNote: 'Off: a failed check fails the build, and nobody opens a fix.',
-      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings, push, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}) }),
-      needs: rows(fixOnFailureNeeds(o.repairer, push)),
+      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings, push, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}), ...(keys.length ? { keys } : {}), ...(keysUnknown ? { keysUnknown } : {}), ...(unreadable ? { unreadable } : {}) }),
+      needs: rows(fixOnFailureNeeds(o.repairer, push, keys, unreadable)),
       never: rows(fixOnFailureNever(o.budget)),
       preview: context.preview ? { ...context.preview, base: main, spent: context.preview.spent.replace(/ of \$[\d.]+$/, ` of $${o.budget}`) } : examplePreview(o.budget, main),
       teamStore,
@@ -348,12 +503,14 @@ export function ciWorkflows(
       onlyMain: o.onlyMain,
       branch: main,
       secret: alertsSecret(o.secret),
-      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings, branch: main, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}) }),
-      needs: rows(alertsNeeds(o.secret)),
-      failures: rows(ALERT_FAILURES),
+      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings, branch: main, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}), ...(live?.keys.length ? { keys: live.keys } : {}), ...(live?.unknown ? { keysUnknown: true } : {}), ...(unreadable ? { unreadable } : {}) }),
+      needs: rows(alertsNeeds(o.secret, live, unreadable)),
+      failures: rows(alertFailures(inconclusive)),
+      inconclusive,
       message: { app: 'GitHub Actions', text: message.text, link: message.link, at: context.at },
     },
     recordings,
     repository: context.repository,
+    configError,
   };
 }

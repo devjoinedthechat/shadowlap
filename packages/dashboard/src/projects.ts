@@ -1,7 +1,9 @@
 import {
+  AGENT_NODE_MIN,
   UPSTREAM_ENV,
   defaultGolden,
   nameConfirms,
+  nodePinTooOld,
   quoteArgv,
   setupCommands,
   stageAtLeast,
@@ -17,6 +19,7 @@ import {
   type StoredEvent,
   type WrapSnippet,
 } from '@shadowlap/engine';
+import { SETUP_INTRO } from './setup-words.js';
 
 /**
  * The dashboard's read model for projects: plain data for the project switcher, the Add a project
@@ -295,6 +298,11 @@ export interface InspectStep extends StepBase {
   folded: boolean;
   /** Tools that aren't wrapped: what that means, the code to wrap them, and the re-check. */
   warning: { title: string; text: string; code: WrapSnippet[]; copy: string; recheck: { label: string; action: 'recheck' } } | null;
+  /**
+   * The project pins a Node older than Shadowlap's guard takes (18.18): an agent on it wouldn't
+   * start, so Record waits until the pin is raised and the folder checked again.
+   */
+  node: { title: string; text: string; recheck: { label: string; action: 'recheck' } } | null;
 }
 
 export interface RecordStep extends StepBase {
@@ -422,6 +430,8 @@ export function setupView(input: SetupInput): SetupView {
   const writes = unwrapped.filter((t) => t.effect === 'write');
   const one = unwrapped.length === 1;
   const passedInspect = !findings && (stageAtLeast(stage, 'recorded') || live);
+  // A Node pinned below what the guard takes: the agent wouldn't start, so recording waits for it.
+  const oldNode = findings?.nodePin && nodePinTooOld(findings.nodePin.version) ? findings.nodePin : null;
   const inspect: InspectStep = {
     key: 'inspect',
     n: 1,
@@ -445,13 +455,22 @@ export function setupView(input: SetupInput): SetupView {
             recheck: { label: `I wrapped ${one ? 'it' : 'them'}, check again`, action: 'recheck' },
           }
         : null,
+    node: oldNode
+      ? {
+          title: `Node ${oldNode.version} is too old for Shadowlap’s guard.`,
+          text: `${oldNode.from} pins it, and an agent on a Node before ${AGENT_NODE_MIN} never starts under Shadowlap: that Node refuses the guard Shadowlap loads into it. Pin ${AGENT_NODE_MIN} or later to record.`,
+          recheck: { label: 'I raised it, check again', action: 'recheck' },
+        }
+      : null,
   };
 
   // 2 · Record a first run
   const missed = recorded ? setup.unwrappedAtRecord : [];
   // A model server the dashboard can't forward to (credentials in its address, or not a plain URL) is recorded in a terminal.
-  const canRecord = inspected && !(server && !server.upstream);
-  const recordText = !server
+  const canRecord = inspected && !(server && !server.upstream) && !oldNode;
+  const recordText = oldNode
+    ? `Waits for a Node pin of ${AGENT_NODE_MIN} or later: ${oldNode.from} pins ${oldNode.version}, where the agent wouldn’t start under Shadowlap.`
+    : !server
     ? 'Runs the command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.'
     : server.upstream
       ? `Runs the command once with a local sidecar in front of your model server. Model calls go to ${server.url}, the model server this project uses.`
@@ -558,7 +577,7 @@ export function setupView(input: SetupInput): SetupView {
     project: { id: project.id, name: project.name, path },
     eyebrow: `${project.name} · ${path}`,
     title: setup.shows === 'everywhere' ? 'No runs yet' : `Set up ${project.name}`,
-    intro: 'Record the agent once. Every lap after that replays for free.',
+    intro: SETUP_INTRO,
     skip: recorded && !tested && !finished ? { label: 'Skip the rest', action: 'finishsetup' } : null,
     inspect,
     record,
@@ -607,8 +626,23 @@ export interface RemoveDialogView {
   why: string | null;
 }
 
-/** Remove a project, from the switcher's × or Settings → Project. */
-export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats; projects: number; home: string }): RemoveDialogView {
+/**
+ * What the delete zone says of the team store: the runs here it lists too stay there, whatever is
+ * deleted here, and the rest exist only here. `listed`: the project's runs here that the store's
+ * index lists (`TeamRunCounts.listedHere`).
+ */
+function storeLine(runs: number, listed: number): string {
+  const only = Math.max(0, runs - listed);
+  if (listed <= 0) return `${runs === 1 ? 'It isn’t' : 'None of them is'} in the team store: ${runs === 1 ? 'it exists' : 'they exist'} only here.`;
+  if (!only) return runs === 1 ? 'It is in the team store too, and stays there.' : `All ${plural(runs, 'run')} are in the team store too, and stay there.`;
+  return `${listed.toLocaleString('en-US')} of them ${listed === 1 ? 'is' : 'are'} in the team store too and ${listed === 1 ? 'stays' : 'stay'} there; ${only.toLocaleString('en-US')} ${only === 1 ? 'exists' : 'exist'} only here.`;
+}
+
+/**
+ * Remove a project, from the switcher's × or Settings → Project. `team`: how its runs here stand
+ * with its team store, when it has one, so the delete zone says which of them stay in the store.
+ */
+export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats; projects: number; home: string; team?: { listed: number } | null }): RemoveDialogView {
   const { project, stats } = input;
   const path = tildePath(project.path, input.home);
   const canRemove = input.projects > 1;
@@ -639,7 +673,7 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
     deleteZone: stats.runs
       ? {
           label: 'Also delete its recordings',
-          detail: `${runsLabel(stats.runs)} and ${stats.runs === 1 ? 'its' : 'their'} attempts.${stats.goldens ? ` ${stats.goldens === 1 ? 'The golden is' : 'The goldens are'} in your repository and ${stats.goldens === 1 ? 'stays' : 'stay'}.` : ''}${made.length ? ` Its ${madeText} in .shadowlap/ stay too: delete them yourself if they hold what you mean to delete.` : ''}`,
+          detail: `${runsLabel(stats.runs)} and ${stats.runs === 1 ? 'its' : 'their'} attempts.${input.team ? ` ${storeLine(stats.runs, input.team.listed)}` : ''}${stats.goldens ? ` ${stats.goldens === 1 ? 'The golden is' : 'The goldens are'} in your repository and ${stats.goldens === 1 ? 'stays' : 'stay'}.` : ''}${made.length ? ` Its ${madeText} in .shadowlap/ stay too: delete them yourself if they hold what you mean to delete.` : ''}`,
           confirm: `Type ${project.name} to confirm. This can’t be undone.`,
           placeholder: project.name,
           name: project.name,

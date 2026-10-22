@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { PACK_FORMAT, PACK_LIMITS, type Gate, type Normalizer } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
-import { specFor, type TestEntry, type TestSpec } from './checks.js';
+import { judgeChecksOf, specFor, type TestEntry, type TestSpec } from './checks.js';
 import { configPath, loadTests } from './config.js';
 
 /**
@@ -156,7 +156,7 @@ export function rawExpectFor(entries: readonly TestEntry[], recordingDir: string
 }
 
 /** How a golden is tested, in the words the Tests screen uses. */
-export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[]; injection: boolean } {
+export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[]; injection: boolean; judges: string[] } {
   return {
     mode: spec?.fork ? 'fork' : 'replay',
     repeat: spec?.repeat ?? 1,
@@ -165,8 +165,9 @@ export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; re
     gate: spec?.gate ?? null,
     // The exit status is part of every golden's oracle; the screen lists the checks someone wrote.
     checks: spec ? oracleLabels(spec).slice(1) : [],
-    // Its injection test runs live from each planted payload, so CI needs the providers' keys for it.
+    // What runs live in CI besides a fork: its injection test, from each planted payload, and the judges a fork asks.
     injection: !!spec?.injection,
+    judges: spec ? [...new Set(judgeChecksOf(spec).map((j) => j.model))] : [],
   };
 }
 
@@ -183,6 +184,8 @@ export interface GoldenInfo {
   checks: string[];
   /** Its tests entry gives it an injection test (`"injection"`), which `shadowlap test` runs live. */
   injection: boolean;
+  /** The models of its judge checks (`claude-haiku-4-5`, `openai:gpt-5.5`). */
+  judges: string[];
   error: string | null;
 }
 

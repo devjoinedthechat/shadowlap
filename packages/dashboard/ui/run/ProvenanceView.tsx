@@ -14,7 +14,7 @@ import { scopesOf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { flagText } from './banner.js';
 import { lineageRunLike, modelLabel, originOf, pulledSpender, runLikeOf } from './model.js';
-import { copyRules, endpointSamples, lineageWords, tallyProviders, upstreamParts } from './provenance.js';
+import { copyRules, endpointSamples, exportedLine, lineageWords, tallyProviders, upstreamParts } from './provenance.js';
 import { useWindow } from './window-hook.js';
 
 /**
@@ -207,14 +207,19 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
               : null}
           </ol>
           <h3>Leaving this machine</h3>
-          <p className="muted">
-            A copy made now (pack, export html, export dataset or export pairs) applies{' '}
-            <span title={uncounted ?? undefined}>{copyRules(rules, masked, !!uncounted, counting, prov?.mask?.unmasked ?? 0, prov?.mask?.returned ?? 0)}</span>
-            .{' '}
-            <a className="more" href={href.settings('redaction')}>
-              {typeof rules === 'number' && rules ? 'Preview' : 'Settings'}
-            </a>
-          </p>
+          {exported ? (
+            // An exported copy says how it was made itself: it has no Settings, and no copy is made from it.
+            <p className="muted">{exportedLine({ exportedAt: meta?.exportedAt ?? null, rules: meta?.redactedRules ?? null, redacted: meta?.redacted ?? null })}</p>
+          ) : (
+            <p className="muted">
+              A copy made now (pack, export html, export dataset or export pairs) applies{' '}
+              <span title={uncounted ?? undefined}>{copyRules(rules, masked, !!uncounted, counting, prov?.mask?.unmasked ?? 0, prov?.mask?.returned ?? 0)}</span>
+              .{' '}
+              <a className="more" href={href.settings('redaction')}>
+                {typeof rules === 'number' && rules ? 'Preview' : 'Settings'}
+              </a>
+            </p>
+          )}
           <p className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</p>
           {labels.length || notes.length ? (
             <>

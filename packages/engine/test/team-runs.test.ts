@@ -26,14 +26,14 @@ describe('teamRunCounts', () => {
     const store = Store.open(':memory:');
     const rec = run(store);
     const attempts = [1, 2, 3].map((n) => run(store, { parent: rec, meta: { repeat: { group: 'g1', attempt: n, of: 3 } } }));
-    expect(teamRunCounts(store, KEY)).toEqual({ inStore: 0, onlyLocal: 1, localRuns: [rec], localAttempts: 3, queued: 0, pushedHere: 0 });
+    expect(teamRunCounts(store, KEY)).toEqual({ inStore: 0, onlyLocal: 1, localRuns: [rec], localAttempts: 3, queued: 0, pushedHere: 0, listedHere: 0 });
 
     // The run went up alone (shadowlap push <run>): it is still only here, through its attempts.
     listed(store, rec);
-    expect(teamRunCounts(store, KEY)).toMatchObject({ inStore: 1, onlyLocal: 1, localRuns: [rec], localAttempts: 3 });
+    expect(teamRunCounts(store, KEY)).toMatchObject({ inStore: 1, onlyLocal: 1, localRuns: [rec], localAttempts: 3, listedHere: 1 });
     // With its attempts, nothing is left; the store still holds one run.
     for (const id of attempts) listed(store, id);
-    expect(teamRunCounts(store, KEY)).toEqual({ inStore: 1, onlyLocal: 0, localRuns: [], localAttempts: 0, queued: 0, pushedHere: 1 });
+    expect(teamRunCounts(store, KEY)).toEqual({ inStore: 1, onlyLocal: 0, localRuns: [], localAttempts: 0, queued: 0, pushedHere: 1, listedHere: 1 });
     store.close();
   });
 
@@ -69,7 +69,20 @@ describe('teamRunCounts', () => {
     listed(store, '01K5CQ4N7G00000000000000B1', { attemptOf: '01K5CQ4N7G00000000000000ZZ' });
     // An older push named no run: counted as a run.
     listed(store, '01K5CQ4N7G00000000000000C1');
-    expect(teamRunCounts(store, KEY)).toMatchObject({ inStore: 3, onlyLocal: 0 });
+    // None of them is here: deleting this machine's recordings would leave none of them behind.
+    expect(teamRunCounts(store, KEY)).toMatchObject({ inStore: 3, onlyLocal: 0, listedHere: 0 });
+    store.close();
+  });
+
+  it('counts the runs here the store lists too, pulled or pushed, which deleting the recordings here leaves there', () => {
+    const store = Store.open(':memory:');
+    const pushed = run(store);
+    const pulled = run(store);
+    const mine = run(store);
+    listed(store, pushed);
+    store.setTeamRun(KEY, { runId: pulled, state: 'pulled', at: clock, base: {}, baseHash: 'h', remoteHash: 'h', entry: { runId: pulled } });
+    listed(store, '01K5CQ4N7G0000000000000000');
+    expect(teamRunCounts(store, KEY)).toMatchObject({ inStore: 3, listedHere: 2, pushedHere: 1, onlyLocal: 1, localRuns: [mine] });
     store.close();
   });
 

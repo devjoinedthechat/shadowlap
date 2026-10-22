@@ -57,6 +57,8 @@ export interface JobView {
   startedAt: number;
   endedAt: number | null;
   done: boolean;
+  /** Someone asked it to stop (`POST /api/jobs/:id/stop`): its end is that stop, not its own. */
+  stopped: boolean;
   /** The exit code; null while running, or when the process was killed by a signal. */
   code: number | null;
   /** The run to open: the last one the job reported that is not an attempt (or found in its output). */
@@ -111,6 +113,8 @@ export interface ProjectView {
    * dashboard shows an empty stand-in for it, and refuses its jobs with this reason.
    */
   problem?: string;
+  /** Its folder is gone from disk (with `problem`): Settings changes nothing in it until it is back. */
+  missing?: boolean;
   /** Part of the dashboard couldn't start for this project (a feature's module failed): what failed, for the switcher to say. */
   notice?: string;
 }
@@ -144,6 +148,8 @@ export interface MetaView {
   static?: boolean;
   exportedAt?: number;
   redacted?: boolean;
+  /** An exported copy: how many redaction rules were applied to it (0: none, so it holds what was recorded). */
+  redactedRules?: number;
   runIds?: string[];
   /**
    * Compare in an exported copy: the run every comparison it holds includes, when it holds too many

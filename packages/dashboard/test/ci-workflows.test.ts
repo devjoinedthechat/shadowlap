@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { ciTeamStore, ciWorkflows, CI_DEFAULTS, fixPreview, gitFacts, parseCiOptions } from '../src/ci-workflows.js';
-import { fixOnFailureYaml } from '../src/ci-yaml.js';
+import { providers } from '@shadowlap/sidecar';
+import { ciFixBranch, ciTeamStore, ciWorkflows, CI_DEFAULTS, fixPreview, gitFacts, goldenProviders, liveGoldens, parseCiOptions, PROVIDER_KEYS, verifyLine } from '../src/ci-workflows.js';
+import { alertsYaml, fixOnFailureYaml } from '../src/ci-yaml.js';
 import { readTeamStoreInput } from '../src/team-store.js';
 
 /**
@@ -56,16 +57,142 @@ describe('the pull request a fix opens', () => {
     recordVerdict(store, { report: verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: held, role: 'holdout', pass: true }, { runId: good, role: 'good', pass: true }]), expect: EXPECT, command: 'shadowlap verify', at: 2_000 });
     recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [failing], holdout: [held], good: [good] }), expect: EXPECT, command: 'shadowlap repair', at: 3_000 });
     const pr = fixPreview(store, '2.00')!;
-    expect(pr).toMatchObject({ example: false, author: 'github-actions', base: 'main', verify: 'target 1 of 1 · held-out 1 of 1 · good 1 of 1' });
+    // As CI opens it: verify's line as the body says it, the rule once; where the run was lost as the body's table has it.
+    expect(pr).toMatchObject({ example: false, author: 'github-actions', base: 'main', verify: 'fixes 1 of 1 target run, 1 of 1 held-out, keeps 1 of 1 good, each at 4 of 5 attempts', blame: 'lost at model call #5 (3 of 4)' });
+    // Not a golden's fix: CI names the branch after the golden that failed, which this one has none of.
+    expect(pr.branch).toBe('shadowlap/fix-<golden>-…');
     expect(pr.fixId).toMatch(/^fx-/);
     expect(pr.title.length).toBeGreaterThan(0);
-    expect(pr.blame).toMatch(/^lost at model call #\d+ · confidence (high|medium|low)$/);
     expect(pr.spent).toMatch(/^≈\$\d+\.\d\d of \$2\.00$/);
     // The panel's budget is the one it shows, whatever the preview was made with.
     const view = ciWorkflows({ ...CI_DEFAULTS, budget: '5.00' }, { preview: pr, failing: 0, at: null, repository: null, branch: null });
     expect(view.fixOnFailure.preview.spent).toMatch(/ of \$5\.00$/);
     expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on main.');
     expect(view.alerts.message.link).toBe('github.com/owner/repo/actions/runs/…');
+  });
+
+  it('names the branch after the golden whose test replay failed, as the action does, and the example the same way', () => {
+    expect(ciFixBranch('goldens/refund-over-limit')).toBe('shadowlap/fix-refund-over-limit-…');
+    expect(ciFixBranch('goldens/Refund Flow (EU)')).toBe('shadowlap/fix-refund-flow-eu-…');
+    expect(ciFixBranch('tests/goldens/a')).toBe('shadowlap/fix-tests-goldens-a-…');
+    expect(ciFixBranch(null)).toBe('shadowlap/fix-<golden>-…');
+    const failing = makeRun(store, { labels: [], calls: ['api', 'tool', 'api', 'tool', 'api', 'tool', 'api'], meta: { test: { golden: 'goldens/refund-over-limit', session: 'S1' } } });
+    recordBlame(store, { runId: failing, report: blameReport(failing), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: 1_000 });
+    recordRepair(store, { repairId: 'repair-golden01', dir: '.shadowlap/repairs/repair-golden01', report: repairReport({ targets: [failing] }), expect: EXPECT, command: 'shadowlap repair', at: 3_000 });
+    expect(fixPreview(store, '2.00')?.branch).toBe('shadowlap/fix-refund-over-limit-…');
+    const example = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null }).fixOnFailure.preview;
+    expect(example).toMatchObject({ example: true, branch: 'shadowlap/fix-refund-limit-…', blame: 'lost at model call #5 (3 of 5)', verify: 'fixes 3 of 3 target runs, 2 of 2 held-out, keeps 5 of 5 good, each by its gate, which tells 90%+ from 70%- at <= 5% risk' });
+    // The gate's rule once, never a claimed rate.
+    expect(example.verify).not.toMatch(/at least|passes/);
+  });
+
+  it('words verify\'s line by role, as the pull request\'s body does', () => {
+    expect(verifyLine([{ role: 'target', held: 3, of: 3 }, { role: 'held-out', held: 2, of: 2 }, { role: 'good', held: 5, of: 5 }], 'each by its gate, which tells 90%+ from 70%- at <= 5% risk')).toBe('fixes 3 of 3 target runs, 2 of 2 held-out, keeps 5 of 5 good, each by its gate, which tells 90%+ from 70%- at <= 5% risk');
+    expect(verifyLine([{ role: 'target', held: 1, of: 1 }], null)).toBe('fixes 1 of 1 target run');
+    expect(verifyLine([], 'each at 4 of 5 attempts')).toBeNull();
+  });
+});
+
+describe('the goldens that run live in CI', () => {
+  /** A pack whose calls went to these providers, as `shadowlap pack` writes calls.jsonl. */
+  const pack = (root: string, path: string, called: string[]) => {
+    mkdirSync(join(root, path), { recursive: true });
+    writeFileSync(join(root, path, 'run.json'), '{}');
+    writeFileSync(join(root, path, 'calls.jsonl'), called.map((p, i) => JSON.stringify({ runId: 'R', callNo: i + 1, kind: 'api', meta: { provider: p }, end: { meta: { provider: p } } })).join('\n') + '\n');
+  };
+
+  it('reads which providers each golden calls, and which run live: a fork, an injection gate, a forking golden’s judges', () => {
+    const root = tmp();
+    pack(root, 'goldens/refund-over-limit', ['anthropic', 'anthropic']);
+    pack(root, 'goldens/refund-in-limit', ['openai']);
+    pack(root, 'goldens/triage', ['gemini']);
+    pack(root, 'goldens/bedrock-agent', ['bedrock']);
+    const g = goldenProviders(root, [
+      { path: 'goldens/refund-over-limit', mode: 'fork', judges: ['openai:gpt-5.5', 'claude-haiku-4-5'] },
+      { path: 'goldens/refund-in-limit', mode: 'replay', judges: ['gemini-3-flash'] },
+      { path: 'goldens/triage', mode: 'replay', injection: true },
+      { path: 'goldens/bedrock-agent', mode: 'replay' },
+      { path: 'goldens/gone', mode: 'fork' },
+    ]);
+    expect(g).toEqual([
+      // Its judges are asked live where it forks: their providers' keys too.
+      { path: 'goldens/refund-over-limit', live: ['fork'], keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'], known: true },
+      // A replay golden's judge reads its verdict from the recording: no key for it.
+      { path: 'goldens/refund-in-limit', live: [], keys: ['OPENAI_API_KEY'], known: true },
+      { path: 'goldens/triage', live: ['injection gate'], keys: ['GEMINI_API_KEY'], known: true },
+      { path: 'goldens/bedrock-agent', live: [], keys: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'], known: true },
+      // A pack that can't be read calls nothing here, and its keys aren't known.
+      { path: 'goldens/gone', live: ['fork'], keys: [], known: false },
+    ]);
+    expect(liveGoldens(g)).toEqual({ count: 3, why: ['fork', 'injection gate'], keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'], unknown: 1 });
+    expect(liveGoldens(g.filter((x) => !x.live.length))).toBeNull();
+    // Vertex AI signs in with a token, and a judge whose provider can't be told: no key to name for either.
+    pack(root, 'goldens/vertex', ['vertex']);
+    pack(root, 'goldens/judged', ['anthropic']);
+    expect(goldenProviders(root, [{ path: 'goldens/vertex', mode: 'fork' }, { path: 'goldens/judged', mode: 'fork', judges: ['some-house-model'] }, { path: 'goldens/judged', mode: 'replay', judges: ['some-house-model'] }]).map((x) => [x.keys, x.known])).toEqual([
+      [[], false],
+      [['ANTHROPIC_API_KEY'], false],
+      // A replay golden's judge isn't asked live.
+      [['ANTHROPIC_API_KEY'], true],
+    ]);
+  });
+
+  it('gives Alerts the live goldens’ keys and a needs row, and Fix on failure every golden’s, by name', () => {
+    const goldens = [
+      { path: 'goldens/refund-flow-budget', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'], known: true },
+      { path: 'goldens/refund-over-limit', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'], known: true },
+      { path: 'goldens/list-inbox', live: [], keys: ['OPENAI_API_KEY'], known: true },
+    ];
+    const view = ciWorkflows({ ...CI_DEFAULTS, repairer: 'anthropic' }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens });
+    // The two fork goldens would fail without it, and Slack hear of it on every run.
+    expect(view.alerts.yaml).toBe(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', recordings: 'goldens/*', branch: 'main', keys: ['ANTHROPIC_API_KEY'] }));
+    expect(view.alerts.needs).toContainEqual({ label: '2 goldens run live (fork)', value: 'ANTHROPIC_API_KEY' });
+    // Blame and verify run any golden's agent live: every provider's key, by name, beside the repairer's.
+    expect(view.fixOnFailure.yaml).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', recordings: 'goldens/*', push: null, keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] }));
+    expect(view.fixOnFailure.yaml).toContain('    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}');
+    expect(view.fixOnFailure.needs[1]).toEqual({ label: 'your agent’s provider keys: blame and verify run it live', value: 'ANTHROPIC_API_KEY, OPENAI_API_KEY' });
+    // Nothing known of the goldens: the steps as the docs show them.
+    const unknown = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null });
+    expect(unknown.alerts.yaml).not.toContain('  env:');
+    expect(unknown.alerts.needs.map((r) => r.value)).toEqual(['Slack app', 'SLACK_WEBHOOK_URL', 'id: goldens', 'node-version: 22']);
+    expect(unknown.configError).toBeNull();
+    // A golden that runs live whose keys can't be named: Alerts' env says to add them, as Fix on failure's does.
+    const vertex = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens: [{ path: 'goldens/vertex', live: ['fork'], keys: [], known: false }] });
+    expect(vertex.alerts.yaml).toContain("  # env:\n  #   your agent's own provider keys: the goldens that run live call them\n");
+    expect(vertex.alerts.needs).toContainEqual({ label: '1 golden runs live (fork)', value: 'their providers’ keys' });
+    expect(vertex.fixOnFailure.yaml).toContain("    # and your agent's own provider keys: blame and verify run it live");
+  });
+
+  it('says what the steps leave out, and why, while shadowlap.config.json can’t be read', () => {
+    const configError = 'shadowlap.config.json: not valid JSON (Unexpected end of JSON input)';
+    // As the CLI lists them then: every golden replays, and no store is named.
+    const goldens = [{ path: 'goldens/refund-over-limit', live: [], keys: ['ANTHROPIC_API_KEY'], known: true }];
+    const view = ciWorkflows({ ...CI_DEFAULTS, fix: true }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens, teamStore: { store: null }, configError });
+    expect(view.configError).toBe(configError);
+    expect(view.alerts.yaml).toContain("  # env:\n  #   shadowlap.config.json can't be read: the keys of the goldens that run live are left out\n");
+    expect(view.alerts.needs).toContainEqual({ label: 'which goldens run live, and their keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });
+    expect(view.fixOnFailure.yaml).toContain("    # shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out");
+    expect(view.fixOnFailure.needs).toContainEqual({ label: 'Push from CI and the judges’ keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });
+    // Not "None yet": whether there is a store isn't known.
+    expect(view.fixOnFailure.teamStore).toEqual({ push: false, name: null, credentials: null, note: 'shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.', lands: [] });
+  });
+
+  it('says what fails a golden, the injection gate included, and in amber what can’t be decided while it fails one', () => {
+    const fail = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null }).alerts;
+    expect(fail.inconclusive).toBe('fail');
+    expect(fail.failures.map((r) => [r.value, r.tone])).toEqual([['diverged', 'err'], ['live call', 'err'], ['exit ≠ 0', 'err'], ['check failed', 'err'], ['injection', 'err'], ['inconclusive', 'warn']]);
+    const warn = ciWorkflows({ ...CI_DEFAULTS, inconclusive: 'warn' }, { preview: null, failing: 0, at: null, repository: null, branch: null });
+    expect(warn.alerts.inconclusive).toBe('warn');
+    expect(warn.alerts.failures.map((r) => r.value)).not.toContain('inconclusive');
+    expect(warn.alerts.yaml).toContain('    inconclusive: warn\n');
+    expect(warn.fixOnFailure.yaml).toContain('    inconclusive: warn\n');
+  });
+
+  it('names each provider’s key as the sidecar asks for it', () => {
+    for (const p of providers) {
+      if (!p.keys) expect(PROVIDER_KEYS[p.id], p.id).toBeUndefined();
+      else expect(PROVIDER_KEYS[p.id]!.join(' and '), p.id).toBe(p.keys.set);
+    }
   });
 });
 
@@ -88,7 +215,7 @@ describe('the team store Fix on failure follows', () => {
     });
     expect(f.yaml).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'oidc' }));
     expect(f.yaml).toContain('\n    push: true\n');
-    expect(f.needs.at(-1)).toEqual({ label: 'the bucket’s credentials: two shadowlap store ci steps', value: 'id-token: write' });
+    expect(f.needs).toContainEqual({ label: 'the bucket’s credentials: two shadowlap store ci steps', value: 'id-token: write' });
     // The panel's options never turn it on or off: there is no switch for it here.
     expect(Object.keys(CI_DEFAULTS)).not.toContain('push');
     // R2 has no OIDC, and its keys can't be kept to pr/: only your branches' jobs get them, and push.
@@ -96,7 +223,7 @@ describe('the team store Fix on failure follows', () => {
     expect(r2.teamStore).toMatchObject({ push: true, credentials: 'keys' });
     expect(r2.yaml).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'keys' }));
     expect(r2.yaml).toContain("\n    push: ${{ !startsWith(github.event_name, 'pull_request') }}\n");
-    expect(r2.needs.at(-1)).toEqual({ label: 'the bucket’s R2 keys as secrets, kept from pull requests’ jobs', value: 'secrets' });
+    expect(r2.needs).toContainEqual({ label: 'the bucket’s R2 keys as secrets, kept from pull requests’ jobs', value: 'secrets' });
     expect(r2.teamStore.lands.at(-1)).toEqual({ label: 'from a pull request’s job, nothing: R2 keys can’t be kept to pr/', value: 'no push' });
   });
 
@@ -104,7 +231,7 @@ describe('the team store Fix on failure follows', () => {
     const off = ciWorkflows(CI_DEFAULTS, { ...context, teamStore: { store: 's3://northwind-agent-runs/support-agent', ciPush: false } }).fixOnFailure;
     expect(off.yaml).toBe(plain);
     expect(off.teamStore).toEqual({ push: false, name: 'northwind-agent-runs/support-agent', credentials: 'oidc', note: 'Follows Push from CI: off, so fixes stay in GitHub.', lands: [] });
-    expect(off.needs.map((r) => r.value)).toEqual(['ANTHROPIC_API_KEY', 'env', 'contents: write', 'pull-requests: write']);
+    expect(off.needs.map((r) => r.value)).toEqual(['ANTHROPIC_API_KEY', 'env', 'contents: write', 'pull-requests: write', 'ref: head_ref', 'node-version: 22']);
     // No project, no store, or one that isn't a store URL: nothing to push to.
     for (const teamStore of [undefined, null, { store: null }, { store: 'ftp://nowhere/runs' }]) {
       const none = ciWorkflows(CI_DEFAULTS, { ...context, ...(teamStore === undefined ? {} : { teamStore }) }).fixOnFailure;

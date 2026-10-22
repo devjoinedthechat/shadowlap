@@ -856,6 +856,7 @@ export class JobManager {
       startedAt: job.startedAt,
       endedAt: job.endedAt,
       done: job.done,
+      stopped: job.stopping,
       code: job.code,
       newRunId: job.newRunId,
       runs: [...job.runs],
