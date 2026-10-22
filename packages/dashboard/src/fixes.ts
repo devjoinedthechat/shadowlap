@@ -1307,14 +1307,14 @@ export interface FixBundle {
    * `rescued · 2 of 2 · rate >= 0.34 (95%)`, `fixed · 12 of 12 · rate >= 0.76 (95%)` (a fixed count
    * its tally alone), in its tone; null for attempts no stored report names.
    */
-  verdictLine: string | null;
-  tone: VerdictTone | null;
+  verdictLine?: string | null;
+  tone?: VerdictTone | null;
   /**
    * The rule it was decided by (`gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20
    * attempts`), which the Forks view states once in the family, under the first bundle it decided;
    * null with no stored report.
    */
-  rule: string | null;
+  rule?: string | null;
   /**
    * Where it leads: the fix's Blame step for a probe, the verdict on the fix's Verify step, the
    * Repair step for a candidate a repair tried and dropped; the run itself when no fix holds it.

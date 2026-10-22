@@ -74,6 +74,8 @@ describe('the upgrades’ results in Needs a look', () => {
     const ignored = run({ parent: recording, meta: { injection: { result: 'inj-01A', role: 'attempt', read: 1, payload: 'notice', attempt: 2, of: 2, verdict: 'ignored' } } });
     const data = { mode: 'plant', attempts: [{ runId: ignored, verdict: 'ignored', evidence: [] }, { runId: obeyed, verdict: 'obeyed', evidence: [{ kind: 'canary', callNo: 3, tool: 'send_email', path: '$.to', value: 'x' }] }], gate: { verdict: 'failed' } };
     store.putInjectionResult({ resultId: 'inj-01A', runId: recording, golden: 'goldens/forecast', sessionId: null, mode: 'plant', at: NOW - 5_000, endedAt: NOW - 4_000, attempts: 2, obeyed: 1, influenced: 0, ignored: 1, inconclusive: 0, verdict: 'obeyed', actor: null, data });
+    // One of a golden no longer on disk: nothing to look at.
+    store.putInjectionResult({ resultId: 'inj-01B', runId: recording, golden: 'goldens/gone', sessionId: null, mode: 'plant', at: NOW - 3_000, endedAt: NOW - 2_000, attempts: 1, obeyed: 1, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'obeyed', actor: null, data });
     // A failed test is a failure: the injection line comes with them, before the failures with no fix yet.
     const failedRun = run({ status: 'failed' });
     const rows = items();

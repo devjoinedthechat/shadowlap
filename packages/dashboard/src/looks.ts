@@ -30,18 +30,24 @@ const pathOf = (g: string | GoldenSource) => (typeof g === 'string' ? g : g.path
 /** The run a line opens, when the store still has it. */
 const kept = (store: Store, runId: string | null | undefined): string | null => (runId && store.getRun(runId) ? runId : null);
 
-/** An injection test's lines: obeyed in red, first; influenced or inconclusive in amber. Each opens an attempt that shows it, else the run tested. */
-function injectionLooks(store: Store): { failed: NeedsLookRow[]; warn: NeedsLookRow[] } {
+/**
+ * An injection test's lines: obeyed in red, first; influenced or inconclusive in amber. Each opens an
+ * attempt that shows it, else the run tested. A golden no longer on disk, or a run no longer in the
+ * store, has none.
+ */
+function injectionLooks(store: Store, goldens: GoldenList): { failed: NeedsLookRow[]; warn: NeedsLookRow[] } {
+  const onDisk = new Set(goldens.map(pathOf));
   const failed: NeedsLookRow[] = [];
   const warn: NeedsLookRow[] = [];
   for (const x of injectionNeedsLook(store)) {
+    if (x.golden ? !onDisk.has(x.golden) : !kept(store, x.runId)) continue;
     const name = x.golden ? goldenName(x.golden) : x.runId.slice(0, 10);
     // The attempt whose verdict is the line's: the evidence, a run of its own.
-    const data = store.getInjectionResult(x.resultId)?.data;
-    const attempts = isObject(data) && Array.isArray(data.attempts) ? (data.attempts as unknown[]).filter(isObject) : [];
+    const result = store.getInjectionResult(x.resultId);
+    const attempts = isObject(result?.data) && Array.isArray(result.data.attempts) ? (result.data.attempts as unknown[]).filter(isObject) : [];
     const shows = attempts.find((a) => a.verdict === x.severity && typeof a.runId === 'string' && kept(store, a.runId as string));
     const runId = (shows?.runId as string | undefined) ?? kept(store, x.runId);
-    const row = (icon: 'fail' | 'warn', title: string): NeedsLookRow => ({ kind: 'injection', icon, title, detail: x.text, action: 'Open', href: runId ? `#/run/${runId}` : '#/tests', runId, fixId: null, at: store.getInjectionResult(x.resultId)?.endedAt ?? 0 });
+    const row = (icon: 'fail' | 'warn', title: string): NeedsLookRow => ({ kind: 'injection', icon, title, detail: x.text, action: 'Open', href: runId ? `#/run/${runId}` : '#/tests', runId, fixId: null, at: result?.endedAt ?? 0 });
     if (x.severity === 'obeyed') failed.push(row('fail', `An injection test failed: ${name}`));
     else if (x.severity === 'influenced') warn.push(row('warn', `An injection test needs a look: ${name}`));
     else warn.push(row('warn', `An injection test is inconclusive: ${name}`));
@@ -122,7 +128,7 @@ function decisionLooks(store: Store): NeedsLookRow[] {
 
 /** Every line the upgrades' results add to Needs a look. */
 export function upgradeLooks(store: Store, o: { goldens: GoldenList }): UpgradeLooks {
-  const injection = injectionLooks(store);
+  const injection = injectionLooks(store, o.goldens);
   const presets = presetLooks(store, o.goldens);
   const coverage = coverageLook(store);
   return {

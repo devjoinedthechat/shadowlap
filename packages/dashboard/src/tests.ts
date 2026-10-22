@@ -58,7 +58,7 @@ export type GateResultView = GateResult & {
    * `gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts`; null for a clean replay, which its
    * one attempt settled.
    */
-  rule: string | null;
+  rule?: string | null;
   /** USD an attempt cost on average, to estimate what more attempts would; null when nothing was spent or it wasn't kept. */
   perAttempt: number | null;
   /** Run more attempts, for an inconclusive verdict; null otherwise. */
@@ -207,7 +207,7 @@ export interface GoldenRow {
    * Its error-path presets (`test --chaos`) as their last session left them, or null when none ran:
    * a golden whose presets ran has been tested, though its replay may not have been.
    */
-  presets: PresetsSummary | null;
+  presets?: PresetsSummary | null;
 }
 
 /** The first bad commit `shadowlap bisect` found for a golden: the card above its buttons. */
