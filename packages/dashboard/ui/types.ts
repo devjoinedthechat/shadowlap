@@ -202,6 +202,8 @@ export interface RunStateView {
 export interface RunDetailExtras {
   /** How the run stands, as Runs, the sidebar and the Overview say it; absent from an older server. */
   state?: RunStateView | null;
+  /** Attempts bundled under the run, at any depth, which deleting it takes with it; absent from an older server or copy. */
+  attempts?: number;
   /** The recorded duration of every replayed call, summed up the parent chain. */
   notWaitedMs?: number | null;
   forkAt?: number | null;

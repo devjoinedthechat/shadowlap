@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
-import type { RunDetail } from '../src/api.js';
+import { runDetail, type RunDetail } from '../src/api.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { liveRuns } from '../src/meta.js';
 import { runVersionTag } from '../src/run-version.js';
@@ -352,6 +352,23 @@ describe('where a run’s page answer stands', () => {
       store.endRun(rec, 'completed');
       seen.push(tag(rec));
       expect(new Set(seen).size).toBe(4);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('moves when an attempt is bundled under one of its attempts, which its Delete counts', () => {
+    const store = Store.open(':memory:');
+    try {
+      const done = addRun(store, { startedAt: Date.now() - HOUR, calls: 'lolo' });
+      const probe = addRun(store, { parent: done, startedAt: Date.now() - 1000, calls: 'rrl', divergence: 3, meta: { probe: { of: done, callNo: 3, passed: false }, repeat: { group: 'b1-3', attempt: 1, of: 2 } } });
+      const tag = () => runVersionTag(store, store.getRun(done)!, '');
+      const before = tag();
+      expect(runDetail(store, done)!.attempts).toBe(1);
+      // A --repeat of the probe: filed under the probe, and so under the run, though it is no child of the run.
+      addRun(store, { parent: probe, startedAt: Date.now(), calls: 'rrl', divergence: 3, meta: { repeat: { group: 'again', attempt: 1, of: 1 } } });
+      expect(tag()).not.toBe(before);
+      expect(runDetail(store, done)!.attempts).toBe(2);
     } finally {
       store.close();
     }

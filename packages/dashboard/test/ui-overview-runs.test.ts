@@ -314,6 +314,10 @@ describe('the Runs page’s requests and words', () => {
     expect(deleteText(1, 0, ['01K5CQ6L0P0000000000000000'])).toBe('Removes the run and the recorded data nothing else uses. Its forks keep their own data but lose the link. 01K5CQ6L0P is still recording and is left alone.');
     // The command it shows deletes the same: rm takes a run's attempts with it.
     expect(rmCommand(two)).toEqual({ shown: 'shadowlap rm 01K5CQ4N7G 01K5CQ4N9A', full: 'shadowlap rm 01K5CQ4N7G 01K5CQ4N9A' });
+    // The run page's Delete says the same of its one run: a recording blame probed six times.
+    expect(deleteWhat(two.slice(0, 1), 6)).toBe('01K5CQ4N7G and the 6\u00a0attempts bundled under it');
+    expect(deleteText(1, 6, [])).toBe('Removes the run, the attempts bundled under it and the recorded data nothing else uses. Its forks keep their own data but lose the link.');
+    expect(bulkToast({ verb: 'Deleted', done: two.slice(0, 1), of: 1, skipped: [], attempts: 6 })).toBe('Deleted 01K5CQ4N7G and 6 attempts');
   });
 
   it('packs every run picked into a folder of its own, where its dialog says, as one job does', () => {
