@@ -90,7 +90,20 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
   // More than the one rewrite its repair verified: fix apply won't put it in, so neither does the button.
   if (apply.refused) return { kind: 'none', label: 'Apply the patch', why: `This patch is not the change its repair verified: ${apply.refused}. Nothing applies it from here.` };
   if (f.actions.applied) return { kind: 'apply', label: 'Finish applying' };
-  return { kind: 'apply', label: apply.kind === 'mark' ? 'Mark applied' : 'Apply the patch' };
+  // Its patch is in the working tree already (merged, or applied by hand): applying only marks it applied.
+  return { kind: 'apply', label: apply.kind === 'mark' || apply.inTree ? 'Mark applied' : 'Apply the patch' };
+}
+
+/**
+ * What Mark applied says before it runs `fix apply`: for a patch already in the working tree, what
+ * apply still does (copies the goldens it is missing and runs them, unless the repair's recordings
+ * stayed on a teammate's machine); for a change verified on the working tree as it is, that there
+ * is no patch to apply.
+ */
+export function markText(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'inTree' | 'goldens' | 'pulled'>): string {
+  if (!apply.inTree) return 'It was verified on your working tree as it is, so there is no patch to apply: this marks it applied.';
+  if (apply.goldens) return 'The patch is already in your working tree: this copies the goldens it is missing into goldens/, runs them with shadowlap test and marks the fix applied.';
+  return `The patch is already in your working tree: this marks the fix applied.${apply.pulled ? ' The recordings the fixed code made stay on the machine that ran the repair.' : ''}`;
 }
 
 /**

@@ -605,6 +605,7 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .dialog > header, .dialog > footer { flex: none; }
 .dialog header { padding: 18px 20px 6px; }
 .dialog header h3 { margin: 0; font: 600 17px var(--disp); letter-spacing: -.02em; }
+.dialog header h3 code { font: 500 15.5px var(--mono); letter-spacing: 0; }
 .dialog header p { margin: 6px 0 0; color: var(--faint); font-size: 13px; }
 .dialog .db { padding: 12px 20px; min-height: 0; overflow: auto; }
 .dialog textarea, .dialog input[type="text"] { width: 100%; border-radius: 10px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 10px 12px; outline: none; }

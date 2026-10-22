@@ -27,7 +27,8 @@ export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, Run
 // Fixes: the read model behind #/fixes, the Overview's fix numbers, Needs a look and the run page's banners.
 export { blameCheckFor, DEFAULT_REPAIRER, fixBundles, fixDetail, fixesSummary, fixForRun, fixHref, fixList, needsLookFixes, repairArgv, repairJobArgv } from './fixes.js';
 export { repairerProblem } from './repairer-check.js';
-export type { BlameCheck, BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixesSummary, FixForRun, FixList, FixRef, FixRow, FixRunRef, FixStep, NeedsLookItem, RepairStep, RunBlame as FixRunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';
+export { patchInTree } from './patch-in-tree.js';
+export type { BlameCheck, BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixesSummary, FixForRun, FixList, FixRef, FixRow, FixRunRef, FixStep, NeedsLookItem, PatchCheck, RepairStep, RunBlame as FixRunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';
 export { ghEnv, ghReader, GH_TIMEOUT_MS, isGithubPr, openPullRequest, parsePrState, prHost, PrStates, readableHosts, remoteHost, storePrStates, type PrRead, type PrReader, type PrState, type PrStatesOptions } from './pr-state.js';
 // Tests: the read model behind the Tests screen, and the Settings → CI workflow steps.
 export { bisectArgs, bisectChoices, bisectJob, checkedRevision, failingTests, gatePreview, gateResultView, liveTestSession, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, shortReason, testPatterns, testRunBanner, testsSummary, testsView, underChecks, updateGoldensJob, verdictOfResult } from './tests.js';

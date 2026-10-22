@@ -144,7 +144,9 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     // More than the one rewrite its repair verified: fix apply won't put it in, and nothing here offers to.
     out.push(`  ${p.yellow('!')} its patch is not the change its repair verified: ${one(apply.refused, 600)}. shadowlap fix apply won't apply it`);
   } else if (apply && !d.actions.applied) {
-    if (apply.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${apply.gitApply ? p.dim(`   (or by hand: ${apply.gitApply})`) : ''}`);
+    // Merged, or applied by hand: there is nothing to apply, and fix apply only marks it applied.
+    if (apply.inTree) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(its patch is in your working tree already: ${apply.goldens ? 'copies the goldens it is missing, runs them and marks it applied' : 'marks it applied'})`)}`);
+    else if (apply.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${apply.gitApply ? p.dim(`   (or by hand: ${apply.gitApply})`) : ''}`);
     else out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim('(verified on your working tree: marks it applied)')}`);
   }
   if (d.applied) {

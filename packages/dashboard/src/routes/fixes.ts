@@ -1,9 +1,10 @@
 import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, repairJobArgv } from '../fixes.js';
+import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, repairJobArgv, type PatchCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
+import { patchInTree } from '../patch-in-tree.js';
 import { storePrStates } from '../pr-state.js';
 import { repairerProblem } from '../repairer-check.js';
 import { recordingNow } from '../run-exports.js';
@@ -54,6 +55,12 @@ function configuredRepairer(ctx: RouteContext): string | null {
   } catch {
     return null;
   }
+}
+
+/** Whether a verified fix's patch is in the project's working tree already, as git says it there; none without a project folder. */
+function patchCheck(ctx: RouteContext): { patchInTree?: PatchCheck } {
+  const project = ctx.project?.path;
+  return project ? { patchInTree: (patch) => patchInTree(project, patch) } : {};
 }
 
 /** The config's `tests` in `folder`, as written: where a run judged by the config gets its checks. A config that can't be read gives none. */
@@ -209,7 +216,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/fixes/:id', (r) => {
     const fix = findFix(store, r.params.id);
     prs?.refresh([fix]);
-    r.tagged(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx), checkRepairer: repairerProblem }));
+    r.tagged(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx), checkRepairer: repairerProblem, ...patchCheck(ctx) }));
   });
 
   router.put('/fixes/:id/title', async (r) => {
@@ -217,7 +224,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const fix = findFix(store, r.params.id);
     if (typeof body.title !== 'string' || !body.title.trim()) throw new HttpError(400, 'a title needs some text');
     setFixTitle(store, fix.fixId, body.title);
-    r.json(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx), checkRepairer: repairerProblem }));
+    r.json(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx), checkRepairer: repairerProblem, ...patchCheck(ctx) }));
   });
 
   // Repair and apply change the working tree, and blame runs the agent from it: the job manager

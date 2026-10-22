@@ -335,9 +335,13 @@ export interface FixActions {
    * here puts in the patch alone and runs nothing from it. `files`: every file the patch changes,
    * and `diff` the patch itself, for the confirm dialog to show what goes in. `refused`: why `fix
    * apply` won't put it in (it is more than the one rewrite its repair verified); then there is no
-   * git apply command to copy either (`gitApply`, as `gitApplyCommand` writes it).
+   * git apply command to copy either (`gitApply`, as `gitApplyCommand` writes it), nor once the
+   * patch is in: `inTree` for a verified fix whose patch is in the working tree already (merged, or
+   * applied by hand), which applying only marks applied, and the fix applied. `patchFile` is where
+   * the patch is, relative to the project folder. `goldens`: how many recordings the fixed code made
+   * that applying copies into the goldens folder and tests.
    */
-  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; refused: string | null } | null;
+  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number } | null;
   applied: boolean;
 }
 
@@ -990,12 +994,30 @@ function pendingText(left: { goldens: boolean; test: boolean } | null): string |
 }
 
 /**
+ * Whether a fix's patch is in the project's working tree already, as the caller asks git
+ * (`patchInTree`, patch-in-tree.ts); null when it can't say.
+ */
+export type PatchCheck = (patch: string) => boolean | null;
+
+/**
+ * A verified fix whose repair's patch is in the working tree already, as `check` asks git: merged by
+ * a pull request, or applied by hand. Nothing is left to apply; `fix apply` only marks it applied.
+ * A patch `fix apply` refuses is never asked about.
+ */
+function patchMerged(rec: FixRecords, check: PatchCheck | undefined): boolean {
+  if (!check || rec.fix.status !== 'verified') return false;
+  const r = repairToApply(rec);
+  return !!r?.report.patch && !repairPatchProblem(r.report) && check(r.report.patch) === true;
+}
+
+/**
  * One fix, every step as its page shows it. Null for an id that matches no fix, or several.
  * `repairer` is the one shadowlap.config.json names, if any: the repair commands use it.
  * `checkRepairer` says why the repairer a repair would ask can't be asked from here, for an open fix
- * (`repairerProblem`, which looks for claude on the PATH): this stays a read of the store without it.
+ * (`repairerProblem`, which looks for claude on the PATH), and `patchInTree` whether a verified
+ * fix's patch is in the working tree already: this stays a read of the store without them.
  */
-export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null } = {}): FixDetail | null {
+export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -1019,6 +1041,8 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
   const blameRun = b?.runId ?? rec.failing[0] ?? null;
   const toApply = repairToApply(rec);
   const refused = toApply ? repairPatchProblem(toApply.report) : null;
+  // Merged by a pull request, or applied by hand: there is nothing to apply, only to mark applied.
+  const inTree = patchMerged(rec, options.patchInTree);
   // A repair a teammate ran, which came with a pull: its recordings are on their machine.
   const pulled = (r: StoredRepair | null) => !!r && store.repairPulled(r.repairId) !== null;
   const shortIds = (argv: string[]) => argv.map((a) => (/^[0-9A-Z]{26}$/.test(a) ? short(a) : a));
@@ -1040,12 +1064,16 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
           : {
               kind: toApply ? 'patch' : 'mark',
               argv: ['fix', 'apply', fix.fixId],
-              gitApply: toApply?.report.patch && !refused ? gitApplyCommand(`${toApply.dir.replace(/\/+$/, '')}/fix.patch`) : null,
+              // Once the patch is in the working tree, git apply would only fail.
+              gitApply: toApply?.report.patch && !refused && !inTree && fix.status !== 'applied' ? gitApplyCommand(`${toApply.dir.replace(/\/+$/, '')}/fix.patch`) : null,
               pending: pendingText(applyLeft(fix, toApply, { pulled: pulled(toApply) })),
               pulled: pulled(toApply),
               files: toApply?.report.patch ? patchFiles(toApply.report.patch) : [],
               diff: toApply?.report.patch ?? null,
+              patchFile: toApply?.report.patch ? `${toApply.dir.replace(/\/+$/, '')}/fix.patch` : null,
               refused,
+              inTree,
+              goldens: toApply && !pulled(toApply) ? toApply.report.output.goldens.length : 0,
             },
       applied: fix.status === 'applied',
     },
@@ -1106,7 +1134,7 @@ export interface WeekWindows {
  * before, unless `windows` names them. The Overview passes its own, the viewer's days, so a blame
  * counts in the same week as the runs beside it.
  */
-export function fixesSummary(store: Store, now: number = Date.now(), windows?: WeekWindows): FixesSummary {
+export function fixesSummary(store: Store, now: number = Date.now(), windows?: WeekWindows, options: { patchInTree?: PatchCheck } = {}): FixesSummary {
   const fixes = store.listFixes();
   const records = fixes.map((f) => fixRecords(store, f));
   const cost = fixCost(records);
@@ -1129,7 +1157,8 @@ export function fixesSummary(store: Store, now: number = Date.now(), windows?: W
   const blamed = records.filter((r) => r.blames.some((b) => b.outcome !== 'stopped')).length;
   return {
     open: fixes.filter((f) => f.status === 'open').length,
-    readyToApply: fixes.filter((f) => f.status === 'verified').length,
+    // A patch already in the working tree is no more to apply.
+    readyToApply: records.filter((r) => r.fix.status === 'verified' && !patchMerged(r, options.patchInTree)).length,
     broken: records.filter((r) => brokenOf(r) !== null).length,
     funnel: { failures: fixes.length + unblamedFailures(store).length, blamed, verified: fixes.filter((f) => f.status !== 'open').length, applied: fixes.filter((f) => f.status === 'applied').length },
     attempts: cost.attempts,
@@ -1207,7 +1236,7 @@ function unaskedWords(r: StoredRepair): string | null {
  * What needs a look about fixes, most urgent first: applied fixes that don't hold, failures with no
  * fix yet (open fixes, then failed runs never blamed), then verified fixes not applied.
  */
-export function needsLookFixes(store: Store, options: { limit?: number } = {}): NeedsLookItem[] {
+export function needsLookFixes(store: Store, options: { limit?: number; patchInTree?: PatchCheck } = {}): NeedsLookItem[] {
   const broken: NeedsLookItem[] = [];
   const open: NeedsLookItem[] = [];
   const ready: NeedsLookItem[] = [];
@@ -1223,6 +1252,8 @@ export function needsLookFixes(store: Store, options: { limit?: number } = {}): 
       const repaired = last ? (unaskedWords(last) ?? 'no fix found yet') : 'no fix yet';
       open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : repaired}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
     } else if (fix.status === 'verified') {
+      // Its patch is in the working tree already: nothing is ready to apply, and the fix's page offers Mark applied.
+      if (patchMerged(rec, options.patchInTree)) continue;
       const p = shownRepair(rec);
       const c = p && acceptedCandidate(p);
       ready.push({ kind: 'ready', href: fixHref(fix.fixId, c ? 'repair' : 'verify'), icon: 'fixok', title: 'A verified fix is ready', detail: c ? commitTitle(c) : fix.title, action: 'Apply', fixId: fix.fixId, runId: null, at: fix.verifiedAt ?? fix.openedAt });

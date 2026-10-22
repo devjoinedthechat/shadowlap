@@ -173,7 +173,7 @@ describe('a fix', () => {
     expect(d.steps[2]).toMatchObject({ title: '3 of 3 runs held', meta: '1 earlier change rejected' });
     const diff = store.getRepair('repair-munzln2i')!.report.patch;
     expect(diff).toContain('diff --git a/agent.mjs b/agent.mjs');
-    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, refused: null }, applied: false });
+    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1 }, applied: false });
     expect(d.commands.blame).toBe(`shadowlap blame ${failing.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}'`);
     // The good run its verdicts kept: label:good would also take any run labelled good since.
     expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps ${good.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
@@ -493,12 +493,15 @@ describe('a fix', () => {
       pulled: false,
       files: ['agent.mjs', 'EVIL.txt'],
       diff: report.patch,
+      patchFile: '.shadowlap/repairs/repair-tampered/fix.patch',
       refused: 'it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone',
+      inTree: false,
+      goldens: 1,
     });
     expect(d.repair!.files[0]).toEqual({ name: 'fix.patch', note: '2 files · +2 −1' });
   });
 
-  it('keeps Copy git apply on an applied fix, and says what applying left undone', () => {
+  it('offers the patch to read on an applied fix, never a git apply that would fail, and says what applying left undone', () => {
     const run = makeRun(store, { labels: ['refund-bug'] });
     const { fix } = blame(run);
     // repair --apply: the change is in the working tree, its goldens are not in the project yet.
@@ -507,7 +510,7 @@ describe('a fix', () => {
     expect(d).toMatchObject({ status: 'applied', broken: null, applied: { via: 'repair --apply', goldens: [], tests: 'skipped' } });
     expect(d.actions).toEqual({
       repair: null,
-      apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-applied/fix.patch', pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them', pulled: false, files: ['agent.mjs'], diff: store.getRepair('repair-applied')!.report.patch, refused: null },
+      apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: null, pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them', pulled: false, files: ['agent.mjs'], diff: store.getRepair('repair-applied')!.report.patch, patchFile: '.shadowlap/repairs/repair-applied/fix.patch', refused: null, inTree: false, goldens: 1 },
       applied: true,
     });
     // fix apply copied them and the test failed: the fix doesn't hold, and Needs a look says so first.
@@ -521,6 +524,30 @@ describe('a fix', () => {
     ]);
     expect(needsLookFixes(store)[0]).toMatchObject({ fixId: fix.fixId, title: "An applied fix doesn't hold", detail: 'issue_refund called with amount 240 · shadowlap test failed on its goldens', icon: 'fail', href: `#/fixes/${fix.fixId}` });
     expect(fixesSummary(store, NOW + DAY).broken).toBe(1);
+  });
+
+  it('offers Mark applied for a patch already in the working tree, and leaves the fix out of what is ready to apply', () => {
+    const { fixId } = story();
+    // As git would answer in a tree where the change is in: merged by a pull request, or applied by hand.
+    const asked: string[] = [];
+    const merged = (patch: string) => {
+      asked.push(patch);
+      return patch.includes(AFTER);
+    };
+    const d = fixDetail(store, fixId, { patchInTree: merged })!;
+    expect(d.actions.apply).toMatchObject({ kind: 'patch', inTree: true, gitApply: null, goldens: 1, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch' });
+    expect(asked).toEqual([store.getRepair('repair-munzln2i')!.report.patch]);
+    // Without git to ask, as fix show's JSON from another folder: the patch is to apply.
+    expect(fixDetail(store, fixId)!.actions.apply).toMatchObject({ inTree: false, gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch' });
+    expect(needsLookFixes(store, { patchInTree: merged }).filter((x) => x.kind === 'ready')).toEqual([]);
+    expect(needsLookFixes(store).filter((x) => x.kind === 'ready')).toHaveLength(1);
+    expect(fixesSummary(store, NOW, undefined, { patchInTree: merged }).readyToApply).toBe(0);
+    expect(fixesSummary(store, NOW).readyToApply).toBe(1);
+    // Applied: nothing to ask git, and the patch to read.
+    markFixApplied(store, fixId, { patch: 'already', repairId: 'repair-munzln2i', goldens: ['goldens/x'], tests: 'passed', via: 'fix apply' });
+    asked.length = 0;
+    expect(fixDetail(store, fixId, { patchInTree: merged })!.actions).toMatchObject({ applied: true, apply: { inTree: false, gitApply: null, diff: expect.stringContaining('diff --git a/agent.mjs') } });
+    expect(asked).toEqual([]);
   });
 
   it('marks a fix that a verify rejected after it was applied, and does not count that as rejected before it shipped', () => {

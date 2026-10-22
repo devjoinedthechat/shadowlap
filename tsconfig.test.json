@@ -44,6 +44,8 @@
     "packages/dashboard/test/ui-palette-ids.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
     // This renders the Tests page.
-    "packages/dashboard/test/ui-tests-chaos.test.ts"
+    "packages/dashboard/test/ui-tests-chaos.test.ts",
+    // This renders a fix's page.
+    "packages/dashboard/test/ui-fix-page.test.ts"
   ]
 }

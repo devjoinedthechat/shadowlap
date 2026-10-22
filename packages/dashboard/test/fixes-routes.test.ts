@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport, type RepairReport, type VerifyReport } from '@shadowlap/engine';
-import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { blameCheckFor, fixBundles } from '../src/fixes.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView, type ProjectConfig } from '../src/index.js';
 
@@ -590,6 +590,27 @@ describe('the working tree, one change at a time', () => {
     const listed = await json<{ jobs: JobView[] }>(await api('jobs'));
     expect(listed.jobs.map((j) => j.worktree?.use ?? null)).toEqual([null, 'reads', 'reads']);
     for (const j of [blaming, second]) await api(`jobs/${j.id}/stop`, { method: 'POST' });
+  });
+});
+
+describe('a patch already in the working tree', () => {
+  it('is offered to mark applied, with no git apply to copy, and the Overview counts the fix no more as ready to apply', async () => {
+    const { fixId } = story();
+    // The project's repository, its agent with the change in it: a pull request merged it.
+    const git = (...args: string[]) => spawnSync('git', args, { cwd: project, stdio: 'ignore' });
+    writeFileSync(join(project, 'agent.mjs'), `${AFTER}\n`);
+    git('init', '-q', '-b', 'main');
+    git('add', 'agent.mjs');
+    git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', 'Escalate refunds above the limit');
+    await start();
+    expect((await json(await api(`fixes/${fixId}`))).actions.apply).toMatchObject({ kind: 'patch', inTree: true, gitApply: null });
+    const summary = await json(await api('summary'));
+    expect(summary.fixes.readyToApply).toBe(0);
+    expect(summary.needsLook.items.filter((x: { kind: string }) => x.kind === 'ready')).toEqual([]);
+    // Taken out again: the patch is to apply.
+    writeFileSync(join(project, 'agent.mjs'), `${BEFORE}\n`);
+    expect((await json(await api(`fixes/${fixId}`))).actions.apply).toMatchObject({ inTree: false, gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch' });
+    expect((await json(await api('summary'))).fixes.readyToApply).toBe(1);
   });
 });
 

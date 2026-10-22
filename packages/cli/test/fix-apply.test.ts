@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { packRun, plain, recordBlame, recordRepair, Store, unifiedDiff, type RepairReport } from '@shadowlap/engine';
-import { fixDetail } from '@shadowlap/dashboard';
+import { fixDetail, patchInTree } from '@shadowlap/dashboard';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
 import { ApplyError, applyFix } from '../src/fix-apply.js';
 import { formatFixDetail } from '../src/fix-format.js';
@@ -70,6 +70,27 @@ describe('fix apply after repair --apply', () => {
       const result = await applyFix(store, fix, { cwd: project, goldens: 'goldens', test: true, build: null, db: join(project, 'shadowlap.db'), log: (l) => lines.push(l) });
       expect(result.goldens).toEqual([{ from: `${dir}/goldens/${name}`, to: `goldens/${name}`, copied: true }]);
       expect(lines).toContain(`  shadowlap test goldens/${name}`);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('fix show of a verified fix whose patch is in the working tree already', () => {
+  it('says applying only marks it applied, with the goldens it copies and runs, and offers no git apply to copy', () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      const run = makeRun(store, { labels: ['refund-over-limit'] });
+      recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
+      const dir = '.shadowlap/repairs/repair-mv9gxsdm';
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report: repairReport({ targets: [run], dir }), expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+      expect(fix.status).toBe('verified');
+      const shown = () => formatFixDetail(fixDetail(store, fix.fixId, { patchInTree: (patch) => patchInTree(project, patch) })!, plain);
+      expect(shown()).toContain(`next: shadowlap fix apply ${fix.fixId.slice(0, 13)}   (or by hand: git -c core.autocrlf=false apply ${dir}/fix.patch)`);
+      // A pull request merged it: agent.mjs has the change.
+      writeFileSync(join(project, 'agent.mjs'), `${AFTER}\n`);
+      expect(shown()).toContain(`next: shadowlap fix apply ${fix.fixId.slice(0, 13)} (its patch is in your working tree already: copies the goldens it is missing, runs them and marks it applied)`);
+      expect(shown()).not.toContain('git apply');
     } finally {
       store.close();
     }

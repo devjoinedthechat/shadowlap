@@ -1,6 +1,7 @@
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { overviewOptions, overviewSummary } from '../overview.js';
+import { patchInTree } from '../patch-in-tree.js';
 import type { Router } from '../router.js';
 import { warmRunStats } from '../run-stats.js';
 import { setupUnderWay } from '../store-setup.js';
@@ -44,6 +45,7 @@ export function register(router: Router, ctx: RouteContext): void {
     // here are the store status's count, the one Settings → Store and the CLI give; a setup of the
     // store left unfinished leads back to its page.
     const setup = store && ctx.project ? setupUnderWay(ctx.store, readTeamStoreInput({ cwd: ctx.project.path })) : null;
-    r.json(overviewSummary(ctx.store, { ...o, ...ctx.read, goldens: goldensOf(ctx), teamStore: store ? { name: store.name, onlyLocal: store.onlyLocal, setup } : null }));
+    const project = ctx.project?.path;
+    r.json(overviewSummary(ctx.store, { ...o, ...ctx.read, goldens: goldensOf(ctx), teamStore: store ? { name: store.name, onlyLocal: store.onlyLocal, setup } : null, ...(project ? { patchInTree: (patch: string) => patchInTree(project, patch) } : {}) }));
   });
 }

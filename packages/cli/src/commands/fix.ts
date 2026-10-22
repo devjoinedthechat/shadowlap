@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { applyLeft, BLAME_DEFAULTS, commandIsImported, describeGate, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
-import { fixDetail, fixHref, fixList, ghReader, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
+import { fixDetail, fixHref, fixList, ghReader, patchInTree, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
 import { parseExpect } from '../checks.js';
@@ -622,8 +622,9 @@ function registerFixes(program: Command): void {
       const store = readStore(program.opts<GlobalOpts>());
       try {
         const repairer = configuredRepairer();
-        // The repair it suggests next, and whether its repairer can be asked from here (claude on the PATH).
-        const detail = fixDetail(store, requireFix(store, arg).fixId, { repairer, checkRepairer: repairerProblem })!;
+        // The repair it suggests next, whether its repairer can be asked from here (claude on the PATH),
+        // and whether a verified fix's patch is in this working tree already, which apply only marks applied.
+        const detail = fixDetail(store, requireFix(store, arg).fixId, { repairer, checkRepairer: repairerProblem, patchInTree: (patch) => patchInTree(process.cwd(), patch) })!;
         process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer })) + '\n');
       } catch (err) {
         fixIdFailed(err, arg, flags.json);

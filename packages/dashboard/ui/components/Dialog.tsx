@@ -16,7 +16,8 @@ import { CmdLine } from './bits.js';
  */
 
 export interface DialogProps {
-  title: string;
+  /** Words, or words with code in them: a file's name, a run's id. */
+  title: ReactNode;
   text?: ReactNode;
   children?: ReactNode;
   /** The action's words; omit for a dialog with Close only. */
