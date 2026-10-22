@@ -2,15 +2,16 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { RunPicker } from '../ui/compare/RunPicker.js';
+import { ResponseDifferences } from '../ui/pages/Compare.js';
 import { TodayCard, WeekGrid } from '../ui/overview/panels.js';
 import { matchPalette } from '../ui/palette.js';
 import { placeList } from '../ui/place.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { sideStatus } from '../ui/runs.js';
-import { RunsTable } from '../ui/runspage/RunsTable.js';
+import { fitRunsTable, RunsTable } from '../ui/runspage/RunsTable.js';
 import { RecentRuns } from '../ui/shell/Sidebar.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { RunDetail, RunListItem } from '../ui/types.js';
+import type { CompareView, RunDetail, RunListItem } from '../ui/types.js';
 
 /**
  * A run is named by its id everywhere, with one quiet line that says what it was about (decision
@@ -205,5 +206,77 @@ describe('the lists name a run by its id, with its about line', () => {
     expect(card).toContain('Recording <code>01M5GRZNA5</code>');
     expect(card).toContain('<span class="rab d" data-about="My blender arrived broken"');
     expect(card).not.toContain('node refund_agent.mjs T-8813</span>');
+  });
+});
+
+describe('Compare names each run by its whole id', () => {
+  it('opens a call whose answer changed in either run, each by its id, never a few characters of it', () => {
+    const c = { a: { runId: REC }, b: { runId: FORK }, firstRequestDifference: null, responseDifferences: [{ callNo: 5, kind: 'api', name: 'POST /v1/messages', detail: '"Issuing the refund." → "Above the limit."', sameAnswer: false }] } as unknown as CompareView;
+    const html = renderToStaticMarkup(createElement(ResponseDifferences, { c }));
+    const ids = [...html.matchAll(/<code class="rnm">([^<]*)<\/code>/g)].map((m) => m[1]);
+    expect(ids).toEqual(['01M5GRX4VY', '01M5GRX8K4']);
+    expect(html).toContain(`href="#/run/${REC}/5" title="Open 01M5GRX4VY at #5"`);
+    expect(html).toContain(`href="#/run/${FORK}/5" title="Open 01M5GRX8K4 at #5"`);
+  });
+});
+
+describe('Runs’ columns give way, measured, so About keeps its room', () => {
+  /**
+   * A Runs table whose About column is `about` wide, gaining what each column it leaves out gives it
+   * (`org` for the strip of calls by origin, `by` for By), with labelled rows whose labels are as wide
+   * as given: the measures the fit reads after layout.
+   */
+  function table(o: { about: number; org?: number; by?: number; byColumn?: boolean; labs?: Array<{ width: number; about: string }>; width?: number; panel?: number }) {
+    const classes = new Set<string>();
+    const room = () => o.about + (classes.has('no-org') ? (o.org ?? 0) : 0) + (classes.has('no-by') ? (o.by ?? 0) : 0);
+    const th = { getBoundingClientRect: () => ({ width: room() }) };
+    const labs = (o.labs ?? []).map((l) => ({ getBoundingClientRect: () => ({ width: l.width }), parentElement: { querySelector: () => ({ dataset: { about: l.about, from: 'user' } }) } }));
+    const t = {
+      classList: { add: (...c: string[]) => c.forEach((x) => classes.add(x)), remove: (...c: string[]) => c.forEach((x) => classes.delete(x)), contains: (c: string) => classes.has(c) },
+      matches: (sel: string) => sel === 'table.runst',
+      querySelector: (sel: string) => (sel === 'th.abcol' ? th : sel === 'th.bycol' ? (o.byColumn ? {} : null) : null),
+      querySelectorAll: (sel: string) => (sel === '.abcell .labs' ? labs : []),
+      closest: () => (o.panel ? { clientWidth: o.panel } : null),
+      getBoundingClientRect: () => ({ width: o.width ?? 0 }),
+    };
+    return { el: t as unknown as HTMLElement, classes };
+  }
+
+  /** Fits it in a window `width` wide, text measured at 7px a character. */
+  function fit(t: ReturnType<typeof table>, width = 1440): string[] {
+    const g = globalThis as Record<string, unknown>;
+    const had = { innerWidth: g.innerWidth, getComputedStyle: g.getComputedStyle, document: g.document };
+    g.innerWidth = width;
+    g.getComputedStyle = () => ({ font: '12.5px Inter' });
+    g.document = { createElement: () => ({ getContext: () => ({ font: '', measureText: (x: string) => ({ width: x.length * 7 }) }) }) };
+    try {
+      fitRunsTable(t.el);
+    } finally {
+      for (const [k, v] of Object.entries(had)) if (v === undefined) delete g[k];
+      else g[k] = v;
+    }
+    return [...t.classes].sort();
+  }
+
+  it('keeps every column while About has its room', () => {
+    expect(fit(table({ about: 360, labs: [{ width: 120, about: 'Order A-1042: the customer asks for a refund' }] }))).toEqual([]);
+  });
+
+  it('gives up the strip of calls by origin first, then the labels, then By, before the about line goes under the id', () => {
+    // The strip alone gives About its 200px.
+    expect(fit(table({ about: 150, org: 60 }))).toEqual(['no-org']);
+    // Labels that need more than About has, beside the shortest form of their run's line: they go next.
+    expect(fit(table({ about: 250, org: 20, labs: [{ width: 200, about: 'Order A-1042: the customer asks for a refund' }] }))).toEqual(['no-labs', 'no-org']);
+    // With a team store, By goes last, and gives About its room.
+    expect(fit(table({ about: 120, org: 30, by: 100, byColumn: true }))).toEqual(['no-by', 'no-labs', 'no-org']);
+    // Without one there is no By to give up: the about line goes under the id.
+    expect(fit(table({ about: 120, org: 30, by: 100 }))).toEqual(['no-by', 'no-labs', 'no-org', 'stacked']);
+  });
+
+  it('puts the about line under the id when nothing gives About its room, or on a tablet or a phone', () => {
+    expect(fit(table({ about: 100, org: 30, by: 50, byColumn: true }))).toEqual(['no-by', 'no-labs', 'no-org', 'stacked']);
+    // Still wider than its panel: a status may wrap after its dot.
+    expect(fit(table({ about: 100, org: 30, width: 900, panel: 700 }))).toEqual(['no-by', 'no-labs', 'no-org', 'stacked', 'tight']);
+    expect(fit(table({ about: 600 }), 1000)).toEqual(['no-by', 'no-labs', 'no-org', 'stacked']);
   });
 });

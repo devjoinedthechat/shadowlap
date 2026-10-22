@@ -236,7 +236,7 @@ function Paths({ c, a, b }: { c: CompareView; a: RunDetail; b: RunDetail }) {
   );
 }
 
-function ResponseDifferences({ c }: { c: CompareView }) {
+export function ResponseDifferences({ c }: { c: CompareView }) {
   const first = c.firstRequestDifference?.callNo;
   // A call the model answered the same way in a new response is in the prefix line, not here.
   const rows = changedAnswers(c);
