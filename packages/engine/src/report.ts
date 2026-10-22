@@ -207,7 +207,8 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
         (refused ? `, ${refused} refused` : '') +
         fenced +
         `; ${s.upstreamRequests} upstream requests` +
-        (s.cost.spent || s.cost.saved ? ` (≈${formatUsd(s.cost.spent)} spent, ${formatUsd(s.cost.saved)} saved)` : ''),
+        // What replaying didn't spend again, in the words `show` and the dashboard's receipt use.
+        (s.cost.spent || s.cost.saved ? ` (≈${formatUsd(s.cost.spent)} spent, ${formatUsd(s.cost.saved)} not re-spent)` : ''),
     );
   }
   if (s.status === 'failed' || s.status === 'crashed') lines.push(p.red(`  the agent process ${s.status === 'crashed' ? 'was interrupted' : 'exited with an error'}`));

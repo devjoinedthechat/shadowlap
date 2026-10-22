@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { dirname, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { InvalidArgumentError } from 'commander';
-import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, wholeInput, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
+import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, wholeInput, type CallRecord, type RecordEventInput, type RunRecord, type RunStatus } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { defaultDbPath } from './config.js';
 import { Telemetry, type EventInput } from './telemetry.js';
@@ -236,6 +236,22 @@ export function printOutcome(summary: ReturnType<Sidecar['endRun']>['summary']):
   // One that stopped before its recording did changed no request: the summary line says it all.
   if (summary.divergence && summary.divergence.type !== 'ended_early') process.stderr.write(formatDivergence(summary.divergence, p) + '\n');
   process.stderr.write(p.dim(`  shadowlap show ${shortId(summary.runId)}\n`));
+}
+
+/**
+ * A run's status as `ls` and `show` print it, in the dashboard's words: a run stopped before it ended
+ * (Ctrl-C, a kill, a crash, or a recorder that went away, `left`) is interrupted. JSON and the
+ * recording format keep `crashed`.
+ */
+export function statusWord(status: RunStatus, left = false): string {
+  if (status === 'crashed' || (status === 'running' && left)) return 'interrupted';
+  return status;
+}
+
+/** The runs whose recorder went away while they were marked running, when any of `runs` is: they read as interrupted. */
+export function leftRunning(store: Store, runs: readonly Pick<RunRecord, 'status'>[]): ReadonlySet<string> {
+  if (!runs.some((r) => r.status === 'running')) return new Set();
+  return new Set(store.recordingRuns().abandoned.map((a) => a.run.runId));
 }
 
 export function describeCall(store: Store, c: CallRecord): string[] {

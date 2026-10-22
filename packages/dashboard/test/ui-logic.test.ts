@@ -558,7 +558,7 @@ describe('job drawer', () => {
     '[shadowlap] replaying run 01M53NKBCHNWFMBS9RFZHCREE4',
     'T-8830: Refunded $45 for order A-1131 and emailed the customer.',
     '',
-    '⑂ Forked at call 3: 2 calls replayed, then 22 live, 3 writes blocked; 14 upstream requests (≈$0.016 spent, $0 saved)',
+    '⑂ Forked at call 3: 2 calls replayed, then 22 live, 3 writes blocked; 14 upstream requests (≈$0.016 spent, $0 not re-spent)',
     '  24 recorded calls left unused after the fork: #4 get_ticket, #5 POST /v1/messages, #6 lookup_order, …',
     '✗ Diverged at call 3 (api POST /v1/messages): 2 calls replayed before divergence',
     '  compared with run 01M53ND946…, call 3',

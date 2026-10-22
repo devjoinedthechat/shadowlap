@@ -175,7 +175,7 @@ export function formatRepeats(r: RepeatReport, p: Palette = plain): string {
   const early = r.attempts.filter((a) => a.endedEarly !== null);
   const ended = early.length ? p.red(` · ${early.length} of ${n} ended early, at call ${[...new Set(early.map((a) => a.endedEarly!))].sort((a, b) => a - b).join(', ')}`) : '';
   lines.push(`${p.yellow('⑂')} ${p.bold(`${n} attempts`)} from ${short(r.parentRunId)}, ${where}${ended}`);
-  const cost = r.spent || r.saved ? ` · ≈${formatUsd(r.spent)} spent, ${formatUsd(r.saved)} saved` : '';
+  const cost = r.spent || r.saved ? ` · ≈${formatUsd(r.spent)} spent, ${formatUsd(r.saved)} not re-spent` : '';
   lines.push(`  ${r.succeeded} of ${n} exited 0 · ${r.attempts.reduce((s, a) => s + a.upstreamRequests, 0)} upstream requests · ${formatTokens(r.tokensNotRespent)} input tokens not re-spent${cost}`);
 
   lines.push('', `  ${p.bold('Paths after the fork')}`);
