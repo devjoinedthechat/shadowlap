@@ -2043,6 +2043,9 @@ table.runst .abw { display: flex; align-items: center; gap: 12px; min-width: 0; 
 table.runst .abw .rab { flex: 0 1 auto; }
 table.runst .abw .labs { flex: none; display: flex; gap: 6px; margin-left: auto; }
 table.runst .bycell { width: 1%; }
+table.runst .byav { display: inline-flex; vertical-align: middle; cursor: default; }
+table.runst .byav .av { width: 20px; height: 20px; }
+table.runst .byav .av:not(.bot) { font-size: 10px; }
 table.runst .rline { display: none; padding-left: 22px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: clip; max-width: none; }
 table.runst .rline .rab { flex: 0 1 auto; color: var(--faint); }
 table.runst .rline .rso { display: none; flex: none; }

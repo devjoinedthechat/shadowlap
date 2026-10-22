@@ -10,12 +10,13 @@ import { navigate } from '../router.js';
 import { kindWord, runOrigins, runOutcome, runSource, runSpent, sideStatus, type RunSort } from '../runs.js';
 import type { RunListItem } from '../types.js';
 import { localTitle } from './bulk.js';
-import { Person } from './people.js';
+import { ByAvatar } from './people.js';
 
 /**
  * The Runs table, one row a run: its id (decision 10: the id is its name), then what it was about in
  * a column of its own, fitted at whole words, with its labels as chips at the column's end; who made
- * it (with a team store), its calls by origin, calls, what it spent live, how it came out and when.
+ * it (with a team store, as their avatar, the name on hover, so every row keeps one line), its calls
+ * by origin, calls, what it spent live, how it came out and when.
  * What only adds to a row gives way, measured after layout rather than at fixed widths, while About
  * would get less than 200px, or a labelled row less than its shortest about line beside its labels:
  * first the strip of calls by origin, then the labels, then By. Only when About would get less even
@@ -178,7 +179,7 @@ const Row = memo(function Row({ run: r, on, selectable, byColumn, you, onPick, n
       </td>
       {byColumn ? (
         <td className="bycell">
-          <Person author={r.author ?? null} ci={r.ci ?? null} you={you} />
+          <ByAvatar author={r.author ?? null} ci={r.ci ?? null} you={you} />
         </td>
       ) : null}
       <td className="orgcell">{origins ? <MiniStrip origins={origins} /> : null}</td>

@@ -164,6 +164,16 @@ describe('the lists name a run by its id, with its about line', () => {
     expect(html).not.toContain('fork @17 of 01M5GRX4VY · <code>');
   });
 
+  it('in Runs with a team store: who made each run as an avatar, the name on hover, so every row keeps one line', () => {
+    const ci = { ...lostRun, author: 'ci', ci: 'github' } as RunListItem & { ci: string };
+    const html = renderToStaticMarkup(createElement(RunsTable, { rows: [{ ...forkRun, author: 'maya@example.com' }, ci], picked: new Set<string>(), selectable: false, byColumn: true, you: 'maya@example.com', sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: 2_000 }));
+    expect(html).toContain('<td class="bycell"><span class="byav" role="img" aria-label="maya (you)" data-tip="{&quot;t&quot;:&quot;maya (you)&quot;}"><span class="av ');
+    expect(html).toContain('aria-label="ci · GitHub Actions"');
+    // No name beside the avatar, and no second line for CI's provider.
+    expect(html).not.toContain('class="person"');
+    expect(html).not.toContain('<small>GitHub Actions</small>');
+  });
+
   it('in the palette: the about line is the hint, and a run matches its kind, command and labels unseen', () => {
     const items = [
       { group: 'Runs' as const, label: '01M5GRX8K4', hint: 'override #16', match: 'fork @17 · node refund_agent.mjs T-8812 · what-if' },

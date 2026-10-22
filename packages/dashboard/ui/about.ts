@@ -78,13 +78,25 @@ export function cutForms(s: string): string[] {
 const endsCut = (form: string): boolean => form.endsWith(CUT);
 
 /**
+ * The shorter forms of an import's sources, when it read several files (`shadowlap-4121.jsonl,
+ * shadowlap-4122.jsonl`): its first files whole and how many more, `shadowlap-4121.jsonl and 1 more`.
+ * A file's name is never cut.
+ */
+export function sourceForms(s: string): string[] {
+  const files = s.split(', ');
+  const out: string[] = [];
+  for (let k = files.length - 1; k >= 1; k--) out.push(`${files.slice(0, k).join(', ')} and ${files.length - k} more`);
+  return out;
+}
+
+/**
  * An about line and every shorter form of it, then nothing: with no room even for its shortest form,
  * a line gives its place up rather than show part of a word. What a replay or a fork changed, and a
- * clean replay's "clean replay", are never cut.
+ * clean replay's "clean replay", are never cut; an import of several files gives way a file at a time.
  */
 export function aboutForms(about: Pick<RunAbout, 'text' | 'from'>): string[] {
   const whole = about.text;
-  const cuts = about.from === 'change' || about.from === 'nothing' ? [] : cutForms(whole);
+  const cuts = about.from === 'change' || about.from === 'nothing' ? [] : about.from === 'source' && whole.includes(', ') ? sourceForms(whole) : cutForms(whole);
   const out = [whole];
   for (const c of cuts) if (!out.includes(c)) out.push(c);
   return [...out.slice(0, 1), ...out.slice(1).sort((a, b) => b.length - a.length), ''];

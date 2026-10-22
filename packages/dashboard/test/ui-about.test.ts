@@ -68,6 +68,13 @@ describe('the shorter forms of an about line', () => {
     expect(cutForms('Replay 01M5GRX4VY5XKQ0MRGD13QZKZN for the refund').some((f) => before(f).startsWith('01M5GRX4VY5X'))).toBe(false);
   });
 
+  it('give an import of several files up a file at a time, never cutting a file’s name', () => {
+    expect(aboutForms({ text: 'shadowlap-4121.jsonl, shadowlap-4122.jsonl', from: 'source' })).toEqual(['shadowlap-4121.jsonl, shadowlap-4122.jsonl', 'shadowlap-4121.jsonl and 1 more', '']);
+    expect(aboutForms({ text: 'a.har, b.har, c.har', from: 'source' })).toEqual(['a.har, b.har, c.har', 'a.har, b.har and 1 more', 'a.har and 2 more', '']);
+    // One file is its name, whole.
+    expect(aboutForms({ text: 'refund-A-1077.har', from: 'source' })).toEqual(['refund-A-1077.har', '']);
+  });
+
   it('for a command, cut it only at its end after a whole word, so an id is whole or left out', () => {
     expect(hintForms('shadowlap replay 01K5CQ4N7G')).toEqual(['shadowlap replay 01K5CQ4N7G', `shadowlap replay${CUT}`, `shadowlap${CUT}`, '']);
     expect(hintForms('shadowlap diff 01K5CQ4N7G 01K5CQ4P2R', 'against 01K5CQ4N7G')).toEqual(['shadowlap diff 01K5CQ4N7G 01K5CQ4P2R', 'against 01K5CQ4N7G', '']);
