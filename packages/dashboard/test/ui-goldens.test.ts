@@ -20,7 +20,7 @@ const row = (name: string, over: Partial<GoldenRow> = {}): GoldenRow => ({
   modeHint: 'must send exactly the requests it recorded',
   gate: null,
   checks: ['issue_refund called 1 time', 'send_email called 1 time'],
-  checkResults: ['issue_refund called 1 time', 'send_email called 1 time'].map((label) => ({ label, status: 'passed', detail: null, reason: null, source: null, attempts: null })),
+  checkResults: ['issue_refund called 1 time', 'send_email called 1 time'].map((label) => ({ label, status: 'passed', added: false, detail: null, reason: null, source: null, live: null, attempts: null })),
   injection: false,
   history: [],
   last: { result: 'pass', verdict: 'passed', failure: null, line: '8/8 replayed · checks passed', at: T, updated: false, gate: null },
@@ -181,7 +181,7 @@ describe('the goldens table', () => {
   });
 
   it('marks each check by its last status, as the CLI does, with no mark before a result', () => {
-    const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', detail: null, reason: null, source: null, attempts: null, ...over });
+    const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', added: false, detail: null, reason: null, source: null, live: null, attempts: null, ...over });
     expect(checkMark(c({}), true)).toMatchObject({ mark: '✓', status: 'passed', word: 'passed', text: 'issue_refund never called', sub: null, tip: { title: 'passed · issue_refund called 0 times', color: 'var(--ok)' } });
     // Failed: what it found, and over several attempts how many passed it.
     expect(checkMark(c({ status: 'failed', detail: 'called 1 time (1 blocked or stubbed)' }), true)).toMatchObject({ mark: '✗', sub: 'called 1 time (1 blocked or stubbed)', tip: { label: 'failed', value: 'called 1 time (1 blocked or stubbed)', color: 'var(--err)' } });
@@ -189,13 +189,21 @@ describe('the goldens table', () => {
     // Inconclusive: a ? with why, in amber; not applicable: a dash, and why on hover.
     expect(checkMark(c({ label: 'judge "calm" answers yes', status: 'inconclusive', detail: 'not judged: no recorded verdict and the test runs offline' }), true)).toMatchObject({ mark: '?', status: 'inconclusive', sub: 'not judged: no recorded verdict and the test runs offline', tip: { color: 'var(--warn)' } });
     expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held' }), true)).toMatchObject({ mark: '–', word: 'not applicable', sub: 'not applicable', tip: { value: 'the condition never held' } });
-    // A judge's verdict says where it came from; a pass over attempts that weren't all passes says so.
-    expect(checkMark(c({ source: 'recording', reason: 'It names the limit.' }), true)).toMatchObject({ sub: 'judged from the recording', tip: { value: '“It names the limit.”' } });
+    // A judge's verdict says where it came from, as the CLI's check line does: free from the recording, and live at what it cost.
+    expect(checkMark(c({ source: 'recording', reason: 'It names the limit.' }), true)).toMatchObject({ sub: 'judged from the recording · free', tip: { value: '“It names the limit.”' } });
+    expect(checkMark(c({ source: 'live', live: { cost: 0.00043, asked: 1 } }), true).sub).toBe('judged live · ≈$0.0004');
+    expect(checkMark(c({ source: 'live', live: { cost: 0.0021, asked: 5 }, attempts: { passed: 5, of: 5 } }), true).sub).toBe('judged live in 5 attempts · ≈$0.0021');
+    // A model with no price: where it came from, and no figure.
+    expect(checkMark(c({ source: 'live' }), true).sub).toBe('judged live');
+    // A pass over attempts that weren't all passes says so.
     expect(checkMark(c({ attempts: { passed: 17, of: 18 } }), true)).toMatchObject({ sub: '17 of 18 attempts passed', tip: { value: 'passed in 17 of 18 attempts' } });
     expect(checkMark(c({ attempts: { passed: 12, of: 12 } }), true)).toMatchObject({ sub: null, tip: { value: 'passed in every attempt, 12 of 12' } });
-    // No result yet, or one that didn't judge this check: no mark, never a tick.
-    expect(checkMark(c({ status: null }), false)).toMatchObject({ mark: null, word: 'not run yet' });
-    expect(checkMark(c({ status: null }), true)).toMatchObject({ mark: null, word: 'not judged' });
+    // Not tested yet: no mark, never a tick, and the hover says why: no result yet, a golden its last test couldn't run, or a check added since.
+    expect(checkMark(c({ status: null }), false)).toMatchObject({ mark: null, word: 'not tested yet', sub: null, tip: { title: 'not tested yet · issue_refund called 0 times', value: 'its golden hasn’t run yet' } });
+    expect(checkMark(c({ status: null }), true)).toMatchObject({ mark: null, word: 'not tested yet', sub: null, tip: { value: 'its last test couldn’t run the golden, so no check has a result' } });
+    expect(checkMark(c({ status: null, added: true }), true)).toMatchObject({ mark: null, word: 'not tested yet', sub: 'added since its last test', tip: { value: 'Added to shadowlap.config.json since its last test: its next test judges it' } });
+    // "not judged" is the CLI's word for a judge check that couldn't be decided, never for one not tested.
+    for (const ran of [false, true]) expect(checkMark(c({ status: null }), ran).tip.title).not.toContain('not judged');
   });
 
   it('says where each golden came from: a run here, or a pack made elsewhere', () => {

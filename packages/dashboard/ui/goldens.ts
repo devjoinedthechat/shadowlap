@@ -1,3 +1,4 @@
+import { approx } from './format.js';
 import { href } from './route.js';
 import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
 
@@ -171,28 +172,31 @@ export interface CheckMarkView {
   /** ✓ ✗ ? or –, and the class that colours it (`passed`, `failed`, `inconclusive`, `not-applicable`); null with no result. */
   mark: string | null;
   status: GoldenCheck['status'];
-  /** The status in words, for a screen reader and the hover: `failed`, `not run yet`. */
+  /** The status in words, for a screen reader and the hover: `failed`, `not tested yet`. */
   word: string;
   /** The check, as the table names it. */
   text: string;
-  /** A line under it: what failed and in how many attempts, why it couldn't be decided, or where a judge's verdict came from. */
+  /** A line under it: what failed and in how many attempts, why it couldn't be decided, where a judge's verdict came from, or that it was added since. */
   sub: string | null;
   /** The hover: the status and the check, and one row saying why. */
   tip: { title: string; label: string; value: string; color: string };
 }
 
 /**
- * A check in the table, marked by how the golden's last result came out on it: ✓ passed, ✗ failed
- * (for a golden run more than once, how many attempts passed it and what the others did), ? in amber
- * when it couldn't be decided (and why), – when it didn't apply, and no mark before a result exists
- * or for a check the last result didn't judge. `ran`: the golden has a last result.
+ * A check in the table, marked by how the golden's last result came out on it: ✓ passed (a judge's,
+ * where its verdict came from: the recording, free, or live, at what cost), ✗ failed (for a golden
+ * run more than once, how many attempts passed it and what the others did), ? in amber when it
+ * couldn't be decided (and why), – when it didn't apply, and no mark on a check not tested yet: before
+ * a result exists, when the last test couldn't run the golden, or when it was added since, as the mock
+ * says it. `ran`: the golden has a last result.
  */
 export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
   const text = checkWords(c.label);
   const t = c.attempts;
   if (!c.status) {
-    const word = ran ? 'not judged' : 'not run yet';
-    return { mark: null, status: null, word, text, sub: null, tip: { title: `${word} · ${c.label}`, label: word, value: ran ? 'its last result ran under other checks, or couldn’t run' : 'its golden hasn’t run yet', color: 'var(--line2)' } };
+    const word = 'not tested yet';
+    const value = c.added ? 'Added to shadowlap.config.json since its last test: its next test judges it' : ran ? 'its last test couldn’t run the golden, so no check has a result' : 'its golden hasn’t run yet';
+    return { mark: null, status: null, word, text, sub: c.added ? 'added since its last test' : null, tip: { title: `${word} · ${c.label}`, label: word, value, color: 'var(--line2)' } };
   }
   const word = STATUS_WORD[c.status];
   const detail = c.detail ?? '';
@@ -208,11 +212,22 @@ export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
     sub = 'not applicable';
     value = detail || 'its condition never held';
   } else {
-    // A judge's verdict says where it came from; a check over several attempts, how many passed it.
-    sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : c.source === 'recording' ? 'judged from the recording' : c.source === 'live' ? `judged live${t ? ` in ${t.of} attempts` : ''}` : null;
+    // A check over several attempts says how many passed it; a judge's verdict, where it came from.
+    sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : judgedLine(c);
     value = [c.reason ? `“${c.reason}”` : null, t ? (t.passed === t.of ? `passed in every attempt, ${t.of} of ${t.of}` : `passed in ${t.passed} of ${t.of} attempts`) : null].filter(Boolean).join(' · ') || 'passed';
   }
   return { mark: CHECK_MARK[c.status], status: c.status, word, text, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: STATUS_COLOR[c.status] } };
+}
+
+/**
+ * Where a judge check's verdict came from, as the CLI's check line says it: from the recording, free,
+ * or live, with what asking it cost when that is known (`judged live in 5 attempts · ≈$0.0021`). Null
+ * for any other check.
+ */
+function judgedLine(c: GoldenCheck): string | null {
+  if (c.source === 'recording') return 'judged from the recording · free';
+  if (c.source !== 'live') return null;
+  return c.live ? `judged live${c.live.asked > 1 ? ` in ${c.live.asked} attempts` : ''} · ${approx(c.live.cost)}` : 'judged live';
 }
 
 /** Where a golden came from: a run in this store, or a pack made elsewhere. */

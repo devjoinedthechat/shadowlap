@@ -1134,22 +1134,39 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
   it('marks each check by its status in the attempt the result shows, and none before a result or for one it didn\'t judge', () => {
     const s = store();
     const rows = new Map(testsView(s, GOLDENS).rows.map((r) => [r.name, r]));
-    expect(rows.get('clean')!.checkResults.map((c) => [c.status, c.detail])).toEqual([
-      ['passed', null],
-      ['not-applicable', 'the condition never held: lookup_order #2: result.amount 45 <= 100'],
-      [null, null],
+    // send_email's check is newer than the result, which judged the golden's checks of then.
+    expect(rows.get('clean')!.checkResults.map((c) => [c.status, c.added, c.detail])).toEqual([
+      ['passed', false, null],
+      ['not-applicable', false, 'the condition never held: lookup_order #2: result.amount 45 <= 100'],
+      [null, true, null],
     ]);
     expect(rows.get('judged')!.checkResults.map((c) => [c.label, c.status, c.detail])).toEqual([
       ['escalate called 1 time', 'passed', null],
       [judgeLabel, 'inconclusive', 'not judged: no recorded verdict and the test runs offline'],
     ]);
-    expect(rows.get('new')!.checkResults).toEqual([{ label: 'escalate called 1 time', status: null, detail: null, reason: null, source: null, attempts: null }]);
+    // Not run yet: no status, and nothing added since.
+    expect(rows.get('new')!.checkResults).toEqual([{ label: 'escalate called 1 time', status: null, added: false, detail: null, reason: null, source: null, live: null, attempts: null }]);
+    s.close();
+  });
+
+  it('tells a check added since the last test from one whose golden couldn\'t run', () => {
+    const s = Store.open(':memory:');
+    const list = [golden('goldens/broken', 'replay', ['escalate called 1 time']), golden('goldens/unchecked', 'replay', ['escalate called 1 time'])];
+    session(s, 'd2e8a1f', T0, [
+      // The pack couldn't be read: the result holds why, and no checks.
+      { golden: 'goldens/broken', ok: false, runId: 'R1', reason: "can't be read: no run.json", data: { mode: 'replay', details: "can't be read: no run.json" } },
+      // It ran with no checks: every check it has now was added since.
+      { golden: 'goldens/unchecked', ok: true, runId: 'R2', data: { mode: 'replay', calls: { total: 8, replayed: 8, live: 0, blocked: 0, stubbed: 0 } } },
+    ]);
+    const rows = new Map(testsView(s, list).rows.map((r) => [r.name, r.checkResults[0]!]));
+    expect(rows.get('broken')).toMatchObject({ status: null, added: false });
+    expect(rows.get('unchecked')).toMatchObject({ status: null, added: true });
     s.close();
   });
 
   it('counts the attempts of a golden run more than once that passed each check, and none when an attempt\'s run is gone', () => {
     const s = store();
-    expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, attempts: { passed: 3, of: 4 } }]);
+    expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: { passed: 3, of: 4 } }]);
     s.deleteRun('A3');
     expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults[0]!.attempts).toBeNull();
     s.close();
@@ -1164,6 +1181,35 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
     expect(updateGoldensJob(GOLDENS, { golden: 'goldens/judged' })).toEqual({ title: 'Updating a golden', args: judged.judge!.update });
     const keyless = view.inconclusive.find((v) => v.golden === 'goldens/keyless')!;
     expect(keyless.judge).toMatchObject({ update: null, keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] });
+    s.close();
+  });
+
+  it('says where a passed judge\'s verdict came from, and what asking it live cost when that is known', () => {
+    const s = Store.open(':memory:');
+    const judged = (name: string, source: 'recording' | 'live', cost: number | null) => ({ ok: true, status: 'passed' as const, label: `judge "${name}" answers yes`, detail: null, reason: 'It names the limit.', source, judge: { name, model: 'claude-haiku-4-5', of: 'answer' as const, verdict: 'yes' as const, source, cost, redactions: 0, cut: 0 } });
+    const summary = (o: { live: number; replayed?: number; spent: number; unknownModels?: string[] }) => ({ calls: o.live + (o.replayed ?? 0), replayed: o.replayed ?? 0, live: o.live, notAsked: 0, upstreamRequests: o.live, spent: o.spent, saved: 0, unknownModels: o.unknownModels ?? [] });
+    const list = [
+      golden('goldens/replayed', 'replay', ['judge "polite" answers yes']),
+      golden('goldens/forked', 'fork', ['judge "polite" answers yes']),
+      golden('goldens/priceless', 'fork', ['judge "polite" answers yes']),
+      golden('goldens/two', 'fork', ['judge "polite" answers yes', 'judge "brief" answers yes']),
+    ];
+    session(s, 'd2e8a1f', T0, [
+      { golden: 'goldens/replayed', ok: true, runId: 'R1', data: { mode: 'replay', verdict: 'passed', checks: [judged('polite', 'recording', 0)], judge: summary({ live: 0, replayed: 1, spent: 0 }) } },
+      // Five attempts, the judge asked live in each: the summary's spend is its own.
+      { golden: 'goldens/forked', ok: true, runId: 'R2', data: { mode: 'fork', verdict: 'passed', checks: [judged('polite', 'live', 0.0004)], judge: summary({ live: 5, spent: 0.0021 }), attempts: { total: 5, passed: 5, required: null, runs: [] } } },
+      { golden: 'goldens/priceless', ok: true, runId: 'R3', data: { mode: 'fork', verdict: 'passed', checks: [judged('polite', 'live', null)], judge: summary({ live: 1, spent: 0, unknownModels: ['claude-haiku-4-5'] }) } },
+      // Two judges in one attempt: each check's own call says what it cost.
+      { golden: 'goldens/two', ok: true, runId: 'R4', data: { mode: 'fork', verdict: 'passed', checks: [judged('polite', 'live', 0.0004), judged('brief', 'recording', 0)], judge: summary({ live: 1, replayed: 1, spent: 0.0004 }) } },
+    ]);
+    const rows = new Map(testsView(s, list).rows.map((r) => [r.name, r.checkResults.map((c) => [c.source, c.live])]));
+    expect(rows.get('replayed')).toEqual([['recording', null]]);
+    expect(rows.get('forked')).toEqual([['live', { cost: 0.0021, asked: 5 }]]);
+    expect(rows.get('priceless')).toEqual([['live', null]]);
+    expect(rows.get('two')).toEqual([
+      ['live', { cost: 0.0004, asked: 1 }],
+      ['recording', null],
+    ]);
     s.close();
   });
 });

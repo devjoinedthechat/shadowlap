@@ -112,6 +112,14 @@ describe('the Tests page', () => {
     expect(page.all('table.gt td.chk b.cm').map((b) => b.getAttribute('aria-label'))).toEqual(['passed', 'failed', 'failed', 'passed', 'inconclusive']);
   });
 
+  it('marks no check added to the config since the last test, and says so under it', async () => {
+    const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, checks: [...x.checks, 'send_email called 0 times'] } : x)));
+    expect(checks(page, 'passes')).toEqual([
+      { cls: 'ck passed', mark: '✓', words: 'escalate called once' },
+      { cls: 'ck', mark: null, words: 'send_email never calledadded since its last test' },
+    ]);
+  });
+
   it('says CI runs replay goldens offline and fork goldens live, with the one command docs/gating.md has, to copy', async () => {
     const page = await open();
     expect(page.one('.ph p').textContent).toBe('Every golden CI runs, and how it did at each revision.');
