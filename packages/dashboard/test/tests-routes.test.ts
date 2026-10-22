@@ -319,7 +319,7 @@ describe('GET /api/ci/workflows', () => {
     // so the test step's env says to add the agent's keys, as Fix on failure's does.
     expect(ci.alerts.needs.map((r) => r.value)).toEqual(['Slack app', 'SLACK_WEBHOOK_URL', 'id: goldens', 'their providers’ keys', 'node-version: 22']);
     expect(ci.alerts.needs[3]!.label).toBe('1 golden runs live (fork)');
-    expect(ci.alerts.yaml).toContain("    fail-on-divergence: false\n  env:\n    # your agent's own provider keys: the goldens that run live call them\n");
+    expect(ci.alerts.yaml).toContain("    fail-on-divergence: false\n  # env:\n  #   your agent's own provider keys: the goldens that run live call them\n");
     expect(ci.configError).toBeNull();
     expect(ci.alerts.failures.map((r) => r.value)).toEqual(['diverged', 'live call', 'exit ≠ 0', 'check failed', 'injection', 'inconclusive']);
     expect(ci.alerts.inconclusive).toBe('fail');
@@ -401,7 +401,7 @@ describe('GET /api/ci/workflows', () => {
       expect(ci.fixOnFailure.yaml).toContain("# shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out");
       expect(ci.fixOnFailure.teamStore.note).toBe('shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.');
       expect(ci.alerts.needs).toContainEqual({ label: 'which goldens run live, and their keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });
-      expect(ci.alerts.yaml).toContain("# shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
+      expect(ci.alerts.yaml).toContain("#   shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
     } finally {
       rmSync(config, { force: true });
     }

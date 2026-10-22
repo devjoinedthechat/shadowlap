@@ -47,10 +47,23 @@ function andList(items: readonly string[]): string {
   return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
 
+/** Where a key can't be named (an unreadable pack, Vertex AI's token): the agent's own, after those that are. */
+const unknownKeys = (named: boolean) => `${named ? 'and ' : ''}your agent's own provider keys: the goldens that run live call them`;
+
 /** A GitHub step's env lines for the providers' keys, at `indent`: each from the repository's secrets, then what can't be named. */
 function githubKeys(o: CiStepKeys, indent: string): string[] {
   const keys = [...new Set(o.keys ?? [])];
-  return [...keys.map((k) => `${indent}${k}: \${{ secrets.${k} }}`), ...(o.keysUnknown ? [`${indent}# ${keys.length ? 'and ' : ''}your agent's own provider keys: the goldens that run live call them`] : [])];
+  return [...keys.map((k) => `${indent}${k}: \${{ secrets.${k} }}`), ...(o.keysUnknown ? [`${indent}# ${unknownKeys(keys.length > 0)}`] : [])];
+}
+
+/**
+ * A GitHub step's own env for the providers' keys, at the step's `indent`. With none to name, an
+ * `env:` holding only the comment is empty, which GitHub refuses: the comment goes under a
+ * commented-out `env:` instead, where the keys are to be added.
+ */
+function githubEnv(o: CiStepKeys, indent: string): string[] {
+  if ((o.keys ?? []).length) return [`${indent}env:`, ...githubKeys(o, `${indent}  `)];
+  return o.keysUnknown ? [`${indent}# env:`, `${indent}#   ${unknownKeys(false)}`] : [];
 }
 
 /** What the goldens that run live need, as a note under the step: where each CI keeps the keys. */
@@ -97,7 +110,7 @@ function github(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
       ...keys,
       `  - if: ${prIf}   # R2 tokens can't be kept to pr/: pull requests test without pushing`,
       `    run: ${run}`,
-      ...(keys.length ? ['    env:', ...keys] : []),
+      ...githubEnv(o, '    '),
     ].join('\n');
     return {
       ci: 'github',
@@ -136,7 +149,7 @@ function github(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
     `  - if: ${ownPrIf}`,
     ...auth[provider](true),
     `  - run: ${run} --push`,
-    ...(keys.length ? ['    env:', ...keys] : []),
+    ...githubEnv(o, '    '),
   ].join('\n');
   const trust: Record<Exclude<Provider, 'r2'>, string> = {
     s3: 'Create two roles that trust token.actions.githubusercontent.com: shadowlap-ci for repo:<owner>/<repo>:ref:refs/heads/main only, with the first policy from shadowlap store policy --provider s3, and shadowlap-ci-pr for repo:<owner>/<repo>:pull_request, with the second.',

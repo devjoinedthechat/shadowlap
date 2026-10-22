@@ -301,8 +301,16 @@ describe('the keys the goldens that run live need', () => {
     expect(pr).toContain('    run: npx shadowlap@9.9.9 test goldens/*\n    env:\n      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}');
     expect(pr).not.toContain('R2_');
     expect(r2.notes.at(-1)).toContain('add ANTHROPIC_API_KEY as a repository secret,');
-    // Where a key can't be named (an unreadable pack, Vertex AI's token), a comment says to add the agent's own.
-    expect(ciStep('github', parseStoreUrl('gs://b-1/x'), { version: V, keysUnknown: true }).text).toContain("--push\n    env:\n      # your agent's own provider keys: the goldens that run live call them");
+    // Where a key can't be named (an unreadable pack, Vertex AI's token), a comment says to add the agent's own: with none
+    // named, under an env commented out, as GitHub refuses an env that holds nothing.
+    const vertex = ciStep('github', parseStoreUrl('gs://b-1/x'), { version: V, keysUnknown: true }).text;
+    expect(vertex).toContain("--push\n    # env:\n    #   your agent's own provider keys: the goldens that run live call them");
+    expect(vertex).not.toContain('    env:');
+    expect(ciStep('github', parseStoreUrl('gs://b-1/x'), { version: V, keys: ['GEMINI_API_KEY'], keysUnknown: true }).text).toContain(
+      "--push\n    env:\n      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}\n      # and your agent's own provider keys: the goldens that run live call them",
+    );
+    // R2's pull request step, which has no bucket keys to pass either.
+    expect(ciStep('github', parseStoreUrl('r2://acct/agent-runs'), { version: V, keysUnknown: true }).text).toContain("    run: npx shadowlap@9.9.9 test goldens/*\n    # env:\n    #   your agent's own provider keys");
     expect(ciStep('github', parseStoreUrl('gs://b-1/x'), { version: V, keys: ['GEMINI_API_KEY'], keysUnknown: true }).notes.at(-1)).toContain("add GEMINI_API_KEY, and your agent's other provider keys, as repository secrets");
   });
 

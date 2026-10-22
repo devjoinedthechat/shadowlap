@@ -158,7 +158,7 @@ describe('the goldens that run live in CI', () => {
     expect(unknown.configError).toBeNull();
     // A golden that runs live whose keys can't be named: Alerts' env says to add them, as Fix on failure's does.
     const vertex = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens: [{ path: 'goldens/vertex', live: ['fork'], keys: [], known: false }] });
-    expect(vertex.alerts.yaml).toContain("  env:\n    # your agent's own provider keys: the goldens that run live call them\n");
+    expect(vertex.alerts.yaml).toContain("  # env:\n  #   your agent's own provider keys: the goldens that run live call them\n");
     expect(vertex.alerts.needs).toContainEqual({ label: '1 golden runs live (fork)', value: 'their providers’ keys' });
     expect(vertex.fixOnFailure.yaml).toContain("    # and your agent's own provider keys: blame and verify run it live");
   });
@@ -169,7 +169,7 @@ describe('the goldens that run live in CI', () => {
     const goldens = [{ path: 'goldens/refund-over-limit', live: [], keys: ['ANTHROPIC_API_KEY'], known: true }];
     const view = ciWorkflows({ ...CI_DEFAULTS, fix: true }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens, teamStore: { store: null }, configError });
     expect(view.configError).toBe(configError);
-    expect(view.alerts.yaml).toContain("  env:\n    # shadowlap.config.json can't be read: the keys of the goldens that run live are left out\n");
+    expect(view.alerts.yaml).toContain("  # env:\n  #   shadowlap.config.json can't be read: the keys of the goldens that run live are left out\n");
     expect(view.alerts.needs).toContainEqual({ label: 'which goldens run live, and their keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });
     expect(view.fixOnFailure.yaml).toContain("    # shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out");
     expect(view.fixOnFailure.needs).toContainEqual({ label: 'Push from CI and the judges’ keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });

@@ -260,6 +260,16 @@ export function alertsMessage(o: { failed: number; branch: string; runUrl: strin
 }
 
 /**
+ * A step's env: its keys, then the comments under them. With no key to name, an `env:` holding only
+ * comments is empty, which GitHub refuses, so the comments go under a commented-out `env:` instead,
+ * where the keys are to be added.
+ */
+function envLines(keys: readonly string[], notes: readonly string[]): string[] {
+  if (keys.length) return ['  env:', ...keys.map(keyLine), ...notes.map((n) => `    ${n}`)];
+  return notes.length ? ['  # env:', ...notes.map((n) => `  #   ${n.replace(/^# /, '')}`)] : [];
+}
+
+/**
  * The Alerts steps, as a job of their own runs them: the repository, Node 22.16 or later and the
  * agent's own dependencies (a placeholder), then the action, which counts the failed goldens without
  * failing the step, with the keys of the providers the goldens that run live call, a comment where
@@ -283,7 +293,7 @@ export function alertsYaml(s: AlertsSettings): string {
     `    recordings: ${scalar(s.recordings ?? 'goldens/*')}`,
     '    fail-on-divergence: false',
     ...inconclusiveLine(s.inconclusive),
-    ...(keys.length || notes.length ? ['  env:', ...keys.map(keyLine), ...notes.map((n) => `    ${n}`)] : []),
+    ...envLines(keys, notes),
     '',
     '- name: Tell Slack',
     `  if: ${cond}`,

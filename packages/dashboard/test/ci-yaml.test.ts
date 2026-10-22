@@ -238,8 +238,9 @@ describe('the Alerts steps', () => {
   });
 
   it('say so in the env, as Fix on failure does, when a golden that runs live calls a provider whose key isn’t named', () => {
-    // A pack that can't be read, or Vertex AI's token: nothing to name, so a comment says to add the agent's keys.
-    expect(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', keysUnknown: true })).toContain("    fail-on-divergence: false\n  env:\n    # your agent's own provider keys: the goldens that run live call them\n\n- name: Tell Slack");
+    // A pack that can't be read, or Vertex AI's token: nothing to name, so a comment says to add the agent's keys,
+    // under an env commented out, as GitHub refuses an env that holds nothing.
+    expect(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', keysUnknown: true })).toContain("    fail-on-divergence: false\n  # env:\n  #   your agent's own provider keys: the goldens that run live call them\n\n- name: Tell Slack");
     // Beside the keys that are known, after them.
     expect(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', keys: ['ANTHROPIC_API_KEY'], keysUnknown: true })).toContain(
       "  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n    # and your agent's own provider keys: the goldens that run live call them\n\n",
@@ -249,7 +250,8 @@ describe('the Alerts steps', () => {
 
   it('say what they leave out while shadowlap.config.json can’t be read, in the env and an amber needs row', () => {
     const alerts = alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', unreadable: true });
-    expect(alerts).toContain("    fail-on-divergence: false\n  env:\n    # shadowlap.config.json can't be read: the keys of the goldens that run live are left out\n\n");
+    expect(alerts).toContain("    fail-on-divergence: false\n  # env:\n  #   shadowlap.config.json can't be read: the keys of the goldens that run live are left out\n\n");
+    expect(alerts).not.toContain('  env:');
     expect(alertsNeeds('X', null, true).at(-2)).toEqual(['which goldens run live, and their keys, from shadowlap.config.json', 'can’t be read', 'warn']);
     const fix = fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', keys: ['ANTHROPIC_API_KEY'], unreadable: true });
     expect(fix.endsWith("    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n    # shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out")).toBe(true);

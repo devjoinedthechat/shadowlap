@@ -97,7 +97,7 @@ describe('Settings → CI', () => {
     expect(r.one('.settab .verdict p').textContent).toContain('not valid JSON');
     const unread = r.all('#alerts .cimain .cilist li').find((li) => li.textContent.startsWith('which goldens run live'))!;
     expect(unread.querySelector('i')!.getAttribute('class')).toBe('warn');
-    expect(r.all('#alerts .codebox')[0]!.textContent).toContain("# shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
+    expect(r.all('#alerts .codebox')[0]!.textContent).toContain("#   shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
     expect(r.one('.cistore span').textContent).toBe('shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.');
   });
 });
