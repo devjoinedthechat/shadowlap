@@ -256,10 +256,11 @@ warning: the tests still decide the job's result.
 With the GitHub Action, `push: true` does this, and also sends each fix its
 [fix on failure](./ci.md#fix-on-failure) opens a pull request for, verified, with every run the job
 made, so a teammate's pull brings it to their Fixes page as *from CI · PR #138*. CI fixes are part
-of pushing from CI: while Push from CI is on, the Fix on failure step the dashboard's Settings → CI
-writes pushes and says the job needs the bucket's credentials (the two credentials steps `store ci`
-prints, or for R2 its keys, which only your branches' jobs get), and while it is off, the step
-doesn't push and the action keeps the fixes it opens in the job. A fix that can't go (no
+of pushing from CI: while Push from CI is on, the step of [your workflow](./ci.md#one-job-for-all-of-it)
+the dashboard's Settings → CI writes pushes, with a fix pull request or without, and says the job
+needs the bucket's credentials (the two credentials steps `store ci` prints, or for R2 its keys,
+which only your branches' jobs get), and while it is off, the step doesn't push and the action
+keeps the fixes it opens in the job. A fix that can't go (no
 credentials, the store out of reach) is a warning in the job summary and the log, with why: it
 never keeps the fix's pull request from opening, and the job's result is the tests'. A pull
 request's own job keeps to its folder and sends no fixes, and with R2 it pushes nothing. One from a
