@@ -35,6 +35,13 @@ function ownFolderNote(request: 'pull request' | 'merge request'): string {
   return `A ${request}'s job pushes its runs to pr/<number>/ in the store, which Shadowlap finds from the CI's own variables; a teammate's pull brings them only with --include-pr.`;
 }
 
+/**
+ * The steps before the tests on GitHub: the repository, Node 22.16 or later and not 23 (the CLI
+ * says so on another), and the agent's own dependencies, which only the project knows: a
+ * placeholder to make its own.
+ */
+const GITHUB_SETUP = ['  - uses: actions/checkout@v7', '  - uses: actions/setup-node@v7', '    with:', '      node-version: 22', '  - run: npm ci && npm run build   # whatever your agent needs to run'];
+
 function github(loc: StoreLocation, run: string): CiStep {
   const provider = loc.provider;
   const region = loc.region ?? '<your bucket region>';
@@ -47,7 +54,7 @@ function github(loc: StoreLocation, run: string): CiStep {
   if (provider === 'r2') {
     const text = [
       'steps:',
-      '  - uses: actions/checkout@v7',
+      ...GITHUB_SETUP,
       `  - if: ${writerIf}`,
       `    run: ${run} --push`,
       '    env:',
@@ -85,7 +92,7 @@ function github(loc: StoreLocation, run: string): CiStep {
     '  contents: read',
     '',
     'steps:',
-    '  - uses: actions/checkout@v7',
+    ...GITHUB_SETUP,
     `  - if: ${writerIf}`,
     ...auth[provider](false),
     "  # a pull request's own credentials, which write only under pr/; a fork's job gets none",
@@ -113,6 +120,9 @@ function github(loc: StoreLocation, run: string): CiStep {
   };
 }
 
+/** A GitLab job's first script line: the agent's own dependencies, which only the project knows. */
+const GITLAB_INSTALL = '    - npm ci && npm run build   # whatever your agent needs to run';
+
 function gitlab(loc: StoreLocation, run: string): CiStep {
   const provider = loc.provider;
   const region = loc.region ?? '<your bucket region>';
@@ -125,12 +135,14 @@ function gitlab(loc: StoreLocation, run: string): CiStep {
       '  rules:',
       `    - if: ${main}`,
       '  script:',
+      GITLAB_INSTALL,
       `    - ${run} --push`,
       'shadowlap-merge-request:',
       '  image: node:22',
       '  rules:',
       `    - if: ${mr}`,
       '  script:',
+      GITLAB_INSTALL,
       `    - ${run}   # R2 tokens can't be kept to pr/: merge requests test without pushing`,
     ].join('\n');
     return {
@@ -187,6 +199,7 @@ function gitlab(loc: StoreLocation, run: string): CiStep {
     `        ${b.prVar}   # the merge request's own credentials: they write only under pr/ in the store`,
     `    - if: ${main}`,
     '  script:',
+    GITLAB_INSTALL,
     ...[...b.script, `${run} --push`].map((l) => `    - ${l}`),
   ].join('\n');
   return {
@@ -231,8 +244,12 @@ function other(loc: StoreLocation, run: string): CiStep {
   };
 }
 
-export function ciStep(ci: CiProvider, loc: StoreLocation, packs = 'goldens/*'): CiStep {
-  const run = `npx shadowlap test ${packs}`;
+/**
+ * The CI step for a store, its tests run by the CLI at `version` (the release the caller is at, as
+ * the GitHub Action's step pins it), on the packs given (`goldens/*`).
+ */
+export function ciStep(ci: CiProvider, loc: StoreLocation, o: { version: string; packs?: string }): CiStep {
+  const run = `npx shadowlap@${o.version} test ${o.packs ?? 'goldens/*'}`;
   if (ci === 'github') return github(loc, run);
   if (ci === 'gitlab') return gitlab(loc, run);
   return other(loc, run);

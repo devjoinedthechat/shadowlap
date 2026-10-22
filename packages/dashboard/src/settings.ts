@@ -30,6 +30,7 @@ import {
 } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, type StoreLocation } from '@shadowlap/remote';
 import { skillOffer, type SkillOffer } from './agent-skill.js';
+import { VERSION } from './ci-yaml.js';
 import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type PreviewLimitsConfig } from './redaction-preview.js';
 import { countRuns } from './runs-list.js';
 import { teamStoreStatus, type TeamStoreInput, type TeamStoreStatus } from './team-store.js';
@@ -1455,6 +1456,6 @@ export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input
   } catch (err) {
     return { config: info, configured, error: `${CONFIG_FILE} names a store that can't be used: ${err instanceof Error ? err.message : String(err)}`, status: null, ciStep: null, redactRules };
   }
-  const step = ciStep('github', loc);
+  const step = ciStep('github', loc, { version: VERSION });
   return { config: info, configured, error: info.error, status: teamStoreStatus(ctx.store, input), ciStep: { file: step.file, text: step.text, oidc: step.oidc }, redactRules };
 }

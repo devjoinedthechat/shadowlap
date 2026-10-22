@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { Store } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, shortStoreName, type StoreLocation } from '@shadowlap/remote';
-import { ACTION, ALERT_FAILURES, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, WORKFLOW_FILE, type BucketCredentials } from './ci-yaml.js';
+import { ACTION, ALERT_FAILURES, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, VERSION, WORKFLOW_FILE, type BucketCredentials } from './ci-yaml.js';
 import { fixDetail, fixList } from './fixes.js';
 import type { TeamStoreInput } from './team-store.js';
 
@@ -212,7 +212,7 @@ export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | nu
   }
   if (!loc) return { push: false, name: null, credentials: null, note: 'None yet, so fixes stay in GitHub. With one, this follows Push from CI.', lands: [] };
   const push = input?.ciPush !== false;
-  const credentials: BucketCredentials = ciStep('github', loc).oidc ? 'oidc' : 'keys';
+  const credentials: BucketCredentials = ciStep('github', loc, { version: VERSION }).oidc ? 'oidc' : 'keys';
   return {
     push,
     name: shortStoreName(loc),

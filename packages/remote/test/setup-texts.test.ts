@@ -188,14 +188,17 @@ describe('the access to ask the cloud admin for', () => {
   });
 });
 
+/** The release a CI step pins the CLI to: the caller's own. */
+const V = '9.9.9';
+
 describe('the CI step', () => {
   it('uses OIDC on GitHub Actions, with the pull-request role beside the protected branches one', () => {
-    const s3 = ciStep('github', parseStoreUrl('s3://northwind-agent-runs/support-agent?region=eu-central-1'));
+    const s3 = ciStep('github', parseStoreUrl('s3://northwind-agent-runs/support-agent?region=eu-central-1'), { version: V });
     expect(s3.oidc).toBe(true);
     expect(s3.pullRequests).toBe('own-folder');
     expect(s3.text).toContain('id-token: write');
     expect(s3.text).toContain('aws-region: eu-central-1');
-    expect(s3.text).toContain('run: npx shadowlap test goldens/* --push');
+    expect(s3.text).toContain('run: npx shadowlap@9.9.9 test goldens/* --push');
     // Each role in its own step, chosen by the event: a pull request gets only its own.
     const steps = s3.text.split('\n  - ');
     const writer = steps.find((s) => s.includes('role/shadowlap-ci\n'))!;
@@ -203,69 +206,85 @@ describe('the CI step', () => {
     expect(writer).toMatch(/^if: \$\{\{ !startsWith\(github\.event_name, 'pull_request'\) \}\}/);
     expect(pr).toMatch(/^if: startsWith\(github\.event_name, 'pull_request'\)/);
     expect(s3.notes.join(' ')).toMatch(/shadowlap-ci for repo:<owner>\/<repo>:ref:refs\/heads\/main only.*shadowlap-ci-pr for repo:<owner>\/<repo>:pull_request/);
-    expect(ciStep('github', parseStoreUrl('gs://b-1/x')).text).toContain('service_account: shadowlap-ci-pr@<project>.iam.gserviceaccount.com');
-    expect(ciStep('github', parseStoreUrl('az://acct1/agent-runs')).text).toContain('client-id: ${{ vars.AZURE_PR_CLIENT_ID }}');
+    expect(ciStep('github', parseStoreUrl('gs://b-1/x'), { version: V }).text).toContain('service_account: shadowlap-ci-pr@<project>.iam.gserviceaccount.com');
+    expect(ciStep('github', parseStoreUrl('az://acct1/agent-runs'), { version: V }).text).toContain('client-id: ${{ vars.AZURE_PR_CLIENT_ID }}');
   });
 
   it("leaves a fork's pull request out of the pull-request credentials, which GitHub gives it no token for, so its job goes on to warn", () => {
     for (const url of ['s3://northwind-agent-runs/support-agent', 'gs://b-1/x', 'az://acct1/agent-runs']) {
-      const step = ciStep('github', parseStoreUrl(url));
+      const step = ciStep('github', parseStoreUrl(url), { version: V });
       const ifs = [...step.text.matchAll(/^ {2}- if: (.+)$/gm)].map((m) => m[1]);
       // The writer's credentials never in a pull request's job; the pull request's own only in one from this repository.
       expect(ifs, url).toEqual(["${{ !startsWith(github.event_name, 'pull_request') }}", "startsWith(github.event_name, 'pull_request') && github.event.pull_request.head.repo.full_name == github.repository"]);
       expect(step.text, url).toContain("  # a pull request's own credentials, which write only under pr/; a fork's job gets none\n  - if: startsWith(");
       // Then the tests run for every job, a fork's too, and push warns when there are no credentials.
-      expect(step.text.trimEnd().endsWith('  - run: npx shadowlap test goldens/* --push'), url).toBe(true);
+      expect(step.text.trimEnd().endsWith('  - run: npx shadowlap@9.9.9 test goldens/* --push'), url).toBe(true);
       expect(step.notes.join(' '), url).toContain('A pull request from a fork gets no OIDC token from GitHub, so its job skips the credentials and runs the tests without pushing');
     }
     // R2's pull-request step has no credentials to fail on: every pull request runs the tests, a fork's included.
-    const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'));
-    expect(r2.text).toContain("  - if: startsWith(github.event_name, 'pull_request')   # R2 tokens can't be kept to pr/: pull requests test without pushing\n    run: npx shadowlap test goldens/*");
+    const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'), { version: V });
+    expect(r2.text).toContain("  - if: startsWith(github.event_name, 'pull_request')   # R2 tokens can't be kept to pr/: pull requests test without pushing\n    run: npx shadowlap@9.9.9 test goldens/*");
     expect(r2.text).not.toContain('head.repo');
   });
 
   it('keeps R2 keys from pull requests, which run the tests without pushing', () => {
-    const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'));
+    const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'), { version: V });
     expect(r2.oidc).toBe(false);
     expect(r2.pullRequests).toBe('no-push');
     const [writer, pr] = r2.text.split(/\n(?=  - if: startsWith)/);
     expect(writer).toContain('R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}');
-    expect(writer).toContain('run: npx shadowlap test goldens/* --push');
-    expect(pr).toContain('run: npx shadowlap test goldens/*');
+    expect(writer).toContain('run: npx shadowlap@9.9.9 test goldens/* --push');
+    expect(pr).toContain('run: npx shadowlap@9.9.9 test goldens/*');
     expect(pr).not.toContain('--push');
     expect(pr).not.toContain('secrets');
-    const gitlab = ciStep('gitlab', parseStoreUrl('r2://acct/agent-runs'));
+    const gitlab = ciStep('gitlab', parseStoreUrl('r2://acct/agent-runs'), { version: V });
     expect(gitlab.text).toContain('shadowlap-merge-request:');
     expect(gitlab.text.slice(gitlab.text.indexOf('shadowlap-merge-request:'))).not.toContain('--push');
     expect(gitlab.notes.join(' ')).toMatch(/masked, protected CI\/CD variables/);
   });
 
   it("gives GitLab CI an ID token that Shadowlap's own credential chain exchanges, and a merge request its own role", () => {
-    const s3 = ciStep('gitlab', parseStoreUrl('s3://northwind-agent-runs'));
+    const s3 = ciStep('gitlab', parseStoreUrl('s3://northwind-agent-runs'), { version: V });
     expect(s3.text).toContain('aud: sts.amazonaws.com');
     expect(s3.text).toContain('export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/aws-web-identity-token');
     expect(s3.text).toContain('    - if: $CI_PIPELINE_SOURCE == "merge_request_event"\n      variables:\n        AWS_ROLE_ARN: arn:aws:iam::<account-id>:role/shadowlap-ci-pr');
     expect(s3.text).toContain('    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-    expect(ciStep('gitlab', parseStoreUrl('az://acct1/agent-runs')).text).toContain('export AZURE_FEDERATED_TOKEN_FILE=/tmp/azure-id-token');
-    const gcs = ciStep('gitlab', parseStoreUrl('gs://b-1'));
+    expect(ciStep('gitlab', parseStoreUrl('az://acct1/agent-runs'), { version: V }).text).toContain('export AZURE_FEDERATED_TOKEN_FILE=/tmp/azure-id-token');
+    const gcs = ciStep('gitlab', parseStoreUrl('gs://b-1'), { version: V });
     expect(gcs.text).toContain('"type":"external_account"');
     expect(gcs.text).toContain('serviceAccounts/%s:generateAccessToken"}\' "$GCP_SERVICE_ACCOUNT"');
     expect(gcs.text).toContain('GCP_SERVICE_ACCOUNT: shadowlap-ci-pr@<project>.iam.gserviceaccount.com');
   });
 
   it('names the variables any other CI needs, the packs to test, and SHADOWLAP_PR for pull requests', () => {
-    const other = ciStep('other', parseStoreUrl('gs://b-1'), 'tests/goldens/*');
+    const other = ciStep('other', parseStoreUrl('gs://b-1'), { version: V, packs: 'tests/goldens/*' });
     expect(other.text).toContain('GOOGLE_APPLICATION_CREDENTIALS');
-    expect(other.text).toContain('\nnpx shadowlap test tests/goldens/* --push\n');
-    expect(other.text).toMatch(/\nSHADOWLAP_PR=<number> npx shadowlap test tests\/goldens\/\* --push$/);
-    expect(ciStep('other', parseStoreUrl('r2://acct/agent-runs')).text).toMatch(/\nnpx shadowlap test goldens\/\*$/);
+    expect(other.text).toContain('\nnpx shadowlap@9.9.9 test tests/goldens/* --push\n');
+    expect(other.text).toMatch(/\nSHADOWLAP_PR=<number> npx shadowlap@9\.9\.9 test tests\/goldens\/\* --push$/);
+    expect(ciStep('other', parseStoreUrl('r2://acct/agent-runs'), { version: V }).text).toMatch(/\nnpx shadowlap@9\.9\.9 test goldens\/\*$/);
   });
 
   it('pins each cloud’s sign-in action at its current major, on Node 24 like actions/checkout@v7', () => {
-    const uses = (url: string) => [...new Set([...ciStep('github', parseStoreUrl(url)).text.matchAll(/uses: (\S+)/g)].map((m) => m[1]))];
-    expect(uses('s3://northwind-agent-runs')).toEqual(['actions/checkout@v7', 'aws-actions/configure-aws-credentials@v6']);
-    expect(uses('gs://b-1/x')).toEqual(['actions/checkout@v7', 'google-github-actions/auth@v3']);
-    expect(uses('az://acct1/agent-runs')).toEqual(['actions/checkout@v7', 'azure/login@v3']);
+    const uses = (url: string) => [...new Set([...ciStep('github', parseStoreUrl(url), { version: V }).text.matchAll(/uses: (\S+)/g)].map((m) => m[1]))];
+    expect(uses('s3://northwind-agent-runs')).toEqual(['actions/checkout@v7', 'actions/setup-node@v7', 'aws-actions/configure-aws-credentials@v6']);
+    expect(uses('gs://b-1/x')).toEqual(['actions/checkout@v7', 'actions/setup-node@v7', 'google-github-actions/auth@v3']);
+    expect(uses('az://acct1/agent-runs')).toEqual(['actions/checkout@v7', 'actions/setup-node@v7', 'azure/login@v3']);
+    expect(uses('r2://acct/agent-runs')).toEqual(['actions/checkout@v7', 'actions/setup-node@v7']);
+  });
+
+  it('works as handed over: Node 22, the agent’s own dependencies, then the tests by the CLI at the caller’s release', () => {
+    // An unpinned npx ran whatever release was newest, with no Node set up and nothing of the agent's installed.
+    for (const url of ['s3://northwind-agent-runs/support-agent', 'r2://acct/agent-runs']) {
+      const text = ciStep('github', parseStoreUrl(url), { version: V }).text;
+      expect(text, url).toContain('steps:\n  - uses: actions/checkout@v7\n  - uses: actions/setup-node@v7\n    with:\n      node-version: 22\n  - run: npm ci && npm run build   # whatever your agent needs to run\n');
+      expect([...text.matchAll(/npx shadowlap(@\S+)? /g)].map((m) => m[1]), url).toEqual(url.startsWith('r2') ? ['@9.9.9', '@9.9.9'] : ['@9.9.9']);
+    }
+    for (const url of ['s3://northwind-agent-runs/support-agent', 'r2://acct/agent-runs']) {
+      const text = ciStep('gitlab', parseStoreUrl(url), { version: V }).text;
+      // Each job installs the agent's dependencies before its tests, on GitLab's Node 22 image.
+      expect(text.split('  script:\n').slice(1).every((job) => job.startsWith('    - npm ci && npm run build   # whatever your agent needs to run\n')), url).toBe(true);
+      expect(text, url).not.toMatch(/npx shadowlap test/);
+    }
   });
 });
 

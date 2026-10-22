@@ -20,6 +20,7 @@ import {
   type Provider,
   type StoreLocation,
 } from '@shadowlap/remote';
+import { VERSION } from './ci-yaml.js';
 import { nextSetupStep, type SetupFacts } from './store-steps.js';
 import { countsOf, type TeamStoreInput } from './team-store.js';
 
@@ -180,7 +181,7 @@ export function storeSetupView(store: Store, input: TeamStoreInput, options: { e
     })),
     ci: loc
       ? CI_PROVIDERS.map((ci) => {
-          const step = ciStep(ci, loc);
+          const step = ciStep(ci, loc, { version: VERSION });
           return { ci, name: CI_NAMES[ci], file: step.file, text: step.text, oidc: step.oidc, notes: step.notes, command: `shadowlap store ci --provider ${ci}` };
         })
       : null,

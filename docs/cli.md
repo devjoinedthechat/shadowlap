@@ -1182,7 +1182,10 @@ for people and CI on protected branches, and one for pull requests' CI jobs, whi
 under `pr/`. `ci` prints a step for GitHub Actions, GitLab CI or any other CI, with short-lived
 credentials (OIDC) where the CI and the cloud allow it, and the pull-request credentials beside the
 protected branches' (on GitHub, for pull requests from the repository itself: a fork's gets no OIDC
-token, so its job skips them and runs the tests without pushing). `push-from-ci off` writes
+token, so its job skips them and runs the tests without pushing). Its tests run with `npx
+shadowlap@<version>`, this CLI's own release; on GitHub, Node 22 and a line for the agent's
+dependencies (`npm ci && npm run build`, to make your project's) come before them, and on GitLab
+that line opens each job's script. `push-from-ci off` writes
 `"ciPush": false` to the config: `test --push` in CI then runs the tests and keeps their runs in the
 job (outside CI, `--push` still pushes), and the GitHub Action keeps the fixes it opens there too;
 `on` turns it back on. Each takes `--json`.

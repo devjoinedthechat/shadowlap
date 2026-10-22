@@ -42,7 +42,7 @@ import { CONFIG_FILE, configPath, defaultDbPath, loadConfig, type ShadowlapConfi
 import { emitJobEvent, inDashboardJob } from './job-events.js';
 import type { TestReport } from './test-report.js';
 import { palette as p, safe, shortId } from './ui.js';
-import { ancestorsOf, stillRecording } from './shared.js';
+import { ancestorsOf, stillRecording, VERSION } from './shared.js';
 
 /**
  * The team store: the project's runs in a bucket the team owns, free like the rest of Shadowlap.
@@ -378,7 +378,8 @@ export function storePolicy(t: TeamEnv, flags: { provider?: Provider; json?: boo
 
 export function storeCi(t: TeamEnv, flags: { provider: CiProvider; packs?: string; json?: boolean }): number {
   const loc = requireStore(t);
-  const step = ciStep(flags.provider, loc, flags.packs ?? 'goldens/*');
+  // The tests run by this CLI's own release, as the Action's step pins it.
+  const step = ciStep(flags.provider, loc, { version: VERSION, packs: flags.packs ?? 'goldens/*' });
   if (flags.json) {
     line(t, JSON.stringify(step, null, 2));
     return 0;

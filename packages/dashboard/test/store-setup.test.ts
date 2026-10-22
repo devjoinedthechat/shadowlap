@@ -8,6 +8,7 @@ import { parseStoreUrl, push, recordCheck, storeKey } from '@shadowlap/remote';
 
 const storeKeyOf = (url: string) => storeKey(parseStoreUrl(url));
 import { cliSpawner, startDashboard, type Dashboard, type JobView } from '../src/index.js';
+import { VERSION } from '../src/ci-yaml.js';
 import { checkSetupUrl, recordSetup, setupCommand, setupRecord, setupUnderWay, storeSetupView, type StoreSetupView } from '../src/store-setup.js';
 import { nextSetupStep } from '../src/store-steps.js';
 import { setupShowsOn } from '../ui/projects.js';
@@ -117,7 +118,9 @@ describe('the setup read model', () => {
       ['gitlab', 'GitLab CI', 'shadowlap store ci --provider gitlab'],
       ['other', 'Other', 'shadowlap store ci --provider other'],
     ]);
-    expect(view.ci![0]!.text).toContain('npx shadowlap test goldens/* --push');
+    // Pinned as Settings → CI pins the action's step, and complete: Node 22 and the agent's dependencies first.
+    expect(view.ci![0]!.text).toContain(`npx shadowlap@${VERSION} test goldens/* --push`);
+    expect(view.ci![0]!.text).toContain('  - run: npm ci && npm run build   # whatever your agent needs to run\n');
     expect(view.commit).toEqual({ file: 'shadowlap.config.json', line: `"store": "${URL_}"`, command: 'git add shadowlap.config.json && git commit -m "Use the team store"' });
 
     await push({ store: s, remote: new MemoryStore(parseStoreUrl(URL_)), actor: 'dana@northwind.example', now: () => NOW }, { all: true });

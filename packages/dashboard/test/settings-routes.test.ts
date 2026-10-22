@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store, storeApiRequest, type CallMeta, type RunMeta } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type Dashboard, type JobView } from '../src/index.js';
+import { VERSION } from '../src/ci-yaml.js';
 import { PREVIEW_LIMITS } from '../src/redaction-preview.js';
 import { cpuOnceAsync, times, timesOf } from '../../engine/test/timing.js';
 
@@ -106,7 +107,9 @@ describe('reading the tabs', () => {
     expect(s.configured).toBe('s3://northwind-agent-runs/support-agent?region=eu-central-1');
     expect(s.status).toMatchObject({ bucket: 'northwind-agent-runs', region: 'eu-central-1', ciPush: false, inStore: 0 });
     expect(s.ciStep.file).toMatch(/^\.github\/workflows\//);
-    expect(s.ciStep.text).toContain('npx shadowlap test goldens/* --push');
+    // At the release Settings → CI pins, with Node and the agent's dependencies before it.
+    expect(s.ciStep.text).toContain(`npx shadowlap@${VERSION} test goldens/* --push`);
+    expect(s.ciStep.text).toContain('  - uses: actions/setup-node@v7\n    with:\n      node-version: 22\n');
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: 'ftp://nope' }));
     expect(await get('settings/store')).toMatchObject({ configured: 'ftp://nope', status: null, error: expect.stringMatching(/names a store that can't be used/) });
   });
