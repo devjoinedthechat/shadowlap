@@ -201,7 +201,8 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(listed.fixes[0]!.steps.map((x: { short: string }) => x.short)).toEqual([`lost at #${decision}`, 'no fix yet', 'not verified']);
     expect(listed.fixes[0]!.attempts).toBeGreaterThan(0);
     const table = (await shadowlap(['fix', 'ls'])).stdout;
-    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +check: issue_refund never called with \\{"amount":240\\} · opened \\d+s ago\n`));
+    // What its runs did, now that the title no longer says it, and what they must do.
+    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +failed: issue_refund called with amount 240 · must: issue_refund never called with \\{"amount":240\\} · opened \\d+s ago\n`));
 
     // The code as it is fixes nothing: the verdict is kept, rejected, and the fix stays open.
     const rejected = await shadowlap(['verify', '--fixes', 'label:refund-over-limit', '--keeps', 'label:good', '--expect', ORACLE, '--json']);
@@ -253,7 +254,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
 
     const human = (await shadowlap(['fix', 'show', fixId])).stdout;
     expect(human).toContain(`${fixId}  Refunds above the limit issued without approval`);
-    expect(human).toContain('check: issue_refund never called with {"amount":240}');
+    expect(human).toContain('\n  failed: issue_refund called with amount 240 · must: issue_refund never called with {"amount":240}\n');
     expect(human).toMatch(/✓ 01 blame +Lost at model call/);
     expect(human).toContain('✓ accepted');
     expect(human).toContain('✗ rejected');

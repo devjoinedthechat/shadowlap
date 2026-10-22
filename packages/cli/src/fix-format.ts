@@ -1,5 +1,5 @@
 import { formatUsd, safeLine, type Palette } from '@shadowlap/engine';
-import type { FixDetail, FixList, FixStep } from '@shadowlap/dashboard';
+import type { FixDetail, FixList, FixRow, FixStep } from '@shadowlap/dashboard';
 import { ago, quoteArgv, table } from './ui.js';
 
 /** `shadowlap fix ls` and `fix show` in a terminal, from the read model `--json` prints. Times read as `ls` prints them: 3h ago. */
@@ -21,6 +21,18 @@ function status(st: string, p: Palette, width = 0): string {
 const unpriced = (models: readonly string[]) => (models.length ? ` (no price for ${models.map((m) => one(m, 40)).join(', ')})` : '');
 
 const mark = (x: FixStep, p: Palette) => (x.state === 'done' ? p.green('✓') : x.state === 'no' ? p.red('✗') : p.dim('·'));
+
+/**
+ * What a fix's failing runs did and the check they must meet, labelled as the dashboard's list and
+ * header label them: `failed: send_email called twice, not once · must: send_email called once`.
+ * What they did is left out while the title says it (blame titled the fix by it, and nobody renamed
+ * it), as the page's failedMust() leaves it out.
+ */
+function failedMust(f: Pick<FixRow, 'title' | 'failed' | 'check'>, n: number): string {
+  const failed = f.failed?.trim() ?? '';
+  const said = !failed || failed.toLowerCase() === f.title.trim().toLowerCase();
+  return [...(said ? [] : [`failed: ${one(failed, n)}`]), `must: ${one(f.check, n)}`].join(' · ');
+}
 
 /**
  * A probe's or a verified run's tally: the attempts that passed of those judged, then `unit` (`2 of
@@ -46,8 +58,8 @@ export function formatFixList(list: FixList, p: Palette): string {
   const out: string[] = [];
   list.fixes.forEach((f, i) => {
     out.push(status(f.status, p, width) + lines[i]!.slice(width));
-    // What it checks, where it came from and when it was opened, under its row.
-    out.push(p.dim(`${indent}${[`check: ${one(f.check, 90)}`, ...(f.source ? [one(f.source, 40)] : []), `opened ${ago(f.openedAt)}`].join(' · ')}`));
+    // What its runs did and must do, where it came from and when it was opened, under its row.
+    out.push(p.dim(`${indent}${[failedMust(f, 90), ...(f.source ? [one(f.source, 40)] : []), `opened ${ago(f.openedAt)}`].join(' · ')}`));
     if (f.broken) out.push(`${indent}${p.red(`! ${f.broken}`)}`);
   });
   out.push('', p.dim(`${list.counts.all} fix${list.counts.all === 1 ? '' : 'es'}, ${list.counts.open} open · shadowlap fix show <fix>`));
@@ -67,7 +79,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
   out.push(`${p.bold(d.fixId)}  ${p.bold(one(d.title, 120))}`);
   const meta = [status(d.status, p), ...(d.label ? [one(d.label, 40)] : []), `${d.failing} failing run${s(d.failing)}`, `${d.good} good`, `opened ${ago(d.openedAt)}`, ...(d.verifiedAt ? [`verified ${ago(d.verifiedAt)}`] : []), ...(d.appliedAt ? [`applied ${ago(d.appliedAt)}`] : [])];
   out.push(`  ${meta.join(' · ')}`);
-  out.push(`  check: ${one(d.check, 200)}`);
+  out.push(`  ${failedMust(d, 200)}`);
   if (d.source) out.push(`  ${p.dim(d.source)}`);
   if (d.broken) out.push(`  ${p.red(`! ${d.broken}`)}`);
   out.push('');
@@ -140,6 +152,8 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
   const apply = d.actions.apply;
   if (d.actions.repair) {
     out.push(`  next: ${repairLine(d.actions.repair.argv, o.repairer)}`);
+    // The blames it would reuse rescued no run: it would end "No fix to try", as the dashboard says.
+    if (d.actions.repair.noFix) out.push(`  ${p.yellow('!')} ${one(d.actions.repair.noFix, 600)}`);
     // Its repairer can't be asked from here: it would blame the runs and find no one to propose a fix.
     if (d.repairer.problem) out.push(`  ${p.yellow('!')} ${one(d.repairer.problem, 600)}`);
   } else if (apply?.refused && !(d.actions.applied && !apply.pending)) {
