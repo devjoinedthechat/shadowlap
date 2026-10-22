@@ -1,7 +1,7 @@
 import { createServer, request as httpRequest, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { normalizeResponse, Store, type CallRecord, type RunMeta, type TaskScoreRow } from '@shadowlap/engine';
+import { gateResult, normalizeResponse, Store, type CallRecord, type TaskScoreRow, type TestFailure, type TestResultData } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { functionCall, startMockGemini, turn as geminiTurn, type MockServer as GeminiServer } from '@shadowlap-testing/mock-gemini';
 import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer } from '@shadowlap-testing/mock-openai';
@@ -9,7 +9,7 @@ import { parseTests } from '../src/checks.js';
 import { volatileWarning } from '../src/golden-update.js';
 import { keptLine, replayedBefore } from '../src/commands/training.js';
 import { ANSWERED_BY, modelUnswitchable, resolveTarget, startTakeover, switchModel, takeoverMode, targetVia } from '../src/takeover.js';
-import { addJudge, answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, testForkedAt, testInconclusive, type LoadedTask, type TaskScore } from '../src/tasks.js';
+import { addJudge, answeredBy, attemptCost, cannotScore, keepScores, lastResults, lastTest, taskChecks, type LoadedTask, type TaskScore } from '../src/tasks.js';
 
 /**
  * The CLI's training parts on their own: the task block under tests, the model under test and how a
@@ -345,52 +345,45 @@ describe('the takeover upstream', () => {
 });
 
 describe('a golden\'s last test', () => {
-  it('is its newest finished test run, read once for every golden', () => {
+  it('is its newest result in the test history, read by the verdict the result kept', () => {
     const store = Store.open(':memory:');
     const root = '/project';
     let at = 1_760_000_000_000;
-    const test = (golden: string, status: 'completed' | 'failed' | 'running', meta: RunMeta = {}, divergence = false) => {
-      const run = store.createRun({ mode: 'replay', command: { argv: ['shadowlap', 'test'], cwd: root }, codeVersion: null, startedAt: at++, meta: { test: { golden, session: 't' }, ...meta } });
-      if (divergence) store.setDivergence(run.runId, { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2 });
-      if (status !== 'running') store.endRun(run.runId, status);
-      return run;
-    };
-    test('goldens/a', 'completed', { checks: [{ ok: false, label: 'escalate called 1 time', detail: 'called 0 times' }] });
-    test('/project/goldens/a', 'running'); // newer, still running: the finished one before it counts
-    test('goldens/b', 'failed');
-    test('goldens/b', 'completed'); // fixed since
-    test('goldens/c', 'completed', {}, true);
-    test('goldens/d', 'failed');
-    // Failed nothing, but a check could not be decided: inconclusive, never a test that fails.
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'c91d0f4', startedAt: at });
+    const result = (golden: string, ok: boolean, failure: TestFailure | null, data: TestResultData = {}) => store.addTestResult({ sessionId: session.sessionId, golden, ok, ...(failure ? { failure } : {}), reason: null, runId: `R${at}`, revision: 'c91d0f4', at: at++, data });
+    const failedCheck = { ok: false, status: 'failed' as const, label: 'issue_refund called 0 times', detail: 'called 1 time (1 blocked or stubbed)' };
     const undecided = { ok: false, status: 'inconclusive' as const, label: 'judge "calm" answers yes', detail: 'not judged: no recorded verdict and the test runs offline' };
-    test('goldens/f', 'completed', { checks: [undecided] });
-    // A check that failed beside it fails the test all the same.
-    test('goldens/g', 'completed', { checks: [{ ok: false, status: 'failed', label: 'escalate called 1 time', detail: 'called 0 times' }, undecided] });
-    // Two attempts in one session: the second, filed under the first, could not be judged after the
-    // first passed the count. The attempt the result shows is the test.
-    const shown = test('goldens/h', 'completed', { checks: [{ ok: true, status: 'passed', label: 'escalate called 1 time', detail: null }] });
-    test('goldens/h', 'completed', { test: { golden: 'goldens/h', session: 't', attempt: 2, of: shown.runId }, checks: [undecided] });
-    const last = lastTests(store, root);
-    expect([...last.keys()].sort()).toEqual(['goldens/a', 'goldens/b', 'goldens/c', 'goldens/d', 'goldens/f', 'goldens/g', 'goldens/h']);
-    expect([testFailed(last.get('goldens/f'), null), testInconclusive(last.get('goldens/f'), null)]).toEqual([false, true]);
-    expect([testFailed(last.get('goldens/g'), null), testInconclusive(last.get('goldens/g'), null)]).toEqual([true, false]);
-    expect(last.get('goldens/h')!.runId).toBe(shown.runId);
-    expect([testFailed(last.get('goldens/h'), null), testInconclusive(last.get('goldens/h'), null)]).toEqual([false, false]);
-    expect(testInconclusive(last.get('goldens/a'), null)).toBe(false);
-    expect(testInconclusive(undefined, null)).toBe(false);
-    expect(testFailed(last.get('goldens/a'), null)).toBe(true);
-    expect(testFailed(last.get('goldens/b'), null)).toBe(false);
-    // A divergence fails a golden unless it may fork.
-    expect(testFailed(last.get('goldens/c'), null)).toBe(true);
-    expect(testFailed(last.get('goldens/c'), { fork: true, repeat: 1, passes: 1, tools: [] })).toBe(false);
+    const sprt = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 12 };
+    result('goldens/a', false, 'check', { verdict: 'failed', checks: [failedCheck] });
+    result('/project/goldens/a', true, null, { verdict: 'passed' }); // the same golden by its whole path, fixed since
+    result('goldens/b', false, 'check', { verdict: 'failed', checks: [failedCheck] });
+    // Its gate ran out of attempts between its bounds: inconclusive, though the attempt the result
+    // shows failed a check (as one of an inconclusive gate's attempts always has).
+    const outcomes = [false, true, true, false, true, true, false, true, true, false, true, true];
+    result('goldens/gated', false, 'inconclusive', { verdict: 'inconclusive', checks: [failedCheck], gate: gateResult(sprt, outcomes), attempts: { total: 12, passed: 8, required: null, runs: [] } });
+    // Failed nothing, but a check could not be decided.
+    result('goldens/judged', false, 'inconclusive', { verdict: 'inconclusive', checks: [undecided] });
+    // Its replay passed, and its injection test showed too little to say.
+    result('goldens/planted', false, 'injection', { verdict: 'inconclusive', gate: gateResult(sprt, [true], { clean: true }) });
+    // A golden that may fork passed, forking at #3.
+    result('goldens/forks', true, null, { verdict: 'passed', divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, text: '' } });
+    // A result kept before results had a verdict reads as its ok and failure say.
+    result('goldens/old', false, 'diverged');
+    const results = lastResults(store, root);
+    expect([...results.keys()].sort()).toEqual(['goldens/a', 'goldens/b', 'goldens/forks', 'goldens/gated', 'goldens/judged', 'goldens/old', 'goldens/planted']);
+    const fork = { fork: true, repeat: 1, passes: 1, tools: [] };
+    expect(lastTest(results.get('goldens/a'), null)).toEqual({ failed: false, inconclusive: null, forkedAt: null, forkedRun: null });
+    expect(lastTest(results.get('goldens/b'), null)).toMatchObject({ failed: true, inconclusive: null });
+    expect(lastTest(results.get('goldens/gated'), fork)).toEqual({ failed: false, inconclusive: 'gate', forkedAt: null, forkedRun: null });
+    expect(lastTest(results.get('goldens/judged'), null)).toMatchObject({ failed: false, inconclusive: 'check' });
+    expect(lastTest(results.get('goldens/planted'), null)).toMatchObject({ failed: false, inconclusive: 'injection' });
+    expect(lastTest(results.get('goldens/old'), null)).toMatchObject({ failed: true, inconclusive: null });
     // Where it forked counts for a task only when it may fork: otherwise the divergence failed it.
-    expect(testForkedAt(last.get('goldens/c'), { fork: true, repeat: 1, passes: 1, tools: [] })).toBe(3);
-    expect(testForkedAt(last.get('goldens/c'), null)).toBeNull();
-    expect(testForkedAt(last.get('goldens/b'), { fork: true, repeat: 1, passes: 1, tools: [] })).toBeNull();
-    expect(testForkedAt(undefined, { fork: true, repeat: 1, passes: 1, tools: [] })).toBeNull();
-    expect(testFailed(last.get('goldens/d'), null)).toBe(true);
-    expect(testFailed(last.get('goldens/e'), null)).toBeNull();
-    expect(lastTests(null, root).size).toBe(0);
+    expect(lastTest(results.get('goldens/forks'), fork)).toEqual({ failed: false, inconclusive: null, forkedAt: 3, forkedRun: results.get('goldens/forks')!.runId });
+    expect(lastTest(results.get('goldens/forks'), null)).toMatchObject({ forkedAt: null, forkedRun: null });
+    // Never tested: nothing is known.
+    expect(lastTest(undefined, fork)).toEqual({ failed: null, inconclusive: null, forkedAt: null, forkedRun: null });
+    expect(lastResults(null, root).size).toBe(0);
     store.close();
   });
 });

@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { liveChaosSession } from './chaos.js';
 
 /**
@@ -31,8 +31,8 @@ export interface GoldenSource {
 /** How a golden came out: passed, failed, or inconclusive (its gate ran out of attempts between its bounds, or a check couldn't be judged). */
 export type GoldenVerdict = 'passed' | 'failed' | 'inconclusive';
 
-/** A result's verdict: as kept, or for one kept before verdicts were, as its `ok` says. */
-export const verdictOfResult = (r: Pick<TestResult, 'ok' | 'failure' | 'data'>): GoldenVerdict => r.data?.verdict ?? (r.ok ? 'passed' : r.failure === 'inconclusive' ? 'inconclusive' : 'failed');
+/** A result's verdict: as kept, or for one kept before verdicts were, as its `ok` says (the engine's, which Training's tasks read too). */
+export const verdictOfResult: (r: Pick<TestResult, 'ok' | 'failure' | 'data'>) => GoldenVerdict = testResultVerdict;
 
 /** A golden's gate as the config gives it, in the words Settings previews it in. */
 export interface GateView {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { INCONCLUSIVE_TEST_NOTE, Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { inconclusiveTestNote, INCONCLUSIVE_TEST_NOTE, Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { approx, exportPairsJob, money, readTraining, scoreDialogView, scoreModelJob, scoreNote, taskUpdate, taskUpdateJob, trainingView } from '../src/training.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
 
@@ -247,6 +247,11 @@ describe('the Training read model', () => {
     // The task that rewards the opposite failed nothing in its last test, which was inconclusive: it is settled on Tests, not fixed.
     const unsettled = TASKS.map((t) => (t.status === 'blocked' ? { ...t, note: INCONCLUSIVE_TEST_NOTE } : t));
     expect(trainingView({ ...readTraining(s, { tasks: unsettled, models: MODELS }), scores: SCORES }).tasks.warning).toMatchObject({ once: 'its test passes', fix: { label: 'Settle it on Tests', href: '#/tests' } });
+    // So is one whose gate ran out of attempts: more attempts settle it.
+    const gated = TASKS.map((t) => (t.status === 'blocked' ? { ...t, note: inconclusiveTestNote('gate') } : t));
+    const settle = trainingView({ ...readTraining(s, { tasks: gated, models: MODELS }), scores: SCORES });
+    expect(settle.tasks.warning).toMatchObject({ fix: { label: 'Settle it on Tests', href: '#/tests' } });
+    expect(settle.tasks.rows.find((r) => r.name === 'refund-in-limit')!.status).toMatchObject({ label: 'blocked', short: 'its last test is inconclusive: its gate ran out of attempts' });
     expect(view.tasks.rows.map((r) => [r.name, r.status.label, r.status.badge, r.href])).toEqual([
       ['refund-over-limit', 'ready', 'ok', '#/run/RUN_refund-over-limit/17'],
       ['escalate-over-limit', 'ready', 'ok', '#/run/RUN_escalate-over-limit/17'],

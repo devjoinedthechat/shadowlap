@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { agentCallsOf, estimateCost, judgeCallsOf, normalizeResponse, Store, type CallRecord } from '@shadowlap/engine';
+import { agentCallsOf, estimateCost, gateResult, judgeCallsOf, normalizeResponse, Store, type CallRecord, type TestResultData } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, withJudge, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
 import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer, type ScriptContext as OpenAIContext } from '@shadowlap-testing/mock-openai';
 import { ANSWERED_BY } from '../src/takeover.js';
@@ -342,6 +342,32 @@ describe('shadowlap tasks', () => {
     expect(plain.stdout).toContain('1 of 2 tasks ready · 1 not a task');
     expect(plain.stdout).toContain('takes over at #5 · decides between refunding and escalating · #1–#4 replay free');
     expect(plain.stdout).toContain('! One-sided: every ready task rewards "escalate above the limit"');
+  });
+
+  it('reads each golden\'s last test by the verdict its result kept, as Tests does', async () => {
+    const result = (ok: boolean, data: TestResultData) =>
+      withStore(db, (s) => {
+        const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: null });
+        s.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-over-limit', ok, ...(ok ? {} : { failure: data.gate ? 'inconclusive' : 'check' }), reason: null, runId: null, revision: null, data });
+        s.finishTestSession(session.sessionId, { passed: ok ? 1 : 0, failed: ok ? 0 : 1, upstreamRequests: 0 });
+      });
+    const listed = async () => (JSON.parse((await shadowlap(work, ['tasks', '--json'])).stdout) as { tasks: Array<{ golden: string; status: string; note: string | null }> }).tasks.find((t) => t.golden === 'goldens/refund-over-limit');
+    const failed = { ok: false, status: 'failed' as const, label: 'issue_refund called 0 times', detail: 'called 1 time (1 blocked or stubbed)' };
+    try {
+      // Its gate ran out of attempts between its bounds: inconclusive, though the attempt its result
+      // shows failed the check, as one of an inconclusive gate's attempts always has.
+      const outcomes = [false, true, true, false, true, true, false, true, true, false, true, true];
+      result(false, { verdict: 'inconclusive', checks: [failed], gate: gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 12 }, outcomes), attempts: { total: 12, passed: 8, required: null, runs: [] } });
+      expect(await listed()).toMatchObject({ status: 'blocked', note: 'its last test is inconclusive: its gate ran out of attempts' });
+      expect((await shadowlap(work, ['tasks'])).stdout).toContain('goldens/refund-over-limit  blocked · its last test is inconclusive: its gate ran out of attempts');
+      // A check that failed is a test that fails.
+      result(false, { verdict: 'failed', checks: [failed] });
+      expect(await listed()).toMatchObject({ status: 'blocked', note: 'its test fails' });
+    } finally {
+      // It passes again: ready for the scores below.
+      result(true, { verdict: 'passed', checks: [{ ...failed, ok: true, status: 'passed', detail: null }] });
+    }
+    expect(await listed()).toMatchObject({ status: 'ready', note: null });
   });
 
   it('scores another model of the recording\'s provider: the golden replays up to the takeover, the model answers from there', async () => {

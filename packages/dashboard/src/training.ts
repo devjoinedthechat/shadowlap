@@ -1,4 +1,4 @@
-import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, INCONCLUSIVE_TEST_NOTE, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 
 /**
@@ -635,7 +635,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
         text: `All of them reward “${warn.rewards}”, so a model that learned only that would score full marks.${opposite ? ` ${opposite.name} rewards the opposite once ${once}.` : ''}`,
         name: opposite?.name ?? null,
         once,
-        fix: oppositeUpdate ? { label: 'Update the golden…', href: null, update: oppositeUpdate } : opposite?.status === 'blocked' ? { label: `${opposite.note === INCONCLUSIVE_TEST_NOTE ? 'Settle' : 'Fix'} it on Tests`, href: '#/tests', update: null } : null,
+        fix: oppositeUpdate ? { label: 'Update the golden…', href: null, update: oppositeUpdate } : opposite?.status === 'blocked' ? { label: `${isInconclusiveNote(opposite.note) ? 'Settle' : 'Fix'} it on Tests`, href: '#/tests', update: null } : null,
       }
     : null;
   // Tasks a model can be scored on first, then what keeps the rest from being one; the project's order within each.
@@ -806,6 +806,6 @@ export function taskUpdateJob(body: unknown, store: Store, tasks: readonly Task[
   // A golden path that looks like an option would be read as one.
   if (task.golden.startsWith('-')) return { error: 'a golden path must not start with "-"' };
   const u = taskUpdate(store, task, normalizers);
-  if (!u) return { error: `${task.name} is not blocked by its test forking before the takeover${task.status === 'blocked' ? `: ${task.note ?? 'its test fails'}; ${task.note === INCONCLUSIVE_TEST_NOTE ? 'settle' : 'fix'} it on Tests` : ''}` };
+  if (!u) return { error: `${task.name} is not blocked by its test forking before the takeover${task.status === 'blocked' ? `: ${task.note ?? 'its test fails'}; ${isInconclusiveNote(task.note) ? 'settle' : 'fix'} it on Tests` : ''}` };
   return { steps: u.steps, title: u.rerecords ? `Updating ${task.name}` : `Adding a normalizer for ${task.name}` };
 }

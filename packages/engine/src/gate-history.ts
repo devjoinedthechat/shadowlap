@@ -36,6 +36,15 @@ export interface PooledHistory extends GateHistory {
 }
 
 /**
+ * How a golden came out in a result: passed, failed, or inconclusive (its gate ran out of attempts
+ * between its bounds, a check could not be decided, or its injection test showed too little to say).
+ * The verdict the result kept; for one kept before verdicts were, what its `ok` and failure say.
+ */
+export function testResultVerdict(r: Pick<TestResult, 'ok' | 'failure' | 'data'>): 'passed' | 'failed' | 'inconclusive' {
+  return r.data?.verdict ?? (r.ok ? 'passed' : r.failure === 'inconclusive' ? 'inconclusive' : 'failed');
+}
+
+/**
  * A result's attempts: the passes and attempts it kept, or, for a result kept before attempts were,
  * one attempt that passed when the golden did. An attempt a check couldn't judge is no evidence
  * either way and isn't counted. Null for a golden that couldn't be replayed at all.

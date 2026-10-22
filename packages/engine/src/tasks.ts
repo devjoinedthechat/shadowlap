@@ -3,6 +3,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { isJudgeCall } from './judge-scope.js';
 import { hasRecordedCommand, PACK_FORMAT, PACK_VERSION } from './pack.js';
 import { PACK_LIMITS, PackError, validateCall, validateRun } from './pack-schema.js';
+import type { TestResult } from './store.js';
 import { safeLine } from './text.js';
 import type { CallRecord, RunRecord, Usage } from './types.js';
 
@@ -269,10 +270,13 @@ export interface TaskInput {
   /** Whether the golden's test fails: true, false, or null when that isn't known. */
   testFailed: boolean | null;
   /**
-   * Its last test was inconclusive: it failed nothing, but a check could not be decided. Neither
+   * Its last test was inconclusive: it failed nothing, but its gate ran out of attempts between its
+   * bounds, a check could not be decided, or its injection test showed too little to say. Neither
    * passed nor failed, so it blocks the task with a note of its own, never as a test that fails.
    */
   testInconclusive?: boolean;
+  /** Why its last test was inconclusive, for the note (default: a check could not be decided). */
+  inconclusiveWhy?: InconclusiveWhy;
   /**
    * The call the golden's last test forked at, when its test may fork (`fork` in its tests entry)
    * and it did. A model takes over only where the recording still replays, so a fork before the
@@ -427,7 +431,7 @@ export function describeTask(input: TaskInput): Task {
   if (!hasRecordedCommand(golden.run)) return { ...task, status: 'blocked', note: NO_COMMAND_NOTE };
   if (task.scopes.length > 1) return { ...task, status: 'not-a-task', note: `its model calls are made in more than one scope (${task.scopes.map(scopeName).join(', ')}), and scoring can't yet send only ${task.scope === null ? "one scope's" : `${task.scope}'s`} to the model under test` };
   if (input.testFailed === true) return { ...task, status: 'blocked', note: 'its test fails' };
-  if (input.testInconclusive === true) return { ...task, status: 'blocked', note: INCONCLUSIVE_TEST_NOTE };
+  if (input.testInconclusive === true) return { ...task, status: 'blocked', note: inconclusiveTestNote(input.inconclusiveWhy) };
   // A fork at the takeover changes nothing: the model under test answers that call anyway.
   if (input.forkedAt != null && input.forkedAt < k) return { ...task, status: 'blocked', note: forkNote(input.forkedAt), fork: { callNo: input.forkedAt, runId: input.forkedRun ?? null } };
   return task;
@@ -438,8 +442,40 @@ export function forkNote(callNo: number): string {
   return `its test forks at #${callNo}, before the takeover: update the golden`;
 }
 
+/**
+ * Why a golden's last test was inconclusive: its gate ran out of attempts between its bounds, a check
+ * could not be decided, or its injection test showed too little to say.
+ */
+export type InconclusiveWhy = 'gate' | 'check' | 'injection';
+
+const INCONCLUSIVE_WHY: Record<InconclusiveWhy, string> = {
+  gate: 'its gate ran out of attempts',
+  check: 'a check could not be decided',
+  injection: 'its injection test showed too little to say',
+};
+
 /** Why a task whose golden's last test was inconclusive is blocked: neither passed nor failed, so its checks are no reward yet. */
-export const INCONCLUSIVE_TEST_NOTE = 'its last test is inconclusive: a check could not be decided';
+export function inconclusiveTestNote(why: InconclusiveWhy = 'check'): string {
+  return `its last test is inconclusive: ${INCONCLUSIVE_WHY[why]}`;
+}
+
+/** The note of a task whose last test was inconclusive because a check could not be decided. */
+export const INCONCLUSIVE_TEST_NOTE = inconclusiveTestNote('check');
+
+/** Whether a task's note says its last test was inconclusive: settled on Tests (more attempts, a judge that can be asked), not fixed. */
+export function isInconclusiveNote(note: string | null | undefined): boolean {
+  return !!note?.startsWith('its last test is inconclusive');
+}
+
+/**
+ * Why a result in the test history is inconclusive, from what it kept: its gate's decision (it ran
+ * out of attempts between its bounds), else its injection gate, else a check it could not decide.
+ */
+export function inconclusiveWhy(r: Pick<TestResult, 'failure' | 'data'>): InconclusiveWhy {
+  if (r.data?.gate?.decision === 'inconclusive') return 'gate';
+  if (r.failure === 'injection') return 'injection';
+  return 'check';
+}
 
 /** Why a golden packed from a capture is blocked: its test can't run, and how to give it a command. */
 export const NO_COMMAND_NOTE = 'it was imported from a capture and has no command to run: replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run';
