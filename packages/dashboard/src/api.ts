@@ -80,7 +80,9 @@ export interface CallRow extends CallFacts {
   responseRef: string | null;
   /**
    * A tool's result in one line of about 72 characters (`stubbed …`, `blocked`), shown under the call;
-   * for a clock read or a random value, the value it gave, shown beside it; null for model calls.
+   * for a clock read or a random value, the value it gave, shown beside it; for a model call, what it
+   * said (its text, about 200 characters at most), which Turns shows and Calls shows under a final
+   * answer; null for one that said nothing or failed.
    */
   resultShort: string | null;
   /** A recorded user input: a person's answer the agent read, recorded like a read tool (`user_input`). */
