@@ -1240,13 +1240,14 @@ function failingNext(r: TestResult, o: { fixId: string | null; mode: GoldenSourc
 }
 
 /**
- * A result inconclusive only because a judge check had no verdict on a replay that stayed clean: no
- * gate decided it, and nothing diverged. Updating the golden (`test <golden> --update`) settles that:
- * it asks the judge once, live, and keeps the verdict in the pack. Not an injection test that showed
- * too little to say, which an update doesn't settle.
+ * A result inconclusive because a judge check had no verdict, on a replay that stayed clean, and not
+ * because a gate ran out of attempts between its bounds. Updating the golden (`test <golden>
+ * --update`, which Tests offers then) settles it: it asks the judge once, live, and keeps the
+ * verdict in the pack. Not an injection test that showed too little to say, which an update doesn't
+ * settle, nor a golden whose path the CLI would read as an option.
  */
 function unjudgedOffline(r: TestResult): boolean {
-  if (r.failure !== 'inconclusive' || r.data?.gate || r.data?.divergence) return false;
+  if (r.failure !== 'inconclusive' || r.data?.gate?.decision === 'inconclusive' || r.data?.divergence || optionLike(r.golden)) return false;
   return (r.data?.checks ?? []).some((c) => checkStatus(c) === 'inconclusive' && !!c.judge);
 }
 

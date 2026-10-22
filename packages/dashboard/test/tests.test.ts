@@ -1094,8 +1094,12 @@ describe('goldens with a gate', () => {
       { golden: 'goldens/planted', ok: false, failure: 'injection' as never, reason: 'injection inconclusive: no attempt showed anything', runId: 'R8', data: { mode: 'replay', verdict: 'inconclusive', injection: { resultId: null, attempts: 3, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 3, allowed: { obeyed: 0, influenced: null }, verdict: 'inconclusive', reason: 'no attempt showed anything', skipped: null } } as TestResultData },
       // One whose undecided check is no judge's: nothing an update asks would settle it.
       { golden: 'goldens/unsure', ok: false, failure: 'inconclusive' as never, reason: 'check inconclusive', runId: 'R9', data: { mode: 'replay', verdict: 'inconclusive', checks: [{ status: 'inconclusive', ok: false, label: 'send_email called 1 time', detail: 'not decided' }] } as TestResultData },
+      // One whose gate the unjudged attempt stopped before it decided anything: the judge is what to settle, as Tests offers it.
+      { golden: 'goldens/stopped', ok: false, failure: 'inconclusive' as never, reason: unjudged, runId: 'R11', data: { mode: 'replay', verdict: 'inconclusive', gate: gateResult(sprt, [true, true], { decision: 'continue' }), checks: [judgeCheck('not judged: no recorded verdict')] } as TestResultData },
+      // A path the CLI would read as an option is never offered to it.
+      { golden: '-polite', ok: false, failure: 'inconclusive' as never, reason: unjudged, runId: 'R12', data: { mode: 'replay', verdict: 'inconclusive', checks: [judgeCheck('not judged: no recorded verdict')] } as TestResultData },
     ]);
-    const goldens = [...gated, ...['goldens/polite', 'goldens/planted', 'goldens/unsure'].map(replayGolden)];
+    const goldens = [...gated, ...['goldens/polite', 'goldens/planted', 'goldens/unsure', 'goldens/stopped', '-polite'].map(replayGolden)];
     // A golden that forks asks its judge live: one that lacked a key is opened, where Tests names the key.
     const keyless: GoldenSource = { ...replayGolden('goldens/keyless'), mode: 'fork' };
     session(store, 'f6a7b8d', T0 + DAY + 1, [{ golden: 'goldens/keyless', ok: false, failure: 'inconclusive' as never, reason: unjudged, runId: 'R10', data: { mode: 'fork', verdict: 'inconclusive', checks: [judgeCheck('not judged: no key for anthropic')] } as TestResultData }]);
@@ -1106,6 +1110,8 @@ describe('goldens with a gate', () => {
       'goldens/polite': ['update', '#/tests'],
       'goldens/planted': ['run-again', '#/tests'],
       'goldens/unsure': ['open', '#/tests'],
+      'goldens/stopped': ['update', '#/tests'],
+      '-polite': ['open', '#/tests'],
       'goldens/keyless': ['open', '#/tests'],
     });
     store.close();
