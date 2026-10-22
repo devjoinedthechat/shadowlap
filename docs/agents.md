@@ -53,7 +53,7 @@ A project rule, which Agent applies when it finds it relevant, holding the skill
 shadowlap skill install cursor
 ```
 
-It writes the rule to `.cursor/rules/shadowlap.mdc` from the copy that comes with the CLI, beside the project's own rules; `--force` replaces another version's rule, or one edited here. The rule is also in the repository: [coding-agents/cursor/shadowlap.mdc](https://github.com/devjoinedthechat/shadowlap/blob/main/coding-agents/cursor/shadowlap.mdc). Settings → Coding agents in the [dashboard](./dashboard.md) shows `.cursor/rules` as mentioning Shadowlap from then on.
+It writes the rule to `.cursor/rules/shadowlap.mdc` from the copy that comes with the CLI, beside the project's own rules; `--force` replaces another version's rule, or one edited here. The rule is also in the repository: [coding-agents/cursor/shadowlap.mdc](https://github.com/devjoinedthechat/shadowlap/blob/main/coding-agents/cursor/shadowlap.mdc). In the [dashboard](./dashboard.md), Settings → Coding agents does the same with **Add the Cursor rule** on the `.cursor/rules` row, which then reads *found · shadowlap.mdc* with the version.
 
 ## Instructions to give it
 

@@ -823,10 +823,6 @@ pre.report .no, pre.report .del { color: var(--err); } pre.report .add { color: 
 .setrow b { display: block; font-weight: 500; }
 .setrow span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
 .setrow span.fieldnote { margin-top: 6px; }
-/* what a project has of the Cursor rule or the Claude Code plugin, after where it goes */
-.setrow em.agst { font-style: normal; }
-.setrow em.agst.ok { color: var(--ok); }
-.setrow em.agst.warn { color: var(--warn); }
 .preview { border-top: 1px solid var(--line); }
 .pvhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .pick { position: relative; display: inline-flex; }
@@ -1098,6 +1094,25 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 .agentfiles div { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .agentfiles code { min-width: 110px; }
 .agentfiles .warn { color: var(--warn); }
+/* Settings → Coding agents, as the design has it: the Cursor rule's install on its row, small and to the right, or why it
+   can't go in; the skill once published, with its install command and the commands for every project on the machine */
+.agentfiles div .btn, .agentfiles div .agwhy { margin-left: auto; }
+.agentfiles div .agwhy { text-align: right; }
+@media (max-width: 640px) { .agentfiles div:has(.btn, .agwhy) { flex-wrap: wrap; } .agentfiles div:has(.btn, .agwhy) :is(.btn, .agwhy) { margin: 4px 0 0 auto; } }
+.agentsgone { margin: 4px 0 12px; }
+.skrow { align-items: flex-start; }
+.skrow > div:first-child > span + span { margin-top: 6px; }
+.skrow > div:first-child > span { max-width: 96ch; text-wrap: pretty; }
+.skrow > div:first-child > span.warn { color: var(--warn); }
+.skrow > .btn, .skrow > .st { margin-top: 2px; }
+.skrow .skcmd { margin-top: 10px; max-width: 520px; }
+.skrow .cmdline span { margin: 0; max-width: none; color: inherit; font-size: inherit; }
+.skrow .cmdline:not(.words) span { display: inline; }
+.skrow .cmdline b { display: inline; font-weight: 400; }
+.skrow .skall { margin-top: 10px; margin-left: -7px; }
+.skrow .skall svg { transition: transform .15s; transform: rotate(-90deg); }
+.skrow .skall[aria-expanded="true"] svg { transform: none; }
+.skrow .skall + .cmdline + .linkbtn { margin-top: 6px; margin-left: -7px; }
 .codebox.md { white-space: pre-wrap; max-height: 260px; overflow: auto; }
 
 /* import */
@@ -1865,7 +1880,7 @@ code.tipped { cursor: help; }
 .pvrule .pvs span { overflow-wrap: anywhere; }
 .set .pvrule { grid-template-columns: auto minmax(34px, max-content) minmax(0, 1fr); }
 @media (max-width: 640px) { .set .pvrule { grid-template-columns: auto minmax(28px, max-content) minmax(0, 1fr); } }
-.agentfiles .ok { color: var(--accent); }
+.agentfiles .ok { color: var(--dim); }
 .egrp p.none { margin: 0; }
 .egrp.mcp p.none { margin: 0 0 12px; }
 .egrp.mcp .tscroll { margin: 4px 0 12px; }

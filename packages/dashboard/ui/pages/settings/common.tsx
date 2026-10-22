@@ -90,6 +90,9 @@ export const RULES_UNREADABLE = 'The rules can’t be read until the file is fix
 /** The same while the project's folder is gone: the file went with it, so there is no list, empty or not. */
 export const RULES_GONE = 'The rules can’t be read while the folder is gone.';
 
+/** Where Coding agents lists the project's instruction files, while its folder is gone. */
+export const FILES_GONE = 'The instruction files can’t be read while the folder is gone.';
+
 /**
  * Where a tab's rules would be when it has none to show for a reason other than having none: the
  * file can't be read, or the folder is gone. Null when the list is what the file says.
