@@ -116,7 +116,7 @@ async function loadRows(client: Client, q: RunsQuery, limit: number): Promise<Ru
 const CHIP_TYPES: Readonly<Record<RunChip, readonly string[]>> = { all: [], recording: ['recording'], fork: ['fork'], clean: ['clean'], test: ['test'], capture: ['capture'], failed: ['failed'] };
 
 function pickedRun(r: TableRun): PickedRun {
-  return { runId: r.runId, status: r.status, startedAt: r.startedAt, ...(r.local !== undefined ? { local: r.local } : {}) };
+  return { runId: r.runId, status: r.status, startedAt: r.startedAt, attempts: r.attempts ?? 0, ...(r.local !== undefined ? { local: r.local } : {}) };
 }
 
 function ServerRuns() {
@@ -205,7 +205,8 @@ function ServerRuns() {
   const rows: TableRun[] = page.data?.runs ?? [];
   const counts: ChipCounts | null = page.data?.chipCounts ?? null;
 
-  // What the bar knows of a run picked follows the table: a recording that ends can then be deleted.
+  // What the bar knows of a run picked follows the table: a recording that ends can then be deleted,
+  // and a delete names the attempts a blame added meanwhile.
   useEffect(() => {
     if (!picked.size || !page.data) return;
     let changed = false;
@@ -214,7 +215,7 @@ function ServerRuns() {
       const was = next.get(r.runId);
       if (!was) continue;
       const now = pickedRun(r);
-      if (was.status !== now.status || was.local !== now.local) {
+      if (was.status !== now.status || was.local !== now.local || was.attempts !== now.attempts) {
         next.set(r.runId, now);
         changed = true;
       }

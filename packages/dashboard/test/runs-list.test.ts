@@ -336,6 +336,22 @@ describe('bulk actions', () => {
     }
   });
 
+  it('deletes the attempts bundled under an attempt too, and counts every one on the row', () => {
+    const local = Store.open(':memory:');
+    try {
+      const rec = addRun(local, { startedAt: NOW - DAY, calls: 'llll', status: 'failed' });
+      const probe = addRun(local, { parent: rec, startedAt: NOW - DAY + MIN, divergence: 3, calls: 'rrll', meta: { probe: { of: rec, callNo: 3, passed: false }, repeat: { group: 'g-3', attempt: 1, of: 1 } } });
+      // A --repeat of the probe: bundled under the probe, which is bundled under the run.
+      const again = addRun(local, { parent: probe, startedAt: NOW - DAY + 2 * MIN, calls: 'rrll', meta: { repeat: { group: 'again', attempt: 1, of: 1 } } });
+      expect(listRunsPage(local).runs).toMatchObject([{ runId: rec, attempts: 2 }]);
+      expect(deleteRuns(local, [rec])).toMatchObject({ done: [rec], attempts: [probe, again], skipped: [] });
+      // Nothing of it is left to show as a run of its own.
+      expect(local.allRuns()).toEqual([]);
+    } finally {
+      local.close();
+    }
+  });
+
   it('deletes a run its recording process left marked running, as gc would', () => {
     const local = Store.open(':memory:');
     try {

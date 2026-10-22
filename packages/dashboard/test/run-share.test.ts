@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store, type Normalizer } from '@shadowlap/engine';
 import { cliSpawner, runDetail, showRunJson, startDashboard, type Dashboard, type JobView } from '../src/index.js';
-import { collectorUrl, copyRules, exportDatasetJob, exportHarJob, exportHtmlJob, exportOtelJob, inStoreFolder, insideProject, packFolder, packJob, traceFile } from '../src/run-exports.js';
+import { collectorUrl, copyRules, exportDatasetJob, exportHarJob, exportHtmlJob, exportOtelJob, inStoreFolder, insideProject, MAX_PACK_RUNS, packFolder, packFolders, packJob, traceFile } from '../src/run-exports.js';
 import { blameOffer, goldenExpect, passingBisect, runOffers, sameCommit, testOffer } from '../src/run-offers.js';
 import { addRun, blameOf } from './read-model-store.js';
 import { RunBuilder } from '../../engine/test/run-fixtures.js';
@@ -69,6 +69,38 @@ describe('the Share menu’s jobs', () => {
     expect(packFolder(project, 'escape/pack')).toHaveProperty('error');
     expect(insideProject(project, 'escape')).toBe(false);
     expect(insideProject(project, 'share/new/deeper')).toBe(true);
+  });
+
+  it('packs the runs the Runs page picked in one job, a folder each inside the folder its dialog names', () => {
+    const a = addRun(store, { startedAt: T0 + 10, calls: 'l' });
+    const b = addRun(store, { startedAt: T0 + 11, calls: 'l' });
+    const low = (id: string) => id.slice(0, 10).toLowerCase();
+    // Into .shadowlap/exports unless asked, never the project's own root: one pack after another,
+    // so the job's drawer lists every folder.
+    expect(packJob(store, proj(), { runIds: [a, b, a] })).toEqual({
+      args: ['pack', a, `./.shadowlap/exports/${low(a)}`],
+      then: [['pack', b, `./.shadowlap/exports/${low(b)}`]],
+      runId: null,
+      title: 'Packing 2 runs',
+    });
+    expect(packJob(store, proj(), { runIds: [a, b], dir: 'goldens/' })).toMatchObject({ args: ['pack', a, `./goldens/${low(a)}`], then: [['pack', b, `./goldens/${low(b)}`]] });
+    expect(packJob(store, proj(), { runIds: [b] })).toEqual({ args: ['pack', b, `./.shadowlap/exports/${low(b)}`], runId: b, title: 'Packing' });
+    for (const dir of ['../elsewhere', '/tmp/x', '.shadowlap', '', '  ', 7]) expect(packJob(store, proj(), { runIds: [a, b], dir }), String(dir)).toHaveProperty('error');
+    expect(packJob(store, proj(), { runIds: [] })).toHaveProperty('error');
+    expect(packJob(store, proj(), { runIds: ['--all'] })).toHaveProperty('error');
+    expect(packJob(store, proj(), { runIds: Array.from({ length: MAX_PACK_RUNS + 1 }, () => a) })).toMatchObject({ error: `at most ${MAX_PACK_RUNS} runs in one pack job` });
+    // Two runs that started in the same millisecond share the first ten characters of their ids: each keeps a folder of its own.
+    expect(packFolders(['01K5CQ4N7G0000000000000001', '01K5CQ4N7G0000000000000002', '01K5CQ4N9A0000000000000000'], '.shadowlap/exports/')).toEqual([
+      { runId: '01K5CQ4N7G0000000000000001', folder: '.shadowlap/exports/01k5cq4n7g0000000000000001' },
+      { runId: '01K5CQ4N7G0000000000000002', folder: '.shadowlap/exports/01k5cq4n7g0000000000000002' },
+      { runId: '01K5CQ4N9A0000000000000000', folder: '.shadowlap/exports/01k5cq4n9a' },
+    ]);
+  });
+
+  it('writes a dataset under the name its dialog shows, and refuses a name that is not a file name', () => {
+    const a = addRun(store, { startedAt: T0 + 12, calls: 'l' });
+    expect(exportDatasetJob(store, proj(), { runIds: [a], out: 'dataset-2-runs-20261022-074812.jsonl' })).toMatchObject({ args: ['export', 'dataset', a, '--calls', 'final', '--format', 'jsonl', '--out', '.shadowlap/exports/dataset-2-runs-20261022-074812.jsonl'] });
+    for (const out of ['../x.jsonl', '/tmp/x.jsonl', '-x', 'a b.jsonl', 7]) expect(exportDatasetJob(store, proj(), { runIds: [a], out }), String(out)).toHaveProperty('error');
   });
 
   it('exports a dataset of one run or many, in a format and with the examples asked for', () => {

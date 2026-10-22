@@ -4,7 +4,9 @@ import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, todayTestsLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
-import { bulkToast, localTitle } from '../ui/runspage/bulk.js';
+import { bulkToast, deleteText, deleteWhat, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
+import { datasetCommand, datasetFile } from '../ui/run/share.js';
+import { packFolders as serverPackFolders } from '../src/run-exports.js';
 import { bisectCommand, bisectRequest, revisionTally } from '../ui/runspage/find-commit.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
 import { fileHead, FILE_FORMATS, HEAD_BYTES, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, pickedFormat, redateTrace, sampleTrace, tooLargeNote } from '../ui/runspage/imports.js';
@@ -284,6 +286,50 @@ describe('the Runs page’s requests and words', () => {
     expect(bulkToast({ verb: 'Deleted', done: ['01K5CQ4N7G0000', '01K5CQ4N9A0000'], of: 2, skipped: [] })).toBe('Deleted 2 runs');
     expect(bulkToast({ verb: 'Labelled', done: ['01K5CQ4N7G0000'], of: 1, skipped: [], suffix: ' “good”' })).toBe('Labelled 01K5CQ4N7G “good”');
     expect(bulkToast({ verb: 'Deleted', done: ['01K5CQ4N7G0000'], of: 2, skipped: [{ runId: '01K5CQ6L0P0000', reason: 'still recording' }] })).toBe('Deleted 1 of 2 runs · 01K5CQ6L0P is still recording');
+    // The attempts that went with the runs are counted too.
+    expect(bulkToast({ verb: 'Deleted', done: ['01K5CQ4N7G0000', '01K5CQ4N9A0000'], of: 2, skipped: [], attempts: 6 })).toBe('Deleted 2 runs and 6 attempts');
+    expect(bulkToast({ verb: 'Deleted', done: ['01K5CQ4N7G0000'], of: 1, skipped: [], attempts: 1 })).toBe('Deleted 01K5CQ4N7G and 1 attempt');
+  });
+
+  it('names the attempts a bulk Delete takes with the runs, as shadowlap rm deletes them', () => {
+    const two = ['01K5CQ4N7G0000000000000000', '01K5CQ4N9A0000000000000000'];
+    // A count keeps to its noun where the title wraps.
+    expect(deleteWhat(two, 6)).toBe('2\u00a0runs and the 6\u00a0attempts bundled under them');
+    expect(deleteWhat(two.slice(0, 1), 1)).toBe('01K5CQ4N7G and the attempt bundled under it');
+    expect(deleteWhat(two, 0)).toBe('2\u00a0runs');
+    expect(deleteText(2, 6, [])).toBe('Removes the runs, the attempts bundled under them and the recorded data nothing else uses. Their forks keep their own data but lose the link.');
+    expect(deleteText(1, 0, ['01K5CQ6L0P0000000000000000'])).toBe('Removes the run and the recorded data nothing else uses. Its forks keep their own data but lose the link. 01K5CQ6L0P is still recording and is left alone.');
+    // The command it shows deletes the same: rm takes a run's attempts with it.
+    expect(rmCommand(two)).toEqual({ shown: 'shadowlap rm 01K5CQ4N7G 01K5CQ4N9A', full: 'shadowlap rm 01K5CQ4N7G 01K5CQ4N9A' });
+  });
+
+  it('packs every run picked into a folder of its own, where its dialog says, as one job does', () => {
+    const ids = ['01K5CQ4N7G0000000000000000', '01K5CQ4N9A0000000000000000', '01K5CQ4N9A0000000000000001'];
+    // The dialog names each folder as the job does (src/run-exports.ts), a run that shares its first ten characters by its whole id.
+    expect(packFolders(ids, '.shadowlap/exports/')).toEqual(serverPackFolders(ids, '.shadowlap/exports/'));
+    expect(packFolders(ids, '.shadowlap/exports').map((f) => f.folder)).toEqual(['.shadowlap/exports/01k5cq4n7g', '.shadowlap/exports/01k5cq4n9a0000000000000000', '.shadowlap/exports/01k5cq4n9a0000000000000001']);
+    expect(packCommand(ids.slice(0, 1), 'goldens')).toEqual({ shown: 'shadowlap pack 01K5CQ4N7G goldens/01k5cq4n7g', full: 'shadowlap pack 01K5CQ4N7G goldens/01k5cq4n7g' });
+    expect(packCommand(ids.slice(0, 2), 'my packs')).toEqual({
+      shown: "shadowlap pack 01K5CQ4N7G 'my packs/01k5cq4n7g' … and\u00a01\u00a0more, one per run",
+      full: "shadowlap pack 01K5CQ4N7G 'my packs/01k5cq4n7g' && shadowlap pack 01K5CQ4N9A 'my packs/01k5cq4n9a'",
+    });
+    expect(packOff(PACK_MAX)).toBeNull();
+    expect(packOff(PACK_MAX + 1)).toBe(`At most ${PACK_MAX} runs are packed at once: ${PACK_MAX + 1} are picked`);
+  });
+
+  it('shows the command a dataset runs, with the file it writes', () => {
+    const now = new Date('2026-10-22T07:48:12Z');
+    expect(datasetFile(['01K5CQ4N7G0000000000000000'], now)).toBe('dataset-01k5cq4n7g.jsonl');
+    // Named as the job names it when not told, so a dataset of the same runs is never overwritten.
+    expect(datasetFile(['01K5CQ4N7G0000000000000000', '01K5CQ4N9A0000000000000000'], now)).toBe('dataset-2-runs-20261022-074812.jsonl');
+    expect(datasetCommand(['01K5CQ4N7G0000000000000000'], { format: 'braintrust', calls: 'model', file: 'dataset-01k5cq4n7g.jsonl' })).toEqual({
+      shown: 'shadowlap export dataset 01K5CQ4N7G --calls model --format braintrust --out .shadowlap/exports/dataset-01k5cq4n7g.jsonl',
+      full: 'shadowlap export dataset 01K5CQ4N7G --calls model --format braintrust --out .shadowlap/exports/dataset-01k5cq4n7g.jsonl',
+    });
+    const many = Array.from({ length: 12 }, (_, i) => `01K5CQ4N${String(i).padStart(2, '0')}0000000000000000`);
+    const long = datasetCommand(many, { format: 'jsonl', calls: 'final', file: 'x.jsonl' });
+    expect(long.shown).toBe('shadowlap export dataset 01K5CQ4N00 01K5CQ4N01 01K5CQ4N02 01K5CQ4N03 01K5CQ4N04 … and 7 more --calls final --format jsonl --out .shadowlap/exports/x.jsonl');
+    expect(long.full.split(' ').filter((w) => w.startsWith('01K5CQ4N'))).toHaveLength(12);
   });
 
   it('names where Find the commit ends: the failure’s own commit, or HEAD when this checkout lacks it', () => {

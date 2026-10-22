@@ -1054,6 +1054,8 @@ table.runst tr.picked td { background: color-mix(in srgb, var(--lime) 7%, transp
 .bulkbar b { font-weight: 500; font-size: 13px; white-space: nowrap; }
 .bulkbar .sep { width: 1px; height: 18px; background: var(--line2); margin: 0 4px; }
 @media (max-width: 1000px) { .bulkbar { left: 50%; transform: translateX(-50%); bottom: 40px; max-width: calc(100vw - 24px); overflow-x: auto; } }
+/* While runs are picked, a job's drawer opens above the bulk bar (46px tall, 44px up) instead of over its buttons. */
+body:has(.bulkbar) .drawer { bottom: 100px; }
 
 /* scopes */
 .scopebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 24px; border-bottom: 1px solid var(--line); }
@@ -1666,7 +1668,7 @@ table.t td.wrapcell { white-space: normal; }
 }
 
 /* the job drawer names the folders a job wrote (a pack); files download from its footer */
-.drawer .jfiles { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px 0; font-size: 12.5px; color: var(--dim); }
+.drawer .jfiles { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px 0; font-size: 12.5px; color: var(--dim); max-height: 136px; overflow-y: auto; }
 .drawer .jfiles span { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .drawer .jfiles code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drawer .jfiles svg { width: 14px; height: 14px; flex: none; color: var(--faint); }

@@ -63,7 +63,7 @@ export interface RunRow extends RunListItem {
   failed: boolean;
   /** One character per call: r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed. */
   origins: string;
-  /** Attempts bundled under this run. */
+  /** Attempts bundled under this run, those bundled under them in turn included: what deleting it takes with it. */
   attempts: number;
   /** The model call blame found lost the run. */
   lostAt: number | null;
@@ -303,7 +303,7 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
       outcome: r.outcome,
       failed: r.failed,
       origins: t?.codes ?? '',
-      attempts: index.attempts.get(r.runId)?.length ?? 0,
+      attempts: bundleOf(index, r.runId).length,
       lostAt: lostAt(c),
       checks: checksOf(c),
       author: r.meta.author,
@@ -526,11 +526,29 @@ export interface DeleteResult {
 }
 
 /**
- * Deletes several runs, with the attempts bundled under each. A run still in progress is left alone,
- * as is one a run in progress reads from: an attempt of it, or a replay or fork of it, would lose the
- * answers it has yet to serve. Forks of a deleted run keep their own data and lose the link to it.
- * In progress means a process is still recording it (the store's recordingRuns): a run a killed
- * process left marked running can be deleted, as gc would.
+ * The attempts bundled under a run, and those bundled under them in turn (a `--repeat` of one of
+ * blame's probes): what the lists show only through the run, and what goes with it when it is
+ * deleted, so none is left behind as a run of its own.
+ */
+export function bundleOf(index: RunIndex, runId: string): IndexedRun[] {
+  const out: IndexedRun[] = [];
+  const seen = new Set([runId]);
+  for (let i = -1; i < out.length; i++) {
+    for (const a of index.attempts.get(i < 0 ? runId : out[i]!.runId) ?? []) {
+      if (seen.has(a.runId)) continue;
+      seen.add(a.runId);
+      out.push(a);
+    }
+  }
+  return out;
+}
+
+/**
+ * Deletes several runs, with the attempts bundled under each, as `shadowlap rm` does. A run still
+ * in progress is left alone, as is one a run in progress reads from: an attempt of it, or a replay
+ * or fork of it, would lose the answers it has yet to serve. Forks of a deleted run keep their own
+ * data and lose the link to it. In progress means a process is still recording it (the store's
+ * recordingRuns): a run a killed process left marked running can be deleted, as gc would.
  */
 export function deleteRuns(store: Store, ids: unknown): DeleteResult | { error: string } {
   const list = idList(ids);
@@ -555,7 +573,7 @@ export function deleteRuns(store: Store, ids: unknown): DeleteResult | { error: 
       skipped.push({ runId: run.runId, reason: run.mode === 'record' ? 'still recording' : 'still running' });
       continue;
     }
-    const bundle = index.attempts.get(run.runId) ?? [];
+    const bundle = bundleOf(index, run.runId);
     if (bundle.some(inProgress)) {
       skipped.push({ runId: run.runId, reason: 'an attempt of it is still running' });
       continue;
