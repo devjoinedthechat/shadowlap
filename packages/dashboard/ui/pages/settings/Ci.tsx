@@ -249,7 +249,7 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
  */
 const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', string> = {
   fail: 'A gate, judge or injection test that can’t decide counts as failed: Slack hears of it, and the job fails.',
-  warn: 'A gate, judge or injection test that can’t decide warns instead: Slack doesn’t hear of it, and the job goes on. Fix on failure’s step too.',
+  warn: 'A gate, judge or injection test that can’t decide warns instead: Slack doesn’t hear of it, and the job goes on. Fix on failure’s step lets it through too.',
 };
 
 function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
