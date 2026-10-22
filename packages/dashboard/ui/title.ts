@@ -1,6 +1,7 @@
 import { shortId } from './format.js';
 import { settingsTabLabel } from './pages/settings/tabs.js';
 import type { Route } from './route.js';
+import type { RunAbout } from './types.js';
 
 /**
  * The browser tab's title for each route, as the design's docTitle() names them: a run by its id,
@@ -29,6 +30,30 @@ export interface TitleFacts {
   fixTitle?: string | null;
   /** The run's about line (decision 10), when the server sends one. */
   about?: string | null;
+}
+
+/**
+ * The about line of the run the run page has open, as its own read of the run gives it: the run
+ * list leaves attempts out, so the tab of an attempt's page reads its about line from here. The run
+ * page sets it; the shell's title reads it for that run only.
+ */
+let openRun: { runId: string; about: Pick<RunAbout, 'text' | 'from'> | null } | null = null;
+const titleListeners = new Set<() => void>();
+
+export function setOpenRunAbout(runId: string | null, about: Pick<RunAbout, 'text' | 'from'> | null = null): void {
+  const next = runId ? { runId, about } : null;
+  if (openRun?.runId === next?.runId && openRun?.about?.text === next?.about?.text) return;
+  openRun = next;
+  for (const f of titleListeners) f();
+}
+
+export function openRunAbout(): typeof openRun {
+  return openRun;
+}
+
+export function onOpenRunAbout(f: () => void): () => void {
+  titleListeners.add(f);
+  return () => titleListeners.delete(f);
 }
 
 /** What the route's page is, before the product's name. */

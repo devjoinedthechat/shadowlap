@@ -11,6 +11,7 @@ import { followNewest, mergeRun, settledThrough } from '../live.js';
 import { countOrigins, presentOrigins } from '../origins.js';
 import { indexCalls, needsAncestors, notWaited, type CallIndex } from '../recorded.js';
 import { CYCLE_VIEWS, href, nextView, type View } from '../route.js';
+import { setOpenRunAbout } from '../title.js';
 import { navigate } from '../router.js';
 import { inScope, scopeChips, scopesOf } from '../scopes.js';
 import { useApp, type PaletteCommand } from '../state.js';
@@ -141,6 +142,11 @@ function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | n
 
 function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
   const app = useApp();
+  // The tab's title reads the run's about line from the run as this page read it: the run list has no attempts.
+  useEffect(() => {
+    setOpenRunAbout(run.run.runId, run.about ?? null);
+  }, [run.run.runId, run.about?.text, run.about?.from]);
+  useEffect(() => () => setOpenRunAbout(null), []);
   const { client, exported, actionsOff, setRunCommands, runKeys, setPalette, runsTick } = app;
   const runId = run.run.runId;
   const live = run.run.status === 'running';

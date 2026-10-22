@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseRoute } from '../ui/route.js';
-import { docTitle, TAB_ABOUT_MAX } from '../ui/title.js';
+import { docTitle, onOpenRunAbout, openRunAbout, setOpenRunAbout, TAB_ABOUT_MAX } from '../ui/title.js';
 
 /**
  * Every tab read "Shadowlap", whatever it showed: ten tabs of the dashboard couldn't be told apart.
@@ -60,5 +60,20 @@ describe('a tab’s title', () => {
     expect(title('#/', { setup: true, problem: { name: 'research-agent' } })).toBe('Can’t open research-agent — shadowlap');
     // Not yet known: the page's own name.
     expect(title('#/runs', { setup: null })).toBe('Runs — shadowlap');
+  });
+});
+
+describe('the about line of the run a page has open', () => {
+  it('is kept for the shell’s title, which an attempt, missing from the run list, reads it from; a change is told once', () => {
+    let told = 0;
+    const off = onOpenRunAbout(() => told++);
+    setOpenRunAbout('01M5JER8B3ZZZZZZZZZZZZZZZZ', { text: 'resampled #5, attempt 1', from: 'change' });
+    expect(openRunAbout()).toEqual({ runId: '01M5JER8B3ZZZZZZZZZZZZZZZZ', about: { text: 'resampled #5, attempt 1', from: 'change' } });
+    setOpenRunAbout('01M5JER8B3ZZZZZZZZZZZZZZZZ', { text: 'resampled #5, attempt 1', from: 'change' });
+    expect(told).toBe(1);
+    expect(docTitle(parseRoute('#/run/01M5JER8B3'), { about: openRunAbout()!.about!.text })).toBe('01M5JER8B3 · resampled #5, attempt 1 — shadowlap');
+    setOpenRunAbout(null);
+    expect([openRunAbout(), told]).toEqual([null, 2]);
+    off();
   });
 });
