@@ -128,8 +128,10 @@ describe('the Runs table', () => {
 
   it('says clean replay where it names one, and that every attempt is bundled', async () => {
     r = await render(table([CLEAN, FORK]));
-    expect(text(row(r, CLEAN.runId).querySelector('.rsub')!)).toBe('clean replay of 01M5H2DKE9 · node refund_agent.mjs T-8812');
-    expect(text(row(r, FORK.runId).querySelector('.rsub')!)).toBe('fork @16 of 01M5H2DKE9 · node refund_agent.mjs T-8812');
+    // The line under the id is the run's about line (decision 10); what kind of run it is, of which, and its command are on the id's hover.
+    const hover = (id: string) => row(r!, id).querySelector('.rlink')!.getAttribute('title');
+    expect(hover(CLEAN.runId)).toBe('clean replay of 01M5H2DKE9 · node refund_agent.mjs T-8812');
+    expect(hover(FORK.runId)).toBe('fork @16 of 01M5H2DKE9 · node refund_agent.mjs T-8812');
     // Not only --repeat's, blame's and verify's: a golden's repeats and the error-path presets' too.
     expect(RUNS_TEXT).toBe('Recordings, and the replays and forks made from them. Attempts are bundled under the run they came from.');
   });
