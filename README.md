@@ -148,7 +148,7 @@ $ shadowlap decisions 01M5FYDVBW --model claude-haiku-4-5
 
 ## Quickstart
 
-Install the CLI (Node&nbsp;22.16 or later, not&nbsp;23), then let it read your project:
+Install the CLI (Node&nbsp;22.16 or later, not&nbsp;23) and run `init` in your&nbsp;agent's&nbsp;folder:
 
 ```sh
 npm install -g shadowlap
@@ -156,7 +156,7 @@ cd your-agent
 shadowlap init
 ```
 
-`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes (an agent on Node needs Node&nbsp;18.18 or later); tools and tests use these packages:
+`init` finds your model SDKs, framework, agent command and tools, and prints your next steps. Model calls need no code changes, though a Node agent needs Node&nbsp;18.18 or later. Tools and tests use&nbsp;these&nbsp;packages:
 
 ```sh
 # wrap tools (Node 18.18+)
@@ -169,7 +169,7 @@ npm install -D @shadowlap/test
 pip install shadowlap
 ```
 
-Wrap each tool once, where you define it, with its effect, or it runs again on every replay. Outside Shadowlap the wrapper is a passthrough, so it ships unchanged:
+Wrap each tool where you define it and declare its effect: `read`, `write` or `pure`. A tool you don't wrap runs for real on every replay. Outside Shadowlap the wrapper only calls your function, so wrapped tools&nbsp;ship&nbsp;unchanged:
 
 ```ts
 import { tool } from '@shadowlap/sdk';
@@ -185,7 +185,7 @@ from shadowlap import tool
 def lookup_order(order_id): ...
 ```
 
-Then record, replay and look:
+Then record a run, replay it and open&nbsp;the&nbsp;dashboard:
 
 ```sh
 # record, with your usual key
@@ -198,7 +198,7 @@ shadowlap dashboard
 
 ## Dashboard and terminal UI
 
-`shadowlap dashboard` opens your runs on 127.0.0.1. Fork from any call, or compare two runs side by side.
+`shadowlap dashboard` opens your runs on 127.0.0.1. Fork from any call, or compare two runs side&nbsp;by&nbsp;side.
 
 <p align="center">
   <picture>
@@ -210,7 +210,7 @@ shadowlap dashboard
   <sub>What if <code>lookup_policy</code> had returned the EU limit? The&nbsp;run&nbsp;forks&nbsp;at&nbsp;call&nbsp;17&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
 
-`shadowlap ui` shows your runs in the terminal, with conversation, request, response and meta tabs for each call. Press&nbsp;`:` for the what&#8209;ifs at the call in front of&nbsp;you:
+`shadowlap ui` shows your runs in the terminal, with conversation, request, response and meta tabs for each call. Press&nbsp;`:` for the what&#8209;ifs at&nbsp;the&nbsp;selected&nbsp;call:
 
 ```text
  01M5FYDY6N fork @17 of 01M5FYDVBW · 32 calls · 15 replayed · …
@@ -236,6 +236,8 @@ shadowlap dashboard
 
 ## How it works
 
+`shadowlap run` starts a sidecar on 127.0.0.1 and points your agent&nbsp;at&nbsp;it:
+
 ```
 shadowlap run -- node agent.mjs
 │
@@ -250,8 +252,8 @@ shadowlap run -- node agent.mjs
             SHADOWLAP_URL, SHADOWLAP_RUN_ID for Shadowlap's SDKs
 ```
 
-- **Matched by what they ask.** A call is known by its request after your [normalizers](docs/normalizers-and-redaction.md), and by how many identical ones came before it. Arrival order never counts, so parallel calls replay in any&nbsp;order.
-- **Forked at the first change.** After it, model calls and `read` tools run live; `write` tools are blocked unless you stub or allow&nbsp;them.
+- **Matched by request, not order.** A call is identified by its request, after your [normalizers](docs/normalizers-and-redaction.md) mask values such as ids, and by how many identical requests came before it. Parallel calls match in whatever order&nbsp;they&nbsp;arrive.
+- **Forked at the first change.** After it, model calls and `read` tools run live; `write` tools are blocked unless you&nbsp;stub&nbsp;or&nbsp;allow&nbsp;them.
 
 ## Integrations
 
@@ -270,31 +272,31 @@ shadowlap run -- node agent.mjs
 ## Security
 
 - **Local only.** The sidecar and the dashboard listen on 127.0.0.1 behind a session token; recordings stay in your project, readable&nbsp;only&nbsp;by&nbsp;you.
-- **Keys pass through** to the provider and are never stored; a clean replay needs no real&nbsp;key.
-- **Masked on the way out.** Your redaction rules mask packs, exports, share links and what repair shows its model. Runs you push to your own bucket go as recorded,&nbsp;unmasked.
-- **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector of yours; it never sends prompts or tool data ([every field](docs/telemetry.md)), and `DO_NOT_TRACK=1` turns it&nbsp;off.
+- **Keys never stored.** API keys pass through to the provider; a clean replay needs no&nbsp;real&nbsp;key.
+- **Masked on the way out.** Your redaction rules mask packs, exports, share links and what repair shows its model. Runs you push to your own bucket go as recorded, with&nbsp;nothing&nbsp;masked.
+- **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector you run. Prompts and tool data are never sent ([every&nbsp;field](docs/telemetry.md)), and `DO_NOT_TRACK=1` turns&nbsp;it&nbsp;off.
 
-[SECURITY.md](SECURITY.md) lists every check and how to report a vulnerability.
+[SECURITY.md](SECURITY.md) lists every safeguard and how to report&nbsp;a&nbsp;vulnerability.
 
 ## Documentation
 
 | Topic | Pages |
 |:---|:---|
-| Start | [Introduction](docs/index.md)&nbsp;· [How&nbsp;it&nbsp;works](docs/how-it-works.md)&nbsp;· [Why did my replay&nbsp;diverge?](docs/troubleshooting.md) |
+| Start | [Introduction](docs/index.md)&nbsp;· [How&nbsp;it&nbsp;works](docs/how-it-works.md)&nbsp;· [Why&nbsp;replays&nbsp;diverge](docs/troubleshooting.md) |
 | Recording | [SDKs](docs/sdk.md)&nbsp;· [Frameworks](docs/frameworks.md)&nbsp;· [Providers](docs/providers.md)&nbsp;· [MCP&nbsp;servers](docs/mcp.md)&nbsp;· [Production&nbsp;traffic](docs/gateways.md) |
-| Fixes | [Blame](docs/blame.md)&nbsp;· [Repair](docs/repair.md)&nbsp;· [Verify](docs/verify.md)&nbsp;· [Gating](docs/gating.md)&nbsp;· [Decisions](docs/decisions.md) |
-| Tests | [CI&nbsp;mode](docs/ci.md)&nbsp;· [Checks](docs/checks.md)&nbsp;· [Test&nbsp;suites](docs/testing.md)&nbsp;· [Injection&nbsp;tests](docs/injection.md)&nbsp;· [Error&nbsp;paths](docs/error-paths.md)&nbsp;·&nbsp;[Coverage](docs/coverage.md) |
-| Reference | [CLI](docs/cli.md)&nbsp;· [Interventions](docs/interventions.md)&nbsp;· [Dashboard](docs/dashboard.md)&nbsp;· [Terminal&nbsp;UI](docs/tui.md)&nbsp;· [Recording&nbsp;format](docs/recording-format.md)&nbsp;· [Sharing&nbsp;runs](docs/team.md) |
+| Fixes | [Blame](docs/blame.md)&nbsp;· [Repair](docs/repair.md)&nbsp;· [Verify](docs/verify.md)&nbsp;· [Gating](docs/gating.md)&nbsp;·&nbsp;[Decisions](docs/decisions.md) |
+| Tests | [CI&nbsp;mode](docs/ci.md)&nbsp;· [Test&nbsp;suites](docs/testing.md)&nbsp;· [Injection&nbsp;tests](docs/injection.md)&nbsp;· [Checks](docs/checks.md)&nbsp;· [Error&nbsp;paths](docs/error-paths.md)&nbsp;·&nbsp;[Coverage](docs/coverage.md) |
+| Reference | [CLI](docs/cli.md)&nbsp;· [Recording&nbsp;format](docs/recording-format.md)&nbsp;· [Interventions](docs/interventions.md)&nbsp;· [Dashboard](docs/dashboard.md)&nbsp;· [Terminal&nbsp;UI](docs/tui.md)&nbsp;·&nbsp;[Sharing&nbsp;runs](docs/team.md) |
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers setup and the test&nbsp;suites.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup and the&nbsp;test&nbsp;suites.
 
 ```sh
 git clone https://github.com/devjoinedthechat/shadowlap
 cd shadowlap && npm ci && npm run build
 npx vitest run && npm run typecheck:tests
-# the README's terminal, examples and pictures
+# regenerate the README's terminal, examples and pictures
 npm run demo && node scripts/readme-shots.mjs
 ```
 
@@ -302,4 +304,4 @@ npm run demo && node scripts/readme-shots.mjs
 
 [Apache-2.0](LICENSE). Shadowlap has no accounts to sign&nbsp;up&nbsp;for.
 
-Organisation features (setup on your infrastructure, evidence reports for your auditors, support with an SLA) are offered to regulated teams through paid pilots. [Talk to an engineer](https://github.com/devjoinedthechat/shadowlap/issues/new?template=pilot.md).
+Regulated teams can add organisation features through a paid pilot: setup on your infrastructure, evidence reports for your auditors and support with an&nbsp;SLA. [Talk&nbsp;to&nbsp;an&nbsp;engineer](https://github.com/devjoinedthechat/shadowlap/issues/new?template=pilot.md).
