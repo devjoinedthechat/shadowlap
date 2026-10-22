@@ -100,9 +100,12 @@ function decisionLooks(store: Store): NeedsLookRow[] {
     if (!full) continue;
     const verdict = verifiedAs(full.data);
     if (verdict === 'accepted') continue;
+    // The runs it flags are those most samples flag, as its report lists them (the session's own count
+    // takes any sample): one that lists none flags nothing. An older report without the list goes by the count.
     const report = isObject(full.data.decisions) ? full.data.decisions : full.data;
-    const listed = Array.isArray(full.data.flagged) ? full.data.flagged : Array.isArray(report.flagged) ? report.flagged : [];
-    const flagged = listed.filter((id): id is string => typeof id === 'string');
+    const listed = Array.isArray(full.data.flagged) ? full.data.flagged : Array.isArray(report.flagged) ? report.flagged : null;
+    const flagged = (listed ?? []).filter((id): id is string => typeof id === 'string');
+    if (listed && !flagged.length) continue;
     const n = flagged.length || s.flagged;
     // The first flagged run still here, at the first call whose decision most of its samples changed.
     const first = flagged.find((id) => kept(store, id)) ?? null;

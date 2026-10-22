@@ -97,6 +97,8 @@ describe('the upgrades’ results in Needs a look', () => {
     session('mg-01M5000000000000000000000C', 'migrate', NOW - 8_000, 'the model claude-haiku-4-5', { flagged: [refund], decisions: { flagged: [refund] }, passes: { verdict: 'accepted', runs: [] } });
     // One a verify rejected.
     session('mg-01M5000000000000000000000D', 'migrate', NOW - 7_000, 'the model gpt-5-mini', { flagged: [refund], decisions: { flagged: [refund] }, passes: { verdict: 'rejected', runs: [] } });
+    // One sample of several changed a write, which most samples don't show: the report flags nothing.
+    session('dc-01M5000000000000000000000G', 'decisions', NOW - 5_000, 'max_tokens=64', { flagged: [], verify: null });
     // A change whose newest preview flags nothing any more: its older preview that flagged a run is settled.
     session('dc-01M5000000000000000000000E', 'decisions', NOW - 50_000, 'temperature=1', { flagged: [refund], verify: null });
     store.putDecisionSession({ sessionId: 'dc-01M5000000000000000000000F', kind: 'decisions', at: NOW - 6_000, change: 'temperature=1', actor: null, revision: null, data: { flagged: [], verify: null }, runs: [{ runId: refund, golden: 'goldens/forecast', rank: null, changed: 0, data: { ...decisionRun, rank: null, decisions: [step(3, null)] } }] });
