@@ -1,5 +1,5 @@
 import { formatUsd, safeLine, type Palette } from '@shadowlap/engine';
-import type { FixDetail, FixList, FixStep } from '@shadowlap/dashboard';
+import type { FixDetail, FixList, FixRow, FixStep } from '@shadowlap/dashboard';
 import { ago, quoteArgv, table } from './ui.js';
 
 /** `shadowlap fix ls` and `fix show` in a terminal, from the read model `--json` prints. Times read as `ls` prints them: 3h ago. */
@@ -21,6 +21,18 @@ function status(st: string, p: Palette, width = 0): string {
 const unpriced = (models: readonly string[]) => (models.length ? ` (no price for ${models.map((m) => one(m, 40)).join(', ')})` : '');
 
 const mark = (x: FixStep, p: Palette) => (x.state === 'done' ? p.green('✓') : x.state === 'no' ? p.red('✗') : p.dim('·'));
+
+/**
+ * What a fix's failing runs did and the check they must meet, labelled as the dashboard's list and
+ * header label them: `failed: send_email called twice, not once · must: send_email called once`.
+ * What they did is left out while the title says it (blame titled the fix by it, and nobody renamed
+ * it), as the page's failedMust() leaves it out.
+ */
+function failedMust(f: Pick<FixRow, 'title' | 'failed' | 'check'>, n: number): string {
+  const failed = f.failed?.trim() ?? '';
+  const said = !failed || failed.toLowerCase() === f.title.trim().toLowerCase();
+  return [...(said ? [] : [`failed: ${one(failed, n)}`]), `must: ${one(f.check, n)}`].join(' · ');
+}
 
 /**
  * A probe's or a verified run's tally: the attempts that passed of those judged, then `unit` (`2 of
@@ -46,8 +58,8 @@ export function formatFixList(list: FixList, p: Palette): string {
   const out: string[] = [];
   list.fixes.forEach((f, i) => {
     out.push(status(f.status, p, width) + lines[i]!.slice(width));
-    // What it checks, where it came from and when it was opened, under its row.
-    out.push(p.dim(`${indent}${[`check: ${one(f.check, 90)}`, ...(f.source ? [one(f.source, 40)] : []), `opened ${ago(f.openedAt)}`].join(' · ')}`));
+    // What its runs did and must do, where it came from and when it was opened, under its row.
+    out.push(p.dim(`${indent}${[failedMust(f, 90), ...(f.source ? [one(f.source, 40)] : []), `opened ${ago(f.openedAt)}`].join(' · ')}`));
     if (f.broken) out.push(`${indent}${p.red(`! ${f.broken}`)}`);
   });
   out.push('', p.dim(`${list.counts.all} fix${list.counts.all === 1 ? '' : 'es'}, ${list.counts.open} open · shadowlap fix show <fix>`));
@@ -67,7 +79,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
   out.push(`${p.bold(d.fixId)}  ${p.bold(one(d.title, 120))}`);
   const meta = [status(d.status, p), ...(d.label ? [one(d.label, 40)] : []), `${d.failing} failing run${s(d.failing)}`, `${d.good} good`, `opened ${ago(d.openedAt)}`, ...(d.verifiedAt ? [`verified ${ago(d.verifiedAt)}`] : []), ...(d.appliedAt ? [`applied ${ago(d.appliedAt)}`] : [])];
   out.push(`  ${meta.join(' · ')}`);
-  out.push(`  check: ${one(d.check, 200)}`);
+  out.push(`  ${failedMust(d, 200)}`);
   if (d.source) out.push(`  ${p.dim(d.source)}`);
   if (d.broken) out.push(`  ${p.red(`! ${d.broken}`)}`);
   out.push('');
@@ -124,8 +136,10 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     out.push('', p.bold(`Verify · ${d.verify.length} change${s(d.verify.length)} verified`));
     for (const v of d.verify) {
       const badge = v.verdict === 'accepted' ? p.green('✓ accepted') : v.verdict === 'rejected' ? p.red('✗ rejected') : p.yellow('! incomplete');
-      out.push(`  ${badge}  ${one(v.code, 40)}  ${v.headline}${v.counts ? '' : p.dim(" (doesn't count)")}`);
-      if (v.note) out.push(`    ${v.counts ? p.red(one(v.note, 200)) : p.yellow(one(v.note, 200))}`);
+      // Named by what changed (a request field set is named by it, never by its commit alone); one
+      // that doesn't count for the fix is headed with why.
+      out.push(`  ${badge}  ${one(v.code, 90)}  ${v.counts ? v.headline : p.yellow(v.headline)}`);
+      if (v.note) out.push(`    ${p.red(one(v.note, 200))}`);
       out.push(p.dim(`    ${one(v.oracle, 200)}`));
       const rows = v.rows.map((x) => [x.role, x.runId.slice(0, 10), x.outcome, x.deterministic && !x.inconclusive ? 'clean replay' : `${tally(x)}${x.rate?.bound ? ` · ${x.rate.bound}` : ''}`, x.note === 'clean replay' ? '' : one(x.note, 70)]);
       if (rows.length) out.push(table(rows, '    '));
@@ -138,17 +152,25 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
   const apply = d.actions.apply;
   if (d.actions.repair) {
     out.push(`  next: ${repairLine(d.actions.repair.argv, o.repairer)}`);
+    // The blames it would reuse rescued no run: it would end "No fix to try", as the dashboard says.
+    if (d.actions.repair.noFix) out.push(`  ${p.yellow('!')} ${one(d.actions.repair.noFix, 600)}`);
     // Its repairer can't be asked from here: it would blame the runs and find no one to propose a fix.
     if (d.repairer.problem) out.push(`  ${p.yellow('!')} ${one(d.repairer.problem, 600)}`);
   } else if (apply?.refused && !(d.actions.applied && !apply.pending)) {
     // More than the one rewrite its repair verified: fix apply won't put it in, and nothing here offers to.
     out.push(`  ${p.yellow('!')} its patch is not the change its repair verified: ${one(apply.refused, 600)}. shadowlap fix apply won't apply it`);
   } else if (apply && !d.actions.applied) {
-    if (apply.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${apply.gitApply ? p.dim(`   (or by hand: ${apply.gitApply})`) : ''}`);
+    // Merged, or applied by hand: there is nothing to apply, and fix apply only marks it applied.
+    if (apply.inTree) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(its patch is in your working tree already: ${apply.goldens ? 'copies the goldens it is missing, runs them and marks it applied' : 'marks it applied'})`)}`);
+    else if (apply.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${apply.gitApply ? p.dim(`   (or by hand: ${apply.gitApply})`) : ''}`);
+    // A change of request fields no patch carries: making it in the agent is left to you.
+    else if (apply.change) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(verified with ${one(apply.change, 200)}: once your agent makes that change, marks it applied)`)}`);
     else out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim('(verified on your working tree: marks it applied)')}`);
   }
   if (d.applied) {
-    out.push(p.dim(`  applied${d.applied.via === 'repair --apply' ? ' by repair --apply' : ''}: patch ${d.applied.patch === 'already' ? 'was already in the tree' : d.applied.patch === 'none' ? 'none (verified on the working tree)' : 'applied'}${d.applied.goldens.length ? ` · ${d.applied.goldens.length} golden${s(d.applied.goldens.length)} copied` : ''} · tests ${d.applied.tests}`));
+    // With no patch, a change of request fields is named: the agent makes it, not a file.
+    const none = apply?.change ? `none (verified with ${one(apply.change, 200)}: set it in your agent)` : 'none (verified on the working tree)';
+    out.push(p.dim(`  applied${d.applied.via === 'repair --apply' ? ' by repair --apply' : ''}: patch ${d.applied.patch === 'already' ? 'was already in the tree' : d.applied.patch === 'none' ? none : 'applied'}${d.applied.goldens.length ? ` · ${d.applied.goldens.length} golden${s(d.applied.goldens.length)} copied` : ''} · tests ${d.applied.tests}`));
     if (apply?.pending) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(to ${apply.pending})`)}`);
   }
   return out.join('\n');

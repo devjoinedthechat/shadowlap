@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -23,6 +23,29 @@ describe('the list', () => {
     expect(statusBadge({ status: 'verified', broken: null })).toEqual({ tone: 'ok', text: 'verified' });
     expect(statusBadge({ status: 'applied', broken: null })).toEqual({ tone: 'ok', text: 'applied' });
     expect(statusBadge({ status: 'applied', broken: 'shadowlap test failed on its goldens' })).toEqual({ tone: 'no', text: 'broken' });
+  });
+
+  it('says what the failing runs did and what they must do, labelled, and what failed only when the title doesn’t say it', () => {
+    expect(failingLine({ failing: 3 })).toBe('3 failing runs');
+    expect(failingLine({ failing: 1 })).toBe('1 failing run');
+    expect(failedMust({ title: 'Confirmation email sent twice', failed: 'send_email called twice, not once', check: 'send_email called once' })).toEqual({ failed: 'send_email called twice, not once', must: 'send_email called once' });
+    // Blame titled it by how the agent exited, and nobody renamed it: the title says what failed.
+    expect(failedMust({ title: 'The agent exited with code 1', failed: 'The agent exited with code 1', check: 'the agent exits 0' })).toEqual({ failed: null, must: 'the agent exits 0' });
+    expect(failedMust({ title: 'Send email twice', failed: 'send email TWICE', check: 'send_email called once' })).toEqual({ failed: null, must: 'send_email called once' });
+    expect(failedMust({ title: 'A run failed', failed: null, check: 'the agent exits 0' })).toEqual({ failed: null, must: 'the agent exits 0' });
+  });
+
+  it('keeps a count with its unit and a comparison whole where a check wraps', () => {
+    expect(wholeParts('send_email called 1 time; tools called 2 times')).toEqual([{ text: 'send_email called 1\u00a0time; tools called 2\u00a0times', whole: false }]);
+    expect(wholeParts('every issue_refund call: after get_policy, amount <= get_policy.result.limit')).toEqual([
+      { text: 'every issue_refund call: after get_policy, ', whole: false },
+      { text: 'amount <=\u00a0get_policy.result.limit', whole: true },
+    ]);
+    expect(wholeParts('issue_refund: amount 240 > get_policy.result.limit 100 (#4)')).toEqual([
+      { text: 'issue_refund: ', whole: false },
+      { text: 'amount 240 >\u00a0get_policy.result.limit\u00a0100', whole: true },
+      { text: ' (#4)', whole: false },
+    ]);
   });
 
   it('names a fix by its label, or its short id', () => {
@@ -54,12 +77,14 @@ describe('a fix', () => {
   });
 
   it('offers Repair from here on an open fix, Apply on a verified one, and Patch applied once it is in', () => {
-    const repair = { argv: ['repair'], command: 'shadowlap repair' };
-    const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', refused: null };
+    const repair = { argv: ['repair'], command: 'shadowlap repair', noFix: null };
+    const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', patchFile: 'x/fix.patch', refused: null, inTree: false, goldens: 1, change: null };
     expect(fixAction({ status: 'open', actions: actions({ repair }) })).toEqual({ kind: 'repair' });
     expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Repair from here', why: expect.stringMatching(/nothing to repair from here/) });
     expect(fixAction({ status: 'verified', actions: actions({ apply: patch }) })).toEqual({ kind: 'apply', label: 'Apply the patch' });
     expect(fixAction({ status: 'verified', actions: actions({ apply: { ...patch, kind: 'mark', gitApply: null } }) })).toEqual({ kind: 'apply', label: 'Mark applied' });
+    // Merged, or applied by hand: applying only marks it applied.
+    expect(fixAction({ status: 'verified', actions: actions({ apply: { ...patch, gitApply: null, inTree: true } }) })).toEqual({ kind: 'apply', label: 'Mark applied' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: patch, applied: true }) })).toEqual({ kind: 'applied' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: { ...patch, pending: 'run shadowlap test on its goldens' }, applied: true }) })).toEqual({ kind: 'apply', label: 'Finish applying' });
     // A patch fix apply refuses: the button stays off, and says why on hover.
@@ -67,6 +92,24 @@ describe('a fix', () => {
     expect(fixAction({ status: 'verified', actions: actions({ apply: refused }) })).toEqual({ kind: 'none', label: 'Apply the patch', why: 'This patch is not the change its repair verified: it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone. Nothing applies it from here.' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: { ...refused, pending: 'run shadowlap test on its goldens' }, applied: true }) })).toMatchObject({ kind: 'none' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: refused, applied: true }) })).toEqual({ kind: 'applied' });
+  });
+
+  it('says what marking a fix applied does: for a patch in the tree already, what applying still does', () => {
+    expect(markText({ inTree: true, goldens: 2, pulled: false, change: null })).toBe('The patch is already in your working tree: this copies the goldens it is missing into goldens/, runs them with shadowlap test and marks the fix applied.');
+    expect(markText({ inTree: true, goldens: 0, pulled: true, change: null })).toBe('The patch is already in your working tree: this marks the fix applied. The recordings the fixed code made stay on the machine that ran the repair.');
+    expect(markText({ inTree: false, goldens: 0, pulled: false, change: null })).toBe('It was verified on your working tree as it is, so there is no patch to apply: this marks it applied.');
+    // A change of request fields is in no file: never "no patch to apply", which reads as if the change were in the tree.
+    expect(markText({ inTree: false, goldens: 0, pulled: false, change: "temperature=1 from each run's first model call" })).toBe("It was verified with temperature=1 from each run's first model call, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.");
+  });
+
+  it('says a fix with no patch was marked applied, naming the change its agent makes, never that a patch went in', () => {
+    expect(appliedButton({ kind: 'patch', pulled: false, change: null })).toEqual({ label: 'Patch applied', title: 'The patch is in the working tree and its goldens pass' });
+    expect(appliedButton({ kind: 'patch', pulled: true, change: null }).title).toBe('The patch is in the working tree; its goldens are on the machine that ran the repair');
+    const field = appliedButton({ kind: 'mark', pulled: false, change: "temperature=1 from each run's first model call" });
+    expect(field).toEqual({ label: 'Marked applied', title: "Verified with temperature=1 from each run's first model call, a change to the requests that your agent makes, not to your files" });
+    const tree = appliedButton({ kind: 'mark', pulled: false, change: null });
+    expect(tree).toEqual({ label: 'Marked applied', title: 'Verified on your working tree as it was, and marked applied' });
+    for (const b of [field, tree]) expect(b.title).not.toMatch(/patch/);
   });
 
   it('asks before applying with every file the patch changes and the patch itself, and runs nothing from a teammate’s', () => {
@@ -89,16 +132,17 @@ describe('a fix', () => {
     ]);
   });
 
-  it("keeps Repair from here but not as the lead when blame found no answer of the model's lost the run", () => {
-    const look = "No answer of the model's lost this run: look at the tools, the harness or the command.";
-    expect(repairAside({ blame: { look } as FixDetail['blame'] })).toBe("Blame found that no answer of the model's lost this run, so a rewrite of the prompt is unlikely to fix it: look at the tools, the harness or the command.");
-    expect(repairAside({ blame: { look: null } as FixDetail['blame'] })).toBeNull();
-    expect(repairAside({ blame: null })).toBeNull();
+  it('keeps Repair from here but not as the lead when the repair would end with no fix to try, and says why', () => {
+    const noFix = 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
+    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix } }) })).toBe(noFix);
+    // A blame that couldn't settle has a look of its own on the Blame step, which says nothing of a repair.
+    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix: null } }), blame: { look: 'Not settled: resampled from #1…' } as FixDetail['blame'] } as FixDetail)).toBeNull();
+    expect(repairAside({ actions: actions({}) })).toBeNull();
   });
 
   it('names the repairer Repair from here asks as the fix reads again, and sends that one', () => {
     const fix = (repairer: FixDetail['repairer'], o: Partial<FixDetail> = {}) =>
-      ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}` } }), ...o }) as FixDetail;
+      ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}`, noFix: null } }), ...o }) as FixDetail;
     // The page loaded before the config named a repairer; the dialog reads it again as it opens.
     const page = fix({ name: 'claude-code', configured: false, problem: null });
     const now = fix({ name: 'anthropic', configured: true, problem: null });
@@ -113,7 +157,7 @@ describe('a fix', () => {
   });
 
   it('keeps Repair off, saying why, when the repairer it would ask can’t be asked from here', () => {
-    const page = { status: 'open', repairer: { name: 'claude-code', configured: false, problem: null }, actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair --repairer claude-code' } }) } as FixDetail;
+    const page = { status: 'open', repairer: { name: 'claude-code', configured: false, problem: null }, actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair --repairer claude-code', noFix: null } }) } as FixDetail;
     const problem = 'This repair asks your own Claude Code, and claude was not found on this machine: install Claude Code, or set SHADOWLAP_CLAUDE to its path, or name another repairer in shadowlap.config.json (repair.repairer).';
     // claude went missing since the page loaded: the dialog reads the fix again as it opens.
     expect(repairAsk(page, { fix: { ...page, repairer: { ...page.repairer, problem } } })).toEqual({ ready: false, who: null, repairer: null, command: 'shadowlap repair --repairer claude-code', why: problem });
@@ -134,6 +178,14 @@ describe('the Repair step', () => {
     expect(repairBy(step({ accepted: true }))).toEqual({ text: 'no repairer needed' });
     // No failing run rescued, or stopped before: its why says it all.
     expect(repairBy(step({ why: 'resampling rescued no failing run' }))).toBeNull();
+  });
+
+  it('leads its receipt with the attempts it ran, then what every stage cost, each candidate it tried included, as the CLI says it', () => {
+    const cost = { blame: 0.0539172, repairer: 0.008466, verify: 0.238736 };
+    expect(repairReceipt(step({ repairer: 'anthropic:claude-opus-5-5', cost, attempts: 87 })).join(' · ')).toBe('87 attempts · cost: blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239');
+    expect(repairReceipt(step({ repairer: 'openai:gpt-6', served: 'gpt-6-2026-08-01', cost: { ...cost, repairer: null, judge: 0.0021 }, attempts: 1 }))).toEqual(['1 attempt', 'cost: blame ≈$0.054', 'repairer (no price for gpt-6-2026-08-01)', 'verify ≈$0.239', 'judge checks ≈$0.0021']);
+    // No repairer was asked: nothing to say of it.
+    expect(repairReceipt(step({ cost: { blame: 0, repairer: null, verify: 0 }, attempts: 0 })).join(' · ')).toBe('0 attempts · cost: blame $0 · verify $0');
   });
 
   it('follows with what a repair that accepted nothing tried, unless that is only the repairer’s silence again', () => {
@@ -286,7 +338,7 @@ describe('the Verify step', () => {
 });
 
 describe('the Forks view’s bundles', () => {
-  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: 'R', title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, passes: 1, attempts: [], spent: 0, at: 0, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
+  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: 'R', title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, counts: null, passes: 1, attempts: [], spent: 0, at: 0, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
   const attempt = (runId: string, passed: boolean, rescued = false, verdict: 'passed' | 'failed' | 'inconclusive' = passed ? 'passed' : 'failed') => ({ runId, passed, verdict, note: passed ? 'passed' : verdict === 'inconclusive' ? 'inconclusive: judge "issued" answers yes' : 'failed', href: `#/run/${runId}`, rescued });
 
   it('leaves out every attempt they list but the rescued fork, which shows as a fork', () => {
@@ -294,11 +346,15 @@ describe('the Forks view’s bundles', () => {
     expect([...bundledRuns([b])]).toEqual(['B']);
   });
 
-  it('gives a verify the icon of its verdict', () => {
-    expect(bundleGlyph({ kind: 'blame', verdict: null }).kind).toBe('blame');
-    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted' })).toEqual({ kind: 'fixok', label: 'Verify accepted the change' });
-    expect(bundleGlyph({ kind: 'verify', verdict: 'rejected' }).kind).toBe('fixbad');
-    expect(bundleGlyph({ kind: 'verify', verdict: 'incomplete' }).kind).toBe('fork');
+  it('gives a verify the icon of its verdict, plain for one that doesn’t count for the fix', () => {
+    expect(bundleGlyph({ kind: 'blame', verdict: null, counts: null }).kind).toBe('blame');
+    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: true })).toEqual({ kind: 'fixok', label: 'Verify accepted the change' });
+    expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', counts: true }).kind).toBe('fixbad');
+    expect(bundleGlyph({ kind: 'verify', verdict: 'incomplete', counts: true }).kind).toBe('fork');
+    // Accepted under another check: no verdict on the fix, so never its lime check.
+    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: false })).toEqual({ kind: 'fixok', label: "Verify attempts of a verdict that doesn't count for the fix", plain: true });
+    // A candidate a repair dropped is no verdict of the fix's: its icon is its own verdict's.
+    expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', counts: null }).kind).toBe('fixbad');
   });
 
   it('asks the server for them until it says it has none, and leaves a run it doesn’t know unbundled', async () => {
@@ -324,7 +380,20 @@ describe('the Forks view’s bundles', () => {
   it('says how many attempts passed, what they cost, and for a verify the change and how it came out', () => {
     const money = (usd: number) => `≈$${usd.toFixed(3)}`;
     expect(bundleLine(bundle({ attempts: [attempt('A', true), attempt('B', false)], passes: 1, spent: 0.032 }), money)).toBe('2 attempts, 1 passed · ≈$0.032');
-    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('1 attempt, 1 passed · repair candidate 3 accepted');
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('1 attempt, 1 passed · repair candidate 3 · accepted');
+  });
+
+  it('says a verdict that doesn’t count for the fix doesn’t, as the Verify step’s switch does, and keeps a revision with its “at”', () => {
+    const money = (usd: number) => `≈$${usd.toFixed(3)}`;
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, spent: 0.057, change: 'dbcef5d', verdict: 'accepted', counts: false }), money)).toBe("1 attempt, 1 passed · ≈$0.057 · dbcef5d · accepted · doesn't count");
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'dbcef5d', verdict: 'accepted', counts: true }), money)).toBe('1 attempt, 1 passed · dbcef5d · accepted');
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: "temperature=1 from each run's first model call · at dbcef5d", verdict: 'accepted', counts: true }), money)).toBe("1 attempt, 1 passed · temperature=1 from each run's first model call · at\u00a0dbcef5d · accepted");
+  });
+
+  it('keeps a change’s revision with the “at” before it, and a field’s own words as they are', () => {
+    expect(keepAt("temperature=1 from each run's first model call · at dbcef5d · accepted")).toBe("temperature=1 from each run's first model call · at\u00a0dbcef5d · accepted");
+    expect(keepAt(`system="look at this" from each run's first model call · at dbcef5d`)).toBe(`system="look at this" from each run's first model call · at\u00a0dbcef5d`);
+    expect(keepAt('repair candidate 3')).toBe('repair candidate 3');
   });
 
   it('marks an attempt that could not be judged apart from one that failed, and counts it apart', () => {
@@ -332,7 +401,7 @@ describe('the Forks view’s bundles', () => {
     expect([attempt('A', true), attempt('B', false), unsure].map(attemptMark)).toEqual([undefined, 'no', 'unsure']);
     // An attempt kept before attempts had a verdict reads as whether it passed.
     expect(attemptMark({ passed: false })).toBe('no');
-    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree incomplete');
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree · incomplete');
   });
 });
 
@@ -434,6 +503,12 @@ describe('the job drawer', () => {
     expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped early · exit 1', tone: 'err' });
     expect(jobStatus(job('repair', 0, { outcome: 'fixed' }), [])).toEqual({ text: 'fixed · exit 0', tone: 'ok' });
     expect(jobStatus(job('repair', 1, { outcome: 'not-fixed' }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });
+    // Claude Code was never asked, and nothing else was tried: no fix was looked for, which is no failure of the agent's.
+    const unasked = { outcome: 'not-fixed', noRepairer: 'the repairer could not be asked: claude was not found', candidates: [] };
+    expect(jobStatus(job('repair', 1, unasked), [])).toEqual({ text: 'repairer not asked · exit 1', tone: 'warn' });
+    expect(jobStatus(job('repair', 1, { ...unasked, noRepairer: 'no repairer is configured' }), [])).toEqual({ text: 'repairer not asked · exit 1', tone: 'warn' });
+    // A model switch was tried and rejected first: a fix was looked for, and none found.
+    expect(jobStatus(job('repair', 1, { ...unasked, noRepairer: 'no repairer is configured', candidates: [{ id: 1, state: 'rejected' }] }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });
     expect(jobStatus(job('repair', 1, { outcome: 'fixed', error: { message: 'gh refused' } }), [])).toEqual({ text: 'fixed, not handed over · exit 1', tone: 'err' });
     expect(jobStatus(job('apply', 0, { status: 'applied', tests: 'passed' }), [])).toEqual({ text: 'applied · tests passed · exit 0', tone: 'ok' });
     expect(jobStatus(job('apply', 1, { status: 'applied', tests: 'failed' }), [])).toEqual({ text: 'applied · tests failed · exit 1', tone: 'err' });

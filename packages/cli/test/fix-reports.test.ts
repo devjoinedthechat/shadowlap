@@ -44,6 +44,25 @@ describe('shadowlap fix show', () => {
   });
 });
 
+describe('shadowlap fix show, next', () => {
+  it('says why the repair it suggests would end with no fix to try, under it, as the dashboard says', () => {
+    const store = Store.open(':memory:');
+    try {
+      const run = makeRun(store, { labels: ['digest'] });
+      const report = blameReport(run, 'unrescuable', { oracle: ['the agent exits 0'] });
+      // The blame kept on the run, which a repair from the fix would reuse rather than search again.
+      store.updateRunMeta(run, { blame: { at: 1, outcome: 'unrescuable', callNo: null, confidence: 'high', rescuedRunId: null, fields: {}, oracle: report.oracle, probes: [], spent: 0 } });
+      const { fix } = recordBlame(store, { runId: run, report, expect: null, scope: null, command: 'shadowlap blame', title: 'The agent exited with code 1', checkText: 'the agent exits 0', at: 1 });
+      const text = formatFixDetail(fixDetail(store, fix.fixId)!, plain);
+      expect(text).toContain('  next: shadowlap repair --fixes label:digest --repairer claude-code\n  ! No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
+      // Its title says what failed: the header says only what its run must do.
+      expect(text.split('\n')[2]).toBe('  must: the agent exits 0');
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe('verify --json', () => {
   it('counts an inconclusive run apart in its summary, and gives a run an unjudged attempt stopped no rate', () => {
     const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';

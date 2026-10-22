@@ -18,10 +18,17 @@ const HEX = /^[0-9a-f]{4,64}$/i;
 /** How long git's "no such commit" stands before it is asked again. */
 const MISSING_FOR_MS = 60_000;
 
-/** What git said in one project folder: the commits it has, each with its subject, and when it last lacked one. */
+/**
+ * What git said in one project folder: the commits it has, each with its subject, and when it last
+ * lacked one; and of the commits asked about, those with a parent here (kept: a commit's parents
+ * never change) and those with none, the first or the oldest of a shallow clone, with when that was
+ * said (a fetch may deepen a shallow clone).
+ */
 interface Answers {
   has: Map<string, string | null>;
   lacks: Map<string, number>;
+  parented: Set<string>;
+  parentless: Map<string, { shallow: boolean; at: number }>;
 }
 const answers = new Map<string, Answers>();
 
@@ -30,7 +37,7 @@ function answersIn(cwd: string): Answers {
   if (!a) {
     // A dashboard serves a handful of projects: the answers of the latest few are kept.
     if (answers.size >= 16) answers.delete(answers.keys().next().value!);
-    answers.set(cwd, (a = { has: new Map(), lacks: new Map() }));
+    answers.set(cwd, (a = { has: new Map(), lacks: new Map(), parented: new Set(), parentless: new Map() }));
   }
   return a;
 }
@@ -120,12 +127,62 @@ export function choicesHere(c: BisectChoices, here: ReadonlySet<string>, subject
   return { ...c, revisions, good, bad, args: good && !c.unavailable ? bisectArgs(ref, good, bad, c.fork, c.expect ?? null) : null };
 }
 
-/** A run's Find the commit as the project's checkout can run it; as it is without a project folder, or when git can't say. */
+/**
+ * Whether a commit has no parent in this checkout, so bisect has nothing before it to search: it is
+ * the repository's first, or the oldest commit a shallow clone has (`shallow`). False when it has a
+ * parent; null when git can't say, or doesn't have the commit.
+ */
+export function parentlessHere(cwd: string, rev: string, now = Date.now()): { shallow: boolean } | false | null {
+  if (!HEX.test(rev)) return null;
+  const a = answersIn(cwd);
+  if (a.parented.has(rev)) return false;
+  const known = a.parentless.get(rev);
+  if (known && now - known.at < MISSING_FOR_MS) return { shallow: known.shallow };
+  let words: string[];
+  try {
+    // "<sha> <parent> …" for the commit: its sha alone when it has none here.
+    words = execFileSync('git', ['rev-list', '--parents', '--max-count=1', rev, '--'], { cwd, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).toString().trim().split(/\s+/);
+  } catch {
+    return null;
+  }
+  if (!words[0]) return null;
+  if (words.length > 1) {
+    a.parented.add(rev);
+    return false;
+  }
+  let shallow = false;
+  try {
+    shallow = execFileSync('git', ['rev-parse', '--is-shallow-repository'], { cwd, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).toString().trim() === 'true';
+  } catch {
+    shallow = false;
+  }
+  a.parentless.set(rev, { shallow, at: now });
+  return { shallow };
+}
+
+/**
+ * A failure at a commit with no parent in this checkout (`parentlessHere`): bisect would look for a
+ * good commit before it, and there is none, so no search is offered, and `unavailable` says why:
+ * "01M5GS40V1 failed at the first commit, f6c5756: there is nothing before it to search" (`first`).
+ */
+function atFirstCommit(root: string, c: BisectChoices): BisectChoices {
+  if (!c.failed || c.unavailable || !c.bad) return c;
+  const first = parentlessHere(root, c.bad);
+  if (!first) return c;
+  const what = c.target.kind === 'golden' ? c.target.golden : c.target.runId.slice(0, 10);
+  return { ...c, good: null, args: null, first: true, unavailable: `${what} failed at ${first.shallow ? 'the oldest commit this checkout has' : 'the first commit'}, ${c.bad}: there is nothing before it to search` };
+}
+
+/**
+ * A run's Find the commit as the project's checkout can run it: only commits this checkout has, and
+ * no search from a failure at its first commit. As it is without a project folder, or when git
+ * can't say.
+ */
 export function choicesInCheckout(root: string | null | undefined, c: BisectChoices): BisectChoices {
   if (!root) return c;
   const revs = [c.good, c.bad, ...c.revisions.map((r) => r.rev)];
   const here = commitsHere(root, revs);
-  return here ? choicesHere(c, here, commitSubjects(root, revs)) : c;
+  return atFirstCommit(root, here ? choicesHere(c, here, commitSubjects(root, revs)) : c);
 }
 
 /**

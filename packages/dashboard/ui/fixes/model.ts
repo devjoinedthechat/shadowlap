@@ -1,3 +1,4 @@
+import { approx } from '../format.js';
 import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyRow, VerifyStep } from '../types.js';
 
@@ -57,9 +58,40 @@ export function fixName(f: Pick<FixRow, 'label' | 'fixId'>): string {
 
 const s = (n: number) => (n === 1 ? '' : 's');
 
-/** "3 failing runs · issue_refund never called with {…}" */
-export function failingLine(f: Pick<FixRow, 'failing' | 'check'>): string {
-  return `${f.failing} failing run${s(f.failing)} · ${f.check}`;
+/** "3 failing runs": what they did and the check they must meet follow it, each labelled (`failedMust`). */
+export function failingLine(f: Pick<FixRow, 'failing'>): string {
+  return `${f.failing} failing run${s(f.failing)}`;
+}
+
+/**
+ * A fix names its failure twice, what its failing runs did and the check they must meet, labelled
+ * so the two never read as one: "Failed: send_email called twice, not once · Must: send_email called
+ * once", in the list and the fix's header alike. A title that says what failed (blame titled the fix
+ * by it, and nobody renamed it) leaves the check alone: `failed` is null then.
+ */
+export function failedMust(f: Pick<FixRow, 'title' | 'failed' | 'check'>): { failed: string | null; must: string } {
+  const said = !f.failed?.trim() || f.failed.trim().toLowerCase() === f.title.trim().toLowerCase();
+  return { failed: said ? null : f.failed, must: f.check };
+}
+
+/**
+ * A check or a failure in words, cut where it may wrap: a count keeps its unit ("1 time", "2
+ * attempts"), and a comparison keeps both sides with its operator (`amount <= get_policy.result
+ * .limit`, `amount 240 > get_policy.result.limit 100`), set whole where there is room, so neither
+ * side starts a line alone.
+ */
+export function wholeParts(text: string): Array<{ text: string; whole: boolean }> {
+  const t = text.replace(/(\d) (times?|attempts?)\b/g, '$1 $2');
+  const out: Array<{ text: string; whole: boolean }> = [];
+  const re = /(\S+ (?:\d[\d.,]* )?)(<=|>=|!=|<|>) (\S+(?: \d[\d.,]*\b)?)/g;
+  let at = 0;
+  for (let m = re.exec(t); m; m = re.exec(t)) {
+    if (m.index > at) out.push({ text: t.slice(at, m.index), whole: false });
+    out.push({ text: `${m[1]}${m[2]} ${m[3]!.replace(' ', ' ')}`, whole: true });
+    at = m.index + m[0].length;
+  }
+  if (at < t.length) out.push({ text: t.slice(at), whole: false });
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------- a fix
@@ -89,7 +121,32 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
   // More than the one rewrite its repair verified: fix apply won't put it in, so neither does the button.
   if (apply.refused) return { kind: 'none', label: 'Apply the patch', why: `This patch is not the change its repair verified: ${apply.refused}. Nothing applies it from here.` };
   if (f.actions.applied) return { kind: 'apply', label: 'Finish applying' };
-  return { kind: 'apply', label: apply.kind === 'mark' ? 'Mark applied' : 'Apply the patch' };
+  // Its patch is in the working tree already (merged, or applied by hand): applying only marks it applied.
+  return { kind: 'apply', label: apply.kind === 'mark' || apply.inTree ? 'Mark applied' : 'Apply the patch' };
+}
+
+/**
+ * What Mark applied says before it runs `fix apply`: for a patch already in the working tree, what
+ * apply still does (copies the goldens it is missing and runs them, unless the repair's recordings
+ * stayed on a teammate's machine); for a change of request fields, which ones, since no patch
+ * carries them; for a change verified on the working tree as it is, that there is no patch to apply.
+ */
+export function markText(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'inTree' | 'goldens' | 'pulled' | 'change'>): string {
+  if (apply.change) return `It was verified with ${apply.change}, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.`;
+  if (!apply.inTree) return 'It was verified on your working tree as it is, so there is no patch to apply: this marks it applied.';
+  if (apply.goldens) return 'The patch is already in your working tree: this copies the goldens it is missing into goldens/, runs them with shadowlap test and marks the fix applied.';
+  return `The patch is already in your working tree: this marks the fix applied.${apply.pulled ? ' The recordings the fixed code made stay on the machine that ran the repair.' : ''}`;
+}
+
+/**
+ * The plain button an applied fix shows in place of its action, and its hover. A fix applied with a
+ * patch reads "Patch applied"; one with no patch was only marked applied, so it reads "Marked
+ * applied", and its hover names the change of request fields it was verified with, which the agent
+ * makes, or says it was verified on the working tree as it was: never "the patch", which it hasn't got.
+ */
+export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'kind' | 'pulled' | 'change'> | null): { label: 'Patch applied' | 'Marked applied'; title: string } {
+  if (apply?.kind === 'mark') return { label: 'Marked applied', title: apply.change ? `Verified with ${apply.change}, a change to the requests that your agent makes, not to your files` : 'Verified on your working tree as it was, and marked applied' };
+  return { label: 'Patch applied', title: apply?.pulled ? 'The patch is in the working tree; its goldens are on the machine that ran the repair' : 'The patch is in the working tree and its goldens pass' };
 }
 
 /**
@@ -119,12 +176,14 @@ export function patchLines(diff: string): Array<{ text: string; tone: 'add' | 'd
 }
 
 /**
- * Why Repair from here isn't the page's lead action, or null when it is: the fix's blame found that
- * no answer of the model's lost the run (its Blame step's `look`), so a rewrite of the prompt is
- * unlikely to fix it. The button stays, plain, with this on hover, and its dialog says it too.
+ * Why Repair from here isn't the page's lead action, or null when it is: the repair would end "No
+ * fix to try" without running the agent, since the blame of every failing run rescued it from no
+ * call (`noFix`, with why: no answer of the model's lost it, blame couldn't settle where, or nothing
+ * rescued it). The button stays, plain, with this on hover, and its dialog says it in place of what
+ * a repair that runs the agent costs.
  */
-export function repairAside(f: Pick<FixDetail, 'blame'>): string | null {
-  return f.blame?.look ? "Blame found that no answer of the model's lost this run, so a rewrite of the prompt is unlikely to fix it: look at the tools, the harness or the command." : null;
+export function repairAside(f: Pick<FixDetail, 'actions'>): string | null {
+  return f.actions.repair?.noFix ?? null;
 }
 
 /** What the Repair from here dialog says and sends, once the fix is read again as it opens. */
@@ -325,6 +384,22 @@ export function nothingAcceptedWhy(r: Pick<RepairStep, 'candidates' | 'why' | 'n
   return r.why ?? 'nothing was accepted';
 }
 
+/**
+ * A repair's receipt, as the mock's Repair step gives it: how many attempts it ran (its blames' and
+ * every candidate's verification), then what every stage cost, as the CLI's summary line says it:
+ * blame, the repairer (or that its model has no price), the verification of every candidate it
+ * tried, the accepted one's and the dropped ones', and judge checks apart: `87 attempts · cost:
+ * blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239`. The parts, for the line to break only
+ * between them.
+ */
+export function repairReceipt(r: Pick<RepairStep, 'attempts' | 'cost' | 'repairer' | 'served'>): string[] {
+  const parts = [`${r.attempts} attempt${s(r.attempts)}`, `cost: blame ${approx(r.cost.blame)}`];
+  if (r.repairer) parts.push(`repairer ${r.cost.repairer === null ? `(no price for ${r.served ?? r.repairer})` : approx(r.cost.repairer)}`);
+  parts.push(`verify ${approx(r.cost.verify)}`);
+  if (r.cost.judge) parts.push(`judge checks ${approx(r.cost.judge)}`);
+  return parts;
+}
+
 /** The warnings the foot of the Repair step lists: all but the one its header says already (`repairBy`). */
 export function footWarnings(r: Pick<RepairStep, 'warnings' | 'noRepairer' | 'repairer'>): string[] {
   const said = !r.repairer ? r.noRepairer?.warning : null;
@@ -419,19 +494,38 @@ export function attemptMark(a: { passed: boolean; verdict?: string }): 'unsure' 
   return a.passed ? undefined : a.verdict === 'inconclusive' ? 'unsure' : 'no';
 }
 
-/** A bundle's icon and the words for it: blame attempts, or a verify accepted or rejected. */
-export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict'>): { kind: 'blame' | 'fixok' | 'fixbad' | 'fork'; label: string } {
+/**
+ * A bundle's icon and the words for it: blame attempts, or a verify accepted or rejected. A verdict
+ * that doesn't count for the fix is no verdict on it, so its icon is a verify's, drawn plain
+ * (`plain`), as its Verify step draws the verdict.
+ */
+export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'>): { kind: 'blame' | 'fixok' | 'fixbad' | 'fork'; label: string; plain?: true } {
   if (b.kind === 'blame') return { kind: 'blame', label: 'Blame attempts' };
+  if (b.counts === false) return { kind: 'fixok', label: "Verify attempts of a verdict that doesn't count for the fix", plain: true };
   if (b.verdict === 'accepted') return { kind: 'fixok', label: 'Verify accepted the change' };
   if (b.verdict === 'rejected') return { kind: 'fixbad', label: 'Verify rejected the change' };
   return { kind: 'fork', label: 'Verify attempts, not settled' };
 }
 
-/** The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032" (with those that could not be judged counted apart), and for a verify the change and how it came out. */
-export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict'>, money: (usd: number) => string): string {
+/**
+ * The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032" (with those that could not be
+ * judged counted apart), and for a verify the change and how it came out, as the Verify step's
+ * switch names it: "repair candidate 3 · accepted", and "· doesn't count" after one that doesn't
+ * count for the fix. A revision stays with the "at" before it (`keepAt`).
+ */
+export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict' | 'counts'>, money: (usd: number) => string): string {
   const n = b.attempts.length;
   const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
-  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...(b.kind === 'verify' && b.change ? [`${b.change}${b.verdict ? ` ${b.verdict}` : ''}`] : [])].join(' · ');
+  const verified = b.kind === 'verify' && b.change ? [keepAt(b.change), ...(b.verdict ? [b.verdict] : []), ...(b.counts === false ? ["doesn't count"] : [])] : [];
+  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...verified].join(' · ');
+}
+
+/**
+ * A change's name as the page sets it, the revision kept with the "at" before it, so a line never
+ * ends on "at": "temperature=1 from each run's first model call · at dbcef5d".
+ */
+export function keepAt(name: string): string {
+  return name.replace(/ · at (\S)/g, ' · at $1');
 }
 
 // ---------------------------------------------------------------------------------------------- report.md
@@ -587,7 +681,9 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 /**
  * How a blame, a repair or a fix apply ended, as the drawer's status says it, from the result the
  * command reported: "lost at #5 · exit 0", "no fix found · exit 1", "applied · tests passed · exit 0".
- * Null for any other job, or a result this doesn't know, so the drawer reads the output instead.
+ * A repair whose repairer was never asked (claude was not found, none is configured, it had nothing
+ * to rewrite) and that tried nothing else looked for no fix: "repairer not asked", in amber. Null
+ * for any other job, or a result this doesn't know, so the drawer reads the output instead.
  */
 export function fixJobStatus(job: { kind?: string; code: number | null; result?: unknown }): { text: string; tone: 'ok' | 'warn' | 'err' } | null {
   const r = job.result;
@@ -608,7 +704,10 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
   }
   if (job.kind === 'repair') {
     if (r.outcome === 'fixed') return { text: `${isRecord(r.error) ? 'fixed, not handed over' : 'fixed'} · ${exit}`, tone };
-    if (r.outcome === 'not-fixed') return { text: `no fix found · ${exit}`, tone: 'err' };
+    if (r.outcome === 'not-fixed') {
+      const unasked = typeof r.noRepairer === 'string' && r.noRepairer.trim() !== '' && !(Array.isArray(r.candidates) && r.candidates.length);
+      return unasked ? { text: `repairer not asked · ${exit}`, tone: 'warn' } : { text: `no fix found · ${exit}`, tone: 'err' };
+    }
     if (r.outcome === 'no-diagnosis') return { text: `nothing to try · ${exit}`, tone: 'err' };
     if (r.outcome === 'stopped') return { text: `stopped · ${exit}`, tone: 'err' };
     return null;

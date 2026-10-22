@@ -17,6 +17,8 @@ import {
   formatUsd,
   gitApplyCommand,
   GOOD_LABEL,
+  hasRecordedCommand,
+  NO_REPAIRER,
   noRepairerOf,
   outcomeOf,
   patchFiles,
@@ -54,6 +56,7 @@ import {
   unsettledFirst,
   unsettledReason,
 } from '@shadowlap/engine';
+import { splitCommandLine } from './settings.js';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -119,6 +122,13 @@ export interface FixRow {
   labels: string[];
   /** What a passing run does, in words. */
   check: string;
+  /**
+   * What its failing runs did, in the words blame titled the fix with when it opened it (`send_email
+   * called twice, not once`): its title, until someone gives it one of their own. Without that
+   * opening here (a teammate's fix), the first failure a blame of it recorded, as the CLI words it;
+   * null when no blame recorded one. The page says it beside the check unless the title says it.
+   */
+  failed: string | null;
   failing: number;
   good: number;
   steps: FixStep[];
@@ -250,6 +260,12 @@ export interface RepairStep {
   command: string;
   /** `judge`: what judge checks' calls cost across blame and verify, when one was asked live. */
   cost: { blame: number; repairer: number | null; verify: number; judge?: number };
+  /**
+   * Every attempt the repair ran (`repairAttempts`): the probes of the blames it ran and the
+   * verification of every candidate it tried, the ones it dropped and the one it accepted. Its
+   * receipt leads with them.
+   */
+  attempts: number;
   output: { patch: string | null; applied: boolean; branch: string | null; pr: string | null; goldens: string[] };
   warnings: string[];
   /**
@@ -290,12 +306,13 @@ export interface VerifyStep {
   verdict: VerifyOutcome;
   /** Whether it counts for this fix: it checked the fix's check on a run that failed it as recorded. */
   counts: boolean;
-  /** Why it doesn't count, or that it was rejected after the fix was applied; null otherwise. */
+  /** That it was rejected after the fix was applied; null otherwise. One that doesn't count says why in its `headline`. */
   note: string | null;
-  /** What was verified: the code version, or "repair candidate 3". */
+  /** What was verified, named by what changed (`changeName`): "repair candidate 3", the request fields it set, or the code version. */
   code: string;
-  /** How the switch between changes names it: "repair candidate 3 · accepted". */
+  /** How the switch between changes names it: "repair candidate 3 · accepted", and "· doesn't count" after one that doesn't count for the fix. */
   label: string;
+  /** By the runs it checked ("Fixes 1 of 1 target run, keeps 1 of 1 good"), or for one that doesn't count, why ("Doesn't count for this fix: …"). */
   headline: string;
   /** "a run passes when 4 of 5 attempts meet the check: …" */
   oracle: string;
@@ -320,20 +337,28 @@ export interface VerifyStep {
 export interface FixActions {
   /**
    * An open fix: repair from here. Argv after `shadowlap`, without `--db` or `--repairer`, which the
-   * caller adds (`repairJobArgv`); `command` is the whole command line, repairer included.
+   * caller adds (`repairJobArgv`); `command` is the whole command line, repairer included. `noFix`:
+   * why the repair would end "No fix to try" without running the agent, in a sentence (`noFixToTry`),
+   * or null when it would run it.
    */
-  repair: { argv: string[]; command: string } | null;
+  repair: { argv: string[]; command: string; noFix: string | null } | null;
   /**
    * A verified or applied fix: apply its repair's patch (`patch`), or mark a change verified in the
-   * working tree applied (`mark`). Once `applied`, the button is "Patch applied" and disabled,
-   * unless `pending` says what applying left undone, which running it again finishes. `pulled`: the
-   * repair came from the team store, so its recordings are on the machine that ran it, and applying
-   * here puts in the patch alone and runs nothing from it. `files`: every file the patch changes,
-   * and `diff` the patch itself, for the confirm dialog to show what goes in. `refused`: why `fix
-   * apply` won't put it in (it is more than the one rewrite its repair verified); then there is no
-   * git apply command to copy either (`gitApply`, as `gitApplyCommand` writes it).
+   * working tree applied (`mark`). Once `applied`, the button is "Patch applied" ("Marked applied"
+   * for a fix with no patch) and disabled, unless `pending` says what applying left undone, which
+   * running it again finishes. `pulled`: the repair came from the team store, so its recordings are
+   * on the machine that ran it, and applying here puts in the patch alone and runs nothing from it.
+   * `files`: every file the patch changes, and `diff` the patch itself, for the confirm dialog to
+   * show what goes in. `refused`: why `fix apply` won't put it in (it is more than the one rewrite
+   * its repair verified); then there is no git apply command to copy either (`gitApply`, as
+   * `gitApplyCommand` writes it), nor once the patch is in: `inTree` for a verified fix whose patch
+   * is in the working tree already (merged, or applied by hand), which applying only marks applied,
+   * and the fix applied. `patchFile` is where the patch is, relative to the project folder.
+   * `goldens`: how many recordings the fixed code made that applying copies into the goldens folder
+   * and tests. `change`: for a change of request fields (`--set`, `--model`) with no patch, what it
+   * set (`fieldChange`): marking it applied leaves making it in the agent to you.
    */
-  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; refused: string | null } | null;
+  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; change: string | null } | null;
   applied: boolean;
 }
 
@@ -356,7 +381,7 @@ export interface FixDetail extends FixRow {
   /** The repair the Repair step shows (the latest accepted that counts, else the latest accepted, else the latest), and every repair, newest first. */
   repair: RepairStep | null;
   repairs: Array<{ repairId: string; at: number; outcome: RepairOutcome; accepted: boolean; title: string }>;
-  /** Every change verified, newest first, and the one shown without one in the URL. */
+  /** Every change verified, newest first, and the one shown without one in the URL: the newest that counts for the fix, else the newest. */
   verify: VerifyStep[];
   defaultVerify: string | null;
   /** Commands that run each step again, as the empty steps show them. */
@@ -437,12 +462,11 @@ function sourceText(fix: StoredFix): string | null {
   return pr || null;
 }
 
-/** Why a verdict doesn't count for a fix, in a sentence. */
-function standingNote(st: VerdictStanding): string | null {
+/** Why a verdict doesn't count for a fix, as its heading says it: `Doesn't count for this fix: its check leaves out send_email called 1 time`. Null for one that counts. */
+function uncountedHead(st: VerdictStanding): string | null {
   if (st.counts) return null;
-  if (st.why === 'another-check') return `Checked under another check, so it doesn't count for this fix${st.missing?.length ? `: it doesn't check ${st.missing.join('; ')}` : ''}.`;
-  if (st.why === 'already-passing') return "Every run of this fix it checked already passed as recorded, so it proves nothing here.";
-  return 'None of the runs it checked fails in this fix.';
+  const why = st.why === 'another-check' ? (st.missing?.length ? `its check leaves out ${st.missing.join('; ')}` : 'it was checked under another check') : st.why === 'already-passing' ? 'every run of this fix it checked already passed as recorded' : 'none of the runs it checked fails in this fix';
+  return `Doesn't count for this fix: ${why}`;
 }
 
 /** The latest settled verdict that counts, given after the fix was applied, when it rejected the change. */
@@ -458,6 +482,31 @@ function brokenOf(rec: FixRecords): string | null {
   if (rec.fix.status !== 'applied') return null;
   if (rec.fix.data.applied?.tests === 'failed') return 'shadowlap test failed on its goldens';
   return rejectedSinceApplied(rec) ? 'a verify rejected it after it was applied' : null;
+}
+
+/**
+ * What the verdicts that held did, run by run, across every accepted verdict that counts: "3 fixed ·
+ * 1 kept", a run counted once however many verdicts checked it. Never "4 of 4 held", which counts a
+ * good run as held and reads as if every failing run was in one verdict.
+ */
+function fixedKept(rec: FixRecords): { text: string; kept: number } {
+  const fixed = new Set<string>();
+  const kept = new Set<string>();
+  for (const v of counting(rec)) {
+    if (v.verdict !== 'accepted') continue;
+    for (const x of v.report.runs) {
+      const o = outcomeOf(x);
+      if (o === 'fixed') fixed.add(x.runId);
+      else if (o === 'kept') kept.add(x.runId);
+    }
+  }
+  return { text: [fixed.size ? `${fixed.size} fixed` : '', kept.size ? `${kept.size} kept` : ''].filter(Boolean).join(' · ') || 'verified', kept: kept.size };
+}
+
+/** The fix's failing runs that no accepted verdict that counts has checked as failing runs. */
+function notVerified(rec: FixRecords): string[] {
+  const checked = new Set(counting(rec).flatMap((v) => (v.verdict === 'accepted' ? v.report.runs.filter((x) => x.role !== 'good').map((x) => x.runId) : [])));
+  return rec.failing.filter((id) => !checked.has(id));
 }
 
 function stepsOf(rec: FixRecords): FixStep[] {
@@ -492,13 +541,12 @@ function stepsOf(rec: FixRecords): FixStep[] {
 
   let verify: FixStep;
   if (v) {
-    const runs = v.report.runs;
-    const held = runs.filter((x) => outcomeOf(x) !== 'broken').length;
-    const kept = runs.some((x) => x.role === 'good');
+    const held = fixedKept(rec);
+    const left = notVerified(rec).length;
     const earlier = rejected.filter((x) => x.at < v.at).length;
     const later = rejected.filter((x) => x.at > v.at).length;
-    const meta = [earlier ? `${earlier} earlier change${s(earlier)} rejected` : kept ? 'every failing run fixed, every good run kept' : 'every failing run fixed', ...(later ? [`${later} later change${s(later)} rejected`] : [])].join(' · ');
-    verify = { key: 'verify', n: '03', state: 'done', short: `${held} of ${runs.length} held`, title: `${held} of ${runs.length} run${s(runs.length)} held`, meta };
+    const meta = [earlier ? `${earlier} earlier change${s(earlier)} rejected` : left ? `${left} failing run${s(left)} not verified` : held.kept ? 'every failing run fixed, every good run kept' : 'every failing run fixed', ...(later ? [`${later} later change${s(later)} rejected`] : [])].join(' · ');
+    verify = { key: 'verify', n: '03', state: 'done', short: held.text, title: held.text, meta };
   } else if (rejected.length) verify = { key: 'verify', n: '03', state: 'no', short: 'rejected', title: 'Rejected', meta: `${rejected.length} change${s(rejected.length)} rejected` };
   else if (counting(rec).length) {
     // A run it took is inconclusive (its gate ran out of attempts, or an attempt could not be judged), or the verify stopped first.
@@ -512,7 +560,32 @@ function stepsOf(rec: FixRecords): FixStep[] {
   return [blame, repair, verify];
 }
 
-function rowOf(store: Store, rec: FixRecords): FixRow {
+/**
+ * The title each fix was opened with, by fix id: what its failing run did, as blame titled the fix
+ * when it opened it (`blame.done`, `opened`). Read once per answer, and only once a fix was renamed.
+ */
+function openingTitles(store: Store): () => ReadonlyMap<string, string> {
+  let titles: Map<string, string> | null = null;
+  return () => {
+    if (titles) return titles;
+    titles = new Map();
+    for (const e of store.listEvents({ kinds: ['blame.done'], limit: 10_000 })) {
+      const title = e.data?.title;
+      if (e.ref && e.data?.opened === true && typeof title === 'string' && title.trim()) titles.set(e.ref, title);
+    }
+    return titles;
+  };
+}
+
+/** What a fix's failing runs did (`FixRow.failed`): its own title until it was given another, else the title it was opened with. */
+function failedOf(rec: FixRecords, opening: () => ReadonlyMap<string, string>): string | null {
+  const f = rec.fix;
+  // Blame made the title from the failure when it opened the fix: it says what failed until someone renames it.
+  if (!f.data.titleEdited) return f.title;
+  return opening().get(f.fixId) ?? rec.blames.map((b) => b.report.recordedFailures?.[0]).find((x): x is string => typeof x === 'string' && x.trim() !== '') ?? null;
+}
+
+function rowOf(store: Store, rec: FixRecords, opening: () => ReadonlyMap<string, string> = openingTitles(store)): FixRow {
   const f = rec.fix;
   const cost = fixCost([rec]);
   const { label, labels } = fixLabelInfo(store, f);
@@ -524,6 +597,7 @@ function rowOf(store: Store, rec: FixRecords): FixRow {
     label,
     labels,
     check: f.check.text,
+    failed: failedOf(rec, opening),
     failing: rec.failing.length,
     good: rec.good.length,
     steps: stepsOf(rec),
@@ -541,7 +615,8 @@ function rowOf(store: Store, rec: FixRecords): FixRow {
 
 /** Every fix, the most recently opened first, with the counts for the filter chips. */
 export function fixList(store: Store, options: { status?: FixStatus | 'all' } = {}): FixList {
-  const all = store.listFixes().map((f) => rowOf(store, fixRecords(store, f)));
+  const opening = openingTitles(store);
+  const all = store.listFixes().map((f) => rowOf(store, fixRecords(store, f), opening));
   const open = all.filter((f) => f.status === 'open').length;
   const fixes = !options.status || options.status === 'all' ? all : all.filter((f) => (options.status === 'verified' ? f.status !== 'open' : f.status === options.status));
   return { fixes, counts: { all: all.length, open, verified: all.length - open } };
@@ -703,7 +778,24 @@ function patchNote(patch: string | null): string {
   return `${files} file${s(files)} · +${plus} −${minus}`;
 }
 
-function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = false): RepairStep {
+/**
+ * Every attempt a repair ran, as its receipt counts them: the verification of every candidate it
+ * tried (the ones it dropped and the one it accepted), and the probes of the blames it ran. A blame
+ * it reused, kept from before, ran nothing; one it ran is kept like any other blame, the latest of
+ * its run by the time the repair was kept.
+ */
+function repairAttempts(store: Store, r: StoredRepair): number {
+  const verify = r.report.candidates.reduce((n, c) => n + (c.verify?.attempts ?? 0), 0);
+  const blame = r.report.targets.reduce((n, t) => {
+    // A run that passed, or that blame couldn't run on, left no blame to count.
+    if (t.reused || (t.outcome !== 'blamed' && t.outcome !== 'unrescuable' && t.outcome !== 'stopped')) return n;
+    const kept = store.blamesOfRun(t.runId).filter((b) => b.at <= r.at).at(-1);
+    return n + (kept?.report.attempts ?? 0);
+  }, 0);
+  return verify + blame;
+}
+
+function repairStep(store: Store, rec: FixRecords, r: StoredRepair, fixId: string, pulled = false): RepairStep {
   const rep = r.report;
   const c = acceptedCandidate(r);
   const v = c?.verify ?? null;
@@ -754,6 +846,7 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
     prBody: repairMarkdown(rep),
     command: r.command,
     cost: rep.cost,
+    attempts: repairAttempts(store, r),
     output: { patch: rep.output.patch, applied: rep.output.applied, branch: rep.output.branch, pr: rep.output.pr, goldens: rep.output.goldens },
     warnings: rep.warnings,
     pulled,
@@ -767,15 +860,75 @@ function pct(before: number, after: number): string {
   return `${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d) < 10 ? Math.abs(d).toFixed(1) : Math.round(Math.abs(d))}%`;
 }
 
-function headline(v: StoredVerdict): string {
+/**
+ * A verdict's heading, by the runs it checked. An accepted one that counts reads "Every failing run
+ * fixed, every good run kept" only when it checked every failing run of the fix; else it says what
+ * it did, role by role, as repair's Verified line does: "Fixes 1 of 1 target run, 1 of 1 held-out,
+ * keeps 1 of 1 good". One that doesn't count for the fix says why instead (`uncountedHead`).
+ */
+function headline(rec: FixRecords, v: StoredVerdict, standing: VerdictStanding): string {
+  const uncounted = uncountedHead(standing);
+  if (uncounted) return uncounted;
   const runs = v.report.runs;
   if (v.verdict === 'accepted') {
-    const failing = runs.some((x) => x.role !== 'good');
+    const checked = new Set(runs.filter((x) => x.role !== 'good').map((x) => x.runId));
     const good = runs.some((x) => x.role === 'good');
-    return failing && good ? 'Every failing run fixed, every good run kept' : failing ? 'Every failing run fixed' : 'Every good run kept';
+    if (rec.failing.length && rec.failing.every((id) => checked.has(id))) return good ? 'Every failing run fixed, every good run kept' : 'Every failing run fixed';
+    const tally = (role: VerifiedRun['role']) => {
+      const of = runs.filter((x) => x.role === role);
+      return { n: of.length, text: `${of.filter((x) => x.verdict === 'pass').length} of ${of.length}` };
+    };
+    const [t, h, g] = [tally('target'), tally('holdout'), tally('good')];
+    const parts = [t.n ? `fixes ${t.text} target run${s(t.n)}` : '', h.n ? `${t.n ? '' : 'fixes '}${h.text} held-out` : '', g.n ? `keeps ${g.text} good` : ''].filter(Boolean);
+    const said = parts.join(', ');
+    return said ? `${said.charAt(0).toUpperCase()}${said.slice(1)}` : 'No runs checked';
   }
-  if (v.verdict === 'rejected') return runs.some((x) => x.role === 'good' && x.verdict === 'fail') ? 'The change broke a run that worked' : 'The change did not fix every failing run';
+  if (v.verdict === 'rejected') return runs.some((x) => x.role === 'good' && x.verdict === 'fail') ? 'The change broke a run that worked' : 'The change did not fix the failing runs it checked';
   return 'Not every run settled';
+}
+
+/** The models `--from` named in a verify's command line: the fields it set changed only their calls. */
+function fromModels(command: string): string[] {
+  let words: string[];
+  try {
+    words = splitCommandLine(command);
+  } catch {
+    return [];
+  }
+  return words.flatMap((w, i) => (w === '--from' && words[i + 1] ? [words[i + 1]!] : []));
+}
+
+/**
+ * What a verdict verified, named by what changed: a repair's candidate (`repair candidate 3`); the
+ * request fields it set (`--set`, `--model`) from each run's first model call, at the code it ran
+ * (`temperature=1 from each run's first model call · at 35034be`; with `--from`, from each run's
+ * first call of those models); else the code itself, by its version (`working tree` outside git).
+ * Two changes verified at one commit never read alike.
+ */
+function changeName(v: Pick<StoredVerdict, 'candidate' | 'command' | 'report'>): string {
+  if (v.candidate !== null) return `repair candidate ${v.candidate}`;
+  const fields = fieldsSet(v);
+  if (!fields) return v.report.codeVersion ?? 'working tree';
+  return `${fields}${v.report.codeVersion ? ` · at ${v.report.codeVersion}` : ''}`;
+}
+
+/** The request fields a verdict's change set, and from where: `temperature=1 from each run's first model call`; null for a change all in the code. */
+function fieldsSet(v: Pick<StoredVerdict, 'command' | 'report'>): string | null {
+  const fields = Object.entries(v.report.fields ?? {});
+  if (!fields.length) return null;
+  const set = fields.map(([k, x]) => `${k}=${typeof x === 'string' ? x : JSON.stringify(x)}`).join(', ');
+  const from = fromModels(v.command);
+  return `${set} from each run's first ${from.length ? `${from.join(' or ')} call` : 'model call'}`;
+}
+
+/**
+ * For a fix verified with no repair behind it, the request fields the change that verified it set
+ * (`temperature=1 from each run's first model call`): a change no patch carries, which applying it
+ * can only mark applied. Null when the change was all in the code, or a repair's.
+ */
+export function fieldChange(rec: FixRecords): string | null {
+  const v = acceptedVerdict(rec);
+  return v && v.candidate === null ? fieldsSet(v) : null;
 }
 
 function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
@@ -784,7 +937,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
   const standing = rec.standing.get(v.verifyId) ?? { counts: true, why: null };
   const appliedAt = rec.fix.appliedAt;
   const regressed = standing.counts && v.verdict === 'rejected' && rec.fix.status === 'applied' && appliedAt !== null && v.at > appliedAt;
-  const code = v.candidate !== null ? `repair candidate ${v.candidate}` : (r.codeVersion ?? 'working tree');
+  const code = changeName(v);
   const rows: VerifyRow[] = r.runs.map((x) => {
     const failure = x.verdict === 'fail' ? x.attempts.find((a) => !a.passed)?.failures[0] : undefined;
     const forks = [...new Set(x.attempts.map((a) => a.forkedAt).filter((f): f is number => f !== null))];
@@ -824,10 +977,11 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
     at: v.at,
     verdict: v.verdict,
     counts: standing.counts,
-    note: standingNote(standing) ?? (regressed ? 'Rejected after the fix was applied: it no longer holds.' : null),
+    // One that doesn't count says why in its heading.
+    note: regressed ? 'Rejected after the fix was applied: it no longer holds.' : null,
     code,
-    label: `${code} · ${v.verdict}`,
-    headline: headline(v),
+    label: `${code} · ${v.verdict}${standing.counts ? '' : " · doesn't count"}`,
+    headline: headline(rec, v, standing),
     oracle: sprtGate(r.gate) ? `a run's attempts must meet the check: ${r.oracle.join('; ')}; its gate decides after each one: ${describeGate(sprtGate(r.gate)!)}` : `a run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the check: ${r.oracle.join('; ')}`,
     needed: r.needed,
     attemptsPerRun: r.attemptsPerRun,
@@ -858,20 +1012,113 @@ function labelSelectsFix(store: Store, label: string, left: readonly string[]): 
   return labelled.length === failing.size && labelled.every((r) => failing.has(r.runId));
 }
 
+/** A word of a command that names the script it runs: `agent.mjs`, `src/agent.ts`, `refund_agent.py`. */
+const SCRIPT = /\.(?:[cm]?[jt]sx?|py|rb|sh|php|pl|lua|exs?|jl)$/i;
+
 /**
- * `shadowlap repair` from a fix: its failing runs (by its label when that selects exactly them),
- * the good runs, its check. Empty when none of its failing runs is left in the store.
+ * The agent a command runs, to tell one agent's runs from another's: its words up to the script it
+ * runs (`node agent.mjs`, `python -m support.agent`), without the arguments of one run (`A-1150`,
+ * `--persona pushy-customer`); the whole command when no word names a script. Null for none.
  */
-export function repairArgv(store: Store, rec: FixRecords): string[] {
+export function agentOfArgv(argv: readonly string[]): string | null {
+  if (!argv.length) return null;
+  for (let i = 0; i < argv.length; i++) {
+    const w = argv[i]!;
+    if (w === '-m' && i + 1 < argv.length) return argv.slice(0, i + 2).join(' ');
+    if (!w.startsWith('-') && SCRIPT.test(w)) return argv.slice(0, i + 1).join(' ');
+  }
+  return argv.join(' ');
+}
+
+/** The agent a run ran: its recording's, for a replay, a fork or an attempt; null for a run with no command (an import). */
+function agentOfRun(store: Store, run: RunRecord): string | null {
+  let root = run;
+  const seen = new Set([root.runId]);
+  while (root.parentRunId) {
+    const parent = store.getRun(root.parentRunId);
+    if (!parent || seen.has(parent.runId)) break;
+    seen.add(parent.runId);
+    root = parent;
+  }
+  return hasRecordedCommand(root) ? agentOfArgv(root.command.argv) : null;
+}
+
+/**
+ * The good runs a repair or a verify from a fix keeps: the fix's own good runs (those a repair or a
+ * verify of it kept); else the runs labelled good that run the same agent as its failing runs
+ * (`label:good` when that is all of them, else by id), since a good run of another agent checks
+ * nothing a change to this one touches; else none.
+ */
+function keepArgs(store: Store, rec: FixRecords, left: readonly string[]): string[] {
+  const own = rec.good.filter((id) => store.getRun(id) !== null);
+  if (own.length) return own;
+  const agents = new Set(left.map((id) => agentOfRun(store, store.getRun(id)!)).filter((a): a is string => a !== null));
+  if (!agents.size) return [];
+  const failing = new Set(left);
+  const good = store.allRuns().filter((r) => r.meta?.labels?.includes(GOOD_LABEL));
+  const same = good.filter((r) => !failing.has(r.runId) && agents.has(agentOfRun(store, r) ?? ''));
+  if (!same.length) return [];
+  return same.length === good.length ? [`label:${GOOD_LABEL}`] : same.map((r) => r.runId);
+}
+
+/** What a repair from a fix and a verify of it are given: its failing runs, the good runs it keeps, and its check. */
+function fixRunArgs(store: Store, rec: FixRecords): { fixes: string[]; keeps: string[]; expect: string[] } | null {
   // Without a failing run left, a label would select nothing, and repair would refuse it.
   const left = rec.failing.filter((id) => store.getRun(id) !== null);
-  if (!left.length) return [];
+  if (!left.length) return null;
   const { label } = fixLabelInfo(store, rec.fix);
-  const fixes = label && labelSelectsFix(store, label, left) ? [`label:${label}`] : left;
-  const anyGood = store.allRuns().some((r) => r.meta?.labels?.includes(GOOD_LABEL));
-  const keeps = anyGood ? [`label:${GOOD_LABEL}`] : rec.good.filter((id) => store.getRun(id) !== null);
   const expect = rec.fix.check.expect;
-  return ['repair', '--fixes', ...fixes, ...(keeps.length ? ['--keeps', ...keeps] : []), ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])];
+  return {
+    fixes: label && labelSelectsFix(store, label, left) ? [`label:${label}`] : left,
+    keeps: keepArgs(store, rec, left),
+    expect: expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [],
+  };
+}
+
+/**
+ * `shadowlap repair` from a fix: its failing runs (by its label when that selects exactly them),
+ * the good runs it keeps (`keepArgs`), the scope its blame searched, so the repair blames the same
+ * calls and reuses that blame rather than make it again, and its check. Empty when none of its
+ * failing runs is left in the store.
+ */
+export function repairArgv(store: Store, rec: FixRecords): string[] {
+  const runs = fixRunArgs(store, rec);
+  if (!runs) return [];
+  const scope = shownBlame(rec)?.scope;
+  return ['repair', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...(scope ? ['--scope', scope] : []), ...runs.expect];
+}
+
+/**
+ * Why a repair from here would end "No fix to try" without running the agent, in a sentence, or
+ * null when it would run it. A repair reuses the blame kept on a failing run when it searched under
+ * the same check, rescue and scope, rather than search again (as `shadowlap repair` does): when that
+ * blame of every failing run left rescued it from no call, there is no passing path to learn from.
+ * Said as the CLI says why: no answer of the model's lost the runs, blame couldn't settle where they
+ * were lost, or nothing rescued them.
+ */
+function noFixToTry(store: Store, rec: FixRecords, scope: string | null): string | null {
+  const runs = rec.failing.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
+  if (!runs.length) return null;
+  const oracle = JSON.stringify(rec.fix.check.oracle);
+  const kept: StoredBlame[] = [];
+  for (const run of runs) {
+    const stored = run.meta?.blame;
+    const last = store.blamesOfRun(run.runId).at(-1);
+    if (!stored || !last || stored.outcome !== 'unrescuable') return null;
+    if (JSON.stringify(stored.oracle) !== oracle || Object.keys(stored.fields ?? {}).length || (stored.scope ?? null) !== scope) return null;
+    kept.push(last);
+  }
+  const one = runs.length === 1;
+  if (kept.every(noAnswerLost)) return `Blame found that no answer of the model's lost ${one ? 'this run' : 'these runs'}, so a rewrite of the prompt can't fix ${one ? 'it' : 'them'}: the repair ends “No fix to try”. Look at the tools, the harness or the command.`;
+  if (kept.every((b, i) => runs[i]!.meta?.blame?.unsettled === true || (b.outcome === 'unrescuable' && unsettledFirst(b.report)))) return `Blame couldn't settle where ${one ? 'the run was' : 'the runs were'} lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.`;
+  return 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
+}
+
+/** `shadowlap verify` of a change for a fix, as its empty Verify step shows it: the runs and the check a repair from it would take. Empty as `repairArgv` is. */
+function verifyArgv(store: Store, rec: FixRecords): string[] {
+  const runs = fixRunArgs(store, rec);
+  if (!runs) return [];
+  return ['verify', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...runs.expect];
 }
 
 /** The repairer a repair from the dashboard (or `fix show`'s next step) uses when the config names none. */
@@ -893,12 +1140,30 @@ function pendingText(left: { goldens: boolean; test: boolean } | null): string |
 }
 
 /**
+ * Whether a fix's patch is in the project's working tree already, as the caller asks git
+ * (`patchInTree`, patch-in-tree.ts); null when it can't say.
+ */
+export type PatchCheck = (patch: string) => boolean | null;
+
+/**
+ * A verified fix whose repair's patch is in the working tree already, as `check` asks git: merged by
+ * a pull request, or applied by hand. Nothing is left to apply; `fix apply` only marks it applied.
+ * A patch `fix apply` refuses is never asked about.
+ */
+function patchMerged(rec: FixRecords, check: PatchCheck | undefined): boolean {
+  if (!check || rec.fix.status !== 'verified') return false;
+  const r = repairToApply(rec);
+  return !!r?.report.patch && !repairPatchProblem(r.report) && check(r.report.patch) === true;
+}
+
+/**
  * One fix, every step as its page shows it. Null for an id that matches no fix, or several.
  * `repairer` is the one shadowlap.config.json names, if any: the repair commands use it.
  * `checkRepairer` says why the repairer a repair would ask can't be asked from here, for an open fix
- * (`repairerProblem`, which looks for claude on the PATH): this stays a read of the store without it.
+ * (`repairerProblem`, which looks for claude on the PATH), and `patchInTree` whether a verified
+ * fix's patch is in the working tree already: this stays a read of the store without them.
  */
-export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null } = {}): FixDetail | null {
+export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -914,13 +1179,15 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
   const b = shownBlame(rec);
   const p = shownRepair(rec);
   const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v));
-  const accepted = acceptedVerdict(rec);
   const done = row.steps.filter((x) => x.state === 'done');
   const repairArgs = repairArgv(store, rec);
+  const verifyArgs = verifyArgv(store, rec);
   const expect = fix.check.expect;
   const blameRun = b?.runId ?? rec.failing[0] ?? null;
   const toApply = repairToApply(rec);
   const refused = toApply ? repairPatchProblem(toApply.report) : null;
+  // Merged by a pull request, or applied by hand: there is nothing to apply, only to mark applied.
+  const inTree = patchMerged(rec, options.patchInTree);
   // A repair a teammate ran, which came with a pull: its recordings are on their machine.
   const pulled = (r: StoredRepair | null) => !!r && store.repairPulled(r.repairId) !== null;
   const shortIds = (argv: string[]) => argv.map((a) => (/^[0-9A-Z]{26}$/.test(a) ? short(a) : a));
@@ -935,35 +1202,41 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
     actions: {
-      repair: fix.status === 'open' && repairArgs.length ? { argv: repairArgs, command: commandLine(repairJobArgv(repairArgs, configured)) } : null,
+      repair: fix.status === 'open' && repairArgs.length ? { argv: repairArgs, command: commandLine(repairJobArgv(repairArgs, configured)), noFix: noFixToTry(store, rec, b?.scope ?? null) } : null,
       apply:
         fix.status === 'open'
           ? null
           : {
               kind: toApply ? 'patch' : 'mark',
               argv: ['fix', 'apply', fix.fixId],
-              gitApply: toApply?.report.patch && !refused ? gitApplyCommand(`${toApply.dir.replace(/\/+$/, '')}/fix.patch`) : null,
+              // Once the patch is in the working tree, git apply would only fail.
+              gitApply: toApply?.report.patch && !refused && !inTree && fix.status !== 'applied' ? gitApplyCommand(`${toApply.dir.replace(/\/+$/, '')}/fix.patch`) : null,
               pending: pendingText(applyLeft(fix, toApply, { pulled: pulled(toApply) })),
               pulled: pulled(toApply),
               files: toApply?.report.patch ? patchFiles(toApply.report.patch) : [],
               diff: toApply?.report.patch ?? null,
+              patchFile: toApply?.report.patch ? `${toApply.dir.replace(/\/+$/, '')}/fix.patch` : null,
               refused,
+              inTree,
+              goldens: toApply && !pulled(toApply) ? toApply.report.output.goldens.length : 0,
+              change: toApply ? null : fieldChange(rec),
             },
       applied: fix.status === 'applied',
     },
     blame: b ? blameStep(store, b) : null,
     blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, confidence: x.report.confidence })),
-    repair: p ? repairStep(rec, p, fix.fixId, pulled(p)) : null,
+    repair: p ? repairStep(store, rec, p, fix.fixId, pulled(p)) : null,
     repairs: [...rec.repairs].reverse().map((x) => {
       const c = acceptedCandidate(x);
       return { repairId: x.repairId, at: x.at, outcome: x.outcome, accepted: x.accepted, title: c ? commitTitle(c) : 'No fix yet' };
     }),
     verify,
-    defaultVerify: accepted?.verifyId ?? verify[0]?.verifyId ?? null,
+    // The newest that counts: one that doesn't count for the fix never opens the step.
+    defaultVerify: counting(rec).at(-1)?.verifyId ?? verify[0]?.verifyId ?? null,
     commands: {
       blame: commandLine(['blame', blameRun ? short(blameRun) : '<run>', ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])]),
       repair: commandLine(repairJobArgv(repairArgs.length ? shortIds(repairArgs) : ['repair', '--fixes', '<runs>'], configured)),
-      verify: commandLine(['verify', ...(repairArgs.length ? shortIds(repairArgs.slice(1)) : ['--fixes', '<runs>'])]),
+      verify: commandLine(verifyArgs.length ? shortIds(verifyArgs) : ['verify', '--fixes', '<runs>']),
     },
     repairer: { name: configured ?? DEFAULT_REPAIRER, configured: configured !== null, problem: fix.status === 'open' && options.checkRepairer ? options.checkRepairer(configured ?? DEFAULT_REPAIRER, configured !== null) : null },
     applied: fix.data.applied ?? null,
@@ -1011,7 +1284,7 @@ export interface WeekWindows {
  * before, unless `windows` names them. The Overview passes its own, the viewer's days, so a blame
  * counts in the same week as the runs beside it.
  */
-export function fixesSummary(store: Store, now: number = Date.now(), windows?: WeekWindows): FixesSummary {
+export function fixesSummary(store: Store, now: number = Date.now(), windows?: WeekWindows, options: { patchInTree?: PatchCheck } = {}): FixesSummary {
   const fixes = store.listFixes();
   const records = fixes.map((f) => fixRecords(store, f));
   const cost = fixCost(records);
@@ -1034,7 +1307,8 @@ export function fixesSummary(store: Store, now: number = Date.now(), windows?: W
   const blamed = records.filter((r) => r.blames.some((b) => b.outcome !== 'stopped')).length;
   return {
     open: fixes.filter((f) => f.status === 'open').length,
-    readyToApply: fixes.filter((f) => f.status === 'verified').length,
+    // A patch already in the working tree is no more to apply.
+    readyToApply: records.filter((r) => r.fix.status === 'verified' && !patchMerged(r, options.patchInTree)).length,
     broken: records.filter((r) => brokenOf(r) !== null).length,
     funnel: { failures: fixes.length + unblamedFailures(store).length, blamed, verified: fixes.filter((f) => f.status !== 'open').length, applied: fixes.filter((f) => f.status === 'applied').length },
     attempts: cost.attempts,
@@ -1097,10 +1371,22 @@ export interface NeedsLookItem {
 }
 
 /**
+ * Why a repair that accepted nothing found no fix, when its repairer was never asked and nothing
+ * else was tried: in a few words, `the repairer could not be asked` (claude was not found, say), or
+ * that none is configured or it had nothing to rewrite. Null for a repair that looked for a fix.
+ */
+function unaskedWords(r: StoredRepair): string | null {
+  if (r.accepted || r.report.candidates.length) return null;
+  const none = noRepairerOf(r.report)?.text;
+  if (!none) return null;
+  return none.startsWith(NO_REPAIRER.notAsked) ? NO_REPAIRER.notAsked : none;
+}
+
+/**
  * What needs a look about fixes, most urgent first: applied fixes that don't hold, failures with no
  * fix yet (open fixes, then failed runs never blamed), then verified fixes not applied.
  */
-export function needsLookFixes(store: Store, options: { limit?: number } = {}): NeedsLookItem[] {
+export function needsLookFixes(store: Store, options: { limit?: number; patchInTree?: PatchCheck } = {}): NeedsLookItem[] {
   const broken: NeedsLookItem[] = [];
   const open: NeedsLookItem[] = [];
   const ready: NeedsLookItem[] = [];
@@ -1111,8 +1397,13 @@ export function needsLookFixes(store: Store, options: { limit?: number } = {}): 
       const where = b?.outcome === 'blamed' && b.report.blamed ? `lost at model call #${b.report.blamed.callNo}` : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
       // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
       const elsewhere = noAnswerLost(b);
-      open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : rec.repairs.length ? 'no fix found yet' : 'no fix yet'}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
+      // A repair whose repairer was never asked looked for no fix: it says why, not that none was found.
+      const last = rec.repairs.at(-1);
+      const repaired = last ? (unaskedWords(last) ?? 'no fix found yet') : 'no fix yet';
+      open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : repaired}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
     } else if (fix.status === 'verified') {
+      // Its patch is in the working tree already: nothing is ready to apply, and the fix's page offers Mark applied.
+      if (patchMerged(rec, options.patchInTree)) continue;
       const p = shownRepair(rec);
       const c = p && acceptedCandidate(p);
       ready.push({ kind: 'ready', href: fixHref(fix.fixId, c ? 'repair' : 'verify'), icon: 'fixok', title: 'A verified fix is ready', detail: c ? commitTitle(c) : fix.title, action: 'Apply', fixId: fix.fixId, runId: null, at: fix.verifiedAt ?? fix.openedAt });
@@ -1292,10 +1583,16 @@ export interface FixBundle {
   /** For a probe: the model call asked again; the one blame named is where the run was lost. */
   callNo: number | null;
   blamed: boolean;
-  /** For verify: the change it checked (`repair candidate 3`, a code version), how it came out, and the run's role. */
+  /** For verify: the change it checked, named as the Verify step's switch names it (`changeName`), how it came out, and the run's role. */
   change: string | null;
   verdict: VerifyOutcome | null;
   role: VerifyRow['role'] | null;
+  /**
+   * For a verdict: whether it counts for the fix the bundle leads to, as its Verify step's switch
+   * says (false: "doesn't count"). Null for blame's attempts, a candidate a repair dropped (no
+   * verdict of the fix's), and attempts no stored report names.
+   */
+  counts: boolean | null;
   passes: number;
   attempts: FixBundleAttempt[];
   spent: number;
@@ -1422,6 +1719,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
           change: null,
           verdict: null,
           role: null,
+          counts: null,
           passes: attempts.filter((a) => a.passed).length,
           attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
           spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
@@ -1435,7 +1733,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
 
   // Verify: each verdict on a run in the family, and each candidate a repair tried and dropped (its
   // check is kept in the repair's report, not as a verdict), a bundle per run it replayed.
-  const verified = (key: string, x: VerifiedRun, change: string, verdict: VerifyOutcome, fix: StoredFix | null, href: string, at: number) => {
+  const verified = (key: string, x: VerifiedRun, change: string, verdict: VerifyOutcome, counts: boolean | null, fix: StoredFix | null, href: string, at: number) => {
     const attempts = x.attempts.filter((a) => exists(a.runId) && !bundled.has(a.runId));
     if (!attempts.length) return;
     for (const a of attempts) bundled.add(a.runId);
@@ -1449,6 +1747,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       change,
       verdict,
       role: ROLE[x.role],
+      counts,
       passes: attempts.filter((a) => a.passed).length,
       attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: false })),
       spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
@@ -1462,8 +1761,10 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
   for (const v of verdicts) {
     for (const x of inFamily(v.report.runs)) {
       const fix = linkedFix(v.verifyId, 'verify', x.runId);
-      const change = v.candidate !== null ? `repair candidate ${v.candidate}` : (v.report.codeVersion ?? 'working tree');
-      verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at);
+      const change = changeName(v);
+      // Whether it counts for the fix it leads to, as that fix's Verify step says: kept with the link.
+      const counts = fix ? (store.linksTo(v.verifyId, 'verify').find((l) => l.fixId === fix.fixId)?.data?.counts ?? true) : null;
+      verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, counts, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at);
     }
   }
   const kept = new Set(verdicts.flatMap((v) => (v.repairId !== null && v.candidate !== null ? [`${v.repairId}#${v.candidate}`] : [])));
@@ -1472,7 +1773,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       if (!c.verify || kept.has(`${r.repairId}#${c.id}`)) continue;
       for (const x of inFamily(c.verify.runs)) {
         const fix = linkedFix(r.repairId, 'repair', x.runId);
-        verified(`${r.repairId}#${c.id}:${x.runId}`, x, `repair candidate ${c.id}`, c.verify.verdict, fix, fix ? fixHref(fix.fixId, 'repair') : runHref(x.runId), r.at);
+        verified(`${r.repairId}#${c.id}:${x.runId}`, x, `repair candidate ${c.id}`, c.verify.verdict, null, fix, fix ? fixHref(fix.fixId, 'repair') : runHref(x.runId), r.at);
       }
     }
   }
@@ -1513,6 +1814,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       change: null,
       verdict: null,
       role: g.role,
+      counts: null,
       passes: g.runs.filter(passed).length,
       attempts: g.runs.map((r) => ({ runId: r.runId, passed: passed(r), verdict: verdict(r), note: attemptNote(passed(r), undefined, r, verdict(r)), href: runHref(r.runId), rescued: r.runId === rescuedRunId })),
       spent: 0,

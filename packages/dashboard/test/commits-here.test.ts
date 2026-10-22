@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type TestResultData } from '@shadowlap/engine';
+import { parentlessHere } from '../src/commits-here.js';
 import { commitsHere, commitSubjects, forgetCommits, startDashboard, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
+import type { DaysBisect } from '../src/routes/runs-list.js';
 
 /**
  * Find the commit offers only commits this checkout has, on a run's page, on Tests and in the job
@@ -80,6 +82,10 @@ beforeAll(async () => {
   ids.failedTheirs = run(THEIRS, T0 - DAY, 'failed');
   // One that failed here, at a commit this checkout has.
   ids.failedHere = run(second, T0, 'failed');
+  // Another agent, which failed at the repository's first commit, before any of them.
+  const digest = store.createRun({ mode: 'record', command: { argv: ['node', 'digest.mjs'], cwd: repo }, codeVersion: first, startedAt: T0 - 4 * DAY });
+  store.endRun(digest.runId, 'failed');
+  ids.failedAtFirst = digest.runId;
 
   // CI's test sessions: refund-flow last passed at a merge commit this checkout never had; refund-limit
   // passed here and then failed at a teammate's commit.
@@ -141,6 +147,19 @@ describe('Find the commit in this checkout', () => {
     expect(revisions['goldens/refund-limit']).toEqual([{ rev: first, at: T0 - 3 * DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true, subject: 'Start' }]);
   });
 
+  it('offers no search from a failure at the first commit, and on the calendar the first failure that started later', async () => {
+    const why = `${ids.failedAtFirst.slice(0, 10)} failed at the first commit, ${first}: there is nothing before it to search`;
+    expect((await getJson<{ bisect: Choices & { first?: boolean; unavailable: string | null } }>(`runs/${ids.failedAtFirst}/offers`)).bisect).toMatchObject({ first: true, good: null, args: null, unavailable: why });
+    // The first failure on the days picked failed there: the first that failed later is offered, saying why.
+    const later = await getJson<DaysBisect>(`runs/bisect?from=${T0 - 5 * DAY}&to=${T0 + DAY}`);
+    expect(later).toMatchObject({ runId: ids.failedTheirs, earlier: { runId: ids.failedAtFirst, why } });
+    if (later.runId) expect(later.choices.first).toBeUndefined();
+    // None started later on the days picked: the first failure says there is nothing to search.
+    const none = await getJson<DaysBisect>(`runs/bisect?from=${T0 - 5 * DAY}&to=${T0 - 3 * DAY - 1}`);
+    expect(none).toMatchObject({ runId: ids.failedAtFirst, choices: { first: true, args: null, unavailable: `${why}, and no failure on the days picked started later` } });
+    expect('earlier' in none).toBe(false);
+  });
+
   it('names each commit a run’s Find the commit offers by its subject', async () => {
     const offered = (await getJson<{ bisect: Choices & { revisions: Array<{ rev: string; subject: string | null }> } }>(`tests/runs/${ids.failedHere}`)).bisect;
     expect(offered.revisions).toEqual([expect.objectContaining({ rev: first, subject: 'Start' })]);
@@ -148,6 +167,40 @@ describe('Find the commit in this checkout', () => {
 });
 
 describe('what git said about the commits, kept', () => {
+  it('says a commit with no parent here has nothing before it: the first, or the oldest a shallow clone has', () => {
+    const here = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-commits-first-')));
+    const shallow = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-commits-shallow-')));
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=dana@northwind.example', '-c', 'user.name=Dana', '-c', 'commit.gpgsign=false', '-c', 'protocol.file.allow=always', ...args], { cwd }).toString().trim();
+    try {
+      git(here, 'init', '-q', '.');
+      writeFileSync(join(here, 'a.txt'), 'a\n');
+      git(here, 'add', '-A');
+      git(here, 'commit', '-qm', 'Start the agent');
+      const start = git(here, 'rev-parse', 'HEAD');
+      writeFileSync(join(here, 'a.txt'), 'b\n');
+      git(here, 'commit', '-qam', 'Escalate refunds above the limit');
+      const next = git(here, 'rev-parse', 'HEAD');
+      forgetCommits();
+      expect(parentlessHere(here, start, 0)).toEqual({ shallow: false });
+      expect(parentlessHere(here, start.slice(0, 7), 0)).toEqual({ shallow: false });
+      expect(parentlessHere(here, next, 0)).toBe(false);
+      // Only a commit's hex name is handed to git; one git doesn't have, it can't say of.
+      expect(parentlessHere(here, 'HEAD~1', 0)).toBeNull();
+      expect(parentlessHere(here, 'f'.repeat(40), 0)).toBeNull();
+      // A clone of the newest commit alone: it has no parent there, though it has one here.
+      git(shallow, 'clone', '-q', '--depth', '1', `file://${here}`, '.');
+      expect(parentlessHere(shallow, next, 0)).toEqual({ shallow: true });
+      // Its parent found, the answer stands; none found is asked again after a minute, as a fetch may deepen the clone.
+      git(shallow, 'fetch', '-q', '--unshallow');
+      expect(parentlessHere(shallow, next, 30_000)).toEqual({ shallow: true });
+      expect(parentlessHere(shallow, next, 61_000)).toBe(false);
+    } finally {
+      forgetCommits();
+      rmSync(here, { recursive: true, force: true });
+      rmSync(shallow, { recursive: true, force: true });
+    }
+  });
+
   it('keeps a commit found, asks again about a missing one after a minute, and forgets when told', () => {
     const here = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-commits-kept-')));
     const there = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-commits-there-')));

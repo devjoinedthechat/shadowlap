@@ -49,7 +49,9 @@ function script(ctx: ScriptContext) {
     case 2: {
       if (small) return { message: message([toolUse('issue_refund', { order_id: order, amount: 40 }, `toolu_decide_${ctx.requestNo}`)], usage) };
       decisions++;
-      const escalates = system.includes('escalate every refund above the limit') || (mode === 'alternate' && decisions % 2 === 0);
+      // Asked at temperature 1 (`verify --set temperature=1`), it escalates too: a change to the requests, in no file.
+      const hotter = (ctx.request as { temperature?: unknown }).temperature === 1;
+      const escalates = system.includes('escalate every refund above the limit') || hotter || (mode === 'alternate' && decisions % 2 === 0);
       return {
         message: escalates
           ? message([text('Above the limit.'), toolUse('escalate', { reason: 'above the refund limit' }, `toolu_decide_${ctx.requestNo}`)], usage)
@@ -201,7 +203,8 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(listed.fixes[0]!.steps.map((x: { short: string }) => x.short)).toEqual([`lost at #${decision}`, 'no fix yet', 'not verified']);
     expect(listed.fixes[0]!.attempts).toBeGreaterThan(0);
     const table = (await shadowlap(['fix', 'ls'])).stdout;
-    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +check: issue_refund never called with \\{"amount":240\\} · opened \\d+s ago\n`));
+    // What its runs did, now that the title no longer says it, and what they must do.
+    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +failed: issue_refund called with amount 240 · must: issue_refund never called with \\{"amount":240\\} · opened \\d+s ago\n`));
 
     // The code as it is fixes nothing: the verdict is kept, rejected, and the fix stays open.
     const rejected = await shadowlap(['verify', '--fixes', 'label:refund-over-limit', '--keeps', 'label:good', '--expect', ORACLE, '--json']);
@@ -227,7 +230,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.goodRuns.map((r: { runId: string }) => r.runId)).toEqual([good]);
     expect(shown.failingRuns.map((r: { runId: string }) => r.runId)).toEqual(failed);
     expect(shown.steps.map((x: { state: string }) => x.state)).toEqual(['done', 'todo', 'done']);
-    expect(shown.steps[2]).toMatchObject({ short: '3 of 3 held', title: '3 of 3 runs held', meta: '1 earlier change rejected' });
+    expect(shown.steps[2]).toMatchObject({ short: '2 fixed · 1 kept', title: '2 fixed · 1 kept', meta: '1 earlier change rejected' });
     expect(shown.verify.map((v: { verdict: string }) => v.verdict)).toEqual(['accepted', 'rejected']);
     expect(shown.defaultVerify).toBe(shown.verify[0].verifyId);
     expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: "a run's attempts must meet the check: the agent exits 0; issue_refund with {\"amount\":240} called 0 times; its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts" });
@@ -238,7 +241,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
       ['target', 'fixed'],
       ['good', 'kept'],
     ]);
-    expect(shown.verify[1]).toMatchObject({ headline: 'The change did not fix every failing run', command: `shadowlap verify --fixes label:refund-over-limit --keeps label:good --expect '${ORACLE}'` });
+    expect(shown.verify[1]).toMatchObject({ headline: 'The change did not fix the failing runs it checked', command: `shadowlap verify --fixes label:refund-over-limit --keeps label:good --expect '${ORACLE}'` });
     expect(shown.verify[1].rows[0]).toMatchObject({ outcome: 'not fixed', deterministic: true, note: 'issue_refund called' });
     // The Blame step shows the latest blame that found the call; both are kept.
     expect(shown.blames).toHaveLength(2);
@@ -249,11 +252,11 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
     expect(shown.blame.callRow.filter((c: { kind: string }) => c.kind === 'api')).toHaveLength(4);
     // Verified on the working tree, with no repair behind it: applying it only marks it.
-    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null, pulled: false, files: [], diff: null, refused: null }, applied: false });
+    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, change: null }, applied: false });
 
     const human = (await shadowlap(['fix', 'show', fixId])).stdout;
     expect(human).toContain(`${fixId}  Refunds above the limit issued without approval`);
-    expect(human).toContain('check: issue_refund never called with {"amount":240}');
+    expect(human).toContain('\n  failed: issue_refund called with amount 240 · must: issue_refund never called with {"amount":240}\n');
     expect(human).toMatch(/✓ 01 blame +Lost at model call/);
     expect(human).toContain('✓ accepted');
     expect(human).toContain('✗ rejected');
@@ -305,7 +308,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.steps.map((x: { state: string; short: string }) => [x.state, x.short])).toEqual([
       ['done', `lost at #${decision}`],
       ['done', 'prompt fix'],
-      ['done', '3 of 3 held'],
+      ['done', '2 fixed · 1 kept'],
     ]);
     expect(shown.steps[1]).toMatchObject({ title: 'Escalate refunds above the policy limit', meta: 'candidate 3 of 3 · proposed by anthropic:claude-opus-5-5' });
     expect(shown.repair).toMatchObject({
@@ -337,7 +340,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.repair.lost).toEqual([{ runId: report.targets[0].runId, at: `model call #${decision} (3 of 4)`, href: `#/fixes/${fixId}/blame` }]);
     expect(shown.verify).toHaveLength(1);
     expect(shown.verify[0]).toMatchObject({ verifyId: report.verifyId, verdict: 'accepted', code: 'repair candidate 3', label: 'repair candidate 3 · accepted', candidate: 3, repairId: report.repairId });
-    expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: `git -c core.autocrlf=false apply ${report.output.dir}/fix.patch`, pending: null, pulled: false, files: ['agent.mjs'], diff: readFileSync(join(project, report.output.patch), 'utf8'), refused: null });
+    expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: `git -c core.autocrlf=false apply ${report.output.dir}/fix.patch`, pending: null, pulled: false, files: ['agent.mjs'], diff: readFileSync(join(project, report.output.patch), 'utf8'), patchFile: `${report.output.dir}/fix.patch`, refused: null, inTree: false, goldens: 2, change: null });
 
     // A golden recorded before the fix: the prompt the patch changes goes into its every request.
     expect((await shadowlap(['pack', good, 'goldens/good-refund'])).code).toBe(0);
@@ -379,9 +382,40 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     }
   });
 
+  it('names a change of request fields by the fields it set, and leaves making it to the agent once applied', async () => {
+    const { failed } = await runs('refund-over-limit');
+    mode = 'alternate';
+    const blamed = json(await shadowlap(['blame', failed[0], '--expect', ORACLE, '--json']));
+    const fixId = blamed.fix.fixId as string;
+    // Titled by how its run failed: fix ls and fix show say what it must do, and leave what failed to the title.
+    expect((await shadowlap(['fix', 'ls'])).stdout).toMatch(/\n +must: issue_refund never called with \{"amount":240\} · opened \d+[sm] ago\n/);
+    expect((await shadowlap(['fix', 'show', fixId])).stdout).toMatch(/\n {2}open · refund-over-limit · 1 failing run · 0 good · opened \d+[sm] ago\n {2}must: issue_refund never called with \{"amount":240\}\n/);
+    mode = 'refund';
+    const verified = await shadowlap(['verify', '--fixes', failed[0], '--set', 'temperature=1', '--expect', ORACLE]);
+    expect(verified.code, verified.out).toBe(0);
+    const change = "temperature=1 from each run's first model call";
+    const shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
+    expect(shown.status).toBe('verified');
+    expect(shown.verify[0].code).toMatch(/^temperature=1 from each run's first model call · at [0-9a-f]{7,}$/);
+    expect(shown.actions.apply).toMatchObject({ kind: 'mark', change, gitApply: null });
+    const human = (await shadowlap(['fix', 'show', fixId])).stdout;
+    expect(human).toMatch(/✓ accepted {2}temperature=1 from each run's first model call · at [0-9a-f]{7,} {2}Every failing run fixed\n/);
+    expect(human).toContain(`next: shadowlap fix apply ${fixId.slice(0, 13)} (verified with ${change}: once your agent makes that change, marks it applied)\n`);
+
+    const applied = await shadowlap(['fix', 'apply', fixId]);
+    expect(applied.code, applied.out).toBe(0);
+    expect(applied.out).toContain(`verified with ${change}, a change to the requests no patch carries: make it in your agent\n`);
+    expect(applied.stdout).toContain(`✓ ${fixId.slice(0, 13)} applied: verified with ${change}; no patch, set it in your agent\n`);
+    // Never that it was verified on the working tree, or that there was simply no patch to apply.
+    expect(applied.out).not.toMatch(/verified on the working tree|no patch to apply/);
+    const after = (await shadowlap(['fix', 'show', fixId])).stdout;
+    expect(after).toContain(`applied: patch none (verified with ${change}: set it in your agent) · tests skipped`);
+    expect(after).not.toContain('verified on the working tree');
+  });
+
   it('keeps a fix open after a repair that accepts nothing, with every candidate tried and why it was dropped', async () => {
     answers = 'bad';
-    const { failed } = await runs('refund-over-limit');
+    const { failed, good } = await runs('refund-over-limit');
     mode = 'alternate';
     const r = await shadowlap(['repair', '--fixes', failed[0], '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
     expect(r.code, r.out).toBe(1);
@@ -398,14 +432,15 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.repair.candidates.map((c: { verdict: string; why: string }) => c.verdict)).toEqual(['set aside', 'rejected']);
     expect(shown.repair.files.map((f: { name: string }) => f.name)).toEqual(['report.md', 'report.json']);
     expect(shown.verify).toEqual([]);
-    // Repaired from its own failing run: the other run labelled refund-over-limit is in no fix, so the label would repair it as failing unseen.
-    expect(shown.actions.repair.argv).toEqual(['repair', '--fixes', failed[0], '--keeps', 'label:good', '--expect', ORACLE]);
-    expect(shown.actions.repair.command).toBe(`shadowlap repair --fixes ${failed[0]} --keeps label:good --expect '${ORACLE}' --repairer claude-code`);
+    // Repaired from its own failing run: the other run labelled refund-over-limit is in no fix, so the label would repair it as failing
+    // unseen. It keeps the good run the repair kept, the fix's own now, rather than every run labelled good.
+    expect(shown.actions.repair.argv).toEqual(['repair', '--fixes', failed[0], '--keeps', good, '--expect', ORACLE]);
+    expect(shown.actions.repair.command).toBe(`shadowlap repair --fixes ${failed[0]} --keeps ${good} --expect '${ORACLE}' --repairer claude-code`);
 
     // What to run next, with the repairer the config names, else the user's own Claude Code.
-    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`next: shadowlap repair --fixes ${failed[0]} --keeps label:good --expect '${ORACLE}' --repairer claude-code\n`);
+    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`next: shadowlap repair --fixes ${failed[0]} --keeps ${good} --expect '${ORACLE}' --repairer claude-code\n`);
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ repair: { repairer: 'anthropic' } }));
-    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`next: shadowlap repair --fixes ${failed[0]} --keeps label:good --expect '${ORACLE}'\n`);
+    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`next: shadowlap repair --fixes ${failed[0]} --keeps ${good} --expect '${ORACLE}'\n`);
 
     // Nothing verified, nothing to apply: it says how to get there.
     const refused = await shadowlap(['fix', 'apply', fixId]);
@@ -525,8 +560,8 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
       ['accepted', false],
       ['accepted', false],
     ]);
-    expect(shown.verify[1].note).toBe(`Checked under another check, so it doesn't count for this fix: it doesn't check issue_refund with {"amount":240} called 0 times.`);
-    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`✓ accepted  `);
+    expect(shown.verify[1]).toMatchObject({ note: null, headline: `Doesn't count for this fix: its check leaves out issue_refund with {"amount":240} called 0 times` });
+    expect((await shadowlap(['fix', 'show', fixId])).stdout).toMatch(/✓ accepted {2}\S+ {2}Doesn't count for this fix: its check leaves out issue_refund with \{"amount":240\} called 0 times\n/);
 
     const refused = await shadowlap(['fix', 'apply', fixId]);
     expect(refused.code).toBe(1);

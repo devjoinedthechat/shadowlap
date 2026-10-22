@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { applyLeft, BLAME_DEFAULTS, commandIsImported, describeGate, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
-import { fixDetail, fixHref, fixList, ghReader, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
+import { applyLeft, BLAME_DEFAULTS, commandIsImported, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchInTree, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
 import { parseExpect } from '../checks.js';
@@ -622,8 +622,9 @@ function registerFixes(program: Command): void {
       const store = readStore(program.opts<GlobalOpts>());
       try {
         const repairer = configuredRepairer();
-        // The repair it suggests next, and whether its repairer can be asked from here (claude on the PATH).
-        const detail = fixDetail(store, requireFix(store, arg).fixId, { repairer, checkRepairer: repairerProblem })!;
+        // The repair it suggests next, whether its repairer can be asked from here (claude on the PATH),
+        // and whether a verified fix's patch is in this working tree already, which apply only marks applied.
+        const detail = fixDetail(store, requireFix(store, arg).fixId, { repairer, checkRepairer: repairerProblem, patchInTree: (patch) => patchInTree(process.cwd(), patch) })!;
         process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer })) + '\n');
       } catch (err) {
         fixIdFailed(err, arg, flags.json);
@@ -720,8 +721,10 @@ function registerFixes(program: Command): void {
           const left = untested ? `, but its goldens ${result.tests === 'failed' ? 'failed their last test' : 'are not tested yet'}: run it without --no-test to test them` : '; nothing is left to do';
           process.stdout.write(`${untested ? p.yellow('!') : p.green('✓')} ${shortFixId(found.fixId)} is already applied${found.appliedAt ? ` (${ago(found.appliedAt)})` : ''}${left}\n`);
         } else {
+          // With no patch, a change of request fields (--set, --model) is named: the agent makes it, not a file.
+          const change = result.patch === 'none' ? fieldChange(fixRecords(store, found)) : null;
           const what = [
-            result.patch === 'applied' ? 'the patch is in the working tree' : result.patch === 'already' ? 'the patch was already in the working tree' : 'verified on the working tree, no patch to apply',
+            result.patch === 'applied' ? 'the patch is in the working tree' : result.patch === 'already' ? 'the patch was already in the working tree' : change ? `verified with ${safe(change)}; no patch, set it in your agent` : 'verified on the working tree, no patch to apply',
             ...(result.goldens.length ? [`${result.goldens.filter((g) => g.copied).length} of ${result.goldens.length} golden${result.goldens.length === 1 ? '' : 's'} copied to ${folder(flags.goldens)}`] : []),
             ...(result.tests !== 'skipped' ? [`shadowlap test ${result.tests}`] : []),
           ];

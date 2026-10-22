@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BLAME_DEFAULTS, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, unsettledFirst, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
-import { fixBundles, fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
+import { agentOfArgv, fixBundles, fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
 
 let store: Store;
 beforeEach(() => {
@@ -28,6 +28,12 @@ function blame(runId: string, o: { outcome?: BlameReport['outcome']; at?: number
     checkText: 'issue_refund never called with {"amount":240}',
     at: o.at ?? NOW - DAY,
   });
+}
+
+/** An attempt as the CLI makes it: a replay of the run it checked, under the id its report gives it, marked. */
+function makeRunAs(runId: string, parent: string, meta: Record<string, unknown>): void {
+  store.createRun({ runId, mode: 'replay', parentRunId: parent, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 2_000, meta });
+  store.endRun(runId, 'completed');
 }
 
 /** The refund story: a failing run blamed, a held-out run and a good one, a rejected verify, then an accepted repair. */
@@ -57,14 +63,31 @@ describe('the Fixes list', () => {
       ['todo', 'not verified'],
     ]);
     expect(list.fixes[1]).toMatchObject({ status: 'verified', label: 'refund-bug', failing: 2, good: 1, check: 'issue_refund never called with {"amount":240}', verifiedAt: NOW - DAY });
+    // What its verdicts that held did, run by run: never "3 of 3 held", which counts the good run as held.
     expect(list.fixes[1]!.steps.map((s) => [s.state, s.short])).toEqual([
       ['done', 'lost at #5'],
       ['done', 'prompt fix'],
-      ['done', '3 of 3 held'],
+      ['done', '2 fixed · 1 kept'],
     ]);
     expect(list.fixes[1]!.attempts).toBeGreaterThan(0);
     expect(fixList(store, { status: 'open' }).fixes.map((f) => f.fixId)).toEqual([openFix.fixId]);
     expect(fixList(store, { status: 'verified' }).fixes.map((f) => f.fixId)).toEqual([fixId]);
+  });
+
+  it('says what the failing runs did: the title blame opened the fix with, kept when someone renames it', () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { expect: { tools: { send_email: 1 } }, title: 'send_email called twice, not once' });
+    // Blame made the title from the failure, so the title says it.
+    expect(fixList(store).fixes[0]).toMatchObject({ title: 'send_email called twice, not once', failed: 'send_email called twice, not once' });
+    // Renamed, the fix still says what failed: as blame titled it when it opened the fix.
+    recordEvent(store, { kind: 'blame.done', runId: run, ref: fix.fixId, data: { outcome: 'blamed', callNo: 5, confidence: 'high', title: 'send_email called twice, not once', opened: true } });
+    setFixTitle(store, fix.fixId, 'Confirmation email sent twice');
+    expect(fixList(store).fixes[0]).toMatchObject({ title: 'Confirmation email sent twice', failed: 'send_email called twice, not once' });
+    expect(fixDetail(store, fix.fixId)).toMatchObject({ title: 'Confirmation email sent twice', failed: 'send_email called twice, not once' });
+    // A teammate's fix, opened on their machine: the first failure its blame recorded, in the CLI's words.
+    const theirs = blame(makeRun(store, { labels: ['refund-bug'] })).fix;
+    setFixTitle(store, theirs.fixId, 'Refunds above the limit issued without approval');
+    expect(fixDetail(store, theirs.fixId)!.failed).toBe('issue_refund with {"amount":240} called 0 times, but called 1 time');
   });
 
   it('says how far a blame got that rescued nothing or stopped, and a verify that only rejected', () => {
@@ -170,12 +193,13 @@ describe('a fix', () => {
     ]);
     expect(d.goodRuns.map((r) => r.runId)).toEqual([good]);
     expect(d.steps[1]).toMatchObject({ title: 'Escalate refunds above the policy limit', meta: 'candidate 3 of 3 · proposed by claude-code' });
-    expect(d.steps[2]).toMatchObject({ title: '3 of 3 runs held', meta: '1 earlier change rejected' });
+    expect(d.steps[2]).toMatchObject({ title: '2 fixed · 1 kept', meta: '1 earlier change rejected' });
     const diff = store.getRepair('repair-munzln2i')!.report.patch;
     expect(diff).toContain('diff --git a/agent.mjs b/agent.mjs');
-    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, refused: null }, applied: false });
+    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1, change: null }, applied: false });
     expect(d.commands.blame).toBe(`shadowlap blame ${failing.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}'`);
-    expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps label:good --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
+    // The good run its verdicts kept: label:good would also take any run labelled good since.
+    expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps ${good.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
     expect(fixDetail(store, 'fx-NOPE')).toBeNull();
     expect(fixDetail(store, 'fx-')).toBeNull();
   });
@@ -413,8 +437,95 @@ describe('a fix', () => {
     expect(d).toMatchObject({ status: 'open', defaultStep: 'blame', oracle: ['the agent exits 0', 'issue_refund with {"amount":240} called 0 times'] });
     expect(d.steps[2]).toEqual({ key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: 'verified only under another check' });
     expect(d.verify).toHaveLength(1);
-    expect(d.verify[0]).toMatchObject({ verdict: 'accepted', counts: false, note: "Checked under another check, so it doesn't count for this fix: it doesn't check issue_refund with {\"amount\":240} called 0 times." });
+    expect(d.verify[0]).toMatchObject({ verdict: 'accepted', counts: false, note: null, headline: "Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times", label: "370712a+dirty · accepted · doesn't count" });
     expect(d.actions).toMatchObject({ repair: { argv: ['repair', '--fixes', 'label:refund-bug', '--expect', JSON.stringify(EXPECT)] }, apply: null, applied: false });
+  });
+
+  it("opens the Verify step on the newest verdict that counts, never on a later one that doesn't", () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run);
+    // Under the fix's check, a run it could not settle: it counts, and the step is not settled.
+    const unsettled = verifyReport([{ runId: run, role: 'target', pass: true }]);
+    unsettled.runs[0] = { ...unsettled.runs[0]!, verdict: 'open', decision: 'inconclusive' };
+    Object.assign(unsettled, decideVerify(unsettled.runs, null));
+    const counted = recordVerdict(store, { report: unsettled, expect: EXPECT, command: 'v', at: NOW }).verdict;
+    // Then accepted under the exit code alone: it doesn't count, and never opens as the fix's verdict.
+    const other = recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true, recorded: true }], { oracle: EXIT_ORACLE }), expect: null, command: 'v', at: NOW + 1 }).verdict;
+    const d = fixDetail(store, fix.fixId)!;
+    expect(d.steps[2]).toMatchObject({ short: 'not settled' });
+    expect(d.verify.map((v) => v.verifyId)).toEqual([other.verifyId, counted.verifyId]);
+    expect(d.defaultVerify).toBe(counted.verifyId);
+    expect(d.verify.map((v) => [v.label, v.headline])).toEqual([
+      ["370712a+dirty · accepted · doesn't count", "Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times"],
+      ['370712a+dirty · incomplete', 'Not every run settled'],
+    ]);
+    // With no verdict that counts, the newest opens.
+    const lone = makeRun(store, { labels: ['lone'] });
+    const { fix: loneFix } = blame(lone);
+    const only = recordVerdict(store, { report: verifyReport([{ runId: lone, role: 'target', pass: true, recorded: true }], { oracle: EXIT_ORACLE }), expect: null, command: 'v', at: NOW + 2 }).verdict;
+    expect(fixDetail(store, loneFix.fixId)!.defaultVerify).toBe(only.verifyId);
+  });
+
+  it('names a verdict of request fields by the fields it set and where from, not by the commit alone', () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run);
+    const fields = (set: Record<string, unknown>, command: string, at: number) => recordVerdict(store, { report: { ...verifyReport([{ runId: run, role: 'target', pass: true }], { codeVersion: 'f353f41' }), fields: set }, expect: EXPECT, command, at });
+    fields({}, 'shadowlap verify --fixes label:double-email', NOW);
+    fields({ temperature: 1 }, 'shadowlap verify --fixes label:double-email --set temperature=1', NOW + 1);
+    fields({ temperature: 1, model: 'claude-opus-5' }, "shadowlap verify --fixes label:double-email --model claude-opus-5 --set temperature=1 --from 'claude-haiku-4-5'", NOW + 2);
+    const d = fixDetail(store, fix.fixId)!;
+    // Three changes verified at one commit, none read alike.
+    expect(d.verify.map((v) => v.label)).toEqual([
+      "temperature=1, model=claude-opus-5 from each run's first claude-haiku-4-5 call · at f353f41 · accepted",
+      "temperature=1 from each run's first model call · at f353f41 · accepted",
+      'f353f41 · accepted',
+    ]);
+    // So do the Forks view's bundles under the run.
+    for (const v of store.listVerdicts()) for (const x of v.report.runs) for (const a of x.attempts) makeRunAs(a.runId, run, { verify: { role: 'target', passed: true } });
+    expect(fixBundles(store, run)!.filter((b) => b.kind === 'verify').map((b) => b.change)).toEqual(['f353f41', "temperature=1 from each run's first model call · at f353f41", "temperature=1, model=claude-opus-5 from each run's first claude-haiku-4-5 call · at f353f41"]);
+  });
+
+  it("says in the Forks view's bundles whether each verdict counts for the fix it leads to, as the Verify step's switch does", () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run);
+    // Checked under the exit code alone, then under the fix's check.
+    const exitOnly = recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }], { oracle: ['the agent exits 0'], codeVersion: 'f353f41' }), expect: null, command: 'shadowlap verify --fixes label:double-email', at: NOW });
+    const counted = recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }], { codeVersion: 'f353f41' }), expect: EXPECT, command: 'shadowlap verify --fixes label:double-email', at: NOW + 1 });
+    for (const v of store.listVerdicts()) for (const x of v.report.runs) for (const a of x.attempts) makeRunAs(a.runId, run, { verify: { role: 'target', passed: true } });
+    for (const b of store.blamesOfRun(run)) for (const p of b.report.probes) for (const a of p.attempts) makeRunAs(a.runId, run, { probe: { of: run, callNo: p.callNo, passed: a.passed } });
+    const bundles = fixBundles(store, run)!;
+    const byVerdict = (id: string) => bundles.find((b) => b.href === `#/fixes/${fix.fixId}/verify/${id}`)!;
+    expect(fixDetail(store, fix.fixId)!.verify.map((v) => v.label)).toEqual(['f353f41 · accepted', "f353f41 · accepted · doesn't count"]);
+    expect([byVerdict(exitOnly.verdict.verifyId).counts, byVerdict(counted.verdict.verifyId).counts]).toEqual([false, true]);
+    // Blame's attempts are no verdict.
+    const probes = bundles.filter((b) => b.kind === 'blame');
+    expect(probes.length).toBeGreaterThan(0);
+    expect(probes.map((b) => b.counts)).toEqual(probes.map(() => null));
+  });
+
+  it('heads a verdict by the runs it checked, and says every failing run was fixed only when it checked them all', () => {
+    const runs = [makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] })];
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    let fixId = '';
+    for (const r of runs) fixId = blame(r).fix.fixId;
+    expect(fixRecords(store, store.getFix(fixId)!).failing).toHaveLength(3);
+    const verdict = (rows: Parameters<typeof verifyReport>[0], at: number) => recordVerdict(store, { report: verifyReport(rows), expect: EXPECT, command: 'v', at }).verdict.verifyId;
+    // One of its three failing runs, and the good run.
+    const one = verdict([{ runId: runs[0]!, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }], NOW);
+    let d = fixDetail(store, fixId)!;
+    expect(d.verify.find((v) => v.verifyId === one)!.headline).toBe('Fixes 1 of 1 target run, keeps 1 of 1 good');
+    expect(d.steps[2]).toMatchObject({ short: '1 fixed · 1 kept', title: '1 fixed · 1 kept', meta: '2 failing runs not verified' });
+    // Two more, one of them held out: still not every failing run.
+    const two = verdict([{ runId: runs[1]!, role: 'target', pass: true }, { runId: runs[2]!, role: 'holdout', pass: true }], NOW + 1);
+    d = fixDetail(store, fixId)!;
+    expect(d.verify.find((v) => v.verifyId === two)!.headline).toBe('Fixes 1 of 1 target run, 1 of 1 held-out');
+    // Counted run by run across the verdicts that held: every failing run now, the good run once.
+    expect(d.steps[2]).toMatchObject({ title: '3 fixed · 1 kept', meta: 'every failing run fixed, every good run kept' });
+    const all = verdict([{ runId: runs[0]!, role: 'target', pass: true }, { runId: runs[1]!, role: 'target', pass: true }, { runId: runs[2]!, role: 'holdout', pass: true }, { runId: good, role: 'good', pass: true }], NOW + 2);
+    expect(fixDetail(store, fixId)!.verify.find((v) => v.verifyId === all)!.headline).toBe('Every failing run fixed, every good run kept');
+    // Rejected for a failing run it checked: never "every failing run", which it never checked.
+    const rejected = verdict([{ runId: runs[0]!, role: 'target', pass: false }, { runId: good, role: 'good', pass: true }], NOW + 3);
+    expect(fixDetail(store, fixId)!.verify.find((v) => v.verifyId === rejected)!.headline).toBe('The change did not fix the failing runs it checked');
   });
 
   it('offers Repair from here on an open fix, and an empty Repair and Verify step', () => {
@@ -422,8 +533,44 @@ describe('a fix', () => {
     const { fix } = blame(run, { expect: null });
     const d = fixDetail(store, fix.fixId)!;
     expect(d).toMatchObject({ defaultStep: 'blame', repair: null, verify: [], defaultVerify: null, applied: null });
-    expect(d.actions).toEqual({ repair: { argv: ['repair', '--fixes', run], command: `shadowlap repair --fixes ${run} --repairer claude-code` }, apply: null, applied: false });
+    expect(d.actions).toEqual({ repair: { argv: ['repair', '--fixes', run], command: `shadowlap repair --fixes ${run} --repairer claude-code`, noFix: null }, apply: null, applied: false });
     expect(d.commands.verify).toBe(`shadowlap verify --fixes ${run.slice(0, 10)}`);
+  });
+
+  it('says when a repair from here can only end with no fix to try, and why, as it would reuse the blames kept on the runs', () => {
+    // A blame as the CLI keeps it: whole with the fix, and the latest on the run, which a repair reuses.
+    const kept = (labels: string[], report: (runId: string) => BlameReport, o: { scope?: string; fields?: Record<string, unknown> } = {}) => {
+      const runId = makeRun(store, { labels });
+      const r = report(runId);
+      store.updateRunMeta(runId, { blame: { at: NOW, outcome: r.outcome, ...(unsettledFirst(r) ? { unsettled: true } : {}), callNo: r.blamed?.callNo ?? null, confidence: r.confidence, rescuedRunId: null, fields: o.fields ?? {}, ...(o.scope ? { scope: o.scope } : {}), oracle: r.oracle, probes: [], spent: 0 } });
+      return recordBlame(store, { runId, report: r, expect: EXPECT, scope: o.scope ?? null, command: 'shadowlap blame x', title: 'issue_refund called with amount 240', checkText: 'x', at: NOW }).fix.fixId;
+    };
+    const noFix = (fixId: string) => fixDetail(store, fixId)!.actions.repair!.noFix;
+    expect(noFix(kept(['a'], (r) => blameReport(r, 'unrescuable')))).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
+    const write = { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 };
+    expect(noFix(kept(['b'], (r) => ({ ...blameReport(r, 'unrescuable'), failedWrite: write })))).toBe("Blame found that no answer of the model's lost this run, so a rewrite of the prompt can't fix it: the repair ends “No fix to try”. Look at the tools, the harness or the command.");
+    // Its first probe couldn't tell: not settled, which is no finding that no answer of the model's lost the run.
+    const unsure = (r: string) => {
+      const base = blameReport(r, 'unrescuable');
+      return { ...base, probes: [{ ...base.probes[0]!, decision: 'inconclusive' as const }] };
+    };
+    const unsettled = kept(['c'], unsure);
+    expect(noFix(unsettled)).toBe("Blame couldn't settle where the run was lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.");
+    expect(noFix(unsettled)).not.toContain("no answer of the model's lost");
+    // In the blame's scope, which the repair keeps, it is reused all the same.
+    expect(noFix(kept(['d'], (r) => blameReport(r, 'unrescuable'), { scope: 'agent' }))).toMatch(/^No failing run was rescued/);
+    // A blame that found the call has a passing path to learn from: the repair runs.
+    expect(noFix(kept(['e'], (r) => blameReport(r)))).toBeNull();
+    // One made with a rescue the repair doesn't ask for is made again, live, and may find the call.
+    expect(noFix(kept(['f'], (r) => blameReport(r, 'unrescuable'), { fields: { temperature: 1 } }))).toBeNull();
+    // So is one kept with the fix only, from before blames were kept on the run as well.
+    const before = makeRun(store, { labels: ['g'] });
+    expect(noFix(recordBlame(store, { runId: before, report: blameReport(before, 'unrescuable'), expect: EXPECT, scope: null, command: 'b', title: 't', checkText: 'x', at: NOW }).fix.fixId)).toBeNull();
+    // A failing run of the fix never blamed is blamed live.
+    const fixId = kept(['h'], (r) => blameReport(r, 'unrescuable'));
+    recordBlame(store, { runId: makeRun(store, { labels: ['h'] }), report: blameReport('x'), expect: EXPECT, scope: null, command: 'b', title: 't', checkText: 'x', at: NOW + 1 });
+    expect(fixRecords(store, store.getFix(fixId)!).failing).toHaveLength(2);
+    expect(noFix(fixId)).toBeNull();
   });
 
   it("says a teammate's repair from the team store left its recordings on their machine, and applying here leaves nothing undone", () => {
@@ -456,12 +603,16 @@ describe('a fix', () => {
       pulled: false,
       files: ['agent.mjs', 'EVIL.txt'],
       diff: report.patch,
+      patchFile: '.shadowlap/repairs/repair-tampered/fix.patch',
       refused: 'it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone',
+      inTree: false,
+      goldens: 1,
+      change: null,
     });
     expect(d.repair!.files[0]).toEqual({ name: 'fix.patch', note: '2 files · +2 −1' });
   });
 
-  it('keeps Copy git apply on an applied fix, and says what applying left undone', () => {
+  it('offers the patch to read on an applied fix, never a git apply that would fail, and says what applying left undone', () => {
     const run = makeRun(store, { labels: ['refund-bug'] });
     const { fix } = blame(run);
     // repair --apply: the change is in the working tree, its goldens are not in the project yet.
@@ -470,7 +621,7 @@ describe('a fix', () => {
     expect(d).toMatchObject({ status: 'applied', broken: null, applied: { via: 'repair --apply', goldens: [], tests: 'skipped' } });
     expect(d.actions).toEqual({
       repair: null,
-      apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-applied/fix.patch', pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them', pulled: false, files: ['agent.mjs'], diff: store.getRepair('repair-applied')!.report.patch, refused: null },
+      apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: null, pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them', pulled: false, files: ['agent.mjs'], diff: store.getRepair('repair-applied')!.report.patch, patchFile: '.shadowlap/repairs/repair-applied/fix.patch', refused: null, inTree: false, goldens: 1, change: null },
       applied: true,
     });
     // fix apply copied them and the test failed: the fix doesn't hold, and Needs a look says so first.
@@ -484,6 +635,30 @@ describe('a fix', () => {
     ]);
     expect(needsLookFixes(store)[0]).toMatchObject({ fixId: fix.fixId, title: "An applied fix doesn't hold", detail: 'issue_refund called with amount 240 · shadowlap test failed on its goldens', icon: 'fail', href: `#/fixes/${fix.fixId}` });
     expect(fixesSummary(store, NOW + DAY).broken).toBe(1);
+  });
+
+  it('offers Mark applied for a patch already in the working tree, and leaves the fix out of what is ready to apply', () => {
+    const { fixId } = story();
+    // As git would answer in a tree where the change is in: merged by a pull request, or applied by hand.
+    const asked: string[] = [];
+    const merged = (patch: string) => {
+      asked.push(patch);
+      return patch.includes(AFTER);
+    };
+    const d = fixDetail(store, fixId, { patchInTree: merged })!;
+    expect(d.actions.apply).toMatchObject({ kind: 'patch', inTree: true, gitApply: null, goldens: 1, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch' });
+    expect(asked).toEqual([store.getRepair('repair-munzln2i')!.report.patch]);
+    // Without git to ask, as fix show's JSON from another folder: the patch is to apply.
+    expect(fixDetail(store, fixId)!.actions.apply).toMatchObject({ inTree: false, gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch' });
+    expect(needsLookFixes(store, { patchInTree: merged }).filter((x) => x.kind === 'ready')).toEqual([]);
+    expect(needsLookFixes(store).filter((x) => x.kind === 'ready')).toHaveLength(1);
+    expect(fixesSummary(store, NOW, undefined, { patchInTree: merged }).readyToApply).toBe(0);
+    expect(fixesSummary(store, NOW).readyToApply).toBe(1);
+    // Applied: nothing to ask git, and the patch to read.
+    markFixApplied(store, fixId, { patch: 'already', repairId: 'repair-munzln2i', goldens: ['goldens/x'], tests: 'passed', via: 'fix apply' });
+    asked.length = 0;
+    expect(fixDetail(store, fixId, { patchInTree: merged })!.actions).toMatchObject({ applied: true, apply: { inTree: false, gitApply: null, diff: expect.stringContaining('diff --git a/agent.mjs') } });
+    expect(asked).toEqual([]);
   });
 
   it('marks a fix that a verify rejected after it was applied, and does not count that as rejected before it shipped', () => {
@@ -553,6 +728,23 @@ describe('fixes for the other views', () => {
     expect(items[2]).not.toHaveProperty('expect');
     expect(items[3]).toMatchObject({ fixId, title: 'A verified fix is ready', detail: 'Escalate refunds above the policy limit', href: `#/fixes/${fixId}/repair`, icon: 'fixok' });
     expect(needsLookFixes(store, { limit: 2 })).toHaveLength(2);
+  });
+
+  it('says a repair could not ask its repairer, rather than that it found no fix', () => {
+    const email = { tools: { send_email: 1 } };
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { expect: email, at: NOW });
+    const detail = () => needsLookFixes(store).find((x) => x.fixId === fix.fixId)!.detail;
+    expect(detail()).toBe('lost at model call #5 · no fix yet');
+    const nothing = { ...repairReport({ targets: [run], accepted: false }), repairer: null, candidates: [], diagnosis: null, cost: { blame: 0, repairer: null, verify: 0 } };
+    const why = 'the repairer could not be asked: claude was not found';
+    recordRepair(store, { repairId: 'repair-claudegone', dir: '.shadowlap/repairs/repair-claudegone', report: { ...nothing, why, noRepairer: why, warnings: [`${why}: install Claude Code, or set SHADOWLAP_CLAUDE to its path`] }, expect: email, command: 'r', at: NOW + 1 });
+    expect(detail()).toBe('lost at model call #5 · the repairer could not be asked');
+    recordRepair(store, { repairId: 'repair-norepairer', dir: '.shadowlap/repairs/repair-norepairer', report: { ...nothing, why: 'no repairer is configured', noRepairer: 'no repairer is configured' }, expect: email, command: 'r', at: NOW + 2 });
+    expect(detail()).toBe('lost at model call #5 · no repairer is configured');
+    // One that tried candidates and accepted none looked for a fix, and found none.
+    recordRepair(store, { repairId: 'repair-tried', dir: '.shadowlap/repairs/repair-tried', report: repairReport({ targets: [run], accepted: false }), expect: email, command: 'r', at: NOW + 3 });
+    expect(detail()).toBe('lost at model call #5 · no fix found yet');
   });
 
   it("opens a fix no answer of the model's lost, rather than offering to fix it, and says where to look", () => {
@@ -644,6 +836,40 @@ describe('fixes for the other views', () => {
     blame(unlabelled);
     expect(fixRecords(store, store.getFix(fix.fixId)!).failing).toEqual([failed, unlabelled]);
     expect(argv()).toEqual(['repair', '--fixes', failed, unlabelled, '--expect', JSON.stringify(EXPECT)]);
+  });
+
+  it("keeps the fix's own good runs, else the runs labelled good of its agent, else none, and blames in its blame's scope", () => {
+    const digest = makeRun(store, { labels: ['digest'], argv: ['node', 'digest.mjs', '--channel', '#refunds'] });
+    // Good runs of two other agents: a change to the digest's prompt reaches neither.
+    const refunds = makeRun(store, { labels: ['good'], status: 'completed', argv: ['node', 'agent.mjs', 'A-1120'] });
+    makeRun(store, { labels: ['good'], status: 'completed', argv: ['node', 'refund_agent.mjs', 'T-8830'] });
+    const { fix } = recordBlame(store, { runId: digest, report: blameReport(digest), expect: EXPECT, scope: 'agent', command: 'shadowlap blame x --scope agent', title: 'issue_refund called with amount 240', checkText: 'x', at: NOW });
+    const argv = () => repairArgv(store, fixRecords(store, store.getFix(fix.fixId)!));
+    expect(argv()).toEqual(['repair', '--fixes', 'label:digest', '--scope', 'agent', '--expect', JSON.stringify(EXPECT)]);
+    // A good run of the digest itself, another day's channel: kept by its id, as label:good would take the others too.
+    const digestGood = makeRun(store, { labels: ['good'], status: 'completed', argv: ['node', 'digest.mjs', '--channel', '#billing'] });
+    expect(argv()).toEqual(['repair', '--fixes', 'label:digest', '--keeps', digestGood, '--scope', 'agent', '--expect', JSON.stringify(EXPECT)]);
+    // With every run labelled good the digest's, the label stands for them.
+    store.deleteRun(refunds);
+    for (const r of store.allRuns()) if (r.command.argv[1] === 'refund_agent.mjs') store.deleteRun(r.runId);
+    expect(argv()).toEqual(['repair', '--fixes', 'label:digest', '--keeps', 'label:good', '--scope', 'agent', '--expect', JSON.stringify(EXPECT)]);
+    // Verify takes no scope: the fix's empty Verify step shows the runs and the check alone.
+    expect(fixDetail(store, fix.fixId)!.commands.verify).toBe(`shadowlap verify --fixes label:digest --keeps label:good --expect '${JSON.stringify(EXPECT)}'`);
+    // Once a verdict kept a good run for the fix, that run is the one kept, whatever else is labelled good.
+    makeRun(store, { labels: ['good'], status: 'completed', argv: ['node', 'agent.mjs', 'A-1131'] });
+    recordVerdict(store, { report: verifyReport([{ runId: digest, role: 'target', pass: true }, { runId: digestGood, role: 'good', pass: true }]), expect: EXPECT, command: 'v', at: NOW + 1 });
+    expect(fixRecords(store, store.getFix(fix.fixId)!).good).toEqual([digestGood]);
+    expect(argv()).toEqual(['repair', '--fixes', 'label:digest', '--keeps', digestGood, '--scope', 'agent', '--expect', JSON.stringify(EXPECT)]);
+  });
+
+  it('tells one agent from another by the script its command runs, not by one run’s arguments', () => {
+    expect(agentOfArgv(['node', 'agent.mjs', 'A-1150'])).toBe('node agent.mjs');
+    expect(agentOfArgv(['node', '--env-file=.env', 'src/agent.ts', '--ticket', '7'])).toBe('node --env-file=.env src/agent.ts');
+    expect(agentOfArgv(['python', '-m', 'support.agent', '--persona', 'pushy'])).toBe('python -m support.agent');
+    expect(agentOfArgv(['python', 'eval_conversation.py', '--persona', 'damaged-order'])).toBe('python eval_conversation.py');
+    // No word names a script: the whole command, so two runs with other arguments count as other agents.
+    expect(agentOfArgv(['pnpm', 'start'])).toBe('pnpm start');
+    expect(agentOfArgv([])).toBeNull();
   });
 
   it('offers no repair once none of the failing runs is left, though its label still names the fix', () => {

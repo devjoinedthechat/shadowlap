@@ -1,5 +1,5 @@
 import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, originCells, sumCacheUse, type OriginCounts, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
-import { fixesSummary, needsLookFixes } from './fixes.js';
+import { fixesSummary, needsLookFixes, type PatchCheck } from './fixes.js';
 import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
@@ -254,6 +254,8 @@ export interface OverviewOptions extends StatsOptions {
   goldens?: GoldenList;
   /** The team store, when the config names one: its runs only on this machine join Needs a look. */
   teamStore?: StoreNote | null;
+  /** Whether a verified fix's patch is in the working tree already (merged, or applied by hand): such a fix is no more ready to apply. */
+  patchInTree?: PatchCheck;
 }
 
 export interface OverviewSummary {
@@ -330,7 +332,7 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
   // ending it (killed, out of memory) is still marked running, but nothing is recording it.
   const recording = new Set(store.recordingRuns(now).live.map((x) => x.run.runId));
   // Blames and verdicts in the same weeks as the runs: the viewer's days, not 7 × 24 hours up to now.
-  const fixes = fixesSummary(store, now, { week, lastWeek });
+  const fixes = fixesSummary(store, now, { week, lastWeek }, { ...(options.patchInTree ? { patchInTree: options.patchInTree } : {}) });
   const goldens = options.goldens ?? [];
   const tests = goldens.length ? overviewTests(store, { now, weekStart: week.from }, { goldens }) : null;
 
@@ -351,7 +353,7 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
     },
     cache: weekCache(store, index, week.from),
     fixes: { ...fixes.funnel, open: fixes.open, readyToApply: fixes.readyToApply, broken: fixes.broken, attempts: fixes.attempts, spent: fixes.spent },
-    needsLook: needsLook(store, goldens, options.teamStore ?? null),
+    needsLook: needsLook(store, goldens, options.teamStore ?? null, options.patchInTree),
   };
 }
 
@@ -537,8 +539,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
  * fixes not yet applied, then runs only on this machine. A recording in progress shows under Today
  * instead.
  */
-function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null): NeedsLook {
-  const fixes = needsLookFixes(store);
+function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null, patchInTree?: PatchCheck): NeedsLook {
+  const fixes = needsLookFixes(store, patchInTree ? { patchInTree } : {});
   const of = (kind: string) => fixes.filter((f) => f.kind === kind);
   const fixRow = (f: (typeof fixes)[number]): NeedsLookRow => ({ kind: f.kind, icon: f.icon, title: f.title, detail: f.detail, action: f.action, href: f.href, runId: f.runId, fixId: f.fixId, at: f.at });
   // Each word says where it leads: Fix only to the fix that holds the failure, Run more, Run again and

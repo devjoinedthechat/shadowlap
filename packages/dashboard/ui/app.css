@@ -112,6 +112,8 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .glyph.cap { color: var(--o-over); }
 .glyph.fail, .glyph.fixbad { color: var(--err); }
 .glyph.warn { color: var(--warn); }
+/* A verify's attempts under a verdict that doesn't count for the fix: no verdict on it, so no verdict's colour. */
+.glyph.plain { color: var(--dim); }
 .run .r1 { grid-column: 2; display: flex; align-items: center; gap: 7px; min-width: 0; }
 .run .id { font: 500 12px var(--mono); color: var(--ink); }
 .run .when { margin-left: auto; font-size: 11px; color: var(--faint); white-space: nowrap; }
@@ -621,6 +623,7 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .dialog > header, .dialog > footer { flex: none; }
 .dialog header { padding: 18px 20px 6px; }
 .dialog header h3 { margin: 0; font: 600 17px var(--disp); letter-spacing: -.02em; }
+.dialog header h3 code { font: 500 15.5px var(--mono); letter-spacing: 0; }
 .dialog header p { margin: 6px 0 0; color: var(--faint); font-size: 13px; }
 .dialog .db { padding: 12px 20px; min-height: 0; overflow: auto; }
 .dialog textarea, .dialog input[type="text"] { width: 100%; border-radius: 10px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 10px 12px; outline: none; }
@@ -726,9 +729,20 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .psteps .done { color: var(--dim); } .psteps .done i { background: var(--o-rep); box-shadow: none; }
 .psteps .no { color: var(--err); } .psteps .no i { background: var(--err); box-shadow: none; }
 .ph p .badge { vertical-align: 1px; margin-right: 4px; }
-.ph p.chk { margin-top: 6px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.ph p.chk .k { font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.ph p.chk { margin-top: 6px; max-width: none; }
 .ph p.chk code { font-size: 12.5px; color: var(--dim); }
+/* What failed and what it must do, labelled: each label stays with its value, and the dot between
+   them shows only while both share a line (the one wrapped to the next line starts past the clip). */
+.fm { display: flex; flex-wrap: wrap; column-gap: 18px; row-gap: 2px; overflow: hidden; color: var(--faint); font-size: 12.5px; }
+.fm .fmu { position: relative; max-width: 100%; }
+.fm .fmu ~ .fmu::before { content: "·"; position: absolute; left: -11px; color: var(--faint); }
+.fm .fmsep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.fm code, .ph p .fm code { white-space: normal; overflow-wrap: anywhere; color: var(--dim); }
+.pslist .fm { margin-top: 4px; }
+.pslist .fm code { font-size: 12px; }
+/* A comparison in a check wraps as a whole where there is room; on a phone, at its spaces. */
+.kc { white-space: nowrap; }
+@media (max-width: 640px) { .kc { white-space: normal; } }
 .stepper { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; border-bottom: 1px solid var(--line); }
 .stepper a { position: relative; display: block; padding: 4px 18px 16px 0; text-decoration: none; }
 .stepper a + a { padding-left: 18px; border-left: 1px solid var(--line); }
@@ -753,7 +767,7 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .trio b { display: block; margin-top: 6px; font: 700 22px var(--disp); letter-spacing: -.03em; }
 .vchips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
 .vchips .vn { font: 12px var(--mono); color: var(--faint); }
-.vpick { margin-bottom: 14px; }
+.vpick { margin-bottom: 14px; flex-wrap: wrap; max-width: 100%; }
 .seg a { display: inline-block; text-decoration: none; color: var(--faint); font: 500 12px var(--body); padding: 4px 10px; border-radius: 7px; }
 .seg a:hover { color: var(--ink); }
 .seg a[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
@@ -1780,6 +1794,8 @@ a.fxcall:hover code { text-decoration: underline; text-underline-offset: 3px; }
 .fxsource { color: var(--accent); }
 .dialog p.fxdlg { margin: 0; color: var(--dim); font-size: 13px; }
 .dialog p.fxdlg + p.fxdlg { margin-top: 8px; }
+/* Find the commit's note on a first failure it passed over, above the commit to search from. */
+.dialog p.fcearly { margin-bottom: 14px; }
 /* A command-line flag in running text (`--stronger <model>`): one piece, never broken after its first hyphen. */
 code.flag { white-space: nowrap; font-size: .92em; }
 .prbody.clamp { max-height: 380px; overflow: hidden; position: relative; }

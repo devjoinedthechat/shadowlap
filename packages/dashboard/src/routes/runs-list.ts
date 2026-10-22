@@ -34,8 +34,16 @@ import { localRunIds, teamStoreFor } from './store.js';
  */
 export type RunsPageRow = RunRow & { local?: boolean; localAttempts?: { run: boolean; attempts: number } };
 
-/** What Find the commit offers for the failures on the days picked: the run it starts from and the choices bisect has, or why there is none. */
-export type DaysBisect = { runId: string; label: string; command: string; startedAt: number; choices: BisectChoices } | { runId: null; reason: string };
+/**
+ * What Find the commit offers for the failures on the days picked: the run it starts from and the
+ * choices bisect has, or why there is none. `earlier` is the first failure on those days when it
+ * failed at the first commit, with nothing before it to search, and why: the run offered is the
+ * first failure that started later.
+ */
+export type DaysBisect = { runId: string; label: string; command: string; startedAt: number; choices: BisectChoices; earlier?: { runId: string; why: string } } | { runId: null; reason: string };
+
+/** Failures on the days picked that Find the commit looks through for one that started after the first commit. */
+const LATER_FAILURES = 50;
 
 const asRangeError = (err: unknown): never => {
   if (err instanceof RangeError) throw new HttpError(400, err.message);
@@ -83,19 +91,28 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // Find the commit, from the calendar: with Failed picked and days chosen, the first failure in
   // those days is where it started failing; bisect looks between a commit where it still worked
-  // before the first day picked and that failure's own commit.
+  // before the first day picked and that failure's own commit. A failure at the first commit has
+  // nothing before it to search: the first failure that started later is offered instead, and the
+  // dialog says why; with none, the first failure says so.
   router.get('/runs/bisect', (r) => {
     const o = runsPageOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
     if (o.from == null || o.to == null) throw new HttpError(400, 'from and to: the days picked');
     // Newest first: the first failure is the last.
-    const first = matchingRuns(store, { from: o.from, to: o.to, types: [...new Set([...(o.types ?? []), 'failed' as const])], ...(o.q ? { q: o.q } : {}) }).at(-1);
-    if (!first) return r.json({ runId: null, reason: 'nothing failed on the days picked' } satisfies DaysBisect);
-    const all = bisectChoices(store, first.runId, { goldens: goldensOf(ctx), before: o.from });
-    if (!all) return r.json({ runId: null, reason: 'that run is gone' } satisfies DaysBisect);
-    // Only commits this checkout has: a teammate's pulled runs name commits of theirs.
-    const choices = choicesInCheckout(ctx.project?.path, all);
-    r.json({ runId: first.runId, label: first.label, command: first.source ?? first.argv.join(' '), startedAt: first.startedAt, choices } satisfies DaysBisect);
+    const failures = matchingRuns(store, { from: o.from, to: o.to, types: [...new Set([...(o.types ?? []), 'failed' as const])], ...(o.q ? { q: o.q } : {}) }).reverse();
+    if (!failures.length) return r.json({ runId: null, reason: 'nothing failed on the days picked' } satisfies DaysBisect);
+    const offer = (run: (typeof failures)[number], choices: BisectChoices) => ({ runId: run.runId, label: run.label, command: run.source ?? run.argv.join(' '), startedAt: run.startedAt, choices });
+    let earlier: { run: (typeof failures)[number]; choices: BisectChoices } | null = null;
+    for (const run of failures.slice(0, LATER_FAILURES)) {
+      const all = bisectChoices(store, run.runId, { goldens: goldensOf(ctx), before: o.from });
+      if (!all) continue;
+      // Only commits this checkout has (a teammate's pulled runs name commits of theirs), and none before its first.
+      const choices = choicesInCheckout(ctx.project?.path, all);
+      if (!choices.first) return r.json({ ...offer(run, choices), ...(earlier ? { earlier: { runId: earlier.run.runId, why: earlier.choices.unavailable! } } : {}) } satisfies DaysBisect);
+      earlier ??= { run, choices };
+    }
+    if (!earlier) return r.json({ runId: null, reason: 'that run is gone' } satisfies DaysBisect);
+    r.json(offer(earlier.run, { ...earlier.choices, unavailable: `${earlier.choices.unavailable}, and no failure on the days picked started later` }) satisfies DaysBisect);
   });
 
   router.post('/runs/labels', async (r) => {

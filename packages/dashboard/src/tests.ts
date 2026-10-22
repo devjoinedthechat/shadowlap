@@ -1373,6 +1373,12 @@ export interface BisectChoices {
   live: boolean;
   /** Why Find the commit can't start from this run, for the disabled action's hover; null when it can. */
   unavailable: string | null;
+  /**
+   * It failed at a commit with no parent in the project's checkout (its first, or the oldest a
+   * shallow clone has): there is nothing before it to search, as `unavailable` says. Set by
+   * `choicesInCheckout`, which asks the project's git; absent otherwise.
+   */
+  first?: true;
   /** The command for `good` and `bad` (after `shadowlap`), or null until a good commit is known or when unavailable. */
   args: string[] | null;
 }

@@ -33,8 +33,8 @@ export function FixBundleNode({ bundle: b, current }: { bundle: FixBundle; curre
   const g = bundleGlyph(b);
   const here = b.attempts.some((a) => a.runId === current);
   return (
-    <a className={`fnode${here ? ' here' : ''}`} href={b.href} title={b.kind === 'verify' && b.change ? `${b.change}${b.verdict ? ` · ${b.verdict}` : ''}` : undefined}>
-      <Glyph kind={g.kind} label={g.label} />
+    <a className={`fnode${here ? ' here' : ''}`} href={b.href} title={b.kind === 'verify' && b.change ? `${b.change}${b.verdict ? ` · ${b.verdict}` : ''}${b.counts === false ? " · doesn't count" : ''}` : undefined}>
+      <Glyph kind={g.kind} label={g.label} className={g.plain ? 'plain' : ''} />
       <span>
         <span className="f1">
           <code>{b.title}</code>

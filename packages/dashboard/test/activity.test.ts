@@ -576,6 +576,8 @@ describe('events as each feature records them', () => {
     recordEvent(store, { kind: 'verify.rejected', ref: 'fx-refund-limit', data: { verifyId: 'v-370712a', fixes: ['fx-refund-limit'], counts: [], code: 'c91d0f4', reasons: ['good run 01K5CQ4N9A broken: 2 of 5 passed (refund issued twice)'] }, at: 3200 });
     recordEvent(store, { kind: 'verify.rejected', ref: 'fx-budget', data: { verifyId: 'v-2', fixes: ['fx-budget'], counts: [], code: 'c91d0f4', reasons: ['failing run 01K5CQ2E8M not fixed: 1 of 5 passed'] }, at: 3210 });
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-refund-limit', data: { title: 'Escalate refunds above the policy limit', repairId: 'r-munzln2i', patch: 'applied', goldens: 1, tests: 'passed' }, at: 3300 });
+    // A fix with no patch, verified with temperature=1: only marked applied.
+    recordEvent(store, { kind: 'fix.applied', ref: 'fx-double-email', data: { title: 'Confirmation email sent twice', repairId: null, patch: 'none', goldens: 0, tests: 'skipped' }, at: 3310 });
     // The tests slice: a session, one cut short, a golden updated.
     recordEvent(store, { kind: 'test.session', actor: 'ci', ref: 'sess-1', data: { passed: 3, failed: 1, goldens: 4, revision: 'd2e8a1f', upstreamRequests: 0 }, at: 4000 });
     recordEvent(store, { kind: 'test.session', actor: 'ci', ref: 'sess-2', data: { passed: 1, failed: 0, goldens: 4, revision: 'd2e8a1f', upstreamRequests: 0, interrupted: true, notRun: 3 }, at: 4010 });
@@ -616,6 +618,7 @@ describe('events as each feature records them', () => {
     expect(at(3200)).toMatchObject({ kind: 'fixbad', text: 'Verify rejected · breaks a good run', href: '#/fixes/fx-refund-limit/verify/v-370712a' });
     expect(at(3210)?.text).toBe('Verify rejected · failing run 01K5CQ2E8M not fixed: 1 of 5 passed');
     expect(at(3300)).toMatchObject({ kind: 'fixok', text: 'Patch applied · Escalate refunds above the policy limit', href: '#/fixes/fx-refund-limit' });
+    expect(at(3310)).toMatchObject({ kind: 'fixok', text: 'Marked applied · Confirmation email sent twice', href: '#/fixes/fx-double-email' });
     expect(at(4000)).toMatchObject({ kind: 'fail', text: 'Tests ran · 3 passed, 1 failed', actor: 'ci' });
     expect(at(4010)).toMatchObject({ kind: 'fail', text: 'Tests stopped · 1 passed, 0 failed, 3 not run' });
     expect(at(4100)).toMatchObject({ kind: 'test', text: 'Golden updated · goldens/refund-flow re-recorded · 31 calls' });

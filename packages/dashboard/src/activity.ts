@@ -116,7 +116,8 @@ const EVENT_TEXT = new Map<string, Describe>([
   ['repair.empty', (e, d) => ({ kind: 'fixbad', text: `Repair found no fix · ${str(d.why) ?? str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
   ['verify.accepted', (e, d) => ({ kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
   ['verify.rejected', (e, d) => ({ kind: 'fixbad', text: `Verify rejected · ${rejection(d) ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
-  ['fix.applied', (e, d) => ({ kind: 'fixok', text: `Patch applied · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
+  // A fix with no patch (verified on the working tree, or with a change of request fields) was only marked applied, as its page says.
+  ['fix.applied', (e, d) => ({ kind: 'fixok', text: `${d.patch === 'none' ? 'Marked applied' : 'Patch applied'} · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
   ['pairs.exported', (_e, d) => ({ kind: 'train', text: `Exported ${plural(num(d.pairs) ?? num(d.count) ?? 0, 'preference pair')}`, href: '#/training' })],
   ['model.scored', (e, d) => ({ kind: 'train', text: parts(`Scored ${str(d.model) ?? e.ref ?? 'a model'} on ${plural(num(d.tasks) ?? 0, 'task')}`, num(d.mean) !== null && `mean ${num(d.mean)!.toFixed(2)}`), href: '#/training/tasks' })],
   // In the projects pages' own words, so the feed and the project list say the same.
