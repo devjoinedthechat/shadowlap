@@ -1,6 +1,6 @@
 import { approx } from '../format.js';
 import { commandText } from '../goldens.js';
-import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyRow, VerifyStep } from '../types.js';
+import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyMore, VerifyRow, VerifyStep } from '../types.js';
 
 /**
  * How the Fixes pages read a fix: which rows a filter keeps, which step and verdict a URL opens, the
@@ -108,6 +108,48 @@ export function verifyFor(f: Pick<FixDetail, 'verify' | 'defaultVerify'>, sub: s
   const want = sub?.toLowerCase();
   const named = want ? f.verify.find((v) => v.verifyId.toLowerCase() === want || (want.length >= 6 && v.verifyId.toLowerCase().startsWith(want))) : undefined;
   return named ?? f.verify.find((v) => v.verifyId === f.defaultVerify) ?? f.verify[0] ?? null;
+}
+
+/**
+ * Whether the step open on a fix's page leads with its own next step, as the design's fixActions()
+ * reads it: the Verify step, showing a verdict that counts for the fix left incomplete, with what
+ * settles it (Run more attempts, Verify again). The header's buttons read plain while it does.
+ */
+export function stepLeads(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'defaultVerify'>, step: string | null, sub: string | null): boolean {
+  if (stepFor(f, step) !== 'verify') return false;
+  const v = verifyFor(f, sub);
+  return !!v && v.counts && v.verdict === 'incomplete' && !!v.more;
+}
+
+/**
+ * The header's next step for an open fix besides Repair from here, as the design's fixActions()
+ * orders them: Blame again while its blame couldn't settle where the run was lost or stopped part
+ * way, Blame with a stronger model while asking the recorded model again rescued it from no call.
+ * Either leads, with Repair from here plain beside it; null when blame found the call.
+ */
+export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind: 'again'; label: 'Blame again'; tip: string; command: string } | { kind: 'stronger'; label: 'Blame with a stronger model…'; tip: string; command: string } | null {
+  if (f.status !== 'open') return null;
+  const again = f.actions.blameAgain;
+  if (again) {
+    const tip = again.kind === 'stopped' ? 'Runs the search to the end, without the budget that stopped it' : `More attempts and a lower bar: a rescue at ${Math.round((again.gate?.good ?? 0.4) * 100)}% or more, up to ${again.gate?.max ?? 40} attempts`;
+    return { kind: 'again', label: 'Blame again', tip, command: again.command };
+  }
+  const stronger = f.actions.blameStronger;
+  if (stronger) return { kind: 'stronger', label: 'Blame with a stronger model…', tip: 'Asks first: another model answers from each probed call instead of the recorded one', command: stronger.command };
+  return null;
+}
+
+/**
+ * What Run more attempts or Verify again will do, after the id of the run it names, as the Verify
+ * step says it under the verdict: why the run is open, then what settles it and what that takes
+ * ("is inconclusive. Run more attempts verifies again from the start (verify has no --continue), up
+ * to 160 a run: about 35 attempts, ≈$0.70.").
+ */
+export function moreLine(m: Pick<VerifyMore, 'kind' | 'run' | 'max' | 'expected' | 'cost' | 'budget'>): string {
+  if (m.kind === 'again') return ` stopped at attempt ${m.run.attempt ?? '?'}, which could not be judged${m.run.why ? `: ${m.run.why}` : ''}. Verify again once it can be.`;
+  const why = m.run.state === 'inconclusive' ? ' is inconclusive.' : ` is not settled${m.run.why ? `: ${m.run.why}` : ''}.`;
+  const takes = `about\u00a0${m.expected} attempt${m.expected === 1 ? '' : 's'}${m.cost !== null ? `, ${approx(m.cost)}` : ''}`;
+  return `${why} Run more attempts verifies again from the start (verify has no --continue), up to ${m.max} a run${m.budget ? `, without its --budget ${m.budget}` : ''}: ${takes}.`;
 }
 
 /** What the page's main button does, if anything: repair an open fix, apply a verified one, finish an apply, or nothing. */
@@ -450,13 +492,17 @@ function commonPrefix(a: string, b: string): number {
 
 // ---------------------------------------------------------------------------------------------- verify
 
-/** A run's outcome as a badge: fixed and kept in lime, broken and not fixed in red, unsettled plain. */
-export function outcomeTone(o: VerifyRow['outcome']): 'ok' | 'no' | 'n' | 'y' {
-  return o === 'fixed' || o === 'kept' ? 'ok' : o === 'unsettled' ? 'n' : o === 'inconclusive' ? 'y' : 'no';
+/**
+ * A run's outcome as a badge, in the verdicts' colours: fixed and kept in lime, broken and not fixed
+ * in red, and inconclusive or not settled in amber, the colour of a run nothing has decided.
+ */
+export function outcomeTone(o: VerifyRow['outcome']): 'ok' | 'no' | 'y' {
+  return o === 'fixed' || o === 'kept' ? 'ok' : o === 'unsettled' || o === 'inconclusive' ? 'y' : 'no';
 }
 
-export function verdictTone(v: VerifyStep['verdict']): 'ok' | 'no' | 'n' {
-  return v === 'accepted' ? 'ok' : v === 'rejected' ? 'no' : 'n';
+/** A verdict's panel: accepted in lime, rejected in red, incomplete in amber, as inconclusive is everywhere. */
+export function verdictTone(v: VerifyStep['verdict']): 'ok' | 'no' | 'warn' {
+  return v === 'accepted' ? 'ok' : v === 'rejected' ? 'no' : 'warn';
 }
 
 /** Tokens per run, as a person reads them: 4,329. */

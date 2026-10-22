@@ -1,17 +1,21 @@
+import { JOB_KINDS } from '../api.js';
 import { Badge, CmdLine, EmptyState, Pips } from '../components/bits.js';
 import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
-import { approx, GLUED_SEPARATOR, glued, money, num, shortId } from '../format.js';
+import { approx, GLUED_SEPARATOR, glued, num, shortId, wholeCounts } from '../format.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import type { FixDetail, VerifyStep } from '../types.js';
-import { keepAt, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
+import { FixJobButton } from './FixJobButton.js';
+import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
 
 /**
  * The Verify step: one change verified at a time (a switch between them, each with its own URL and
  * named by what changed), its verdict and oracle, each run's role and outcome, what the change does
  * to tokens and cost per run, and what finding out took. It opens on the newest verdict that counts
- * for the fix; one that doesn't is drawn plain, headed with why, and marked so in the switch.
+ * for the fix; one that doesn't is drawn plain, headed with why, and marked so in the switch. A
+ * verdict left incomplete is amber, as inconclusive is everywhere, and leads with what settles it:
+ * Run more attempts, or Verify again, the line under it saying what that takes.
  */
 export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | null }) {
   const v = verifyFor(fix, sub);
@@ -34,8 +38,17 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
           ))}
         </div>
       ) : null}
-      <Verdict v={v} />
-      {v.verdict !== 'accepted' && v.reasons.length ? (
+      <Verdict v={v} fixId={fix.fixId} />
+      {/* What the lead step will do, in one line; the run's row and the drawer say the rest. */}
+      {lead(v) ? (
+        <p className="fxreceipt vmore">
+          <code className="rnm">{shortId(v.more!.run.runId)}</code>
+          {moreLine(v.more!)
+            .split(/(--[a-z][a-z-]*(?: [\d.]+)?)/)
+            .map((part, i) => (i % 2 ? <code key={i} className="nw">{part}</code> : wholeCounts(part)))}
+        </p>
+      ) : null}
+      {v.verdict !== 'accepted' && v.reasons.length && !lead(v) ? (
         <ul className="fxwarn bad">
           {/* What the change failed in red; a run it could not settle, inconclusive or not settled, in amber. */}
           {v.reasons.map((r) => (
@@ -102,13 +115,17 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
   );
 }
 
-function Verdict({ v }: { v: VerifyStep }) {
+/** Whether a verdict leads with what settles it: one that counts for the fix, left incomplete, that the page can settle. */
+const lead = (v: VerifyStep): boolean => v.counts && v.verdict === 'incomplete' && !!v.more;
+
+function Verdict({ v, fixId }: { v: VerifyStep; fixId: string }) {
   const { toast } = useApp();
   // One that doesn't count for the fix is no verdict on it: plain, whatever it said of its own check.
   const tone = v.counts ? verdictTone(v.verdict) : 'n';
+  const more = lead(v) ? v.more! : null;
   return (
     <div className={`verdict ${tone}`}>
-      <Badge tone={tone}>{v.verdict}</Badge>
+      <Badge tone={tone === 'warn' ? 'y' : tone}>{v.verdict}</Badge>
       <div>
         <h2>{v.headline}</h2>
         <p>
@@ -120,6 +137,18 @@ function Verdict({ v }: { v: VerifyStep }) {
         {v.note ? <p className="fxbad">{v.note}</p> : null}
       </div>
       <div className="actions">
+        {more ? (
+          <FixJobButton
+            kind={JOB_KINDS.verify}
+            fields={{ fixId, verifyId: v.verifyId }}
+            label={more.kind === 'more' ? 'Run more attempts' : 'Verify again'}
+            verb={more.kind === 'more' ? 'run more attempts' : 'verify again'}
+            lead
+            className="btn sm"
+            tip={more.kind === 'more' ? `Verifies the change again from the start, up to ${more.max} attempts a run` : 'Verifies the same runs again from the start, once the check can be judged'}
+            command={more.command}
+          />
+        ) : null}
         <button className="btn sm" type="button" onClick={() => void copyText(v.command).then((ok) => toast(ok ? 'Copied the command' : 'Copying was refused by the browser'))}>
           Copy command
         </button>
@@ -128,20 +157,19 @@ function Verdict({ v }: { v: VerifyStep }) {
   );
 }
 
+/**
+ * Tokens and cost per run, as it would run live, as verify prints them: one quiet receipt line, never
+ * figures bigger than the verdict ("per run, as it would run live: 4,329 → 5,193 input tokens (+20%)
+ * · ≈$0.015 → ≈$0.018 (+16%)").
+ */
 function Deltas({ v }: { v: VerifyStep }) {
   if (!v.tokens && !v.cost) return null;
   return (
-    <div className="deltas fxgap">
-      <div className="panel">
-        <span className="k">input tokens per run, as it would run live</span>
-        <b>{v.tokens ? v.tokens.change : '—'}</b>
-        <span className="n">{v.tokens ? `${tokens(v.tokens.before)} → ${tokens(v.tokens.after)}` : 'no attempt ran live'}</span>
-      </div>
-      <div className="panel">
-        <span className="k">cost per run</span>
-        <b>{v.cost ? v.cost.change : '—'}</b>
-        <span className="n">{v.cost ? `${money(v.cost.before)} → ${money(v.cost.after)}` : 'no price for the model'}</span>
-      </div>
-    </div>
+    <p className="fxreceipt">
+      <span className="nw">per run, as it would run live:</span>{' '}
+      {v.tokens ? `${tokens(v.tokens.before)} → ${tokens(v.tokens.after)} input tokens (${v.tokens.change})` : 'no attempt ran live'}
+      {GLUED_SEPARATOR}
+      <span className="nw">{v.cost ? `${approx(v.cost.before)} → ${approx(v.cost.after)} (${v.cost.change})` : 'no price for the model'}</span>
+    </p>
   );
 }

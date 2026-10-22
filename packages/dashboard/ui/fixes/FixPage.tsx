@@ -7,7 +7,7 @@ import { ConfirmDialog, Dialog, PromptDialog } from '../components/Dialog.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { copyText } from '../dom.js';
-import { GLUED_SEPARATOR } from '../format.js';
+import { approx, GLUED_SEPARATOR } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { addJobFooter } from '../job-actions.js';
 import { href } from '../route.js';
@@ -16,7 +16,8 @@ import { errorText } from '../toast.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
-import { appliedButton, applyText, fixAction, fixName, fixStamp, laterStamp, markText, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, statusBadge, stepFor, updateOutdatedAsk } from './model.js';
+import { FixJobButton } from './FixJobButton.js';
+import { appliedButton, applyText, blameNextStep, fixAction, fixName, fixStamp, laterStamp, markText, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, statusBadge, stepFor, stepLeads, updateOutdatedAsk } from './model.js';
 import { FailedMust, Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
@@ -53,7 +54,7 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
   const current = stepFor(fix, step);
   return (
     <Page>
-      <FixHeader fix={fix} reload={loaded.reload} />
+      <FixHeader fix={fix} reload={loaded.reload} leads={stepLeads(fix, step, sub)} />
       <nav className="stepper" aria-label="Steps">
         {fix.steps.map((x) => (
           <a key={x.key} className={x.state} href={href.fixes(fix.fixId, x.key)} aria-current={x.key === current ? 'step' : undefined}>
@@ -73,7 +74,7 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
   );
 }
 
-function FixHeader({ fix, reload }: { fix: FixDetail; reload: () => void }) {
+function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void; leads: boolean }) {
   const app = useApp();
   const [renaming, setRenaming] = useState(false);
   const badge = statusBadge(fix);
@@ -124,7 +125,7 @@ function FixHeader({ fix, reload }: { fix: FixDetail; reload: () => void }) {
         {fix.broken ? <p className="fxbad">This fix doesn’t hold: {fix.broken}.</p> : null}
       </div>
       <div className="actions">
-        <FixActions fix={fix} />
+        <FixActions fix={fix} leads={leads} />
       </div>
       {renaming ? (
         <PromptDialog
@@ -159,10 +160,14 @@ function FixHeader({ fix, reload }: { fix: FixDetail; reload: () => void }) {
  * do. A repair whose runs came from someone else's pack asks once more before it runs their command.
  * Repair from here is the lead action unless it would end "No fix to try", the blame of every
  * failing run having rescued it from no call: then it stays, as a plain button that says why on
- * hover (`repairAside`). A patch in the working tree already, merged or applied by hand, is only to
- * be marked applied, and an applied fix offers its patch to read: git apply would fail on either.
+ * hover (`repairAside`), and the blame's own next step leads when there is one (`blameNextStep`):
+ * Blame again, for a blame that couldn't settle or stopped part way, or Blame with a stronger
+ * model. A patch in the working tree already, merged or applied by hand, is only to be marked
+ * applied, and an applied fix offers its patch to read: git apply would fail on either. While the
+ * open step leads with its own next step (`leads`: a verdict left incomplete, with Run more
+ * attempts), every button here reads plain.
  */
-export function FixActions({ fix }: { fix: FixDetail }) {
+export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boolean }) {
   const app = useApp();
   const action = fixAction(fix);
   // A repair or an apply changes the working tree: it waits for every job running the agent from it.
@@ -214,6 +219,7 @@ export function FixActions({ fix }: { fix: FixDetail }) {
   }
   const kind = action.kind === 'repair' ? JOB_KINDS.repair : JOB_KINDS.applyFix;
   const aside = action.kind === 'repair' ? repairAside(fix) : null;
+  const blameNext = action.kind === 'repair' ? blameNextStep(fix) : null;
   const missing = app.hasKind(kind) ? null : `This dashboard doesn’t run ${action.kind === 'repair' ? 'repair' : 'fix apply'}: run it in a terminal.`;
   const why = off ?? missing ?? busy;
   const start = (jobKind: string, fields: Record<string, unknown>) =>
@@ -227,9 +233,21 @@ export function FixActions({ fix }: { fix: FixDetail }) {
   return (
     <>
       {copy}
-      <button className={aside ? 'btn' : 'btn lime'} type="button" disabled={!!why} title={why ?? aside ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
+      <button className={aside || blameNext || leads ? 'btn' : 'btn lime'} type="button" disabled={!!why} title={why ?? aside ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
         {action.kind === 'repair' ? 'Repair from here' : action.label}
       </button>
+      {blameNext ? (
+        <FixJobButton
+          kind={JOB_KINDS.blame}
+          fields={blameNext.kind === 'again' ? { fixId: fix.fixId, again: true } : { fixId: fix.fixId }}
+          label={blameNext.label}
+          verb={blameNext.kind === 'again' ? 'blame again' : 'blame it'}
+          lead={!leads}
+          tip={blameNext.tip}
+          command={blameNext.command}
+          {...(blameNext.kind === 'stronger' ? { ask: (start: (more: Record<string, unknown>) => void, close: () => void) => <StrongerDialog fix={fix} onRun={(model) => start({ model })} onClose={close} /> } : {})}
+        />
+      ) : null}
       {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={(repairer) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer }))} /> : null}
       {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} onRun={() => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId }))} /> : null}
       {consent ? (
@@ -290,11 +308,38 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
         onRun(ask.repairer);
       }}
     >
-      {/* A repair that ends "No fix to try" runs nothing live, so it bills nothing: the dialog says why instead. */}
-      {aside && !ask.why ? <p className="fxdlg">{aside}</p> : null}
+      {/* A repair that ends "No fix to try" runs nothing live, so it bills nothing: the dialog says why instead, whatever else it says. */}
+      {aside ? <p className="fxdlg">{aside}</p> : null}
       {ask.why || aside ? null : <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.</p>}
       {ask.command ? <CmdLine>{ask.command}</CmdLine> : null}
     </Dialog>
+  );
+}
+
+/**
+ * Blame with a stronger model asks first, for the model: it answers from each probed call instead of
+ * the recorded one, live, writes stubbed, at what that model costs a call. If it finds the call, the
+ * model's capability is the problem; if it doesn't either, the code and the tools are.
+ */
+function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun: (model: string) => void; onClose: () => void }) {
+  const s = fix.actions.blameStronger;
+  const base = s ? s.command.replace(/ --model <model>$/, '') : '';
+  return (
+    <PromptDialog
+      title="Blame with a stronger model"
+      text={
+        <>
+          Probes the run again, with the model you name answering from each probed call instead of the recorded one asked again. If it finds a call, the model’s capability is the problem; if it doesn’t either, look at the code and the tools.
+          {s ? ` Every attempt runs live from its probe, writes stubbed, at that model’s price a call: the last blame took ${s.attempts} attempts, ${approx(s.spent)}.` : ''}
+        </>
+      }
+      label="Model"
+      placeholder="claude-opus-5-5"
+      ok="Blame"
+      command={(model) => `${base} --model ${model.trim() || '<model>'}`}
+      onRun={(model) => model.trim() && onRun(model.trim())}
+      onClose={onClose}
+    />
   );
 }
 

@@ -4,7 +4,7 @@ import type { RunAbout } from '../../engine/src/about.js';
 export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
 
 // Fixes (`/api/fixes`): the read model's own shapes, as the server sends them.
-export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixRow, FixRunRef, FixStep, RepairStep, StepKey, StepState, VerifyRow, VerifyStep } from '../src/fixes.js';
+export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixRow, FixRunRef, FixStep, RepairStep, StepKey, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
 export type { InjectionRow, ToolTrustRow } from '../src/injection.js';
 export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport } from '../../engine/src/injection.js';

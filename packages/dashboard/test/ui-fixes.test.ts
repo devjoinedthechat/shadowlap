@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appliedButton, applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, applyText, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, markText, mergeTreeJobs, moreLine, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, stepLeads, treeBusy, updateOutdatedAsk, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -335,8 +335,38 @@ describe('the Repair step', () => {
 });
 
 describe('the Verify step', () => {
-  it('badges each outcome', () => {
-    expect((['fixed', 'kept', 'not fixed', 'broken', 'unsettled'] as const).map(outcomeTone)).toEqual(['ok', 'ok', 'no', 'no', 'n']);
+  it('badges each outcome, a run nothing decided in amber', () => {
+    expect((['fixed', 'kept', 'not fixed', 'broken', 'unsettled', 'inconclusive'] as const).map(outcomeTone)).toEqual(['ok', 'ok', 'no', 'no', 'y', 'y']);
+    expect((['accepted', 'rejected', 'incomplete'] as const).map(verdictTone)).toEqual(['ok', 'no', 'warn']);
+  });
+
+  it('says what Run more attempts takes, and why the run it names is open', () => {
+    const run = { runId: '01M5JERYHZ', state: 'stopped' as const, why: 'the budget of $0.01 is spent', attempt: null };
+    expect(moreLine({ kind: 'more', run, max: 80, expected: 12, cost: 0.045, budget: '0.012' })).toBe(' is not settled: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about\u00a012 attempts, ≈$0.045.');
+    expect(moreLine({ kind: 'more', run: { ...run, state: 'inconclusive', why: null }, max: 160, expected: 35, cost: null, budget: null })).toBe(' is inconclusive. Run more attempts verifies again from the start (verify has no --continue), up to 160 a run: about\u00a035 attempts.');
+    expect(moreLine({ kind: 'again', run: { ...run, state: 'unjudged', why: 'no key for anthropic', attempt: 3 }, max: 80, expected: 3, cost: null, budget: null })).toBe(' stopped at attempt 3, which could not be judged: no key for anthropic. Verify again once it can be.');
+  });
+
+  it('leads from the Verify step while the verdict it shows counts and is left incomplete with what settles it', () => {
+    const more = { kind: 'more', run: { runId: 'R', state: 'stopped', why: null, attempt: null }, max: 80, expected: 12, cost: null, budget: null, argv: [], command: '' };
+    const v = (o: Partial<VerifyStep>) => ({ verifyId: 'vf-1', counts: true, verdict: 'incomplete', more, ...o }) as VerifyStep;
+    const f = (verify: VerifyStep[]) => ({ defaultStep: 'blame' as const, verify, defaultVerify: verify[0]?.verifyId ?? null });
+    expect(stepLeads(f([v({})]), 'verify', null)).toBe(true);
+    expect(stepLeads(f([v({})]), null, null)).toBe(false);
+    expect(stepLeads(f([v({})]), 'blame', null)).toBe(false);
+    expect(stepLeads(f([v({ more: null })]), 'verify', null)).toBe(false);
+    expect(stepLeads(f([v({ counts: false })]), 'verify', null)).toBe(false);
+    expect(stepLeads(f([v({ verdict: 'accepted' })]), 'verify', null)).toBe(false);
+  });
+
+  it('leads an open fix with its blame’s next step while blame placed the failure on no call', () => {
+    const none = actions({});
+    const gate = { kind: 'sprt' as const, good: 0.4, bad: 0.1, risk: 0.05, max: 40 };
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'unsettled', argv: [], command: 'shadowlap blame R --gate x', gate } } })).toEqual({ kind: 'again', label: 'Blame again', tip: 'More attempts and a lower bar: a rescue at 40% or more, up to 40 attempts', command: 'shadowlap blame R --gate x' });
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameAgain: { kind: 'stopped', argv: [], command: 'c', gate: null } } })).toMatchObject({ kind: 'again', tip: 'Runs the search to the end, without the budget that stopped it' });
+    expect(blameNextStep({ status: 'open', actions: { ...none, blameStronger: { argv: [], command: 'c --model <model>', attempts: 4, spent: 0.002 } } })).toMatchObject({ kind: 'stronger', label: 'Blame with a stronger model…' });
+    expect(blameNextStep({ status: 'open', actions: none })).toBeNull();
+    expect(blameNextStep({ status: 'verified', actions: { ...none, blameStronger: { argv: [], command: 'c', attempts: 4, spent: 0 } } })).toBeNull();
   });
 });
 

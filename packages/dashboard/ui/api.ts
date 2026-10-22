@@ -42,6 +42,8 @@ export const JOB_KINDS = {
   blame: 'blame',
   repair: 'repair',
   applyFix: 'apply',
+  // A fix's verdict left incomplete: Run more attempts, or Verify again.
+  verify: 'verify',
   tests: 'test',
   importCapture: 'import',
   calibrate: 'calibrate',

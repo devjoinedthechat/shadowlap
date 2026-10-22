@@ -30,12 +30,15 @@ afterEach(async () => {
 });
 
 /** The app as the shell gives it, its server answering from the store; `inTree` stands for git saying a patch is in the working tree. */
-function app(o: { inTree?: boolean } = {}): AppState {
+function app(o: { inTree?: boolean; started?: Array<[string, unknown]> } = {}): AppState {
   const client = {
     fix: (id: string) => Promise.resolve(fixDetail(store, id, o.inTree ? { patchInTree: () => true } : {})),
     fixes: () => Promise.resolve(fixList(store)),
     jobs: () => Promise.resolve([]),
-    startJob: () => new Promise(() => undefined),
+    startJob: (kind: string, fields: unknown) => {
+      o.started?.push([kind, fields]);
+      return new Promise(() => undefined);
+    },
   } as unknown as Client;
   return {
     client,
@@ -54,7 +57,7 @@ function app(o: { inTree?: boolean } = {}): AppState {
 }
 
 /** The fix's page, opened at a step, once it has loaded. */
-async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean } = {}): Promise<Rendered> {
+async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]> } = {}): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(o) }, createElement(FixPage, { id: fixId, step, sub })));
   await r.until('the fix to load', () => r!.all('h1').length === 1);
   return r;
@@ -259,10 +262,14 @@ describe('the Verify step', () => {
   it('opens on the newest verdict that counts, and says an incomplete one spent, never that it found out', async () => {
     const { fixId } = verdicts();
     await open(fixId, 'verify');
-    expect(r!.one('.verdict').className).toBe('verdict n');
+    // Incomplete, in amber: the colour of what nothing decided, as inconclusive is everywhere.
+    expect(r!.one('.verdict').className).toBe('verdict warn');
+    expect(r!.one('.verdict .badge').className).toBe('badge y');
     expect(text(r!.one('.verdict h2'))).toBe('Not every run settled');
     expect(r!.all('.vpick a').filter((a) => a.getAttribute('aria-pressed') === 'true').map(text)).toEqual(['370712a+dirty · incomplete']);
-    expect(text(r!.one('.fxreceipt'))).toMatch(/^\d+ attempts · \d+ upstream requests · ≈\$[\d.]+ spent\. A run whose replay doesn’t fork/);
+    // Tokens and cost per run are a quiet line, never figures bigger than the verdict; then what finding out spent.
+    expect(r!.all('.deltas')).toEqual([]);
+    expect(r!.all('.fxreceipt').map(text)).toEqual([expect.stringMatching(/^per run, as it would run live: 4,329 → 4,402 input tokens \(\+1\.7%\) · ≈\$[\d.]+ → ≈\$[\d.]+ \(\+1\.7%\)$/), expect.stringMatching(/^\d+ attempts · \d+ upstream requests · ≈\$[\d.]+ spent\. A run whose replay doesn’t fork/)]);
   });
 
   it("draws a verdict that doesn't count plain, headed with why, and marks it so in the switch, named by the field it set", async () => {
@@ -277,7 +284,7 @@ describe('the Verify step', () => {
     expect(r!.all('.vpick a')[0]!.textContent).toBe("temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· accepted\u00a0· doesn't count");
     expect(r!.one('.verdict p').textContent).toMatch(/^temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· a run passes/);
     expect(text(r!.one('.verdict p'))).toMatch(/^temperature=1 from each run's first model call · at f353f41 · a run passes when 4 of 5 attempts meet the check: the agent exits 0$/);
-    expect(text(r!.one('.fxreceipt'))).toContain('spent to find out before it shipped');
+    expect(text(r!.all('.fxreceipt').at(-1)!)).toContain('spent to find out before it shipped');
   });
 
   it('heads a verdict that counts by the runs it checked', async () => {
@@ -289,6 +296,61 @@ describe('the Verify step', () => {
     expect(r!.one('.verdict').className).toBe('verdict ok');
     expect(text(r!.one('.verdict h2'))).toBe('Fixes 1 of 1 target run');
     expect(text(r!.byText('nav.stepper a b', '1 fixed'))).toBe('1 fixed');
+  });
+});
+
+describe('what settles a fix left unsettled', () => {
+  it('leads the Verify step of a verdict a budget stopped with Run more attempts, its header plain, and says what that takes', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    const gate = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
+    const report = verifyReport([{ runId: run, role: 'target', pass: true }]);
+    report.runs[0] = { ...report.runs[0]!, verdict: 'open', decision: 'continue' };
+    Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { gate, stopReason: 'the budget of $0.01 is spent', attemptsPerRun: 80 });
+    const { verdict } = recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:double-email --set temperature=1 --budget 0.012', at: NOW + 1 });
+    const started: Array<[string, unknown]> = [];
+    await open(fix.fixId, 'verify', null, { started });
+    const more = r!.byText('.verdict .actions button', 'Run more attempts');
+    expect(more.className).toBe('btn sm lime');
+    expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', s: `$ shadowlap verify --fixes ${run} --set temperature=1` });
+    // The header's Repair from here reads plain while the step leads.
+    expect(r!.byText('.ph .actions button', 'Repair from here').className).toBe('btn');
+    expect(text(r!.one('.fxreceipt.vmore'))).toBe(`${run.slice(0, 10)} is not settled: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about 12 attempts, ≈$0.144.`);
+    // The reasons say nothing the line doesn't.
+    expect(r!.all('ul.fxwarn.bad')).toEqual([]);
+    await r!.click(more);
+    expect(started).toEqual([['verify', { fixId: fix.fixId, verifyId: verdict.verifyId }]]);
+    await r!.unmount();
+    // On the Blame step, the fix's own lead is back.
+    await open(fix.fixId, 'blame');
+    expect(r!.byText('.ph .actions button', 'Repair from here').className).toBe('btn lime');
+  });
+
+  it('leads with Blame again a blame that couldn’t settle, and asks for the model a stronger blame asks', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const report = blameReport(run, 'unrescuable');
+    report.gate = { kind: 'sprt', good: 0.6, bad: 0.1, risk: 0.05, max: 20 };
+    report.probes = [{ ...report.probes[0]!, decision: 'inconclusive' }];
+    const { fix } = blame(run, { report });
+    const started: Array<[string, unknown]> = [];
+    await open(fix.fixId, null, null, { started });
+    expect(r!.all('.ph .actions button').map((b) => [text(b), b.className])).toEqual([
+      ['Repair from here', 'btn'],
+      ['Blame again', 'btn lime'],
+    ]);
+    await r!.click(r!.byText('.ph .actions button', 'Blame again'));
+    expect(started).toEqual([['blame', { fixId: fix.fixId, again: true }]]);
+    await r!.unmount();
+    const other = newRun({ labels: ['digest'] });
+    const { fix: plain } = blame(other, { report: blameReport(other, 'unrescuable'), title: 'The agent exited with code 1' });
+    started.length = 0;
+    await open(plain.fixId, null, null, { started });
+    const stronger = r!.byText('.ph .actions button', 'Blame with a stronger model…');
+    expect(stronger.className).toBe('btn lime');
+    await r!.click(stronger);
+    expect(text(r!.one('.dialog h3'))).toBe('Blame with a stronger model');
+    expect(text(r!.one('.dialog header p'))).toContain('the last blame took 4 attempts');
+    expect(started).toEqual([]);
   });
 });
 
