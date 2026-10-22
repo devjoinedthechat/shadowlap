@@ -32,6 +32,8 @@ import { ByAvatar } from './people.js';
  * and `tight` lets a status wrap after its dot where the table is still wider than its panel.
  */
 export function fitRunsTable(scope: HTMLElement): void {
+  // Only a page that lays itself out can be measured (a test's document without layout is left whole), as fitAbouts has it.
+  if (typeof getComputedStyle !== 'function' || typeof document === 'undefined' || typeof document.createRange !== 'function') return;
   const t = scope.matches('table.runst') ? scope : scope.querySelector<HTMLElement>('table.runst');
   const th = t?.querySelector<HTMLElement>('th.abcol');
   if (!t || !th) return;
