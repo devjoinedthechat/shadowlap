@@ -3,7 +3,7 @@ import { BLAME_DEFAULTS, decideVerify, findPairs, fixRecords, gateResult, markFi
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
-import { fixBundles, fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
+import { agentOfArgv, fixBundles, fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
 
 let store: Store;
 beforeEach(() => {
@@ -175,7 +175,8 @@ describe('a fix', () => {
     expect(diff).toContain('diff --git a/agent.mjs b/agent.mjs');
     expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, refused: null }, applied: false });
     expect(d.commands.blame).toBe(`shadowlap blame ${failing.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}'`);
-    expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps label:good --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
+    // The good run its verdicts kept: label:good would also take any run labelled good since.
+    expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps ${good.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
     expect(fixDetail(store, 'fx-NOPE')).toBeNull();
     expect(fixDetail(store, 'fx-')).toBeNull();
   });
@@ -644,6 +645,40 @@ describe('fixes for the other views', () => {
     blame(unlabelled);
     expect(fixRecords(store, store.getFix(fix.fixId)!).failing).toEqual([failed, unlabelled]);
     expect(argv()).toEqual(['repair', '--fixes', failed, unlabelled, '--expect', JSON.stringify(EXPECT)]);
+  });
+
+  it("keeps the fix's own good runs, else the runs labelled good of its agent, else none, and blames in its blame's scope", () => {
+    const digest = makeRun(store, { labels: ['digest'], argv: ['node', 'digest.mjs', '--channel', '#refunds'] });
+    // Good runs of two other agents: a change to the digest's prompt reaches neither.
+    const refunds = makeRun(store, { labels: ['good'], status: 'completed', argv: ['node', 'agent.mjs', 'A-1120'] });
+    makeRun(store, { labels: ['good'], status: 'completed', argv: ['node', 'refund_agent.mjs', 'T-8830'] });
+    const { fix } = recordBlame(store, { runId: digest, report: blameReport(digest), expect: EXPECT, scope: 'agent', command: 'shadowlap blame x --scope agent', title: 'issue_refund called with amount 240', checkText: 'x', at: NOW });
+    const argv = () => repairArgv(store, fixRecords(store, store.getFix(fix.fixId)!));
+    expect(argv()).toEqual(['repair', '--fixes', 'label:digest', '--scope', 'agent', '--expect', JSON.stringify(EXPECT)]);
+    // A good run of the digest itself, another day's channel: kept by its id, as label:good would take the others too.
+    const digestGood = makeRun(store, { labels: ['good'], status: 'completed', argv: ['node', 'digest.mjs', '--channel', '#billing'] });
+    expect(argv()).toEqual(['repair', '--fixes', 'label:digest', '--keeps', digestGood, '--scope', 'agent', '--expect', JSON.stringify(EXPECT)]);
+    // With every run labelled good the digest's, the label stands for them.
+    store.deleteRun(refunds);
+    for (const r of store.allRuns()) if (r.command.argv[1] === 'refund_agent.mjs') store.deleteRun(r.runId);
+    expect(argv()).toEqual(['repair', '--fixes', 'label:digest', '--keeps', 'label:good', '--scope', 'agent', '--expect', JSON.stringify(EXPECT)]);
+    // Verify takes no scope: the fix's empty Verify step shows the runs and the check alone.
+    expect(fixDetail(store, fix.fixId)!.commands.verify).toBe(`shadowlap verify --fixes label:digest --keeps label:good --expect '${JSON.stringify(EXPECT)}'`);
+    // Once a verdict kept a good run for the fix, that run is the one kept, whatever else is labelled good.
+    makeRun(store, { labels: ['good'], status: 'completed', argv: ['node', 'agent.mjs', 'A-1131'] });
+    recordVerdict(store, { report: verifyReport([{ runId: digest, role: 'target', pass: true }, { runId: digestGood, role: 'good', pass: true }]), expect: EXPECT, command: 'v', at: NOW + 1 });
+    expect(fixRecords(store, store.getFix(fix.fixId)!).good).toEqual([digestGood]);
+    expect(argv()).toEqual(['repair', '--fixes', 'label:digest', '--keeps', digestGood, '--scope', 'agent', '--expect', JSON.stringify(EXPECT)]);
+  });
+
+  it('tells one agent from another by the script its command runs, not by one run’s arguments', () => {
+    expect(agentOfArgv(['node', 'agent.mjs', 'A-1150'])).toBe('node agent.mjs');
+    expect(agentOfArgv(['node', '--env-file=.env', 'src/agent.ts', '--ticket', '7'])).toBe('node --env-file=.env src/agent.ts');
+    expect(agentOfArgv(['python', '-m', 'support.agent', '--persona', 'pushy'])).toBe('python -m support.agent');
+    expect(agentOfArgv(['python', 'eval_conversation.py', '--persona', 'damaged-order'])).toBe('python eval_conversation.py');
+    // No word names a script: the whole command, so two runs with other arguments count as other agents.
+    expect(agentOfArgv(['pnpm', 'start'])).toBe('pnpm start');
+    expect(agentOfArgv([])).toBeNull();
   });
 
   it('offers no repair once none of the failing runs is left, though its label still names the fix', () => {

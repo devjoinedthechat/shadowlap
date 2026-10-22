@@ -15,9 +15,9 @@ export const runId = (): string => `01M3RZ${String(++n).padStart(4, '0')}${'0'.r
 /** A call of a run made by `makeRun`: its kind, and the scope it was made in when it differs from the run's. */
 type FixtureCall = 'api' | 'tool' | { kind: 'api' | 'tool'; scope: string };
 
-export function makeRun(store: Store, o: { labels?: string[]; status?: Exclude<RunStatus, 'running'>; mode?: 'record' | 'replay'; parent?: string; meta?: Record<string, unknown>; startedAt?: number; calls?: FixtureCall[]; scope?: string } = {}): string {
+export function makeRun(store: Store, o: { labels?: string[]; status?: Exclude<RunStatus, 'running'>; mode?: 'record' | 'replay'; parent?: string; meta?: Record<string, unknown>; startedAt?: number; calls?: FixtureCall[]; scope?: string; argv?: string[] } = {}): string {
   const id = runId();
-  store.createRun({ runId: id, mode: o.mode ?? 'record', parentRunId: o.parent ?? null, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: o.startedAt ?? 1_000, meta: { ...(o.labels ? { labels: o.labels } : {}), ...(o.meta ?? {}) } });
+  store.createRun({ runId: id, mode: o.mode ?? 'record', parentRunId: o.parent ?? null, command: { argv: o.argv ?? ['node', 'agent.mjs'], cwd: '.' }, startedAt: o.startedAt ?? 1_000, meta: { ...(o.labels ? { labels: o.labels } : {}), ...(o.meta ?? {}) } });
   (o.calls ?? []).forEach((call, i) => {
     const callNo = i + 1;
     const kind = typeof call === 'string' ? call : call.kind;

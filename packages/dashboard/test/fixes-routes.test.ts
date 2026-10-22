@@ -139,14 +139,14 @@ describe('GET /api/fixes', () => {
 
 describe('GET /api/fixes/:id', () => {
   it('gives a fix with its steps by id or prefix, and names the repairer a repair from here asks', async () => {
-    const { fixId } = story();
+    const { fixId, good } = story();
     await start();
     const d = await json(await api(`fixes/${fixId.slice(0, 12).toLowerCase()}`));
     expect(d).toMatchObject({ fixId, status: 'verified', defaultStep: 'verify', repairer: { name: 'claude-code', configured: false, problem: null } });
     expect(d.blame).toMatchObject({ lostAt: 5, title: 'Lost at model call #5' });
     expect(d.repair).toMatchObject({ repairId: 'repair-munzln2i', accepted: true });
     expect(d.verify).toHaveLength(2);
-    expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps label:good --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
+    expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps ${good.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
     expect((await api('fixes/fx-NOSUCHFIX')).status).toBe(404);
     expect((await api('fixes/fx-')).status).toBe(404);
   });

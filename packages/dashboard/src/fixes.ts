@@ -17,6 +17,7 @@ import {
   formatUsd,
   gitApplyCommand,
   GOOD_LABEL,
+  hasRecordedCommand,
   noRepairerOf,
   outcomeOf,
   patchFiles,
@@ -858,20 +859,87 @@ function labelSelectsFix(store: Store, label: string, left: readonly string[]): 
   return labelled.length === failing.size && labelled.every((r) => failing.has(r.runId));
 }
 
+/** A word of a command that names the script it runs: `agent.mjs`, `src/agent.ts`, `refund_agent.py`. */
+const SCRIPT = /\.(?:[cm]?[jt]sx?|py|rb|sh|php|pl|lua|exs?|jl)$/i;
+
 /**
- * `shadowlap repair` from a fix: its failing runs (by its label when that selects exactly them),
- * the good runs, its check. Empty when none of its failing runs is left in the store.
+ * The agent a command runs, to tell one agent's runs from another's: its words up to the script it
+ * runs (`node agent.mjs`, `python -m support.agent`), without the arguments of one run (`A-1150`,
+ * `--persona pushy-customer`); the whole command when no word names a script. Null for none.
  */
-export function repairArgv(store: Store, rec: FixRecords): string[] {
+export function agentOfArgv(argv: readonly string[]): string | null {
+  if (!argv.length) return null;
+  for (let i = 0; i < argv.length; i++) {
+    const w = argv[i]!;
+    if (w === '-m' && i + 1 < argv.length) return argv.slice(0, i + 2).join(' ');
+    if (!w.startsWith('-') && SCRIPT.test(w)) return argv.slice(0, i + 1).join(' ');
+  }
+  return argv.join(' ');
+}
+
+/** The agent a run ran: its recording's, for a replay, a fork or an attempt; null for a run with no command (an import). */
+function agentOfRun(store: Store, run: RunRecord): string | null {
+  let root = run;
+  const seen = new Set([root.runId]);
+  while (root.parentRunId) {
+    const parent = store.getRun(root.parentRunId);
+    if (!parent || seen.has(parent.runId)) break;
+    seen.add(parent.runId);
+    root = parent;
+  }
+  return hasRecordedCommand(root) ? agentOfArgv(root.command.argv) : null;
+}
+
+/**
+ * The good runs a repair or a verify from a fix keeps: the fix's own, those its verdicts kept; else
+ * the runs labelled good that run the same agent as its failing runs (`label:good` when that is all
+ * of them, else by id), since a good run of another agent checks nothing a change to this one
+ * touches; else none.
+ */
+function keepArgs(store: Store, rec: FixRecords, left: readonly string[]): string[] {
+  const own = rec.good.filter((id) => store.getRun(id) !== null);
+  if (own.length) return own;
+  const agents = new Set(left.map((id) => agentOfRun(store, store.getRun(id)!)).filter((a): a is string => a !== null));
+  if (!agents.size) return [];
+  const failing = new Set(left);
+  const good = store.allRuns().filter((r) => r.meta?.labels?.includes(GOOD_LABEL));
+  const same = good.filter((r) => !failing.has(r.runId) && agents.has(agentOfRun(store, r) ?? ''));
+  if (!same.length) return [];
+  return same.length === good.length ? [`label:${GOOD_LABEL}`] : same.map((r) => r.runId);
+}
+
+/** What a repair from a fix and a verify of it are given: its failing runs, the good runs it keeps, and its check. */
+function fixRunArgs(store: Store, rec: FixRecords): { fixes: string[]; keeps: string[]; expect: string[] } | null {
   // Without a failing run left, a label would select nothing, and repair would refuse it.
   const left = rec.failing.filter((id) => store.getRun(id) !== null);
-  if (!left.length) return [];
+  if (!left.length) return null;
   const { label } = fixLabelInfo(store, rec.fix);
-  const fixes = label && labelSelectsFix(store, label, left) ? [`label:${label}`] : left;
-  const anyGood = store.allRuns().some((r) => r.meta?.labels?.includes(GOOD_LABEL));
-  const keeps = anyGood ? [`label:${GOOD_LABEL}`] : rec.good.filter((id) => store.getRun(id) !== null);
   const expect = rec.fix.check.expect;
-  return ['repair', '--fixes', ...fixes, ...(keeps.length ? ['--keeps', ...keeps] : []), ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])];
+  return {
+    fixes: label && labelSelectsFix(store, label, left) ? [`label:${label}`] : left,
+    keeps: keepArgs(store, rec, left),
+    expect: expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [],
+  };
+}
+
+/**
+ * `shadowlap repair` from a fix: its failing runs (by its label when that selects exactly them),
+ * the good runs it keeps (`keepArgs`), the scope its blame searched, so the repair blames the same
+ * calls and reuses that blame rather than make it again, and its check. Empty when none of its
+ * failing runs is left in the store.
+ */
+export function repairArgv(store: Store, rec: FixRecords): string[] {
+  const runs = fixRunArgs(store, rec);
+  if (!runs) return [];
+  const scope = shownBlame(rec)?.scope;
+  return ['repair', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...(scope ? ['--scope', scope] : []), ...runs.expect];
+}
+
+/** `shadowlap verify` of a change for a fix, as its empty Verify step shows it: the runs and the check a repair from it would take. Empty as `repairArgv` is. */
+function verifyArgv(store: Store, rec: FixRecords): string[] {
+  const runs = fixRunArgs(store, rec);
+  if (!runs) return [];
+  return ['verify', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...runs.expect];
 }
 
 /** The repairer a repair from the dashboard (or `fix show`'s next step) uses when the config names none. */
@@ -917,6 +985,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
   const accepted = acceptedVerdict(rec);
   const done = row.steps.filter((x) => x.state === 'done');
   const repairArgs = repairArgv(store, rec);
+  const verifyArgs = verifyArgv(store, rec);
   const expect = fix.check.expect;
   const blameRun = b?.runId ?? rec.failing[0] ?? null;
   const toApply = repairToApply(rec);
@@ -963,7 +1032,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
     commands: {
       blame: commandLine(['blame', blameRun ? short(blameRun) : '<run>', ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])]),
       repair: commandLine(repairJobArgv(repairArgs.length ? shortIds(repairArgs) : ['repair', '--fixes', '<runs>'], configured)),
-      verify: commandLine(['verify', ...(repairArgs.length ? shortIds(repairArgs.slice(1)) : ['--fixes', '<runs>'])]),
+      verify: commandLine(verifyArgs.length ? shortIds(verifyArgs) : ['verify', '--fixes', '<runs>']),
     },
     repairer: { name: configured ?? DEFAULT_REPAIRER, configured: configured !== null, problem: fix.status === 'open' && options.checkRepairer ? options.checkRepairer(configured ?? DEFAULT_REPAIRER, configured !== null) : null },
     applied: fix.data.applied ?? null,
