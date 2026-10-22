@@ -1,5 +1,6 @@
 import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, originCells, sumCacheUse, type OriginCounts, type RunAbout, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
 import { fixesSummary, needsLookFixes } from './fixes.js';
+import { upgradeLooks } from './looks.js';
 import { aboutsOf } from './run-about.js';
 import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
@@ -200,7 +201,8 @@ export interface FixesFunnel {
  * (`more` is that count).
  */
 export interface NeedsLookRow {
-  kind: 'store-setup' | 'broken' | 'test' | 'open' | 'unblamed' | 'ready' | 'local';
+  /** What it is about; `injection`, `presets`, `decisions` and `coverage` are the upgrades' results (looks.ts). */
+  kind: 'store-setup' | 'broken' | 'test' | 'injection' | 'presets' | 'open' | 'unblamed' | 'decisions' | 'ready' | 'coverage' | 'local';
   /** The icon: a setting, a failure, an inconclusive test, a blame, a fix that holds, or a recording. */
   icon: 'setting' | 'fail' | 'warn' | 'blame' | 'fixok' | 'rec';
   title: string;
@@ -523,9 +525,12 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 
 /**
  * Needs a look, most urgent first: a team store's setup left unfinished, applied fixes that don't
- * hold, failing tests, failures with no fix yet (open fixes, then failed runs never blamed), verified
- * fixes not yet applied, then runs only on this machine. A recording in progress shows under Today
- * instead.
+ * hold, failing tests, an injection test a planted instruction got through and error-path presets
+ * that failed, failures with no fix yet (open fixes, then failed runs never blamed), the upgrades'
+ * results that need a look or couldn't decide (an injection test it influenced or that showed too
+ * little, presets left inconclusive, a preview of a change that flags runs), verified fixes not yet
+ * applied, behaviours seen in production that no golden covers, then runs only on this machine. A
+ * recording in progress shows under Today instead.
  */
 function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null): NeedsLook {
   const fixes = needsLookFixes(store);
@@ -576,13 +581,17 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
     const n = rows.length - NEEDS_LOOK_EACH;
     return [...rows.slice(0, NEEDS_LOOK_EACH), { kind: rows[0]!.kind, action: 'Open', runId: null, fixId: null, at: rows[NEEDS_LOOK_EACH]!.at, more: n, ...rest(n) }];
   };
+  const looks = upgradeLooks(store, { goldens });
   const all = [
     ...setup,
     ...capped(of('broken').map(fixRow), (n) => ({ icon: 'fail', title: `${plural(n, 'more applied fix', 'more applied fixes')} ${n === 1 ? "doesn't" : "don't"} hold`, detail: 'each on Fixes', href: '#/fixes' })),
     ...capped(tests, (n) => ({ icon: 'fail', title: `${plural(n, 'more test')} failed or inconclusive`, detail: 'each on Tests', href: '#/tests' })),
+    ...capped(looks.failed, (n) => ({ icon: 'fail', title: `${plural(n, 'more injection or error-path test')} failed`, detail: 'each on its run, under Runs', href: '#/runs' })),
     ...capped(of('open').map(fixRow), (n) => ({ icon: 'blame', title: `${plural(n, 'more failure')} with no fix yet`, detail: 'each on Fixes', href: '#/fixes' })),
     ...capped(unblamed, (n) => ({ icon: 'fail', title: `${plural(n, 'more failed run')} not blamed yet`, detail: 'the failed runs on Runs', href: '#/runs?type=failed' })),
+    ...capped(looks.warn, (n) => ({ icon: 'warn', title: `${plural(n, 'more result')} to look at`, detail: 'each on its run, under Runs', href: '#/runs' })),
     ...capped(of('ready').map(fixRow), (n) => ({ icon: 'fixok', title: `${plural(n, 'more verified fix', 'more verified fixes')} ${n === 1 ? 'is' : 'are'} ready`, detail: 'each on Fixes', href: '#/fixes' })),
+    ...looks.coverage,
     ...local,
   ];
   return { items: all, total: all.reduce((t, x) => t + (x.more ?? 1), 0) };

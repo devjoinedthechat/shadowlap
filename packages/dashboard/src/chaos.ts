@@ -192,6 +192,11 @@ export function chaosOfRun(store: Store, runId: string): ChaosMatrix | null {
   return matrices(latest.filter((r) => r.runId === run.parentRunId && r.golden === golden))[0] ?? null;
 }
 
+/** Every recording's presets as their matrices, newest first, without the sessions: what Needs a look and Tests read. */
+export function chaosMatrices(store: Store): ChaosMatrix[] {
+  return matrices(store.latestChaosResults());
+}
+
 /** A Tests row's presets: the newest matrix of a golden, by its name. */
 export function chaosOfGolden(store: Store, golden: string): ChaosMatrix | null {
   return matrices(store.latestChaosResults().filter((r) => r.golden === golden))[0] ?? null;
