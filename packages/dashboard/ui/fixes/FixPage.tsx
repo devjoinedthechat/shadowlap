@@ -17,7 +17,7 @@ import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
 import { applyText, fixAction, fixName, fixStamp, laterStamp, markText, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, statusBadge, stepFor, updateOutdatedAsk } from './model.js';
-import { Flagged } from './parts.js';
+import { FailedMust, Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
@@ -117,9 +117,9 @@ function FixHeader({ fix, reload }: { fix: FixDetail; reload: () => void }) {
             </button>
           )}
         </p>
+        {/* What failed and what it must do, as the list says it: the title says what failed until someone renames it. */}
         <p className="chk">
-          <span className="k">check</span>
-          <code>{fix.check}</code>
+          <FailedMust fix={fix} />
         </p>
         {fix.broken ? <p className="fxbad">This fix doesn’t hold: {fix.broken}.</p> : null}
       </div>

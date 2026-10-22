@@ -58,9 +58,40 @@ export function fixName(f: Pick<FixRow, 'label' | 'fixId'>): string {
 
 const s = (n: number) => (n === 1 ? '' : 's');
 
-/** "3 failing runs · issue_refund never called with {…}" */
-export function failingLine(f: Pick<FixRow, 'failing' | 'check'>): string {
-  return `${f.failing} failing run${s(f.failing)} · ${f.check}`;
+/** "3 failing runs": what they did and the check they must meet follow it, each labelled (`failedMust`). */
+export function failingLine(f: Pick<FixRow, 'failing'>): string {
+  return `${f.failing} failing run${s(f.failing)}`;
+}
+
+/**
+ * A fix names its failure twice, what its failing runs did and the check they must meet, labelled
+ * so the two never read as one: "Failed: send_email called twice, not once · Must: send_email called
+ * once", in the list and the fix's header alike. A title that says what failed (blame titled the fix
+ * by it, and nobody renamed it) leaves the check alone: `failed` is null then.
+ */
+export function failedMust(f: Pick<FixRow, 'title' | 'failed' | 'check'>): { failed: string | null; must: string } {
+  const said = !f.failed?.trim() || f.failed.trim().toLowerCase() === f.title.trim().toLowerCase();
+  return { failed: said ? null : f.failed, must: f.check };
+}
+
+/**
+ * A check or a failure in words, cut where it may wrap: a count keeps its unit ("1 time", "2
+ * attempts"), and a comparison keeps both sides with its operator (`amount <= get_policy.result
+ * .limit`, `amount 240 > get_policy.result.limit 100`), set whole where there is room, so neither
+ * side starts a line alone.
+ */
+export function wholeParts(text: string): Array<{ text: string; whole: boolean }> {
+  const t = text.replace(/(\d) (times?|attempts?)\b/g, '$1 $2');
+  const out: Array<{ text: string; whole: boolean }> = [];
+  const re = /(\S+ (?:\d[\d.,]* )?)(<=|>=|!=|<|>) (\S+(?: \d[\d.,]*\b)?)/g;
+  let at = 0;
+  for (let m = re.exec(t); m; m = re.exec(t)) {
+    if (m.index > at) out.push({ text: t.slice(at, m.index), whole: false });
+    out.push({ text: `${m[1]}${m[2]} ${m[3]!.replace(' ', ' ')}`, whole: true });
+    at = m.index + m[0].length;
+  }
+  if (at < t.length) out.push({ text: t.slice(at), whole: false });
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------- a fix

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairCostLine, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
+import { applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairCostLine, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -23,6 +23,29 @@ describe('the list', () => {
     expect(statusBadge({ status: 'verified', broken: null })).toEqual({ tone: 'ok', text: 'verified' });
     expect(statusBadge({ status: 'applied', broken: null })).toEqual({ tone: 'ok', text: 'applied' });
     expect(statusBadge({ status: 'applied', broken: 'shadowlap test failed on its goldens' })).toEqual({ tone: 'no', text: 'broken' });
+  });
+
+  it('says what the failing runs did and what they must do, labelled, and what failed only when the title doesn’t say it', () => {
+    expect(failingLine({ failing: 3 })).toBe('3 failing runs');
+    expect(failingLine({ failing: 1 })).toBe('1 failing run');
+    expect(failedMust({ title: 'Confirmation email sent twice', failed: 'send_email called twice, not once', check: 'send_email called once' })).toEqual({ failed: 'send_email called twice, not once', must: 'send_email called once' });
+    // Blame titled it by how the agent exited, and nobody renamed it: the title says what failed.
+    expect(failedMust({ title: 'The agent exited with code 1', failed: 'The agent exited with code 1', check: 'the agent exits 0' })).toEqual({ failed: null, must: 'the agent exits 0' });
+    expect(failedMust({ title: 'Send email twice', failed: 'send email TWICE', check: 'send_email called once' })).toEqual({ failed: null, must: 'send_email called once' });
+    expect(failedMust({ title: 'A run failed', failed: null, check: 'the agent exits 0' })).toEqual({ failed: null, must: 'the agent exits 0' });
+  });
+
+  it('keeps a count with its unit and a comparison whole where a check wraps', () => {
+    expect(wholeParts('send_email called 1 time; tools called 2 times')).toEqual([{ text: 'send_email called 1\u00a0time; tools called 2\u00a0times', whole: false }]);
+    expect(wholeParts('every issue_refund call: after get_policy, amount <= get_policy.result.limit')).toEqual([
+      { text: 'every issue_refund call: after get_policy, ', whole: false },
+      { text: 'amount <=\u00a0get_policy.result.limit', whole: true },
+    ]);
+    expect(wholeParts('issue_refund: amount 240 > get_policy.result.limit 100 (#4)')).toEqual([
+      { text: 'issue_refund: ', whole: false },
+      { text: 'amount 240 >\u00a0get_policy.result.limit\u00a0100', whole: true },
+      { text: ' (#4)', whole: false },
+    ]);
   });
 
   it('names a fix by its label, or its short id', () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BLAME_DEFAULTS, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, unsettledFirst, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, unsettledFirst, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
@@ -72,6 +72,22 @@ describe('the Fixes list', () => {
     expect(list.fixes[1]!.attempts).toBeGreaterThan(0);
     expect(fixList(store, { status: 'open' }).fixes.map((f) => f.fixId)).toEqual([openFix.fixId]);
     expect(fixList(store, { status: 'verified' }).fixes.map((f) => f.fixId)).toEqual([fixId]);
+  });
+
+  it('says what the failing runs did: the title blame opened the fix with, kept when someone renames it', () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { expect: { tools: { send_email: 1 } }, title: 'send_email called twice, not once' });
+    // Blame made the title from the failure, so the title says it.
+    expect(fixList(store).fixes[0]).toMatchObject({ title: 'send_email called twice, not once', failed: 'send_email called twice, not once' });
+    // Renamed, the fix still says what failed: as blame titled it when it opened the fix.
+    recordEvent(store, { kind: 'blame.done', runId: run, ref: fix.fixId, data: { outcome: 'blamed', callNo: 5, confidence: 'high', title: 'send_email called twice, not once', opened: true } });
+    setFixTitle(store, fix.fixId, 'Confirmation email sent twice');
+    expect(fixList(store).fixes[0]).toMatchObject({ title: 'Confirmation email sent twice', failed: 'send_email called twice, not once' });
+    expect(fixDetail(store, fix.fixId)).toMatchObject({ title: 'Confirmation email sent twice', failed: 'send_email called twice, not once' });
+    // A teammate's fix, opened on their machine: the first failure its blame recorded, in the CLI's words.
+    const theirs = blame(makeRun(store, { labels: ['refund-bug'] })).fix;
+    setFixTitle(store, theirs.fixId, 'Refunds above the limit issued without approval');
+    expect(fixDetail(store, theirs.fixId)!.failed).toBe('issue_refund with {"amount":240} called 0 times, but called 1 time');
   });
 
   it('says how far a blame got that rescued nothing or stopped, and a verify that only rejected', () => {

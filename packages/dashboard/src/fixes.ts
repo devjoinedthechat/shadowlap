@@ -122,6 +122,13 @@ export interface FixRow {
   labels: string[];
   /** What a passing run does, in words. */
   check: string;
+  /**
+   * What its failing runs did, in the words blame titled the fix with when it opened it (`send_email
+   * called twice, not once`): its title, until someone gives it one of their own. Without that
+   * opening here (a teammate's fix), the first failure a blame of it recorded, as the CLI words it;
+   * null when no blame recorded one. The page says it beside the check unless the title says it.
+   */
+  failed: string | null;
   failing: number;
   good: number;
   steps: FixStep[];
@@ -547,7 +554,32 @@ function stepsOf(rec: FixRecords): FixStep[] {
   return [blame, repair, verify];
 }
 
-function rowOf(store: Store, rec: FixRecords): FixRow {
+/**
+ * The title each fix was opened with, by fix id: what its failing run did, as blame titled the fix
+ * when it opened it (`blame.done`, `opened`). Read once per answer, and only once a fix was renamed.
+ */
+function openingTitles(store: Store): () => ReadonlyMap<string, string> {
+  let titles: Map<string, string> | null = null;
+  return () => {
+    if (titles) return titles;
+    titles = new Map();
+    for (const e of store.listEvents({ kinds: ['blame.done'], limit: 10_000 })) {
+      const title = e.data?.title;
+      if (e.ref && e.data?.opened === true && typeof title === 'string' && title.trim()) titles.set(e.ref, title);
+    }
+    return titles;
+  };
+}
+
+/** What a fix's failing runs did (`FixRow.failed`): its own title until it was given another, else the title it was opened with. */
+function failedOf(rec: FixRecords, opening: () => ReadonlyMap<string, string>): string | null {
+  const f = rec.fix;
+  // Blame made the title from the failure when it opened the fix: it says what failed until someone renames it.
+  if (!f.data.titleEdited) return f.title;
+  return opening().get(f.fixId) ?? rec.blames.map((b) => b.report.recordedFailures?.[0]).find((x): x is string => typeof x === 'string' && x.trim() !== '') ?? null;
+}
+
+function rowOf(store: Store, rec: FixRecords, opening: () => ReadonlyMap<string, string> = openingTitles(store)): FixRow {
   const f = rec.fix;
   const cost = fixCost([rec]);
   const { label, labels } = fixLabelInfo(store, f);
@@ -559,6 +591,7 @@ function rowOf(store: Store, rec: FixRecords): FixRow {
     label,
     labels,
     check: f.check.text,
+    failed: failedOf(rec, opening),
     failing: rec.failing.length,
     good: rec.good.length,
     steps: stepsOf(rec),
@@ -576,7 +609,8 @@ function rowOf(store: Store, rec: FixRecords): FixRow {
 
 /** Every fix, the most recently opened first, with the counts for the filter chips. */
 export function fixList(store: Store, options: { status?: FixStatus | 'all' } = {}): FixList {
-  const all = store.listFixes().map((f) => rowOf(store, fixRecords(store, f)));
+  const opening = openingTitles(store);
+  const all = store.listFixes().map((f) => rowOf(store, fixRecords(store, f), opening));
   const open = all.filter((f) => f.status === 'open').length;
   const fixes = !options.status || options.status === 'all' ? all : all.filter((f) => (options.status === 'verified' ? f.status !== 'open' : f.status === options.status));
   return { fixes, counts: { all: all.length, open, verified: all.length - open } };

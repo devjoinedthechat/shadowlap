@@ -1,10 +1,11 @@
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { decideVerify, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport } from '@shadowlap/engine';
+import { decideVerify, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { fixDetail } from '../src/fixes.js';
+import { fixDetail, fixList } from '../src/fixes.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
+import { FixesPage } from '../ui/pages/Fixes.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
@@ -32,6 +33,7 @@ afterEach(async () => {
 function app(o: { inTree?: boolean } = {}): AppState {
   const client = {
     fix: (id: string) => Promise.resolve(fixDetail(store, id, o.inTree ? { patchInTree: () => true } : {})),
+    fixes: () => Promise.resolve(fixList(store)),
     jobs: () => Promise.resolve([]),
     startJob: () => new Promise(() => undefined),
   } as unknown as Client;
@@ -69,6 +71,40 @@ const newRun = (o: Parameters<typeof makeRun>[1] = {}): string => makeRun(store 
 function blame(runId: string, o: { report?: BlameReport; expect?: unknown; title?: string } = {}) {
   return recordBlame(store, { runId, report: o.report ?? blameReport(runId), expect: o.expect === undefined ? EXPECT : o.expect, scope: null, command: `shadowlap blame ${runId.slice(0, 10)}`, title: o.title ?? 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
 }
+
+describe('what failed', () => {
+  /** A fix blame opened, titled by how its run failed, as the CLI keeps its opening; renamed when `rename` says. */
+  function opened(rename?: string): string {
+    const run = newRun({ labels: ['refund-bug'] });
+    const { fix } = blame(run);
+    recordEvent(store, { kind: 'blame.done', runId: run, ref: fix.fixId, data: { outcome: 'blamed', callNo: 5, confidence: 'high', title: fix.title, opened: true } });
+    if (rename) setFixTitle(store, fix.fixId, rename);
+    return fix.fixId;
+  }
+
+  it('heads a fix with what its runs must do, and what they did once its title no longer says it', async () => {
+    const fixId = opened();
+    await open(fixId);
+    // Titled by the failure: the line keeps the check alone, labelled.
+    expect(text(r!.one('h1'))).toBe('issue_refund called with amount 240');
+    expect(text(r!.one('.ph p.chk'))).toBe('Must: issue_refund never called with {"amount":240}');
+    await r!.unmount();
+    setFixTitle(store, fixId, 'Refunds above the limit issued without approval');
+    await open(fixId);
+    expect(r!.all('.ph p.chk .fmu').map(text)).toEqual(['Failed: issue_refund called with amount 240', 'Must: issue_refund never called with {"amount":240}']);
+    expect(text(r!.one('.ph p.chk'))).toBe('Failed: issue_refund called with amount 240 · Must: issue_refund never called with {"amount":240}');
+  });
+
+  it('says it on each row of the list, after how many runs failed', async () => {
+    opened('Refunds above the limit issued without approval');
+    r = await render(createElement(AppContext.Provider, { value: app() }, createElement(FixesPage, { id: null, step: null, sub: null })));
+    await r.until('the list to load', () => r!.all('.pslist a').length === 1);
+    expect(text(r.one('.pslist .rs .nw'))).toBe('1 failing run');
+    // The check no longer follows the count unlabelled, as if it were the failure.
+    expect(text(r.one('.pslist .rs'))).not.toContain('never called');
+    expect(r.all('.pslist .fm .fmu').map(text)).toEqual(['Failed: issue_refund called with amount 240', 'Must: issue_refund never called with {"amount":240}']);
+  });
+});
 
 describe('the Blame step', () => {
   const panels = () => r!.all('section.panel header h2').map(text);

@@ -4,6 +4,7 @@ import { Page } from '../components/Page.js';
 import { rememberList } from '../fixes/data.js';
 import { FixPage } from '../fixes/FixPage.js';
 import { chipKeeps, failingLine, FIX_CHIPS, fixStamp, statusBadge, type FixChip } from '../fixes/model.js';
+import { FailedMust } from '../fixes/parts.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
@@ -88,9 +89,10 @@ function FixListRow({ fix: f }: { fix: FixRow }) {
         <span className="rs">
           {f.label ? <span className="chip">{f.label}</span> : null}
           {f.source ? <span className="chip ci">{f.source}</span> : null}
-          {failingLine(f)}
+          <span className="nw">{failingLine(f)}</span>
           {f.broken ? <span className="fxbad">doesn’t hold: {f.broken}</span> : null}
         </span>
+        <FailedMust fix={f} />
       </span>
       <span className="psteps">
         {f.steps.map((st) => (

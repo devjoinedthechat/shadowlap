@@ -1,5 +1,47 @@
 import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { breakPoints, cellKeepsWhole, flagParts, inlineParts, parseMarkdown, plainCell, type MdBlock } from './model.js';
+import type { FixRow } from '../types.js';
+import { breakPoints, cellKeepsWhole, failedMust, flagParts, inlineParts, parseMarkdown, plainCell, wholeParts, type MdBlock } from './model.js';
+
+/**
+ * What a fix's failing runs did and the check they must meet (`failedMust`): "Failed: … · Must: …",
+ * each label kept with its value where the line wraps. The dot between them is drawn only while both
+ * share a line; the one in the text is for reading it aloud or copying it.
+ */
+export function FailedMust({ fix }: { fix: Pick<FixRow, 'title' | 'failed' | 'check'> }) {
+  const { failed, must } = failedMust(fix);
+  return (
+    <span className="fm">
+      {failed ? (
+        <>
+          <span className="fmu">
+            Failed: <Whole text={failed} />
+          </span>
+          <span className="fmsep"> · </span>
+        </>
+      ) : null}
+      <span className="fmu">
+        Must: <Whole text={must} />
+      </span>
+    </span>
+  );
+}
+
+/** A check or a failure as code, a count kept with its unit and a comparison kept whole where there is room (`wholeParts`). */
+function Whole({ text }: { text: string }) {
+  return (
+    <code>
+      {wholeParts(text).map((p, i) =>
+        p.whole ? (
+          <span key={i} className="kc">
+            {p.text}
+          </span>
+        ) : (
+          <Fragment key={i}>{p.text}</Fragment>
+        ),
+      )}
+    </code>
+  );
+}
 
 /** A step's header: its title, a line or two under it, and its actions on the right (`.sh`). */
 export function StepHead({ title, text, actions }: { title: ReactNode; text?: ReactNode; actions?: ReactNode }) {
