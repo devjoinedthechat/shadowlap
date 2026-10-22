@@ -50,6 +50,8 @@ const FORK2 = run('01M5H2EDGW3J7P0X4C9V2B6NRM', { parentRunId: FORK.runId, mode:
 const FAILED_FORK = run('01M5H2EFHX5K2Q8M1R7T4W9CZD', { parentRunId: REC.runId, mode: 'replay', kind: 'fork', label: 'fork @7', divergence: { callNo: 7, type: 'request_changed' }, status: 'completed', outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true, origins: `${'r'.repeat(6)}${'l'.repeat(20)}bbbb`, startedAt: T + 4 });
 // A recording blame found lost at its model call #9: Runs says so, and so does the sidebar.
 const LOST = run('01M5H2E9Q2C6YDRJ11VPNM4W0J', { command: 'node agent.mjs A-1150', status: 'failed', outcome: { kind: 'lost', callNo: 9 }, failed: true, lostAt: 9, calls: 11, origins: 'l'.repeat(11), startedAt: T - 10 });
+// A test whose judge check could not be decided: neither passed nor failed.
+const UNSURE = run('01M5H2EHJ4R8N3W6T1Y5B9CXQK', { parentRunId: REC.runId, mode: 'replay', kind: 'test', label: 'test', test: { golden: 'goldens/refund-polite' }, outcome: { kind: 'inconclusive', check: 'judge "polite" answers yes' }, origins: 'r'.repeat(30), startedAt: T + 5 });
 
 const text = (el: FakeElement) => el.textContent.replace(/\s+/g, ' ').trim();
 const byId = (r: Rendered, id: string) => r.all('a.run').find((a) => a.querySelector('.id')!.textContent === id.slice(0, 10))!;
@@ -88,15 +90,17 @@ describe('the sidebar’s recent runs', () => {
     expect(byId(r, LOST.runId).querySelector('.tree')).toBeNull();
   });
 
-  it('says a failure in the words Runs’ Status uses', async () => {
-    r = await render(createElement(RecentRuns, { runs: [LOST, REC, CLEAN, FORK, FORK2, FAILED_FORK], current: null, loading: false }));
+  it('says a failure in the words Runs’ Status uses, and a check it couldn’t decide in the design’s one word', async () => {
+    r = await render(createElement(RecentRuns, { runs: [LOST, REC, CLEAN, FORK, FORK2, FAILED_FORK, UNSURE], current: null, loading: false }));
     const line = (id: string) => text(byId(r!, id).querySelector('.r2')!);
-    const red = (id: string) => byId(r!, id).querySelector('.r2 em')?.textContent ?? null;
+    const red = (id: string) => byId(r!, id).querySelector('.r2 em:not(.inc)')?.textContent ?? null;
     // Not "check failed": blame found where it was lost, and Runs says so.
     expect([red(LOST.runId), line(LOST.runId)]).toEqual(['lost at #9', 'lost at #9 · 11 calls']);
     expect([red(FAILED_FORK.runId), line(FAILED_FORK.runId)]).toEqual(['check failed', 'check failed · fork @7']);
     expect([red(FORK2.runId), line(FORK2.runId)]).toEqual([null, 'fork @19 · 0 live · 2 stubbed']);
     expect(line(CLEAN.runId)).toBe('clean replay · 30/30');
+    // Amber, and shorter than Runs' "check inconclusive", as the design's sidebar says it.
+    expect([byId(r, UNSURE.runId).querySelector('.r2 em.inc')?.textContent, line(UNSURE.runId)]).toEqual(['inconclusive', 'inconclusive · test']);
   });
 });
 

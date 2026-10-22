@@ -423,9 +423,12 @@ describe('runs', () => {
     expect(sideLine(test)).toEqual({ err: 'diverged at #1', text: ' · test' });
     const failedFork = { ...fork, outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true };
     expect(sideLine(failedFork)).toEqual({ err: 'check failed', text: ' · fork @17' });
-    // The agent's exit names no check; a check that could not be decided is amber, neither passed nor failed.
+    // The agent's exit names no check; a check that could not be decided is amber, neither passed nor
+    // failed, and the sidebar says it in the design's one word where Runs, with the room, says more.
     expect(sideLine({ ...base, status: 'failed', outcome: { kind: 'check-failed', check: null }, failed: true })).toEqual({ err: 'failed', text: ' · 30 calls' });
-    expect(sideLine({ ...test, status: 'completed', outcome: { kind: 'inconclusive', check: 'judge "polite" answers yes' }, failed: false })).toEqual({ warn: 'check inconclusive', text: ' · test' });
+    const unsure = { ...test, status: 'completed' as const, outcome: { kind: 'inconclusive', check: 'judge "polite" answers yes' }, failed: false };
+    expect(sideLine(unsure)).toEqual({ warn: 'inconclusive', text: ' · test' });
+    expect(runOutcome(unsure)).toEqual({ tone: 'warn', text: 'check inconclusive' });
   });
 
   it('says what a fork did in its Status: what came of its writes, or the check it failed', () => {

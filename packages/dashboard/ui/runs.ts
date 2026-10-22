@@ -202,9 +202,10 @@ export function runSubline(r: RunLike): string {
 }
 
 /**
- * The sidebar's line: what happened, in a few words. A run that failed, or whose check could not be
- * decided, says so first, in the words of Runs' Status (`lost at #9`, `diverged at #3`, `check
- * failed`, `check inconclusive`), then what it is; `err` is said in red, `warn` in amber.
+ * The sidebar's line: what happened, in a few words. A run that failed says so first, in the words
+ * of Runs' Status (`lost at #9`, `diverged at #3`, `check failed`), and one whose check could not be
+ * decided says `inconclusive`, as the design's sidebar words it (Runs, with the room, says `check
+ * inconclusive`); then what it is. `err` is said in red, `warn` in amber.
  */
 export function sideLine(r: RunLike): { text: string; err?: string; warn?: string } {
   const counts = runCounts(r);
@@ -217,7 +218,7 @@ export function sideLine(r: RunLike): { text: string; err?: string; warn?: strin
   // A recording or a capture is what a run is unless the line says otherwise: its calls follow.
   const what = ` · ${t === 'recording' || t === 'capture' ? calls : kindWord(r)}`;
   if (out.tone === 'err') return { err: out.text, text: what };
-  if (out.tone === 'warn') return { warn: out.text, text: what };
+  if (out.tone === 'warn') return { warn: 'inconclusive', text: what };
   if (t === 'clean') return { text: counts ? `clean replay · ${num(counts.rep)}/${num(r.calls)}` : `clean replay · ${calls}` };
   if (t === 'fork') {
     const went = counts ? ` · ${num(counts.live + counts.fail)} live${counts.block ? ` · ${num(counts.block)} blocked` : ''}${counts.stub ? ` · ${num(counts.stub)} stubbed` : ''}` : ` · ${calls}`;
