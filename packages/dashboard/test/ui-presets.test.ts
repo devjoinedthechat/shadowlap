@@ -48,17 +48,19 @@ describe('a preset’s attempt', () => {
   it('is found among the presets that decided it, as which attempt of its preset, in the preset’s words', () => {
     const p = presetAttempt(matrix, ATTEMPT)!;
     expect(p).toEqual({ label: 'tool timeout', golden: 'goldens/list-inbox', callNo: 2, target: 'list_inbox', verdict: 'failed', attempt: 1, of: 1, played: 'list_inbox (#2) timed out', outcome: WHY, exitCode: 1 });
-    expect(presetWhy(p)).toBe('tool timeout, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset');
+    expect(presetWhy(p)).toBe('tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset');
+    // A run's own presets, which no golden made, name none.
+    expect(presetWhy({ ...p, golden: null })).toBe('tool timeout, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset');
     expect(presetTag(p)).toEqual({ cls: 'fail', text: 'failed' });
     // Why it failed is the header's red line, which the banner leaves to it.
     expect(exitWords('failed', p)).toBe(WHY);
-    expect(presetWhy(presetAttempt(matrix, PASSED)!)).toBe('empty result, attempt 1 of 1: list_inbox (#2) answered with nothing, played in by the preset');
+    expect(presetWhy(presetAttempt(matrix, PASSED)!)).toBe('empty result preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) answered with nothing, played in by the preset');
     // One of several attempts: its place among them, and its own exit when the result kept no why.
     const second = presetAttempt(matrix, SECOND)!;
-    expect([second.attempt, second.of, second.outcome, presetWhy(second)]).toEqual([2, 2, 'the agent exited with code 1', 'provider 429, attempt 2 of 2: model call #3 failed with HTTP 429, played in by the preset']);
+    expect([second.attempt, second.of, second.outcome, presetWhy(second)]).toEqual([2, 2, 'the agent exited with code 1', 'provider 429 preset on goldens/list-inbox, attempt 2 of 2: model call #3 failed with HTTP 429, played in by the preset']);
     // One that couldn't say claims nothing played in: why goes at the banner's end.
     const unsure = presetAttempt(matrix, UNSURE)!;
-    expect([presetWhy(unsure), unsure.outcome]).toEqual(['provider 500, attempt 1 of 1', 'the replay never reached #3, so the preset was never played in']);
+    expect([presetWhy(unsure), unsure.outcome]).toEqual(['provider 500 preset on goldens/list-inbox, attempt 1 of 1', 'the replay never reached #3, so the preset was never played in']);
     expect(presetTag(unsure)).toEqual({ cls: 'inc', text: 'inconclusive' });
     // One that passed keeps its kind's chip; a run no preset made has none.
     expect(presetTag(presetAttempt(matrix, PASSED))).toBeNull();
@@ -92,9 +94,9 @@ describe('a preset’s attempt', () => {
   it('leads its banner with its verdict word, then which preset it played in where, in every attempt’s grammar', () => {
     // Without the preset: a healthy fork, which is what the page said.
     expect(bannerFor(input)!.kind).toBe('fork');
-    expect(bannerFor({ ...input, preset: presetAttempt(matrix, ATTEMPT) })).toEqual({ kind: 'preset', callNo: 2, verdict: 'failed', why: 'tool timeout, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed', golden: 'goldens/list-inbox' });
+    expect(bannerFor({ ...input, preset: presetAttempt(matrix, ATTEMPT) })).toEqual({ kind: 'preset', callNo: 2, verdict: 'failed', why: 'tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed', golden: 'goldens/list-inbox' });
     // One that couldn't say says why at its end, the header having no line for it.
-    expect(bannerFor({ ...input, preset: presetAttempt(matrix, UNSURE) })!).toMatchObject({ verdict: 'inconclusive', why: 'provider 500, attempt 1 of 1 · writes stubbed · the replay never reached #3, so the preset was never played in' });
+    expect(bannerFor({ ...input, preset: presetAttempt(matrix, UNSURE) })!).toMatchObject({ verdict: 'inconclusive', why: 'provider 500 preset on goldens/list-inbox, attempt 1 of 1 · writes stubbed · the replay never reached #3, so the preset was never played in' });
   });
 
   it('draws the banner whole: it wraps rather than cut its words, the verdict word first in its colour', () => {
@@ -104,7 +106,7 @@ describe('a preset’s attempt', () => {
     );
     expect(html).toContain('<section class="banner fork wrap"><span class="bk">forked at</span><button class="bn" type="button">#2</button>');
     // Its tally kept whole where the line wraps.
-    expect(html).toContain('<span class="why"><em class="no">failed</em> · tool timeout, attempt 1\u00a0of\u00a01: list_inbox (#2) timed out, played in by the preset · writes stubbed</span>');
+    expect(html).toContain('<span class="why"><em class="no">failed</em> · tool timeout preset on goldens/list-inbox, attempt 1\u00a0of\u00a01: list_inbox (#2) timed out, played in by the preset · writes stubbed</span>');
     expect(html).toContain('<a class="more" href="#/tests" title="list-inbox on Tests">Tests →</a>');
     // Never a line cut at the banner's end.
     expect(html).not.toContain('…');

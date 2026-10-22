@@ -53,13 +53,14 @@ export function presetAttempt(matrix: ChaosMatrix | null | undefined, runId: str
 }
 
 /**
- * The banner's line after its verdict word, in every attempt's grammar: what was done, which attempt
- * it was, and what the preset played in where, `tool timeout, attempt 1 of 1: list_inbox (#2) timed
- * out, played in by the preset`. Why one failed is the header's red line, so the banner doesn't say
- * it again; one that couldn't say says why at the banner's end, since the header has no line for it.
+ * The banner's line after its verdict word, in every attempt's grammar: what was done and on which
+ * golden, which attempt it was, and what the preset played in where, `tool timeout preset on
+ * goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset`. Why one
+ * failed is the header's red line, so the banner doesn't say it again; one that couldn't say says why
+ * at the banner's end, since the header has no line for it. A run's own presets name no golden.
  */
 export function presetWhy(p: PresetAttempt): string {
-  const which = `${p.label}, attempt ${p.attempt} of ${p.of}`;
+  const which = `${p.golden ? `${p.label} preset on ${p.golden}` : p.label}, attempt ${p.attempt} of ${p.of}`;
   return p.verdict === 'inconclusive' || !p.played ? which : `${which}: ${p.played}, played in by the preset`;
 }
 
