@@ -492,12 +492,15 @@ describe('a fix', () => {
     const exitOnly = recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }], { oracle: ['the agent exits 0'], codeVersion: 'f353f41' }), expect: null, command: 'shadowlap verify --fixes label:double-email', at: NOW });
     const counted = recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }], { codeVersion: 'f353f41' }), expect: EXPECT, command: 'shadowlap verify --fixes label:double-email', at: NOW + 1 });
     for (const v of store.listVerdicts()) for (const x of v.report.runs) for (const a of x.attempts) makeRunAs(a.runId, run, { verify: { role: 'target', passed: true } });
+    for (const b of store.blamesOfRun(run)) for (const p of b.report.probes) for (const a of p.attempts) makeRunAs(a.runId, run, { probe: { of: run, callNo: p.callNo, passed: a.passed } });
     const bundles = fixBundles(store, run)!;
     const byVerdict = (id: string) => bundles.find((b) => b.href === `#/fixes/${fix.fixId}/verify/${id}`)!;
     expect(fixDetail(store, fix.fixId)!.verify.map((v) => v.label)).toEqual(['f353f41 · accepted', "f353f41 · accepted · doesn't count"]);
     expect([byVerdict(exitOnly.verdict.verifyId).counts, byVerdict(counted.verdict.verifyId).counts]).toEqual([false, true]);
     // Blame's attempts are no verdict.
-    expect(bundles.filter((b) => b.kind === 'blame').every((b) => b.counts === null)).toBe(true);
+    const probes = bundles.filter((b) => b.kind === 'blame');
+    expect(probes.length).toBeGreaterThan(0);
+    expect(probes.map((b) => b.counts)).toEqual(probes.map(() => null));
   });
 
   it('heads a verdict by the runs it checked, and says every failing run was fixed only when it checked them all', () => {
