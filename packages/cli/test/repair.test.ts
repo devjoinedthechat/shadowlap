@@ -321,7 +321,7 @@ process.stdin.on('end', () => {
     }
   });
 
-  it('shows the repairer the run with the redaction rules applied, as every copy of a run that leaves the machine', async () => {
+  it('shows the repairer the run with the redaction rules applied, as every export, pack and share link of a run', async () => {
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
     // The customer's address is in the opening message, which the repairer is shown as part of the conversation.
     const failed = await record('jane.doe@example.com');

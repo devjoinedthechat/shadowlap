@@ -64,7 +64,7 @@ const HOW: Record<RuleList, { what: string; add: string; listed: string }> = {
     listed: 'no normalizers',
   },
   redact: {
-    what: 'Manage redaction rules in shadowlap.config.json: what is masked in the copy of a run that leaves this machine (pack and every export)',
+    what: 'Manage redaction rules in shadowlap.config.json: what is masked in every export, pack and share link of a run',
     add: 'Add a redaction rule. A pattern masks what it matches in every string of every stored request and response (only at --path, with one); --path alone replaces the whole value there, numbers included. A path reaches requests in every copy, and what a call got back only in a copy that is read (export html, har, dataset): a pack keeps it for its replay',
     listed: 'no redaction rules',
   },
@@ -145,7 +145,7 @@ function registerRules(program: Command, list: RuleList): void {
   if (list === 'redact') registerPreview(program, cmd);
 }
 
-/** `redact preview`: what the rules would mask in one run, before it leaves the machine. */
+/** `redact preview`: what the rules would mask in one run, before it is exported, packed or shared. */
 function registerPreview(program: Command, cmd: Command): void {
   cmd
     .command('preview')

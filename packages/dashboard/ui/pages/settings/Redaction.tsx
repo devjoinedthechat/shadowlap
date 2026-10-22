@@ -181,7 +181,7 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
           Redaction rule #{broken.n} can’t be used: {broken.error}. Remove it or fix it in {CONFIG_FILE} to see the preview.
         </p>
       ) : !data.rules.length ? (
-        <p className="muted pvnone">Add a rule to see what it would mask in this run before a copy leaves the machine.</p>
+        <p className="muted pvnone">Add a rule to see what it would mask in this run before you export, pack or share it.</p>
       ) : p.error && !view ? (
         <p className="fieldnote err">{p.error.message}</p>
       ) : view ? (

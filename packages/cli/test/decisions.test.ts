@@ -418,7 +418,7 @@ describe('shadowlap decisions', () => {
     expect(text.stdout).toMatch(/rank 1 +send_email is called with other arguments · in 1 of 3 samples, fewer than half: not flagged/);
   }, 120_000);
 
-  it("masks what the project's redaction rules mask in the report, as every copy that leaves the machine is", async () => {
+  it("masks what the project's redaction rules mask in the report, as every export, pack and share link is", async () => {
     const project = join(cwd, 'redacted');
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: '/Replay works/', replace: '<masked>' }] }));
@@ -430,7 +430,7 @@ describe('shadowlap decisions', () => {
     const email = report.runs[0]!.decisions[0]!;
     expect(email.changes[0]).toMatchObject({ kind: 'write-arguments', before: { body: '<masked>.' }, after: { body: '<masked>; forks fence writes.' } });
     expect(email.recorded.tools[0]!.args).toMatchObject({ body: '<masked>.' });
-    expect(report.notes).toContain("The project's redaction rules masked the values this report shows, as they mask every copy of a run that leaves the machine.");
+    expect(report.notes).toContain("The project's redaction rules masked the values this report shows, as they mask every export, pack and share link.");
     // The comparison read the values themselves: the email still changed, rank 1.
     expect(report.flagged).toEqual([runId]);
     const text = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5'], {}, project);
