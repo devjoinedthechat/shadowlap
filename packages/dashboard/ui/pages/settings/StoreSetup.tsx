@@ -236,7 +236,25 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                   </button>
                 ))}
               </div>
-              {step ? (
+              {step?.workflow ? (
+                // GitHub: your workflow on Settings → CI runs the goldens once and pushes them; this adds no job that runs them again.
+                <>
+                  <p className="muted cinote">
+                    Your workflow on <a href={step.workflow.href}>Settings → CI</a> runs your goldens once, and with Push from CI on it pushes them (<code>push: true</code>), so this adds no job of its own.{' '}
+                    {step.workflow.credentials ? 'Put these steps in its job right before the action, where its comment says:' : 'Add R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY as repository secrets: its step gives them to your branches’ jobs only.'}
+                  </p>
+                  {step.workflow.credentials ? (
+                    <pre className="codebox" title={step.file}>
+                      {step.workflow.credentials}
+                    </pre>
+                  ) : null}
+                  {step.notes.map((n) => (
+                    <p key={n} className="muted cinote">
+                      {n}
+                    </p>
+                  ))}
+                </>
+              ) : step ? (
                 <>
                   <pre className="codebox" title={step.file}>
                     {step.text}
@@ -249,9 +267,16 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                 </>
               ) : null}
               <div className="actions">
-                <button className="btn" type="button" disabled={!step} onClick={() => step && copy(step.text, `the ${step.name} step`)}>
-                  Copy
-                </button>
+                {step?.workflow ? (
+                  <a className="btn" href={step.workflow.href}>
+                    Open your workflow
+                  </a>
+                ) : null}
+                {step?.workflow && !step.workflow.credentials ? null : (
+                  <button className="btn" type="button" disabled={!step} onClick={() => step && copy(step.workflow?.credentials ?? step.text, step.workflow ? 'the credentials steps' : `the ${step.name} step`)}>
+                    Copy
+                  </button>
+                )}
                 <button className="btn lime" type="button" disabled={!!off || saving} title={off ?? undefined} onClick={() => save({ ci: 'added', ciProvider: ci }, 'Push from CI added')}>
                   I added it
                 </button>

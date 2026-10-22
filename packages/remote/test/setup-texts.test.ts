@@ -221,8 +221,14 @@ describe('the CI step', () => {
       expect(step.text.trimEnd().endsWith('  - run: npx shadowlap@9.9.9 test goldens/* --push'), url).toBe(true);
       expect(step.notes.join(' '), url).toContain('A pull request from a fork gets no OIDC token from GitHub, so its job skips the credentials and runs the tests without pushing');
     }
+    // The credentials steps alone, for a workflow whose own step runs the tests and pushes, at a workflow's own indent.
+    const alone = ciStep('github', parseStoreUrl('s3://northwind-agent-runs/support-agent?region=eu-central-1'), { version: V }).credentials!;
+    expect(alone.split('\n').filter((l) => l.startsWith('- '))).toEqual(["- if: ${{ !startsWith(github.event_name, 'pull_request') }}", "- if: startsWith(github.event_name, 'pull_request') && github.event.pull_request.head.repo.full_name == github.repository"]);
+    expect(alone).toContain('  uses: aws-actions/configure-aws-credentials@v6\n');
+    expect(alone).not.toContain('shadowlap@');
     // R2's pull-request step has no credentials to fail on: every pull request runs the tests, a fork's included.
     const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'), { version: V });
+    expect(r2.credentials).toBeNull();
     expect(r2.text).toContain("  - if: startsWith(github.event_name, 'pull_request')   # R2 tokens can't be kept to pr/: pull requests test without pushing\n    run: npx shadowlap@9.9.9 test goldens/*");
     expect(r2.text).not.toContain('head.repo');
   });

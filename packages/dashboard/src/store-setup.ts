@@ -66,6 +66,12 @@ export interface SetupCiStep {
   oidc: boolean;
   notes: string[];
   command: string;
+  /**
+   * GitHub Actions': your workflow on Settings → CI runs the goldens once and pushes them, so the
+   * setup points at it rather than add a job that runs them again; `credentials` are the steps that
+   * give its job the bucket's credentials (null for R2, whose keys come from the repository's secrets).
+   */
+  workflow: { href: string; credentials: string | null } | null;
 }
 
 /** What the dashboard's setup of a store recorded. */
@@ -186,7 +192,7 @@ export function storeSetupView(store: Store, input: TeamStoreInput, options: { e
     ci: loc
       ? CI_PROVIDERS.map((ci) => {
           const step = ciStep(ci, loc, { version: VERSION, ...(options.keys ?? {}) });
-          return { ci, name: CI_NAMES[ci], file: step.file, text: step.text, oidc: step.oidc, notes: step.notes, command: `shadowlap store ci --provider ${ci}` };
+          return { ci, name: CI_NAMES[ci], file: step.file, text: step.text, oidc: step.oidc, notes: step.notes, command: `shadowlap store ci --provider ${ci}`, workflow: ci === 'github' ? { href: '#/settings/alerts', credentials: step.credentials ?? null } : null };
         })
       : null,
     commit: loc ? { file: CONFIG_FILE, line: `"store": ${JSON.stringify(input.store)}`, command: COMMIT } : null,

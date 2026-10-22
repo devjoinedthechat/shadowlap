@@ -121,6 +121,9 @@ describe('the setup read model', () => {
     // Pinned as Settings → CI pins the action's step, and complete: Node 22 and the agent's dependencies first.
     expect(view.ci![0]!.text).toContain(`npx shadowlap@${VERSION} test goldens/* --push`);
     expect(view.ci![0]!.text).toContain('  - run: npm ci && npm run build   # whatever your agent needs to run\n');
+    // On GitHub Actions, your workflow on Settings → CI runs the goldens and pushes: the setup gives its job the credentials alone.
+    expect(view.ci![0]!.workflow).toEqual({ href: '#/settings/alerts', credentials: expect.stringMatching(/^- if: .*\n {2}uses: aws-actions\/configure-aws-credentials/) });
+    expect(view.ci!.slice(1).map((c) => c.workflow)).toEqual([null, null]);
     expect(view.commit).toEqual({ file: 'shadowlap.config.json', line: `"store": "${URL_}"`, command: 'git add shadowlap.config.json && git commit -m "Use the team store"' });
 
     await push({ store: s, remote: new MemoryStore(parseStoreUrl(URL_)), actor: 'dana@northwind.example', now: () => NOW }, { all: true });

@@ -30,6 +30,13 @@ export interface CiStep {
   pullRequests: 'own-folder' | 'no-push';
   /** What to set up once on the cloud side. */
   notes: string[];
+  /**
+   * GitHub's: the steps that give a job the bucket's credentials, alone, for a workflow whose own
+   * step runs the tests and pushes (the dashboard's Settings → CI writes one): the writer's for your
+   * branches and a pull request's own, right before that step. Null where the keys come from the
+   * repository's secrets (R2), and on another CI.
+   */
+  credentials?: string | null;
 }
 
 /**
@@ -117,6 +124,7 @@ function github(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
       provider,
       file,
       text,
+      credentials: null,
       oidc: false,
       pullRequests: 'no-push',
       notes: [
@@ -136,6 +144,13 @@ function github(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
     ],
     azure: (pr) => ['    uses: azure/login@v3', '    with:', `      client-id: \${{ vars.${pr ? 'AZURE_PR_CLIENT_ID' : 'AZURE_CLIENT_ID'} }}`, '      tenant-id: ${{ vars.AZURE_TENANT_ID }}', '      subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}'],
   };
+  const credentials = [
+    `  - if: ${writerIf}`,
+    ...auth[provider](false),
+    "  # a pull request's own credentials, which write only under pr/; a fork's job gets none",
+    `  - if: ${ownPrIf}`,
+    ...auth[provider](true),
+  ];
   const text = [
     'permissions:',
     '  id-token: write   # the job gets short-lived cloud credentials; no stored keys',
@@ -143,11 +158,7 @@ function github(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
     '',
     'steps:',
     ...GITHUB_SETUP,
-    `  - if: ${writerIf}`,
-    ...auth[provider](false),
-    "  # a pull request's own credentials, which write only under pr/; a fork's job gets none",
-    `  - if: ${ownPrIf}`,
-    ...auth[provider](true),
+    ...credentials,
     `  - run: ${run} --push`,
     ...githubEnv(o, '    '),
   ].join('\n');
@@ -161,6 +172,8 @@ function github(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
     provider,
     file,
     text,
+    // The same steps as a list of a job's steps, as a workflow file has them at its own indent.
+    credentials: credentials.map((l) => l.slice(2)).join('\n'),
     oidc: true,
     pullRequests: 'own-folder',
     notes: [
