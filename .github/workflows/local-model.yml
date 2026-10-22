@@ -17,7 +17,12 @@ on:
         default: qwen2.5:1.5b
 
 jobs:
+  scope:
+    uses: ./.github/workflows/scope.yml
+
   ollama:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

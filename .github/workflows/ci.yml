@@ -4,15 +4,22 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Started by hand it covers macOS and Windows too, as every run does once the repository is
+  # public (scope.yml).
+  workflow_dispatch:
 
 jobs:
+  scope:
+    uses: ./.github/workflows/scope.yml
+
   test:
+    needs: scope
     name: node ${{ matrix.node }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON(needs.scope.outputs.os) }}
         node: [22, 24]
         include:
           # The oldest Node the packages' engines allow, the first 22 whose built-in SQLite has

@@ -20,7 +20,12 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    uses: ./.github/workflows/scope.yml
+
   skill:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     name: the skill's commands against the reference agent
     runs-on: ubuntu-latest
     steps:

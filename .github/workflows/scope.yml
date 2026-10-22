@@ -1,0 +1,40 @@
+name: Scope
+
+# What a run covers, for the workflows that call this one. A private repository's Actions minutes
+# are billed, a macOS minute as ten and a Windows minute as two; a public repository's are free.
+# While this repository is private, a run that starts on its own (a push, a pull request, the
+# schedule) covers Linux only, and the slower suites wait; a run started by hand (Actions → Run
+# workflow) covers everything. Once the repository is public, every run covers everything.
+
+on:
+  workflow_call:
+    outputs:
+      full:
+        description: "'true' when this run covers macOS, Windows and the slower suites"
+        value: ${{ jobs.scope.outputs.full }}
+      os:
+        description: The operating systems this run covers, as a JSON list for a matrix
+        value: ${{ jobs.scope.outputs.os }}
+
+jobs:
+  scope:
+    name: what this run covers
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+      os: ${{ steps.scope.outputs.os }}
+    steps:
+      - id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # When the visibility can't be read, the run takes the cheaper scope.
+          private=$(gh api "repos/$GITHUB_REPOSITORY" --jq .private 2>/dev/null || echo true)
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$private" = false ]; then
+            echo 'full=true' >> "$GITHUB_OUTPUT"
+            echo 'os=["ubuntu-latest","macos-latest","windows-latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'full=false' >> "$GITHUB_OUTPUT"
+            echo 'os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+          fi
+          echo "private: $private · event: $GITHUB_EVENT_NAME"

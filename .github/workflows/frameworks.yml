@@ -24,7 +24,12 @@ on:
         default: false
 
 jobs:
+  scope:
+    uses: ./.github/workflows/scope.yml
+
   frameworks:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     name: frameworks (${{ matrix.os }}, ${{ (github.event_name == 'schedule' || inputs.latest) && 'latest' || 'pinned' }})
     runs-on: ${{ matrix.os }}
     strategy:
