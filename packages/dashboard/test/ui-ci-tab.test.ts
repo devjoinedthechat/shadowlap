@@ -9,7 +9,8 @@ import { render, type Rendered } from './ui-render.js';
 /**
  * Settings → CI as the page renders the server's answer: the steps as a job of their own runs them,
  * the failures a golden counts, an inconclusive one in amber, the Inconclusive goldens control,
- * which asks the server again with the choice, and a config that can't be read.
+ * which asks the server again with the choice, the keys a row lists, each kept whole, and a config
+ * that can't be read.
  */
 
 const goldens = [
@@ -69,6 +70,16 @@ describe('Settings → CI', () => {
     expect(ask).toHaveBeenLastCalledWith(expect.objectContaining({ inconclusive: 'warn' }));
     expect(r.all('#alerts .codebox')[0]!.textContent).toContain('    inconclusive: warn\n');
     expect(r.byText('#alerts .seg[aria-label="Inconclusive goldens"] button', 'Warn').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('keeps each key of a long list whole, breaking only after a comma', async () => {
+    const many = [{ path: 'goldens/a', live: [], keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'], known: true }];
+    const ask = vi.fn(async (o: Partial<CiWorkflowOptions> = {}) => ciWorkflows({ ...CI_DEFAULTS, ...o }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens: many }));
+    r = await render(createElement(AppContext.Provider, { value: app(ask as unknown as Client['ciWorkflows']) }, createElement(SettingsPage, { tab: 'alerts' })));
+    await r.until('the panels', () => r!.all('.cip .cilist').length > 1);
+    const code = r.all('.cip .cimain .cilist li').find((li) => li.textContent.startsWith('your agent’s provider keys'))!.querySelector('code')!;
+    expect(code.textContent).toBe('ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY');
+    expect(code.querySelectorAll('span.nw').map((x) => x.textContent)).toEqual(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']);
   });
 
   it('says the config can’t be read, as the other tabs do, and what each step leaves out', async () => {

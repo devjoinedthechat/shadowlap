@@ -1547,13 +1547,14 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .cip .alertgrid .cimain { padding-bottom: 8px; }
 .cip .alertgrid .cimain .setrow:last-child { border-bottom: 0; }
 .cilist { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
-.cilist li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; font-size: 13px; color: var(--dim); }
+/* The label keeps room for a few words beside a long value, which breaks after a comma, each part whole. */
+.cilist li { display: grid; grid-template-columns: 8px minmax(min(150px, 40%), 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; font-size: 13px; color: var(--dim); }
 .cilist li + li { border-top: 1px solid var(--line); }
 .cilist li i { width: 8px; height: 8px; border-radius: 50%; background: var(--line2); }
 .cilist li i.err { background: var(--err); }
 .cilist li i.warn { background: var(--warn); }
-.cilist li span { text-wrap: balance; }
-.cilist li code { font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
+.cilist li > span { text-wrap: balance; }
+.cilist li code { font: 11.5px var(--mono); color: var(--faint); }
 .slackmsg { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 12px; background: var(--bg2); }
 .slackmsg .tile { width: 32px; height: 32px; border-radius: 8px; flex: none; }
 .slackmsg .sm { min-width: 0; }

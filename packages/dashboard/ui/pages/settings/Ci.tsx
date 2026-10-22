@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { CodeBlock } from '../../components/bits.js';
 import { Tile } from '../../components/Icon.js';
 import { shortFixId } from '../../fixes/model.js';
@@ -99,7 +99,11 @@ function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView 
   return served;
 }
 
-/** A list of rows, each with its dot: the row's own tone (a failure red, one that can't be decided amber), else the list's. */
+/**
+ * A list of rows, each with its dot: the row's own tone (a failure red, one that can't be decided
+ * amber), else the list's. A value that lists several (the providers' keys) breaks only after a
+ * comma, each one whole.
+ */
 function CiList({ rows, tone = '' }: { rows: readonly CiListRow[]; tone?: '' | 'err' }) {
   return (
     <ul className="cilist">
@@ -107,7 +111,16 @@ function CiList({ rows, tone = '' }: { rows: readonly CiListRow[]; tone?: '' | '
         <li key={`${r.label}\u0000${r.value}`}>
           <i className={(r.tone ?? tone) || undefined} aria-hidden="true" />
           <span>{r.label}</span>
-          {r.value ? <code>{r.value}</code> : null}
+          {r.value ? (
+            <code>
+              {r.value.split(', ').map((v, i) => (
+                <Fragment key={i}>
+                  {i ? ', ' : null}
+                  <span className="nw">{v}</span>
+                </Fragment>
+              ))}
+            </code>
+          ) : null}
         </li>
       ))}
     </ul>
