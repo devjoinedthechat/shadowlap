@@ -1,5 +1,7 @@
 import type { ActionItem as ServerAction, CallDetail as ServerCallDetail, CallRow as ServerCallRow, LineageNode as ServerLineageNode, RunDetail as ServerRunDetail, RunListItem as ServerRunListItem } from '../src/api.js';
 import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
+import type { RunAbout } from '../../engine/src/about.js';
+export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
 
 // Fixes (`/api/fixes`): the read model's own shapes, as the server sends them.
 export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixRow, FixRunRef, FixStep, RepairStep, StepKey, StepState, VerifyRow, VerifyStep } from '../src/fixes.js';
@@ -62,8 +64,13 @@ export interface RunListExtras {
   failed?: boolean | null;
   /** How many attempts are bundled under the run. */
   attempts?: number | null;
+  /**
+   * What the run was about, one quiet line worked out from it (decision 10: the id is its name).
+   * Absent from an older server, and from a copy exported before it: the views show the id alone.
+   */
+  about?: RunAbout | null;
 }
-export type RunListItem = ServerRunListItem & RunListExtras;
+export type RunListItem = Omit<ServerRunListItem, 'about'> & RunListExtras;
 
 export interface CallRowExtras {
   /** For a replayed call: how long it took where it was recorded (the parent's call, or further back). */
@@ -235,6 +242,8 @@ export interface RunDetailExtras {
   attemptPlace?: { k: number; n: number } | null;
   /** The run's models by the short name a call row carries, as the run page names them (`claude-opus-5`). */
   models?: Record<string, string>;
+  /** What the run was about, as the lists say it; absent from an older server. */
+  about?: RunAbout | null;
 }
 
 /** A fix as the run page links to it: `#/fixes/<id>`, its status (`open`, `verified`, `applied`) and title. */
@@ -283,8 +292,8 @@ export type CallDetail = Omit<ServerCallDetail, 'call' | 'actions'> & {
   forkTitle?: string;
 };
 
-/** A run of a family: what an older server or a copy leaves out (its origins, its test) is optional. */
-export type LineageNode = Omit<ServerLineageNode, 'origins' | 'test'> & { probe?: unknown; verify?: unknown; origins?: string | string[] | null; test?: ServerLineageNode['test'] | null };
+/** A run of a family: what an older server or a copy leaves out (its origins, its test, its about line) is optional. */
+export type LineageNode = Omit<ServerLineageNode, 'origins' | 'test' | 'about'> & { probe?: unknown; verify?: unknown; origins?: string | string[] | null; test?: ServerLineageNode['test'] | null; about?: RunAbout | null };
 
 /**
  * What the run page offers for a run beyond its record (`/api/runs/:id/offers`): how many redaction

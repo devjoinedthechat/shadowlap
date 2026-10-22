@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answersSub, changedAnswers, changeCards, codeNote, comparingLive, diffTexts, madeBy, pickable, pickerLabel, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
+import { answersSub, changedAnswers, changeCards, codeNote, comparingLive, diffTexts, madeBy, pickable, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
 import { compareTarget, defaultComparePair, type RunLike } from '../ui/runs.js';
 import type { CallRow, CompareView } from '../ui/types.js';
 
@@ -164,13 +164,6 @@ describe('the pickers and live runs', () => {
     expect(compareTarget(rec, [{ runId: 'PROBE', startedAt: 1, attempt: true }, { runId: 'FORK', startedAt: 2 }, { runId: 'CLEAN', startedAt: 3 }])).toEqual(['REC', 'FORK']);
     expect(compareTarget(rec, [{ runId: 'PROBE', startedAt: 1, attempt: true }])).toBeNull();
     expect(compareTarget({ runId: 'FORK', parentRunId: 'REC' }, [])).toEqual(['REC', 'FORK']);
-  });
-
-  it('words each run as every list does: a recording, a fork at its call, a clean replay', () => {
-    const run = (o: Partial<RunLike>): RunLike => ({ runId: '01K5CQ4N7G000000000000000A', parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: 'python refund_agent.py', codeVersion: null, startedAt: 1, calls: 30, spent: 0, saved: 0, captured: 0, imported: false, covers: null, source: null, labels: [], ...o });
-    expect(pickerLabel(run({}))).toBe('01K5CQ4N7G · recording');
-    expect(pickerLabel(run({ mode: 'replay', parentRunId: 'p', divergence: { callNo: 17, type: 'request_changed' } }))).toBe('01K5CQ4N7G · fork @17');
-    expect(pickerLabel(run({ mode: 'replay', parentRunId: 'p' }))).toBe('01K5CQ4N7G · clean replay');
   });
 
   it('reads the comparison again while either run records, by full or short id', () => {

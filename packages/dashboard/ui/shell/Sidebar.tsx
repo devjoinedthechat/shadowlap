@@ -1,11 +1,12 @@
-import { memo, useMemo, type CSSProperties } from 'react';
+import { memo, useMemo, useRef, type CSSProperties } from 'react';
 import type { RunListItem } from '../api.js';
+import { AboutLine, useFitAbouts } from '../components/About.js';
 import { RunIcon } from '../components/RunIcon.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { paletteKeyLabel } from '../dom.js';
 import { num, shortId, whenShort } from '../format.js';
 import { href, navSection, type Route } from '../route.js';
-import { copyCompares, isAttempt, runTree, sideLine, treeLines } from '../runs.js';
+import { copyCompares, isAttempt, runTree, sideLine, sideStatus, treeLines } from '../runs.js';
 import { useApp } from '../state.js';
 import { ProjectBlock } from './ProjectBlock.js';
 
@@ -86,11 +87,15 @@ function TreeLines({ depth, on, kids }: { depth: number; on: readonly boolean[];
 /**
  * The newest runs as a tree as deep as each family goes: a run's replays and forks a step in under
  * it, and theirs under them, so a fork of a fork sits under the fork it came from, as the Overview's
- * grid nests it.
+ * grid nests it. Two lines a run: its id and when, then its about line (decision 10), fitted to the
+ * room it gets, followed only by what needs a look or how far a recording has got. Under a parent,
+ * a run's about line is what it changed. A server that sends no about line gets the old line.
  */
 export const RecentRuns = memo(function RecentRuns({ runs, current, loading }: { runs: RunListItem[]; current: string | null; loading: boolean }) {
   const tree = useMemo(() => treeLines(runTree(runs).slice(0, RECENT)), [runs]);
   const now = Date.now();
+  const box = useRef<HTMLDivElement>(null);
+  useFitAbouts(box);
   if (loading) return <div className="runs" />;
   if (!runs.length)
     return (
@@ -99,10 +104,11 @@ export const RecentRuns = memo(function RecentRuns({ runs, current, loading }: {
       </div>
     );
   return (
-    <div className="runs" tabIndex={-1}>
+    <div className="runs" tabIndex={-1} ref={box}>
       {tree.map(({ run: r, depth, on, kids }) => {
-        const line = sideLine(r);
         const here = current !== null && (r.runId === current || (current.length >= 10 && r.runId.startsWith(current)));
+        const st = r.about ? sideStatus(r) : null;
+        const line = r.about ? null : sideLine(r);
         return (
           <a key={r.runId} className="run" style={{ '--d': depth } as CSSProperties} href={href.run(r.runId)} aria-current={here ? 'true' : 'false'} title={r.source ? `from ${r.source}` : r.command}>
             <TreeLines depth={depth} on={on} kids={kids} />
@@ -111,10 +117,22 @@ export const RecentRuns = memo(function RecentRuns({ runs, current, loading }: {
               <span className="id">{shortId(r.runId)}</span>
               <span className="when">{whenShort(r.startedAt, now)}</span>
             </span>
-            <span className="r2">
-              {line.err ? <em>{line.err}</em> : line.warn ? <em className="inc">{line.warn}</em> : null}
-              {line.text}
-            </span>
+            {line ? (
+              <span className="r2">
+                {line.err ? <em>{line.err}</em> : line.warn ? <em className="inc">{line.warn}</em> : null}
+                {line.text}
+              </span>
+            ) : (
+              <span className="r2">
+                <AboutLine about={r.about} className="ra" />
+                {st ? (
+                  <span className="r2s">
+                    <span className="dot">·</span>
+                    {st.tone ? <em className={st.tone === 'warn' ? 'inc' : undefined}>{st.text}</em> : st.text}
+                  </span>
+                ) : null}
+              </span>
+            )}
           </a>
         );
       })}

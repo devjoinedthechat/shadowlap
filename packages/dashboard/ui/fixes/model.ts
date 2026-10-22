@@ -339,9 +339,18 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
   return { cells, toolsLeftOut: true };
 }
 
-/** How a probe's verdict reads as a badge: rescued in lime, lost in red, the blamed one and an inconclusive one in amber. */
+/**
+ * How a probe's verdict reads as a badge: rescued in lime (the blamed one too: it rescued the run),
+ * lost in red, inconclusive in amber. Amber means only that a verdict couldn't be reached; the blamed
+ * call is marked apart, in ink (`probeVerdictWords`).
+ */
 export function probeBadge(verdict: BlameStep['probes'][number]['verdict']): 'ok' | 'no' | 'y' {
-  return verdict === 'rescued · blamed' || verdict === 'inconclusive' ? 'y' : verdict === 'lost' ? 'no' : 'ok';
+  return verdict === 'inconclusive' ? 'y' : verdict === 'lost' ? 'no' : 'ok';
+}
+
+/** A probe's verdict word, and whether it is the blamed call, which the badge's row marks in ink: `rescued` and `blamed`. */
+export function probeVerdictWords(verdict: BlameStep['probes'][number]['verdict']): { word: string; blamed: boolean } {
+  return verdict === 'rescued · blamed' ? { word: 'rescued', blamed: true } : { word: verdict, blamed: false };
 }
 
 /** "Model call 3 of 4" (in scope agent), or the run alone when blame placed the failure on no call. */
@@ -495,29 +504,38 @@ export function attemptMark(a: { passed: boolean; verdict?: string }): 'unsure' 
 }
 
 /**
- * A bundle's icon and the words for it: blame attempts, or a verify accepted or rejected. A verdict
- * that doesn't count for the fix is no verdict on it, so its icon is a verify's, drawn plain
+ * A bundle's icon and the words for it: blame attempts; a verify's by how its run came out (held in
+ * lime, failed in red, inconclusive in amber), or, for attempts no report names, by its verdict. A
+ * verdict that doesn't count for the fix is no verdict on it, so its icon is a verify's, drawn plain
  * (`plain`), as its Verify step draws the verdict.
  */
-export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'>): { kind: 'blame' | 'fixok' | 'fixbad' | 'fork'; label: string; plain?: true } {
+export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & { tone?: FixBundle['tone'] }): { kind: 'blame' | 'fixok' | 'fixbad' | 'warn'; label: string; plain?: true } {
   if (b.kind === 'blame') return { kind: 'blame', label: 'Blame attempts' };
   if (b.counts === false) return { kind: 'fixok', label: "Verify attempts of a verdict that doesn't count for the fix", plain: true };
+  if (b.tone === 'ok') return { kind: 'fixok', label: 'Verify attempts: the run held' };
+  if (b.tone === 'no') return { kind: 'fixbad', label: 'Verify attempts: the run failed' };
+  if (b.tone === 'y') return { kind: 'warn', label: 'Verify attempts: inconclusive' };
   if (b.verdict === 'accepted') return { kind: 'fixok', label: 'Verify accepted the change' };
   if (b.verdict === 'rejected') return { kind: 'fixbad', label: 'Verify rejected the change' };
-  return { kind: 'fork', label: 'Verify attempts, not settled' };
+  return { kind: 'warn', label: 'Verify attempts, not settled' };
 }
 
 /**
- * The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032" (with those that could not be
- * judged counted apart), and for a verify the change and how it came out, as the Verify step's
- * switch names it: "repair candidate 3 · accepted", and "· doesn't count" after one that doesn't
- * count for the fix. A revision stays with the "at" before it (`keepAt`).
+ * The line under a bundle's title. A stored report's says its verdict as a gate's (decision 9: the
+ * word, the tally and the Wilson bound) and what its attempts spent, `rescued · 2 of 2 · rate >= 0.34
+ * (95%) · ≈$0.032`, its rule said once under the family; attempts no report names, "4 attempts, 2
+ * passed" (those that could not be judged counted apart). A verify's then names the change it
+ * checked and how that came out, as the Verify step's switch names it: `fixed · 12 of 12 · rate >=
+ * 0.76 (95%) · ≈$0.046 · repair candidate 3 · accepted`, since a run kept under a change says
+ * nothing of whether the change was accepted, and "· doesn't count" after one that doesn't count
+ * for the fix. A revision stays with the "at" before it (`keepAt`).
  */
-export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict' | 'counts'>, money: (usd: number) => string): string {
+export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict' | 'counts'> & { verdictLine?: string | null }, money: (usd: number) => string): string {
+  const change = b.kind === 'verify' && b.change ? [keepAt(b.change), ...(b.verdict ? [b.verdict] : []), ...(b.counts === false ? ["doesn't count"] : [])] : [];
+  if (b.verdictLine) return [b.verdictLine, ...(b.spent ? [money(b.spent)] : []), ...change].join(' · ');
   const n = b.attempts.length;
   const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
-  const verified = b.kind === 'verify' && b.change ? [keepAt(b.change), ...(b.verdict ? [b.verdict] : []), ...(b.counts === false ? ["doesn't count"] : [])] : [];
-  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...verified].join(' · ');
+  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...change].join(' · ');
 }
 
 /**

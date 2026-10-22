@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cacheUse, countOrigins, emptyOriginCounts, recordBlame, recordRepair, recordVerdict, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
+import { cacheUse, countOrigins, emptyOriginCounts, gateResult, recordBlame, recordRepair, recordVerdict, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { assistant, cachedUsage, RunBuilder, toolResult, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
 import { fixesSummary } from '../src/fixes.js';
@@ -105,7 +105,8 @@ describe('the Overview: today', () => {
     expect(t.notRespent).toBeCloseTo(sumOf(['clean1', 'fork1', 'test1', 'rep1'], (s) => s.cost.saved), 10);
     expect(t.notRespent).toBeCloseTo(o.daily[6]!.notRespent, 10);
     expect(sumOf(['rep1'], (s) => s.cost.saved)).toBeGreaterThan(0);
-    expect(t.recording).toEqual([{ runId: id.live1, command: 'python refund_agent.py', calls: 3, startedAt: at(10, 1, 10, 10) }]);
+    // A recording that sent no request yet says what it is about by its command.
+    expect(t.recording).toEqual([{ runId: id.live1, command: 'python refund_agent.py', calls: 3, startedAt: at(10, 1, 10, 10), about: { text: 'python refund_agent.py', from: 'command' } }]);
     expect(t.replays).toBe(1);
     expect(t.forks).toEqual({ count: 1, live: 4, blocked: 1 });
     expect(t.tests).toEqual({ count: 2, failed: 1, inconclusive: 0, latestFailure: { runId: id.test2, outcome: { kind: 'diverged', callNo: 1 } } });
@@ -232,6 +233,30 @@ describe('the Overview: this week’s runs as rows of calls', () => {
       expect(fam.rows.find((r) => r.runId === b)).toMatchObject({ forkCell: 29, cells: 'r'.repeat(29) + 'l'.repeat(9) });
       expect(fam.rows[0]!.origins).toEqual({ ...emptyOriginCounts(), l: 44 });
       expect(g).toMatchObject({ runs: 3, shown: 3, more: 0, calls: 14 + 38 + 23 });
+    } finally {
+      local.close();
+    }
+  });
+
+  it('names each row’s run by its id, its about line for the hover: under a parent, what it changed', () => {
+    const local = Store.open(':memory:');
+    try {
+      const ask = (text: string) => ({ system: 'You are a support agent.', messages: [{ role: 'user', content: text }] });
+      const rec = addRun(local, { startedAt: NOW - DAY, calls: [{ code: 'l', request: ask('Ticket T-8812: order A-1042 arrived damaged. Please refund it.') }, { code: 'l', kind: 'tool' }] });
+      const fork = addRun(local, { parent: rec, startedAt: NOW - HOUR, divergence: 2, calls: 'rl', meta: { interventions: [{ kind: 'fail', at: 2, flag: '--fail-at 2=529' }] } });
+      const clean = addRun(local, { parent: rec, startedAt: NOW - 2 * HOUR, calls: 'rr' });
+      const live = addRun(local, { startedAt: NOW - 60_000, status: 'running', calls: [{ code: 'l', request: ask('My blender arrived broken. What now?') }] });
+      const failed = addRun(local, { startedAt: NOW - 3 * HOUR, status: 'failed', meta: { labels: ['digest'] }, calls: [{ code: 'l', request: ask("Write this week's refund digest and post it to #refunds.") }] });
+      const out = overviewSummary(local, { tz: TZ, now: NOW });
+      // Needs a look names a failed run by its id, and says what it was about: its label is no name.
+      // The page fits the about line to one line, then what is left to do, kept whole.
+      expect(out.needsLook.items.find((x) => x.runId === failed)).toMatchObject({ kind: 'unblamed', title: `A run failed: ${failed.slice(0, 10)}`, about: { text: "Write this week's refund digest and post it to #refunds", from: 'user' }, detail: 'not blamed yet' });
+      const rows = new Map(out.grid.families.flatMap((f) => f.rows).map((r) => [r.runId, r.about?.text]));
+      expect(rows.get(rec)).toBe('Ticket T-8812: order A-1042 arrived damaged');
+      expect(rows.get(fork)).toBe('HTTP 529 #2');
+      expect(rows.get(clean)).toBe('clean replay');
+      // A recording in progress says what it is about from its first request on, for Today's live row.
+      expect(out.today.recording).toEqual([expect.objectContaining({ runId: live, about: { text: 'My blender arrived broken', from: 'user' } })]);
     } finally {
       local.close();
     }
@@ -376,6 +401,22 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items.find((i) => i.kind === 'test')).toMatchObject({ action: 'Fix', runId: failed, fixId: fix.fixId, href: `#/fixes/${fix.fixId}` });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toBeNull();
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).needsLook.items.some((i) => i.kind === 'test')).toBe(false);
+    } finally {
+      local.close();
+    }
+  });
+
+  it('says a gated golden’s verdict as its gate does, the rule apart for the line’s hover (decision 9)', () => {
+    const local = Store.open(':memory:');
+    try {
+      const goldens: GoldenSource[] = [{ path: 'goldens/eval-pushy', runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: ['issue_refund called 0 times'], gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 } }];
+      const t = local.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'c91d0f4', startedAt: NOW - HOUR });
+      const g = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, [false, false, false]);
+      local.addTestResult({ sessionId: t.sessionId, golden: 'goldens/eval-pushy', ok: false, failure: 'check', reason: g.sentence, runId: null, revision: 'c91d0f4', at: NOW - HOUR + 1, data: { mode: 'fork', attempts: { total: 3, passed: 0, required: null, runs: [] }, verdict: 'failed', gate: g } });
+      local.finishTestSession(t.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: NOW - HOUR + 2 });
+      const row = overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items[0]!;
+      // The verdict word, the tally and the bound, whole: no rule in the line to cut off mid-figure.
+      expect(row).toMatchObject({ kind: 'test', title: 'A test failed: eval-pushy', detail: 'failed · 0 of 3 · rate <= 0.56 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
     } finally {
       local.close();
     }

@@ -64,6 +64,13 @@
     "packages/dashboard/test/ui-exported-provenance.test.ts",
     // These render Settings.
     "packages/dashboard/test/ui-settings-states.test.ts",
-    "packages/dashboard/test/ui-ci-tab.test.ts"
+    "packages/dashboard/test/ui-ci-tab.test.ts",
+    // This fits run names' about lines, which measures the page.
+    "packages/dashboard/test/ui-about.test.ts",
+    // This renders the places that name a run.
+    "packages/dashboard/test/ui-naming.test.ts",
+    // These render the places that say a gate's verdict, and a preset's attempt and presets.
+    "packages/dashboard/test/ui-verdict.test.ts",
+    "packages/dashboard/test/ui-presets.test.ts"
   ]
 }

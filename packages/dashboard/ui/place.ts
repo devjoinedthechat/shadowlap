@@ -53,3 +53,18 @@ export function stripScroll(strip: { scrollLeft: number; width: number }, item: 
   if (item.left < strip.scrollLeft || item.width + 2 * pad > strip.width) return Math.max(0, start);
   return Math.max(0, end - strip.width);
 }
+
+/**
+ * Where a run picker's list goes: under its button, or over it when there is more room there, as
+ * tall as that room allows (at most 420px); at least as wide as the button and 340px, within the
+ * window's 12px margins.
+ */
+export function placeList(anchor: { left: number; top: number; bottom: number; width: number }, height: number, view: { width: number; height: number }): { top: number; left: number; width: number; maxHeight: number } {
+  const below = view.height - anchor.bottom - 18;
+  const above = anchor.top - 18;
+  const up = height > below && above > below;
+  const width = Math.min(view.width - 24, Math.max(anchor.width, 340));
+  const maxHeight = Math.min(420, up ? above : below);
+  const shown = Math.min(height, maxHeight);
+  return { top: up ? anchor.top - 6 - shown : anchor.bottom + 6, left: Math.max(12, Math.min(anchor.left, view.width - width - 12)), width, maxHeight };
+}

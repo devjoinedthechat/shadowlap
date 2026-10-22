@@ -23,6 +23,13 @@
   --accent: #c4f233; --accent-line: #c4f233;
   --o-rep: #c4f233; --o-live: #e4e3da; --o-block: #ff6b5e; --o-stub: #f2c94c; --o-over: #b99cff;
   --warn: #f2c94c; --err: #ff6b5e; --ok: #c4f233;
+  /* Consequence colours, for verdicts and what changed, kept apart from the origin colours above, which say where a call's
+     answer came from: red only for failed or blocked, amber only for needs a look or inconclusive, muted for not applicable,
+     lime for passed. A run's own strip never uses them. */
+  --cq-red: var(--err); --cq-amber: var(--warn); --cq-muted: var(--faint); --cq-lime: var(--ok);
+  /* What a call was, apart from both: a write in teal, never the failure red; an error in magenta. Checked for separation
+     from the origin and consequence colours, under protanopia and deuteranopia too. */
+  --k-model: var(--o-live); --k-read: color-mix(in srgb, var(--o-live) 40%, var(--panel)); --k-write: #2dd4bf; --k-err: #e030c0;
   --code: #0f100c; --del: #ff8a80; --add: #c4f233;
   --c-read: #779c10; --c-write: #3987e5; --c-unc: #c98500; --c-out: #9085e9; --c-spent: var(--o-live); --c-saved: var(--o-rep);
   --shadow-pop: 0 24px 60px -20px rgba(0,0,0,.75), 0 0 0 1px var(--line2);
@@ -111,7 +118,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .glyph.fork, .glyph.blame { color: var(--warn); }
 .glyph.cap { color: var(--o-over); }
 .glyph.fail, .glyph.fixbad { color: var(--err); }
-.glyph.warn { color: var(--warn); }
+.glyph.warn { color: var(--cq-amber); }
 /* A verify's attempts under a verdict that doesn't count for the fix: no verdict on it, so no verdict's colour. */
 .glyph.plain { color: var(--dim); }
 .run .r1 { grid-column: 2; display: flex; align-items: center; gap: 7px; min-width: 0; }
@@ -189,15 +196,15 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .org.rep { color: var(--accent); } .org.rep i { background: var(--o-rep); }
 .org.live { color: var(--ink); } .org.live i { background: var(--o-live); }
 .org.block { color: var(--err); } .org.block i { background: var(--o-block); }
-.org.stub { color: var(--warn); } .org.stub i { background: var(--o-stub); }
+.org.stub { color: var(--o-stub); } .org.stub i { background: var(--o-stub); }
 .org.over { color: var(--o-over); } .org.over i { background: var(--o-over); }
 .eff { font: 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin-left: 6px; }
-.eff.write { color: var(--err); }
+.eff.write { color: var(--k-write); }
 .pips { display: inline-flex; gap: 3px; vertical-align: middle; }
 .pips i { width: 9px; height: 9px; border-radius: 3px; background: var(--o-rep); }
 .pips i.no { background: var(--o-block); }
 /* An attempt that could not be judged: neither passed nor failed. */
-.pips i.unsure, .attempts span i.unsure, .attempts a i.unsure, .legend i.lg.unsure { background: var(--warn); }
+.pips i.unsure, .attempts span i.unsure, .attempts a i.unsure, .legend i.lg.unsure { background: var(--cq-amber); }
 .badge { display: inline-flex; align-items: center; gap: 6px; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; padding: 4px 8px; border-radius: 6px; white-space: nowrap; }
 .badge.ok { background: color-mix(in srgb, var(--lime) 18%, transparent); color: var(--accent); }
 .badge.no { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
@@ -282,9 +289,9 @@ table.runst .rsub { padding-left: 22px; }
 /* only a failure colours its words; a healthy outcome keeps a lime dot beside plain text */
 .st.ok { color: var(--dim); } .st.ok i { background: var(--o-rep); }
 .st.err { color: var(--err); } .st.err i { background: var(--err); }
-.st.warn { color: var(--warn); } .st.warn i { background: var(--warn); }
+.st.warn { color: var(--cq-amber); } .st.warn i { background: var(--cq-amber); }
 .st.n { color: var(--faint); padding-left: 13px; } .st.n i { background: var(--line2); }
-.st.warn { color: var(--warn); } .st.warn i { background: var(--warn); }
+.st.warn { color: var(--cq-amber); } .st.warn i { background: var(--cq-amber); }
 /* a fork's own outcome, what came of its writes, in plain text by a neutral dot: what a fork fenced is no verdict, and
    amber says inconclusive in this column. At every width it wraps after its dot onto the row's second line, as the row is
    two lines tall anyway, rather than take the Run column's room */
@@ -582,12 +589,13 @@ table.ctab tr.miss td { color: var(--warn); }
 .callrow .m .cn { width: 15px; height: 15px; border: 2px solid var(--dim); background: var(--panel); }
 .callrow .ok .cn { border-color: var(--o-rep); }
 .callrow .lost .cn { border-color: var(--o-block); }
-.callrow .hot .cn { border-color: var(--warn); background: var(--warn); box-shadow: 0 0 0 5px color-mix(in srgb, var(--warn) 20%, transparent); }
+/* the blamed call in ink with a halo: amber means only that a probe couldn't decide */
+.callrow .hot .cn { border-color: var(--ink); background: var(--ink); box-shadow: 0 0 0 5px color-mix(in srgb, var(--ink) 16%, transparent); }
 .callrow .cl { font: 11px var(--mono); color: var(--faint); }
-.callrow .hot .cl, .callrow .hot .pl { color: var(--warn); }
+.callrow .hot .cl, .callrow .hot .pl { color: var(--ink); font-weight: 600; }
 .callrow .lost .pl { color: var(--err); }
-.callrow .unsure .cn { border-color: var(--warn); }
-.callrow .unsure .pl { color: var(--warn); }
+.callrow .unsure .cn { border-color: var(--cq-amber); }
+.callrow .unsure .pl { color: var(--cq-amber); }
 .callrow .ok .pl { color: var(--accent); }
 .ans { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .ans div { border-top: 2px solid var(--o-block); padding-top: 10px; }
@@ -595,7 +603,8 @@ table.ctab tr.miss td { color: var(--warn); }
 .ans code { display: block; margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--del); overflow-wrap: anywhere; }
 .ans .good code { color: var(--add); }
 table.probes td, table.probes th { padding: 10px 12px; }
-table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transparent); }
+table.probes tr.hot td { background: var(--sel); }
+.bmk { margin-left: 8px; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
 .verdict { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border-radius: 14px; margin-bottom: 16px; }
 .verdict.no { background: color-mix(in srgb, var(--err) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--err) 35%, transparent); }
 .verdict.ok { background: color-mix(in srgb, var(--lime) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-line) 45%, transparent); }
@@ -603,7 +612,7 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .verdict p { margin: 2px 0 0; color: var(--faint); font-size: 12.5px; }
 .deltas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .deltas div { padding: 14px 16px; }
-.deltas b { display: block; margin-top: 6px; font: 700 26px/1 var(--disp); letter-spacing: -.035em; color: var(--warn); }
+.deltas b { display: block; margin-top: 6px; font: 700 26px/1 var(--disp); letter-spacing: -.035em; color: var(--ink); }
 .deltas span.n { display: block; margin-top: 8px; font: 12px var(--mono); color: var(--faint); }
 .pdiff .was { margin: 0; font-size: 15px; line-height: 1.6; color: var(--faint); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--err) 60%, transparent); }
 .pdiff .now { margin: 8px 0 0; font-size: 17px; line-height: 1.6; }
@@ -697,7 +706,7 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
   .side { position: fixed; z-index: 25; left: 0; top: 52px; bottom: 28px; width: 280px; transform: translateX(-100%); visibility: hidden; transition: transform .2s ease, visibility .2s; box-shadow: var(--shadow-pop); }
   .side.open { transform: none; visibility: visible; }
   .menu-toggle { display: inline-grid; }
-  .crumbs, .livechip { display: none; }
+  .livechip { display: none; }
   .grid2, .grid3, .stepper, .changes, .paths, .ans, .diffpanel { grid-template-columns: minmax(0, 1fr); }
   .rhead { flex-direction: column; }
   .rhead .actions { margin-left: 0; justify-content: flex-start; }
@@ -738,6 +747,7 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .psteps i { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
 .psteps .done { color: var(--dim); } .psteps .done i { background: var(--o-rep); box-shadow: none; }
 .psteps .no { color: var(--err); } .psteps .no i { background: var(--err); box-shadow: none; }
+.psteps .warn { color: var(--cq-amber); } .psteps .warn i { background: var(--cq-amber); box-shadow: none; }
 .ph p .badge { vertical-align: 1px; margin-right: 4px; }
 .ph p.chk { margin-top: 6px; max-width: none; }
 .ph p.chk code { font-size: 12.5px; color: var(--dim); }
@@ -760,6 +770,7 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .stepper .k i { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
 .stepper .done .k i { background: var(--o-rep); box-shadow: none; }
 .stepper .no .k i { background: var(--err); box-shadow: none; }
+.stepper .warn .k i { background: var(--cq-amber); box-shadow: none; }
 .stepper b { display: block; margin-top: 8px; font: 600 15px/1.3 var(--disp); letter-spacing: -.02em; color: var(--ink); }
 .stepper .todo b { color: var(--faint); }
 .stepper .m { display: block; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
@@ -852,7 +863,7 @@ td.hist i { display: inline-block; width: 52px; height: 12px; position: relative
 td.hist i::before { content: ""; position: absolute; left: 50%; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; }
 td.hist i.pass::before { background: var(--o-rep); }
 td.hist i.fail::before { background: var(--err); }
-td.hist i.inc::before { background: var(--warn); }
+td.hist i.inc::before { background: var(--cq-amber); }
 td.hist i.none::before { width: 10px; height: 2px; margin: -1px 0 0 -5px; border-radius: 1px; background: var(--line2); }
 pre.report { margin: 0; padding: 14px 16px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--dim); white-space: pre-wrap; overflow-x: auto; }
 pre.report .no, pre.report .del { color: var(--err); } pre.report .add { color: var(--accent); }
@@ -917,7 +928,8 @@ h1, h2, h3 { text-wrap: balance; }
 .tchips { display: flex; flex-wrap: wrap; gap: 6px; }
 .tchip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--raise); font: 12px var(--mono); }
 .tchip em { font-style: normal; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
-.tchip.w em { color: var(--err); }
+.tchip.w em { color: var(--k-write); }
+.tchip.s em { color: var(--o-stub); }
 .set .tscroll table.t { min-width: 520px; }
 @media (min-width: 1001px) { .rhead .actions { flex-wrap: nowrap; flex: none; } }
 @media (max-width: 640px) {
@@ -1613,8 +1625,8 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .cilist li { display: grid; grid-template-columns: 8px minmax(min(150px, 40%), 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; font-size: 13px; color: var(--dim); }
 .cilist li + li { border-top: 1px solid var(--line); }
 .cilist li i { width: 8px; height: 8px; border-radius: 50%; background: var(--line2); }
-.cilist li i.err { background: var(--err); }
-.cilist li i.warn { background: var(--warn); }
+.cilist li i.err { background: var(--cq-red); }
+.cilist li i.warn { background: var(--cq-amber); }
 .cilist li > span { text-wrap: balance; }
 .cilist li code { font: 11.5px var(--mono); color: var(--faint); }
 .slackmsg { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 12px; background: var(--bg2); }
@@ -1881,6 +1893,7 @@ code.flag { white-space: nowrap; font-size: .92em; }
 .gpanel p.muted.after { margin: 12px 0 0; }
 p.hintx.tfoot { display: block; margin: 14px 2px 0; }
 pre.report .dim { color: var(--faint); }
+pre.report .y { color: var(--cq-amber); }
 table.gt tr.still { cursor: default; }
 table.gt .chk em.nil { font-style: normal; font-size: 12.5px; }
 td.hist i.go { cursor: pointer; }
@@ -2101,3 +2114,174 @@ ol.setup.storesetup p.muted.cinote { margin: -4px 0 10px; font-size: 12px; line-
 ol.setup.storesetup dd .warnt { color: var(--warn); }
 ol.setup.storesetup dl.kvs dd { word-break: normal; overflow-wrap: anywhere; }
 ol.setup.storesetup .recline + .fieldnote { margin-top: 8px; }
+
+/* ============ how runs are named ============ */
+/* A run is named by its id, in mono, which never breaks (.rnm). One quiet line says what it was about (.rab): where a place
+   gives it one line, about.ts fits it to the room it gets, at whole words, keeping its first words and its last. The line
+   clips; it never adds an ellipsis of its own. */
+.rab { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: clip; color: var(--dim); }
+/* words that stay whole look like the text around them, whatever styles a span where they sit */
+:is(.rab, .meta, .kvs, .more, .attn .d) span.nw { white-space: nowrap; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; }
+code.rnm { white-space: nowrap; }
+/* a hover card can say what a run was about under its id */
+.tip .ts { display: block; max-width: 320px; margin: -2px 0 6px; color: var(--dim); font-weight: 400; white-space: normal; }
+/* the header: the id is the heading, in mono so it reads exactly (its zero is dotted, never an O), with its status chip and
+   Copy ID beside it. Under it the about line, muted, on one line, and the labels after it as chips: the line shrinks
+   before the labels move under it, and they move only when it would have less than 160px. On a phone a run's labels go
+   under it whenever it wouldn't fit whole beside them, so a narrower screen never shows less; + Label alone stays beside
+   it. A run with no about line of its own (a clean replay) keeps its labels on the id's row, after Copy ID. */
+.rtitle h1.rnm { flex: none; margin: 0; font: 500 24px/1.15 var(--mono); letter-spacing: 0; color: var(--ink); }
+.rtitle .tag { flex: none; }
+.rabout { display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 6px; margin-top: 6px; min-width: 0; font-size: 13.5px; }
+.rabout .rab { flex: 1 1 160px; max-width: max-content; }
+@media (max-width: 640px) { .rabout:has(.labelbar .chip) .rab { flex: 0 1 auto; max-width: none; } }
+.rabout .labelbar { flex: none; max-width: 100%; }
+.rtitle .labelbar { flex: 0 1 auto; max-width: 100%; }
+/* the eyebrow says what kind of run it is; the lineage is in the crumbs. A phone has no crumbs: there the eyebrow names
+   the parent too, by its id, as a link, on the same line */
+.eyebrow .ebk { flex: none; }
+.eyebrow .ebp { display: none; }
+@media (max-width: 640px) {
+  .eyebrow .ebp { display: inline-flex; align-items: baseline; gap: .6em; flex: none; }
+  .eyebrow .ebp a { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 55%, transparent); }
+  .eyebrow .ebp code { font: inherit; letter-spacing: .04em; text-transform: none; }
+}
+/* the crumbs carry the run's lineage by id, from 641px up; where the bar is short the oldest give way to "…" first */
+.crumbs > a, .crumbs > span, .crumbs > i { flex: none; }
+.crumbs .cg { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.crumbs .cg[hidden] { display: none; }
+.crumbs a b.rt { color: var(--dim); }
+.crumbs a:hover b.rt { color: var(--ink); }
+@media (max-width: 640px) { .crumbs { display: none; } }
+/* Provenance: the about line whole, where it comes from under it; the lineage, each run by its id and its about line */
+.kvs dd small.from { display: block; margin-top: 2px; font-family: var(--body); }
+.lineage li .lt { display: flex; align-items: baseline; gap: 8px; min-width: 0; color: var(--ink); text-decoration: none; }
+.lineage li .lt code { flex: none; }
+.lineage li .lt .rab { flex: 0 1 auto; }
+.lineage li .lt:hover code { text-decoration: underline; text-underline-offset: 3px; }
+/* the sidebar: a run in two lines, its id and when, then its about line and what needs a look, each line one line */
+.run .r1 { align-items: baseline; }
+.run .r1 .id { flex: 0 1 auto; min-width: 0; }
+.run .r2 { display: flex; align-items: baseline; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.run .r2 .rab { flex: 0 1 auto; color: var(--faint); }
+.run .r2 .r2s { flex: none; }
+.run .r2 .dot { margin: 0 5px; }
+.run .r2 em.inc { color: var(--warn); }
+/* a line with no room even for its shortest form gives its place up, and its dot goes with it */
+.rab:empty + .r2s .dot, .rab:empty + .rso .dot { display: none; }
+/* Runs: one row a run at desktop widths, the id and then its about line in a column of its own, fitted, so ids line up,
+   with the run's labels as chips at the column's end; on a phone the about line goes under the id, with what needs a
+   look, since Status is off-screen there */
+table.runst .runcell { width: 1%; max-width: none; overflow: visible; }
+table.runst .rid { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+table.runst .rid > .glyph { flex: none; }
+table.runst .rid code { font: 500 12.5px var(--mono); color: var(--ink); }
+table.runst .rid .tag-local { margin-left: 2px; }
+table.runst .abcell { width: 100%; max-width: 1px; }
+table.runst .abw { display: flex; align-items: center; gap: 12px; min-width: 0; }
+table.runst .abw .rab { flex: 0 1 auto; }
+table.runst .abw .labs { flex: none; display: flex; gap: 6px; margin-left: auto; }
+table.runst .bycell { width: 1%; }
+table.runst .byav { display: inline-flex; vertical-align: middle; cursor: default; }
+table.runst .byav .av { width: 20px; height: 20px; }
+table.runst .byav .av:not(.bot) { font-size: 10px; }
+table.runst .rline { display: none; padding-left: 22px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: clip; max-width: none; }
+table.runst .rline .rab { flex: 0 1 auto; color: var(--faint); }
+table.runst .rline .rso { display: none; flex: none; }
+table.runst .rline .dot { margin: 0 5px; }
+table.runst .rline em { font-style: normal; color: var(--err); }
+table.runst .rline em.inc { color: var(--warn); }
+/* what only adds to a row gives way, measured, while About would get less than 200px, or a row would have less than its
+   shortest about line beside its labels (fitRunsTable): the strip of calls by origin, then the labels, then By */
+table.runst.no-org .orgcol, table.runst.no-org .orgcell, table.runst.no-labs .labs, table.runst.no-by .bycol, table.runst.no-by .bycell { display: none; }
+/* with less than 200px for About even then, and always on a tablet or a phone, the about line goes under the id */
+table.runst.stacked .abcol, table.runst.stacked .abcell { display: none; }
+table.runst.stacked .runcell { width: 100%; max-width: 1px; min-width: 176px; overflow: hidden; }
+table.runst.stacked .rline { display: flex; align-items: baseline; }
+/* still wider than its panel (a narrow tablet), a status may wrap after its dot onto the row's second line */
+table.runst.tight td.stcell, table.runst.tight td.stcell .st { white-space: normal; }
+table.runst.tight td.stcell .st { align-items: baseline; }
+table.runst.tight td.stcell .st i { flex: none; transform: translateY(-1px); }
+/* on a phone Status is off-screen, so the line says what needs a look after the about line */
+@media (max-width: 640px) {
+  table.runst .abcol, table.runst .abcell { display: none; }
+  table.runst .runcell, table.runst.stacked .runcell { width: 100%; max-width: 1px; min-width: 270px; overflow: hidden; }
+  table.runst .rline { display: flex; align-items: baseline; }
+  table.runst .rline .rso { display: inline; }
+}
+/* on a tablet Status wraps rather than push the about line out */
+@media (max-width: 1000px) { table.runst td.stcell { white-space: normal; min-width: 104px; } }
+/* the palette: a run by its id, its about line as the hint, fitted to the rest of the row; any other hint cut at its end */
+.palit .pl { min-width: 0; max-width: 64%; overflow: hidden; text-overflow: ellipsis; }
+.palit .pl.mono { flex: none; }
+.palit .ph2.rab { flex: 1 1 auto; color: var(--faint); text-overflow: clip; }
+/* run pickers (Compare): the id, then its about line as the hint, fitted to the rest of the button, and a list of runs in
+   the same form */
+.rpick { display: inline-flex; align-items: baseline; gap: 10px; width: 320px; max-width: 100%; min-width: 0; height: 34px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 9px; background: var(--panel); color: var(--ink); font: 13px var(--body); line-height: 32px; text-align: left; cursor: pointer; }
+.rpick:hover { border-color: var(--faint); }
+.rpick:focus-visible { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 18%, transparent); }
+.rpick .pid, .pop.rpicks .pid { flex: none; font: 500 12.5px var(--mono); color: var(--ink); }
+.rpick .rab, .pop.rpicks .rab { flex: 1 1 auto; color: var(--faint); font-size: 12.5px; }
+.rpick .caret, .pickers .rpick .caret { position: static; flex: none; align-self: center; width: 10px; height: 10px; transform: none; color: var(--faint); }
+.pop.rpicks { overflow-y: auto; }
+.pop.rpicks button { display: flex; align-items: baseline; gap: 10px; padding: 8px 10px; font-size: 13px; }
+.pop.rpicks button[aria-selected="true"] { background: var(--sel); }
+@media (max-width: 640px) { .pickers { width: 100%; } .pickers .pick { width: 100%; } .rpick { width: 100%; } .pickers .arrow { display: none; } }
+/* Compare's Open in: each run by its whole id */
+.cmpresp td a code.rnm { font-size: 12px; }
+/* the Forks view: a tree, each run by its id and its about line, which under a parent is what it changed */
+.fnode .fmain { display: block; min-width: 0; }
+.fnode .f1 { display: flex; align-items: baseline; gap: 10px; flex-wrap: nowrap; min-width: 0; }
+.fnode .f1 .fid { flex: none; font: 500 12.5px var(--mono); color: var(--ink); }
+.fnode .f1 .rab { flex: 0 1 auto; font-size: 12.5px; }
+.fnode .f1 .chip { flex: none; }
+/* on a phone the highlight alone marks this run, so its about line keeps the room */
+@media (max-width: 640px) { .fnode .f1 .thisrun { display: none; } }
+/* Decision 9 on every page: a gate's verdict is its word, its tally and its Wilson bound, broken only after a dot (each short
+   part whole), its rule stated once; figures read as the CLI prints them, so ">=" never becomes the mono font's ligature */
+.vline .nw, .attn .d .nw, .feed .w .nw, table.gt td.glast .nw, .fnode .f2 .nw { white-space: nowrap; }
+.wib { position: relative; display: inline-block; width: 64px; height: 6px; margin: 0 6px 0 10px; border-radius: 3px; background: var(--line); vertical-align: middle; flex: none; }
+.wib .iv { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--cq-lime); }
+.wib.y .iv { background: var(--cq-amber); }
+.wib.no .iv { background: var(--cq-red); }
+.wib .mk { position: absolute; top: -3px; bottom: -3px; width: 1px; margin-left: -.5px; background: var(--dim); }
+table.gt td.glast .rsub { font: 11.5px/1.5 var(--mono); color: var(--faint); }
+/* after any font shorthand, which resets them: ">=" reads as the CLI prints it, never as the mono font's ligature */
+.wib, .gfoot, table.gt td.glast .rsub, .fnode .f2, .attn .d.gv, .feed .w.gv { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+table.gt .gev { display: flex; align-items: center; gap: 8px; margin-top: 6px; color: var(--faint); font-size: 11px; cursor: default; }
+table.gt .gev .wib { margin: 0; width: 96px; }
+@media (max-width: 640px) { table.gt .gev small { display: none; } }
+.gfoot { padding: 10px 18px 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; color: var(--faint); font-size: 12px; }
+.gfoot p { margin: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.gfoot .chip { flex: none; }
+/* Needs a look and Activity: a gate's verdict wraps whole after its dots, never clamped mid-figure; its rule is on hover */
+.needs .attn .d.gv, .feed .w.gv { display: block; -webkit-line-clamp: none; overflow: visible; overflow-wrap: normal; }
+/* Needs a look: a failed run's about line on one line, fitted at whole words (never clamped), then what is left to do, kept whole */
+.needs .attn .d.ab { display: flex; align-items: baseline; min-width: 0; white-space: nowrap; overflow: hidden; -webkit-line-clamp: none; overflow-wrap: normal; }
+.needs .attn .d.ab .rab { flex: 0 1 auto; color: inherit; }
+.needs .attn .d.ab .abs { flex: none; }
+.needs .attn .d.ab .dot { margin: 0 5px; }
+.rab:empty + .abs .dot { display: none; }
+.fnode .f2 .frule { display: block; margin-top: 2px; font-size: 11.5px; }
+/* an activity entry with nowhere to go reads as a plain row: never a link back to the page it is on */
+.feed > .plain { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 18px; border-top: 1px solid var(--line); cursor: default; }
+.feed > .plain:first-child { border-top: 0; }
+/* a part kept whole but on a phone, where it may wrap between its words */
+table.gt td.glast .kc { white-space: nowrap; }
+@media (max-width: 640px) { table.gt td.glast .kc { white-space: normal; } }
+/* inconclusive, the consequence amber: a status chip and a banner that neither passed nor failed */
+.tag.inc { color: var(--cq-amber); border-color: color-mix(in srgb, var(--cq-amber) 45%, transparent); }
+.banner.inc { background: color-mix(in srgb, var(--cq-amber) 5%, transparent); }
+.banner.inc .bk, .banner.inc .bn { color: var(--cq-amber); }
+/* an attempt's banner: its verdict word first, in the verdict's colour; it wraps rather than cut its words */
+.banner .why em { font-style: normal; }
+.banner .why em.ok { color: var(--cq-lime); } .banner .why em.no { color: var(--cq-red); } .banner .why em.inc { color: var(--cq-amber); } .banner .why em.mu { color: var(--cq-muted); }
+.banner.wrap { flex-wrap: wrap; row-gap: 4px; }
+.banner.wrap .why { flex: 1 1 280px; white-space: normal; overflow: visible; text-overflow: clip; }
+/* a golden's error-path presets under its last result: failed in red, inconclusive in amber, passed quiet */
+table.gt td.glast .gpre { display: block; margin-top: 4px; text-decoration: none; }
+table.gt td.glast .gpre.err { color: var(--cq-red); }
+table.gt td.glast .gpre.warn { color: var(--cq-amber); }
+table.gt td.glast a.gpre:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* the Forks view: what couldn't be decided in the consequence amber */
+.fnode .f2 em.inc { color: var(--cq-amber); }

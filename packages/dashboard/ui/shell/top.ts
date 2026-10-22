@@ -29,6 +29,28 @@ export function crumbParent(o: { listed: { parentRunId: string | null } | null; 
   return parent && (!o.exported || o.holds(parent)) ? parent : null;
 }
 
+/** How many ancestors a run's crumbs name at most: a family deeper than this starts at its eighth. */
+const LINEAGE_MAX = 8;
+
+/**
+ * A run's lineage as its crumbs carry it (decision 10: named once, by id): the run it came from back
+ * to its recording, oldest first, each with what it was about for the crumb's hover. Each step reads
+ * the run list, or the detail of a run its page loaded (an attempt, a run older than the newest 500),
+ * and stops where neither names a parent; an exported copy links only to runs it holds.
+ */
+export function crumbLineage(runId: string, o: { listed: (runId: string) => { parentRunId: string | null; about?: { text: string } | null } | null; loaded: (runId: string) => string | null | undefined; exported: boolean; holds: (runId: string) => boolean }): Array<{ runId: string; about: string | null }> {
+  const out: Array<{ runId: string; about: string | null }> = [];
+  const seen = new Set<string>([runId]);
+  for (let id = runId; out.length < LINEAGE_MAX; ) {
+    const parent = crumbParent({ listed: o.listed(id), loaded: o.loaded(id), exported: o.exported, holds: o.holds });
+    if (!parent || seen.has(parent)) break;
+    seen.add(parent);
+    out.unshift({ runId: parent, about: o.listed(parent)?.about?.text ?? null });
+    id = parent;
+  }
+  return out;
+}
+
 /**
  * The chip of a run recording, as the design keeps it: while the page is connected, and while it is
  * offline, then saying when it was last heard of. Not while the link has expired: its card covers all.

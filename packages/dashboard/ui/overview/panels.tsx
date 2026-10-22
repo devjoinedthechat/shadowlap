@@ -1,8 +1,10 @@
-import { memo, useState } from 'react';
+import { memo, useRef, useState } from 'react';
+import { AboutLine, useFitAbouts } from '../components/About.js';
 import { useApp } from '../state.js';
 import { DeltaPill, Kpi, Legend, Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { EventIcon, Glyph } from '../components/RunIcon.js';
+import { DotLine, ruleTip } from '../components/Verdict.js';
 import { useStored } from '../hooks.js';
 import { cents, clock, ktok, money, num, plural, shortId, whenShort } from '../format.js';
 import { ORIGIN_CODE, ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
@@ -75,7 +77,8 @@ const GridFamilyRows = memo(function GridFamilyRows({ family, now }: { family: G
         const cut = r.status === 'crashed' && !r.failed ? ' · interrupted' : '';
         const counts = originCounts(r.origins);
         const rows = SHOW_ORIGINS.filter((o) => counts[o]).map((o) => ({ label: ORIGIN_NAME[o], value: num(counts[o]), color: ORIGIN_COLOR[o] }));
-        const tip = tipCard(`${shortId(r.runId)} · ${r.label}${cut}${r.context ? ' · before this week' : ''}`, rows.length ? rows : [{ label: 'calls', value: num(r.calls) }]);
+        // The hover card: the run's id and kind, what it was about under them, then its calls by origin.
+        const tip = tipCard(`${shortId(r.runId)} · ${r.label}${cut}${r.context ? ' · before this week' : ''}`, rows.length ? rows : [{ label: 'calls', value: num(r.calls) }], r.about?.text ?? null);
         return (
           <a key={r.runId} className={`grow${r.context ? ' ctx' : ''}`} href={href.run(r.runId)} data-tip={tip}>
             <span className="gid" style={{ paddingLeft: r.depth * 14 }}>
@@ -137,8 +140,11 @@ export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; to
   const { actionsOff } = useApp();
   const [open, setOpen] = useState(false);
   const shown = needsLookShown(items, open);
+  // A run's about line takes one line, fitted at whole words to the room its status leaves it.
+  const box = useRef<HTMLElement>(null);
+  useFitAbouts(box);
   return (
-    <section className="panel needs">
+    <section className="panel needs" ref={box}>
       <header>
         <h2>Needs a look</h2>
         <span className="sub">{num(total)}</span>
@@ -146,13 +152,30 @@ export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; to
       <div className="attn">
         {total === 0 ? <div className="empty">Nothing needs a look.</div> : null}
         {shown.rows.map((x) => (
-          <a key={needsLookKey(x)} href={x.href}>
+          // A gate's verdict (decision 9) says its word, tally and bound, whole, and its rule on hover.
+          <a key={needsLookKey(x)} href={x.href} data-tip={ruleTip(x.title.replace(/^A test (?:failed|is inconclusive): /, ''), x.rule)}>
             <EventIcon kind={x.icon} />
             <span>
               <span className="t">{x.title}</span>
-              <span className="d" title={x.detail}>
-                {x.detail}
-              </span>
+              {x.rule ? (
+                <span className="d gv">
+                  <DotLine text={x.detail} />
+                </span>
+              ) : x.about?.text ? (
+                // What the run was about (decision 10), then what is left to do, kept whole: the about
+                // line gives way at whole words, never cut mid-word, and the dot goes with it.
+                <span className="d ab">
+                  <AboutLine about={x.about} />
+                  <span className="abs">
+                    <span className="dot">·</span>
+                    {x.detail}
+                  </span>
+                </span>
+              ) : (
+                <span className="d" title={x.detail}>
+                  {x.detail}
+                </span>
+              )}
             </span>
             <span className="go">{needsLookAction(x, actionsOff)} →</span>
           </a>
@@ -187,8 +210,11 @@ export function TodayCard({ today, live, tests: tile }: { today: Today; live: re
   const blamed = today.blame.runs[0];
   const testsLine = todayTestsLine(tile, tests, tests.latestFailure ? outcomeWords(tests.latestFailure.outcome) : null);
   const blames = todayBlameCount(today.blame);
+  // A recording's about line takes the room its count leaves, fitted again as the count grows a digit.
+  const box = useRef<HTMLElement>(null);
+  useFitAbouts(box);
   return (
-    <section className="panel ovtoday">
+    <section className="panel ovtoday" ref={box}>
       <header>
         <h2>Today</h2>
         <span className="sub">{dayText(today.day)}</span>
@@ -211,9 +237,8 @@ export function TodayCard({ today, live, tests: tile }: { today: Today; live: re
                 <span className="t">
                   Recording <code>{shortId(r.runId)}</code>
                 </span>
-                <span className="d cmd" title={r.command}>
-                  {r.command}
-                </span>
+                {/* What it is about, on one line fitted at whole words: its first user message, once it sent one. */}
+                <AboutLine about={r.about ?? { text: r.command, from: 'command' }} className="d" />
               </span>
               <span className="go">
                 <span className="now">{plural(calls, 'call')}…</span>
@@ -533,22 +558,38 @@ export function ActivityCard({ items, now, byPerson, live }: { items: readonly A
         {items && !items.length ? <div className="empty">Nothing yet. Recordings, replays, forks, tests and fixes show here.</div> : null}
         {(items ?? []).map((a) => {
           const line = activityLine(a.text, a.runId ?? a.ref);
-          return (
-            <a key={a.id} href={a.href ?? (a.runId ? href.run(a.runId) : href.overview())}>
+          const to = activityHref(a);
+          const body = (
+            <>
               <span className="at">{whenShortOrClock(a.at, now)}</span>
               <EventIcon kind={activityGlyph(a.kind)} live={!!a.live && !!a.runId && recording.has(a.runId)} />
-              <span className="w">
+              <span className={`w${a.rule ? ' gv' : ''}`}>
                 {byPerson && a.actor ? <b className="actor">{personName(a.actor)}</b> : null}
                 {byPerson && a.actor ? ' ' : null}
-                {line.text}
+                {a.rule ? <DotLine text={line.text} /> : line.text}
                 {line.code ? <code>{line.code}</code> : null}
               </span>
+            </>
+          );
+          // An entry with nowhere to go (a preview of a change, which no page shows yet) is a plain row, never a link back here.
+          return to ? (
+            <a key={a.id} href={to} data-tip={ruleTip(line.text.split(': ')[0]!, a.rule)}>
+              {body}
             </a>
+          ) : (
+            <div key={a.id} className="plain">
+              {body}
+            </div>
           );
         })}
       </div>
     </section>
   );
+}
+
+/** Where an activity entry goes: its own destination, else the run it names; none for one that names neither. */
+export function activityHref(a: Pick<ActivityItem, 'href' | 'runId'>): string | null {
+  return a.href ?? (a.runId ? href.run(a.runId) : null);
 }
 
 /** 10:14 today, Sep 30 before. */

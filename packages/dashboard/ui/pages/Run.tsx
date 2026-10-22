@@ -22,6 +22,7 @@ import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
 import { askedTools } from '../run/calls.js';
 import { bisectLabel } from '../run/offers.js';
+import { presetAttempt } from '../run/preset.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
 import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.js';
 import { ProvenanceView } from '../run/ProvenanceView.js';
@@ -205,6 +206,9 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   // None of it applies while the run records, so it is asked for once it has ended, and again as runs change.
   const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const actions = useActionRunner(runId, !!run.source, offers);
+  // An error-path preset's attempt: the preset it played in and its verdict, from the presets of the session that decided it.
+  const presets = useLoad(() => (run.run.meta?.chaos && !live ? client.runChaos(runId) : null), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
+  const preset = useMemo(() => presetAttempt(presets, run.run.runId), [presets, run.run.runId]);
 
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
   const detailKey = `${runId}:${selected}:${selectedRow?.outcome ?? 'pending'}`;
@@ -323,9 +327,9 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} />
+      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} />
       <Metrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} />
-      <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} />
+      <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} />
       {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
       <section className="strip">
         {calls.length ? <Strip calls={stripCalls} selected={selected} forkAt={forkMark} lostAt={lostAt} inScope={inScopeFn} live={live} onSelect={select} /> : <div className="cells empty-strip">{live ? 'Waiting for the first call…' : 'No calls.'}</div>}

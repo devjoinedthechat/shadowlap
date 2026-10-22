@@ -237,7 +237,8 @@ export function sourceText(row: GoldenRow): { runId: string } | { text: string }
   return { text: row.source.packedAt ? `packed ${shortDate(row.source.packedAt)}` : 'a pack made elsewhere' };
 }
 
-export type ReportTone = '' | 'no' | 'del' | 'add' | 'dim';
+/** A report line's colour: a failure red (`no`, `del`), what is sent now lime (`add`), what couldn't be decided amber (`y`), the rest quiet. */
+export type ReportTone = '' | 'no' | 'del' | 'add' | 'dim' | 'y';
 
 export interface ReportLine {
   text: string;
@@ -287,12 +288,13 @@ export function checkReportLine(c: NonNullable<FailureView['checks']>[number]): 
         : status === 'inconclusive'
           ? `? ${c.label}: inconclusive · ${c.detail ?? ''}${reason}`
           : `– ${c.label}: not applicable · ${c.detail ?? ''}${reason}`;
-  return { text: `    ${text}`, tone: status === 'failed' ? 'no' : '' };
+  // Failed in red, inconclusive in amber, as every report and page colours them.
+  return { text: `    ${text}`, tone: status === 'failed' ? 'no' : status === 'inconclusive' ? 'y' : '' };
 }
 
 /** An inconclusive golden's report, as the CLI prints it: the line, its gate's evidence, its checks and the attempts. */
 export function inconclusiveLines(v: InconclusiveView): ReportLine[] {
-  const lines: ReportLine[] = [{ text: `? ${v.name}: ${v.reason}`, tone: '' }];
+  const lines: ReportLine[] = [{ text: `? ${v.name}: ${v.reason}`, tone: 'y' }];
   if (v.gate) lines.push({ text: `    ${v.gate.tally}`, tone: '' });
   for (const c of v.checks ?? []) lines.push(checkReportLine(c));
   // The details repeat the tally first when a gate wrote them.
@@ -580,11 +582,12 @@ export interface TestsPaletteEntry {
 /**
  * A golden's hint in the palette, in the verdict words Tests uses (decision 9): passed, failed or
  * inconclusive, and for a gate's verdict its tally and Wilson bound ("passed · 12 of 12 · rate >=
- * 0.76 (95%)"); not run yet, or why its pack can't be read.
+ * 0.76 (95%)"); with no result, why its pack can't be read, how its error-path presets came out
+ * when only they ran ("presets failed"), or not run yet.
  */
-export function goldenHint(r: Pick<GoldenRow, 'last' | 'error'>): string {
+export function goldenHint(r: Pick<GoldenRow, 'last' | 'error' | 'presets'>): string {
   const verdict = r.last.verdict ?? (r.last.result === 'pass' ? 'passed' : r.last.result === 'fail' ? 'failed' : null);
-  if (!verdict) return r.error ? 'can’t be read' : 'not run yet';
+  if (!verdict) return r.error ? 'can’t be read' : r.presets ? `presets ${r.presets.verdict}` : 'not run yet';
   const g = r.last.gate;
   if (!g || g.attempts === 0) return verdict;
   if (g.clean) return `${verdict} · a clean replay`;

@@ -344,7 +344,7 @@ function TasksTab({ view }: { view: TrainingView }) {
                           </span>
                         ))}
                         {r.after.stubbed.map((n) => (
-                          <span key={`s:${n}`} className="tchip w">
+                          <span key={`s:${n}`} className="tchip s">
                             <code>{n}</code>
                             <em>stubbed</em>
                           </span>

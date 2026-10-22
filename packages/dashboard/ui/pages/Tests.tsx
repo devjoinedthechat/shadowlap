@@ -4,6 +4,7 @@ import { Badge, CmdLine, CommandLine, CopyButton, EmptyState, PageHeader } from 
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
+import { DotLine, IntervalBar, RuleText } from '../components/Verdict.js';
 import { rowOpen } from '../components/Table.js';
 import { treeBusy } from '../fixes/model.js';
 import { useServerJobs } from '../fixes/tree.js';
@@ -179,6 +180,7 @@ export function TestsPage() {
             </tbody>
           </table>
         </div>
+        <GateRules rows={view.rows} />
       </section>
       {view.divergences.map((d) => {
         const b = divergenceButtons(d, hasKind);
@@ -300,12 +302,16 @@ function Verdict({ view, running }: { view: TestsView; running: boolean }) {
   const v = view.verdict;
   if (!v) {
     const command = commandText(view.commands.run);
+    // No golden replayed yet, though its error-path presets may have run: then it has been tested, and says so.
+    const presets = view.rows.filter((r) => r.presets).length;
+    const one = view.goldens === 1;
     return (
       <div className="verdict tv n">
-        <Badge tone="n">not run yet</Badge>
+        <Badge tone="n">{presets ? 'not replayed yet' : 'not run yet'}</Badge>
         <div>
-          <h2>{view.goldens === 1 ? 'One golden, not tested yet' : `${view.goldens} goldens, none tested yet`}</h2>
+          <h2>{presets ? (one ? 'One golden, not replayed yet' : `${view.goldens} goldens, none replayed yet`) : one ? 'One golden, not tested yet' : `${view.goldens} goldens, none tested yet`}</h2>
           <p>
+            {presets ? `Error-path presets ran on ${presets === view.goldens ? (one ? 'it' : 'every one') : `${presets} of them`}. ` : null}
             {view.rows.some((r) => r.mode === 'fork') ? 'Run tests replays each one, those marked fork live from where they fork' : 'Run tests replays each one offline'}: <SessionCommand text={command} />
           </p>
         </div>
@@ -434,10 +440,18 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
             <i />
             can’t be read
           </span>
+        ) : row.presets ? (
+          // Tested by its error-path presets, its replay not yet: never "not run yet".
+          <span className={`st ${presetTone(row.presets)}`}>
+            <i />
+            presets {row.presets.verdict}
+          </span>
         ) : (
           <span className="st n">not run yet</span>
         )}
-        {last.result !== null || row.error ? <span className="rsub">{last.line}</span> : null}
+        {last.result !== null || row.error ? <span className="rsub">{gated(last.gate) ? <DotLine text={last.line} max={18} soft={24} /> : last.line}</span> : null}
+        {gated(last.gate) && last.gate.attempts ? <GateEvidence g={last.gate} verdict={last.verdict} /> : null}
+        {row.presets ? <PresetsLine p={row.presets} only={last.result === null && !row.error} /> : null}
       </td>
     </tr>
   );
@@ -476,6 +490,80 @@ function Checks({ row }: { row: GoldenRow }) {
         );
       })}
     </>
+  );
+}
+
+type Presets = NonNullable<GoldenRow['presets']>;
+
+/** A golden's presets in the consequence colours: failed red, inconclusive amber, passed quiet. */
+const presetTone = (p: Presets) => (p.verdict === 'failed' ? 'err' : p.verdict === 'inconclusive' ? 'warn' : 'ok');
+
+/**
+ * How a golden's error-path presets came out, under its last result, opening the attempt that failed
+ * (or couldn't say): the whole line when they are all that ran, else in short with the line on hover.
+ */
+function PresetsLine({ p, only }: { p: Presets; only: boolean }) {
+  const count = p.verdict === 'failed' ? p.failed : p.verdict === 'inconclusive' ? p.inconclusive : p.passed;
+  const text = only ? `${p.line} · replay not tested yet` : `presets · ${count} of ${p.ran} ${p.verdict}`;
+  return p.runId ? (
+    <a className={`rsub gpre ${presetTone(p)}`} href={href.run(p.runId)} data-tip={only ? undefined : tipText(p.line)} onClick={(e) => e.stopPropagation()}>
+      {text}
+    </a>
+  ) : (
+    <span className={`rsub gpre ${presetTone(p)}`} data-tip={only ? undefined : tipText(p.line)}>
+      {text}
+    </span>
+  );
+}
+
+type GateShown = NonNullable<GoldenRow['last']['gate']>;
+
+/** A gate decided it from its attempts (not a clean replay's one, which is the same every time): its line is a tally and a bound. */
+const gated = (g: GoldenRow['last']['gate']): g is GateShown => !!g && !g.clean;
+
+/** Two places, as a rate reads beside a bar: `.70`. */
+const rate2 = (x: number) => x.toFixed(2).replace(/^0(?=\.)/, '');
+
+/**
+ * Under a gated golden's line, what its attempts show (decision 9): the pass rate's Wilson interval
+ * against the gate's two rates, or against the baseline and the drop that fails it, in the verdict's
+ * colour; pass^k and the tally's sentence on hover.
+ */
+function GateEvidence({ g, verdict }: { g: GateShown; verdict: GoldenRow['last']['verdict'] }) {
+  const baseline = g.kind === 'baseline' && g.evidence.kind === 'baseline' ? { at: g.evidence.baseline, drop: g.drop } : null;
+  const marks = g.kind === 'sprt' ? [g.bad, g.good] : baseline ? [baseline.at - baseline.drop, baseline.at] : [];
+  const against = g.kind === 'sprt' ? `against ${rate2(g.bad)} and ${rate2(g.good)}` : 'against its baseline';
+  const why = `The pass rate's ${Math.round(g.interval.confidence * 100)}% Wilson interval, ${against}${baseline ? ` (${rate2(baseline.at)}, less a drop of ${Math.round(baseline.drop * 100)} points)` : ''}`;
+  return (
+    <span className="gev" data-tip={JSON.stringify({ t: g.tally, s: why })}>
+      <IntervalBar lo={g.interval.lo} hi={g.interval.hi} marks={marks} tone={verdict === 'passed' ? 'ok' : verdict === 'inconclusive' ? 'y' : 'no'} />
+      <small>{against}</small>
+    </span>
+  );
+}
+
+/**
+ * Each gate's rule, stated once under the table for every golden it decided (decision 9), beside the
+ * mode its goldens show: no row repeats it.
+ */
+function GateRules({ rows }: { rows: readonly GoldenRow[] }) {
+  const rules = new Map<string, string>();
+  for (const r of rows) {
+    const rule = r.last.gate?.rule;
+    if (rule && !rules.has(rule)) rules.set(rule, r.modeLabel);
+  }
+  if (!rules.size) return null;
+  return (
+    <div className="gfoot">
+      {[...rules].map(([rule, mode]) => (
+        <p key={rule}>
+          <span className="chip">{mode}</span>
+          <span>
+            <RuleText rule={rule} />
+          </span>
+        </p>
+      ))}
+    </div>
   );
 }
 

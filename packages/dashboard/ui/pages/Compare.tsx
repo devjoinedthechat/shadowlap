@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useMemo } from 'react';
 import { ApiError, type CallRow, type CompareView, type RunDetail, type RunListItem } from '../api.js';
 import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
-import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
-import { answersSub, changedAnswers, changeCards, comparingLive, diffTexts, oneRunPair, pickable, pickerLabel, prefixLine, replayCommand, samePlaces } from '../compare/model.js';
+import { answersSub, changedAnswers, changeCards, comparingLive, diffTexts, oneRunPair, pickable, prefixLine, replayCommand, samePlaces } from '../compare/model.js';
+import { RunPicker } from '../compare/RunPicker.js';
 import { callName, clip, num, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { displayOrigin } from '../origins.js';
@@ -221,22 +221,12 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
 }
 
 function Pickers({ a, b, runs, hub }: { a: string; b: string; runs: RunListItem[]; hub: string | null }) {
+  // Each side a run picker: the run's id, its about line fitted beside it, and the runs it can be compared with.
   const pick = (value: string, other: string, onChange: (v: string) => void, label: string) => {
     const options = pickable(runs, other, hub);
-    const full = runs.find((x) => x.runId === value || x.runId.startsWith(value))?.runId ?? value;
-    return (
-      <span className="pick">
-        <select aria-label={label} value={full} onChange={(e) => onChange(e.target.value)}>
-          {options.some((r) => r.runId === full) ? null : <option value={full}>{shortId(value)}</option>}
-          {options.map((r) => (
-            <option key={r.runId} value={r.runId}>
-              {pickerLabel(r)}
-            </option>
-          ))}
-        </select>
-        <Icon name="caret" className="caret" />
-      </span>
-    );
+    const full = runs.find((x) => x.runId === value || x.runId.startsWith(value)) ?? null;
+    const listed = full && !options.includes(full) ? [full, ...options] : options;
+    return <RunPicker label={label} value={value} runs={listed} onPick={onChange} />;
   };
   return (
     <div className="pickers">
@@ -384,7 +374,7 @@ function Paths({ c, a, b }: { c: CompareView; a: RunDetail; b: RunDetail }) {
   );
 }
 
-function ResponseDifferences({ c }: { c: CompareView }) {
+export function ResponseDifferences({ c }: { c: CompareView }) {
   const first = c.firstRequestDifference?.callNo;
   // A call the model answered the same way in a new response is in the prefix line, not here.
   const rows = changedAnswers(c);
@@ -422,12 +412,13 @@ function ResponseDifferences({ c }: { c: CompareView }) {
                   ) : null}
                 </td>
                 <td className="num">
+                  {/* Each run by its whole id: never a few characters of it. */}
                   <a href={href.run(c.a.runId, r.callNo)} title={`Open ${shortId(c.a.runId)} at #${r.callNo}`}>
-                    {shortId(c.a.runId).slice(-4)}
+                    <code className="rnm">{shortId(c.a.runId)}</code>
                   </a>{' '}
                   ·{' '}
                   <a href={href.run(c.b.runId, r.callNo)} title={`Open ${shortId(c.b.runId)} at #${r.callNo}`}>
-                    {shortId(c.b.runId).slice(-4)}
+                    <code className="rnm">{shortId(c.b.runId)}</code>
                   </a>
                 </td>
               </tr>

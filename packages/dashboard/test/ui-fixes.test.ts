@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appliedButton, applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -292,10 +292,13 @@ describe('the Blame step', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  it('badges a probe: rescued in lime, lost in red, the blamed one in amber', () => {
+  it('badges a probe: rescued in lime, the blamed one too, lost in red, and only an inconclusive one in amber', () => {
     expect(probeBadge('rescued')).toBe('ok');
     expect(probeBadge('lost')).toBe('no');
-    expect(probeBadge('rescued · blamed')).toBe('y');
+    // The blamed call rescued the run: lime, and marked blamed apart, in ink.
+    expect(probeBadge('rescued · blamed')).toBe('ok');
+    expect(probeVerdictWords('rescued · blamed')).toEqual({ word: 'rescued', blamed: true });
+    expect(probeVerdictWords('lost')).toEqual({ word: 'lost', blamed: false });
     // Inconclusive reads amber, as every page shows it: neither rescued nor lost.
     expect(probeBadge('inconclusive')).toBe('y');
   });
@@ -338,7 +341,7 @@ describe('the Verify step', () => {
 });
 
 describe('the Forks view’s bundles', () => {
-  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: 'R', title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, counts: null, passes: 1, attempts: [], spent: 0, at: 0, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
+  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: 'R', title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, counts: null, passes: 1, attempts: [], spent: 0, at: 0, verdictLine: null, tone: null, rule: null, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
   const attempt = (runId: string, passed: boolean, rescued = false, verdict: 'passed' | 'failed' | 'inconclusive' = passed ? 'passed' : 'failed') => ({ runId, passed, verdict, note: passed ? 'passed' : verdict === 'inconclusive' ? 'inconclusive: judge "issued" answers yes' : 'failed', href: `#/run/${runId}`, rescued });
 
   it('leaves out every attempt they list but the rescued fork, which shows as a fork', () => {
@@ -346,15 +349,30 @@ describe('the Forks view’s bundles', () => {
     expect([...bundledRuns([b])]).toEqual(['B']);
   });
 
-  it('gives a verify the icon of its verdict, plain for one that doesn’t count for the fix', () => {
+  it('gives a verify the icon of how its run came out, inconclusive in amber, never a fork’s, and plain for one that doesn’t count for the fix', () => {
     expect(bundleGlyph({ kind: 'blame', verdict: null, counts: null }).kind).toBe('blame');
-    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: true })).toEqual({ kind: 'fixok', label: 'Verify accepted the change' });
-    expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', counts: true }).kind).toBe('fixbad');
-    expect(bundleGlyph({ kind: 'verify', verdict: 'incomplete', counts: true }).kind).toBe('fork');
-    // Accepted under another check: no verdict on the fix, so never its lime check.
-    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: false })).toEqual({ kind: 'fixok', label: "Verify attempts of a verdict that doesn't count for the fix", plain: true });
+    // A run the change fixed, under a verify that rejected it for another run: its own outcome.
+    expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', counts: true, tone: 'ok' })).toEqual({ kind: 'fixok', label: 'Verify attempts: the run held' });
+    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: true, tone: 'no' }).kind).toBe('fixbad');
+    expect(bundleGlyph({ kind: 'verify', verdict: 'incomplete', counts: true, tone: 'y' }).kind).toBe('warn');
+    // Attempts no report names go by the verdict.
+    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: null })).toEqual({ kind: 'fixok', label: 'Verify accepted the change' });
+    expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', counts: null }).kind).toBe('fixbad');
+    expect(bundleGlyph({ kind: 'verify', verdict: 'incomplete', counts: null }).kind).toBe('warn');
+    // Accepted under another check: no verdict on the fix, so never its lime check, whatever its run did.
+    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: false, tone: 'ok' })).toEqual({ kind: 'fixok', label: "Verify attempts of a verdict that doesn't count for the fix", plain: true });
     // A candidate a repair dropped is no verdict of the fix's: its icon is its own verdict's.
     expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', counts: null }).kind).toBe('fixbad');
+  });
+
+  it('says a bundle’s verdict as a gate’s is said, then what its attempts spent', () => {
+    const money = (v: number) => `≈$${v.toFixed(3)}`;
+    expect(bundleLine(bundle({ verdictLine: 'rescued · 2 of 2 · rate >= 0.34 (95%)', spent: 0.032 }), money)).toBe('rescued · 2 of 2 · rate >= 0.34 (95%) · ≈$0.032');
+    // A verify's then names the change it checked and how that came out: a run kept under a rejected change says so.
+    expect(bundleLine(bundle({ kind: 'verify', verdictLine: 'fixed · 12 of 12 · rate >= 0.76 (95%)', spent: 0.046, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('fixed · 12 of 12 · rate >= 0.76 (95%) · ≈$0.046 · repair candidate 3 · accepted');
+    expect(bundleLine(bundle({ kind: 'verify', verdictLine: 'kept · 3 of 3', spent: 0.011, change: 'repair candidate 2', verdict: 'rejected' }), money)).toBe('kept · 3 of 3 · ≈$0.011 · repair candidate 2 · rejected');
+    // Attempts no report names: their count.
+    expect(bundleLine(bundle({ attempts: [attempt('A', true), attempt('B', false)], passes: 1 }), money)).toBe('2 attempts, 1 passed');
   });
 
   it('asks the server for them until it says it has none, and leaves a run it doesn’t know unbundled', async () => {

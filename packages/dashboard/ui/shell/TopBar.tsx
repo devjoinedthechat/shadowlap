@@ -1,4 +1,4 @@
-import { Fragment, useSyncExternalStore } from 'react';
+import { Fragment, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { Spin } from '../components/bits.js';
 import { Brand, Icon } from '../components/Icon.js';
 import { settingsTabLabel } from '../pages/settings/tabs.js';
@@ -10,18 +10,18 @@ import { useFixCrumb } from '../fixes/data.js';
 import { useServerJobs } from '../fixes/tree.js';
 import { runningChip } from '../jobs.js';
 import { useTeamStore } from '../teamstore.js';
-import { crumbParent, liveChip, topPill } from './top.js';
+import { crumbLineage, liveChip, topPill } from './top.js';
 
-type Crumb = { label: string; href?: string; mono?: boolean };
+/** A crumb; `run` for a run's id (its about line on hover), `anc` for an ancestor, which gives way first. */
+type Crumb = { label: string; href?: string; mono?: boolean; run?: boolean; anc?: boolean; tip?: string | null };
 
-function crumbsFor(route: Route, parentOf: (id: string) => string | null, fixName: string | null = null): Crumb[] {
+function crumbsFor(route: Route, lineageOf: (id: string) => Array<{ runId: string; about: string | null }>, fixName: string | null = null, aboutOf: (id: string) => string | null = () => null): Crumb[] {
   switch (route.page) {
     case 'runs':
       return [{ label: 'Runs' }];
-    case 'run': {
-      const parent = parentOf(route.id);
-      return [{ label: 'Runs', href: href.runs() }, ...(parent ? [{ label: shortId(parent), href: href.run(parent), mono: true }] : []), { label: shortId(route.id), mono: true }];
-    }
+    case 'run':
+      // The run's lineage by id, from its recording down to this run, each with its about line on hover.
+      return [{ label: 'Runs', href: href.runs() }, ...lineageOf(route.id).map((a) => ({ label: shortId(a.runId), href: href.run(a.runId), mono: true, run: true, anc: true, tip: a.about })), { label: shortId(route.id), mono: true, run: true, tip: aboutOf(route.id) }];
     case 'compare':
       return [{ label: 'Compare' }];
     case 'fixes':
@@ -48,13 +48,35 @@ export function TopBar({ route }: { route: Route }) {
   const listed = (id: string) => runs?.find((r) => r.runId === id || (id.length >= 10 && r.runId.startsWith(id))) ?? null;
   const shown = route.page === 'run' ? listed(route.id) : null;
   // A run the list leaves out (an attempt bundled under its run, or one older than the newest 500)
-  // names its parent in its own detail, which its page loads: the crumb waits for that, asking nothing.
+  // names its parent in its own detail, which its page loads: the crumbs wait for that, asking
+  // nothing, and are drawn again once it is noted. Each step of the lineage reads the parents noted.
   const ask = route.page === 'run' && !shown && !exported ? route.id : null;
-  const loaded = useSyncExternalStore(onParentNoted, () => (ask ? knownParent(ask) : undefined));
-  const parentOf = () => crumbParent({ listed: shown, loaded, exported, holds: (id) => !!listed(id) });
+  useSyncExternalStore(onParentNoted, () => (ask ? knownParent(ask) : undefined));
+  const lineageOf = (id: string) => crumbLineage(id, { listed, loaded: knownParent, exported, holds: (x) => !!listed(x) });
   // A fix goes by its label (Fixes / refund-bug), once the fixes read model has named it.
   const fixName = useFixCrumb(route.page === 'fixes' ? route.id : null);
-  const crumbs = crumbsFor(route, parentOf, fixName);
+  const crumbs = crumbsFor(route, lineageOf, fixName, (id) => listed(id)?.about?.text ?? null);
+  const nav = useRef<HTMLElement>(null);
+  // Where the bar is too short for the whole lineage, the oldest give way to "…" first; the run's own crumb stays.
+  useLayoutEffect(() => {
+    const el = nav.current;
+    if (!el) return;
+    const fit = () => {
+      const anc = [...el.querySelectorAll<HTMLElement>('[data-anc]')];
+      const gap = el.querySelector<HTMLElement>('.cgap');
+      for (const a of anc) a.hidden = false;
+      if (gap) gap.hidden = true;
+      if (!gap || !el.getClientRects().length) return;
+      for (let i = 0; i < anc.length && el.scrollWidth > el.clientWidth + 0.5; i++) {
+        anc[i]!.hidden = true;
+        gap.hidden = false;
+      }
+    };
+    fit();
+    addEventListener('resize', fit);
+    return () => removeEventListener('resize', fit);
+  });
+  const ancestors = crumbs.filter((c) => c.anc).map((c) => c.label);
   // A dashboard that changes nothing says read-only where an exported copy says it is one; one with a
   // team store says team.
   const store = useTeamStore();
@@ -73,13 +95,36 @@ export function TopBar({ route }: { route: Route }) {
       <span className="pill" title={pill.title ?? undefined}>
         {pill.word}
       </span>
-      <nav className="crumbs" aria-label="Breadcrumb">
+      <nav className="crumbs" aria-label="Breadcrumb" ref={nav}>
         {crumbs.map((c, i) => {
-          const inner = c.mono ? <b>{c.label}</b> : c.label;
-          return (
-            <Fragment key={`${i}-${c.label}`}>
+          const inner = c.mono ? (
+            <b className={c.anc ? 'rt' : undefined} title={c.tip ?? undefined}>
+              {c.label}
+            </b>
+          ) : (
+            c.label
+          );
+          const crumb = (
+            <>
               {i ? <i>/</i> : null}
               {c.href ? <a href={c.href}>{inner}</a> : <span>{inner}</span>}
+            </>
+          );
+          return (
+            <Fragment key={`${i}-${c.label}`}>
+              {c.anc ? (
+                <span className="cg" data-anc="">
+                  {crumb}
+                </span>
+              ) : (
+                crumb
+              )}
+              {i === 0 && ancestors.length ? (
+                <span className="cg cgap" hidden>
+                  <i>/</i>
+                  <span title={ancestors.join(' / ')}>…</span>
+                </span>
+              ) : null}
             </Fragment>
           );
         })}

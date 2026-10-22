@@ -1,0 +1,282 @@
+import { createElement, type ReactElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from 'vitest';
+import { RunPicker } from '../ui/compare/RunPicker.js';
+import { ResponseDifferences } from '../ui/pages/Compare.js';
+import { TodayCard, WeekGrid } from '../ui/overview/panels.js';
+import { matchPalette } from '../ui/palette.js';
+import { placeList } from '../ui/place.js';
+import { RunHeader } from '../ui/run/RunHeader.js';
+import { sideStatus } from '../ui/runs.js';
+import { fitRunsTable, RunsTable } from '../ui/runspage/RunsTable.js';
+import { RecentRuns } from '../ui/shell/Sidebar.js';
+import { AppContext, type AppState } from '../ui/state.js';
+import type { CompareView, RunDetail, RunListItem } from '../ui/types.js';
+
+/**
+ * A run is named by its id everywhere, with one quiet line that says what it was about (decision
+ * 10): each place that names a run draws its id, in mono and whole, and its about line where it has
+ * room, as the line the fitter fits (about.ts), with all of it on hover.
+ */
+
+const app = (over: Partial<AppState> = {}): AppState =>
+  ({
+    client: {},
+    exported: false,
+    meta: null,
+    runs: [],
+    actionsOff: null,
+    hasKind: () => true,
+    guard: (fn: () => void) => fn(),
+    watchJob: () => undefined,
+    toast: () => undefined,
+    refresh: () => undefined,
+    registerLayer: () => () => undefined,
+    jobs: [],
+    live: [],
+    feeds: {},
+    tick: 0,
+    runsTick: 0,
+    ...over,
+  }) as unknown as AppState;
+
+const inApp = (el: ReactElement, over: Partial<AppState> = {}) => renderToStaticMarkup(createElement(AppContext.Provider, { value: app(over) }, el));
+
+const REC = '01M5GRX4VY5XKQ0MRGD13QZKZN';
+const FORK = '01M5GRX8K406H4KHQ7DEKYWTSZ';
+
+function detail(over: { runId?: string; parent?: string | null; about?: RunDetail['about']; divergence?: number | null; labels?: string[]; source?: string | null; status?: string; kind?: string; failed?: boolean } = {}): RunDetail {
+  const runId = over.runId ?? FORK;
+  const parent = over.parent === undefined ? REC : over.parent;
+  const d = over.divergence === undefined ? 17 : over.divergence;
+  return {
+    run: { runId, parentRunId: parent, mode: parent ? 'replay' : 'record', status: over.status ?? 'completed', divergence: d ? { type: 'request_changed', callNo: d, kind: 'api', name: 'POST /v1/messages', replayedBefore: d - 1 } : null, command: { argv: ['node', 'refund_agent.mjs', 'T-8812'], cwd: '/work' }, codeVersion: 'f6c5756', startedAt: 1, endedAt: 2, meta: { labels: over.labels ?? ['what-if'] } },
+    label: d ? `fork @${d}` : 'recording',
+    about: over.about === undefined ? { text: 'override #16', from: 'change', change: { flag: '--override', callNo: 16, forkAt: 17 } } : over.about,
+    source: over.source ?? null,
+    summary: { cost: { spent: 0.01, saved: 0, captured: 0 }, imported: false, durationMs: 379, upstreamRequests: 8, byKind: { api: 1, tool: 1, clock: 0, random: 0 } },
+    calls: [],
+    parent: parent ? { runId: parent, label: 'recording' } : null,
+    children: [],
+    actions: [],
+    fix: null,
+    state: { status: over.status ?? 'completed', endedAt: 2, kind: over.kind ?? (d ? 'fork' : 'recording'), outcome: { kind: over.failed ? 'check-failed' : 'none' }, failed: !!over.failed, interrupted: false, label: d ? `fork @${d}` : 'recording' },
+  } as unknown as RunDetail;
+}
+
+const header = (run: RunDetail, runs: RunListItem[] = []) => inApp(createElement(RunHeader, { run, call: null, selected: 17, rescued: false, offers: null, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: () => undefined, onFindCommit: () => undefined }), { runs });
+
+describe('a run’s page names it by its id, with its about line under it', () => {
+  it('heads the page with the id in mono, the about line under it and the labels after it', () => {
+    const html = header(detail());
+    expect(html).toMatch(/<h1 class="rnm" title="01M5GRX8K406H4KHQ7DEKYWTSZ">01M5GRX8K4<\/h1>/);
+    const about = html.slice(html.indexOf('class="rabout"'));
+    expect(about).toMatch(/^class="rabout"><span class="rab" data-about="override #16" data-from="change" title="override #16">override #16<\/span><span class="labelbar">/);
+    expect(about).toContain('what-if');
+  });
+
+  it('names only the kind in the eyebrow: the parent is in the crumbs, and a phone reads it after the kind', () => {
+    const html = header(detail(), [{ runId: REC, about: { text: 'Ticket T-8812 arrived damaged', from: 'user' } } as RunListItem]);
+    const eyebrow = html.slice(html.indexOf('class="eyebrow'), html.indexOf('class="rtitle"'));
+    expect(eyebrow).toContain('<span class="ebk">fork @17</span>');
+    expect(eyebrow).toContain(`<span class="ebp"><span class="ebof">of</span><a href="#/run/${REC}" title="Ticket T-8812 arrived damaged"><code>01M5GRX4VY</code></a></span>`);
+  });
+
+  it('gives a clean replay, whose about line says what the eyebrow does, no line of its own: its labels sit after Copy ID', () => {
+    const html = header(detail({ divergence: null, about: { text: 'clean replay', from: 'nothing', change: null }, kind: 'clean' }));
+    expect(html).not.toContain('class="rabout"');
+    expect(html).not.toContain('data-about');
+    const title = html.slice(html.indexOf('class="rtitle"'), html.indexOf('class="meta"'));
+    expect(title).toContain('class="labelbar"');
+  });
+
+  it('leaves out of an import’s meta line the file its about line names', () => {
+    const html = header(detail({ parent: null, divergence: null, source: 'refund-A-1077.har', about: { text: 'refund-A-1077.har', from: 'source' }, kind: 'capture' }));
+    expect(html).toContain('data-about="refund-A-1077.har"');
+    expect(html.slice(html.indexOf('class="meta"'))).not.toContain('refund-A-1077.har');
+  });
+
+  it('shows the id alone for a run an older server sends no about line for', () => {
+    const html = header(detail({ about: null }));
+    expect(html).toContain('<h1 class="rnm"');
+    expect(html).not.toContain('class="rabout"');
+  });
+});
+
+/** A run as /api/runs lists it, with its about line. */
+function listed(runId: string, over: Partial<RunListItem> = {}): RunListItem {
+  return {
+    runId,
+    parentRunId: null,
+    depth: 0,
+    mode: 'record',
+    status: 'completed',
+    label: 'recording',
+    divergence: null,
+    command: 'node refund_agent.mjs T-8812',
+    codeVersion: 'f6c5756',
+    startedAt: 1_000,
+    endedAt: 2_000,
+    calls: 30,
+    spent: 0.016,
+    saved: 0,
+    captured: 0,
+    imported: false,
+    covers: null,
+    source: null,
+    labels: [],
+    origins: 'l'.repeat(30),
+    kind: 'recording',
+    outcome: { kind: 'none' },
+    failed: false,
+    about: { text: 'Ticket T-8812 from customer C-311: order A-1042 ($240) arrived damaged', from: 'user' },
+    ...over,
+  } as RunListItem;
+}
+
+const lostRun = listed('01M5GRYF9FQK708BP829R5FNXQ', { status: 'failed', failed: true, outcome: { kind: 'lost', callNo: 9 }, lostAt: 9, about: { text: 'Order A-1150: the customer asks for a refund', from: 'user' } });
+const forkRun = listed(FORK, { parentRunId: REC, mode: 'replay', label: 'fork @17', kind: 'fork', divergence: { callNo: 17, type: 'request_changed' }, labels: ['what-if'], about: { text: 'override #16', from: 'change' } });
+
+describe('the lists name a run by its id, with its about line', () => {
+  it('in the sidebar: the id and when, then the about line, followed only by what needs a look', () => {
+    expect(sideStatus(lostRun)).toEqual({ text: 'lost at #9', tone: 'err' });
+    expect(sideStatus(forkRun)).toBeNull();
+    expect(sideStatus(listed('L', { status: 'running', calls: 9 }))).toEqual({ text: '9 calls', tone: null });
+    const html = renderToStaticMarkup(createElement(RecentRuns, { runs: [lostRun, listed(REC), forkRun], current: null, loading: false }));
+    expect(html).toContain('<span class="id">01M5GRYF9F</span>');
+    expect(html).toContain('data-about="Order A-1150: the customer asks for a refund"');
+    expect(html).toContain('<span class="r2s"><span class="dot">·</span><em>lost at #9</em></span>');
+    // A fork under its recording: its about line is what it changed, never cut.
+    expect(html).toContain('data-about="override #16" data-from="change"');
+    // Nothing that says what kind of run it is: the icon says that.
+    expect(html).not.toContain('fork @17 ·');
+  });
+
+  it('in Runs: the id in its column, the about line in the next with the labels at its end, and under the id for a phone', () => {
+    const html = renderToStaticMarkup(createElement(RunsTable, { rows: [forkRun, lostRun], picked: new Set<string>(), selectable: true, byColumn: false, sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: 2_000 }));
+    expect(html).toContain('<th class="abcol">About</th>');
+    const row = html.slice(html.indexOf('01M5GRX8K4'));
+    expect(row).toMatch(/<td class="abcell"><span class="abw"><span class="rab" data-about="override #16"[^>]*>override #16<\/span><span class="labs"><span class="chip">what-if<\/span><\/span><\/span><\/td>/);
+    // Under the id, where About gives way (a tablet, a phone), with what needs a look after it.
+    expect(html).toContain('<span class="rso"><span class="dot">·</span><em>lost at #9</em></span>');
+    // The id's hover has its kind, parent and command.
+    expect(row).toContain('title="fork @17 of 01M5GRX4VY · node refund_agent.mjs T-8812"');
+    // No column or line names a run by its kind and command.
+    expect(html).not.toContain('fork @17 of 01M5GRX4VY · <code>');
+  });
+
+  it('in Runs with a team store: who made each run as an avatar, the name on hover, so every row keeps one line', () => {
+    const ci = { ...lostRun, author: 'ci', ci: 'github' } as RunListItem & { ci: string };
+    const html = renderToStaticMarkup(createElement(RunsTable, { rows: [{ ...forkRun, author: 'maya@example.com' }, ci], picked: new Set<string>(), selectable: false, byColumn: true, you: 'maya@example.com', sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: 2_000 }));
+    expect(html).toContain('<td class="bycell"><span class="byav" role="img" aria-label="maya (you)" data-tip="{&quot;t&quot;:&quot;maya (you)&quot;}"><span class="av ');
+    expect(html).toContain('aria-label="ci · GitHub Actions"');
+    // No name beside the avatar, and no second line for CI's provider.
+    expect(html).not.toContain('class="person"');
+    expect(html).not.toContain('<small>GitHub Actions</small>');
+  });
+
+  it('in the palette: the about line is the hint, and a run matches its kind, command and labels unseen', () => {
+    const items = [
+      { group: 'Runs' as const, label: '01M5GRX8K4', hint: 'override #16', match: 'fork @17 · node refund_agent.mjs T-8812 · what-if' },
+      { group: 'Runs' as const, label: '01M5GRYF9F', hint: 'Order A-1150: the customer asks for a refund', match: 'recording · node refund_agent.mjs T-8812' },
+    ];
+    expect(matchPalette(items, 'what-if').map((x) => x.label)).toEqual(['01M5GRX8K4']);
+    expect(matchPalette(items, 'A-1150').map((x) => x.label)).toEqual(['01M5GRYF9F']);
+    expect(matchPalette(items, 'refund_agent').map((x) => x.label)).toEqual(['01M5GRX8K4', '01M5GRYF9F']);
+  });
+
+  it('in Compare’s pickers: a button with the id and its about line, never a select of ids and kinds', () => {
+    const html = renderToStaticMarkup(createElement(RunPicker, { label: 'Run A', value: REC, runs: [listed(REC), forkRun], onPick: () => undefined }));
+    expect(html).toContain('class="rpick"');
+    expect(html).toContain('aria-haspopup="listbox"');
+    expect(html).toContain('<code class="pid">01M5GRX4VY</code>');
+    expect(html).toContain('data-about="Ticket T-8812 from customer C-311: order A-1042 ($240) arrived damaged"');
+    expect(html).not.toContain('<select');
+    // Its list goes under the button, or over it where there is more room, as tall as that room.
+    expect(placeList({ left: 100, top: 100, bottom: 134, width: 320 }, 900, { width: 1440, height: 900 })).toEqual({ top: 140, left: 100, width: 340, maxHeight: 420 });
+    expect(placeList({ left: 100, top: 800, bottom: 834, width: 320 }, 900, { width: 1440, height: 900 })).toEqual({ top: 800 - 6 - 420, left: 100, width: 340, maxHeight: 420 });
+  });
+
+  it('on the Overview: the grid’s hover card has the about line under the id, and a recording in progress shows it under its id', () => {
+    const row = { runId: FORK, parentRunId: REC, depth: 1, context: false, kind: 'fork', status: 'completed', outcome: { kind: 'none' }, failed: false, label: 'fork @17', about: { text: 'override #16', from: 'change', change: null }, rescues: null, startedAt: 1, calls: 3, cells: 'rrl', forkCell: 2, origins: { r: 2, l: 1, o: 0, i: 0, f: 0, b: 0, s: 0 } };
+    const grid = renderToStaticMarkup(createElement(WeekGrid, { grid: { runs: 1, calls: 3, origins: row.origins, families: [{ size: 1, cols: 30, rows: [row] }], shown: 1, more: 0 } as never, now: 2 }));
+    expect(grid).toContain('&quot;s&quot;:&quot;override #16&quot;');
+    const today = { day: '2026-10-22', served: 0, notRespent: 0, recording: [{ runId: '01M5GRZNA5PJ6DHP9G395YMSJG', command: 'node refund_agent.mjs T-8813', calls: 9, startedAt: 1, about: { text: 'My blender arrived broken', from: 'user' } }], replays: 0, forks: { count: 0, live: 0, blocked: 0 }, tests: { count: 0, failed: 0, inconclusive: 0, latestFailure: null }, blame: { probes: 0, attempts: 0, runs: [] } };
+    const card = renderToStaticMarkup(createElement(TodayCard, { today: today as never, live: [] }));
+    expect(card).toContain('Recording <code>01M5GRZNA5</code>');
+    expect(card).toContain('<span class="rab d" data-about="My blender arrived broken"');
+    expect(card).not.toContain('node refund_agent.mjs T-8813</span>');
+  });
+});
+
+describe('Compare names each run by its whole id', () => {
+  it('opens a call whose answer changed in either run, each by its id, never a few characters of it', () => {
+    const c = { a: { runId: REC }, b: { runId: FORK }, firstRequestDifference: null, responseDifferences: [{ callNo: 5, kind: 'api', name: 'POST /v1/messages', detail: '"Issuing the refund." → "Above the limit."', sameAnswer: false }] } as unknown as CompareView;
+    const html = renderToStaticMarkup(createElement(ResponseDifferences, { c }));
+    const ids = [...html.matchAll(/<code class="rnm">([^<]*)<\/code>/g)].map((m) => m[1]);
+    expect(ids).toEqual(['01M5GRX4VY', '01M5GRX8K4']);
+    expect(html).toContain(`href="#/run/${REC}/5" title="Open 01M5GRX4VY at #5"`);
+    expect(html).toContain(`href="#/run/${FORK}/5" title="Open 01M5GRX8K4 at #5"`);
+  });
+});
+
+describe('Runs’ columns give way, measured, so About keeps its room', () => {
+  /**
+   * A Runs table whose About column is `about` wide, gaining what each column it leaves out gives it
+   * (`org` for the strip of calls by origin, `by` for By), with labelled rows whose labels are as wide
+   * as given: the measures the fit reads after layout.
+   */
+  function table(o: { about: number; org?: number; by?: number; byColumn?: boolean; labs?: Array<{ width: number; about: string }>; width?: number; panel?: number }) {
+    const classes = new Set<string>();
+    const room = () => o.about + (classes.has('no-org') ? (o.org ?? 0) : 0) + (classes.has('no-by') ? (o.by ?? 0) : 0);
+    const th = { getBoundingClientRect: () => ({ width: room() }) };
+    const labs = (o.labs ?? []).map((l) => ({ getBoundingClientRect: () => ({ width: l.width }), parentElement: { querySelector: () => ({ dataset: { about: l.about, from: 'user' } }) } }));
+    const t = {
+      classList: { add: (...c: string[]) => c.forEach((x) => classes.add(x)), remove: (...c: string[]) => c.forEach((x) => classes.delete(x)), contains: (c: string) => classes.has(c) },
+      matches: (sel: string) => sel === 'table.runst',
+      querySelector: (sel: string) => (sel === 'th.abcol' ? th : sel === 'th.bycol' ? (o.byColumn ? {} : null) : null),
+      querySelectorAll: (sel: string) => (sel === '.abcell .labs' ? labs : []),
+      closest: () => (o.panel ? { clientWidth: o.panel } : null),
+      getBoundingClientRect: () => ({ width: o.width ?? 0 }),
+    };
+    return { el: t as unknown as HTMLElement, classes };
+  }
+
+  /** Fits it in a window `width` wide, text measured at 7px a character. */
+  function fit(t: ReturnType<typeof table>, width = 1440): string[] {
+    const g = globalThis as Record<string, unknown>;
+    const had = { innerWidth: g.innerWidth, getComputedStyle: g.getComputedStyle, document: g.document };
+    g.innerWidth = width;
+    g.getComputedStyle = () => ({ font: '12.5px Inter' });
+    g.document = { createElement: () => ({ getContext: () => ({ font: '', measureText: (x: string) => ({ width: x.length * 7 }) }) }) };
+    try {
+      fitRunsTable(t.el);
+    } finally {
+      for (const [k, v] of Object.entries(had)) if (v === undefined) delete g[k];
+      else g[k] = v;
+    }
+    return [...t.classes].sort();
+  }
+
+  it('keeps every column while About has its room', () => {
+    expect(fit(table({ about: 360, labs: [{ width: 120, about: 'Order A-1042: the customer asks for a refund' }] }))).toEqual([]);
+  });
+
+  it('gives up the strip of calls by origin first, then the labels, then By, before the about line goes under the id', () => {
+    // The strip alone gives About its 200px.
+    expect(fit(table({ about: 150, org: 60 }))).toEqual(['no-org']);
+    // Labels that need more than About has, beside the shortest form of their run's line: they go next.
+    expect(fit(table({ about: 250, org: 20, labs: [{ width: 200, about: 'Order A-1042: the customer asks for a refund' }] }))).toEqual(['no-labs', 'no-org']);
+    // With a team store, By goes last, and gives About its room.
+    expect(fit(table({ about: 120, org: 30, by: 100, byColumn: true }))).toEqual(['no-by', 'no-labs', 'no-org']);
+    // Without one there is no By to give up: the about line goes under the id.
+    expect(fit(table({ about: 120, org: 30, by: 100 }))).toEqual(['no-by', 'no-labs', 'no-org', 'stacked']);
+  });
+
+  it('puts the about line under the id when nothing gives About its room, or on a tablet or a phone', () => {
+    expect(fit(table({ about: 100, org: 30, by: 50, byColumn: true }))).toEqual(['no-by', 'no-labs', 'no-org', 'stacked']);
+    // Still wider than its panel: a status may wrap after its dot.
+    expect(fit(table({ about: 100, org: 30, width: 900, panel: 700 }))).toEqual(['no-by', 'no-labs', 'no-org', 'stacked', 'tight']);
+    expect(fit(table({ about: 600 }), 1000)).toEqual(['no-by', 'no-labs', 'no-org', 'stacked']);
+  });
+});

@@ -1,3 +1,4 @@
+import { tipText } from '../components/HoverCard.js';
 import { personName } from '../overview/model.js';
 import { authorTint, ciName } from './authors.js';
 
@@ -17,19 +18,25 @@ export function Avatar({ author }: { author: string | null }) {
   );
 }
 
-/** A person in a table cell: the avatar and the name (with "you" for whoever this machine records as), and what kind of author when it is CI. */
-export function Person({ author, ci, you = false }: { author: string | null; ci?: string | null; you?: boolean }) {
-  const provider = author === 'ci' ? ciName(ci) : null;
+/**
+ * Who made a run in words: the name (with "you" for whoever this machine records as), and for CI its
+ * provider when the run says which: `maya (you)`, `ci · GitHub Actions`.
+ */
+export function authorWords(author: string | null, o: { ci?: string | null | undefined; you?: boolean } = {}): string {
+  if (!author) return 'who made this run is not recorded';
+  const provider = author === 'ci' ? ciName(o.ci) : null;
+  return `${personName(author)}${o.you ? ' (you)' : ''}${provider ? ` · ${provider}` : ''}`;
+}
+
+/**
+ * Runs' By column, as the design's byCell draws it: who made the run as their avatar, 20px as in the
+ * top bar, the name on hover, so the column takes an avatar's width and every row keeps one line.
+ */
+export function ByAvatar({ author, ci, you = false }: { author: string | null; ci?: string | null; you?: boolean }) {
+  const words = authorWords(author, { ci, you });
   return (
-    <span className="person" title={author ?? 'who made this run is not recorded'}>
+    <span className="byav" role="img" aria-label={words} data-tip={tipText(words)}>
       <Avatar author={author} />
-      <span className="pn">
-        <span className="nm">
-          {personName(author)}
-          {you ? <em>you</em> : null}
-        </span>
-        {provider ? <small>{provider}</small> : null}
-      </span>
     </span>
   );
 }

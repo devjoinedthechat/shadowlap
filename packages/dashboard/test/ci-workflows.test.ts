@@ -69,6 +69,14 @@ describe('the pull request a fix opens', () => {
     expect(view.fixOnFailure.preview.spent).toMatch(/ of \$5\.00$/);
     expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on main.');
     expect(view.alerts.message.link).toBe('github.com/owner/repo/actions/runs/…');
+    // What fails a golden in red; a gate, judge or injection test that can't decide in amber, never red.
+    expect(view.alerts.failures.map((r) => [r.value, r.tone])).toEqual([
+      ['diverged', 'err'],
+      ['live call', 'err'],
+      ['exit ≠ 0', 'err'],
+      ['check failed', 'err'],
+      ['inconclusive', 'warn'],
+    ]);
   });
 
   it('names the branch after the golden whose test replay failed, as the action does, and the example the same way', () => {

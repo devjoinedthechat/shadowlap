@@ -58,6 +58,7 @@ import {
 } from '@shadowlap/engine';
 import { loadRunIndex, type RunIndex } from './run-index.js';
 import { splitCommandLine } from './settings.js';
+import { probeLine, runsRule, verifiedLine, type VerdictTone } from './verdict.js';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -97,10 +98,12 @@ function rateOf(g: unknown): VerifyRow['rate'] {
 
 export type StepKey = 'blame' | 'repair' | 'verify';
 /**
- * Done, to do, or (Verify only) rejected. A blame no model call rescued is still to do: it found no
- * call to blame, and its line says so ("not rescued").
+ * Done, to do, (Verify only) rejected, or `warn`: a step that ran and needs a look, in amber, never
+ * the grey of one not run yet: a blame no model call rescued ("not rescued"), one that couldn't
+ * settle ("not settled") or stopped part way ("blame stopped"), a verify left inconclusive or
+ * stopped before every run settled ("not settled").
  */
-export type StepState = 'done' | 'todo' | 'no';
+export type StepState = 'done' | 'todo' | 'no' | 'warn';
 
 /** One of a fix's three steps, as the list (`short`) and the stepper (`title`, `meta`) show it. */
 export interface FixStep {
@@ -523,8 +526,8 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
     if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: `lost at #${r.blamed.callNo}`, title: `Lost at model call #${r.blamed.callNo}`, meta: `confidence ${r.confidence} · ${cost}` };
     // Its first probe couldn't tell: not settled, never a finding that no call rescues the run.
-    else if (b.outcome === 'unrescuable') blame = unsettledFirst(r) ? { key: 'blame', n: '01', state: 'todo', short: 'not settled', title: 'Not settled from the first model call', meta: cost } : { key: 'blame', n: '01', state: 'todo', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
-    else blame = { key: 'blame', n: '01', state: 'todo', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
+    else if (b.outcome === 'unrescuable') blame = unsettledFirst(r) ? { key: 'blame', n: '01', state: 'warn', short: 'not settled', title: 'Not settled from the first model call', meta: cost } : { key: 'blame', n: '01', state: 'warn', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
+    else blame = { key: 'blame', n: '01', state: 'warn', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
   }
 
   let repair: FixStep;
@@ -552,7 +555,7 @@ function stepsOf(rec: FixRecords): FixStep[] {
   else if (counting(rec).length) {
     // A run it took is inconclusive (its gate ran out of attempts, or an attempt could not be judged), or the verify stopped first.
     const unsure = counting(rec).some((x) => x.report.runs.some((run) => outcomeOf(run) === 'inconclusive'));
-    verify = { key: 'verify', n: '03', state: 'todo', short: 'not settled', title: 'Not settled', meta: unsure ? 'a run it verified is inconclusive' : 'a verify stopped before every run settled' };
+    verify = { key: 'verify', n: '03', state: 'warn', short: 'not settled', title: 'Not settled', meta: unsure ? 'a run it verified is inconclusive' : 'a verify stopped before every run settled' };
   }
   else if (rec.verdicts.length) {
     const why = rec.standing.get(rec.verdicts.at(-1)!.verifyId)?.why;
@@ -1435,7 +1438,9 @@ export function needsLookFixes(store: Store, options: { limit?: number; patchInT
       href: runHref(run.runId),
       icon: 'fail' as const,
       title: `A run failed: ${short(run.runId)}`,
-      detail: `${fixLabels(run).join(', ') || run.command.argv.join(' ').slice(0, 60)} · not blamed yet`,
+      // A run is named by its id (decision 10): its labels are no name. The Overview puts the run's
+      // about line in place of its command for the lines it shows.
+      detail: `${run.command.argv.join(' ')} · not blamed yet`,
       action: 'Run blame' as const,
       fixId: null,
       runId: run.runId,
@@ -1610,6 +1615,19 @@ export interface FixBundle {
   spent: number;
   at: number;
   /**
+   * Its verdict as every page says a gate's (decision 9): the word, the tally and the Wilson bound,
+   * `rescued · 2 of 2 · rate >= 0.34 (95%)`, `fixed · 12 of 12 · rate >= 0.76 (95%)` (a fixed count
+   * its tally alone), in its tone; null for attempts no stored report names.
+   */
+  verdictLine?: string | null;
+  tone?: VerdictTone | null;
+  /**
+   * The rule it was decided by (`gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20
+   * attempts`), which the Forks view states once in the family, under the first bundle it decided;
+   * null with no stored report.
+   */
+  rule?: string | null;
+  /**
    * Where it leads: the fix's Blame step for a probe, the verdict on the fix's Verify step, the
    * Repair step for a candidate a repair tried and dropped; the run itself when no fix holds it.
    */
@@ -1721,6 +1739,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
         const attempts = p.attempts.filter((a) => exists(a.runId));
         if (!attempts.length) continue;
         for (const a of attempts) bundled.add(a.runId);
+        const v = probeLine(p, b.report);
         out.push({
           kind: 'blame',
           key: `${b.blameId}:${p.callNo}`,
@@ -1736,6 +1755,9 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
           attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
           spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
           at: startedAt(attempts.map((a) => a.runId), b.at),
+          verdictLine: v.line,
+          tone: v.tone,
+          rule: v.rule,
           href: fix ? fixHref(fix.fixId, 'blame') : runHref(r.runId, blamedCall),
           fixId: fix?.fixId ?? null,
         });
@@ -1745,10 +1767,11 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
 
   // Verify: each verdict on a run in the family, and each candidate a repair tried and dropped (its
   // check is kept in the repair's report, not as a verdict), a bundle per run it replayed.
-  const verified = (key: string, x: VerifiedRun, change: string, verdict: VerifyOutcome, counts: boolean | null, fix: StoredFix | null, href: string, at: number) => {
+  const verified = (key: string, x: VerifiedRun, change: string, verdict: VerifyOutcome, counts: boolean | null, fix: StoredFix | null, href: string, at: number, rule: string) => {
     const attempts = x.attempts.filter((a) => exists(a.runId) && !bundled.has(a.runId));
     if (!attempts.length) return;
     for (const a of attempts) bundled.add(a.runId);
+    const v = verifiedLine(x);
     out.push({
       kind: 'verify',
       key,
@@ -1764,6 +1787,9 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: false })),
       spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
       at: startedAt(attempts.map((a) => a.runId), at),
+      verdictLine: v.line,
+      tone: v.tone,
+      rule,
       href,
       fixId: fix?.fixId ?? null,
     });
@@ -1776,7 +1802,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       const change = changeName(v);
       // Whether it counts for the fix it leads to, as that fix's Verify step says: kept with the link.
       const counts = fix ? (store.linksTo(v.verifyId, 'verify').find((l) => l.fixId === fix.fixId)?.data?.counts ?? true) : null;
-      verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, counts, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at);
+      verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, counts, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at, runsRule({ gate: sprtGate(v.report.gate), needed: v.report.needed, attemptsPerRun: v.report.attemptsPerRun }));
     }
   }
   const kept = new Set(verdicts.flatMap((v) => (v.repairId !== null && v.candidate !== null ? [`${v.repairId}#${v.candidate}`] : [])));
@@ -1785,7 +1811,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       if (!c.verify || kept.has(`${r.repairId}#${c.id}`)) continue;
       for (const x of inFamily(c.verify.runs)) {
         const fix = linkedFix(r.repairId, 'repair', x.runId);
-        verified(`${r.repairId}#${c.id}:${x.runId}`, x, `repair candidate ${c.id}`, c.verify.verdict, null, fix, fix ? fixHref(fix.fixId, 'repair') : runHref(x.runId), r.at);
+        verified(`${r.repairId}#${c.id}:${x.runId}`, x, `repair candidate ${c.id}`, c.verify.verdict, null, fix, fix ? fixHref(fix.fixId, 'repair') : runHref(x.runId), r.at, runsRule({ gate: sprtGate(c.verify.gate), needed: c.verify.needed, attemptsPerRun: c.verify.attemptsPerRun }));
       }
     }
   }
@@ -1831,6 +1857,9 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       attempts: g.runs.map((r) => ({ runId: r.runId, passed: passed(r), verdict: verdict(r), note: attemptNote(passed(r), undefined, r, verdict(r)), href: runHref(r.runId), rescued: r.runId === rescuedRunId })),
       spent: 0,
       at: Math.min(...g.runs.map((r) => r.startedAt)),
+      verdictLine: null,
+      tone: null,
+      rule: null,
       href: fix ? fixHref(fix.fixId, 'blame') : runHref(g.parent.runId, blamed ? g.callNo : null),
       fixId: fix?.fixId ?? null,
     });

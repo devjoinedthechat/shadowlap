@@ -406,14 +406,19 @@ describe('a test session', () => {
     };
     expect(line(plain)).toEqual(['fail', 'Test failed · plain diverged at call 3']);
     expect(line(clean)).toEqual(['test', 'Test passed · clean · 0/0 replayed']);
-    // A gate's tally, the Wilson bound and the rule it was decided by: never a claimed rate.
+    // Decision 9: a gate's verdict word, its tally and the Wilson bound, never a claimed rate; the rule
+    // it was decided by goes on the entry's hover, not into its line.
     const rule = 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts';
-    expect(line(passes)).toEqual(['test', `Test passed · gated-pass · 12 of 12 passed · rate >= 0.76 (95%) · pass^5 1.00 · ${rule}`]);
-    expect(line(fails)).toEqual(['fail', `Test failed · gated-fail · 0 of 3 passed · rate <= 0.56 (95%) · ${rule}`]);
-    expect(line(unsure)).toEqual(['warn', `Test inconclusive · flaky · 16 of 20 passed · rate 0.58 to 0.92 (95%) · pass^5 0.28 · ${rule}`]);
+    expect(line(passes)).toEqual(['test', 'Test passed · gated-pass: passed · 12 of 12 · rate >= 0.76 (95%)']);
+    expect(line(fails)).toEqual(['fail', 'Test failed · gated-fail: failed · 0 of 3 · rate <= 0.56 (95%)']);
+    expect(line(unsure)).toEqual(['warn', 'Test inconclusive · flaky: inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%)']);
+    expect([passes, fails, unsure].map((id) => byId(items, `r:${id}:end`)?.rule)).toEqual([rule, rule, rule]);
+    expect(items.filter((i) => i.text.includes('gate:'))).toEqual([]);
     // Never a gate's evidence for a golden whose gate is not what is inconclusive.
     expect(line(stopped)).toEqual(['warn', 'Test inconclusive · stopped · a check could not be judged']);
     expect(line(planted)).toEqual(['warn', 'Test inconclusive · planted · its injection test showed too little to say']);
+    // No gate decided either: no rule to give.
+    expect([stopped, planted, plain].map((id) => byId(items, `r:${id}:end`)?.rule)).toEqual([undefined, undefined, undefined]);
     expect(JSON.stringify(items)).not.toContain('needed');
     expect(JSON.stringify(items)).not.toContain('null');
     expect(items.find((i) => i.at === 210)).toMatchObject({ kind: 'fail', text: 'Tests ran · 2 passed, 2 failed, 1 inconclusive' });

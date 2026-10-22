@@ -1,5 +1,6 @@
 import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
-import { liveChaosSession } from './chaos.js';
+import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
+import { gateLine, gateRuleOf } from './verdict.js';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -56,6 +57,12 @@ export interface GateView {
 export type GateResultView = GateResult & {
   /** `18 of 20 passed · rate >= 0.70 (95%) · pass^5 0.55`. */
   tally: string;
+  /**
+   * The rule it was decided by, said once under the table for every golden it decided (decision 9):
+   * `gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts`; null for a clean replay, which its
+   * one attempt settled.
+   */
+  rule?: string | null;
   /** USD an attempt cost on average, to estimate what more attempts would; null when nothing was spent or it wasn't kept. */
   perAttempt: number | null;
   /** Run more attempts, for an inconclusive verdict; null otherwise. */
@@ -242,6 +249,11 @@ export interface GoldenRow {
   /** The run a row opens: its latest replay when the store still has it, else the recording. */
   runId: string | null;
   error: string | null;
+  /**
+   * Its error-path presets (`test --chaos`) as their last session left them, or null when none ran:
+   * a golden whose presets ran has been tested, though its replay may not have been.
+   */
+  presets?: PresetsSummary | null;
 }
 
 /** The first bad commit `shadowlap bisect` found for a golden: the card above its buttons. */
@@ -617,12 +629,17 @@ export function gateVerdictLine(g: GateResult): string {
   }
 }
 
-/** The line under a golden's last result: what it did, or why it failed; `normalizers` are the config's now. */
+/** Whether a result's line is its gate's verdict: a gate an attempt a check could not decide stopped decided nothing, and the result's reason says why. */
+const decidedByGate = (r: TestResult): boolean => !!r.data?.gate && r.data.gate.decision !== 'continue' && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit');
+
+/**
+ * The line under a golden's last result: what it did, or why it failed; `normalizers` are the
+ * config's now. A gated golden's is its tally and Wilson bound (and its baseline), the verdict word
+ * beside it and the gate's rule said once under the table (decision 9).
+ */
 export function resultLine(r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
   const data = r.data ?? {};
-  // A gate's verdict is its verdict line, passed, failed or inconclusive, with pass^k beside it; a gate
-  // an attempt a check could not decide stopped decided nothing, and the result's reason says why.
-  if (data.gate && data.gate.decision !== 'continue' && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit')) return [gateVerdictLine(data.gate), formatPassK(data.gate)].filter(Boolean).join(' · ');
+  if (decidedByGate(r)) return gateLine(data.gate!, { word: false });
   if (!r.ok) {
     if (r.failure === 'diverged') {
       const d = divergenceOf(r);
@@ -760,7 +777,7 @@ export function gateResultView(r: TestResult, golden: string): GateResultView | 
   const spent = typeof agent === 'number' ? agent + (typeof judges === 'number' ? judges : 0) : undefined;
   const own = r.data?.attempts?.total ?? g.attempts;
   const perAttempt = typeof spent === 'number' && spent > 0 && own > 0 ? spent / own : null;
-  return { ...g, tally: formatTally(g), perAttempt, more: moreAttempts(g, golden, perAttempt) };
+  return { ...g, tally: formatTally(g), rule: gateRuleOf(g), perAttempt, more: moreAttempts(g, golden, perAttempt) };
 }
 
 /**
@@ -1158,6 +1175,8 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
   // Only what the page shows is read: each golden's newest result, and the results of the sessions
   // the history's columns are made of.
   const latestOf = new Map(store.latestTestResults().map((r) => [r.golden, r]));
+  const presetsOf = new Map<string, PresetsSummary | null>();
+  for (const m of chaosMatrices(store)) if (m.golden && !presetsOf.has(m.golden)) presetsOf.set(m.golden, presetsSummary(m, (id) => store.getRun(id) !== null));
   const history = byGolden(sessionsView.results);
   const columns = new Set(revisions);
 
@@ -1200,9 +1219,10 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       }),
       last: latest
         ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path), injection: latest.data?.injection ?? null }
-        : { result: null, verdict: null, failure: null, line: error ? `can't be read: ${error}` : 'not run yet', at: null, updated: false, gate: null },
+        : { result: null, verdict: null, failure: null, line: error ? `can't be read: ${error}` : presetsOf.get(g.path) ? `${presetsOf.get(g.path)!.line} · replay not tested yet` : 'not run yet', at: null, updated: false, gate: null },
       runId: runIfKept(store, latest?.runId ?? null) ?? sourceRun,
       error,
+      presets: presetsOf.get(g.path) ?? null,
     };
   });
 
@@ -1272,6 +1292,9 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     const total = goldens.length;
     const passing = lastResults.length - failed.length - unsure.length;
     const untested = total - lastResults.length;
+    // A golden whose presets ran has been tested, its replay not yet: never "not run yet".
+    const presetsOnly = rows.filter((r) => r.last.result === null && !r.error && r.presets).length;
+    const notRun = untested - presetsOnly;
     verdict = {
       state: failed.length ? 'failing' : unsure.length ? 'inconclusive' : 'passing',
       failing: failed.length,
@@ -1279,7 +1302,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       passing,
       untested,
       // One golden: "All 1 goldens pass" isn't English.
-      title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : untested ? `${passing} of ${total} goldens pass, ${untested} not run yet` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
+      title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : untested ? `${passing} of ${total} goldens pass${notRun ? `, ${notRun} not run yet` : ''}${presetsOnly ? `, ${presetsOnly} tested only by ${presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''}` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
       session: sessionView(store, shown),
       since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, verdict: verdictOfResult(r), revision: r.revision, at: r.at })),
@@ -1390,8 +1413,13 @@ export interface FailingTest {
   title: string;
   /** Failed, or inconclusive: Needs a look lists both, told apart. */
   verdict: 'failed' | 'inconclusive';
-  /** Why: `diverged at call 1 · $.metadata.user_id looks like a UUID`. */
+  /**
+   * Why: `diverged at call 1 · $.metadata.user_id looks like a UUID`; a gate's verdict as every page
+   * says it, `failed · 4 of 8 · rate <= 0.78 (95%)`, its rule apart (`rule`).
+   */
   line: string;
+  /** The rule of the gate that decided it, for the line's hover; null when no gate did. */
+  rule: string | null;
   failure: TestFailure;
   runId: string | null;
   /** Where its line goes: the fix its failing run belongs to, else the failing run, else the Tests screen. */
@@ -1445,7 +1473,10 @@ export function failingTests(store: Store, options: { goldens: GoldenList; folde
       const fixId = verdict === 'failed' && runId ? (fixOfRun(store, runId)?.fixId ?? null) : null;
       const next = failingNext(r, { fixId, mode: sources.get(r.golden)?.mode ?? null });
       const href = fixId ? `#/fixes/${fixId}` : verdict === 'inconclusive' ? '#/tests' : runId ? `#/run/${runId}` : '#/tests';
-      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line: lineOf(store, r, sources.get(r.golden)?.checks ?? [], options.normalizers ?? []), failure: r.failure ?? 'error', runId, href, next, fixId, at: r.at };
+      // A gate's verdict says its word, tally and bound; the rule goes on the line's hover.
+      const gate = decidedByGate(r) ? r.data!.gate! : null;
+      const line = gate ? gateLine(gate) : lineOf(store, r, sources.get(r.golden)?.checks ?? [], options.normalizers ?? []);
+      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line, rule: gateRuleOf(gate), failure: r.failure ?? 'error', runId, href, next, fixId, at: r.at };
     });
 }
 

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
+import { AboutLine, useFitAbouts } from '../components/About.js';
 import { Eyebrow, Tag } from '../components/bits.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
@@ -14,27 +15,39 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckText } from './banner.js';
+import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
 
 /**
- * The run's header: what it is and where it came from, its id, labels, command and timing, and what
- * can be done with it: compare, share, replay, fork at the selected call, delete.
+ * The run's header: what kind of run it is, its id as its heading (decision 10: the id is the run's
+ * name), the one quiet line that says what it was about with its labels after it, its command and
+ * timing, and what can be done with it: compare, share, replay, fork at the selected call, delete.
+ * Its lineage is in the crumbs; a phone, which has no crumbs, names the parent in the eyebrow.
  */
-export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit }: { run: RunDetail; call: CallDetail | null; selected: number | null; rescued: boolean; offers: RunOffers | null; forkMenu: ReturnType<typeof useMenu>; onAction: (p: PendingAction) => void; onFindCommit: () => void }) {
+export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit, preset = null }: { run: RunDetail; call: CallDetail | null; selected: number | null; rescued: boolean; offers: RunOffers | null; forkMenu: ReturnType<typeof useMenu>; onAction: (p: PendingAction) => void; onFindCommit: () => void; preset?: PresetAttempt | null }) {
   const app = useApp();
   const { exported, actionsOff, toast, client, guard, refresh, hasKind } = app;
   const r = run.run;
   const like = runLikeOf(run);
   const type = runType(like);
   const live = r.status === 'running';
-  const tag = runTag(like);
+  // A preset's attempt takes its status from the preset's verdict: its run alone reads as a healthy fork.
+  const tag = presetTag(preset) ?? runTag(like);
   const share = useMenu();
   const [deleting, setDeleting] = useState(false);
   const replay = run.actions.find((a) => a.key === 'r');
   const pair = compareTarget(r, run.children);
-  const parent = run.parent ? <a href={href.run(run.parent.runId)}>{shortId(run.parent.runId)}</a> : null;
+  // The lineage is in the crumbs; a phone, which has none, reads the parent here, after the kind.
+  const parent = run.parent ? (
+    <span className="ebp">
+      <span className="ebof">of</span>
+      <a href={href.run(run.parent.runId)} title={app.runs?.find((x) => x.runId === run.parent!.runId)?.about?.text ?? run.parent.label}>
+        <code>{shortId(run.parent.runId)}</code>
+      </a>
+    </span>
+  ) : null;
   // Failed, or only interrupted, as Runs, the sidebar and the Overview say it: the server's state.
   const failed = isFailed(like);
   const cut = isInterrupted(like);
@@ -52,57 +65,59 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const checkFailed = !!failure?.startsWith('check failed') || (failed && failedWord(like) === 'check failed');
   // An interrupted run says so after what it is, in grey: it stopped, it did not fail.
   const stopped = cut ? ' · interrupted' : '';
+  // What kind of run it is, said once: its golden and what it changed are its about line, under the id.
   // An attempt says it is one (its banner says which and how it came out); a fork, where it forked.
   const forkWords = forkKindWords(run, type, rescued);
-  const eyebrow = live ? (
-    <Eyebrow>recording</Eyebrow>
-  ) : forkWords ? (
-    <Eyebrow tone="fork">
-      {forkWords}
-      {parent ? <> of {parent}</> : null}
-      {/* A fork keeps its own colour; that it stopped is said in grey, as on every other run. */}
-      {cut ? <span className="n">{stopped}</span> : null}
+  const kind = live ? 'recording' : forkWords ? forkWords : type === 'clean' ? 'clean replay' : type === 'replay' ? (failed ? 'replay · failed' : 'replay') : type === 'test' ? 'test replay' : type === 'capture' ? 'imported from a capture' : failed ? (checkFailed ? 'recording · check failed' : 'recording · failed') : cut ? 'recording · interrupted' : recordingWords(r);
+  const eyebrowOf = (tone: 'fork' | 'err' | 'n' | undefined, tail: ReactNode = null) => (
+    <Eyebrow tone={tone}>
+      <span className="ebk">{kind}</span>
+      {parent}
+      {tail}
     </Eyebrow>
-  ) : type === 'clean' || type === 'replay' ? (
-    <Eyebrow tone={failed ? 'err' : cut ? 'n' : undefined}>
-      {type === 'clean' ? 'clean replay' : failed ? 'replay · failed' : 'replay'}
-      {parent ? <> of {parent}</> : null}
-      {stopped}
-    </Eyebrow>
-  ) : type === 'test' ? (
-    <Eyebrow tone={failed ? 'err' : cut ? 'n' : undefined}>
-      test replay{parent ? <> of {parent}</> : null}
-      {r.meta?.test?.golden ? (
-        <>
-          {' · '}
-          <code>{r.meta.test.golden}</code>
-        </>
-      ) : null}
-      {stopped}
-    </Eyebrow>
-  ) : type === 'capture' ? (
-    <Eyebrow>imported from a capture</Eyebrow>
-  ) : (
-    <Eyebrow tone={failed ? 'err' : cut ? 'n' : undefined}>{failed ? (checkFailed ? 'recording · check failed' : 'recording · failed') : cut ? 'recording · interrupted' : recordingWords(r)}</Eyebrow>
   );
+  const eyebrow = live
+    ? eyebrowOf(undefined)
+    : forkWords
+      ? // A fork, or an attempt, keeps its own colour; that it stopped is said in grey, as on every other run.
+        eyebrowOf('fork', cut ? <span className="n">{stopped}</span> : null)
+      : type === 'clean' || type === 'replay' || type === 'test'
+        ? eyebrowOf(failed ? 'err' : cut ? 'n' : undefined, stopped)
+        : type === 'capture'
+          ? eyebrowOf(undefined)
+          : eyebrowOf(failed ? 'err' : cut ? 'n' : undefined);
+  // The about line, unless it only says what the eyebrow says (a clean replay): then the labels sit
+  // on the id's row after Copy ID. An import's about line names its file, which the meta line leaves out.
+  const about = run.about ?? null;
+  const ownAbout = !!about?.text && about.text.toLowerCase() !== kind.toLowerCase();
+  const head = useRef<HTMLElement>(null);
+  useFitAbouts(head);
   const off = actionsOff ?? undefined;
   // Push: a run only on this machine goes to the team store the config names.
   const pushable = canPush({ exported, live, team: offers?.team, hasPush: hasKind(JOB_KINDS.push) });
   return (
-    <section className="rhead">
+    <section className="rhead" ref={head}>
       <div className="rmain">
         {eyebrow}
         <div className="rtitle">
-          <h1 title={r.runId}>{shortId(r.runId)}</h1>
+          <h1 className="rnm" title={r.runId}>
+            {shortId(r.runId)}
+          </h1>
           <Tag cls={tag.cls}>{tag.text}</Tag>
           <button className="linkbtn" type="button" onClick={() => void copyText(r.runId).then((ok) => toast(ok ? 'Copied the run id' : 'Copying was refused by the browser'))}>
             <Icon name="copy" />
             Copy ID
           </button>
-          <Labels run={run} />
+          {ownAbout ? null : <Labels run={run} />}
         </div>
+        {ownAbout ? (
+          <div className="rabout">
+            <AboutLine about={about} />
+            <Labels run={run} />
+          </div>
+        ) : null}
         <div className="meta">
-          {run.source ? (
+          {run.source && about?.from === 'source' ? null : run.source ? (
             <span className="src" title={run.source}>
               from <code>{run.source}</code>
             </span>
@@ -119,6 +134,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
           <span>{stamp(r.startedAt)}</span>
           {live ? <span>recording…</span> : runDuration(run) !== null ? <span>{dur(runDuration(run)!)}</span> : null}
           {failure ? <span className="bad">{failure}</span> : null}
+          {/* A fork whose agent exited with an error says so, the preset's failure in red: the run's own state counts an injected failure as no failure. */}
+          {!failure && type === 'fork' && exitWords(r.status, preset) ? <span className={preset?.verdict === 'failed' ? 'bad' : undefined}>{exitWords(r.status, preset)}</span> : null}
         </div>
       </div>
       <div className="actions">

@@ -1,4 +1,4 @@
-import { countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunCacheUse, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
+import { countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, runAsk, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunAsk, type RunCacheUse, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/tui/data';
 import { keepingIndex, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 
@@ -38,6 +38,12 @@ export interface CallTotals {
    * read of every request the run sent.
    */
   cache?: CacheTotals | null;
+  /**
+   * For a recording: the first thing its user asked, which its about line quotes (the engine's
+   * `runAsk`), or null when it asked nothing. Absent until asked for (`asksOf`): it reads the run's
+   * requests, every one of them to tell a batch by its conversations.
+   */
+  ask?: RunAsk | null;
 }
 
 /** A run's part of the engine's `cacheUse` (`RunCacheUse`), as `run_stats` keeps it. */
@@ -117,6 +123,8 @@ const int = (v: unknown): number | null => (typeof v === 'number' && Number.isIn
 
 interface Kept {
   memory: Map<string, { key: string; totals: CallTotals }>;
+  /** Runs still recording: the first thing each asked, once it asked anything (it never changes after). */
+  runningAsks: Map<string, RunAsk>;
   /**
    * Runs in progress, as one look at the store (one run index) found them: they change with every
    * call they record, but not while the store does not, so the parts of one read model that ask
@@ -127,6 +135,8 @@ interface Kept {
   runsRead: number;
   /** Runs whose calls and requests were read to work out their prompt cache. */
   cachesRead: number;
+  /** Runs whose requests were read for the first thing their user asked. */
+  asksRead: number;
 }
 
 const kept = new WeakMap<Store, Kept>();
@@ -134,7 +144,7 @@ const kept = new WeakMap<Store, Kept>();
 function keptFor(store: Store): Kept {
   let k = kept.get(store);
   if (!k) {
-    k = { memory: new Map(), running: { index: null, totals: new Map() }, runsRead: 0, cachesRead: 0 };
+    k = { memory: new Map(), runningAsks: new Map(), running: { index: null, totals: new Map() }, runsRead: 0, cachesRead: 0, asksRead: 0 };
     kept.set(store, k);
   }
   return k;
@@ -150,6 +160,11 @@ export function cachesRead(store: Store): number {
   return keptFor(store).cachesRead;
 }
 
+/** How many runs' requests this store's read models have read for what their user asked: none for a finished run whose ask was kept. */
+export function asksRead(store: Store): number {
+  return keptFor(store).asksRead;
+}
+
 const EMPTY: CallTotals = { codes: '', models: [], notWaitedMs: 0, cache: null };
 
 /** A run's totals as `run_stats` keeps them, or null for anything else. */
@@ -160,6 +175,10 @@ function readTotals(json: unknown): CallTotals | null {
     if (typeof t.codes !== 'string' || !Array.isArray(t.models)) return null;
     const models = t.models.filter((m) => Array.isArray(m) && m.length === 6 && typeof m[1] === 'string' && m.slice(2).every((x) => typeof x === 'number'));
     const out: CallTotals = { codes: t.codes, models, notWaitedMs: n(t.notWaitedMs) };
+    // Absent: not worked out yet. Null: the run asked nothing.
+    const a = t.ask;
+    if (a === null) out.ask = null;
+    else if (a && typeof a === 'object' && typeof a.text === 'string') out.ask = { text: a.text, agent: a.agent === true, batch: a.batch === true };
     // Absent: not worked out yet. Null: no live model call reported usage.
     const c = t.cache;
     if (c === null) out.cache = null;
@@ -257,19 +276,70 @@ export function cacheTotalsOf(store: Store, index: RunIndex, runs: readonly Inde
   return out;
 }
 
+/** The runs whose about line quotes what their user asked: recordings, one unpacked from a pack among them. */
+export const asksFor = (r: Pick<IndexedRun, 'kind'>): boolean => r.kind === 'recording' || r.kind === 'pack';
+
+/**
+ * The first thing each of these runs' user asked (the engine's `runAsk`): kept with the rest of a
+ * finished run's totals once worked out, the run's conversations counted to tell a batch. A run
+ * still recording is read by its first request alone, kept in memory once it asked anything.
+ */
+export function asksOf(store: Store, index: RunIndex, runs: readonly IndexedRun[]): Map<string, RunAsk | null> {
+  const k = keptFor(store);
+  const out = new Map<string, RunAsk | null>();
+  const finished = runs.filter((r) => r.status !== 'running' && r.calls > 0);
+  const totals = callTotals(store, index, finished);
+  const keep: Array<{ runId: string; key: string; stats: string }> = [];
+  for (const r of runs) {
+    if (!r.calls) {
+      out.set(r.runId, null);
+      continue;
+    }
+    if (r.status === 'running') {
+      let ask = k.runningAsks.get(r.runId) ?? null;
+      if (!ask) {
+        ask = runAsk(store, store.getCalls(r.runId));
+        k.asksRead++;
+        if (ask) {
+          if (k.runningAsks.size > 200) k.runningAsks.clear();
+          k.runningAsks.set(r.runId, ask);
+        }
+      }
+      out.set(r.runId, ask);
+      continue;
+    }
+    const t = totals.get(r.runId);
+    if (!t) continue;
+    if (t.ask === undefined) {
+      // The totals in memory are this object: the next ask finds it in them.
+      t.ask = runAsk(store, store.getCalls(r.runId), { conversations: true });
+      k.asksRead++;
+      k.runningAsks.delete(r.runId);
+      keep.push({ runId: r.runId, key: keyOf(r), stats: JSON.stringify(t) });
+    }
+    out.set(r.runId, t.ask);
+  }
+  if (keep.length) keepingIndex(store, () => store.saveRunStats(keep));
+  return out;
+}
+
 const warming = new WeakMap<Store, { index: RunIndex; next: number }>();
 
-/** A batch of the warm-up stops at this many runs, or at this much work: calls, a recent run's counted four times for its cache. */
+/**
+ * A batch of the warm-up stops at this many runs, or at this much work: calls, a recent run's counted
+ * four times for its cache, and a recording's once more for what its user asked.
+ */
 const WARM_RUNS = 50;
 const WARM_COST = 2000;
 
 /**
  * Works out and keeps the totals of finished runs whose totals are not known yet, newest first, for
- * about `budgetMs` (50 unless asked) per call, and for runs of the last eight days their prompt
- * cache too. A dashboard calls it when it starts and while it is idle, a slice at a time, so the
- * first look at the Overview or the Runs page reads kept totals instead of every call of every run.
- * A slice stops at the first batch that ends past the budget; batches are cut by the calls they
- * read, so a slice ends close to it. True once it has been through every run in the store.
+ * about `budgetMs` (50 unless asked) per call, for runs of the last eight days their prompt cache
+ * too, and for recordings what their user asked, which their about line quotes. A dashboard calls
+ * it when it starts and while it is idle, a slice at a time, so the first look at the Overview or
+ * the Runs page reads kept totals instead of every call of every run. A slice stops at the first
+ * batch that ends past the budget; batches are cut by the calls they read, so a slice ends close
+ * to it. True once it has been through every run in the store.
  */
 export function warmRunStats(store: Store, options: { budgetMs?: number; now?: number } = {}): boolean {
   const budget = options.budgetMs ?? 50;
@@ -283,19 +353,23 @@ export function warmRunStats(store: Store, options: { budgetMs?: number; now?: n
   while (w.next < index.runs.length) {
     const batch: IndexedRun[] = [];
     const caches: IndexedRun[] = [];
+    const asks: IndexedRun[] = [];
     let cost = 0;
     while (w.next < index.runs.length && batch.length < WARM_RUNS && cost < WARM_COST) {
       const r = index.runs[w.next++]!;
       if (r.status === 'running' || r.calls === 0) continue;
       const known = k.memory.get(r.runId);
       const cache = r.startedAt >= recent && !importedRecording(r);
-      if (known?.key === keyOf(r) && (!cache || known.totals.cache !== undefined)) continue;
+      const ask = asksFor(r);
+      if (known?.key === keyOf(r) && (!cache || known.totals.cache !== undefined) && (!ask || known.totals.ask !== undefined)) continue;
       batch.push(r);
       if (cache) caches.push(r);
-      cost += cache ? r.calls * 4 : r.calls;
+      if (ask) asks.push(r);
+      cost += (cache ? r.calls * 4 : r.calls) + (ask ? r.calls : 0);
     }
     if (batch.length) callTotals(store, index, batch);
     if (caches.length) cacheTotalsOf(store, index, caches);
+    if (asks.length) asksOf(store, index, asks);
     // At least one batch a call, however small the budget.
     if (w.next < index.runs.length && performance.now() - started >= budget) return false;
   }

@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useRef, type ReactNode } from 'react';
-import type { LineageNode } from '../api.js';
+import type { FixBundle, LineageNode } from '../api.js';
+import { AboutLine, useFitAbouts } from '../components/About.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
 import { approx, shortId, stamp } from '../format.js';
 import { familyRefresh } from '../connection.js';
@@ -12,10 +13,11 @@ import { lineageRunLike } from './model.js';
 import { goldenName } from './offers.js';
 
 /**
- * Forks: the run's family, its recording and every replay and fork of it, each with a line that says
- * what happened ("fork @17 · 13 live · 1 blocked"). Attempts of one `--repeat` are bundled with how
- * many passed, and so are a golden's attempts in one test session, and blame's probes and verify's
- * attempts, leading to their fix (fixes/Bundles.tsx).
+ * Forks: the run's family as a tree, its recording and every replay and fork of it, each by its id and
+ * its about line (decision 10), which under a parent is what it changed, then a line that says what
+ * happened ("fork @17 · 13 live · 1 blocked"), leaving out the kind when the about line says it.
+ * Attempts of one `--repeat` are bundled with how many passed, and so are a golden's attempts in one
+ * test session, and blame's probes and verify's attempts, leading to their fix (fixes/Bundles.tsx).
  */
 
 /**
@@ -33,6 +35,8 @@ export function ForksView({ runId }: { runId: string }) {
   const byId = useMemo(() => new Map((runs ?? []).map((r) => [r.runId, r])), [runs]);
   // Blame's and verify's attempts, bundled by the fixes read model under the run they replayed.
   const fixes = useFixBundles(runId);
+  const box = useRef<HTMLDivElement>(null);
+  useFitAbouts(box);
   if (lineage.error) return <div className="empty">Could not load this run’s family: {lineage.error.message}</div>;
   if (!lineage.data || fixes.loading) return <div className="empty">Loading the family…</div>;
   const nodes = lineage.data;
@@ -46,17 +50,29 @@ export function ForksView({ runId }: { runId: string }) {
     const r = lineageRunLike(n, byId.get(n.runId));
     const line = familyLineParts(r);
     const here = n.runId === runId || n.runId.startsWith(runId);
+    // The kind, unless the about line says it already ("clean replay").
+    const said = n.about && !line.err && line.text.startsWith(`${n.about.text} · `) ? n.about.text.length + 3 : 0;
+    // A preset's attempt that failed or couldn't say, by the verdict of the session that decided it
+    // (the lineage carries it, an earlier session's too): its run alone reads as a healthy fork.
+    const presetWord = !line.err && n.preset && n.preset.verdict !== 'passed' ? n.preset.verdict : null;
     return (
       <a key={n.runId} className={`fnode${here ? ' here' : ''}`} href={href.run(n.runId, n.divergence?.callNo ?? null)}>
         <RunIcon run={r} className="" />
-        <span>
+        <span className="fmain">
           <span className="f1">
-            <code>{shortId(n.runId)}</code>
-            {here ? <span className="chip">this run</span> : null}
+            <code className="fid">{shortId(n.runId)}</code>
+            <AboutLine about={n.about} />
+            {here ? <span className="chip thisrun">this run</span> : null}
           </span>
           <span className="f2 block">
             {line.err ? <em>{line.err}</em> : null}
-            {line.text}
+            {presetWord ? (
+              <>
+                <em className={presetWord === 'inconclusive' ? 'inc' : undefined}>{`preset ${presetWord}`}</em>
+                {' · '}
+              </>
+            ) : null}
+            {line.text.slice(said)}
           </span>
           {n.checks ? (
             <span className="checks">
@@ -70,6 +86,15 @@ export function ForksView({ runId }: { runId: string }) {
       </a>
     );
   };
+  // Each rule is stated once in the family, under the first bundle it decided (decision 9): a fix's
+  // bundle, or a gated golden's attempts in one test session.
+  const ruled = new Set<string>();
+  const once = (rule: string | null | undefined): string | null => {
+    if (!rule || ruled.has(rule)) return null;
+    ruled.add(rule);
+    return rule;
+  };
+  const ruleOf = (b: FixBundle): string | null => once(b.rule);
   const family = (parent: string | null): ReactNode => {
     const list = [...(kids.get(parent) ?? [])].filter((n) => !fixes.bundled.has(n.runId)).sort((a, b) => a.startedAt - b.startedAt);
     // The fork blame rescued a run with is one of its attempts, but it shows as a fork of its own.
@@ -91,12 +116,20 @@ export function ForksView({ runId }: { runId: string }) {
       if (sub) items.push(<Fragment key={`${n.runId}:kids`}>{sub}</Fragment>);
     }
     for (const [group, attempts] of groups) items.push(<Bundle key={group} attempts={attempts} current={runId} />);
-    for (const [key, attempts] of sessions) if (attempts.length > 1) items.push(<Bundle key={key} attempts={attempts} current={runId} title={`test · ${goldenName(attempts[0]!.test!.golden)}`} gate={attempts.find((n) => n.test?.gate)?.test?.gate ?? null} />);
-    if (parent !== null) for (const b of fixes.bundles) if (b.parentRunId === parent) items.push(<FixBundleNode key={b.key} bundle={b} current={runId} />);
+    for (const [key, attempts] of sessions) {
+      if (attempts.length < 2) continue;
+      const gate = attempts.find((n) => n.test?.gate)?.test?.gate ?? null;
+      items.push(<Bundle key={key} attempts={attempts} current={runId} title={`test · ${goldenName(attempts[0]!.test!.golden)}`} gate={gate ? { ...gate, rule: once(gate.rule) } : null} />);
+    }
+    if (parent !== null) for (const b of fixes.bundles) if (b.parentRunId === parent) items.push(<FixBundleNode key={b.key} bundle={b} current={runId} rule={ruleOf(b)} />);
     if (!items.length) return null;
     return parent === null ? <>{items}</> : <div className="fkids">{items}</div>;
   };
-  return <div className="fam">{family(null)}</div>;
+  return (
+    <div className="fam" ref={box}>
+      {family(null)}
+    </div>
+  );
 }
 
 /**

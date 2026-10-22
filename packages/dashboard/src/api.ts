@@ -1,7 +1,9 @@
-import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunAbout, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
+import { presetMarks, type PresetMark } from './chaos.js';
 import { fixForRun, type FixForRun } from './fixes.js';
+import { aboutOfRun, aboutsOf } from './run-about.js';
 import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
 import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
@@ -25,6 +27,12 @@ export interface RunListItem {
   label: string;
   divergence: { callNo: number; type: string } | null;
   command: string;
+  /**
+   * What the run was about, in one quiet line worked out from it (decision 10: the id is its name):
+   * a test replay's golden, what a replay or a fork changed, an import's source, the first thing a
+   * recording's user asked; where it comes from, and for a replay or a fork its change apart.
+   */
+  about: RunAbout;
   codeVersion: string | null;
   startedAt: number;
   endedAt: number | null;
@@ -98,6 +106,8 @@ export interface CallRow extends CallFacts {
 export interface RunDetail extends RunPageFacts {
   run: RunRecord;
   label: string;
+  /** What the run was about, as the lists say it (run-about.ts); null for a run the index doesn't have yet. */
+  about: RunAbout | null;
   /** Set for a run built from a capture, which has no command: where it came from. */
   source: string | null;
   summary: RunSummary;
@@ -292,6 +302,7 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
   return {
     run: shown,
     label: runLabel(run, kindFacts(store, run, calls.length)),
+    about: aboutOfRun(store, loadRunIndex(store), runId),
     source: captureSource(run),
     summary,
     // A recording's page asks only for the calls after those it has: rows are read for those alone.
@@ -525,16 +536,23 @@ export interface LineageNode {
    * the rule, stated once; null when the golden has no gate, or it decided nothing.
    */
   test: { golden: string; session: string; attempt: number | null; gate?: { verdict: string; rule: string | null } | null } | null;
+  /** What the run was about (run-about.ts): under a parent, what it changed. */
+  about: RunAbout | null;
   /** How the run stands as the run list says it: its kind, how it came out, and whether that failed. */
   kind?: RunKind;
   outcome?: RunOutcome;
   failed?: boolean;
+  /**
+   * An error-path preset's attempt: the preset and how it came out by the preset's verdict, from the
+   * session that decided it (chaos.ts `presetMarks`), since the run alone reads as a healthy fork.
+   */
+  preset?: PresetMark;
 }
 
 /**
  * Every run in the family of a run: its root recording and all that descends from it, depth first,
  * oldest first, each standing as the run list says (an attempt or fork its recorder left is
- * interrupted here as there).
+ * interrupted here as there), a preset's attempt with its preset's verdict.
  */
 export function lineage(store: Store, idOrPrefix: string, options: ReadOptions = {}): LineageNode[] | null {
   const run = lookupRun(store, idOrPrefix);
@@ -556,9 +574,12 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
     if (!gates.has(key)) gates.set(key, sessionGate(store, t.session, t.golden));
     return gates.get(key)!;
   };
+  const index = loadRunIndex(store);
   const out: LineageNode[] = [];
+  const attempts: RunRecord[] = [];
   const walk = (r: RunRecord, depth: number) => {
     if (out.length >= 1000) return;
+    if (r.meta?.chaos) attempts.push(r);
     // The run asked about is the page's own: its calls as the page last read them (run-calls.ts),
     // so its Forks view, asked again as runs move, doesn't read a long run again.
     const calls = r.runId === run.runId ? runCalls(store, r.runId) : store.getCalls(r.runId);
@@ -581,10 +602,20 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
       checks: checksOf(r),
       origins: calls.map((c) => ORIGIN_CODE[displayOrigin(c.origin, c.end ? { outcome: c.end.outcome, injected: c.end.meta.injected } : null)]).join(''),
       test: withGate(testOf(r), sessionGateOf),
+      about: null,
     });
     for (const child of store.childRuns(r.runId).sort((a, b) => a.startedAt - b.startedAt)) walk(child, depth + 1);
   };
   walk(root, 0);
+  // Every node's about line at once: a recording's first request is read once, and kept.
+  const abouts = aboutsOf(store, index, out.map((n) => index.byId.get(n.runId)).filter((r) => r !== undefined));
+  for (const n of out) n.about = abouts.get(n.runId) ?? null;
+  // Each preset's attempt by the session that decided it, an earlier session's as much as the newest's.
+  const marks = attempts.length ? presetMarks(store, attempts) : null;
+  for (const n of out) {
+    const mark = marks?.get(n.runId);
+    if (mark) n.preset = mark;
+  }
   return out;
 }
 

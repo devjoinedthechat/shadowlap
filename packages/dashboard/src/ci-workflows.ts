@@ -35,7 +35,7 @@ export const CI_DEFAULTS: CiWorkflowOptions = { fix: false, budget: '2.00', repa
 export interface CiListRow {
   label: string;
   value: string;
-  /** A failure's dot: red for one that fails a golden, amber for one that can't be decided. */
+  /** Its dot: red for what fails a golden, amber for what can’t be decided or read (none for a plain row). */
   tone?: 'err' | 'warn';
 }
 

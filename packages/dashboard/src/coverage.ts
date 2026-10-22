@@ -122,20 +122,41 @@ export function coverageView(store: Store): CoverageView {
   });
   const uncovered = views.filter((g) => !g.covered);
   const newest = [...uncovered].sort((a, b) => b.lastSeen - a.lastSeen)[0];
-  const needsLook: CoverageLook | null = newest
-    ? {
-        kind: 'coverage',
-        icon: 'rec',
-        title: `${plural(uncovered.length, 'behaviour')} seen in production ${uncovered.length === 1 ? 'has' : 'have'} no golden`,
-        detail: `the newest: ${newest.path.length ? newest.path.slice(0, 3).join(' → ') + (newest.path.length > 3 ? ' → …' : '') : 'no tool calls'}${newest.sources[0] ? `, in ${newest.sources[0]}` : ''}`,
-        action: 'Open',
-        href: '#/tests',
-        runId: newest.runId,
-        fixId: null,
-        at: scan!.at,
-      }
-    : null;
+  const needsLook = newest ? lookOf(uncovered.length, newest, newest.runId, scan!.at) : null;
   return { scan, newRuns: scan ? importedSince(store, scan.at) : 0, groups: views, uncovered: uncovered.length, needsLook, commands: { scan: ['coverage'], pack: ['coverage', '--pack'] } };
+}
+
+/**
+ * The line Needs a look shows while some behaviour seen in production has no golden: how many, and
+ * the newest of them, which it opens (the run that did it, as no page lists the behaviours yet).
+ */
+function lookOf(count: number, newest: { path: readonly string[]; sources: readonly string[] }, runId: string | null, at: number): CoverageLook {
+  return {
+    kind: 'coverage',
+    icon: 'rec',
+    title: `${plural(count, 'behaviour')} seen in production ${count === 1 ? 'has' : 'have'} no golden`,
+    detail: `the newest: ${newest.path.length ? newest.path.slice(0, 3).join(' → ') + (newest.path.length > 3 ? ' → …' : '') : 'no tool calls'}${newest.sources[0] ? `, in ${newest.sources[0]}` : ''}`,
+    action: 'Open',
+    href: runId ? `#/run/${runId}` : '#/tests',
+    runId,
+    fixId: null,
+    at,
+  };
+}
+
+/**
+ * Needs a look's coverage line on its own, as the Overview reads it on every load: the last scan's
+ * groups no golden covers, without working out every group's view; null before a scan, or once
+ * every behaviour has a golden.
+ */
+export function coverageLook(store: Store): CoverageLook | null {
+  const scan = store.listCoverageScans(1)[0] ?? null;
+  if (!scan) return null;
+  const uncovered = store.coverageGroups().filter((g) => !g.coveredBy.length);
+  const newest = [...uncovered].sort((a, b) => b.lastSeen - a.lastSeen)[0];
+  if (!newest) return null;
+  const runId = newest.runIds.find((id) => store.getRun(id) !== null) ?? null;
+  return lookOf(uncovered.length, { path: newest.behaviour.path, sources: newest.sources }, runId, scan.at);
 }
 
 /** The longest check JSON a pack request may carry, as the fix jobs take theirs. */

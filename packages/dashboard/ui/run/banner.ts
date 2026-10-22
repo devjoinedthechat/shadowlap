@@ -1,15 +1,16 @@
 import { num } from '../format.js';
 import type { RunType } from '../runs.js';
+import { presetWhy, type PresetAttempt } from './preset.js';
 
 /**
  * The run page's one banner: which it is, and what it says. A run shows at most one, in this order:
- * recording now; an attempt (the fork blame rescued a run with, a blame probe's, a verify's, a
- * `--repeat`'s: how it came out, what was asked again and which attempt it is); a test that
- * diverged; a fork (the flag that made it, or what changed, and whether it failed, for Run blame);
- * where blame found the run lost; what was not recorded; the checks it passed; that it was
- * interrupted (neutral, as every list says it); or that it failed (with its fix, or Run blame). How
- * the run came out is the server's state, the one Runs and the Overview read. No DOM here: the tests
- * import it, and `parts.tsx` draws it.
+ * recording now; an error-path preset's attempt (the preset and its verdict); an attempt (the fork
+ * blame rescued a run with, a blame probe's, a verify's, a `--repeat`'s: how it came out, what was
+ * asked again and which attempt it is); a test that diverged; a fork (the flag that made it, or what
+ * changed, and whether it failed, for Run blame); where blame found the run lost; what was not
+ * recorded; the checks it passed; that it was interrupted (neutral, as every list says it); or that
+ * it failed (with its fix, or Run blame). How the run came out is the server's state, the one Runs
+ * and the Overview read. No DOM here: the tests import it, and `parts.tsx` draws it.
  */
 
 /** A flag a replay ran with, as the server names it: `--fail-at` and `19=529`, and the call it names. */
@@ -67,6 +68,8 @@ export interface BannerInput {
   calls?: ReadonlyArray<CheckCall & { callNo?: number }>;
   /** How many calls it made, for the interrupted banner. */
   callCount?: number;
+  /** An error-path preset's attempt: the preset it played in and how it came out (preset.ts). */
+  preset?: PresetAttempt | null;
   /** What made the run an attempt, when it is one: one of a blame probe's, a verify's or a `--repeat`'s attempts. */
   attempt?: AttemptInput | null;
   /** The revision the run ran: a verify attempt's is the code it verified (`· code 35034be`). */
@@ -109,6 +112,8 @@ export interface AttemptOutcome {
 
 export type Banner =
   | { kind: 'recording' }
+  /** An attempt's banner: where it forked, its verdict word first, then what was done (`presetWhy`), and Tests → for a golden's. */
+  | { kind: 'preset'; callNo: number | null; verdict: PresetAttempt['verdict']; why: string; golden: string | null }
   | { kind: 'diverged'; callNo: number; name: string; why: string; path: string | null; normalizer: boolean; diff: boolean }
   /**
    * An attempt, in the design's one grammar: its verdict (`outcome`, drawn first in its colour), then
@@ -479,6 +484,15 @@ function attemptBanner(i: BannerInput, a: AttemptInput | null, rescuedAt: number
 export function bannerFor(i: BannerInput): Banner | null {
   const d = i.divergence;
   if (i.status === 'running') return { kind: 'recording' };
+  // An error-path preset's attempt says how it came out by the preset's verdict, then which preset it
+  // played in where, in every attempt's grammar: its run alone reads as a healthy fork, the failure
+  // being one Shadowlap injected. One that couldn't say says why at its end.
+  if (i.preset) {
+    const p = i.preset;
+    const writes = writesWord(i.interventions);
+    const why = [presetWhy(p), ...(writes ? [writes] : []), ...(p.verdict === 'inconclusive' ? [p.outcome] : [])].join(' · ');
+    return { kind: 'preset', callNo: d?.callNo ?? p.callNo, verdict: p.verdict, why, golden: p.golden };
+  }
   // The fork blame rescued a run with is the attempt of its probe that passed: it says so, as every attempt does.
   if (i.rescued && d) return attemptBanner(i, i.attempt?.kind === 'probe' ? i.attempt : null, i.rescued.callNo ?? d.callNo);
   // An attempt of blame, verify or --repeat is one sample of many: it says so, and how it came out.

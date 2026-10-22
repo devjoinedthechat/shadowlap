@@ -13,6 +13,7 @@ import { runType } from '../runs.js';
 import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
+import type { PresetAttempt } from './preset.js';
 import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, type MetricInput } from './metrics.js';
@@ -145,10 +146,12 @@ export interface BannerProps {
   onToggleDiff: () => void;
   onSelect: (n: number) => void;
   onAction: (p: PendingAction) => void;
+  /** An error-path preset's attempt: the preset and its verdict, from its recording's presets. */
+  preset?: PresetAttempt | null;
 }
 
-/** The run's one banner: recording now, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
-export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction }: BannerProps) {
+/** The run's one banner: recording now, a preset's attempt, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
+export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction, preset = null }: BannerProps) {
   const app = useApp();
   const [dialog, setDialog] = useState<'update' | 'normalize' | null>(null);
   const r = run.run;
@@ -176,6 +179,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     callCount: run.calls.length,
     attempt: attemptOf(run),
     codeVersion: r.codeVersion,
+    preset,
   });
   if (!b) return null;
   const job = (kind: string, fields: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(kind, fields)));
@@ -220,6 +224,27 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           <span className="dotlive" />
           <span className="bk">recording</span>
           <Why>calls arrive as they happen · replay and fork once it finishes</Why>
+        </section>
+      );
+    case 'preset':
+      // Every attempt's banner: where it forked, its verdict word first in the verdict's colour, then
+      // what was done. It wraps rather than cut its words; a golden's leads back to its presets on Tests.
+      return (
+        <section className="banner fork wrap">
+          <span className="bk">forked at</span>
+          {b.callNo !== null ? call(b.callNo) : null}
+          <span className="why">
+            <em className={b.verdict === 'failed' ? 'no' : b.verdict === 'inconclusive' ? 'inc' : 'ok'}>{b.verdict}</em>
+            {/* A tally never breaks inside: "attempt 1 of 6". */}
+            {` · ${b.why.replace(/(\d+) of (\d+)/g, '$1 of $2')}`}
+          </span>
+          {b.golden ? (
+            <span className="end">
+              <a className="more" href={href.tests()} title={`${goldenName(b.golden)} on Tests`}>
+                Tests →
+              </a>
+            </span>
+          ) : null}
         </section>
       );
     case 'diverged': {

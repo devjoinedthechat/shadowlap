@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
 import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
+import { lineage } from '../src/api.js';
 import { chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
-import { coveragePackArgs, coverageView, type CoverageView } from '../src/coverage.js';
+import { coverageLook, coveragePackArgs, coverageView, type CoverageView } from '../src/coverage.js';
 import { treeUse } from '../src/worktree.js';
 import type { GoldenSource } from '../src/tests.js';
 
@@ -128,8 +129,9 @@ describe('production coverage', () => {
       lastPack: { at: T0 - 500, golden: null, mode: null, reason: 'not-reproduced', why: expect.stringContaining("doesn't reproduce C1"), command: { argv: ['node', 'agent.mjs', 'B-7'], from: 'REC1' } },
     });
     expect(covered).toMatchObject({ covered: true, coveredBy: ['goldens/escalate'], pack: null, lastPack: null });
-    // Needs a look's line, in its rows' shape.
-    expect(view.needsLook).toEqual({ kind: 'coverage', icon: 'rec', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund → send_email, in prod.har', action: 'Open', href: '#/tests', runId: 'C1', fixId: null, at: T0 });
+    // Needs a look's line, in its rows' shape: it opens the newest run of the behaviour still here, as no page lists them yet.
+    expect(view.needsLook).toEqual({ kind: 'coverage', icon: 'rec', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund → send_email, in prod.har', action: 'Open', href: '#/run/C1', runId: 'C1', fixId: null, at: T0 });
+    expect(coverageLook(store)).toEqual(view.needsLook);
     expect(view.commands).toEqual({ scan: ['coverage'], pack: ['coverage', '--pack'] });
   });
 
@@ -138,6 +140,7 @@ describe('production coverage', () => {
     expect(coverageView(empty)).toEqual({ scan: null, newRuns: 0, groups: [], uncovered: 0, needsLook: null, commands: { scan: ['coverage'], pack: ['coverage', '--pack'] } });
     empty.saveCoverageScan({ scanId: 'S', at: 1, runs: 1, groups: 1, uncovered: 0, goldens: 1, actor: null, data: null }, [group({ coveredBy: ['goldens/a'], command: null })]);
     expect(coverageView(empty).needsLook).toBeNull();
+    expect(coverageLook(empty)).toBeNull();
     empty.close();
   });
 
@@ -254,6 +257,49 @@ describe('error-path presets', () => {
     expect((await api('chaos/runs/NOPE')).status).toBe(404);
     expect(chaosOfRun(store, golden)).toEqual(chaosOfGolden(store, 'goldens/forecast'));
     expect(chaosOfGolden(store, 'goldens/other')).toBeNull();
+  });
+
+  it('keeps an attempt as the session that decided it, once a golden’s presets ran again', () => {
+    const s = Store.open(':memory:');
+    try {
+      const rec = s.createRun({ mode: 'record', command: { argv: ['node', 'inbox.mjs'], cwd: project }, startedAt: T0 }).runId;
+      s.endRun(rec, 'completed', T0 + 1);
+      const attemptOf = (session: string, at: number, status: 'completed' | 'failed') => {
+        const id = s.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'inbox.mjs'], cwd: project }, startedAt: at, meta: { chaos: { preset: 'timeout', callNo: 2, session, attempt: 1, golden: 'goldens/inbox' } } }).runId;
+        s.endRun(id, status, at + 1);
+        return id;
+      };
+      const presets = (session: string, at: number, runId: string, verdict: 'passed' | 'failed') => {
+        s.startChaosSession({ sessionId: session, startedAt: at, command: ['shadowlap', 'test', 'goldens/inbox', '--chaos'], presets: ['timeout'] });
+        const failed = verdict === 'failed';
+        s.addChaosResult({ sessionId: session, runId: rec, golden: 'goldens/inbox', preset: 'timeout', verdict, callNo: 2, passes: failed ? 0 : 1, attempts: 1, at: at + 2, data: { target: { kind: 'tool', name: 'list_inbox' }, detail: `list_inbox (#2) timed out: the agent exited ${failed ? 'with code 1' : '0'}`, runs: [{ runId, verdict, passed: !failed, exitCode: failed ? 1 : 0, reason: failed ? 'the agent exited with code 1' : null, lastLine: 'TimeoutError: list_inbox timed out' }] } });
+        s.finishChaosSession(session, { passed: failed ? 0 : 1, failed: failed ? 1 : 0, inconclusive: 0, upstreamRequests: 0, endedAt: at + 3 });
+      };
+      // A nightly run of the presets: the first failed, the second passed.
+      const first = attemptOf('N1', T0 + 10, 'failed');
+      presets('N1', T0 + 10, first, 'failed');
+      const second = attemptOf('N2', T0 + 100, 'completed');
+      presets('N2', T0 + 100, second, 'passed');
+      // The recording's matrix is the newest session's.
+      expect(chaosOfRun(s, rec)!.cells.map((c) => [c.sessionId, c.verdict])).toEqual([['N2', 'passed']]);
+      // Each attempt opens on the session that decided it: the first stays failed, with why.
+      expect(chaosOfRun(s, first)!.cells).toEqual([expect.objectContaining({ sessionId: 'N1', verdict: 'failed', runs: [{ runId: first, verdict: 'failed', passed: false, exitCode: 1, reason: 'the agent exited with code 1 (TimeoutError: list_inbox timed out)' }] })]);
+      expect(chaosOfRun(s, second)!.cells).toEqual([expect.objectContaining({ sessionId: 'N2', verdict: 'passed', runs: [{ runId: second, verdict: 'passed', passed: true, exitCode: 0, reason: null }] })]);
+      // The family marks each attempt by its own session's verdict, so the Forks view keeps the first failed.
+      const family = new Map(lineage(s, rec)!.map((n) => [n.runId, n.preset]));
+      expect(family.get(first)).toEqual({ label: 'tool timeout', verdict: 'failed' });
+      expect(family.get(second)).toEqual({ label: 'tool timeout', verdict: 'passed' });
+      expect(family.get(rec)).toBeUndefined();
+      // An attempt whose mark names no session that kept it: found by the result that lists it.
+      const lost = s.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'inbox.mjs'], cwd: project }, startedAt: T0 + 200, meta: { chaos: { preset: 'empty', callNo: 2, session: 'GONE', attempt: 1, golden: 'goldens/inbox' } } }).runId;
+      s.endRun(lost, 'completed', T0 + 201);
+      s.startChaosSession({ sessionId: 'N3', startedAt: T0 + 200, command: ['shadowlap', 'test', 'goldens/inbox', '--chaos'], presets: ['empty'] });
+      s.addChaosResult({ sessionId: 'N3', runId: rec, golden: 'goldens/inbox', preset: 'empty', verdict: 'passed', callNo: 2, passes: 1, attempts: 1, at: T0 + 202, data: { detail: 'list_inbox (#2) answered with nothing: the agent exited 0', runs: [{ runId: lost, verdict: 'passed', passed: true, exitCode: 0 }] } });
+      expect(chaosOfRun(s, lost)!.cells.map((c) => [c.sessionId, c.preset])).toEqual([['N3', 'empty']]);
+      expect(lineage(s, rec)!.find((n) => n.runId === lost)!.preset).toEqual({ label: 'empty result', verdict: 'passed' });
+    } finally {
+      s.close();
+    }
   });
 
   it('builds the chaos job for a golden on disk or a run, asking before a command someone else chose runs', async () => {

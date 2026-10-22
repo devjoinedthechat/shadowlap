@@ -134,8 +134,8 @@ git add goldens && git commit -m "Keep this week's production behaviours as gold
 
 `--not-packed warn` reports the behaviours it couldn't pack and exits 0, so the job goes on to
 commit what it did pack; without it, `--pack` exits 1 when a behaviour asked for wasn't packed.
-The ones it couldn't pack wait in the report, and on the dashboard, for a person: a command, or
-`--fork` with the checks that say what the agent must do now.
+The ones it couldn't pack wait in the report for a person: a command, or `--fork` with the checks
+that say what the agent must do now.
 
 ## What is kept
 

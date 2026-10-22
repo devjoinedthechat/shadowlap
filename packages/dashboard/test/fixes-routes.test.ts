@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport, type RepairReport, type VerifyReport } from '@shadowlap/engine';
+import { gateResult, markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport, type RepairReport, type VerifyReport } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { blameCheckFor, fixBundles } from '../src/fixes.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView, type ProjectConfig } from '../src/index.js';
@@ -244,11 +244,45 @@ describe('the Forks view’s bundles', () => {
     expect(bundles.flatMap((b) => b.attempts.map((a) => a.runId)).sort()).toEqual([...new Set(expected)].sort());
   });
 
+  it('says each bundle’s verdict as a gate’s is said, with the rule its report was decided by (decision 9)', () => {
+    const { failing, report } = story();
+    const bundles = fixBundles(store, failing)!;
+    // A fixed count's verdict is its word and its tally; the rule is its report's, stated once by the view.
+    expect(bundles.filter((b) => b.kind === 'blame').map((b) => [b.title, b.verdictLine, b.tone, b.rule])).toEqual([
+      ['blame · probe #1', 'rescued · 2 of 3', 'ok', 'a rescue needs 2 of 5 attempts to pass'],
+      ['blame · probe #5', 'rescued · 2 of 4', 'ok', 'a rescue needs 2 of 5 attempts to pass'],
+      ['blame · probe #7', 'lost · 0 of 4', 'no', 'a rescue needs 2 of 5 attempts to pass'],
+    ]);
+    const verifies = bundles.filter((b) => b.kind === 'verify');
+    expect(verifies.map((b) => [b.change, b.verdictLine, b.tone, b.rule])).toEqual(
+      expect.arrayContaining([
+        ['370712a+dirty', 'not fixed · 0 of 2', 'no', 'a run passes when 4 of 5 attempts pass'],
+        ['repair candidate 3', 'fixed · 4 of 4', 'ok', 'a run passes when 4 of 5 attempts pass'],
+      ]),
+    );
+    expect(report.probes).toHaveLength(3);
+
+    // Under a gate: the word, the tally and the Wilson bound, and the gate's rule; never a claimed rate.
+    const gated = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api', 'tool', 'api'] });
+    const gate = { kind: 'sprt' as const, good: 0.6, bad: 0.1, risk: 0.05, max: 20 };
+    const base = blameReport(gated);
+    const withGate: BlameReport = { ...base, gate, probes: base.probes.map((p) => ({ ...p, decision: p.rescued ? 'pass' : 'fail', gate: gateResult(gate, p.attempts.map((a) => a.passed)) })) };
+    blame(gated, { report: withGate });
+    for (const p of withGate.probes) attemptRuns(gated, p.attempts, (passed) => ({ probe: { of: gated, callNo: p.callNo, passed } }));
+    const lines = fixBundles(store, gated)!.filter((b) => b.kind === 'blame').map((b) => [b.verdictLine, b.rule]);
+    expect(lines).toEqual([
+      ['rescued · 2 of 3 · rate >= 0.21 (95%)', 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts'],
+      ['rescued · 2 of 4 · rate >= 0.15 (95%)', 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts'],
+      ['lost · 0 of 4 · rate <= 0.49 (95%)', 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts'],
+    ]);
+    expect(JSON.stringify(lines)).not.toMatch(/at least|passes at/);
+  });
+
   it('bundles attempts no stored report names from the marks on the runs', () => {
     const failing = makeRun(store, { calls: ['api', 'tool', 'api'] });
     attemptRuns(failing, [{ runId: '01M3RZZZZA0000000000000000', passed: true }, { runId: '01M3RZZZZB0000000000000000', passed: false }], (passed) => ({ probe: { of: failing, callNo: 3, passed } }));
     const [b] = fixBundles(store, failing)!;
-    expect(b).toMatchObject({ kind: 'blame', title: 'blame · probe #3', passes: 1, fixId: null, href: `#/run/${failing}` });
+    expect(b).toMatchObject({ kind: 'blame', title: 'blame · probe #3', passes: 1, fixId: null, href: `#/run/${failing}`, verdictLine: null, rule: null });
     expect(b!.attempts.map((a) => a.note)).toEqual(['passed', 'failed']);
   });
 

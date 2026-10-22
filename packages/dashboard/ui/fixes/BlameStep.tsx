@@ -4,7 +4,7 @@ import { approx, num, shortId } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import type { BlameStep, FixDetail } from '../types.js';
-import { attemptMark, blameWhere, callRowCells, probeBadge } from './model.js';
+import { attemptMark, blameWhere, callRowCells, probeBadge, probeVerdictWords } from './model.js';
 import { StepHead } from './parts.js';
 
 /**
@@ -105,7 +105,8 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                       {p.bound ? <span className="fxdim"> · {p.bound}</span> : null}
                     </td>
                     <td>
-                      <Badge tone={probeBadge(p.verdict)}>{p.verdict}</Badge>
+                      <Badge tone={probeBadge(p.verdict)}>{probeVerdictWords(p.verdict).word}</Badge>
+                      {probeVerdictWords(p.verdict).blamed ? <b className="bmk">blamed</b> : null}
                     </td>
                   </tr>
                 ))}
