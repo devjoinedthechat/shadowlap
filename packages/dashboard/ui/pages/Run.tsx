@@ -74,7 +74,7 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
       return (
         <Page>
           <div className="empty tall">
-            {/no run|not part of it|404/.test(loaded.error.message) ? `No run ${id} in ${client.exported ? 'this copy' : 'this store'}.` : `Could not load ${id}: ${loaded.error.message}`}{' '}
+            {/matches several runs/.test(loaded.error.message) ? `${id} matches several runs; use more of the id.` : /no run|not part of it|404/.test(loaded.error.message) ? `No run ${id} in ${client.exported ? 'this copy' : 'this store'}.` : `Could not load ${id}: ${loaded.error.message}`}{' '}
             <a className="more" href={href.runs()}>
               Back to Runs
             </a>

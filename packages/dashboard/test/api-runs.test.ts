@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
-import { lineage, listRuns, runDetail } from '../src/api.js';
+import { ambiguousRunId, lineage, listRuns, noSuchRun, runDetail } from '../src/api.js';
 import { exportHtml, type StaticPayload } from '../src/index.js';
 import { recentRuns, type RunRow } from '../src/runs-list.js';
 import { addRun, blameOf, DAY, HOUR } from './read-model-store.js';
@@ -126,5 +126,23 @@ describe('a run’s page and lineage', () => {
     expect(runDetail(store, id.rescued)!.attemptPlace).toEqual({ k: 1, n: 2 });
     expect(runDetail(store, id.probe)!.attemptPlace).toEqual({ k: 2, n: 2 });
     expect(runDetail(store, id.repeat)!.attemptPlace).toEqual({ k: 1, n: 1 });
+  });
+
+  it('tells a prefix of several runs’ ids from an id that names no run', () => {
+    const local = Store.open(':memory:');
+    try {
+      const a = addRun(local, { startedAt: NOW - HOUR, calls: 'll' });
+      const b = addRun(local, { startedAt: NOW - HOUR, calls: 'll' });
+      let shared = 0;
+      while (a[shared] === b[shared]) shared++;
+      const prefix = a.slice(0, shared);
+      expect(ambiguousRunId(local, prefix)).toBe(true);
+      expect(noSuchRun(local, prefix)).toEqual({ status: 409, message: `run id prefix ${prefix} matches several runs: use more of the id` });
+      expect(ambiguousRunId(local, a)).toBe(false);
+      expect(ambiguousRunId(local, a.slice(0, shared + 1).toLowerCase())).toBe(false);
+      expect(noSuchRun(local, '01ZZZZZZ')).toEqual({ status: 404, message: 'no run 01ZZZZZZ' });
+    } finally {
+      local.close();
+    }
   });
 });

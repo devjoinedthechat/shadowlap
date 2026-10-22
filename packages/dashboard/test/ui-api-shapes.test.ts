@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeAction, normalizeActions, normalizeMeta, normalizeRunDetail, normalizeRuns, sentence } from '../ui/normalize.js';
-import { copyRunId, exportStartRun, familyLine, isAttempt, isFailed, repeatBundle, runOutcome, runType, type RepeatAttempt, type RunLike } from '../ui/runs.js';
+import { copyAmbiguous, copyRunId, exportStartRun, familyLine, isAttempt, isFailed, repeatBundle, runOutcome, runType, type RepeatAttempt, type RunLike } from '../ui/runs.js';
 import type { ActionItem, Meta, RunDetail, RunListItem } from '../ui/types.js';
 
 // The dashboard reads what other parts of the API send in their own shapes: these turn each into
@@ -195,6 +195,12 @@ describe('an exported copy', () => {
     expect(copyRunId(ids, '01M5305Z')).toBe('01M5305Z');
     expect(copyRunId(ids, '01M6')).toBe('01M6');
     expect(copyRunId(ids, '../01M5305KSB')).toBe('../01M5305KSB');
+    // The copy says a prefix of several of its runs matches several, as the server does, and a missing one isn't there.
+    expect(copyAmbiguous(ids, '01M5305Z')).toBe(true);
+    expect(copyAmbiguous(ids, '01m5305z')).toBe(true);
+    expect(copyAmbiguous(ids, '01M5305KSB')).toBe(false);
+    expect(copyAmbiguous(ids, '01M6')).toBe(false);
+    expect(copyAmbiguous(ids, '../01M5305Z')).toBe(false);
   });
 });
 

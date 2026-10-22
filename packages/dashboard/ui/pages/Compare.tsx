@@ -50,8 +50,11 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
 
 const INTRO = 'What changed first, then call by call: the identical prefix, the first request that differs, and where the paths went from there.';
 
+/** An id that is the start of several runs' ids, which the server won't pick between (409): it says so, as the CLI does. */
+const ambiguous = (err: Error | null | undefined): boolean => !!err && ((err instanceof ApiError && err.status === 409) || /matches several runs/.test(err.message));
+
 /** A run the store doesn't hold: the run page says it so, and so does Compare, naming it. */
-const notHeld = (err: Error | null | undefined): boolean => !!err && ((err instanceof ApiError && err.status === 404) || /no run|not part of it|does not exist/.test(err.message));
+const notHeld = (err: Error | null | undefined): boolean => !!err && !ambiguous(err) && ((err instanceof ApiError && err.status === 404) || /no run|not part of it|does not exist/.test(err.message));
 
 /** A run's id as a link to its page. */
 function RunLink({ id }: { id: string }) {
@@ -83,9 +86,13 @@ function OneRun({ id }: { id: string }) {
       <Page>
         <PageHeader eyebrow="compare" title="What changed between two runs" text={INTRO} />
         <section className="panel stepempty">
-          <h3>{notHeld(run.error) ? `Not in ${where}` : 'Could not load the run'}</h3>
+          <h3>{ambiguous(run.error) ? 'More than one run' : notHeld(run.error) ? `Not in ${where}` : 'Could not load the run'}</h3>
           <p>
-            {notHeld(run.error) ? (
+            {ambiguous(run.error) ? (
+              <>
+                <code>{id}</code> matches several runs; use more of the id. Pick two runs to compare, or open Runs to find the one you meant.
+              </>
+            ) : notHeld(run.error) ? (
               <>
                 No run <code>{id}</code> in {where}. Pick two runs to compare, or open Runs to find the one you meant.
               </>
@@ -143,7 +150,9 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
   const rb = useLoad(() => client.run(b), b, refresh);
   const hub = exported ? (meta?.compareWith ?? null) : null;
   const header = <PageHeader eyebrow="compare" title="What changed between two runs" text={INTRO} actions={<Pickers a={a} b={b} runs={runs} hub={hub} />} />;
-  if (same || (ra.data && rb.data && ra.data.run.runId === rb.data.run.runId))
+  // The same id twice names the same run, unless it names none: then that is what the page says.
+  const unnamed = (err: Error | null | undefined) => notHeld(err) || ambiguous(err);
+  if ((same && !unnamed(ra.error)) || (ra.data && rb.data && ra.data.run.runId === rb.data.run.runId))
     return (
       <Page>
         {header}
@@ -155,23 +164,37 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
         </section>
       </Page>
     );
-  // A run the store doesn't hold is named, with the side to pick again.
-  const missing = [notHeld(ra.error) ? { id: a, side: 'A' } : null, notHeld(rb.error) ? { id: b, side: 'B' } : null].filter((m) => m !== null);
-  if (missing.length)
+  // A run the store doesn't hold is named, and so is an id that starts several runs' ids, with the side to pick again.
+  const where = exported ? 'this copy' : 'this store';
+  const missing = [notHeld(ra.error) ? { id: a, side: 'A' } : null, !same && notHeld(rb.error) ? { id: b, side: 'B' } : null].filter((m) => m !== null);
+  const several = [ambiguous(ra.error) ? { id: a, side: 'A' } : null, !same && ambiguous(rb.error) ? { id: b, side: 'B' } : null].filter((m) => m !== null);
+  const ids = (list: ReadonlyArray<{ id: string; side: string }>) =>
+    list.map((m, i) => (
+      <Fragment key={m.side}>
+        {i ? (list === missing ? ' or ' : ' and ') : null}
+        <code>{m.id}</code>
+      </Fragment>
+    ));
+  const sides = same && (missing.length || several.length) ? ['A', 'B'] : [...missing, ...several].map((m) => m.side);
+  if (sides.length)
     return (
       <Page>
         {header}
         <section className="panel stepempty">
-          <h3>Not in {exported ? 'this copy' : 'this store'}</h3>
+          <h3>{missing.length ? `Not in ${where}` : 'More than one run'}</h3>
           <p>
-            No run{' '}
-            {missing.map((m, i) => (
-              <Fragment key={m.side}>
-                {i ? ' or ' : null}
-                <code>{m.id}</code>
-              </Fragment>
-            ))}{' '}
-            in {exported ? 'this copy' : 'this store'}. Pick another run for {missing.length === 2 ? 'A and for B' : missing[0]!.side}.
+            {missing.length ? (
+              <>
+                No run {ids(missing)} in {where}
+                {several.length ? '; ' : '. '}
+              </>
+            ) : null}
+            {several.length ? (
+              <>
+                {ids(several)} {several.length === 2 ? 'each match' : 'matches'} several runs; use more of the id, or{' '}
+              </>
+            ) : null}
+            {several.length ? 'pick' : 'Pick'} another run for {sides.length === 2 ? 'A and for B' : sides[0]}.
           </p>
         </section>
       </Page>

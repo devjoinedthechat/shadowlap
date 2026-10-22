@@ -14,7 +14,7 @@ import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { DecisionSessionDetail, DecisionsListView, RetirementsView, RunDecisionsView } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
-import { copyRunId } from './runs.js';
+import { copyAmbiguous, copyRunId } from './runs.js';
 import { runsQueryString } from './runspage/query.js';
 
 /**
@@ -494,7 +494,8 @@ export function createExportedClient(data: StaticPayload): Client {
     exported: true,
     meta: () => get<Meta>('meta').then((m) => shape(m, normalizeMeta)),
     runs: () => get<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
-    run: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => shape(d, normalizeRunDetail)),
+    // A prefix of several of its runs' ids names none of them, as the server says (409).
+    run: (runId) => (copyAmbiguous(data.runIds ?? [], runId) ? Promise.reject(new ApiError(409, `run id prefix ${runId} matches several runs: use more of the id`)) : get<RunDetail>(`runs/${full(runId)}`).then((d) => shape(d, normalizeRunDetail))),
     call: (runId, n) => get<CallDetail>(`runs/${full(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
     lineage: (runId) => get<{ nodes: LineageNode[] }>(`runs/${full(runId)}/lineage`).then((r) => r.nodes),
     provenance: (runId) => Promise.resolve((data.responses[`runs/${full(runId)}/provenance`] as ProvenanceView | undefined) ?? null),

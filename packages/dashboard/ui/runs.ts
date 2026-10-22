@@ -467,6 +467,13 @@ export function copyRunId(runIds: readonly string[], id: string): string {
   return hits.length === 1 ? hits[0]! : id;
 }
 
+/** Whether an id names no run of a copy whole but starts several of their ids: the copy says so, as the server does. */
+export function copyAmbiguous(runIds: readonly string[], id: string): boolean {
+  if (runIds.includes(id) || !/^[0-9A-Za-z]{1,26}$/.test(id)) return false;
+  const want = id.toUpperCase();
+  return runIds.filter((r) => r.toUpperCase().startsWith(want)).length > 1;
+}
+
 /** Whether an exported copy has Compare: it holds two runs or more. A copy of one run has nothing to compare it with. */
 export function copyCompares(runIds: readonly string[] | null | undefined): boolean {
   return (runIds?.length ?? 0) >= 2;

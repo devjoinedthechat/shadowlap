@@ -240,6 +240,27 @@ export function lookupRun(store: Store, idOrPrefix: string): RunRecord | null {
   }
 }
 
+/**
+ * Whether a run id prefix matches several runs and no run whole: `lookupRun` finds none for it, as
+ * the CLI refuses it, and the dashboard says so rather than that there is no such run.
+ */
+export function ambiguousRunId(store: Store, idOrPrefix: string): boolean {
+  if (!/^[0-9A-Za-z]{1,26}$/.test(idOrPrefix)) return false;
+  const want = idOrPrefix.toUpperCase();
+  let n = 0;
+  for (const r of loadRunIndex(store).runs) {
+    if (r.runId === want) return false;
+    if (r.runId.startsWith(want)) n++;
+  }
+  return n > 1;
+}
+
+/** The error for a run id that names no single run: several runs (409), or none (404). */
+export function noSuchRun(store: Store, idOrPrefix: string): { status: number; message: string } {
+  const id = idOrPrefix.slice(0, 40);
+  return ambiguousRunId(store, idOrPrefix) ? { status: 409, message: `run id prefix ${id} matches several runs: use more of the id` } : { status: 404, message: `no run ${id}` };
+}
+
 /** A run's children for its page, each attempt marked as the run lists bundle it. */
 function childRows(store: Store, runId: string): RunDetail['children'] {
   const index = loadRunIndex(store);

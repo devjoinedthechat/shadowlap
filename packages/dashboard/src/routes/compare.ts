@@ -1,3 +1,4 @@
+import { lookupRun, noSuchRun } from '../api.js';
 import { codeChangeCache, compareView } from '../compare.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
@@ -14,6 +15,12 @@ export function register(router: Router, ctx: RouteContext): void {
     const a = r.query.get('a');
     const b = r.query.get('b');
     if (!a || !b) throw new HttpError(400, 'a and b are required');
+    // A side that names no single run: several runs (a prefix too short), or none.
+    for (const id of [a, b]) {
+      if (lookupRun(ctx.store, id)) continue;
+      const no = noSuchRun(ctx.store, id);
+      throw new HttpError(no.status, no.status === 404 ? 'one of the runs does not exist' : no.message);
+    }
     const c = await compareView(ctx.store, a, b, { cwd: ctx.project?.path ?? null, code });
     if (!c) throw new HttpError(404, 'one of the runs does not exist');
     r.tagged(c);

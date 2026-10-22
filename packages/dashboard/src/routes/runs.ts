@@ -1,4 +1,4 @@
-import { addNote, callDetail, changeLabels, lineage, listRuns, lookupRun, provenance, runDetail } from '../api.js';
+import { addNote, callDetail, changeLabels, lineage, listRuns, lookupRun, noSuchRun, provenance, runDetail } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { ExportError, exportHtmlApart } from '../export-apart.js';
 import { HttpError } from '../http.js';
@@ -20,7 +20,11 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/runs/:id', (r) => {
     const store = ctx.store;
     const run = lookupRun(store, r.params.id!);
-    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
+    // A prefix of several runs' ids names none of them: the page says so, rather than that there is no such run.
+    if (!run) {
+      const no = noSuchRun(store, r.params.id!);
+      throw new HttpError(no.status, no.message);
+    }
     const raw = r.query.get('after');
     const after = raw === null ? undefined : Number(raw);
     if (after !== undefined && !(Number.isInteger(after) && after >= 0)) throw new HttpError(400, 'after is a call number: a whole number, 0 or more');
