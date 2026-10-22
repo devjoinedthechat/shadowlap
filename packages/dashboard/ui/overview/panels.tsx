@@ -3,6 +3,7 @@ import { AboutLine, useFitAbouts } from '../components/About.js';
 import { DeltaPill, Kpi, Legend, Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { EventIcon, Glyph } from '../components/RunIcon.js';
+import { DotLine, ruleTip } from '../components/Verdict.js';
 import { useStored } from '../hooks.js';
 import { cents, clock, ktok, money, num, plural, shortId, whenShort } from '../format.js';
 import { ORIGIN_CODE, ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
@@ -143,13 +144,20 @@ export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; to
       <div className="attn">
         {total === 0 ? <div className="empty">Nothing needs a look.</div> : null}
         {shown.rows.map((x) => (
-          <a key={`${x.kind}:${x.fixId ?? x.runId ?? x.title}`} href={x.href}>
+          // A gate's verdict (decision 9) says its word, tally and bound, whole, and its rule on hover.
+          <a key={`${x.kind}:${x.fixId ?? x.runId ?? x.title}`} href={x.href} data-tip={ruleTip(x.title.replace(/^A test (?:failed|is inconclusive): /, ''), x.rule)}>
             <EventIcon kind={x.icon} />
             <span>
               <span className="t">{x.title}</span>
-              <span className="d" title={x.detail}>
-                {x.detail}
-              </span>
+              {x.rule ? (
+                <span className="d gv">
+                  <DotLine text={x.detail} />
+                </span>
+              ) : (
+                <span className="d" title={x.detail}>
+                  {x.detail}
+                </span>
+              )}
             </span>
             <span className="go">{x.action} →</span>
           </a>
@@ -526,22 +534,38 @@ export function ActivityCard({ items, now, byPerson, live }: { items: readonly A
         {items && !items.length ? <div className="empty">Nothing yet. Recordings, replays, forks, tests and fixes show here.</div> : null}
         {(items ?? []).map((a) => {
           const line = activityLine(a.text, a.runId ?? a.ref);
-          return (
-            <a key={a.id} href={a.href ?? (a.runId ? href.run(a.runId) : href.overview())}>
+          const to = activityHref(a);
+          const body = (
+            <>
               <span className="at">{whenShortOrClock(a.at, now)}</span>
               <EventIcon kind={activityGlyph(a.kind)} live={!!a.live && !!a.runId && recording.has(a.runId)} />
-              <span className="w">
+              <span className={`w${a.rule ? ' gv' : ''}`}>
                 {byPerson && a.actor ? <b className="actor">{personName(a.actor)}</b> : null}
                 {byPerson && a.actor ? ' ' : null}
-                {line.text}
+                {a.rule ? <DotLine text={line.text} /> : line.text}
                 {line.code ? <code>{line.code}</code> : null}
               </span>
+            </>
+          );
+          // An entry with nowhere to go (a preview of a change, which no page shows yet) is a plain row, never a link back here.
+          return to ? (
+            <a key={a.id} href={to} data-tip={ruleTip(line.text.split(': ')[0]!, a.rule)}>
+              {body}
             </a>
+          ) : (
+            <div key={a.id} className="plain">
+              {body}
+            </div>
           );
         })}
       </div>
     </section>
   );
+}
+
+/** Where an activity entry goes: its own destination, else the run it names; none for one that names neither. */
+export function activityHref(a: Pick<ActivityItem, 'href' | 'runId'>): string | null {
+  return a.href ?? (a.runId ? href.run(a.runId) : null);
 }
 
 /** 10:14 today, Sep 30 before. */

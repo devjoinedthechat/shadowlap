@@ -19,7 +19,8 @@
     "packages/dashboard/test/ui-client-cache.test.ts",
     "packages/dashboard/test/ui-tests-chaos.test.ts",
     "packages/dashboard/test/ui-about.test.ts",
-    "packages/dashboard/test/ui-naming.test.ts"
+    "packages/dashboard/test/ui-naming.test.ts",
+    "packages/dashboard/test/ui-verdict.test.ts"
   ],
   "exclude": []
 }

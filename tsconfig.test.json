@@ -48,6 +48,8 @@
     // This fits run names' about lines, which measures the page.
     "packages/dashboard/test/ui-about.test.ts",
     // This renders the places that name a run.
-    "packages/dashboard/test/ui-naming.test.ts"
+    "packages/dashboard/test/ui-naming.test.ts",
+    // This renders the places that say a gate's verdict.
+    "packages/dashboard/test/ui-verdict.test.ts"
   ]
 }

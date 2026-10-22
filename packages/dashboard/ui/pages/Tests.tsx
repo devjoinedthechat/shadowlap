@@ -4,6 +4,7 @@ import { Badge, CmdLine, EmptyState, PageHeader } from '../components/bits.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
+import { DotLine, IntervalBar, RuleText } from '../components/Verdict.js';
 import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
 import { treeBusy } from '../fixes/model.js';
@@ -161,7 +162,7 @@ export function TestsPage() {
                   ))}
                 </th>
               ) : null}
-              <th>Last result</th>
+              <th className="glast">Last result</th>
             </tr>
           </thead>
           <tbody>
@@ -170,6 +171,7 @@ export function TestsPage() {
             ))}
           </tbody>
         </table>
+        <GateRules rows={view.rows} />
       </section>
       {view.divergences.map((d) => {
         const b = divergenceButtons(d, hasKind);
@@ -375,7 +377,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
           })}
         </td>
       ) : null}
-      <td>
+      <td className="glast">
         {last.verdict === 'inconclusive' ? (
           <span className="st warn">
             <i />
@@ -399,9 +401,61 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
         ) : (
           <span className="st n">not run yet</span>
         )}
-        {last.result !== null || row.error ? <span className="rsub">{last.line}</span> : null}
+        {last.result !== null || row.error ? <span className="rsub">{gated(last.gate) ? <DotLine text={last.line} max={18} soft={24} /> : last.line}</span> : null}
+        {gated(last.gate) && last.gate.attempts ? <GateEvidence g={last.gate} verdict={last.verdict} /> : null}
       </td>
     </tr>
+  );
+}
+
+type GateShown = NonNullable<GoldenRow['last']['gate']>;
+
+/** A gate decided it from its attempts (not a clean replay's one, which is the same every time): its line is a tally and a bound. */
+const gated = (g: GoldenRow['last']['gate']): g is GateShown => !!g && !g.clean;
+
+/** Two places, as a rate reads beside a bar: `.70`. */
+const rate2 = (x: number) => x.toFixed(2).replace(/^0(?=\.)/, '');
+
+/**
+ * Under a gated golden's line, what its attempts show (decision 9): the pass rate's Wilson interval
+ * against the gate's two rates, or against the baseline and the drop that fails it, in the verdict's
+ * colour; pass^k and the tally's sentence on hover.
+ */
+function GateEvidence({ g, verdict }: { g: GateShown; verdict: GoldenRow['last']['verdict'] }) {
+  const baseline = g.kind === 'baseline' && g.evidence.kind === 'baseline' ? { at: g.evidence.baseline, drop: g.drop } : null;
+  const marks = g.kind === 'sprt' ? [g.bad, g.good] : baseline ? [baseline.at - baseline.drop, baseline.at] : [];
+  const against = g.kind === 'sprt' ? `against ${rate2(g.bad)} and ${rate2(g.good)}` : 'against its baseline';
+  const why = `The pass rate's ${Math.round(g.interval.confidence * 100)}% Wilson interval, ${against}${baseline ? ` (${rate2(baseline.at)}, less a drop of ${Math.round(baseline.drop * 100)} points)` : ''}`;
+  return (
+    <span className="gev" data-tip={JSON.stringify({ t: g.tally, s: why })}>
+      <IntervalBar lo={g.interval.lo} hi={g.interval.hi} marks={marks} tone={verdict === 'passed' ? 'ok' : verdict === 'inconclusive' ? 'y' : 'no'} />
+      <small>{against}</small>
+    </span>
+  );
+}
+
+/**
+ * Each gate's rule, stated once under the table for every golden it decided (decision 9), beside the
+ * mode its goldens show: no row repeats it.
+ */
+function GateRules({ rows }: { rows: readonly GoldenRow[] }) {
+  const rules = new Map<string, string>();
+  for (const r of rows) {
+    const rule = r.last.gate?.rule;
+    if (rule && !rules.has(rule)) rules.set(rule, r.modeLabel);
+  }
+  if (!rules.size) return null;
+  return (
+    <div className="gfoot">
+      {[...rules].map(([rule, mode]) => (
+        <p key={rule}>
+          <span className="chip">{mode}</span>
+          <span>
+            <RuleText rule={rule} />
+          </span>
+        </p>
+      ))}
+    </div>
   );
 }
 
