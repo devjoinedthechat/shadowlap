@@ -159,4 +159,9 @@ describe('formatDivergence: what came before a fork', () => {
     // An override after the fork is none of what came before it.
     expect(formatDivergence(fork, undefined, 12, [...calls.slice(0, 15), call(16, 'tool', 'lookup_policy', 'replayed'), call(18, 'tool', 'escalate', 'overridden')]).split('\n')[0]).toContain(': 16 calls replayed before divergence');
   });
+
+  it('counts one call replayed as one call', () => {
+    expect(formatDivergence({ ...fork, callNo: 2, replayedBefore: 1 }).split('\n')[0]).toBe('✗ Diverged at call 2 (api POST /v1/messages): 1 call replayed before divergence');
+    expect(formatDivergence({ ...fork, callNo: 3, replayedBefore: 2 }, undefined, 12, [call(1, 'api', 'x', 'replayed'), call(2, 'tool', 'lookup_policy', 'overridden')]).split('\n')[0]).toContain(': 1 call replayed and #2 overridden before divergence');
+  });
 });

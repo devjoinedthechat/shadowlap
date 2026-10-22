@@ -266,7 +266,6 @@ export function divergenceLine(d: Pick<DivergenceReport, 'type' | 'callNo' | 'ki
   return d.type === 'ended_early' ? `ended early at ${at}: ${endedEarlyCount(d)} replayed` : `diverged at ${at}`;
 }
 
-/** The divergence report: the first unmatched call, its closest counterpart, and a structural diff. */
 /**
  * What a replay served from its recording before it diverged: `16 calls replayed`, or, given the
  * run's calls, with those an override answered instead named apart (`15 calls replayed and #16
@@ -274,13 +273,17 @@ export function divergenceLine(d: Pick<DivergenceReport, 'type' | 'callNo' | 'ki
  */
 export function replayedBeforeWords(d: Pick<DivergenceReport, 'callNo' | 'replayedBefore'>, calls?: ReadonlyArray<Pick<CallRecord, 'callNo' | 'origin'>>): string {
   const over = (calls ?? []).filter((c) => c.origin === 'overridden' && c.callNo < d.callNo).map((c) => `#${c.callNo}`);
-  if (!over.length) return `${d.replayedBefore} calls replayed`;
   const n = Math.max(0, d.replayedBefore - over.length);
+  const replayed = `${n} ${n === 1 ? 'call' : 'calls'} replayed`;
+  if (!over.length) return replayed;
   const named = over.length > 1 ? `${over.slice(0, -1).join(', ')} and ${over.at(-1)}` : over[0];
-  return `${n} ${n === 1 ? 'call' : 'calls'} replayed and ${named} overridden`;
+  return `${replayed} and ${named} overridden`;
 }
 
-/** A divergence report. Given the run's calls, the calls an override answered before it are named apart from those replayed. */
+/**
+ * The divergence report: the first unmatched call, its closest counterpart, and a structural diff.
+ * Given the run's calls, the calls an override answered before it are named apart from those replayed.
+ */
 export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEntries = 12, calls?: ReadonlyArray<Pick<CallRecord, 'callNo' | 'origin'>>): string {
   const lines: string[] = [];
   if (d.type === 'ended_early') {
