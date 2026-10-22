@@ -4,7 +4,7 @@ import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffe
 import { CmdLine } from '../components/bits.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
-import { callName, clip, glued, jsonText, num, shortId } from '../format.js';
+import { callName, clip, glued, GLUED_SEPARATOR, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { href } from '../route.js';
@@ -15,7 +15,7 @@ import type { PendingAction } from './actions.js';
 import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, type MetricInput } from './metrics.js';
-import { originOf, pulledSpender, runLikeOf } from './model.js';
+import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './model.js';
 import { blameOfferFor, blameTitle, divergedActions, goldenName, updateGoldenCopy } from './offers.js';
 import { UpdateGoldenDialog } from './RunDialogs.js';
 
@@ -72,10 +72,12 @@ function spentBy(run: RunDetail): Pick<MetricInput, 'spentBy'> {
 /**
  * One line: the explanation gives way first, a whole part (between its " · ") at a time, the rest
  * said by " · …" and shown in full on hover; a part too long alone is cut with "…". The flag that
- * made a fork, when it is part of the line, is set as code.
+ * made a fork, when it is part of the line, is set as code. A `tail` (how an attempt came out) ends
+ * the line and never gives way: the parts before it sit in a box of their own, which does.
  */
-function Why({ children, code }: { children: string; code?: string | readonly string[] | null }) {
+function Why({ children, code, tail }: { children: string; code?: string | readonly string[] | null; tail?: { text: string; node: ReactNode } | null }) {
   const ref = useRef<HTMLSpanElement>(null);
+  const box = useRef<HTMLSpanElement>(null);
   const parts = children.split(' · ');
   // How many parts the line shows: all of them, until it is measured too long for its room.
   const [fit, setFit] = useState({ text: children, count: parts.length });
@@ -83,8 +85,9 @@ function Why({ children, code }: { children: string; code?: string | readonly st
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.title = children;
-    if (count > 1 && el.scrollWidth > el.clientWidth + 1) setFit({ text: children, count: count - 1 });
+    el.title = tail ? `${children} · ${tail.text}` : children;
+    const measured = tail ? box.current : el;
+    if (measured && count > 1 && measured.scrollWidth > measured.clientWidth + 1) setFit({ text: children, count: count - 1 });
   });
   // A room that grows may take the parts back: the line is measured again from the whole of it.
   useLayoutEffect(() => {
@@ -100,9 +103,22 @@ function Why({ children, code }: { children: string; code?: string | readonly st
     return () => watch.disconnect();
   }, [children]);
   const text = count < parts.length ? `${parts.slice(0, count).join(' · ')} · …` : children;
+  const said = codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? glued(p) : <code key={i}>{p.code}</code>));
+  if (!tail)
+    return (
+      <span className="why" ref={ref}>
+        {said}
+      </span>
+    );
   return (
-    <span className="why" ref={ref}>
-      {codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? glued(p) : <code key={i}>{p.code}</code>))}
+    <span className="why tail" ref={ref}>
+      <span className="wt" ref={box}>
+        {said}
+      </span>
+      <span className="we">
+        {GLUED_SEPARATOR}
+        {tail.node}
+      </span>
     </span>
   );
 }
@@ -168,6 +184,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     ...(run.state ? { outcome: run.state.outcome, interrupted: run.state.interrupted, failed: run.state.failed } : {}),
     calls: run.calls,
     callCount: run.calls.length,
+    attempt: attemptOf(r),
   });
   if (!b) return null;
   const job = (kind: string, fields: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(kind, fields)));
@@ -295,6 +312,32 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
               }}
             />
           ) : null}
+        </section>
+      );
+    }
+    case 'attempt': {
+      // One of a probe's, a verify's or a --repeat's attempts, as the design draws one: what was asked
+      // again and how it came out, in its colour at the end of the line, then the way back to where it
+      // counted (its probe, its verdict) and to its bundle.
+      const a = attemptOf(r);
+      return (
+        <section className="banner fork">
+          <span className="bk">{b.callNo !== null ? 'forked at' : 'replayed'}</span>
+          {b.callNo !== null ? call(b.callNo) : null}
+          <Why code={b.flag} tail={{ text: b.outcome.text, node: <em className={b.outcome.tone}>{b.outcome.text}</em> }}>
+            {b.why}
+          </Why>
+          {b.path ? <span className="path">~ {b.path}</span> : null}
+          <span className="end">
+            {b.diff ? diffToggle : null}
+            {a
+              ? attemptLinks(run, a).map((l) => (
+                  <a key={l.label} className="more" href={l.href}>
+                    {l.label}
+                  </a>
+                ))
+              : null}
+          </span>
         </section>
       );
     }

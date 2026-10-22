@@ -3,11 +3,12 @@ import type { RunType } from '../runs.js';
 
 /**
  * The run page's one banner: which it is, and what it says. A run shows at most one, in this order:
- * recording now; a fork blame rescued; a test that diverged; a fork (the flag that made it, or what
- * changed, and whether it failed, for Run blame); where blame found the run lost; what was not
- * recorded; the checks it passed; that it was interrupted (neutral, as every list says it); or that
- * it failed (with its fix, or Run blame). How the run came out is the server's state, the one Runs
- * and the Overview read. No DOM here: the tests import it, and `parts.tsx` draws it.
+ * recording now; a fork blame rescued; an attempt (a blame probe's, a verify's, a `--repeat`'s: what
+ * was asked again, which attempt it is, and how it came out); a test that diverged; a fork (the flag
+ * that made it, or what changed, and whether it failed, for Run blame); where blame found the run
+ * lost; what was not recorded; the checks it passed; that it was interrupted (neutral, as every list
+ * says it); or that it failed (with its fix, or Run blame). How the run came out is the server's
+ * state, the one Runs and the Overview read. No DOM here: the tests import it, and `parts.tsx` draws it.
  */
 
 /** A flag a replay ran with, as the server names it: `--fail-at` and `19=529`, and the call it names. */
@@ -65,12 +66,42 @@ export interface BannerInput {
   calls?: ReadonlyArray<CheckCall & { callNo?: number }>;
   /** How many calls it made, for the interrupted banner. */
   callCount?: number;
+  /** What made the run an attempt, when it is one: one of a blame probe's, a verify's or a `--repeat`'s attempts. */
+  attempt?: AttemptInput | null;
+}
+
+/**
+ * An attempt, as its run's record says: a blame probe's (`meta.probe`), a verify's (`meta.verify`), or
+ * one of `replay --repeat`'s (`meta.repeat` alone), with its place among the attempts made together.
+ */
+export interface AttemptInput {
+  kind: 'probe' | 'verify' | 'repeat';
+  /** Which attempt it is, and of how many (`meta.repeat`). */
+  k: number | null;
+  n: number | null;
+  /** A probe's: the model call it asked again. */
+  callNo?: number | null;
+  /** A verify attempt's: the role of the run it replayed under the change. */
+  role?: string | null;
+  /** How blame or verify judged it, as the record keeps it; a `--repeat`'s is worked out from its checks and exit. */
+  verdict?: 'passed' | 'failed' | 'inconclusive' | null;
+}
+
+/**
+ * How an attempt came out, in the design's words and colours (`em.ok`, `em.no`, `em.inc`): passed,
+ * failed and why, inconclusive and why, or interrupted, in grey (`n`).
+ */
+export interface AttemptOutcome {
+  tone: 'ok' | 'no' | 'inc' | 'n';
+  text: string;
 }
 
 export type Banner =
   | { kind: 'recording' }
   | { kind: 'rescued'; callNo: number | null; why: string }
   | { kind: 'diverged'; callNo: number; name: string; why: string; path: string | null; normalizer: boolean; diff: boolean }
+  /** `callNo` null: the attempt replayed every call from the recording, forking nowhere. */
+  | { kind: 'attempt'; of: AttemptInput['kind']; callNo: number | null; why: string; flag: string | null; path: string | null; outcome: AttemptOutcome; diff: boolean }
   /** `failed`: the fork failed (its check, or its agent's exit), so Run blame applies to it as to any failed run. */
   | { kind: 'fork'; callNo: number; name: string; why: string; flag: string | null; path: string | null; normalizer: boolean; diff: boolean; failed: boolean }
   | { kind: 'lost'; callNo: number; why: string; rescuedRunId: string | null }
@@ -356,10 +387,74 @@ function interruptedWhy(i: Pick<BannerInput, 'type' | 'callCount'>): string {
   return `stopped before it ended: Ctrl-C, a kill or a crash${kept}`;
 }
 
+/** A verify attempt's run, by its role, as `shadowlap verify` names them: target, held-out, good. */
+const VERIFY_ROLES: Readonly<Record<string, string>> = { target: 'target', holdout: 'held-out', good: 'good' };
+
+/** A policy for what comes after a fork (`--writes`, `--reads`): how the fork went on, never what made it. */
+const isPolicy = (iv: FlagView): boolean => iv.flag === '--writes' || iv.flag === '--reads';
+
+/** The flag that made a replay what it is: the first it ran with that is not a policy for the calls after the fork. */
+function madeBy(i: Pick<BannerInput, 'intervention' | 'interventions'>): FlagView | null {
+  const all = i.interventions?.length ? i.interventions : i.intervention ? [i.intervention] : [];
+  return all.find((x) => !isPolicy(x)) ?? null;
+}
+
+/**
+ * How an attempt came out, in the verdict words, as the design says it at the end of its banner:
+ * interrupted (grey: it stopped, it did not fail); then the verdict blame or verify kept on it, or
+ * for a `--repeat`'s attempt what its checks say, else its exit, as the Forks view's bundle counts
+ * it: failed (the line under the run's id says what, in the CLI's words), inconclusive with the
+ * check that could not be decided, or passed.
+ */
+export function attemptOutcome(i: Pick<BannerInput, 'status' | 'checks' | 'interrupted'>, a: Pick<AttemptInput, 'verdict'> = {}): AttemptOutcome {
+  if (i.interrupted || (i.status === 'crashed' && !i.checks.length)) return { tone: 'n', text: 'interrupted' };
+  const failedCheck = i.checks.find(failedOne);
+  const unsure = i.checks.find((c) => c.status === 'inconclusive');
+  const verdict = a.verdict ?? (failedCheck || (!i.checks.length && i.status === 'failed') ? 'failed' : unsure ? 'inconclusive' : 'passed');
+  if (verdict === 'inconclusive') return { tone: 'inc', text: unsure ? `inconclusive: ${unsure.label}` : 'inconclusive' };
+  return verdict === 'passed' ? { tone: 'ok', text: 'passed' } : { tone: 'no', text: 'failed' };
+}
+
+/**
+ * An attempt's banner, as the design words one: what was asked again (a probe's model call, the
+ * change a verify checked, the replay `--repeat` made again), which attempt it is, how the writes
+ * after it went, and how it came out. Never "a request changed": an attempt says why it forked where
+ * it did. One that forked nowhere replayed every call from the recording, and says that.
+ */
+function attemptBanner(i: BannerInput, a: AttemptInput): Banner {
+  const d = i.divergence;
+  const which = a.k !== null ? `attempt ${num(a.k)}${a.n ? ` of ${num(a.n)}` : ''}` : 'an attempt';
+  const iv = madeBy(i);
+  const how = !d ? 'every call replayed from the recording' : d.type === 'forced' && d.reason ? d.reason : (DIVERGED[d.type] ?? d.type);
+  let what: string;
+  let callNo = d?.callNo ?? null;
+  let flag: string | null = null;
+  if (a.kind === 'probe') {
+    callNo = a.callNo ?? callNo;
+    what = callNo !== null ? `resampled #${callNo}, ${which}: the model was asked #${callNo} again, the request as recorded` : `resampled, ${which}`;
+  } else if (a.kind === 'verify') {
+    // The change it verified: a flag (`--model`, `--set`) names itself; a change in the code (its
+    // revision is the line under the run's id) is in the request where the attempt forked.
+    const role = VERIFY_ROLES[a.role ?? ''] ?? 'attempt';
+    const change = iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : d?.type === 'request_changed' ? 'the change it verified is in the request' : how;
+    // One part, held together, as the bundle names it (`verify · target`): a narrow line drops what follows it, never the role.
+    what = `verify\u00a0· ${role}, ${which}: ${change}`;
+    flag = iv ? flagText(iv) : null;
+  } else {
+    // A replay made again: the flag that made it, as its fork banner says it, or what changed.
+    what = `replay --repeat${a.n ? ` ${num(a.n)}` : ''}, ${which}: ${iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : how}`;
+    flag = iv ? flagText(iv) : null;
+  }
+  const writes = d ? writesWord(i.interventions) : null;
+  return { kind: 'attempt', of: a.kind, callNo, why: [what, writes].filter(Boolean).join(' · '), flag, path: d?.diff?.[0]?.path ?? null, outcome: attemptOutcome(i, a), diff: !!d?.diff?.length };
+}
+
 export function bannerFor(i: BannerInput): Banner | null {
   const d = i.divergence;
   if (i.status === 'running') return { kind: 'recording' };
   if (i.rescued && d) return { kind: 'rescued', callNo: i.rescued.callNo, why: `a blame attempt that passed: the model was asked ${i.rescued.callNo !== null ? `#${i.rescued.callNo}` : 'the call'} again · ${writesWord(i.interventions) ?? 'writes stubbed'}` };
+  // An attempt of blame, verify or --repeat is one sample of many: it says so, and how it came out.
+  if (i.attempt) return attemptBanner(i, i.attempt);
   // A test of a golden that may fork went live from where it left the recording, and its checks
   // judged it: where it forked is not what it failed on, so its banner is its checks, or its failure.
   const forkedTest = i.type === 'test' && !!d && !!i.outcome && i.outcome.kind !== 'diverged';
@@ -371,10 +466,12 @@ export function bannerFor(i: BannerInput): Banner | null {
       return { kind: 'diverged', callNo: d.callNo, name: d.name, why: `${beforeFork(d, i.calls)}${looks ? ` · ${looks}` : ''}`, path, normalizer: true, diff };
     }
     const forced = d.type === 'forced' && d.reason ? d.reason.replace(/^forced live by /, '') : null;
-    const iv = i.intervention;
+    // A policy for the calls after a fork made no fork: one whose only flag is --writes forked where
+    // its request changed (a change in the code), and its banner says that, then how the writes went.
+    const iv = madeBy(i);
     // The flag names what the fork changed, and how the writes after it went; a fork without one is a change in the code.
-    const writes = iv && iv.flag !== '--writes' ? writesWord(i.interventions) : null;
-    const what = iv ? `${flagWhy(iv, i.flagCall ?? null, d.name)}${writes ? ` · ${writes}` : ''}` : (forced ?? DIVERGED[d.type] ?? d.type);
+    const writes = writesWord(i.interventions);
+    const what = `${iv ? flagWhy(iv, i.flagCall ?? null, d.name) : (forced ?? DIVERGED[d.type] ?? d.type)}${writes ? ` · ${writes}` : ''}`;
     // A model call answered with a failure says what the SDK did instead, as the design's line does; any other fork, what it replayed first.
     const failedModelCall = iv?.flag === '--fail-at' && i.flagCall?.kind !== 'tool';
     // An override's or a planted result's flag names its call: what came before the fork doesn't again.

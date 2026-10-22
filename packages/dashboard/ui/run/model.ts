@@ -2,7 +2,9 @@ import { importedRecording, pulledRun } from '../../../engine/src/classify.js';
 import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
 import { personName } from '../overview/model.js';
 import type { BlameView, CallRow, CheckStatusView, CheckView, LineageNode, RunDetail, RunListItem } from '../types.js';
+import { href } from '../route.js';
 import { countChecks, type RunLike } from '../runs.js';
+import type { AttemptInput } from './banner.js';
 import { modelCallOf, originOf } from './calls.js';
 
 /**
@@ -41,6 +43,53 @@ export function runLikeOf(d: RunDetail): RunLike {
     checks,
     ...(state ? { kind: state.kind, outcome: state.outcome, failed: state.failed } : {}),
   };
+}
+
+const whole = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null);
+
+/** How blame or verify judged an attempt, as its record keeps it: its verdict, or for one kept before attempts had one, whether it passed. */
+function keptVerdict(v: { passed?: unknown; verdict?: unknown }): NonNullable<AttemptInput['verdict']> | null {
+  if (v.verdict === 'passed' || v.verdict === 'failed' || v.verdict === 'inconclusive') return v.verdict;
+  return typeof v.passed === 'boolean' ? (v.passed ? 'passed' : 'failed') : null;
+}
+
+/**
+ * What made a run an attempt, from its record: one of a blame probe's attempts (`meta.probe`), a
+ * verify's (`meta.verify`), or `replay --repeat`'s (`meta.repeat` alone), with which attempt it is of
+ * how many, and the verdict blame or verify kept on it. Null for any other run. A run can come from
+ * someone else's pack: only well-formed fields count.
+ */
+export function attemptOf(r: Pick<RunDetail['run'], 'meta'>): AttemptInput | null {
+  const m = r.meta;
+  if (!m) return null;
+  const rep = m.repeat && typeof m.repeat === 'object' ? m.repeat : null;
+  const k = whole(rep?.attempt);
+  const n = whole(rep?.of);
+  if (m.probe && typeof m.probe === 'object') return { kind: 'probe', k, n, callNo: whole(m.probe.callNo), verdict: keptVerdict(m.probe) };
+  if (m.verify && typeof m.verify === 'object') return { kind: 'verify', k, n, role: typeof m.verify.role === 'string' ? m.verify.role : null, verdict: keptVerdict(m.verify) };
+  if (rep) return { kind: 'repeat', k, n };
+  return null;
+}
+
+/**
+ * Where an attempt's banner leads: back to where it counted, as the design's links do (a probe's to
+ * its fix's Blame step, or to the run it probed when no fix keeps it; a verify attempt's to the
+ * verdict it counted towards, or the repair whose candidate it tried), and to its bundle, among its
+ * family's in the Forks view.
+ */
+export function attemptLinks(d: Pick<RunDetail, 'fix' | 'probeOf' | 'verifyOf'> & { run: Pick<RunDetail['run'], 'runId'> }, a: AttemptInput): Array<{ href: string; label: string }> {
+  const out: Array<{ href: string; label: string }> = [];
+  if (a.kind === 'probe') {
+    const at = a.callNo ?? d.probeOf?.callNo ?? null;
+    const to = d.fix ? href.fixes(d.fix.id, 'blame') : d.probeOf ? href.run(d.probeOf.of) : null;
+    if (to) out.push({ href: to, label: at !== null ? `Probe #${at} →` : 'Probe →' });
+  } else if (a.kind === 'verify') {
+    // The server leads to the fix's verdict, or to the repair that tried a candidate it dropped; with no fix, only to the run it replayed.
+    const to = d.verifyOf?.href ?? (d.fix ? href.fixes(d.fix.id, 'verify') : null);
+    if (to?.startsWith('#/fixes/')) out.push({ href: to, label: /^#\/fixes\/[^/]+\/repair(?:\/|$)/.test(to) ? 'Repair →' : 'Verdict →' });
+  }
+  out.push({ href: href.run(d.run.runId, null, 'forks'), label: a.n ? `All ${a.n} attempts →` : 'Its attempts →' });
+  return out;
 }
 
 /**

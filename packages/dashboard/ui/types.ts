@@ -222,6 +222,10 @@ export interface RunDetailExtras {
   fixRole?: string | null;
   /** A failed run never blamed: the check a fix's labels suggest, for Run blame to use (`--expect`). */
   blameExpect?: unknown;
+  /** A blame probe's attempt: the run it probed and the model call it asked again, which its banner links back to. */
+  probeOf?: { of: string; callNo: number } | null;
+  /** A verify attempt: where the verdict it counted towards opens. */
+  verifyOf?: { href: string } | null;
   /** The run's models by the short name a call row carries, as the run page names them (`claude-opus-5`). */
   models?: Record<string, string>;
 }
