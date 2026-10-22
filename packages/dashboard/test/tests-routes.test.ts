@@ -315,10 +315,12 @@ describe('GET /api/ci/workflows', () => {
     expect(ci.fixOnFailure.preview).toMatchObject({ example: true, fixId: null, author: 'github-actions', base: 'main', spent: '≈$0.84 of $2.00' });
     expect(ci.alerts).toMatchObject({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' });
     expect(ci.alerts.yaml).toContain("if: steps.goldens.outputs.failed != '0' && github.ref == 'refs/heads/main'");
-    // The golden marked fork runs live in CI; its pack isn't here to say which providers it calls.
+    // The golden marked fork runs live in CI; its pack isn't here to say which providers it calls,
+    // so the test step's env says to add the agent's keys, as Fix on failure's does.
     expect(ci.alerts.needs.map((r) => r.value)).toEqual(['Slack app', 'SLACK_WEBHOOK_URL', 'id: goldens', 'their providers’ keys', 'node-version: 22']);
     expect(ci.alerts.needs[3]!.label).toBe('1 golden runs live (fork)');
-    expect(ci.alerts.yaml).not.toContain('  env:');
+    expect(ci.alerts.yaml).toContain("    fail-on-divergence: false\n  env:\n    # your agent's own provider keys: the goldens that run live call them\n");
+    expect(ci.configError).toBeNull();
     expect(ci.alerts.failures.map((r) => r.value)).toEqual(['diverged', 'live call', 'exit ≠ 0', 'check failed', 'injection', 'inconclusive']);
     expect(ci.alerts.inconclusive).toBe('fail');
     expect(ci.alerts.message).toEqual({ app: 'GitHub Actions', text: 'Shadowlap: 1 golden(s) failed on main.', link: 'github.com/acme/support-agent/actions/runs/…', at: T0 + 10 });
@@ -384,6 +386,26 @@ describe('GET /api/ci/workflows', () => {
     }
     // A dashboard with no project folder has no store to push to.
     expect((await getJson<CiWorkflowsView>(bare, 'ci/workflows')).fixOnFailure.teamStore).toMatchObject({ push: false, name: null });
+  });
+
+  it('says why when shadowlap.config.json can’t be read, and what each step leaves out', async () => {
+    const config = join(project, 'shadowlap.config.json');
+    writeFileSync(config, '{ "store": "s3://northwind-agent-runs/support-agent", "tests": ');
+    try {
+      const ci = await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on');
+      // In the words Settings' other tabs say it.
+      const settings = await getJson<{ config: { error: string | null } }>(dash, 'settings/matching');
+      expect(ci.configError).toBeTruthy();
+      expect(ci.configError).toBe(settings.config.error);
+      expect(ci.fixOnFailure.needs).toContainEqual({ label: 'Push from CI and the judges’ keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });
+      expect(ci.fixOnFailure.yaml).toContain("# shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out");
+      expect(ci.fixOnFailure.teamStore.note).toBe('shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.');
+      expect(ci.alerts.needs).toContainEqual({ label: 'which goldens run live, and their keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });
+      expect(ci.alerts.yaml).toContain("# shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
+    } finally {
+      rmSync(config, { force: true });
+    }
+    expect((await getJson<CiWorkflowsView>(dash, 'ci/workflows')).configError).toBeNull();
   });
 });
 

@@ -116,23 +116,32 @@ describe('the goldens that run live in CI', () => {
     ]);
     expect(g).toEqual([
       // Its judges are asked live where it forks: their providers' keys too.
-      { path: 'goldens/refund-over-limit', live: ['fork'], keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] },
+      { path: 'goldens/refund-over-limit', live: ['fork'], keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'], known: true },
       // A replay golden's judge reads its verdict from the recording: no key for it.
-      { path: 'goldens/refund-in-limit', live: [], keys: ['OPENAI_API_KEY'] },
-      { path: 'goldens/triage', live: ['injection gate'], keys: ['GEMINI_API_KEY'] },
-      { path: 'goldens/bedrock-agent', live: [], keys: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'] },
-      // A pack that can't be read calls nothing here.
-      { path: 'goldens/gone', live: ['fork'], keys: [] },
+      { path: 'goldens/refund-in-limit', live: [], keys: ['OPENAI_API_KEY'], known: true },
+      { path: 'goldens/triage', live: ['injection gate'], keys: ['GEMINI_API_KEY'], known: true },
+      { path: 'goldens/bedrock-agent', live: [], keys: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'], known: true },
+      // A pack that can't be read calls nothing here, and its keys aren't known.
+      { path: 'goldens/gone', live: ['fork'], keys: [], known: false },
     ]);
-    expect(liveGoldens(g)).toEqual({ count: 3, why: ['fork', 'injection gate'], keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'] });
+    expect(liveGoldens(g)).toEqual({ count: 3, why: ['fork', 'injection gate'], keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'], unknown: 1 });
     expect(liveGoldens(g.filter((x) => !x.live.length))).toBeNull();
+    // Vertex AI signs in with a token, and a judge whose provider can't be told: no key to name for either.
+    pack(root, 'goldens/vertex', ['vertex']);
+    pack(root, 'goldens/judged', ['anthropic']);
+    expect(goldenProviders(root, [{ path: 'goldens/vertex', mode: 'fork' }, { path: 'goldens/judged', mode: 'fork', judges: ['some-house-model'] }, { path: 'goldens/judged', mode: 'replay', judges: ['some-house-model'] }]).map((x) => [x.keys, x.known])).toEqual([
+      [[], false],
+      [['ANTHROPIC_API_KEY'], false],
+      // A replay golden's judge isn't asked live.
+      [['ANTHROPIC_API_KEY'], true],
+    ]);
   });
 
   it('gives Alerts the live goldens’ keys and a needs row, and Fix on failure every golden’s, by name', () => {
     const goldens = [
-      { path: 'goldens/refund-flow-budget', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'] },
-      { path: 'goldens/refund-over-limit', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'] },
-      { path: 'goldens/list-inbox', live: [], keys: ['OPENAI_API_KEY'] },
+      { path: 'goldens/refund-flow-budget', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'], known: true },
+      { path: 'goldens/refund-over-limit', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'], known: true },
+      { path: 'goldens/list-inbox', live: [], keys: ['OPENAI_API_KEY'], known: true },
     ];
     const view = ciWorkflows({ ...CI_DEFAULTS, repairer: 'anthropic' }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens });
     // The two fork goldens would fail without it, and Slack hear of it on every run.
@@ -146,6 +155,26 @@ describe('the goldens that run live in CI', () => {
     const unknown = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null });
     expect(unknown.alerts.yaml).not.toContain('  env:');
     expect(unknown.alerts.needs.map((r) => r.value)).toEqual(['Slack app', 'SLACK_WEBHOOK_URL', 'id: goldens', 'node-version: 22']);
+    expect(unknown.configError).toBeNull();
+    // A golden that runs live whose keys can't be named: Alerts' env says to add them, as Fix on failure's does.
+    const vertex = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens: [{ path: 'goldens/vertex', live: ['fork'], keys: [], known: false }] });
+    expect(vertex.alerts.yaml).toContain("  env:\n    # your agent's own provider keys: the goldens that run live call them\n");
+    expect(vertex.alerts.needs).toContainEqual({ label: '1 golden runs live (fork)', value: 'their providers’ keys' });
+    expect(vertex.fixOnFailure.yaml).toContain("    # and your agent's own provider keys: blame and verify run it live");
+  });
+
+  it('says what the steps leave out, and why, while shadowlap.config.json can’t be read', () => {
+    const configError = 'shadowlap.config.json: not valid JSON (Unexpected end of JSON input)';
+    // As the CLI lists them then: every golden replays, and no store is named.
+    const goldens = [{ path: 'goldens/refund-over-limit', live: [], keys: ['ANTHROPIC_API_KEY'], known: true }];
+    const view = ciWorkflows({ ...CI_DEFAULTS, fix: true }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens, teamStore: { store: null }, configError });
+    expect(view.configError).toBe(configError);
+    expect(view.alerts.yaml).toContain("  env:\n    # shadowlap.config.json can't be read: the keys of the goldens that run live are left out\n");
+    expect(view.alerts.needs).toContainEqual({ label: 'which goldens run live, and their keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });
+    expect(view.fixOnFailure.yaml).toContain("    # shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out");
+    expect(view.fixOnFailure.needs).toContainEqual({ label: 'Push from CI and the judges’ keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });
+    // Not "None yet": whether there is a store isn't known.
+    expect(view.fixOnFailure.teamStore).toEqual({ push: false, name: null, credentials: null, note: 'shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.', lands: [] });
   });
 
   it('says what fails a golden, the injection gate included, and in amber what can’t be decided while it fails one', () => {

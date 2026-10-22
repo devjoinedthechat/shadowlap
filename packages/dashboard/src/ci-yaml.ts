@@ -72,6 +72,10 @@ export interface FixOnFailureSettings {
    * env beside the repairer's. Left out when the goldens can't tell, and the step says to add them.
    */
   keys?: readonly string[];
+  /** A golden calls a provider whose key isn't named here (its pack can't be read, or Vertex AI's token): the step says to add the agent's keys, after those it names. */
+  keysUnknown?: boolean;
+  /** shadowlap.config.json can't be read, so whether the step pushes and its goldens' judges are unknown: the step says what is left out. */
+  unreadable?: boolean;
 }
 
 /** The action's `inconclusive` line, only when it lets inconclusive goldens through. */
@@ -108,6 +112,15 @@ export function scalar(value: string): string {
 /** Under the step's env: the keys of the agent's own providers belong there too. */
 const AGENT_KEYS_COMMENT = "# and your agent's own provider keys: blame and verify run it live";
 
+/** The config every step reads its goldens and Push from CI from. */
+const CONFIG = 'shadowlap.config.json';
+
+/** Under Fix on failure's env, while the config can't be read: what the step can't know without it. */
+const FIX_UNREADABLE_COMMENT = `# ${CONFIG} can't be read: push (Push from CI) and the judges' keys are left out`;
+
+/** Under Alerts' env, while the config can't be read: which goldens run live, and so their keys, come from it. */
+const ALERTS_UNREADABLE_COMMENT = `# ${CONFIG} can't be read: the keys of the goldens that run live are left out`;
+
 /**
  * With push, where the bucket's credentials come from. Short-lived ones come from the two `if:`
  * steps `shadowlap store ci` prints, which go right before the action (the comment stands in their
@@ -139,7 +152,7 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
   const repairer = s.repairer.trim() || 'anthropic';
   const push = s.push ?? null;
   const key = repairerKey(repairer);
-  const known = (s.keys ?? []).length > 0;
+  const known = (s.keys ?? []).length > 0 && !s.keysUnknown;
   const agentKeys = (s.keys ?? []).filter((k, i, all) => k !== key && all.indexOf(k) === i);
   const lines = [`# the job needs: permissions: { contents: write, pull-requests: write${push === 'oidc' ? ', id-token: write' : ''} }`];
   if (push === 'keys') lines.push(BUCKET_COMMENT.keys);
@@ -164,6 +177,7 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
     ...(push === 'keys' ? R2_KEYS.map((k) => `    ${k}: \${{ ${NOT_A_PULL_REQUEST} && secrets.${k} || '' }}`) : []),
     ...agentKeys.map(keyLine),
     ...(known ? [] : [`    ${AGENT_KEYS_COMMENT}`]),
+    ...(s.unreadable ? [`    ${FIX_UNREADABLE_COMMENT}`] : []),
   );
   return lines.join('\n');
 }
@@ -171,13 +185,19 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
 /** The row every step that runs the action needs: the Node it runs on. */
 const NODE_NEED: [string, string] = ['Node 22.16 or later on the runner, not 23', 'node-version: 22'];
 
+/** What a needs row says of the config while it can't be read: the value. */
+const UNREADABLE = 'can’t be read';
+
+/** A row of an "it needs" list: what, and the value on the right; amber (`warn`) for what can't be had now. */
+export type NeedRow = [string, string, 'warn'?];
+
 /**
  * What Fix on failure needs, as label and value: the agent's provider keys by name when the goldens
  * say which (`keys`); with `push`, the bucket's credentials too; then the branch it opens the fix
  * against, and Node.
  */
-export function fixOnFailureNeeds(repairer: string, push: BucketCredentials | null = null, keys: readonly string[] = []): Array<[string, string]> {
-  const needs: Array<[string, string]> = [
+export function fixOnFailureNeeds(repairer: string, push: BucketCredentials | null = null, keys: readonly string[] = [], unreadable = false): NeedRow[] {
+  const needs: NeedRow[] = [
     ['a model key for the repairer', repairerKey(repairer)],
     ['your agent’s provider keys: blame and verify run it live', keys.length ? [...new Set(keys)].join(', ') : 'env'],
     ['permission to push a branch', 'contents: write'],
@@ -185,6 +205,8 @@ export function fixOnFailureNeeds(repairer: string, push: BucketCredentials | nu
   ];
   if (push === 'oidc') needs.push(['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write']);
   if (push === 'keys') needs.push(['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets']);
+  // Without the config, whether the step pushes, and its goldens' judges, aren't known.
+  if (unreadable) needs.push([`Push from CI and the judges’ keys, from ${CONFIG}`, UNREADABLE, 'warn']);
   needs.push(['the branch checked out, for the fix to go into', 'ref: head_ref'], NODE_NEED);
   return needs;
 }
@@ -214,6 +236,10 @@ export interface AlertsSettings {
    * injection gate): the test step's env. None for goldens that all replay offline.
    */
   keys?: readonly string[];
+  /** Goldens that run live call a provider whose key isn't named here (its pack can't be read, or Vertex AI's token): the env says to add the agent's keys. */
+  keysUnknown?: boolean;
+  /** shadowlap.config.json can't be read, so which goldens run live isn't known: the env says their keys are left out. */
+  unreadable?: boolean;
 }
 
 /** A secret's name as GitHub allows it: letters, digits and `_`. Empty becomes SLACK_WEBHOOK_URL. */
@@ -243,6 +269,7 @@ export function alertsYaml(s: AlertsSettings): string {
   const failed = "steps.goldens.outputs.failed != '0'";
   const cond = failed + (s.onlyMain ? ` && github.ref == 'refs/heads/${s.branch ?? 'main'}'` : '');
   const keys = [...new Set(s.keys ?? [])];
+  const notes = [...(s.keysUnknown ? [`# ${keys.length ? 'and ' : ''}your agent's own provider keys: the goldens that run live call them`] : []), ...(s.unreadable ? [ALERTS_UNREADABLE_COMMENT] : [])];
   return [
     CHECKOUT,
     ...SETUP_NODE,
@@ -254,7 +281,7 @@ export function alertsYaml(s: AlertsSettings): string {
     `    recordings: ${scalar(s.recordings ?? 'goldens/*')}`,
     '    fail-on-divergence: false',
     ...inconclusiveLine(s.inconclusive),
-    ...(keys.length ? ['  env:', ...keys.map(keyLine)] : []),
+    ...(keys.length || notes.length ? ['  env:', ...keys.map(keyLine), ...notes.map((n) => `    ${n}`)] : []),
     '',
     '- name: Tell Slack',
     `  if: ${cond}`,
@@ -279,15 +306,21 @@ export interface LiveGoldens {
   count: number;
   why: ReadonlyArray<'fork' | 'injection gate'>;
   keys: readonly string[];
+  /** How many of them call a provider whose key isn't named here: a pack that can't be read, or Vertex AI, which signs in with a token. */
+  unknown: number;
 }
 
-/** What Alerts needs, as label and value; with goldens that run live, their providers' keys. */
-export function alertsNeeds(secret: string, live: LiveGoldens | null = null): Array<[string, string]> {
+/**
+ * What Alerts needs, as label and value; with goldens that run live, their providers' keys. While
+ * the config can't be read (`unreadable`), which goldens run live isn't known, and a row says so.
+ */
+export function alertsNeeds(secret: string, live: LiveGoldens | null = null, unreadable = false): NeedRow[] {
   return [
     ['an incoming webhook from your Slack workspace', 'Slack app'],
     ['its URL as a repository secret', alertsSecret(secret)],
     ['the test step’s outputs, by its id', 'id: goldens'],
-    ...(live && live.count ? [[`${live.count} ${live.count === 1 ? 'golden runs' : 'goldens run'} live (${live.why.join(', ')})`, live.keys.length ? live.keys.join(', ') : 'their providers’ keys'] as [string, string]] : []),
+    ...(live && live.count ? [[`${live.count} ${live.count === 1 ? 'golden runs' : 'goldens run'} live (${live.why.join(', ')})`, live.keys.length ? live.keys.join(', ') : 'their providers’ keys'] as NeedRow] : []),
+    ...(unreadable ? [[`which goldens run live, and their keys, from ${CONFIG}`, UNREADABLE, 'warn'] as NeedRow] : []),
     NODE_NEED,
   ];
 }

@@ -226,15 +226,37 @@ describe('the Alerts steps', () => {
     const live = alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'] });
     expect(live).toContain('    fail-on-divergence: false\n  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n\n- name: Tell Slack');
     for (const key of withKeys(live)) expect(inputs).toContain(key);
-    expect(alertsNeeds('SLACK_WEBHOOK_URL', { count: 2, why: ['fork'], keys: ['ANTHROPIC_API_KEY'] })).toEqual([
+    expect(alertsNeeds('SLACK_WEBHOOK_URL', { count: 2, why: ['fork'], keys: ['ANTHROPIC_API_KEY'], unknown: 0 })).toEqual([
       ['an incoming webhook from your Slack workspace', 'Slack app'],
       ['its URL as a repository secret', 'SLACK_WEBHOOK_URL'],
       ['the test step’s outputs, by its id', 'id: goldens'],
       ['2 goldens run live (fork)', 'ANTHROPIC_API_KEY'],
       ['Node 22.16 or later on the runner, not 23', 'node-version: 22'],
     ]);
-    expect(alertsNeeds('X', { count: 1, why: ['fork', 'injection gate'], keys: ['OPENAI_API_KEY', 'GEMINI_API_KEY'] })[3]).toEqual(['1 golden runs live (fork, injection gate)', 'OPENAI_API_KEY, GEMINI_API_KEY']);
+    expect(alertsNeeds('X', { count: 1, why: ['fork', 'injection gate'], keys: ['OPENAI_API_KEY', 'GEMINI_API_KEY'], unknown: 0 })[3]).toEqual(['1 golden runs live (fork, injection gate)', 'OPENAI_API_KEY, GEMINI_API_KEY']);
     expect(alertsNeeds('X').map((r) => r[1])).toEqual(['Slack app', 'X', 'id: goldens', 'node-version: 22']);
+  });
+
+  it('say so in the env, as Fix on failure does, when a golden that runs live calls a provider whose key isn’t named', () => {
+    // A pack that can't be read, or Vertex AI's token: nothing to name, so a comment says to add the agent's keys.
+    expect(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', keysUnknown: true })).toContain("    fail-on-divergence: false\n  env:\n    # your agent's own provider keys: the goldens that run live call them\n\n- name: Tell Slack");
+    // Beside the keys that are known, after them.
+    expect(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', keys: ['ANTHROPIC_API_KEY'], keysUnknown: true })).toContain(
+      "  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n    # and your agent's own provider keys: the goldens that run live call them\n\n",
+    );
+    expect(alertsNeeds('X', { count: 1, why: ['fork'], keys: [], unknown: 1 })[3]).toEqual(['1 golden runs live (fork)', 'their providers’ keys']);
+  });
+
+  it('say what they leave out while shadowlap.config.json can’t be read, in the env and an amber needs row', () => {
+    const alerts = alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', unreadable: true });
+    expect(alerts).toContain("    fail-on-divergence: false\n  env:\n    # shadowlap.config.json can't be read: the keys of the goldens that run live are left out\n\n");
+    expect(alertsNeeds('X', null, true).at(-2)).toEqual(['which goldens run live, and their keys, from shadowlap.config.json', 'can’t be read', 'warn']);
+    const fix = fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', keys: ['ANTHROPIC_API_KEY'], unreadable: true });
+    expect(fix.endsWith("    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n    # shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out")).toBe(true);
+    expect(fix).not.toContain('push:');
+    expect(fixOnFailureNeeds('anthropic', null, ['ANTHROPIC_API_KEY'], true)).toContainEqual(['Push from CI and the judges’ keys, from shadowlap.config.json', 'can’t be read', 'warn']);
+    // Read, nothing changes.
+    expect(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', unreadable: false })).toBe(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' }));
   });
 
   it('say what fails a golden: the injection gate too, and in amber what can’t be decided, unless it warns', () => {

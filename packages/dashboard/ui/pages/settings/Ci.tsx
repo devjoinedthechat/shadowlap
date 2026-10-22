@@ -8,7 +8,7 @@ import { href } from '../../route.js';
 import type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
 import { useApp } from '../../state.js';
 import { TeamStoreRow } from './CiTeamStore.js';
-import { LoadProblem, Loading } from './common.js';
+import { ConfigProblem, LoadProblem, Loading } from './common.js';
 import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
 
@@ -18,8 +18,9 @@ import { ciShown, typedSecret } from './logic.js';
  * across the bottom with Copy. The panels come from `GET /api/ci/workflows` (src/ci-workflows.ts),
  * asked again as you pick, which fills in the project's goldens, its newest verified fix, its
  * repository, its default branch and its team store: Fix on failure follows Push from CI, which
- * Settings → Store sets, and with it on the step pushes each fix there too. Nothing is stored: the
- * steps go into your own workflow file and run in your CI.
+ * Settings → Store sets, and with it on the step pushes each fix there too. While
+ * shadowlap.config.json can't be read, the tab says so as the others do, and each step says what it
+ * leaves out. Nothing is stored: the steps go into your own workflow file and run in your CI.
  */
 
 /** What the panels were changed to, kept while the dashboard is open; what isn't changed is the server's default. */
@@ -46,6 +47,8 @@ export function CiTab() {
   const o = ciShown(changed, view);
   return (
     <>
+      {/* The steps read the goldens' tests and the store from it: each says what it leaves out until it is fixed. */}
+      {view.configError ? <ConfigProblem error={view.configError} /> : null}
       <FixOnFailure
         o={o}
         view={view}

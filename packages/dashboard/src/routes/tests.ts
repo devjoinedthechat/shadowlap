@@ -7,6 +7,7 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import type { Router } from '../router.js';
+import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
 import { bisectChoices, bisectJob, gatePreview, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
 
@@ -182,6 +183,8 @@ export function register(router: Router, ctx: RouteContext): void {
         teamStore: ctx.project ? readTeamStoreInput({ cwd: ctx.project.path }) : null,
         // Which goldens run live in CI, and the providers' keys each step's env needs.
         goldens: ctx.project ? goldenProviders(ctx.project.path, list) : null,
+        // A config that can't be read hides both: the steps say what they leave out.
+        configError: ctx.project ? configFileError(ctx.project.path) : null,
       }),
     );
   });

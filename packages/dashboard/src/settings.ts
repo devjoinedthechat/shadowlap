@@ -314,6 +314,11 @@ function loadConfigFile(cwd: string, list?: RuleList): { info: ConfigInfo; file:
   }
 }
 
+/** Why shadowlap.config.json in `cwd` can't be read, in the words Settings' tabs say it (`ConfigInfo.error`); null when it reads. */
+export function configFileError(cwd: string): string | null {
+  return loadConfigFile(cwd).info.error;
+}
+
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 

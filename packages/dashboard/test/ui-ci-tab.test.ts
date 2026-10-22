@@ -8,16 +8,16 @@ import { render, type Rendered } from './ui-render.js';
 
 /**
  * Settings → CI as the page renders the server's answer: the steps as a job of their own runs them,
- * the failures a golden counts, an inconclusive one in amber, and the Inconclusive goldens control,
- * which asks the server again with the choice.
+ * the failures a golden counts, an inconclusive one in amber, the Inconclusive goldens control,
+ * which asks the server again with the choice, and a config that can't be read.
  */
 
 const goldens = [
-  { path: 'goldens/refund-flow-budget', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'] },
-  { path: 'goldens/refund-over-limit', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'] },
+  { path: 'goldens/refund-flow-budget', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'], known: true },
+  { path: 'goldens/refund-over-limit', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'], known: true },
 ];
 
-function app(ciWorkflowsCall: (o?: Partial<CiWorkflowOptions>) => Promise<unknown>): AppState {
+function app(ciWorkflowsCall: (o?: Partial<CiWorkflowOptions>) => Promise<unknown>, toast: AppState['toast'] = () => undefined): AppState {
   const client = { ciWorkflows: ciWorkflowsCall, teamStore: async () => null, jobs: async () => [], storeSetup: { view: async () => null } };
   return {
     client,
@@ -29,7 +29,7 @@ function app(ciWorkflowsCall: (o?: Partial<CiWorkflowOptions>) => Promise<unknow
     hasKind: () => true,
     guard: (fn: () => void) => fn(),
     watchJob: () => undefined,
-    toast: () => undefined,
+    toast,
     registerLayer: () => () => undefined,
   } as unknown as AppState;
 }
@@ -69,5 +69,18 @@ describe('Settings → CI', () => {
     expect(ask).toHaveBeenLastCalledWith(expect.objectContaining({ inconclusive: 'warn' }));
     expect(r.all('#alerts .codebox')[0]!.textContent).toContain('    inconclusive: warn\n');
     expect(r.byText('#alerts .seg[aria-label="Inconclusive goldens"] button', 'Warn').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('says the config can’t be read, as the other tabs do, and what each step leaves out', async () => {
+    const configError = 'shadowlap.config.json: not valid JSON (Unexpected end of JSON input)';
+    const ask = vi.fn(async (o: Partial<CiWorkflowOptions> = {}) => ciWorkflows({ ...CI_DEFAULTS, ...o }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens: [], configError }));
+    r = await render(createElement(AppContext.Provider, { value: app(ask as unknown as Client['ciWorkflows']) }, createElement(SettingsPage, { tab: 'alerts' })));
+    await r.until('the panels', () => r!.all('.cip .cilist').length > 1);
+    expect(r.one('.settab .verdict h2').textContent).toBe('Fix shadowlap.config.json to change these settings');
+    expect(r.one('.settab .verdict p').textContent).toContain('not valid JSON');
+    const unread = r.all('#alerts .cimain .cilist li').find((li) => li.textContent.startsWith('which goldens run live'))!;
+    expect(unread.querySelector('i')!.getAttribute('class')).toBe('warn');
+    expect(r.all('#alerts .codebox')[0]!.textContent).toContain("# shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
+    expect(r.one('.cistore span').textContent).toBe('shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.');
   });
 });

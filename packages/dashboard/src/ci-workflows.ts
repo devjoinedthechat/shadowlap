@@ -118,6 +118,12 @@ export interface CiWorkflowsView {
   recordings: string;
   /** `owner/repo` from the project's git remote, or null. */
   repository: string | null;
+  /**
+   * Why shadowlap.config.json can't be read, as Settings' other tabs say it; null when it reads. The
+   * steps then can't tell which goldens run live or whether Fix on failure pushes: each says what it
+   * leaves out, and a needs row says why.
+   */
+  configError: string | null;
 }
 
 const BOOL: Record<string, boolean> = { on: true, off: false, true: true, false: false, '1': true, '0': false, yes: true, no: false };
@@ -238,7 +244,9 @@ export function fixPreview(store: Store, budget: string): PullRequestPreview | n
  * to its own folder, with short-lived credentials, and with R2's keys, which can't be kept to that
  * folder, nothing at all.
  */
-export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | null): CiTeamStore {
+export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | null, unreadable = false): CiTeamStore {
+  // The config names the store: while it can't be read, there is no telling whether the step pushes.
+  if (unreadable) return { push: false, name: null, credentials: null, note: 'shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.', lands: [] };
   let loc: StoreLocation | null = null;
   try {
     loc = input?.store ? parseStoreUrl(input.store) : null;
@@ -348,6 +356,12 @@ export interface GoldenProviders {
   live: Array<'fork' | 'injection gate'>;
   /** The key variables of the providers its recording called, and of its judges' when it forks. */
   keys: string[];
+  /**
+   * Its keys are all named in `keys`: its pack's calls were read, and each provider it calls (and,
+   * where it forks, each judge's) takes its key from a variable. False for a pack that can't be
+   * read, Vertex AI (which signs in with a token) or a judge whose provider can't be told.
+   */
+  known: boolean;
 }
 
 /** The goldens that run live in CI, as a needs row says them, with the keys they need; null when none does. */
@@ -355,7 +369,7 @@ export function liveGoldens(goldens: readonly GoldenProviders[]): LiveGoldens | 
   const live = goldens.filter((g) => g.live.length);
   if (!live.length) return null;
   const why = (['fork', 'injection gate'] as const).filter((w) => live.some((g) => g.live.includes(w)));
-  return { count: live.length, why, keys: [...new Set(live.flatMap((g) => g.keys))] };
+  return { count: live.length, why, keys: [...new Set(live.flatMap((g) => g.keys))], unknown: live.filter((g) => !g.known).length };
 }
 
 /**
@@ -375,13 +389,14 @@ const calledBy = new Map<string, { mtimeMs: number; size: number; providers: str
 /** A pack's calls are read up to this much: a golden is small, and what is left out changes nothing here. */
 const CALLS_READ = 8 * 1024 * 1024;
 
-function packProviders(dir: string): string[] {
+/** The providers a pack's recording called, or null when its calls can't be read. */
+function packProviders(dir: string): string[] | null {
   const file = join(dir, 'calls.jsonl');
   let st;
   try {
     st = statSync(file);
   } catch {
-    return [];
+    return null;
   }
   const kept = calledBy.get(file);
   if (kept && kept.mtimeMs === st.mtimeMs && kept.size === st.size) return kept.providers;
@@ -389,7 +404,7 @@ function packProviders(dir: string): string[] {
   try {
     text = st.size > CALLS_READ ? readFileSync(file).subarray(0, CALLS_READ).toString('utf8') : readFileSync(file, 'utf8');
   } catch {
-    return [];
+    return null;
   }
   const providers = [...new Set([...text.matchAll(/"provider":"([a-z]+)"/g)].map((m) => m[1]!))].filter((p) => p in PROVIDER_KEYS || p === 'vertex');
   calledBy.set(file, { mtimeMs: st.mtimeMs, size: st.size, providers });
@@ -399,18 +414,23 @@ function packProviders(dir: string): string[] {
 /**
  * The project's goldens as the CI steps need them (`GoldenProviders`), from the goldens Tests lists
  * (their mode, injection gate and judges, from the config's `tests`) and the providers each pack's
- * recording called. A pack that can't be read calls nothing here.
+ * recording called. A pack that can't be read calls nothing here, and its keys aren't known.
  */
 export function goldenProviders(project: string, goldens: ReadonlyArray<{ path: string; mode: 'replay' | 'fork'; injection?: boolean; judges?: readonly string[] }>): GoldenProviders[] {
   return goldens.map((g) => {
     const live: GoldenProviders['live'] = [...(g.mode === 'fork' ? (['fork'] as const) : []), ...(g.injection ? (['injection gate'] as const) : [])];
-    const providers = new Set(packProviders(resolve(project, g.path)));
+    const called = packProviders(resolve(project, g.path));
+    const providers = new Set(called ?? []);
+    let known = called !== null;
     // A judge with no verdict for a new answer is asked live: only where the golden forks.
-    if (g.mode === 'fork') for (const j of g.judges ?? []) {
-      const p = judgeTarget(j)?.provider;
-      if (p) providers.add(p);
-    }
-    return { path: g.path, live, keys: [...providers].flatMap((p) => PROVIDER_KEYS[p] ?? []) };
+    if (g.mode === 'fork')
+      for (const j of g.judges ?? []) {
+        const p = judgeTarget(j)?.provider;
+        if (p) providers.add(p);
+        else known = false;
+      }
+    if ([...providers].some((p) => !PROVIDER_KEYS[p])) known = false;
+    return { path: g.path, live, keys: [...providers].flatMap((p) => PROVIDER_KEYS[p] ?? []), known };
   });
 }
 
@@ -434,12 +454,17 @@ export function ciWorkflows(
     teamStore?: Pick<TeamStoreInput, 'store' | 'ciPush'> | null;
     /** What the goldens call, and which run live in CI (`goldenProviders`); unknown when left out. */
     goldens?: readonly GoldenProviders[] | null;
+    /** Why shadowlap.config.json can't be read (its goldens' `tests`, its store and Push from CI with it), or null. */
+    configError?: string | null;
   },
 ): CiWorkflowsView {
   const recordings = context.recordings ?? 'goldens/*';
   const goldens = context.goldens ?? null;
+  const configError = context.configError ?? null;
+  const unreadable = configError !== null;
   // The keys every golden's agent calls with, for blame and verify; those of the goldens that run live, for the test step itself.
   const keys = goldens ? [...new Set(goldens.flatMap((g) => g.keys))] : [];
+  const keysUnknown = !!goldens?.some((g) => !g.known);
   const live = goldens ? liveGoldens(goldens) : null;
   const inconclusive = o.inconclusive ?? 'fail';
   const main = context.defaultBranch || 'main';
@@ -447,7 +472,7 @@ export function ciWorkflows(
   const repo = context.repository ?? 'owner/repo';
   const message = alertsMessage({ failed: Math.max(1, context.failing), branch, runUrl: `github.com/${repo}/actions/runs/…` });
   // With Push from CI on, the step pushes too and needs the bucket's credentials; off, it is as it was.
-  const teamStore = ciTeamStore(context.teamStore ?? null);
+  const teamStore = ciTeamStore(context.teamStore ?? null, unreadable);
   const push = teamStore.push ? teamStore.credentials : null;
   return {
     file: WORKFLOW_FILE,
@@ -459,8 +484,8 @@ export function ciWorkflows(
       budgets: FIX_BUDGETS.map((b) => ({ value: b, label: `$${Number(b)}` })),
       repairers: REPAIRERS.map((r) => ({ ...r })),
       offNote: 'Off: a failed check fails the build, and nobody opens a fix.',
-      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings, push, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}), ...(keys.length ? { keys } : {}) }),
-      needs: rows(fixOnFailureNeeds(o.repairer, push, keys)),
+      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings, push, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}), ...(keys.length ? { keys } : {}), ...(keysUnknown ? { keysUnknown } : {}), ...(unreadable ? { unreadable } : {}) }),
+      needs: rows(fixOnFailureNeeds(o.repairer, push, keys, unreadable)),
       never: rows(fixOnFailureNever(o.budget)),
       preview: context.preview ? { ...context.preview, base: main, spent: context.preview.spent.replace(/ of \$[\d.]+$/, ` of $${o.budget}`) } : examplePreview(o.budget, main),
       teamStore,
@@ -469,13 +494,14 @@ export function ciWorkflows(
       onlyMain: o.onlyMain,
       branch: main,
       secret: alertsSecret(o.secret),
-      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings, branch: main, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}), ...(live?.keys.length ? { keys: live.keys } : {}) }),
-      needs: rows(alertsNeeds(o.secret, live)),
+      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings, branch: main, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}), ...(live?.keys.length ? { keys: live.keys } : {}), ...(live?.unknown ? { keysUnknown: true } : {}), ...(unreadable ? { unreadable } : {}) }),
+      needs: rows(alertsNeeds(o.secret, live, unreadable)),
       failures: rows(alertFailures(inconclusive)),
       inconclusive,
       message: { app: 'GitHub Actions', text: message.text, link: message.link, at: context.at },
     },
     recordings,
     repository: context.repository,
+    configError,
   };
 }
