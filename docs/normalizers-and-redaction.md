@@ -120,19 +120,20 @@ Credentials sent the way providers and services take them never need redacting: 
 
 ### Where the rules apply
 
-Every way a run's content leaves the machine applies the rules; Shadowlap's tests hold each export to this list. "The run's details" are its command line, labels and notes.
+Every export, pack and share link applies the rules; Shadowlap's tests hold each to this list. "The run's details" are its command line, labels and notes. A push copies runs to your [team store](./team.md) as recorded, so teammates can replay them; the bucket's own permissions decide who reads them.
 
 | Export | Applies | The run's details |
 |---|---|---|
 | `shadowlap pack` | every rule on the requests it copies; the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise, but for a clock or random read, which stays as recorded | copied as recorded: a replay runs the command |
-| `shadowlap export html` | every rule, as `pack` applies them, and the rules with a path on what calls got back too | masked by the rules without a path, with the run's folder, checks, author and divergence |
+| `shadowlap export html` | every rule, as `pack` applies them, and the rules with a path on what calls got back too | masked by the rules without a path, with the run's checks and divergence; who made the run and the folder it was recorded in are left out |
 | `shadowlap export har` | every rule on the model calls it holds, as `export html` applies them to their requests and responses, and the rules without a path on URLs and headers | not in a HAR, nor are tool calls |
 | `shadowlap export dataset` | every rule on the conversations and answers it keeps, as `export html` applies them, then the rules without a path on the rest of each row | masked |
 | `shadowlap export pairs` | the rules on the conversations and answers it keeps: path rules on the request and on tool arguments and results, and the rules without a path on every string | not in a pair |
 | `shadowlap export otel` | a trace carries no prompt text; the rules without a path apply to its span names, model and tool names, and error messages | the command line, masked |
+| `shadowlap share` | every rule, always, as `export html` applies them: the link opens the run's HTML report to anyone who has it | as `export html` |
 | `shadowlap repair`, to the repairer | every rule on the system prompt, tool descriptions, conversation and two answers it shows the repairer, as `export html` applies them (the spans a fix may rewrite are your source, shown as they are), and the rules without a path on how the run fails; the answers `report.md` (a pull request's body) quotes are the masked ones too | not shown to the repairer |
 
-Each export that applies rules takes `--no-redact`, and stops, naming the rule, when one can't be read. `repair` always applies them, and stops the same way before it blames anything.
+Each export that applies rules takes `--no-redact`, and stops, naming the rule, when one can't be read; `share` takes no `--no-redact`. `repair` always applies them, and stops the same way before it blames anything.
 
 ### Preview
 

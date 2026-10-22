@@ -15,7 +15,8 @@ import type { MetaView } from './views.js';
  *
  * It is a copy of recorded data, so the redaction rules in shadowlap.config.json apply by default,
  * as they do to `shadowlap pack`, and to the run's command line, labels and notes too; as a pack,
- * it leaves out who made each run. Actions, search and live updates are not in an exported copy.
+ * it leaves out who made each run, and it names no folder of the machine it was made on, not even
+ * the one each run was recorded in. Actions, search and live updates are not in an exported copy.
  * A run its recorder left marked running (killed, out of memory) is in it as interrupted, as every
  * screen shows it.
  */
@@ -66,6 +67,14 @@ function withoutAuthor(run: RunRecord): RunRecord {
 }
 
 /**
+ * A run record as a copy that is only read holds it: without the folder it was recorded in, an
+ * absolute path of the machine that made it. A replay needs the folder; nothing in the file does.
+ */
+function withoutFolder(run: RunRecord): RunRecord {
+  return { ...run, command: { ...run.command, cwd: '' } };
+}
+
+/**
  * A row of the runs list or the lineage without its author, should a read model carry one: the
  * file names nobody, whatever shape the rows take.
  */
@@ -109,7 +118,7 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     const record = store.getRun(runId);
     if (!detail || !record) continue;
     // Only runs in the file are linked from it: a Compare or parent link to a run left out would dead-end.
-    responses[`runs/${runId}`] = { ...detail, run: keep ? detail.run : withoutAuthor(detail.run), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
+    responses[`runs/${runId}`] = { ...detail, run: withoutFolder(keep ? detail.run : withoutAuthor(detail.run)), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
     responses[`runs/${runId}/lineage`] = { nodes: (lineage(store, runId, read) ?? []).filter((n) => runIds.includes(n.runId)).map((n) => (keep ? n : anonymous(n))) };
     // Every call's details from one read of the run and one analysis of it: asking for each call on
     // its own read the whole run again, so a run's export took time with the square of its length.

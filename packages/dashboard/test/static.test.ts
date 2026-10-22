@@ -130,6 +130,18 @@ describe('export html', () => {
     expect(html).toContain(`<title>${forkId.slice(0, 10)} — shadowlap</title>`);
   });
 
+  it('names no folder of the machine it was made on, not even the one a run was recorded in', () => {
+    const folder = join(tmpdir(), 'dana', 'projects', 'support-agent');
+    const here = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: folder } });
+    store.endRun(here.runId, 'completed');
+    for (const redact of [[], [{ pattern: 'email', replace: '<EMAIL>' }]]) {
+      const { html } = exportHtml({ store, runIds: [here.runId], uiDir, redact });
+      expect(html).not.toContain(folder);
+      // The command stays: the page shows it. Where it ran is left out.
+      expect(embedded(html).responses[`runs/${here.runId}`]).toMatchObject({ run: { command: { argv: ['node', 'agent.js'], cwd: '' } } });
+    }
+  });
+
   it('leaves out the runs it was not asked for, and links only what it holds', () => {
     const only = exportHtml({ store, runIds: [forkId], uiDir });
     const data = embedded(only.html);

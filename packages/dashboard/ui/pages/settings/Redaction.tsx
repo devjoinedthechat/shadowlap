@@ -6,13 +6,15 @@ import { Icon } from '../../components/Icon.js';
 import { num } from '../../format.js';
 import type { RedactionPreviewView, RedactionSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
+import { useTeamStore } from '../../teamstore.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
-import { maskedLine, partialLine, previewChip, returnedLine, unmaskedLine } from './logic.js';
+import { maskedLine, partialLine, previewChip, redactionNotes, returnedLine, unmaskedLine } from './logic.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
 
 /**
- * Redaction: the rules applied to every copy of a run that leaves this machine, where each kind of
- * copy applies them, and a preview of what they would mask in a run you pick (path rules too),
+ * Redaction: the rules applied to every export, pack and share link of a run, where each applies
+ * them, that a push copies runs to the team store as recorded (with one), what is never stored at
+ * all, and a preview of what the rules would mask in a run you pick (path rules too),
  * counted per rule with up to two samples before and after. Under a rule, quiet lines: what a path
  * rule masks only in HTML, HAR and dataset copies (in what calls got back, which a pack keeps for its
  * replay), and what it matches that a pack leaves as it is (a number), with the path rule that masks
@@ -29,6 +31,7 @@ export function RedactionTab() {
   const [adding, setAdding] = useState(false);
   const [run, setRun] = useState<string | null>(kept.run);
   const editor = useEditor(data?.config.version ?? null, reload);
+  const teamStore = !!useTeamStore();
   if (error && !data) return <LoadProblem error={error} />;
   if (!data) return <Loading title="Redaction" />;
   const off = app.actionsOff ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
@@ -48,7 +51,7 @@ export function RedactionTab() {
         </header>
         <div className="pbody">
           <p className="muted">
-            Applied to the copy whenever a run leaves this machine: <Where where={data.where} />. The local store is never modified, and API keys and authorization headers are never stored at all.
+            Applied to every export, pack and share link: <Where where={data.where} />. {redactionNotes(teamStore)}
           </p>
         </div>
         <RuleTable list="redact" rows={data.rules} off={off} onRemove={(row) => void editor.run(() => client.settings.removeRule('redact', row.n, version), (r) => removedText('redact', r.n))} />
@@ -64,6 +67,7 @@ export function RedactionTab() {
       {adding ? (
         <RuleDialog
           list="redact"
+          teamStore={teamStore}
           kinds={data.form.kinds}
           patterns={data.form.patterns}
           version={version}

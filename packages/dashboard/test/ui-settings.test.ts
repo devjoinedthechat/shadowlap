@@ -30,6 +30,8 @@ import {
   pasteWhere,
   previewChip,
   proposedCount,
+  redactRuleText,
+  redactionNotes,
   regexLiteral,
   ruleCommand,
   runListKey,
@@ -38,6 +40,7 @@ import {
   ruleWarning,
   serverNameFor,
   settingsTab,
+  shareLinksLine,
   shellWords,
   sizeNote,
   suggestedReplace,
@@ -159,6 +162,28 @@ describe('a command line on the page', () => {
     const line = "shadowlap normalize add --kind tool --name 'o'\\''brien tool' --path '$.args.path'";
     expect(shellWords(line)).toEqual(['shadowlap', 'normalize', 'add', '--kind', 'tool', '--name', "'o'\\''brien tool'", '--path', "'$.args.path'"]);
     expect(shellWords(line).join(' ')).toBe(line);
+  });
+});
+
+describe('what leaves the machine', () => {
+  // Push uploaded a run's email address unmasked while Redaction said the rules applied whenever a
+  // run leaves the machine, and "API keys are never stored at all" while the demo needs a rule for
+  // a key a tool is handed.
+  it('says the rules apply to every export, pack and share link, and that push copies runs as recorded', () => {
+    expect(redactionNotes(false)).toBe('The local store is never modified. A model call’s key and authorization headers, and a captured HTTP call’s credentials, are never stored at all.');
+    expect(redactionNotes(true)).toContain('Push copies runs to your team store as recorded, so teammates can replay them.');
+    expect(redactionNotes(true)).not.toMatch(/API keys .* never stored|whenever a run leaves/);
+    expect(redactRuleText(false)).toBe('Masks stored content in every export, pack and share link of a run. A redacted pack still replays: its rules apply as normalizers.');
+    expect(redactRuleText(true)).toContain('Push copies runs to your team store as recorded.');
+  });
+
+  it('counts the rules a share link applies on Store, and warns when there are none or they can’t be read', () => {
+    expect(shareLinksLine(3)).toEqual({ text: 'A report in the bucket with 3 redaction rules applied, behind a link that expires after 7 days. Anyone with the link can open it, without an account.', warn: null });
+    expect(shareLinksLine(1).text).toContain('with 1 redaction rule applied');
+    // None: no claim of a redacted report, and a warning instead.
+    expect(shareLinksLine(0).text).not.toContain('redact');
+    expect(shareLinksLine(0).warn).toBe('No redaction rules: the report holds the prompts and tool data as recorded. Add rules before you share a run.');
+    expect(shareLinksLine(null).warn).toContain('can’t be read');
   });
 });
 

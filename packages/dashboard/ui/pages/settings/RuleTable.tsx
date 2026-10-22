@@ -6,7 +6,7 @@ import { Icon } from '../../components/Icon.js';
 import type { RuleRow } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
-import { emptyRuleForm, ruleCommand, ruleInput, ruleProblem, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
+import { emptyRuleForm, redactRuleText, ruleCommand, ruleInput, ruleProblem, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
 
 /**
  * The rules of one list, as Matching and Redaction show them (scope, path, pattern, what replaces
@@ -33,7 +33,7 @@ export function RuleTable({ list, rows, off, onRemove }: { list: RuleListName; r
           {rows.length === 0 ? (
             <tr>
               <td colSpan={5} className="none">
-                <span>{list === 'normalize' ? 'No normalizers yet. Calibrate finds the ones a recording needs.' : 'No redaction rules yet: copies leave this machine as recorded.'}</span>
+                <span>{list === 'normalize' ? 'No normalizers yet. Calibrate finds the ones a recording needs.' : 'No redaction rules yet: exports, packs and share links hold what was recorded.'}</span>
               </td>
             </tr>
           ) : null}
@@ -96,6 +96,7 @@ const MODES: ReadonlyArray<{ key: PatternMode; label: string }> = [
  */
 export function RuleDialog({
   list,
+  teamStore = false,
   kinds,
   patterns,
   version,
@@ -104,6 +105,8 @@ export function RuleDialog({
   onStale,
 }: {
   list: RuleListName;
+  /** The project has a team store: a redaction rule's dialog says push copies runs there as recorded. */
+  teamStore?: boolean;
   kinds: readonly string[];
   patterns: readonly string[];
   version: string;
@@ -154,7 +157,7 @@ export function RuleDialog({
   return (
     <Dialog
       title={norm ? 'Add a normalizer' : 'Add a redaction rule'}
-      text={norm ? 'Masks a value before matching. Older recordings match too, because fingerprints are recomputed under the current rules.' : 'Masks stored content when a run leaves this machine. A redacted pack still replays: its rules apply as normalizers.'}
+      text={norm ? 'Masks a value before matching. Older recordings match too, because fingerprints are recomputed under the current rules.' : redactRuleText(teamStore)}
       ok={busy ? 'Adding…' : 'Add rule'}
       okDisabled={!!problem || busy}
       onOk={() => void add()}

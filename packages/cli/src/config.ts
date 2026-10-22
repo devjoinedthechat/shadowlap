@@ -17,7 +17,7 @@ export const CONFIG_SCHEMA_URL = 'https://raw.githubusercontent.com/devjoinedthe
 export interface ShadowlapConfig {
   /** Masked before fingerprinting; stored content is untouched. */
   normalize: Normalizer[];
-  /** Applied to the copy of a run that leaves the machine (`pack` and every export; see REDACTION_EXPORTS); a redacted pack replays with these as normalizers. */
+  /** Applied to every export, pack and share link of a run (see REDACTION_EXPORTS); a redacted pack replays with these as normalizers. */
   redact: Normalizer[];
   /** USD per million tokens by model name prefix, for cost estimates; extends and overrides the built-in table. */
   prices?: Record<string, Price>;

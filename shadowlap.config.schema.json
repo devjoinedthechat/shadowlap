@@ -17,7 +17,7 @@
       }
     },
     "redact": {
-      "description": "Rules applied to the copy of a run that leaves the machine: `shadowlap pack` and every `shadowlap export`. A redacted pack still replays, because these are applied as normalizers when it does.",
+      "description": "Rules applied to every export, pack and share link of a run: `shadowlap pack`, every `shadowlap export` and `shadowlap share`. A push copies runs to the team store as recorded. A redacted pack still replays, because these are applied as normalizers when it does.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/rule"

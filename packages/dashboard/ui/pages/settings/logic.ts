@@ -23,6 +23,40 @@ export function runListKey(runs: ReadonlyArray<{ runId: string; status: string }
   return `${project ?? ''}:${runs.length}:${runs[0]?.runId ?? ''}:${runs[runs.length - 1]?.runId ?? ''}:${running}`;
 }
 
+// ---- what leaves the machine ----
+
+/**
+ * What Redaction says after the copies the rules apply to, every export, pack and share link: the
+ * local store is never touched; with a team store, push copies runs there as recorded, so teammates
+ * can replay them; and what is never stored to begin with, which is only a credential sent the way
+ * providers and services take it (a key the agent puts in a tool's arguments is stored).
+ */
+export function redactionNotes(teamStore: boolean): string {
+  return [
+    'The local store is never modified.',
+    ...(teamStore ? ['Push copies runs to your team store as recorded, so teammates can replay them.'] : []),
+    'A model call’s key and authorization headers, and a captured HTTP call’s credentials, are never stored at all.',
+  ].join(' ');
+}
+
+/** What Add a redaction rule says it does, with or without a team store. */
+export function redactRuleText(teamStore: boolean): string {
+  return `Masks stored content in every export, pack and share link of a run.${teamStore ? ' Push copies runs to your team store as recorded.' : ''} A redacted pack still replays: its rules apply as normalizers.`;
+}
+
+/**
+ * The Store tab's Share links row: the report behind a link applies every redaction rule, so it
+ * says how many, and warns when there are none (the report then holds what was recorded) or when
+ * they can't be read (`null`: a share stops until the file is fixed).
+ */
+export function shareLinksLine(rules: number | null): { text: string; warn: string | null } {
+  const applied = rules ? ` with ${rules === 1 ? '1 redaction rule' : `${rules.toLocaleString('en-US')} redaction rules`} applied` : '';
+  const text = `A report in the bucket${applied}, behind a link that expires after 7 days. Anyone with the link can open it, without an account.`;
+  if (rules === null) return { text, warn: 'The redaction rules can’t be read, so a share link waits until shadowlap.config.json is fixed.' };
+  if (rules === 0) return { text, warn: 'No redaction rules: the report holds the prompts and tool data as recorded. Add rules before you share a run.' };
+  return { text, warn: null };
+}
+
 // ---- the Add dialog ----
 
 export type RuleListName = 'normalize' | 'redact';

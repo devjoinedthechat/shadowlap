@@ -872,7 +872,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | Key | What it does |
 |---|---|
 | `normalize` | Masks values before fingerprinting, so an id the agent makes on every run does not fork a replay ([details](./normalizers-and-redaction.md)) |
-| `redact` | Masks stored content in the copy of a run that leaves the machine (`pack` and every export; [where](./normalizers-and-redaction.md#where-the-rules-apply)); a redacted pack still replays |
+| `redact` | Masks stored content in every export, pack and share link of a run ([where](./normalizers-and-redaction.md#where-the-rules-apply)); a redacted pack still replays, and a push copies runs to the team store as recorded |
 | `clock` | `auto` (default) matches dates near each run's start across days; `exact` requires equality |
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
@@ -903,7 +903,7 @@ shadowlap redact ls [--json]
 shadowlap redact preview [run] [--json]
 ```
 
-Both edit `shadowlap.config.json` in the working directory. [Normalizers](./normalizers-and-redaction.md) mask values before matching; redaction rules mask stored content when a run leaves the machine.
+Both edit `shadowlap.config.json` in the working directory. [Normalizers](./normalizers-and-redaction.md) mask values before matching; redaction rules mask stored content in every export, pack and share link of a run.
 
 - `add` takes a pattern (named, such as `uuid` or `email`, or `/regex/flags`), a path, or both. A pattern alone masks matches in every string (for redaction, but those of a clock or random read, which every copy keeps as recorded); a path alone replaces the whole value there, numbers included; `--name` scopes the rule to one tool or call. A redaction rule's path reaches requests in every copy; what a call got back, a response or tool result that is JSON (a tool's result is under `$.result`) and an attempt's error (`$.error`), it reaches only in a copy that is read (`export html`, `har`, `dataset`), never in a pack, whose replay hands it to the agent, nor in a clock or random read; `$` alone and a path that starts with a wildcard reach requests only. It refuses a rule that would change nothing or that it can't read, and for redaction a replacement the rule would rewrite again. Adding a rule that is already there changes nothing.
 - `rm` takes the number `ls` shows (`2` or `#2`), or the tool name, path or pattern of exactly one rule.

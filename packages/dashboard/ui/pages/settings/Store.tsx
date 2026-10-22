@@ -7,7 +7,7 @@ import { useApp } from '../../state.js';
 import type { StoreSetupView } from '../../store-api.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
 import { stepWords } from '../../../src/store-steps.js';
-import { syncText } from './logic.js';
+import { shareLinksLine, syncText } from './logic.js';
 
 /**
  * Store: the team store, the project's runs in a bucket you own. Free, with nothing hosted: push
@@ -41,6 +41,7 @@ export function StoreTab() {
   const push = jobButton(app, JOB_KINDS.push, 'shadowlap push --all');
   const pull = jobButton(app, JOB_KINDS.pull, 'shadowlap pull');
   const ci = ciStepOf(data, view);
+  const share = shareLinksLine(data.redactRules);
   return (
     <>
       {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
@@ -136,7 +137,15 @@ export function StoreTab() {
         <div className="setrow">
           <div>
             <b>Share links</b>
-            <span>A redacted report written to the bucket, behind a link that expires after 7 days. Anyone with the link can open it, without an account.</span>
+            <span>{share.text}</span>
+            {share.warn ? (
+              <span className="fieldnote warn">
+                {share.warn}{' '}
+                <a className="more" href={href.settings('redaction')}>
+                  Redaction
+                </a>
+              </span>
+            ) : null}
           </div>
         </div>
       </section>

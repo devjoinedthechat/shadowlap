@@ -111,6 +111,19 @@ describe('reading the tabs', () => {
     expect(await get('settings/store')).toMatchObject({ configured: 'ftp://nope', status: null, error: expect.stringMatching(/names a store that can't be used/) });
   });
 
+  it('counts the redaction rules a share link applies, and says when they can’t be read', async () => {
+    const store = 's3://northwind-agent-runs/support-agent';
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store }));
+    expect(await get('settings/store')).toMatchObject({ redactRules: 0 });
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store, redact: [{ pattern: 'email', replace: '<EMAIL>' }, { kind: 'tool', path: '$.args.api_key', replace: '<KEY>' }] }));
+    expect(await get('settings/store')).toMatchObject({ redactRules: 2 });
+    // A rule share would stop on, and a file that can't be read: no count to give.
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store, redact: [{ pattern: 'emial', replace: 'x' }] }));
+    expect(await get('settings/store')).toMatchObject({ redactRules: null });
+    writeFileSync(join(project, 'shadowlap.config.json'), '{ "store": ');
+    expect(await get('settings/store')).toMatchObject({ redactRules: null });
+  });
+
   it("gives the shadowlap mcp line for a server, with credentials hidden, and refuses what isn't one", async () => {
     const byUrl = await get<{ line: string; entry: { command: string; args: string[] } }>(`settings/tools/mcp?url=${encodeURIComponent('https://mcp.linear.app/mcp')}`);
     expect(byUrl.line).toBe('shadowlap mcp --url https://mcp.linear.app/mcp');
