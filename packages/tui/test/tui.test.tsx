@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeConversation, normalizeResponse, Store, unpackRun } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { diffLines } from '../src/components/DiffView.js';
+import { Help } from '../src/components/Help.js';
 import { conversationLines, fitItems } from '../src/render.js';
 import { parseSse, streamView } from '../src/sse.js';
 
@@ -274,6 +275,12 @@ describe('ease of use', () => {
     await frameWithout(lastFrame, 'delete run');
     expect([runId, ...attempts].map((id) => store.getRun(id))).toEqual([null, null, null]);
     store.close();
+  });
+
+  it('says in its help that x deletes the attempts bundled under the run with it', () => {
+    const { lastFrame, unmount } = render(<Help width={140} height={30} />);
+    expect(plain(lastFrame())).toContain('delete the selected run with its attempts, as rm does (runs view; asks first)');
+    unmount();
   });
 
   it('leaves a run that is still recording, and says why', async () => {
