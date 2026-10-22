@@ -13,7 +13,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckText } from './banner.js';
-import { checksOf, recordingWords, runLikeOf } from './model.js';
+import { checksOf, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
 
@@ -114,7 +114,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
             </span>
           ) : null}
           <span>{stamp(r.startedAt)}</span>
-          <span>{live ? 'recording…' : run.summary.durationMs !== null ? dur(run.summary.durationMs) : ''}</span>
+          {live ? <span>recording…</span> : runDuration(run) !== null ? <span>{dur(runDuration(run)!)}</span> : null}
           {failure ? <span className="bad">{failure}</span> : null}
         </div>
       </div>

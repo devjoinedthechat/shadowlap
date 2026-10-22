@@ -44,6 +44,18 @@ export function runLikeOf(d: RunDetail): RunLike {
 }
 
 /**
+ * How long the run took, as the header says it; null when nothing timed it. A capture made from
+ * files that keep no times (nock and VCR fixtures) imported every call at the same instant: its
+ * start and end are when it was imported, so it has no duration to show, rather than "0 ms".
+ */
+export function runDuration(d: Pick<RunDetail, 'summary' | 'calls'> & { run: Pick<RunDetail['run'], 'meta'> }): number | null {
+  const ms = d.summary.durationMs;
+  if (ms === null) return null;
+  const timed = d.calls.some((c) => c.latencyMs !== null);
+  return d.run.meta?.covers?.length && !timed ? null : ms;
+}
+
+/**
  * What the eyebrow calls a recording that neither failed nor stopped: one unpacked from a pack
  * someone sent says so; a teammate's pulled from the team store is a recording like any other.
  */

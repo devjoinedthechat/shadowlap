@@ -39,6 +39,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
     tokensNotRespent: wholeInput(s.tokensNotRespent),
     counts: countOrigins(run.calls.map(originOf)),
     capture: runType(runLikeOf(run)) === 'capture',
+    toolsCaptured: toolsCaptured(run),
     ...spentBy(run),
     live: run.run.status === 'running',
     notWaitedMs,
@@ -54,6 +55,12 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
       ))}
     </section>
   );
+}
+
+/** Whether the run saw its tools: a partial recording (a capture) covers tools only when its kinds name them (`tool`, `tool:<name>`). */
+function toolsCaptured(run: RunDetail): boolean {
+  const covers = run.run.meta?.covers;
+  return !covers?.length || covers.some((k) => k === 'tool' || k.startsWith('tool:'));
 }
 
 /** Who spent what a run pulled from the team store spent (`pulledSpender`); nothing for a run made here. */

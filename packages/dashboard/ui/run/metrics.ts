@@ -17,6 +17,8 @@ export interface MetricInput {
   counts: OriginCounts;
   /** A run imported from a capture: its cost is what the traffic cost where it ran. */
   capture: boolean;
+  /** False for a capture that recorded the model calls alone (a nock or VCR file of the provider's traffic): it never saw the tools. */
+  toolsCaptured?: boolean;
   /**
    * A run pulled from the team store: who recorded it, by name. What it spent was spent there, and
    * says so ("spent · by maya"). Absent for a run made here, or one that names no one.
@@ -45,7 +47,8 @@ export function metricItems(m: MetricInput): MetricItem[] {
     const items: MetricItem[] = [
       [m.total, m.live ? (m.total === 1 ? 'call so far' : 'calls so far') : m.total === 1 ? 'call' : 'calls'],
       [m.byKind.api, m.byKind.api === 1 ? 'model call' : 'model calls'],
-      [m.byKind.tool, m.byKind.tool === 1 ? 'tool call' : 'tool calls'],
+      // A capture of the model calls alone never saw the tools: none were captured, which is no count of them.
+      m.toolsCaptured === false && !m.byKind.tool ? ['—', 'tool calls not captured'] : [m.byKind.tool, m.byKind.tool === 1 ? 'tool call' : 'tool calls'],
     ];
     if (n.fail) items.push(failed);
     items.push(upstream, spent);
