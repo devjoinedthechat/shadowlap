@@ -22,8 +22,9 @@ import { ByAvatar } from './people.js';
  * What only adds to a row gives way, measured after layout rather than at fixed widths, while About
  * would get less than 200px, or a labelled row less than its shortest about line beside its labels:
  * first the strip of calls by origin, then the labels, then By. Only when About would get less even
- * then, or on a tablet or a phone, does the about line go under the id. A row opens its run unless a
- * control in it was used.
+ * then, or on a tablet or a phone, does the about line go under the id. On a phone a row is the run
+ * and when it started: its calls, what it spent and its Status give way, and what needs a look
+ * follows the about line instead. A row opens its run unless a control in it was used.
  */
 
 /**
@@ -114,14 +115,14 @@ export function RunsTable({
           <th>Run</th>
           <th className="abcol">About</th>
           {byColumn ? <th className="bycol">By</th> : null}
-          <th className="orgcol">Calls by origin</th>
-          <SortTh by="calls" sort={sort} onSort={onSort}>
+          <th className="orgcol hide-sm">Calls by origin</th>
+          <SortTh by="calls" sort={sort} onSort={onSort} className="num hide-sm">
             Calls
           </SortTh>
-          <SortTh by="spent" sort={sort} onSort={onSort} className="num">
+          <SortTh by="spent" sort={sort} onSort={onSort} className="num hide-sm">
             Spent
           </SortTh>
-          <th>Status</th>
+          <th className="hide-sm">Status</th>
           <SortTh by="when" sort={sort} onSort={onSort} className="num">
             When
           </SortTh>
@@ -142,7 +143,7 @@ const Row = memo(function Row({ run: r, on, selectable, byColumn, you, onPick, n
   const origins = runOrigins(r);
   // What the run was about: the server's line, else (an older server) its command, its last resort.
   const about = r.about ?? { text: runSource(r), from: 'command' as const };
-  // What needs a look, after the about line where it goes under the id (a phone, where Status is off-screen).
+  // What needs a look, after the about line where it goes under the id (a phone, where Status gives way).
   const st = sideStatus(r);
   return (
     <tr className={on ? 'picked' : undefined} onClick={rowOpen(() => navigate(href.run(r.runId)))}>
@@ -193,13 +194,13 @@ const Row = memo(function Row({ run: r, on, selectable, byColumn, you, onPick, n
           <ByAvatar author={r.author ?? null} ci={r.ci ?? null} you={you} />
         </td>
       ) : null}
-      <td className="orgcell">{origins ? <MiniStrip origins={origins} /> : null}</td>
-      <td className="num">{num(r.calls)}</td>
-      <td className="num">
+      <td className="orgcell hide-sm">{origins ? <MiniStrip origins={origins} /> : null}</td>
+      <td className="num hide-sm">{num(r.calls)}</td>
+      <td className="num hide-sm">
         {spent.text}
         {spent.captured ? <span className="nil"> as captured</span> : null}
       </td>
-      <td className="stcell">
+      <td className="stcell hide-sm">
         {out.check ? (
           // The check it failed, under the words, as wide as the column already is: whole on hover.
           <span className="st err named">

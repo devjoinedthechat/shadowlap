@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -280,4 +281,108 @@ describe('Runs’ columns give way, measured, so About keeps its room', () => {
     expect(fit(table({ about: 100, org: 30, width: 900, panel: 700 }))).toEqual(['no-by', 'no-labs', 'no-org', 'stacked', 'tight']);
     expect(fit(table({ about: 600 }), 1000)).toEqual(['no-by', 'no-labs', 'no-org', 'stacked']);
   });
+
+  it('keeps a phone’s row to the run and when it started, with what needs a look after the about line', () => {
+    const html = renderToStaticMarkup(createElement(RunsTable, { rows: [forkRun, lostRun], picked: new Set<string>(['01M5GRYF9FQK708BP829R5FNXQ']), selectable: true, byColumn: true, sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: 2_000 }));
+    const [head, ...body] = rowsOf(html);
+    expect(body).toHaveLength(2);
+    /** The cells a window `width` px wide displays, by their place in the row, the table fitted as such a window fits it. */
+    const shown = (width: number) => {
+      const t: CssNode = { tag: 'table', classes: ['t', 'runst', ...fit(table({ about: 0, width: width - 34, panel: width - 34 }), width)] };
+      const rules = rulesAt(width);
+      const places = (row: Row, part: string) => row.cells.flatMap((c, i) => (displayOf(c, [t, { tag: part, classes: [] }, row.tr], rules) === 'none' ? [] : [i]));
+      const inHead = places(head, 'thead');
+      for (const row of body) expect(places(row, 'tbody')).toEqual(inHead);
+      return inHead.map((i) => head.cells[i].text || head.cells[i].classes.join(' '));
+    };
+    // A phone: the selection, Run and When; the calls by origin, Calls, Spent and Status give way.
+    expect(shown(390)).toEqual(['selcell', 'Run', 'When ↓']);
+    expect(shown(640)).toEqual(['selcell', 'Run', 'When ↓']);
+    // The run takes what the selection and When leave of the panel, with no floor of its own that would widen the table.
+    expect(rulesAt(390).filter((r) => r.selectors.includes('table.runst.stacked .runcell') && /min-width/.test(r.body)).at(-1)?.body).toMatch(/min-width: 0;/);
+    // What needs a look follows the about line under the id there, as Status is gone.
+    expect(rulesAt(390).some((r) => r.selectors.includes('table.runst .rline .rso') && /display: inline/.test(r.body))).toBe(true);
+    expect(body[1].cells[1].text).toContain('lost at #9');
+    // A tablet keeps them, the about line under the id.
+    expect(shown(641)).toEqual(['selcell', 'Run', 'Calls', 'Spent', 'Status', 'When ↓']);
+  });
 });
+
+/** An element as a selector reads it: its tag and classes. */
+interface CssNode {
+  tag: string;
+  classes: string[];
+}
+
+/** A table row's markup: the row, and each cell's tag, classes and text. */
+interface Row {
+  tr: CssNode;
+  cells: Array<CssNode & { text: string }>;
+}
+
+const appCss = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+
+/** Each row of a table's markup, its head first. */
+function rowsOf(html: string): Row[] {
+  const classes = (attrs: string) => /class="([^"]*)"/.exec(attrs)?.[1].split(/\s+/).filter(Boolean) ?? [];
+  return [...html.matchAll(/<tr((?:\s[^>]*)?)>([\s\S]*?)<\/tr>/g)].map((tr) => ({
+    tr: { tag: 'tr', classes: classes(tr[1]) },
+    cells: [...tr[2].matchAll(/<(th|td)((?:\s[^>]*)?)>([\s\S]*?)<\/\1>/g)].map((c) => ({ tag: c[1], classes: classes(c[2]), text: c[3].replace(/<[^>]+>/g, '').trim() })),
+  }));
+}
+
+/**
+ * The stylesheet's style rules a window `width` px wide applies, in their order: those at its top
+ * level and those of each `@media` whose widths take it in. A media feature other than a width is
+ * left out, as are other at-rules.
+ */
+function rulesAt(width: number): Array<{ selectors: string[]; body: string }> {
+  const out: Array<{ selectors: string[]; body: string }> = [];
+  const applies = (query: string) =>
+    query.split(/\band\b/).every((part) => {
+      const m = /\((max|min)-width:\s*(\d+)px\)/.exec(part);
+      return !!m && (m[1] === 'max' ? width <= Number(m[2]) : width >= Number(m[2]));
+    });
+  const walk = (from: number, to: number, on: boolean): void => {
+    for (let i = from; i < to; ) {
+      const open = appCss.indexOf('{', i);
+      if (open < 0 || open >= to) return;
+      const head = appCss.slice(i, open).trim();
+      let end = open + 1;
+      for (let depth = 1; depth && end < to; end++) depth += appCss[end] === '{' ? 1 : appCss[end] === '}' ? -1 : 0;
+      if (head.startsWith('@media')) walk(open + 1, end - 1, on && applies(head.slice('@media'.length)));
+      else if (on && !head.startsWith('@')) out.push({ selectors: head.split(',').map((s) => s.trim()), body: appCss.slice(open + 1, end - 1) });
+      i = end;
+    }
+  };
+  walk(0, appCss.length, true);
+  return out;
+}
+
+/**
+ * How an element inside `ancestors` (the nearest last) is displayed under `rules`: the display of the
+ * most specific rule that names it and sets one, the later of two as specific. Only selectors of tags,
+ * classes and descendants are read; one with anything else names nothing here.
+ */
+function displayOf(el: CssNode, ancestors: CssNode[], rules: ReturnType<typeof rulesAt>): string {
+  const fits = (part: string, n: CssNode) => {
+    const [tag, ...classes] = part.split('.');
+    return (!tag || tag === n.tag) && classes.every((c) => n.classes.includes(c));
+  };
+  const names = (selector: string) => {
+    if (/[^\w\s.-]/.test(selector)) return false;
+    const parts = selector.split(/\s+/);
+    if (!fits(parts[parts.length - 1], el)) return false;
+    let p = parts.length - 2;
+    for (let a = ancestors.length - 1; a >= 0 && p >= 0; a--) if (fits(parts[p], ancestors[a])) p--;
+    return p < 0;
+  };
+  const weight = (selector: string) => (selector.match(/\./g)?.length ?? 0) * 100 + selector.split(/\s+/).filter((p) => /^[a-z]/.test(p)).length;
+  let best: { weight: number; display: string } | null = null;
+  for (const rule of rules) {
+    const display = [...rule.body.matchAll(/(?:^|;)\s*display\s*:\s*([^;!]+)/g)].at(-1)?.[1].trim();
+    if (!display) continue;
+    for (const s of rule.selectors) if (names(s) && (!best || weight(s) >= best.weight)) best = { weight: weight(s), display };
+  }
+  return best?.display ?? 'table-cell';
+}

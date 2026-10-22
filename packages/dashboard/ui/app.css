@@ -2176,7 +2176,7 @@ code.rnm { white-space: nowrap; }
 .rab:empty + .r2s .dot, .rab:empty + .rso .dot { display: none; }
 /* Runs: one row a run at desktop widths, the id and then its about line in a column of its own, fitted, so ids line up,
    with the run's labels as chips at the column's end; on a phone the about line goes under the id, with what needs a
-   look, since Status is off-screen there */
+   look, since Status gives way there */
 table.runst .runcell { width: 1%; max-width: none; overflow: visible; }
 table.runst .rid { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 table.runst .rid > .glyph { flex: none; }
@@ -2207,10 +2207,11 @@ table.runst.stacked .rline { display: flex; align-items: baseline; }
 table.runst.tight td.stcell, table.runst.tight td.stcell .st { white-space: normal; }
 table.runst.tight td.stcell .st { align-items: baseline; }
 table.runst.tight td.stcell .st i { flex: none; transform: translateY(-1px); }
-/* on a phone Status is off-screen, so the line says what needs a look after the about line */
+/* on a phone a row is the run and when it started: its calls, what it spent and its Status give way (hide-sm), the run
+   takes the rest of the panel, and its line says what needs a look after the about line */
 @media (max-width: 640px) {
   table.runst .abcol, table.runst .abcell { display: none; }
-  table.runst .runcell, table.runst.stacked .runcell { width: 100%; max-width: 1px; min-width: 270px; overflow: hidden; }
+  table.runst .runcell, table.runst.stacked .runcell { width: 100%; max-width: 1px; min-width: 0; overflow: hidden; }
   table.runst .rline { display: flex; align-items: baseline; }
   table.runst .rline .rso { display: inline; }
 }
