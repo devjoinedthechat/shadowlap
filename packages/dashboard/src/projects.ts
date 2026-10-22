@@ -607,8 +607,23 @@ export interface RemoveDialogView {
   why: string | null;
 }
 
-/** Remove a project, from the switcher's × or Settings → Project. */
-export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats; projects: number; home: string }): RemoveDialogView {
+/**
+ * What the delete zone says of the team store: the runs here it lists too stay there, whatever is
+ * deleted here, and the rest exist only here. `listed`: the project's runs here that the store's
+ * index lists (`TeamRunCounts.listedHere`).
+ */
+function storeLine(runs: number, listed: number): string {
+  const only = Math.max(0, runs - listed);
+  if (listed <= 0) return `${runs === 1 ? 'It isn’t' : 'None of them is'} in the team store: ${runs === 1 ? 'it exists' : 'they exist'} only here.`;
+  if (!only) return runs === 1 ? 'It is in the team store too, and stays there.' : `All ${plural(runs, 'run')} are in the team store too, and stay there.`;
+  return `${listed.toLocaleString('en-US')} of them ${listed === 1 ? 'is' : 'are'} in the team store too and ${listed === 1 ? 'stays' : 'stay'} there; ${only.toLocaleString('en-US')} ${only === 1 ? 'exists' : 'exist'} only here.`;
+}
+
+/**
+ * Remove a project, from the switcher's × or Settings → Project. `team`: how its runs here stand
+ * with its team store, when it has one, so the delete zone says which of them stay in the store.
+ */
+export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats; projects: number; home: string; team?: { listed: number } | null }): RemoveDialogView {
   const { project, stats } = input;
   const path = tildePath(project.path, input.home);
   const canRemove = input.projects > 1;
@@ -639,7 +654,7 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
     deleteZone: stats.runs
       ? {
           label: 'Also delete its recordings',
-          detail: `${runsLabel(stats.runs)} and ${stats.runs === 1 ? 'its' : 'their'} attempts.${stats.goldens ? ` ${stats.goldens === 1 ? 'The golden is' : 'The goldens are'} in your repository and ${stats.goldens === 1 ? 'stays' : 'stay'}.` : ''}${made.length ? ` Its ${madeText} in .shadowlap/ stay too: delete them yourself if they hold what you mean to delete.` : ''}`,
+          detail: `${runsLabel(stats.runs)} and ${stats.runs === 1 ? 'its' : 'their'} attempts.${input.team ? ` ${storeLine(stats.runs, input.team.listed)}` : ''}${stats.goldens ? ` ${stats.goldens === 1 ? 'The golden is' : 'The goldens are'} in your repository and ${stats.goldens === 1 ? 'stays' : 'stay'}.` : ''}${made.length ? ` Its ${madeText} in .shadowlap/ stay too: delete them yourself if they hold what you mean to delete.` : ''}`,
           confirm: `Type ${project.name} to confirm. This can’t be undone.`,
           placeholder: project.name,
           name: project.name,

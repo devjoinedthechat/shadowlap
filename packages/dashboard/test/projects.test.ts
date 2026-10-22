@@ -479,6 +479,19 @@ describe('removeDialog', () => {
     expect(nameMatches('Bücher-agent', 'Bu\u0308cher-agent')).toBe(true);
   });
 
+  it('says which runs the team store has too, and stay there, and which exist only here', () => {
+    const remove = (runs: number, listed: number | null) => removeDialog({ project: entry('support-agent', { stage: 'done' }), stats: { runs, attempts: 0, goldens: 0 }, projects: 2, home: HOME, team: listed === null ? null : { listed } }).deleteZone!.detail;
+    expect(remove(52, 40)).toBe('52 runs and their attempts. 40 of them are in the team store too and stay there; 12 exist only here.');
+    expect(remove(52, 1)).toBe('52 runs and their attempts. 1 of them is in the team store too and stays there; 51 exist only here.');
+    expect(remove(2, 1)).toBe('2 runs and their attempts. 1 of them is in the team store too and stays there; 1 exists only here.');
+    expect(remove(47, 47)).toBe('47 runs and their attempts. All 47 runs are in the team store too, and stay there.');
+    expect(remove(1, 1)).toBe('1 run and its attempts. It is in the team store too, and stays there.');
+    expect(remove(3, 0)).toBe('3 runs and their attempts. None of them is in the team store: they exist only here.');
+    expect(remove(1, 0)).toBe('1 run and its attempts. It isn’t in the team store: it exists only here.');
+    // No team store: nothing said of one.
+    expect(remove(3, null)).toBe('3 runs and their attempts.');
+  });
+
   it('names the repair reports and exports that deleting the recordings leaves', () => {
     const v = removeDialog({ project: entry('support-agent', { stage: 'done' }), stats: { runs: 3, attempts: 0, goldens: 0, madeFiles: ['.shadowlap/repairs', '.shadowlap/exports'] }, projects: 2, home: HOME });
     expect(v.onDisk.at(-1)).toEqual({ key: 'made', label: 'Its repair reports and exports', path: '.shadowlap/repairs/ · .shadowlap/exports/' });

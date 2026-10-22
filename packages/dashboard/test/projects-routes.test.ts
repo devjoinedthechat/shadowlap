@@ -538,6 +538,22 @@ describe('removing a project', () => {
     expect(existsSync(projectDbPath(w.support))).toBe(false);
     expect(existsSync(join(w.support, 'pyproject.toml'))).toBe(true);
   });
+
+  it('says which of the runs the team store has too, and stay there, when the project has one', async () => {
+    const w = await world();
+    w.registry.add(w.triage);
+    const detail = async () => (await w.api<{ deleteZone: { detail: string } }>('projects/support-agent/remove')).body.deleteZone.detail;
+    // No store: nothing said of one.
+    expect(await detail()).toBe('2 runs and their attempts.');
+    const url = 's3://northwind-agent-runs/support-agent';
+    writeFileSync(join(w.support, 'shadowlap.config.json'), JSON.stringify({ store: url }));
+    expect(await detail()).toBe('2 runs and their attempts. None of them is in the team store: they exist only here.');
+    // One of them pushed: it stays in the bucket whatever is deleted here.
+    const store = Store.open(projectDbPath(w.support));
+    store.setTeamRun(url, { runId: w.supportRuns[0]!, state: 'pushed', at: Date.now(), base: {}, baseHash: 'h', remoteHash: 'h', entry: { runId: w.supportRuns[0]! } });
+    store.close();
+    expect(await detail()).toBe('2 runs and their attempts. 1 of them is in the team store too and stays there; 1 exists only here.');
+  });
 });
 
 describe('the setup', () => {
