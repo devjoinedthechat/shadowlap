@@ -335,7 +335,8 @@ try {
       // The picture ends under a part of the page, never through one: 24 px under it, or just above
       // what follows it, whichever comes first. Where what follows starts closer than 16 px under it,
       // the frame adds the rest of 16 px in the page's own background, so the frame's edge never
-      // touches the part (the fork's strip of calls, whose marker sits under its cells).
+      // touches the part (the fork's strip of calls, whose marker sits under its cells). A tint the
+      // page shows through, such as the verdict's, is not that background: the first opaque one is.
       const clip = await evaluate(`(() => {
         const part = document.querySelector(${JSON.stringify(end)});
         if (!part) return null;
@@ -346,8 +347,13 @@ try {
         if (bottom > document.querySelector('footer.status').getBoundingClientRect().top) return { under: true };
         // The sidebar beside the page in a wide window; none in a narrow one, where it is a menu.
         const left = ${s.width} > 1000 ? Math.ceil(document.querySelector('aside.side').getBoundingClientRect().right) : 0;
+        const alpha = (color) => {
+          if (color === 'transparent') return 0;
+          const a = /^rgba\\(.*,\\s*([\\d.]+)(%?)\\)$/.exec(color) || /\\/\\s*([\\d.]+)(%?)\\)$/.exec(color);
+          return a ? parseFloat(a[1]) / (a[2] ? 100 : 1) : 1;
+        };
         let behind = part;
-        while (behind && /rgba\\(0, 0, 0, 0\\)|transparent/.test(getComputedStyle(behind).backgroundColor)) behind = behind.parentElement;
+        while (behind && alpha(getComputedStyle(behind).backgroundColor) < 1) behind = behind.parentElement;
         return { x: left, y: 0, width: ${s.width} - left, height: bottom, pad: Math.max(0, Math.ceil(below + 16 - bottom)), background: behind ? getComputedStyle(behind).backgroundColor : 'transparent' };
       })()`);
       if (!clip) fail(`${file}: the page has no ${end}`);
