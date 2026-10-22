@@ -4,11 +4,12 @@ import { presetWhy, type PresetAttempt } from './preset.js';
 
 /**
  * The run page's one banner: which it is, and what it says. A run shows at most one, in this order:
- * recording now; an error-path preset's attempt (the preset and its verdict); a fork blame rescued; a test that diverged; a fork (the flag that made it, or what
- * changed); where blame found the run lost; what was not recorded; the checks it passed; that it was
- * interrupted (neutral, as every list says it); or that it failed (with its fix, or Run blame). How
- * the run came out is the server's state, the one Runs and the Overview read. No DOM here: the tests
- * import it, and `parts.tsx` draws it.
+ * recording now; an error-path preset's attempt (the preset and its verdict); a fork blame rescued;
+ * a test that diverged; a fork (the flag that made it, or what changed); where blame found the run
+ * lost; what was not recorded; the checks it passed; that it was interrupted (neutral, as every list
+ * says it); or that it failed (with its fix, or Run blame). How the run came out is the server's
+ * state, the one Runs and the Overview read. No DOM here: the tests import it, and `parts.tsx` draws
+ * it.
  */
 
 /** A flag a replay ran with, as the server names it: `--fail-at` and `19=529`, and the call it names. */
