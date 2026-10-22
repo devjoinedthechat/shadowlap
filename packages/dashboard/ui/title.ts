@@ -1,0 +1,68 @@
+import { shortId } from './format.js';
+import { settingsTabLabel } from './pages/settings/tabs.js';
+import type { Route } from './route.js';
+
+/**
+ * The browser tab's title for each route, as the design's docTitle() names them: a run by its id,
+ * every other page by what it is, then the product: "01M5GHQ477 — shadowlap", "Redaction · Settings
+ * — shadowlap". An exported copy runs the same pages, so its title follows navigation too. No DOM
+ * here: the tests import it.
+ */
+
+/** What every title ends with. */
+export const TITLE_END = ' — shadowlap';
+
+/**
+ * The most of a run's about line a title holds. A tab can't be measured, so this is the one place a
+ * line is fitted by a count: one that doesn't fit is left out, never cut mid-word.
+ */
+export const TAB_ABOUT_MAX = 26;
+
+export interface TitleFacts {
+  /** The project's setup shows in place of the page (no runs yet, or `#/setup`). */
+  setup?: boolean | null;
+  /** Why the project can't be opened (its folder is gone): its setup page says so. */
+  problem?: { name: string } | null;
+  /** The fix a fix's page opens, by its title, once the fixes read model has it. */
+  fixTitle?: string | null;
+  /** The run's about line (decision 10), when the server sends one. */
+  about?: string | null;
+}
+
+/** What the route's page is, before the product's name. */
+export function pageTitle(route: Route, facts: TitleFacts = {}): string {
+  if (facts.setup) return facts.problem ? `Can’t open ${facts.problem.name}` : 'Set up';
+  switch (route.page) {
+    case 'overview':
+      return 'Overview';
+    case 'runs':
+      return 'Runs';
+    case 'run': {
+      const about = facts.about?.trim();
+      return `${shortId(route.id)}${about && about.length <= TAB_ABOUT_MAX ? ` · ${about}` : ''}`;
+    }
+    case 'compare':
+      return route.a && route.b ? `${shortId(route.a)} → ${shortId(route.b)} · Compare` : 'Compare';
+    case 'fixes':
+      return route.id ? `${facts.fixTitle?.trim() || route.id} · Fix` : 'Fixes';
+    case 'tests':
+      return 'Tests';
+    case 'training':
+      return route.tab === 'tasks' ? 'Tasks · Training' : 'Pairs · Training';
+    case 'settings':
+      return `${settingsTabLabel(route.tab)} · Settings`;
+    case 'new':
+      return 'Add a project';
+    case 'setup':
+      return 'Set up';
+    case 'store-setup':
+      return 'Set up the store';
+    case 'notfound':
+      return 'Not found';
+  }
+}
+
+/** The tab's title for the route: the page, then the product. */
+export function docTitle(route: Route, facts: TitleFacts = {}): string {
+  return `${pageTitle(route, facts)}${TITLE_END}`;
+}

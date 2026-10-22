@@ -13,6 +13,8 @@ import { fixName } from './model.js';
  */
 
 const names = new Map<string, string>();
+/** Each fix's title, by its id and by the id its URL gave, for the tab's title. */
+const titles = new Map<string, string>();
 const listeners = new Set<() => void>();
 let list: FixList | null = null;
 let loading: Promise<void> | null = null;
@@ -20,17 +22,23 @@ let loading: Promise<void> | null = null;
 const changed = () => listeners.forEach((on) => on());
 
 /** A fix the page loaded, by its id and by the id its URL gave (a prefix, in any case). */
-export function rememberFix(d: Pick<FixDetail, 'fixId' | 'label'>, asked?: string): void {
+export function rememberFix(d: Pick<FixDetail, 'fixId' | 'label' | 'title'>, asked?: string): void {
   const name = fixName(d);
-  if (names.get(d.fixId) === name && (!asked || names.get(asked) === name)) return;
-  names.set(d.fixId, name);
-  if (asked) names.set(asked, name);
+  const known = (id: string) => names.get(id) === name && titles.get(id) === d.title;
+  if (known(d.fixId) && (!asked || known(asked))) return;
+  for (const id of asked ? [d.fixId, asked] : [d.fixId]) {
+    names.set(id, name);
+    titles.set(id, d.title);
+  }
   changed();
 }
 
 export function rememberList(l: FixList): void {
   list = l;
-  for (const f of l.fixes) names.set(f.fixId, fixName(f));
+  for (const f of l.fixes) {
+    names.set(f.fixId, fixName(f));
+    titles.set(f.fixId, f.title);
+  }
   changed();
 }
 
@@ -52,6 +60,18 @@ export function refreshFixes(client: Client): Promise<void> {
  * for the palette.
  */
 export function useFixCrumb(fixId: string | null): string | null {
+  useFixesKnown();
+  return fixId ? (names.get(fixId) ?? null) : null;
+}
+
+/** The title of the fix a route opens, for the tab's title, once known. */
+export function useFixTitle(fixId: string | null): string | null {
+  useFixesKnown();
+  return fixId ? (titles.get(fixId) ?? null) : null;
+}
+
+/** Draws again whenever what is known about fixes changes, and loads the list once when nothing has. */
+function useFixesKnown(): void {
   const { client, exported } = useApp();
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -64,7 +84,6 @@ export function useFixCrumb(fixId: string | null): string | null {
   useEffect(() => {
     if (!exported && list === null) void refreshFixes(client);
   }, [client, exported]);
-  return fixId ? (names.get(fixId) ?? null) : null;
 }
 
 // The palette's Fixes group: each fix by its title, with its label and status. Opening the palette

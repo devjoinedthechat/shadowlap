@@ -16,11 +16,13 @@ import { StoreSetupPage } from '../pages/settings/StoreSetup.js';
 import { TestsPage } from '../pages/Tests.js';
 import { TrainingPage } from '../pages/Training.js';
 import { Page } from '../components/Page.js';
+import { useFixTitle } from '../fixes/data.js';
 import { setupShowsOn } from '../projects.js';
 import { href, type Route } from '../route.js';
 import { navigate, useRoute } from '../router.js';
 import { copyCompares, exportStartRun } from '../runs.js';
 import { useApp } from '../state.js';
+import { docTitle } from '../title.js';
 import { ExpiredCard, OfflineBar } from './Connection.js';
 import { Keyboard } from './Keyboard.js';
 import { Palette } from './Palette.js';
@@ -33,6 +35,7 @@ import { TopBar } from './TopBar.js';
 export function Shell() {
   const route = useRoute();
   const { setSideOpen, exported, meta, runs, closeJobs } = useApp();
+  useDocTitle(route);
 
   // The phone sidebar closes on navigation; a job's drawer closes when the page changes (not when a
   // call or a view is picked), and a toast says when the job finishes.
@@ -71,6 +74,24 @@ export function Shell() {
       <Keyboard />
     </>
   );
+}
+
+/**
+ * The tab's title, from the route and what the page knows of it (title.ts): the setup when it shows
+ * in place of the page, a fix by its title once the fixes read model has it, a run by its id.
+ */
+function useDocTitle(route: Route): void {
+  const { exported, meta, runs } = useApp();
+  const fixTitle = useFixTitle(route.page === 'fixes' ? route.id : null);
+  const setup = setupShowsOn(route, { exported, meta, runs });
+  const row = route.page === 'run' ? runs?.find((r) => r.runId === route.id || (route.id.length >= 10 && r.runId.startsWith(route.id))) : undefined;
+  // The about line (decision 10), once the run list carries one.
+  const about = row && 'about' in row && typeof row.about === 'string' ? row.about : null;
+  const problem = meta?.project?.problem ? { name: meta.project.name } : null;
+  const title = docTitle(route, { setup, problem, fixTitle, about });
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
 }
 
 /**

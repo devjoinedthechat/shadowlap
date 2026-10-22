@@ -177,7 +177,8 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
     const css = readFileSync(join(uiDir, 'assets', 'app.css'), 'utf8').replace(/url\(["']?\.\/fonts\/([\w.-]+)["']?\)/g, (_m, name: string) => `url(${dataUri(join(uiDir, 'assets', 'fonts', name), 'font/woff2')})`);
     const js = readFileSync(join(uiDir, 'assets', 'app.js'), 'utf8');
     const favicon = dataUri(join(uiDir, 'assets', 'favicon.svg'), 'image/svg+xml');
-    const title = `Shadowlap · ${asked[0]!.slice(0, 10)}`;
+    // The run it opens on, by its id, as the page's own title names it (ui/title.ts) once it has drawn.
+    const title = `${asked[0]!.slice(0, 10)} — shadowlap`;
     const html = `<!doctype html>
 <html lang="en">
 <head>
