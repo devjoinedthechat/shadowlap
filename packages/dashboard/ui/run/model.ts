@@ -1,9 +1,10 @@
 import { importedRecording, pulledRun } from '../../../engine/src/classify.js';
 import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
+import { num } from '../format.js';
 import { personName } from '../overview/model.js';
 import type { BlameView, CallRow, CheckStatusView, CheckView, LineageNode, RunDetail, RunListItem } from '../types.js';
 import { href } from '../route.js';
-import { countChecks, type RunLike } from '../runs.js';
+import { countChecks, type RunLike, type RunType } from '../runs.js';
 import type { AttemptInput } from './banner.js';
 import { modelCallOf, originOf } from './calls.js';
 
@@ -55,27 +56,48 @@ function keptVerdict(v: { passed?: unknown; verdict?: unknown }): NonNullable<At
 
 /**
  * What made a run an attempt, from its record: one of a blame probe's attempts (`meta.probe`), a
- * verify's (`meta.verify`), or `replay --repeat`'s (`meta.repeat` alone), with which attempt it is of
- * how many, and the verdict blame or verify kept on it. Null for any other run. A run can come from
- * someone else's pack: only well-formed fields count.
+ * verify's (`meta.verify`), or `replay --repeat`'s (`meta.repeat` alone), with the verdict blame or
+ * verify kept on it, and which attempt it is of how many were made, as the server counts them
+ * (`attemptPlace`); without that count (an older server) it is attempt k, of an unknown number, never
+ * of the most that could have been made (`repeat.of`, a gate's limit). Null for any other run, and for
+ * a replay an injection test, a model's scoring or an error-path preset made (`meta.injection`,
+ * `meta.task`, `meta.chaos`), which carry `meta.repeat` too but are judged by what made them: they keep
+ * the fork banner. A run can come from someone else's pack: only well-formed fields count.
  */
-export function attemptOf(r: Pick<RunDetail['run'], 'meta'>): AttemptInput | null {
-  const m = r.meta;
-  if (!m) return null;
+export function attemptOf(d: { run: Pick<RunDetail['run'], 'meta'>; attemptPlace?: RunDetail['attemptPlace'] }): AttemptInput | null {
+  const m = d.run.meta;
+  if (!m || m.injection || m.task || m.chaos) return null;
   const rep = m.repeat && typeof m.repeat === 'object' ? m.repeat : null;
-  const k = whole(rep?.attempt);
-  const n = whole(rep?.of);
+  const place = d.attemptPlace ?? null;
+  const k = place ? place.k : whole(rep?.attempt);
+  const n = place ? place.n : null;
   if (m.probe && typeof m.probe === 'object') return { kind: 'probe', k, n, callNo: whole(m.probe.callNo), verdict: keptVerdict(m.probe) };
   if (m.verify && typeof m.verify === 'object') return { kind: 'verify', k, n, role: typeof m.verify.role === 'string' ? m.verify.role : null, verdict: keptVerdict(m.verify) };
-  if (rep) return { kind: 'repeat', k, n };
+  if (rep) return { kind: 'repeat', k, n, count: whole(rep.of) };
   return null;
+}
+
+/** What the eyebrow calls an attempt, by what made it, as the design's kind words do. */
+const ATTEMPT_WORDS: Readonly<Record<AttemptInput['kind'], string>> = { probe: 'blame attempt', verify: 'verify attempt', repeat: 'repeat attempt' };
+
+/**
+ * What the eyebrow calls a fork, or an attempt of any kind, as the design's kind words do: the fork
+ * blame rescued a run with is its `rescued fork`; an attempt is a `blame attempt`, a `verify
+ * attempt` or a `repeat attempt` (one that forked nowhere too); any other fork is `fork @n`, where
+ * it forked. Null for any other run, which the eyebrow names by its kind.
+ */
+export function forkKindWords(d: { run: Pick<RunDetail['run'], 'meta' | 'divergence'>; attemptPlace?: RunDetail['attemptPlace'] }, type: RunType, rescued: boolean): string | null {
+  if (type === 'fork' && rescued) return 'rescued fork';
+  const a = attemptOf(d);
+  if (a) return ATTEMPT_WORDS[a.kind];
+  return type === 'fork' && d.run.divergence ? `fork @${d.run.divergence.callNo}` : null;
 }
 
 /**
  * Where an attempt's banner leads: back to where it counted, as the design's links do (a probe's to
  * its fix's Blame step, or to the run it probed when no fix keeps it; a verify attempt's to the
  * verdict it counted towards, or the repair whose candidate it tried), and to its bundle, among its
- * family's in the Forks view.
+ * family's in the Forks view: all its attempts, when they are several and counted.
  */
 export function attemptLinks(d: Pick<RunDetail, 'fix' | 'probeOf' | 'verifyOf'> & { run: Pick<RunDetail['run'], 'runId'> }, a: AttemptInput): Array<{ href: string; label: string }> {
   const out: Array<{ href: string; label: string }> = [];
@@ -88,7 +110,7 @@ export function attemptLinks(d: Pick<RunDetail, 'fix' | 'probeOf' | 'verifyOf'> 
     const to = d.verifyOf?.href ?? (d.fix ? href.fixes(d.fix.id, 'verify') : null);
     if (to?.startsWith('#/fixes/')) out.push({ href: to, label: /^#\/fixes\/[^/]+\/repair(?:\/|$)/.test(to) ? 'Repair →' : 'Verdict →' });
   }
-  out.push({ href: href.run(d.run.runId, null, 'forks'), label: a.n ? `All ${a.n} attempts →` : 'Its attempts →' });
+  out.push({ href: href.run(d.run.runId, null, 'forks'), label: a.n !== null && a.n > 1 ? `All ${num(a.n)} attempts →` : 'Forks →' });
   return out;
 }
 

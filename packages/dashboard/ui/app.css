@@ -316,7 +316,7 @@ table.runst .rsub { padding-left: 22px; }
    wraps, it breaks anywhere rather than widen the page on a phone. */
 .banner .why code, .banner .path { overflow-wrap: anywhere; }
 .banner .end { margin-left: auto; display: flex; gap: 14px; align-items: center; }
-/* How an attempt came out, at the end of its banner's line, in the consequence colours: passed, failed, inconclusive; interrupted in grey. */
+/* How an attempt came out, leading its banner's line, in the consequence colours: passed, failed, inconclusive; interrupted in grey. */
 .banner .why em { font-style: normal; }
 .banner .why em.ok { color: var(--ok); }
 .banner .why em.no { color: var(--err); }
@@ -1178,11 +1178,10 @@ body.is-offline main.view { padding-top: 44px; }
   .banner { flex-wrap: nowrap; }
   .banner > * { flex: none; }
   .banner .why { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* an attempt's outcome ends the line and keeps its room: the explanation before it gives way */
-  .banner .why.tail { display: flex; align-items: baseline; }
-  .banner .why.tail .wt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .banner .why.tail .we { flex: none; }
 }
+/* An attempt's banner wraps rather than cut its words, on every width, as the design's does. */
+.banner.wrap { flex-wrap: wrap; row-gap: 4px; }
+.banner.wrap .why { flex: 1 1 280px; white-space: normal; overflow: visible; text-overflow: clip; text-wrap: pretty; }
 
 
 /* long runs */

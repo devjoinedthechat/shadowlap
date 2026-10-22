@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Client } from '../ui/api.js';
 import { attemptOutcome, bannerFor, type BannerInput } from '../ui/run/banner.js';
 import { ForksView } from '../ui/run/ForksView.js';
-import { attemptLinks, attemptOf } from '../ui/run/model.js';
+import { attemptLinks, attemptOf, forkKindWords } from '../ui/run/model.js';
 import { Banner, DiffPanel, type BannerProps } from '../ui/run/parts.js';
 import { familyLine, runTag, type RunLike } from '../ui/runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -51,7 +51,7 @@ function app(client: Partial<Client> = {}): AppState {
 }
 
 /** A run's page as the server sends it: a replay of `parent`, with the fields the banner reads. */
-function detail(o: { runId: string; parent: string; divergence: unknown; meta?: Record<string, unknown>; status?: string; state?: unknown; interventions?: unknown[]; fix?: unknown; probeOf?: unknown; verifyOf?: unknown }): RunDetail {
+function detail(o: { runId: string; parent: string; divergence: unknown; meta?: Record<string, unknown>; status?: string; state?: unknown; interventions?: unknown[]; fix?: unknown; probeOf?: unknown; verifyOf?: unknown; attemptPlace?: unknown }): RunDetail {
   const interventions = o.interventions ?? [];
   return {
     run: { runId: o.runId, parentRunId: o.parent, mode: 'replay', status: o.status ?? 'completed', divergence: o.divergence, command: { argv: ['node', 'refund_agent.mjs', 'T-8812'], cwd: '.' }, codeVersion: '728a4d3', startedAt: 1, endedAt: 2, meta: o.meta ?? {} },
@@ -66,6 +66,7 @@ function detail(o: { runId: string; parent: string; divergence: unknown; meta?: 
     state: o.state ?? null,
     ...(o.probeOf ? { probeOf: o.probeOf } : {}),
     ...(o.verifyOf ? { verifyOf: o.verifyOf } : {}),
+    ...(o.attemptPlace ? { attemptPlace: o.attemptPlace } : {}),
   } as unknown as RunDetail;
 }
 
@@ -125,73 +126,119 @@ describe('an attempt', () => {
     expect(bannerFor({ ...base, divergence: changed, intervention: w, interventions: [w, model] })).toMatchObject({ why: 'claude-opus-5 answers from here with --model 1:claude-opus-5 · writes stubbed · 0 calls replayed before it', flag: '--model 1:claude-opus-5' });
   });
 
-  it('says what was asked again, which attempt it is, and how it came out', () => {
+  it('says how it came out, what was asked again and which attempt it is', () => {
     const failed = { ...base, divergence: forcedAt5, intervention: diverge[0]!, interventions: diverge, attempt: probe, checks: [{ label: 'issue_refund with {"amount":240} called 0 times', ok: false, status: 'failed', detail: 'called 1 time' }] };
-    expect(bannerFor(failed)).toEqual({ kind: 'attempt', of: 'probe', callNo: 5, why: 'resampled #5, attempt 1 of 4: the model was asked #5 again, the request as recorded · writes stubbed', flag: null, path: null, outcome: { tone: 'no', text: 'failed' }, diff: false });
+    expect(bannerFor(failed)).toEqual({ kind: 'attempt', of: 'probe', callNo: 5, outcome: { tone: 'no', text: 'failed' }, why: 'resampled #5, attempt\u00a01\u00a0of\u00a04: the model was asked #5 again, the request as recorded · writes stubbed', flag: null, diff: false });
     // The verdict blame kept on it is how it came out, whatever its checks say.
     expect(bannerFor({ ...failed, attempt: { ...probe, verdict: 'passed' } })).toMatchObject({ outcome: { tone: 'ok', text: 'passed' } });
-    // A verify attempt forked where the change it verified is in the request; never by its --writes.
-    const verify = { ...base, divergence: verifyFork, intervention: stub[0]!, interventions: stub, attempt: { kind: 'verify' as const, k: 1, n: 3, role: 'target', verdict: 'passed' as const } };
-    expect(bannerFor(verify)).toEqual({ kind: 'attempt', of: 'verify', callNo: 1, why: 'verify\u00a0· target, attempt 1 of 3: the change it verified is in the request · writes stubbed', flag: null, path: '$.system', outcome: { tone: 'ok', text: 'passed' }, diff: true });
-    expect(bannerFor({ ...verify, attempt: { ...verify.attempt, role: 'holdout' } })).toMatchObject({ why: 'verify\u00a0· held-out, attempt 1 of 3: the change it verified is in the request · writes stubbed' });
-    // A role the record doesn't name (a run from someone else's pack) is left out.
-    expect(bannerFor({ ...verify, attempt: { ...verify.attempt, role: null } })).toMatchObject({ why: 'verify, attempt 1 of 3: the change it verified is in the request · writes stubbed' });
+    // A verify attempt forked where the change it verified is in the request, at the code it ran; never by its --writes.
+    const verify = { ...base, divergence: verifyFork, intervention: stub[0]!, interventions: stub, codeVersion: '35034be+dirty', attempt: { kind: 'verify' as const, k: 1, n: 3, role: 'target', verdict: 'passed' as const } };
+    expect(bannerFor(verify)).toEqual({ kind: 'attempt', of: 'verify', callNo: 1, outcome: { tone: 'ok', text: 'passed' }, why: 'verify\u00a0· target, attempt\u00a01\u00a0of\u00a03 · code\u00a035034be+dirty: the change it verified is in the request (~ $.system) · writes stubbed', flag: null, diff: true });
+    expect(bannerFor({ ...verify, attempt: { ...verify.attempt, role: 'holdout' } })).toMatchObject({ why: 'verify\u00a0· held-out, attempt\u00a01\u00a0of\u00a03 · code\u00a035034be+dirty: the change it verified is in the request (~ $.system) · writes stubbed' });
+    // A role the record doesn't name (a run from someone else's pack) is left out, and so is a revision it doesn't keep.
+    expect(bannerFor({ ...verify, codeVersion: null, attempt: { ...verify.attempt, role: null } })).toMatchObject({ why: 'verify, attempt\u00a01\u00a0of\u00a03: the change it verified is in the request (~ $.system) · writes stubbed' });
     // A change made with a flag (--model, --set) names itself.
     const model = { flag: '--model', value: '1:claude-opus-5', callNo: 1 };
-    expect(bannerFor({ ...verify, intervention: model, interventions: [model, ...stub] })).toMatchObject({ why: 'verify\u00a0· target, attempt 1 of 3: claude-opus-5 answers from here with --model 1:claude-opus-5 · writes stubbed', flag: '--model 1:claude-opus-5' });
-    // A --repeat's attempt: the replay made again, with the flag that made it.
+    expect(bannerFor({ ...verify, intervention: model, interventions: [model, ...stub] })).toMatchObject({ why: 'verify\u00a0· target, attempt\u00a01\u00a0of\u00a03 · code\u00a035034be+dirty: claude-opus-5 answers from here with --model 1:claude-opus-5 · writes stubbed', flag: '--model 1:claude-opus-5' });
+    // A --repeat's attempt: the command, where it forked and the flag that made it; the count the command asked for apart from how many were made.
     const live = { flag: '--live-tool', value: 'lookup_policy', callNo: null };
-    const repeat = { ...base, divergence: { callNo: 16, type: 'forced', name: 'lookup_policy', replayedBefore: 15, reason: 'forced live by --live-tool lookup_policy' }, intervention: live, interventions: [live], attempt: { kind: 'repeat' as const, k: 1, n: 5 } };
-    expect(bannerFor(repeat)).toMatchObject({ kind: 'attempt', why: 'replay --repeat 5, attempt 1 of 5: forced live with --live-tool lookup_policy', flag: '--live-tool lookup_policy', outcome: { tone: 'ok', text: 'passed' } });
+    const repeat = { ...base, divergence: { callNo: 16, type: 'forced', name: 'lookup_policy', replayedBefore: 15, reason: 'forced live by --live-tool lookup_policy' }, intervention: live, interventions: [live], attempt: { kind: 'repeat' as const, k: 1, n: 3, count: 5 } };
+    expect(bannerFor(repeat)).toMatchObject({ kind: 'attempt', why: 'replay --repeat 5 at #16, attempt\u00a01\u00a0of\u00a03: forced live with --live-tool lookup_policy', flag: '--live-tool lookup_policy', outcome: { tone: 'ok', text: 'passed' } });
     // An attempt that forked nowhere replayed every call from the recording, and says so.
-    expect(bannerFor({ ...base, attempt: { kind: 'verify', k: 2, n: 3, role: 'good', verdict: 'passed' } })).toMatchObject({ kind: 'attempt', callNo: null, why: 'verify\u00a0· good, attempt 2 of 3: every call replayed from the recording', path: null, diff: false });
+    expect(bannerFor({ ...base, attempt: { kind: 'verify', k: 2, n: 3, role: 'good', verdict: 'passed' } })).toMatchObject({ kind: 'attempt', callNo: null, why: 'verify\u00a0· good, attempt\u00a02\u00a0of\u00a03: every call replayed from the recording', diff: false });
+    // How many were made is not known (an older server): attempt k alone, never of the most that could have been made.
+    expect(bannerFor({ ...failed, attempt: { ...probe, n: null } })).toMatchObject({ why: 'resampled #5, attempt\u00a01: the model was asked #5 again, the request as recorded · writes stubbed' });
+    // One a check could not decide says which, at the end.
+    expect(bannerFor({ ...failed, attempt: { ...probe, verdict: 'inconclusive' }, checks: [{ label: 'judge "polite" answers yes', ok: false, status: 'inconclusive' }] })).toMatchObject({ outcome: { tone: 'inc', text: 'inconclusive', why: 'judge "polite" answers yes' }, why: 'resampled #5, attempt\u00a01\u00a0of\u00a04: the model was asked #5 again, the request as recorded · writes stubbed · judge "polite" answers yes' });
     // Never the failed banner's "not blamed yet": an attempt's failure counts towards what made it.
     expect(JSON.stringify(bannerFor({ ...failed, divergence: null }))).not.toContain('not blamed yet');
+  });
+
+  it('says the fork blame rescued a run with is the attempt of its probe that passed', () => {
+    const rescued = { ...base, divergence: forcedAt5, intervention: diverge[0]!, interventions: diverge, rescued: { callNo: 5 }, attempt: { ...probe, k: 3, n: 4, verdict: 'passed' as const } };
+    expect(bannerFor(rescued)).toEqual({ kind: 'attempt', of: 'rescued', callNo: 5, outcome: { tone: 'ok', text: 'passed' }, why: 'rescued #5, attempt\u00a03\u00a0of\u00a04: the model was asked #5 again, the request as recorded · writes stubbed', flag: null, diff: false });
+    // From a record that keeps no probe: the call it asked again, and that its writes were stubbed, as every probe's are.
+    expect(bannerFor({ ...base, divergence: forcedAt5, rescued: { callNo: 5 } })).toMatchObject({ of: 'rescued', why: 'rescued #5: the model was asked #5 again, the request as recorded · writes stubbed' });
   });
 
   it('comes out as its checks and exit say when nothing kept a verdict on it: failed, inconclusive (amber) or interrupted (grey)', () => {
     expect(attemptOutcome({ status: 'completed', checks: [] })).toEqual({ tone: 'ok', text: 'passed' });
     expect(attemptOutcome({ status: 'failed', checks: [] })).toEqual({ tone: 'no', text: 'failed' });
     expect(attemptOutcome({ status: 'completed', checks: [{ label: 'send_email called 1 time', ok: false, status: 'failed' }] })).toEqual({ tone: 'no', text: 'failed' });
-    expect(attemptOutcome({ status: 'completed', checks: [{ label: 'judge "polite" answers yes', ok: false, status: 'inconclusive' }] })).toEqual({ tone: 'inc', text: 'inconclusive: judge "polite" answers yes' });
-    expect(attemptOutcome({ status: 'completed', checks: [{ label: 'judge "polite" answers yes', ok: false, status: 'inconclusive' }] }, { verdict: 'inconclusive' })).toEqual({ tone: 'inc', text: 'inconclusive: judge "polite" answers yes' });
+    expect(attemptOutcome({ status: 'completed', checks: [{ label: 'judge "polite" answers yes', ok: false, status: 'inconclusive' }] })).toEqual({ tone: 'inc', text: 'inconclusive', why: 'judge "polite" answers yes' });
+    expect(attemptOutcome({ status: 'completed', checks: [{ label: 'judge "polite" answers yes', ok: false, status: 'inconclusive' }] }, { verdict: 'inconclusive' })).toEqual({ tone: 'inc', text: 'inconclusive', why: 'judge "polite" answers yes' });
+    expect(attemptOutcome({ status: 'completed', checks: [] }, { verdict: 'inconclusive' })).toEqual({ tone: 'inc', text: 'inconclusive' });
     expect(attemptOutcome({ status: 'crashed', checks: [] })).toEqual({ tone: 'n', text: 'interrupted' });
     expect(attemptOutcome({ status: 'completed', checks: [], interrupted: true }, { verdict: 'failed' })).toEqual({ tone: 'n', text: 'interrupted' });
   });
 
-  it('is read from the run’s record, with the verdict blame or verify kept on it', () => {
-    expect(attemptOf({ meta: { probe: { of: REFUND, callNo: 5, passed: false, verdict: 'failed' }, repeat: { group: 'g-5', attempt: 2, of: 4 } } })).toEqual({ kind: 'probe', k: 2, n: 4, callNo: 5, verdict: 'failed' });
+  it('is read from the run’s record, with the verdict blame or verify kept on it, and its place as the server counts it', () => {
+    const place = { k: 2, n: 3 };
+    expect(attemptOf({ run: { meta: { probe: { of: REFUND, callNo: 5, passed: false, verdict: 'failed' }, repeat: { group: 'g-5', attempt: 2, of: 4 } } }, attemptPlace: place })).toEqual({ kind: 'probe', k: 2, n: 3, callNo: 5, verdict: 'failed' });
     // One kept before attempts had a verdict: whether it passed.
-    expect(attemptOf({ meta: { probe: { of: REFUND, callNo: 5, passed: true }, repeat: { group: 'g-5', attempt: 3, of: 4 } } })).toMatchObject({ verdict: 'passed' });
-    expect(attemptOf({ meta: { verify: { role: 'good', passed: false, verdict: 'inconclusive' }, repeat: { group: 'g', attempt: 1, of: 3 } } })).toEqual({ kind: 'verify', k: 1, n: 3, role: 'good', verdict: 'inconclusive' });
-    expect(attemptOf({ meta: { repeat: { group: 'g', attempt: 3, of: 5 } } })).toEqual({ kind: 'repeat', k: 3, n: 5 });
-    expect(attemptOf({ meta: { labels: ['x'] } })).toBeNull();
+    expect(attemptOf({ run: { meta: { probe: { of: REFUND, callNo: 5, passed: true }, repeat: { group: 'g-5', attempt: 3, of: 4 } } }, attemptPlace: { k: 3, n: 3 } })).toMatchObject({ verdict: 'passed' });
+    expect(attemptOf({ run: { meta: { verify: { role: 'good', passed: false, verdict: 'inconclusive' }, repeat: { group: 'g', attempt: 1, of: 80 } } }, attemptPlace: { k: 1, n: 12 } })).toEqual({ kind: 'verify', k: 1, n: 12, role: 'good', verdict: 'inconclusive' });
+    expect(attemptOf({ run: { meta: { repeat: { group: 'g', attempt: 3, of: 5 } } }, attemptPlace: { k: 3, n: 5 } })).toEqual({ kind: 'repeat', k: 3, n: 5, count: 5 });
+    // Without the server's count (an older server), which attempt it is, of an unknown number: never the record's `of`, the most that could be made.
+    expect(attemptOf({ run: { meta: { verify: { role: 'target', passed: true }, repeat: { group: 'g', attempt: 4, of: 80 } } } })).toMatchObject({ k: 4, n: null });
+    expect(attemptOf({ run: { meta: { labels: ['x'] } } })).toBeNull();
   });
 
-  it('leads back to where it counted, and to its bundle', () => {
+  it('is not one when an injection test, a model’s scoring or an error-path preset made it: it keeps its fork banner', () => {
+    // As `shadowlap injection` and `shadowlap tasks score` mark their replays: meta.repeat, with what made them.
+    const injection = { repeat: { group: 'inj-1', attempt: 2, of: 3 }, injection: { result: 'inj-1', attempt: 2, of: 3, role: 'attempt', payload: 'exfiltrate' } };
+    const task = { repeat: { group: 'S1-refund', attempt: 1, of: 8 }, task: { golden: 'goldens/refund', model: 'claude-haiku-4-5', takeover: 5, attempt: 1, of: 8, score: 1, session: 'S1' } };
+    const chaos = { chaos: { preset: 'tool-timeout', callNo: 4, session: 'S2', attempt: 1 } };
+    for (const meta of [injection, task, chaos]) expect(attemptOf({ run: { meta } as never, attemptPlace: { k: 1, n: 3 } })).toBeNull();
+    // Its banner is the fork's, naming the flag that made it, never "replay --repeat".
+    const plant = { flag: '--inject-result', value: '6=SYSTEM NOTICE: …', callNo: 6 };
+    const b = bannerFor({ ...base, divergence: at7, intervention: plant, interventions: [plant, ...stub], attempt: attemptOf({ run: { meta: injection } as never, attemptPlace: { k: 2, n: 3 } }) });
+    expect(b).toMatchObject({ kind: 'fork', flag: '--inject-result 6=SYSTEM NOTICE: …' });
+    expect(JSON.stringify(b)).not.toContain('--repeat');
+    const diverged = { flag: '--diverge-at', value: '5', callNo: 5 };
+    expect(bannerFor({ ...base, divergence: forcedAt5, intervention: diverged, interventions: [diverged], attempt: attemptOf({ run: { meta: task } as never, attemptPlace: { k: 1, n: 8 } }) })).toMatchObject({ kind: 'fork', why: 'asked again with --diverge-at 5 · 4 calls replayed before it' });
+  });
+
+  it('is named in the eyebrow by what made it; the fork blame rescued a run with is its rescued fork', () => {
+    const probeRun = { run: { meta: { probe: { of: REFUND, callNo: 5, passed: true }, repeat: { group: 'g-5', attempt: 2, of: 20 } }, divergence: { callNo: 5 } }, attemptPlace: { k: 2, n: 8 } } as never;
+    expect(forkKindWords(probeRun, 'fork', false)).toBe('blame attempt');
+    expect(forkKindWords(probeRun, 'fork', true)).toBe('rescued fork');
+    expect(forkKindWords({ run: { meta: { verify: { role: 'target', passed: true }, repeat: { group: 'g', attempt: 1, of: 80 } }, divergence: { callNo: 1 } } } as never, 'fork', false)).toBe('verify attempt');
+    // One that forked nowhere is an attempt all the same.
+    expect(forkKindWords({ run: { meta: { verify: { role: 'good', passed: true }, repeat: { group: 'g', attempt: 1, of: 3 } }, divergence: null } } as never, 'clean', false)).toBe('verify attempt');
+    expect(forkKindWords({ run: { meta: { repeat: { group: 'g', attempt: 3, of: 5 } }, divergence: { callNo: 16 } } } as never, 'fork', false)).toBe('repeat attempt');
+    // Any other fork by where it forked, an injection test's replay among them; any other run by its kind.
+    expect(forkKindWords({ run: { meta: { repeat: { group: 'inj', attempt: 1, of: 3 }, injection: { result: 'inj', attempt: 1, of: 3 } }, divergence: { callNo: 7 } } } as never, 'fork', false)).toBe('fork @7');
+    expect(forkKindWords({ run: { meta: {}, divergence: null } } as never, 'recording', false)).toBeNull();
+  });
+
+  it('leads back to where it counted, and to its bundle: all its attempts, counted, when they are several', () => {
     const fix = { id: 'fx-1', status: 'verified', title: 'Refunds above the limit' };
-    expect(attemptLinks({ run: { runId: 'A1' }, fix, probeOf: { of: REFUND, callNo: 5 } }, { kind: 'probe', k: 2, n: 4, callNo: 5 })).toEqual([
+    expect(attemptLinks({ run: { runId: 'A1' }, fix, probeOf: { of: REFUND, callNo: 5 } }, { kind: 'probe', k: 2, n: 3, callNo: 5 })).toEqual([
       { href: '#/fixes/fx-1/blame', label: 'Probe #5 →' },
-      { href: '#/run/A1/forks', label: 'All 4 attempts →' },
+      { href: '#/run/A1/forks', label: 'All 3 attempts →' },
     ]);
     // A probe no fix keeps leads to the run it probed.
-    expect(attemptLinks({ run: { runId: 'A1' }, fix: null, probeOf: { of: REFUND, callNo: 5 } }, { kind: 'probe', k: 2, n: 4, callNo: 5 })[0]).toEqual({ href: `#/run/${REFUND}`, label: 'Probe #5 →' });
-    expect(attemptLinks({ run: { runId: 'V1' }, fix, verifyOf: { href: '#/fixes/fx-1/verify/vf-2' } }, { kind: 'verify', k: 1, n: 3, role: 'target' })).toEqual([
+    expect(attemptLinks({ run: { runId: 'A1' }, fix: null, probeOf: { of: REFUND, callNo: 5 } }, { kind: 'probe', k: 2, n: 3, callNo: 5 })[0]).toEqual({ href: `#/run/${REFUND}`, label: 'Probe #5 →' });
+    expect(attemptLinks({ run: { runId: 'V1' }, fix, verifyOf: { href: '#/fixes/fx-1/verify/vf-2' } }, { kind: 'verify', k: 1, n: 12, role: 'target' })).toEqual([
       { href: '#/fixes/fx-1/verify/vf-2', label: 'Verdict →' },
-      { href: '#/run/V1/forks', label: 'All 3 attempts →' },
+      { href: '#/run/V1/forks', label: 'All 12 attempts →' },
     ]);
     // A candidate a repair tried and dropped was verified on its Repair step; with no fix, only the bundle.
     expect(attemptLinks({ run: { runId: 'V1' }, fix, verifyOf: { href: '#/fixes/fx-1/repair' } }, { kind: 'verify', k: 1, n: 3, role: 'target' })[0]).toEqual({ href: '#/fixes/fx-1/repair', label: 'Repair →' });
     expect(attemptLinks({ run: { runId: 'V1' }, fix: null, verifyOf: { href: `#/run/${REFUND}` } }, { kind: 'verify', k: 1, n: 3, role: 'target' })).toEqual([{ href: '#/run/V1/forks', label: 'All 3 attempts →' }]);
-    expect(attemptLinks({ run: { runId: 'R1' }, fix: null }, { kind: 'repeat', k: 1, n: 5 })).toEqual([{ href: '#/run/R1/forks', label: 'All 5 attempts →' }]);
+    expect(attemptLinks({ run: { runId: 'R1' }, fix: null }, { kind: 'repeat', k: 1, n: 5, count: 5 })).toEqual([{ href: '#/run/R1/forks', label: 'All 5 attempts →' }]);
+    // One attempt alone, or a count not known: its family's Forks view, with no number.
+    expect(attemptLinks({ run: { runId: 'V2' }, fix: null }, { kind: 'verify', k: 1, n: 1, role: 'good' })).toEqual([{ href: '#/run/V2/forks', label: 'Forks →' }]);
+    expect(attemptLinks({ run: { runId: 'V2' }, fix: null }, { kind: 'verify', k: 4, n: null, role: 'good' })).toEqual([{ href: '#/run/V2/forks', label: 'Forks →' }]);
   });
 
-  it('draws its outcome at the end of its line, in its colour, with its links and no Run blame', async () => {
+  it('draws its verdict first, in its colour, on a line that wraps, with its links and no Run blame', async () => {
     const run = detail({
       runId: '01M5GRW4YMYK6SK2VFC2XFKCDA',
       parent: REFUND,
       divergence: { callNo: 1, type: 'forced', kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, reason: 'forced live by --diverge-at 1' },
-      meta: { probe: { of: REFUND, callNo: 1, passed: false, verdict: 'failed' }, repeat: { group: 'g-1', attempt: 1, of: 4 }, checks: [{ label: 'issue_refund with {"amount":240} called 0 times', ok: false, status: 'failed', detail: 'called 1 time' }] },
+      meta: { probe: { of: REFUND, callNo: 1, passed: false, verdict: 'failed' }, repeat: { group: 'g-1', attempt: 1, of: 20 }, checks: [{ label: 'issue_refund with {"amount":240} called 0 times', ok: false, status: 'failed', detail: 'called 1 time' }] },
       interventions: [
         { flag: '--diverge-at', value: '1', callNo: 1 },
         { flag: '--writes', value: 'stub', callNo: null },
@@ -199,16 +246,19 @@ describe('an attempt', () => {
       state: { status: 'completed', kind: 'fork', outcome: { kind: 'check-failed', check: 'issue_refund with {"amount":240} called 0 times' }, failed: true, interrupted: false, label: 'fork @1' },
       fix: { id: 'fx-01M5GRW7X3', status: 'verified', title: 'Refund above the limit' },
       probeOf: { of: REFUND, callNo: 1 },
+      // A gate settled the probe after 8 of its 20 attempts.
+      attemptPlace: { k: 1, n: 8 },
     });
     const offers = { blame: { from: 'run', failed: ['issue_refund with {"amount":240} called 0 times'] }, test: null } as unknown as RunOffers;
     page = await render(createElement(AppContext.Provider, { value: app() }, createElement(Banner, props(run, { offers }))));
-    expect(page.one('.banner.fork .bk').textContent).toBe('forked at');
-    // Each part held to the one before by a no-break space, the outcome too, so a wrapped line never starts with a dot.
-    expect(page.one('.banner .why').textContent).toBe('resampled #1, attempt 1 of 4: the model was asked #1 again, the request as recorded\u00a0· writes stubbed\u00a0· failed');
+    expect(page.one('.banner.fork.wrap .bk').textContent).toBe('forked at');
+    // The verdict first, then each part held to the one before by a no-break space, so a wrapped line never starts with a dot.
+    expect(page.one('.banner .why').textContent).toBe('failed\u00a0· resampled #1, attempt\u00a01\u00a0of\u00a08: the model was asked #1 again, the request as recorded\u00a0· writes stubbed');
     expect(page.one('.banner .why em').className).toBe('no');
+    expect(page.one('.banner .why em').textContent).toBe('failed');
     expect(page.all('.banner .end a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Probe #1 →', '#/fixes/fx-01M5GRW7X3/blame'],
-      ['All 4 attempts →', '#/run/01M5GRW4YMYK6SK2VFC2XFKCDA/forks'],
+      ['All 8 attempts →', '#/run/01M5GRW4YMYK6SK2VFC2XFKCDA/forks'],
     ]);
     expect(page.all('.banner button').some((b) => b.textContent === 'Run blame')).toBe(false);
   });

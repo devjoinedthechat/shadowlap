@@ -119,8 +119,10 @@ describe('the run’s banner', () => {
   });
 
   it('puts a rescued fork before its fork banner, and a diverged test before both kinds of fork', () => {
-    expect(bannerFor({ ...base, type: 'fork', divergence: fork, rescued: { callNo: 5 } })).toEqual({ kind: 'rescued', callNo: 5, why: 'a blame attempt that passed: the model was asked #5 again · writes stubbed' });
-    expect(bannerFor({ ...base, type: 'fork', divergence: fork, rescued: { callNo: null } })).toMatchObject({ kind: 'rescued', callNo: null, why: 'a blame attempt that passed: the model was asked the call again · writes stubbed' });
+    // The probe's attempt that passed, in the grammar of every attempt's banner.
+    expect(bannerFor({ ...base, type: 'fork', divergence: fork, rescued: { callNo: 5 } })).toEqual({ kind: 'attempt', of: 'rescued', callNo: 5, outcome: { tone: 'ok', text: 'passed' }, why: 'rescued #5: the model was asked #5 again, the request as recorded · writes stubbed', flag: null, diff: true });
+    // A rescue that names no call asked again the call it forked at.
+    expect(bannerFor({ ...base, type: 'fork', divergence: fork, rescued: { callNo: null } })).toMatchObject({ kind: 'attempt', of: 'rescued', callNo: fork.callNo, why: `rescued #${fork.callNo}: the model was asked #${fork.callNo} again, the request as recorded · writes stubbed` });
     expect(bannerFor({ ...base, type: 'test', divergence: { ...fork, callNo: 1, replayedBefore: 0, hints: [{ message: 'this looks like a per-run id', normalizer: {} }] } })).toMatchObject({ kind: 'diverged', callNo: 1, why: '0 calls replayed before it · this looks like a per-run id', normalizer: true });
   });
 

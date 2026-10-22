@@ -122,6 +122,14 @@ export interface RunDetail extends RunPageFacts {
    */
   state: RunState | null;
   /**
+   * For an attempt made with others (`meta.repeat`: a blame probe's, a verify's, a `--repeat`'s), its
+   * place among them and how many were made: the runs under the same parent that share its group, in
+   * the order they were made. The record's `repeat.of` is the most that could be made (a gate's
+   * limit, `--attempts`, the count `--repeat` asked for), which a probe or a verify that settles
+   * early never reaches. Null for any other run.
+   */
+  attemptPlace: { k: number; n: number } | null;
+  /**
    * Set on an answer to `?after=<n>`, a recording's page following it: `calls` holds only the calls
    * numbered after `n`, and the page keeps the ones it has up to there. Everything else is the whole run's.
    */
@@ -268,8 +276,25 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     ...runPageFacts(store, run, calls),
     fix: fixForRun(store, run.runId),
     state,
+    attemptPlace: attemptPlace(store, run),
     ...(after === undefined ? {} : { after }),
   };
+}
+
+/**
+ * An attempt's place among the attempts made with it, and how many those are (`RunDetail.attemptPlace`):
+ * the runs of its parent that share its `repeat.group`, ordered by the attempt each says it is, then
+ * by when it started. The fork blame rescued a run with is one of its probe's attempts, though the
+ * lists show it as a fork of its own, so every run of the parent is read, not the run index's
+ * bundles alone. Null for a run that names no group.
+ */
+export function attemptPlace(store: Store, run: Pick<RunRecord, 'runId' | 'parentRunId' | 'meta'>): { k: number; n: number } | null {
+  const group: unknown = run.meta?.repeat?.group;
+  if (typeof group !== 'string' || !group || !run.parentRunId) return null;
+  const same = loadRunIndex(store).runs.filter((r) => r.parentRunId === run.parentRunId && r.meta.repeat?.group === group);
+  same.sort((a, b) => a.meta.repeat!.attempt - b.meta.repeat!.attempt || a.startedAt - b.startedAt || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0));
+  const k = same.findIndex((r) => r.runId === run.runId) + 1;
+  return k > 0 ? { k, n: same.length } : null;
 }
 
 /** The run's record for the Provenance tab: command, code version, times in UTC, models, providers, lineage, and what a copy would mask. */

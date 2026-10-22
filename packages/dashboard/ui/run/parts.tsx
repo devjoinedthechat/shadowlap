@@ -73,12 +73,10 @@ function spentBy(run: RunDetail): Pick<MetricInput, 'spentBy'> {
 /**
  * One line: the explanation gives way first, a whole part (between its " · ") at a time, the rest
  * said by " · …" and shown in full on hover; a part too long alone is cut with "…". The flag that
- * made a fork, when it is part of the line, is set as code. A `tail` (how an attempt came out) ends
- * the line and never gives way: the parts before it sit in a box of their own, which does.
+ * made a fork, when it is part of the line, is set as code.
  */
-function Why({ children, code, tail }: { children: string; code?: string | readonly string[] | null; tail?: { text: string; node: ReactNode } | null }) {
+function Why({ children, code }: { children: string; code?: string | readonly string[] | null }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const box = useRef<HTMLSpanElement>(null);
   const parts = children.split(' · ');
   // How many parts the line shows: all of them, until it is measured too long for its room.
   const [fit, setFit] = useState({ text: children, count: parts.length });
@@ -86,9 +84,8 @@ function Why({ children, code, tail }: { children: string; code?: string | reado
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.title = tail ? `${children} · ${tail.text}` : children;
-    const measured = tail ? box.current : el;
-    if (measured && count > 1 && measured.scrollWidth > measured.clientWidth + 1) setFit({ text: children, count: count - 1 });
+    el.title = children;
+    if (count > 1 && el.scrollWidth > el.clientWidth + 1) setFit({ text: children, count: count - 1 });
   });
   // A room that grows may take the parts back: the line is measured again from the whole of it.
   useLayoutEffect(() => {
@@ -104,24 +101,16 @@ function Why({ children, code, tail }: { children: string; code?: string | reado
     return () => watch.disconnect();
   }, [children]);
   const text = count < parts.length ? `${parts.slice(0, count).join(' · ')} · …` : children;
-  const said = codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? glued(p) : <code key={i}>{p.code}</code>));
-  if (!tail)
-    return (
-      <span className="why" ref={ref}>
-        {said}
-      </span>
-    );
   return (
-    <span className="why tail" ref={ref}>
-      <span className="wt" ref={box}>
-        {said}
-      </span>
-      <span className="we">
-        {GLUED_SEPARATOR}
-        {tail.node}
-      </span>
+    <span className="why" ref={ref}>
+      {said(text, code)}
     </span>
   );
+}
+
+/** A line as the banner sets it: wrapping only after a separator, never before its dot, with the flag in it set as code. */
+function said(text: string, code?: string | readonly string[] | null): ReactNode[] {
+  return codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? glued(p) : <code key={i}>{p.code}</code>));
 }
 
 /** A one-line JSON value with a place to break after each comma, for a pane that wraps it (a narrow window's). */
@@ -185,7 +174,8 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     ...(run.state ? { outcome: run.state.outcome, interrupted: run.state.interrupted, failed: run.state.failed } : {}),
     calls: run.calls,
     callCount: run.calls.length,
-    attempt: attemptOf(r),
+    attempt: attemptOf(run),
+    codeVersion: r.codeVersion,
   });
   if (!b) return null;
   const job = (kind: string, fields: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(kind, fields)));
@@ -230,15 +220,6 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           <span className="dotlive" />
           <span className="bk">recording</span>
           <Why>calls arrive as they happen · replay and fork once it finishes</Why>
-        </section>
-      );
-    case 'rescued':
-      return (
-        <section className="banner fork">
-          <span className="bk">forked at</span>
-          {b.callNo !== null ? call(b.callNo) : null}
-          <Why>{b.why}</Why>
-          <span className="end">{fixLink('blame')}</span>
         </section>
       );
     case 'diverged': {
@@ -317,27 +298,29 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
       );
     }
     case 'attempt': {
-      // One of a probe's, a verify's or a --repeat's attempts, as the design draws one: what was asked
-      // again and how it came out, in its colour at the end of the line, then the way back to where it
-      // counted (its probe, its verdict) and to its bundle.
-      const a = attemptOf(r);
+      // An attempt, as the design draws every one: how it came out first, in its colour, then what was
+      // asked again with which attempt it is, and the writes; the whole line wraps rather than cut a
+      // word. Then the way back to where it counted (its probe, its verdict) and to its bundle; the
+      // fork blame rescued a run with leads to its fix.
+      const a = attemptOf(run);
+      const links = b.of === 'rescued' ? [] : a ? attemptLinks(run, a) : [];
       return (
-        <section className="banner fork">
+        <section className="banner fork wrap">
           <span className="bk">{b.callNo !== null ? 'forked at' : 'replayed'}</span>
           {b.callNo !== null ? call(b.callNo) : null}
-          <Why code={b.flag} tail={{ text: b.outcome.text, node: <em className={b.outcome.tone}>{b.outcome.text}</em> }}>
-            {b.why}
-          </Why>
-          {b.path ? <span className="path">~ {b.path}</span> : null}
+          <span className="why">
+            <em className={b.outcome.tone}>{b.outcome.text}</em>
+            {GLUED_SEPARATOR}
+            {said(b.why, b.flag)}
+          </span>
           <span className="end">
             {b.diff ? diffToggle : null}
-            {a
-              ? attemptLinks(run, a).map((l) => (
-                  <a key={l.label} className="more" href={l.href}>
-                    {l.label}
-                  </a>
-                ))
-              : null}
+            {b.of === 'rescued' ? fixLink('blame') : null}
+            {links.map((l) => (
+              <a key={l.label} className="more" href={l.href}>
+                {l.label}
+              </a>
+            ))}
           </span>
         </section>
       );

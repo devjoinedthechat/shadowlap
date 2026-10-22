@@ -93,4 +93,38 @@ describe('a run’s page and lineage', () => {
       local.close();
     }
   });
+
+  it('counts an attempt’s place among the attempts made with it, not the most its record says could be made', () => {
+    const local = Store.open(':memory:');
+    try {
+      const rec = addRun(local, { startedAt: NOW - DAY, status: 'failed', calls: 'llllll' });
+      // A gated verify stops when its gate decides: 3 attempts of the 80 it could have made.
+      const verify = [1, 2, 3].map((k) => addRun(local, { parent: rec, startedAt: NOW - 3 * HOUR + k, divergence: 1, calls: 'llllll', meta: { verify: { role: 'target', passed: true }, repeat: { group: 'v1-rec', attempt: k, of: 80 } } }));
+      // A probe settled early, its attempts started out of order: 4 of its 20.
+      const probe = [2, 1, 4, 3].map((k) => addRun(local, { parent: rec, startedAt: NOW - 2 * HOUR + k, divergence: 3, calls: 'rrllll', meta: { probe: { of: rec, callNo: 3, passed: k !== 2 }, repeat: { group: 'b1-3', attempt: k, of: 20 } } }));
+      expect(verify.map((r) => runDetail(local, r)!.attemptPlace)).toEqual([
+        { k: 1, n: 3 },
+        { k: 2, n: 3 },
+        { k: 3, n: 3 },
+      ]);
+      expect(probe.map((r) => runDetail(local, r)!.attemptPlace)).toEqual([
+        { k: 2, n: 4 },
+        { k: 1, n: 4 },
+        { k: 4, n: 4 },
+        { k: 3, n: 4 },
+      ]);
+      // A run that is no attempt has no place; nor does one whose group names nothing.
+      expect(runDetail(local, rec)!.attemptPlace).toBeNull();
+      const odd = addRun(local, { parent: rec, startedAt: NOW - HOUR, calls: 'rrrrrr', meta: { repeat: { group: '', attempt: 1, of: 2 } } as never });
+      expect(runDetail(local, odd)!.attemptPlace).toBeNull();
+    } finally {
+      local.close();
+    }
+  });
+
+  it('counts the fork blame rescued a run with among its probe’s attempts, though it lists as a fork of its own', () => {
+    expect(runDetail(store, id.rescued)!.attemptPlace).toEqual({ k: 1, n: 2 });
+    expect(runDetail(store, id.probe)!.attemptPlace).toEqual({ k: 2, n: 2 });
+    expect(runDetail(store, id.repeat)!.attemptPlace).toEqual({ k: 1, n: 1 });
+  });
 });

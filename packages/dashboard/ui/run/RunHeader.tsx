@@ -13,7 +13,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckText } from './banner.js';
-import { checksOf, recordingWords, runDuration, runLikeOf } from './model.js';
+import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
 
@@ -51,11 +51,13 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const checkFailed = !!failure?.startsWith('check failed') || (failed && failedWord(like) === 'check failed');
   // An interrupted run says so after what it is, in grey: it stopped, it did not fail.
   const stopped = cut ? ' · interrupted' : '';
+  // An attempt says it is one (its banner says which and how it came out); a fork, where it forked.
+  const forkWords = forkKindWords(run, type, rescued);
   const eyebrow = live ? (
     <Eyebrow>recording</Eyebrow>
-  ) : type === 'fork' ? (
+  ) : forkWords ? (
     <Eyebrow tone="fork">
-      {rescued ? 'rescued by blame · ' : ''}fork @{r.divergence!.callNo}
+      {forkWords}
       {parent ? <> of {parent}</> : null}
       {/* A fork keeps its own colour; that it stopped is said in grey, as on every other run. */}
       {cut ? <span className="n">{stopped}</span> : null}

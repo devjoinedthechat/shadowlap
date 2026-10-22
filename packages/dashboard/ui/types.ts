@@ -226,6 +226,11 @@ export interface RunDetailExtras {
   probeOf?: { of: string; callNo: number } | null;
   /** A verify attempt: where the verdict it counted towards opens. */
   verifyOf?: { href: string } | null;
+  /**
+   * An attempt made with others (a probe's, a verify's, a `--repeat`'s): its place among them and how
+   * many were made, which its record's `repeat.of` (the most that could be) is not. Absent from an older server.
+   */
+  attemptPlace?: { k: number; n: number } | null;
   /** The run's models by the short name a call row carries, as the run page names them (`claude-opus-5`). */
   models?: Record<string, string>;
 }

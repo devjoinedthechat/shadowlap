@@ -189,6 +189,12 @@ export function normalizeRunDetail(d: RunDetail): RunDetail {
   if (d.intervention !== undefined) out.intervention = normalizeIntervention(d.intervention);
   if (d.notWaitedMs !== undefined) out.notWaitedMs = num(d.notWaitedMs);
   if (d.forkAt !== undefined) out.forkAt = int(d.forkAt);
+  if (d.attemptPlace !== undefined) {
+    const p: unknown = d.attemptPlace;
+    const k = isObject(p) ? int(p.k) : null;
+    const n = isObject(p) ? int(p.n) : null;
+    out.attemptPlace = k !== null && n !== null && k >= 1 && k <= n ? { k, n } : null;
+  }
   if (d.fix !== undefined) {
     const f = normalizeFix(d.fix);
     out.fix = f.fix;
