@@ -2111,3 +2111,12 @@ table.gt .gev .wib { margin: 0; width: 96px; }
 /* a part kept whole but on a phone, where it may wrap between its words */
 table.gt td.glast .kc { white-space: nowrap; }
 @media (max-width: 640px) { table.gt td.glast .kc { white-space: normal; } }
+/* inconclusive, the consequence amber: a status chip and a banner that neither passed nor failed */
+.tag.inc { color: var(--cq-amber); border-color: color-mix(in srgb, var(--cq-amber) 45%, transparent); }
+.banner.inc { background: color-mix(in srgb, var(--cq-amber) 5%, transparent); }
+.banner.inc .bk, .banner.inc .bn { color: var(--cq-amber); }
+/* a golden's error-path presets under its last result: failed in red, inconclusive in amber, passed quiet */
+table.gt td.glast .gpre { display: block; margin-top: 4px; text-decoration: none; }
+table.gt td.glast .gpre.err { color: var(--cq-red); }
+table.gt td.glast .gpre.warn { color: var(--cq-amber); }
+table.gt td.glast a.gpre:hover { text-decoration: underline; text-underline-offset: 3px; }

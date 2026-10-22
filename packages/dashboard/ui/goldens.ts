@@ -453,7 +453,7 @@ export interface TestsPaletteEntry {
 export function testsPalette(view: TestsView | null, o: { update: boolean }): TestsPaletteEntry[] {
   if (!view || view.empty) return [];
   // An inconclusive golden is neither passing nor failing, as Tests marks it.
-  const out: TestsPaletteEntry[] = view.rows.map((r) => ({ group: 'Tests', label: r.name, mono: true, hint: r.last.verdict === 'inconclusive' ? 'inconclusive' : r.last.result === 'fail' ? 'failing' : r.last.result === 'pass' ? 'passing' : r.error ? 'can’t be read' : 'not run yet', to: href.tests() }));
+  const out: TestsPaletteEntry[] = view.rows.map((r) => ({ group: 'Tests', label: r.name, mono: true, hint: r.last.verdict === 'inconclusive' ? 'inconclusive' : r.last.result === 'fail' ? 'failing' : r.last.result === 'pass' ? 'passing' : r.error ? 'can’t be read' : r.presets ? `presets ${r.presets.verdict}` : 'not run yet', to: href.tests() }));
   if (view.diverged.length && o.update) out.unshift({ group: 'Actions', label: 'Update goldens…', hint: 'shadowlap test --update', mono: false, to: TESTS_UPDATE_HASH });
   return out;
 }

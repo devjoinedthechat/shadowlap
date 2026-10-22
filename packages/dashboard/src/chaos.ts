@@ -192,6 +192,39 @@ export function chaosOfRun(store: Store, runId: string): ChaosMatrix | null {
   return matrices(latest.filter((r) => r.runId === run.parentRunId && r.golden === golden))[0] ?? null;
 }
 
+/** How a golden's presets came out, as Tests' row and Needs a look say it. */
+export interface PresetsSummary {
+  /** Failed when one failed; else inconclusive when one couldn't say; else passed. */
+  verdict: 'passed' | 'failed' | 'inconclusive';
+  /** The presets that ran (a preset that couldn't apply to the recording ran nothing), and how they came out. */
+  ran: number;
+  passed: number;
+  failed: number;
+  inconclusive: number;
+  /** `2 of 4 presets failed: tool timeout #2, provider 429 #3 · 1 inconclusive`, `4 of 4 presets passed`. */
+  line: string;
+  /** The first attempt that failed (or couldn't say), else the newest preset's, to open. */
+  runId: string | null;
+  at: number;
+}
+
+/** A preset as a line names it: `tool timeout #2`. */
+const presetWords = (c: ChaosCell) => `${c.label}${c.callNo !== null ? ` #${c.callNo}` : ''}`;
+
+/** A matrix in a line, by how its presets came out; null when none ran (every one was not applicable). */
+export function presetsSummary(m: ChaosMatrix, kept: (runId: string) => boolean = () => true): PresetsSummary | null {
+  const ran = m.cells.filter((c) => c.verdict !== 'not-applicable');
+  if (!ran.length) return null;
+  const failed = ran.filter((c) => c.verdict === 'failed');
+  const unsure = ran.filter((c) => c.verdict === 'inconclusive');
+  const shown = failed.length ? failed : unsure;
+  const verdict = failed.length ? 'failed' : unsure.length ? 'inconclusive' : 'passed';
+  const n = (x: number) => `${x} of ${ran.length} preset${ran.length === 1 ? '' : 's'}`;
+  const line = shown.length ? `${n(shown.length)} ${verdict}: ${shown.map(presetWords).join(', ')}${failed.length && unsure.length ? ` · ${unsure.length} inconclusive` : ''}` : `${n(ran.length)} passed`;
+  const open = [...shown, ...ran].flatMap((c) => c.runs.filter((x) => !shown.length || x.verdict !== 'passed').map((x) => x.runId)).find(kept) ?? null;
+  return { verdict, ran: ran.length, passed: ran.length - failed.length - unsure.length, failed: failed.length, inconclusive: unsure.length, line, runId: open, at: m.at };
+}
+
 /** Every recording's presets as their matrices, newest first, without the sessions: what Needs a look and Tests read. */
 export function chaosMatrices(store: Store): ChaosMatrix[] {
   return matrices(store.latestChaosResults());

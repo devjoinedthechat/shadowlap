@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Store, type StoredCoverageGroup } from '@shadowlap/engine';
 import { overviewSummary, type NeedsLookRow } from '../src/overview.js';
-import type { GoldenSource } from '../src/tests.js';
+import { testsView, type GoldenSource } from '../src/tests.js';
 
 /**
  * Needs a look takes in what the upgrades found, kept in the store by the CLI: an injection test a
@@ -113,5 +113,30 @@ describe('the upgrades’ results in Needs a look', () => {
     const recording = run();
     presets('goldens/forecast', recording, [{ preset: 'timeout', verdict: 'passed', callNo: 2 }]);
     expect(items()).toEqual([]);
+  });
+});
+
+describe('a golden’s presets on Tests', () => {
+  it('says how they came out on its row, and never calls a golden whose presets ran not run yet', () => {
+    const forecast = run();
+    const attempts = presets('goldens/forecast', forecast, [
+      { preset: 'timeout', verdict: 'failed', callNo: 2 },
+      { preset: 'empty', verdict: 'passed', callNo: 2 },
+      { preset: '429', verdict: 'passed', callNo: 3 },
+    ]);
+    const inbox = run();
+    presets('goldens/inbox', inbox, [{ preset: 'timeout', verdict: 'passed', callNo: 2 }]);
+    // inbox's replay passed too; forecast's never ran.
+    const t = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/inbox'], revision: 'a1b2c3d', startedAt: NOW - 100_000 });
+    store.addTestResult({ sessionId: t.sessionId, golden: 'goldens/inbox', ok: true, runId: null, revision: 'a1b2c3d', at: NOW - 99_000, data: { mode: 'replay' } });
+    store.finishTestSession(t.sessionId, { passed: 1, failed: 0, upstreamRequests: 0, endedAt: NOW - 98_000 });
+    const view = testsView(store, goldens);
+    const [f, i] = view.rows;
+    expect(f!.last.line).toBe('1 of 3 presets failed: tool timeout #2 · replay not tested yet');
+    expect(f!.last.result).toBeNull();
+    expect(f!.presets).toEqual({ verdict: 'failed', ran: 3, passed: 2, failed: 1, inconclusive: 0, line: '1 of 3 presets failed: tool timeout #2', runId: attempts.timeout, at: expect.any(Number) });
+    expect(i!.presets).toMatchObject({ verdict: 'passed', ran: 1, line: '1 of 1 preset passed' });
+    // Its replay not tested yet: said so, and not as a golden nothing ran on.
+    expect(view.verdict!.title).toBe('1 of 2 goldens pass, 1 tested only by its error-path presets');
   });
 });

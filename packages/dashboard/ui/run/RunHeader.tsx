@@ -14,6 +14,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckShort } from './banner.js';
+import { exitWords, presetTag, type PresetAttempt } from './preset.js';
 import { checksOf, recordingWords, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
@@ -24,14 +25,15 @@ import { ShareMenu } from './ShareMenu.js';
  * timing, and what can be done with it: compare, share, replay, fork at the selected call, delete.
  * Its lineage is in the crumbs; a phone, which has no crumbs, names the parent in the eyebrow.
  */
-export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit }: { run: RunDetail; call: CallDetail | null; selected: number | null; rescued: boolean; offers: RunOffers | null; forkMenu: ReturnType<typeof useMenu>; onAction: (p: PendingAction) => void; onFindCommit: () => void }) {
+export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit, preset = null }: { run: RunDetail; call: CallDetail | null; selected: number | null; rescued: boolean; offers: RunOffers | null; forkMenu: ReturnType<typeof useMenu>; onAction: (p: PendingAction) => void; onFindCommit: () => void; preset?: PresetAttempt | null }) {
   const app = useApp();
   const { exported, actionsOff, toast, client, guard, refresh, hasKind } = app;
   const r = run.run;
   const like = runLikeOf(run);
   const type = runType(like);
   const live = r.status === 'running';
-  const tag = runTag(like);
+  // A preset's attempt takes its status from the preset's verdict: its run alone reads as a healthy fork.
+  const tag = presetTag(preset) ?? runTag(like);
   const share = useMenu();
   const [deleting, setDeleting] = useState(false);
   const replay = run.actions.find((a) => a.key === 'r');
@@ -129,6 +131,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
           <span>{stamp(r.startedAt)}</span>
           <span>{live ? 'recording…' : run.summary.durationMs !== null ? dur(run.summary.durationMs) : ''}</span>
           {failure ? <span className="bad">{failure}</span> : null}
+          {/* A fork whose agent exited with an error says so, the preset's failure in red: the run's own state counts an injected failure as no failure. */}
+          {!failure && type === 'fork' && exitWords(r.status, preset) ? <span className={preset?.verdict === 'failed' ? 'bad' : undefined}>{exitWords(r.status, preset)}</span> : null}
         </div>
       </div>
       <div className="actions">

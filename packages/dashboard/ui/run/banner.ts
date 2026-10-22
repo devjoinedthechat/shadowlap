@@ -1,9 +1,10 @@
 import { num } from '../format.js';
 import type { RunType } from '../runs.js';
+import { presetWhy, type PresetAttempt } from './preset.js';
 
 /**
  * The run page's one banner: which it is, and what it says. A run shows at most one, in this order:
- * recording now; a fork blame rescued; a test that diverged; a fork (the flag that made it, or what
+ * recording now; an error-path preset's attempt (the preset and its verdict); a fork blame rescued; a test that diverged; a fork (the flag that made it, or what
  * changed); where blame found the run lost; what was not recorded; the checks it passed; that it was
  * interrupted (neutral, as every list says it); or that it failed (with its fix, or Run blame). How
  * the run came out is the server's state, the one Runs and the Overview read. No DOM here: the tests
@@ -61,10 +62,13 @@ export interface BannerInput {
   calls?: ReadonlyArray<{ kind: string; name: string; detail?: string }>;
   /** How many calls it made, for the interrupted banner. */
   callCount?: number;
+  /** An error-path preset's attempt: the preset it played in and how it came out (preset.ts). */
+  preset?: PresetAttempt | null;
 }
 
 export type Banner =
   | { kind: 'recording' }
+  | { kind: 'preset'; callNo: number | null; name: string | null; verdict: PresetAttempt['verdict']; why: string; golden: string | null }
   | { kind: 'rescued'; callNo: number | null; why: string }
   | { kind: 'diverged'; callNo: number; name: string; why: string; path: string | null; normalizer: boolean; diff: boolean }
   | { kind: 'fork'; callNo: number; name: string; why: string; flag: string | null; path: string | null; normalizer: boolean; diff: boolean }
@@ -262,6 +266,9 @@ function interruptedWhy(i: Pick<BannerInput, 'type' | 'callCount'>): string {
 export function bannerFor(i: BannerInput): Banner | null {
   const d = i.divergence;
   if (i.status === 'running') return { kind: 'recording' };
+  // An error-path preset's attempt says which preset it played in and how it came out, by the
+  // preset's verdict: its run alone reads as a healthy fork, the failure being one Shadowlap injected.
+  if (i.preset) return { kind: 'preset', callNo: i.preset.callNo, name: i.preset.target, verdict: i.preset.verdict, why: presetWhy(i.preset), golden: i.preset.golden };
   if (i.rescued && d) return { kind: 'rescued', callNo: i.rescued.callNo, why: `a blame attempt that passed: the model was asked ${i.rescued.callNo !== null ? `#${i.rescued.callNo}` : 'the call'} again · ${writesWord(i.interventions) ?? 'writes stubbed'}` };
   // A test of a golden that may fork went live from where it left the recording, and its checks
   // judged it: where it forked is not what it failed on, so its banner is its checks, or its failure.

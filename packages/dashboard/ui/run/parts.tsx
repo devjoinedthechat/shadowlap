@@ -11,6 +11,7 @@ import { runType } from '../runs.js';
 import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
+import type { PresetAttempt } from './preset.js';
 import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, type MetricInput } from './metrics.js';
@@ -131,10 +132,12 @@ export interface BannerProps {
   onToggleDiff: () => void;
   onSelect: (n: number) => void;
   onAction: (p: PendingAction) => void;
+  /** An error-path preset's attempt: the preset and its verdict, from its recording's presets. */
+  preset?: PresetAttempt | null;
 }
 
-/** The run's one banner: recording now, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
-export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction }: BannerProps) {
+/** The run's one banner: recording now, a preset's attempt, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
+export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction, preset = null }: BannerProps) {
   const app = useApp();
   const [dialog, setDialog] = useState<'update' | 'normalize' | null>(null);
   const r = run.run;
@@ -160,6 +163,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     ...(run.state ? { outcome: run.state.outcome, interrupted: run.state.interrupted, failed: run.state.failed } : {}),
     calls: run.calls,
     callCount: run.calls.length,
+    preset,
   });
   if (!b) return null;
   const job = (kind: string, fields: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(kind, fields)));
@@ -187,6 +191,23 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           <span className="dotlive" />
           <span className="bk">recording</span>
           <Why>calls arrive as they happen · replay and fork once it finishes</Why>
+        </section>
+      );
+    case 'preset':
+      // In the preset's verdict's colour: failed red, inconclusive amber, passed as checks that passed.
+      return (
+        <section className={`banner ${b.verdict === 'failed' ? 'blame' : b.verdict === 'inconclusive' ? 'inc' : 'live'}`}>
+          <span className="bk">preset at</span>
+          {b.callNo !== null ? call(b.callNo) : null}
+          {b.name ? <code>{b.name}</code> : null}
+          <Why>{b.why}</Why>
+          {b.golden ? (
+            <span className="end">
+              <a className="more" href={href.tests()}>
+                Tests →
+              </a>
+            </span>
+          ) : null}
         </section>
       );
     case 'rescued':

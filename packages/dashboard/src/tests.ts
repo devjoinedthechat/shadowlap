@@ -1,5 +1,5 @@
 import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
-import { liveChaosSession } from './chaos.js';
+import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 
 /**
@@ -203,6 +203,11 @@ export interface GoldenRow {
   /** The run a row opens: its latest replay when the store still has it, else the recording. */
   runId: string | null;
   error: string | null;
+  /**
+   * Its error-path presets (`test --chaos`) as their last session left them, or null when none ran:
+   * a golden whose presets ran has been tested, though its replay may not have been.
+   */
+  presets: PresetsSummary | null;
 }
 
 /** The first bad commit `shadowlap bisect` found for a golden: the card above its buttons. */
@@ -990,6 +995,8 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
   // Only what the page shows is read: each golden's newest result, and the results of the sessions
   // the history's columns are made of.
   const latestOf = new Map(store.latestTestResults().map((r) => [r.golden, r]));
+  const presetsOf = new Map<string, PresetsSummary | null>();
+  for (const m of chaosMatrices(store)) if (m.golden && !presetsOf.has(m.golden)) presetsOf.set(m.golden, presetsSummary(m, (id) => store.getRun(id) !== null));
   const history = byGolden(sessionsView.results);
   const columns = new Set(revisions);
 
@@ -1030,9 +1037,10 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       }),
       last: latest
         ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path), injection: latest.data?.injection ?? null }
-        : { result: null, verdict: null, failure: null, line: error ? `can't be read: ${error}` : 'not run yet', at: null, updated: false, gate: null },
+        : { result: null, verdict: null, failure: null, line: error ? `can't be read: ${error}` : presetsOf.get(g.path) ? `${presetsOf.get(g.path)!.line} · replay not tested yet` : 'not run yet', at: null, updated: false, gate: null },
       runId: runIfKept(store, latest?.runId ?? null) ?? sourceRun,
       error,
+      presets: presetsOf.get(g.path) ?? null,
     };
   });
 
@@ -1102,6 +1110,9 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     const total = goldens.length;
     const passing = lastResults.length - failed.length - unsure.length;
     const untested = total - lastResults.length;
+    // A golden whose presets ran has been tested, its replay not yet: never "not run yet".
+    const presetsOnly = rows.filter((r) => r.last.result === null && !r.error && r.presets).length;
+    const notRun = untested - presetsOnly;
     verdict = {
       state: failed.length ? 'failing' : unsure.length ? 'inconclusive' : 'passing',
       failing: failed.length,
@@ -1109,7 +1120,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       passing,
       untested,
       // One golden: "All 1 goldens pass" isn't English.
-      title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : untested ? `${passing} of ${total} goldens pass, ${untested} not run yet` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
+      title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : untested ? `${passing} of ${total} goldens pass${notRun ? `, ${notRun} not run yet` : ''}${presetsOnly ? `, ${presetsOnly} tested only by ${presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''}` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
       session: sessionView(store, shown),
       since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, verdict: verdictOfResult(r), revision: r.revision, at: r.at })),

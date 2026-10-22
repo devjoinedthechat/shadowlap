@@ -275,13 +275,16 @@ function Verdict({ view, running }: { view: TestsView; running: boolean }) {
   const v = view.verdict;
   if (!v) {
     const command = commandText(view.commands.run);
+    // No golden replayed yet, though its error-path presets may have run: then it has been tested, and says so.
+    const presets = view.rows.filter((r) => r.presets).length;
+    const one = view.goldens === 1;
     return (
       <div className="verdict tv n">
-        <Badge tone="n">not run yet</Badge>
+        <Badge tone="n">{presets ? 'not replayed yet' : 'not run yet'}</Badge>
         <div>
-          <h2>{view.goldens === 1 ? 'One golden, not tested yet' : `${view.goldens} goldens, none tested yet`}</h2>
+          <h2>{presets ? (one ? 'One golden, not replayed yet' : `${view.goldens} goldens, none replayed yet`) : one ? 'One golden, not tested yet' : `${view.goldens} goldens, none tested yet`}</h2>
           <p>
-            Run tests replays each one offline: <SessionCommand text={command} />
+            {presets ? `Error-path presets ran on ${presets === view.goldens ? (one ? 'it' : 'every one') : `${presets} of them`}. ` : null}Run tests replays each one offline: <SessionCommand text={command} />
           </p>
         </div>
       </div>
@@ -398,13 +401,43 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
             <i />
             can’t be read
           </span>
+        ) : row.presets ? (
+          // Tested by its error-path presets, its replay not yet: never "not run yet".
+          <span className={`st ${presetTone(row.presets)}`}>
+            <i />
+            presets {row.presets.verdict}
+          </span>
         ) : (
           <span className="st n">not run yet</span>
         )}
         {last.result !== null || row.error ? <span className="rsub">{gated(last.gate) ? <DotLine text={last.line} max={18} soft={24} /> : last.line}</span> : null}
         {gated(last.gate) && last.gate.attempts ? <GateEvidence g={last.gate} verdict={last.verdict} /> : null}
+        {row.presets ? <PresetsLine p={row.presets} only={last.result === null && !row.error} /> : null}
       </td>
     </tr>
+  );
+}
+
+type Presets = NonNullable<GoldenRow['presets']>;
+
+/** A golden's presets in the consequence colours: failed red, inconclusive amber, passed quiet. */
+const presetTone = (p: Presets) => (p.verdict === 'failed' ? 'err' : p.verdict === 'inconclusive' ? 'warn' : 'ok');
+
+/**
+ * How a golden's error-path presets came out, under its last result, opening the attempt that failed
+ * (or couldn't say): the whole line when they are all that ran, else in short with the line on hover.
+ */
+function PresetsLine({ p, only }: { p: Presets; only: boolean }) {
+  const count = p.verdict === 'failed' ? p.failed : p.verdict === 'inconclusive' ? p.inconclusive : p.passed;
+  const text = only ? `${p.line} · replay not tested yet` : `presets · ${count} of ${p.ran} ${p.verdict}`;
+  return p.runId ? (
+    <a className={`rsub gpre ${presetTone(p)}`} href={href.run(p.runId)} data-tip={only ? undefined : tipText(p.line)} onClick={(e) => e.stopPropagation()}>
+      {text}
+    </a>
+  ) : (
+    <span className={`rsub gpre ${presetTone(p)}`} data-tip={only ? undefined : tipText(p.line)}>
+      {text}
+    </span>
   );
 }
 

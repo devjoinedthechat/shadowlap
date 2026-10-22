@@ -1,5 +1,5 @@
 import type { Store } from '@shadowlap/engine';
-import { chaosMatrices, type ChaosCell } from './chaos.js';
+import { chaosMatrices, presetsSummary } from './chaos.js';
 import { coverageLook } from './coverage.js';
 import { injectionNeedsLook } from './injection.js';
 import type { NeedsLookRow } from './overview.js';
@@ -49,13 +49,10 @@ function injectionLooks(store: Store): { failed: NeedsLookRow[]; warn: NeedsLook
   return { failed, warn };
 }
 
-/** A preset as a line names it: `tool timeout #2`. */
-const presetWords = (c: ChaosCell) => `${c.label}${c.callNo !== null ? ` #${c.callNo}` : ''}`;
-
 /**
  * Each golden's presets that failed (in red) or that couldn't say (in amber), as their last session
- * left them: `3 of 6 failed: tool timeout #2, provider 429 #3, provider 500 #3`. A golden no longer on
- * disk, or a run no longer in the store, has none. Each opens the first such preset's attempt.
+ * left them: `2 of 4 presets failed: tool timeout #2, provider 429 #3`. A golden no longer on disk,
+ * or a run no longer in the store, has none. Each opens the first such preset's attempt.
  */
 function presetLooks(store: Store, goldens: GoldenList): { failed: NeedsLookRow[]; warn: NeedsLookRow[] } {
   const onDisk = new Set(goldens.map(pathOf));
@@ -63,25 +60,12 @@ function presetLooks(store: Store, goldens: GoldenList): { failed: NeedsLookRow[
   const warn: NeedsLookRow[] = [];
   for (const m of chaosMatrices(store)) {
     if (m.golden ? !onDisk.has(m.golden) : !kept(store, m.runId)) continue;
+    const p = presetsSummary(m, (id) => kept(store, id) !== null);
+    if (!p || p.verdict === 'passed') continue;
     const name = m.golden ? goldenName(m.golden) : m.runId.slice(0, 10);
-    const ran = m.cells.filter((c) => c.verdict !== 'not-applicable');
-    const bad = ran.filter((c) => c.verdict === 'failed');
-    const unsure = ran.filter((c) => c.verdict === 'inconclusive');
-    const shown = bad.length ? bad : unsure;
-    if (!shown.length) continue;
-    const attempt = shown.flatMap((c) => c.runs.filter((x) => x.verdict !== 'passed').map((x) => x.runId)).find((id) => kept(store, id)) ?? kept(store, m.runId);
-    const row: NeedsLookRow = {
-      kind: 'presets',
-      icon: bad.length ? 'fail' : 'warn',
-      title: `Error-path presets ${bad.length ? 'failed' : 'inconclusive'}: ${name}`,
-      detail: `${shown.length} of ${plural(ran.length, 'preset')} ${bad.length ? 'failed' : 'inconclusive'}: ${shown.map(presetWords).join(', ')}${bad.length && unsure.length ? ` · ${unsure.length} inconclusive` : ''}`,
-      action: 'Open',
-      href: attempt ? `#/run/${attempt}` : '#/tests',
-      runId: attempt,
-      fixId: null,
-      at: m.at,
-    };
-    (bad.length ? failed : warn).push(row);
+    const runId = p.runId ?? kept(store, m.runId);
+    const row: NeedsLookRow = { kind: 'presets', icon: p.verdict === 'failed' ? 'fail' : 'warn', title: `Error-path presets ${p.verdict}: ${name}`, detail: p.line, action: 'Open', href: runId ? `#/run/${runId}` : '#/tests', runId, fixId: null, at: m.at };
+    (p.verdict === 'failed' ? failed : warn).push(row);
   }
   return { failed, warn };
 }

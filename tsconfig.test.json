@@ -49,7 +49,8 @@
     "packages/dashboard/test/ui-about.test.ts",
     // This renders the places that name a run.
     "packages/dashboard/test/ui-naming.test.ts",
-    // This renders the places that say a gate's verdict.
-    "packages/dashboard/test/ui-verdict.test.ts"
+    // These render the places that say a gate's verdict, and a preset's attempt and presets.
+    "packages/dashboard/test/ui-verdict.test.ts",
+    "packages/dashboard/test/ui-presets.test.ts"
   ]
 }
