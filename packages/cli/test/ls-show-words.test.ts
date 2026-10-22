@@ -99,10 +99,10 @@ describe('ls and show, in the dashboard’s words', () => {
   it('says what a replay didn’t spend again as not re-spent, with its input tokens counted whole', async () => {
     const show = await shadowlap(['show', replay]);
     expect(show.code, show.out).toBe(0);
-    expect(show.stdout).toMatch(/\$[\d.]+ not re-spent \(1k input tokens\)/);
+    expect(show.stdout).toMatch(/\$[\d.]+ not re-spent \(1\.0k input tokens\)/);
     expect(show.stdout).not.toContain('saved by replay');
     // Each model call's input tokens: uncached, written to the cache and read from it.
-    expect(show.stdout).toMatch(/#1\s+api\s+POST \/v1\/messages\s+replayed\s+ok\s+5ms\s+1k→50 tok/);
+    expect(show.stdout).toMatch(/#1\s+api\s+POST \/v1\/messages\s+replayed\s+ok\s+5ms\s+1\.0k→50 tok/);
   });
 });
 
@@ -131,7 +131,7 @@ describe('a replay’s receipt, in the dashboard’s words', () => {
     expect(line).toContain('(≈$0.0040 spent, $0.0020 not re-spent)');
     expect(line).not.toContain('saved');
     const repeats = formatRepeats(summarizeRepeats('P', [{ runId: 'A1', exitCode: 0, summary: fork, calls: [call] }]));
-    expect(repeats).toContain('1k input tokens not re-spent · ≈$0.0040 spent, $0.0020 not re-spent');
+    expect(repeats).toContain('1.0k input tokens not re-spent · ≈$0.0040 spent, $0.0020 not re-spent');
     expect(repeats).not.toContain('saved');
   });
 });

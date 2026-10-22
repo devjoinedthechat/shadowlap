@@ -1,5 +1,5 @@
 import { importedRecording } from './classify.js';
-import { wholeInput } from './tokens.js';
+import { formatTokens, wholeInput } from './tokens.js';
 import { firstDifference } from './diff.js';
 import { isJudgeCall } from './judge-scope.js';
 import { normalizeAddCommand } from './volatile.js';
@@ -8,6 +8,9 @@ import { estimateCost, formatUsd, type Price } from './prices.js';
 import { safeLine, safeText } from './text.js';
 import type { Store } from './store.js';
 import type { CallKind, CallRecord, DivergenceReport, JudgeSummary, NotReached, Origin, RunRecord, RunSummary, Usage } from './types.js';
+
+/** A token count, as every report and the dashboard write one (tokens.ts). */
+export { formatTokens };
 
 /** The model a call was made with: stored at record time, or supplied by a resolver that can read the request. */
 export type ModelResolver = (call: CallRecord) => string | null | undefined;
@@ -162,12 +165,6 @@ export interface Palette {
 }
 
 export const plain: Palette = { green: (s) => s, red: (s) => s, yellow: (s) => s, dim: (s) => s, bold: (s) => s, cyan: (s) => s };
-
-export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
-}
 
 function shortId(id: string): string {
   return id.length > 10 ? `${id.slice(0, 10)}…` : id;

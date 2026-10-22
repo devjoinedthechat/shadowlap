@@ -38,7 +38,7 @@ shadowlap replay 01M2NH0DMC
 
 ```
 …
-✓ Replay clean: 30/30 calls replayed (11 api, 17 tool, 2 clock/random), 0 upstream requests, 12k input tokens not re-spent (≈$0.072)
+✓ Replay clean: 30/30 calls replayed (11 api, 17 tool, 2 clock/random), 0 upstream requests, 12.3k input tokens not re-spent (≈$0.072)
   shadowlap show 01M2NH0F3K
 ```
 

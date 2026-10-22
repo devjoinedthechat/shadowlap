@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { formatSummary, plain, Store, summarizeRepeats, summarizeRun, wholeInput, type CallRecord, type Usage } from '@shadowlap/engine';
+import { formatSummary, formatTokens, plain, Store, summarizeRepeats, summarizeRun, wholeInput, type CallRecord, type Usage } from '@shadowlap/engine';
 import { passedLine } from '../src/commands/testing.js';
 import type { GoldenOutcome } from '../src/golden-test.js';
 import { packResult } from '../src/golden-test.js';
@@ -46,10 +46,14 @@ describe('one count of input tokens', () => {
     expect(wholeInput({ inputTokens: 7 })).toBe(7);
   });
 
+  it('writes them as the dashboard does, with a tenth of a thousand: show’s 1.8k is the page’s 1.8k', () => {
+    expect([950, 1000, 1834, 12_400, 245_600, 999_949, 999_950, 1_250_000].map(formatTokens)).toEqual(['950', '1.0k', '1.8k', '12.4k', '245.6k', '999.9k', '1.00M', '1.25M']);
+  });
+
   it('counts them whole in a replay’s summary, one that ended early, and --repeat', () => {
-    expect(formatSummary(summary, plain)).toContain('1/1 calls replayed (1 api, 0 tool), 0 upstream requests, 1k input tokens not re-spent');
+    expect(formatSummary(summary, plain)).toContain('1/1 calls replayed (1 api, 0 tool), 0 upstream requests, 1.0k input tokens not re-spent');
     const early = { ...summary, divergence: { type: 'ended_early' as const, callNo: 2, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 1, recorded: 2 } };
-    expect(formatSummary(early, plain)).toContain('1k input tokens not re-spent');
+    expect(formatSummary(early, plain)).toContain('1.0k input tokens not re-spent');
     expect(summarizeRepeats('P', [{ runId: 'A1', exitCode: 0, summary, calls: [call] }]).tokensNotRespent).toBe(1000);
     expect(usageOf({ summary } as Parameters<typeof usageOf>[0], 1, 0).tokensNotRespent).toBe(1000);
   });
@@ -70,7 +74,7 @@ describe('one count of input tokens', () => {
       interrupted: false,
       notes: [],
     } as unknown as GoldenOutcome;
-    expect(passedLine(outcome)).toBe('1/1 replayed, 1k input tokens not re-spent');
+    expect(passedLine(outcome)).toBe('1/1 replayed, 1.0k input tokens not re-spent');
     expect(packResult(outcome, { expect: null }).tokensNotRespent).toBe(1000);
   });
 
@@ -84,7 +88,7 @@ describe('one count of input tokens', () => {
       store.appendCallEnd(c, { runId: rec.runId, callNo: 1, attempt: 0, responseRef: null, outcome: 'ok', meta: { usage: USAGE, model: 'claude-opus-5', latencyMs: 5 }, at: 2 });
       store.endRun(rec.runId, 'completed');
       const row = describeCall(store, store.getCalls(rec.runId)[0]!).join(' ');
-      expect(row).toContain('1k→50 tok');
+      expect(row).toContain('1.0k→50 tok');
     } finally {
       store.close();
     }

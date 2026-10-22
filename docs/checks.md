@@ -107,8 +107,8 @@ A key named like an operator it is not, such as `gt`, `contains`, `$in` or `ends
 - Each check under `then` is reported on its own, after the condition. When a call met the condition, it is judged on the whole run, and a failure says where the condition held. When none did, each is **not applicable**, never passed, so a report never claims more than it checked:
 
 ```
-✓ refund-escalated: 5/5 replayed, 3k input tokens not re-spent, 3 checks passed
-✓ refund-in-limit: 5/5 replayed, 3k input tokens not re-spent, 1 check passed, 2 not applicable
+✓ refund-escalated: 5/5 replayed, 3.2k input tokens not re-spent, 3 checks passed
+✓ refund-in-limit: 5/5 replayed, 3.2k input tokens not re-spent, 1 check passed, 2 not applicable
 ✗ refund-over-limit: check failed: every issue_refund call: after lookup_order, amount <= lookup_order.result.total, but issue_refund #4: amount 240 > lookup_order.result.total 180 (#2); 2 more checks failed
     ✗ every issue_refund call: after lookup_order, amount <= lookup_order.result.total: issue_refund #4: amount 240 > lookup_order.result.total 180 (#2)
     ✗ when lookup_order has result.total > 100: escalate called at least 1 time: called 0 times; tools called: lookup_order, issue_refund; the condition held at lookup_order #2 (result.total 180 > 100)

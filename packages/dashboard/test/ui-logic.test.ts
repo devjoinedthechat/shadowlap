@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { formatTokens } from '../../engine/src/tokens.js';
 import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '../ui/actions.js';
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
@@ -347,6 +348,8 @@ describe('formatting', () => {
     expect(ktok(12400)).toBe('12.4k');
     expect(ktok(950)).toBe('950');
     expect(ktok(1_250_000)).toBe('1.25M');
+    // The CLI writes a token count the same way: show's line says what the receipt says.
+    for (const n of [950, 1834, 12_400, 1_250_000]) expect(ktok(n)).toBe(formatTokens(n));
     expect(dur(840)).toBe('840 ms');
     expect(dur(2900)).toBe('2.9 s');
     expect(dur(64_000)).toBe('1m 4s');
