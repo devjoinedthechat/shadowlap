@@ -76,13 +76,14 @@ describe('the Fixes list', () => {
     const [x, y] = fixList(store).fixes;
     expect(x!.fixId).toBe(stopped.fix.fixId);
     expect(x!.steps.map((s) => [s.state, s.short, s.title])).toEqual([
-      ['todo', 'blame stopped', 'Stopped before the search finished'],
+      // A step that ran and needs a look is amber (warn), never the grey of one not run yet.
+      ['warn', 'blame stopped', 'Stopped before the search finished'],
       ['todo', 'no fix yet', 'No fix yet'],
       ['no', 'rejected', 'Rejected'],
     ]);
     expect(x!.steps[0]!.meta).toBe('the budget of $0.05 is spent');
-    // It ran to the end, but no model call rescued the run: no call is blamed yet, so it is still to do.
-    expect(y!.steps[0]).toMatchObject({ state: 'todo', short: 'not rescued', title: 'Not rescued from any model call' });
+    // It ran to the end, but no model call rescued the run: no call is blamed, and that needs a look.
+    expect(y!.steps[0]).toMatchObject({ state: 'warn', short: 'not rescued', title: 'Not rescued from any model call' });
     expect(fixDetail(store, y!.fixId)!.defaultStep).toBe('blame');
     expect(fixDetail(store, y!.fixId)!.blame).toMatchObject({ boundary: 'Resampling from the first model call, #1, passed 1 of 4 attempts, fewer than the 2 a rescue needs.', look: null });
   });
@@ -225,7 +226,7 @@ describe('a fix', () => {
     expect(b.callRow[0]).toMatchObject({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1 });
     expect(b.bundles[0]!.attempts).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
     // Wherever the blame is summed up, it is not settled, never "not rescued".
-    expect(fixList(store).fixes[0]!.steps[0]).toMatchObject({ state: 'todo', short: 'not settled', title: 'Not settled from the first model call' });
+    expect(fixList(store).fixes[0]!.steps[0]).toMatchObject({ state: 'warn', short: 'not settled', title: 'Not settled from the first model call' });
     expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not settled from the first model call · no fix yet');
     expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, short: 'not settled from the first model call' });
     expect(fixDetail(store, fix.fixId)!.blames).toEqual([expect.objectContaining({ outcome: 'unrescuable', unsettled: true })]);
@@ -383,7 +384,7 @@ describe('a fix', () => {
     const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
     expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: attempt, passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
     // The fix's Verify step says why it is not settled: a run it verified is inconclusive, not a verify that stopped.
-    expect(fixDetail(store, fix.fixId)!.steps[2]).toMatchObject({ state: 'todo', short: 'not settled', meta: 'a run it verified is inconclusive' });
+    expect(fixDetail(store, fix.fixId)!.steps[2]).toMatchObject({ state: 'warn', short: 'not settled', meta: 'a run it verified is inconclusive' });
   });
 
   it('gives no rate for a run an attempt it could not judge stopped under a gate, as verify gives none', () => {

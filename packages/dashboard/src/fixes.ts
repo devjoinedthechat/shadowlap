@@ -94,10 +94,12 @@ function rateOf(g: unknown): VerifyRow['rate'] {
 
 export type StepKey = 'blame' | 'repair' | 'verify';
 /**
- * Done, to do, or (Verify only) rejected. A blame no model call rescued is still to do: it found no
- * call to blame, and its line says so ("not rescued").
+ * Done, to do, (Verify only) rejected, or `warn`: a step that ran and needs a look, in amber, never
+ * the grey of one not run yet: a blame no model call rescued ("not rescued"), one that couldn't
+ * settle ("not settled") or stopped part way ("blame stopped"), a verify left inconclusive or
+ * stopped before every run settled ("not settled").
  */
-export type StepState = 'done' | 'todo' | 'no';
+export type StepState = 'done' | 'todo' | 'no' | 'warn';
 
 /** One of a fix's three steps, as the list (`short`) and the stepper (`title`, `meta`) show it. */
 export interface FixStep {
@@ -474,8 +476,8 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
     if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: `lost at #${r.blamed.callNo}`, title: `Lost at model call #${r.blamed.callNo}`, meta: `confidence ${r.confidence} · ${cost}` };
     // Its first probe couldn't tell: not settled, never a finding that no call rescues the run.
-    else if (b.outcome === 'unrescuable') blame = unsettledFirst(r) ? { key: 'blame', n: '01', state: 'todo', short: 'not settled', title: 'Not settled from the first model call', meta: cost } : { key: 'blame', n: '01', state: 'todo', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
-    else blame = { key: 'blame', n: '01', state: 'todo', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
+    else if (b.outcome === 'unrescuable') blame = unsettledFirst(r) ? { key: 'blame', n: '01', state: 'warn', short: 'not settled', title: 'Not settled from the first model call', meta: cost } : { key: 'blame', n: '01', state: 'warn', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
+    else blame = { key: 'blame', n: '01', state: 'warn', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
   }
 
   let repair: FixStep;
@@ -504,7 +506,7 @@ function stepsOf(rec: FixRecords): FixStep[] {
   else if (counting(rec).length) {
     // A run it took is inconclusive (its gate ran out of attempts, or an attempt could not be judged), or the verify stopped first.
     const unsure = counting(rec).some((x) => x.report.runs.some((run) => outcomeOf(run) === 'inconclusive'));
-    verify = { key: 'verify', n: '03', state: 'todo', short: 'not settled', title: 'Not settled', meta: unsure ? 'a run it verified is inconclusive' : 'a verify stopped before every run settled' };
+    verify = { key: 'verify', n: '03', state: 'warn', short: 'not settled', title: 'Not settled', meta: unsure ? 'a run it verified is inconclusive' : 'a verify stopped before every run settled' };
   }
   else if (rec.verdicts.length) {
     const why = rec.standing.get(rec.verdicts.at(-1)!.verifyId)?.why;

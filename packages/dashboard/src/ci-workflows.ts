@@ -35,6 +35,8 @@ export const CI_DEFAULTS: CiWorkflowOptions = { fix: false, budget: '2.00', repa
 export interface CiListRow {
   label: string;
   value: string;
+  /** Its dot when it says how a golden comes out: a failure in red, inconclusive in amber (none for a plain row). */
+  tone?: 'err' | 'warn';
 }
 
 /** The pull request a fix opens, as GitHub shows it: from the newest verified fix in this store, or an example. */
@@ -350,7 +352,8 @@ export function ciWorkflows(
       secret: alertsSecret(o.secret),
       yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings, branch: main, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}) }),
       needs: rows(alertsNeeds(o.secret)),
-      failures: rows(ALERT_FAILURES),
+      // What fails a golden in red; a gate, judge or injection test that can't decide in amber: inconclusive is neither.
+      failures: rows(ALERT_FAILURES).map((r) => ({ ...r, tone: r.value === 'inconclusive' ? 'warn' : 'err' })),
       message: { app: 'GitHub Actions', text: message.text, link: message.link, at: context.at },
     },
     recordings,

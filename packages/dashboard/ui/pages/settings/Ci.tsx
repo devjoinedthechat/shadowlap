@@ -101,7 +101,8 @@ function CiList({ rows, tone = '' }: { rows: readonly CiListRow[]; tone?: '' | '
     <ul className="cilist">
       {rows.map((r) => (
         <li key={`${r.label}\u0000${r.value}`}>
-          <i className={tone || undefined} aria-hidden="true" />
+          {/* A row's own tone first: an inconclusive golden is amber, never a failure's red. */}
+          <i className={r.tone ?? (tone || undefined)} aria-hidden="true" />
           <span>{r.label}</span>
           {r.value ? <code>{r.value}</code> : null}
         </li>

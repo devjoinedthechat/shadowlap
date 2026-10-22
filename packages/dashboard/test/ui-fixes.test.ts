@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
+import { applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, probeVerdictWords, repairAside, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -240,10 +240,13 @@ describe('the Blame step', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  it('badges a probe: rescued in lime, lost in red, the blamed one in amber', () => {
+  it('badges a probe: rescued in lime, the blamed one too, lost in red, and only an inconclusive one in amber', () => {
     expect(probeBadge('rescued')).toBe('ok');
     expect(probeBadge('lost')).toBe('no');
-    expect(probeBadge('rescued · blamed')).toBe('y');
+    // The blamed call rescued the run: lime, and marked blamed apart, in ink.
+    expect(probeBadge('rescued · blamed')).toBe('ok');
+    expect(probeVerdictWords('rescued · blamed')).toEqual({ word: 'rescued', blamed: true });
+    expect(probeVerdictWords('lost')).toEqual({ word: 'lost', blamed: false });
     // Inconclusive reads amber, as every page shows it: neither rescued nor lost.
     expect(probeBadge('inconclusive')).toBe('y');
   });

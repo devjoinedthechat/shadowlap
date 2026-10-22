@@ -280,9 +280,18 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
   return { cells, toolsLeftOut: true };
 }
 
-/** How a probe's verdict reads as a badge: rescued in lime, lost in red, the blamed one and an inconclusive one in amber. */
+/**
+ * How a probe's verdict reads as a badge: rescued in lime (the blamed one too: it rescued the run),
+ * lost in red, inconclusive in amber. Amber means only that a verdict couldn't be reached; the blamed
+ * call is marked apart, in ink (`probeVerdictWords`).
+ */
 export function probeBadge(verdict: BlameStep['probes'][number]['verdict']): 'ok' | 'no' | 'y' {
-  return verdict === 'rescued · blamed' || verdict === 'inconclusive' ? 'y' : verdict === 'lost' ? 'no' : 'ok';
+  return verdict === 'inconclusive' ? 'y' : verdict === 'lost' ? 'no' : 'ok';
+}
+
+/** A probe's verdict word, and whether it is the blamed call, which the badge's row marks in ink: `rescued` and `blamed`. */
+export function probeVerdictWords(verdict: BlameStep['probes'][number]['verdict']): { word: string; blamed: boolean } {
+  return verdict === 'rescued · blamed' ? { word: 'rescued', blamed: true } : { word: verdict, blamed: false };
 }
 
 /** "Model call 3 of 4" (in scope agent), or the run alone when blame placed the failure on no call. */
