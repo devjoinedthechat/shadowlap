@@ -96,12 +96,13 @@ function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView 
   return served;
 }
 
+/** A list of rows, each with its dot: the row's own tone (a failure red, one that can't be decided amber), else the list's. */
 function CiList({ rows, tone = '' }: { rows: readonly CiListRow[]; tone?: '' | 'err' }) {
   return (
     <ul className="cilist">
       {rows.map((r) => (
         <li key={`${r.label}\u0000${r.value}`}>
-          <i className={tone || undefined} aria-hidden="true" />
+          <i className={(r.tone ?? tone) || undefined} aria-hidden="true" />
           <span>{r.label}</span>
           {r.value ? <code>{r.value}</code> : null}
         </li>
@@ -242,6 +243,15 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
   );
 }
 
+/**
+ * What each choice for an inconclusive golden (a gate, a judge or an injection test that can't
+ * decide) does to the steps, both panels' as the action's `inconclusive` input takes it.
+ */
+const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', string> = {
+  fail: 'A gate, judge or injection test that can’t decide counts as failed: Slack hears of it, and the job fails.',
+  warn: 'A gate, judge or injection test that can’t decide warns instead: Slack doesn’t hear of it, and the job goes on. Fix on failure’s step too.',
+};
+
 function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
   const a = view.alerts;
   const toggle = () => set({ onlyMain: !o.onlyMain });
@@ -284,6 +294,19 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
               <span>The repository secret that holds the Slack webhook URL.</span>
             </div>
             <input className="inp" type="text" spellCheck={false} autoComplete="off" aria-label="Webhook secret" value={o.secret} onChange={(e) => set({ secret: typedSecret(e.target.value) })} />
+          </div>
+          <div className="setrow tight">
+            <div>
+              <b>Inconclusive goldens</b>
+              <span>{INCONCLUSIVE_WORDS[o.inconclusive ?? 'fail']}</span>
+            </div>
+            <div className="seg" role="group" aria-label="Inconclusive goldens">
+              {(['fail', 'warn'] as const).map((k) => (
+                <button key={k} type="button" aria-pressed={(o.inconclusive ?? 'fail') === k} onClick={() => set({ inconclusive: k })}>
+                  {k === 'fail' ? 'Fail' : 'Warn'}
+                </button>
+              ))}
+            </div>
           </div>
           <span className="k cineeds">it needs</span>
           <CiList rows={a.needs} />

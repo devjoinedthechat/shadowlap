@@ -51,7 +51,8 @@
     "packages/dashboard/test/ui-palette-modes.test.ts",
     "packages/dashboard/test/ui-token-card.test.ts",
     "packages/dashboard/test/ui-exported-provenance.test.ts",
-    // This renders Settings.
-    "packages/dashboard/test/ui-settings-states.test.ts"
+    // These render Settings.
+    "packages/dashboard/test/ui-settings-states.test.ts",
+    "packages/dashboard/test/ui-ci-tab.test.ts"
   ]
 }

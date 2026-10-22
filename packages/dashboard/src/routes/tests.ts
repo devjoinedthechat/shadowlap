@@ -1,7 +1,7 @@
 import type { Normalizer, Store } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import { liveChaosSession } from '../chaos.js';
-import { ciWorkflows, fixPreview, gitFacts, parseCiOptions } from '../ci-workflows.js';
+import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
 import { choicesInCheckout, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
@@ -180,6 +180,8 @@ export function register(router: Router, ctx: RouteContext): void {
         recordings: list.length ? testPatterns(list, FOLDER).join(' ') : `${FOLDER}/*`,
         // Push from CI, read as Settings → Store reads it: the Fix on failure step pushes when it is on.
         teamStore: ctx.project ? readTeamStoreInput({ cwd: ctx.project.path }) : null,
+        // Which goldens run live in CI, and the providers' keys each step's env needs.
+        goldens: ctx.project ? goldenProviders(ctx.project.path, list) : null,
       }),
     );
   });

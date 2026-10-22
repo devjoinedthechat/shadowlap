@@ -483,6 +483,7 @@ export function ciQuery(o: Partial<CiWorkflowOptions> = {}): string {
   if (o.repairer !== undefined) q.set('repairer', o.repairer);
   if (o.onlyMain !== undefined) q.set('onlyMain', o.onlyMain ? 'on' : 'off');
   if (o.secret !== undefined) q.set('secret', o.secret);
+  if (o.inconclusive !== undefined) q.set('inconclusive', o.inconclusive);
   const text = q.toString();
   return text ? `?${text}` : '';
 }

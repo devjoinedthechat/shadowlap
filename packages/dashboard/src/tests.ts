@@ -24,6 +24,10 @@ export interface GoldenSource {
   gate?: Gate | null;
   /** Its checks, as the CLI labels them. */
   checks: string[];
+  /** It has an injection gate (`injection` under `tests`), which runs it live from the call that reads the payload. */
+  injection?: boolean;
+  /** The models of its judge checks, which a golden that forks asks live. */
+  judges?: string[];
   /** Why the pack can't be read, when it can't. */
   error?: string | null;
 }

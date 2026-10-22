@@ -579,6 +579,7 @@ export function ciShown(changed: Partial<CiWorkflowOptions>, view: CiWorkflowsVi
     repairer: changed.repairer ?? view.fixOnFailure.repairer,
     onlyMain: changed.onlyMain ?? view.alerts.onlyMain,
     secret: changed.secret ?? view.alerts.secret,
+    inconclusive: changed.inconclusive ?? view.alerts.inconclusive ?? 'fail',
   };
 }
 

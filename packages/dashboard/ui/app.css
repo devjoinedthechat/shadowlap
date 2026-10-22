@@ -1551,6 +1551,7 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .cilist li + li { border-top: 1px solid var(--line); }
 .cilist li i { width: 8px; height: 8px; border-radius: 50%; background: var(--line2); }
 .cilist li i.err { background: var(--err); }
+.cilist li i.warn { background: var(--warn); }
 .cilist li span { text-wrap: balance; }
 .cilist li code { font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
 .slackmsg { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 12px; background: var(--bg2); }

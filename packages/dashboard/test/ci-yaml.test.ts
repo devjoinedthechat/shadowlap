@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACTION, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar, VERSION } from '../src/ci-yaml.js';
+import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar, VERSION } from '../src/ci-yaml.js';
 
 /** The workflow steps behind Settings → CI, checked against the action they use and the docs that show them. */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -28,11 +28,18 @@ describe('the version the steps pin', () => {
   });
 });
 
+/** What every step needs before the action in a job of its own: Node 22.16 or later, and the agent's dependencies. */
+const SETUP = ['- uses: actions/setup-node@v7', '  with:', '    node-version: 22', '- run: npm ci && npm run build   # whatever your agent needs to run'];
+/** Fix on failure's checkout: the branch itself, which its pull request goes into. */
+const BRANCH = ['- uses: actions/checkout@v7', '  with:', '    ref: ${{ github.head_ref || github.ref }}'];
+
 describe('the Fix on failure step', () => {
   it('runs the action with fix-on-failure, its budget and repairer, and says what the job needs', () => {
     expect(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code' })).toBe(
       [
         '# the job needs: permissions: { contents: write, pull-requests: write }',
+        ...BRANCH,
+        ...SETUP,
         '- run: npm install -g @anthropic-ai/claude-code',
         `- uses: devjoinedthechat/shadowlap@v${VERSION}`,
         '  with:',
@@ -59,6 +66,9 @@ describe('the Fix on failure step', () => {
       ['your agent’s provider keys: blame and verify run it live', 'env'],
       ['permission to push a branch', 'contents: write'],
       ['permission to open the pull request', 'pull-requests: write'],
+      // As handed over, in a job of its own: a branch to open the fix against, and the Node the action needs.
+      ['the branch checked out, for the fix to go into', 'ref: head_ref'],
+      ['Node 22.16 or later on the runner, not 23', 'node-version: 22'],
     ]);
     expect(fixOnFailureNever('1.00').map((x) => x[1])).toEqual(['divergence', 'rejected', '$1.00', 'merge']);
   });
@@ -73,8 +83,10 @@ describe('the Fix on failure step', () => {
     expect(oidc).toBe(
       [
         '# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }',
-        "# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints",
+        ...BRANCH,
+        ...SETUP,
         '- run: npm install -g @anthropic-ai/claude-code',
+        "# here, the bucket's credentials: the two if: steps shadowlap store ci prints",
         `- uses: devjoinedthechat/shadowlap@v${VERSION}`,
         '  with:',
         `    version: ${VERSION}`,
@@ -91,7 +103,9 @@ describe('the Fix on failure step', () => {
     );
     // Everything else is as it was: the push lines are added, none changed.
     const added = (yaml: string) => yaml.split('\n').filter((l) => !off.split('\n').includes(l));
-    expect(added(oidc)).toEqual(['# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }', "# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints", '    push: true']);
+    expect(added(oidc)).toEqual(['# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }', "# here, the bucket's credentials: the two if: steps shadowlap store ci prints", '    push: true']);
+    // The credentials steps go right before the action, after the checkout and the rest.
+    expect(oidc.indexOf("# here, the bucket's credentials")).toBe(oidc.indexOf(`\n- uses: ${ACTION}`) - "# here, the bucket's credentials: the two if: steps shadowlap store ci prints".length);
     // Keys in the repository's secrets (R2, which has no OIDC and whose token can't be kept to pr/):
     // only a job that isn't a pull request's gets them, and only it pushes, as store ci has it.
     const keys = fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'keys' });
@@ -99,6 +113,8 @@ describe('the Fix on failure step', () => {
       [
         '# the job needs: permissions: { contents: write, pull-requests: write }',
         "# and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push",
+        ...BRANCH,
+        ...SETUP,
         '- run: npm install -g @anthropic-ai/claude-code',
         `- uses: devjoinedthechat/shadowlap@v${VERSION}`,
         '  with:',
@@ -127,8 +143,9 @@ describe('the Fix on failure step', () => {
     expect(keys).toContain(`    push: ${writerIf}\n`);
     expect(fixOnFailureYaml({ budget: '5', repairer: 'openai:gpt-5', push: 'keys' })).toContain(`    repairer: openai:gpt-5\n    push: ${writerIf}\n  env:\n    OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}\n`);
     // What it needs names the bucket's credentials, after what the step needs without push.
-    expect(fixOnFailureNeeds('claude-code', 'oidc')).toEqual([...fixOnFailureNeeds('claude-code'), ['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write']]);
-    expect(fixOnFailureNeeds('anthropic', 'keys')).toEqual([...fixOnFailureNeeds('anthropic'), ['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets']]);
+    const plainNeeds = fixOnFailureNeeds('claude-code');
+    expect(fixOnFailureNeeds('claude-code', 'oidc')).toEqual([...plainNeeds.slice(0, 4), ['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write'], ...plainNeeds.slice(4)]);
+    expect(fixOnFailureNeeds('anthropic', 'keys')).toEqual([...fixOnFailureNeeds('anthropic').slice(0, 4), ['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets'], ...plainNeeds.slice(4)]);
     expect(fixOnFailureNeeds('anthropic', null)).toEqual(fixOnFailureNeeds('anthropic'));
   });
 
@@ -142,6 +159,29 @@ describe('the Fix on failure step', () => {
         expect(value, line).not.toMatch(/: | #/);
       }
     }
+  });
+
+  it('names the agent’s provider keys the goldens call, beside the repairer’s, once each', () => {
+    // An agent on OpenAI with the anthropic repairer: both keys, by name, and no comment to add them.
+    const both = fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', keys: ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] });
+    expect(both).toContain('  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}');
+    expect(both.match(/ANTHROPIC_API_KEY:/g)).toHaveLength(1);
+    expect(both.match(/OPENAI_API_KEY:/g)).toHaveLength(1);
+    expect(both).not.toContain("# and your agent's own provider keys");
+    expect(both.trimEnd().endsWith('OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}')).toBe(true);
+    // Its repairer's key alone: nothing to add, and nothing to say.
+    expect(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', keys: ['ANTHROPIC_API_KEY'] }).trimEnd().endsWith('GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}')).toBe(true);
+    // Goldens that tell nothing: the comment says to add them.
+    expect(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', keys: [] })).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic' }));
+    expect(fixOnFailureNeeds('anthropic', null, ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'])[1]).toEqual(['your agent’s provider keys: blame and verify run it live', 'OPENAI_API_KEY, ANTHROPIC_API_KEY']);
+  });
+
+  it('works as a job of its own: the branch, Node 22 and the agent’s dependencies before the action', () => {
+    const yaml = fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic' });
+    const steps = yaml.split('\n').filter((l) => l.startsWith('- '));
+    expect(steps).toEqual(['- uses: actions/checkout@v7', '- uses: actions/setup-node@v7', '- run: npm ci && npm run build   # whatever your agent needs to run', `- uses: ${ACTION}`]);
+    // The branch: a pull request's own job checks out a detached merge commit, which no fix can go into.
+    expect(yaml).toContain('- uses: actions/checkout@v7\n  with:\n    ref: ${{ github.head_ref || github.ref }}\n');
   });
 
   it('passes only inputs the action has', () => {
@@ -175,6 +215,42 @@ describe('the Alerts steps', () => {
     for (const key of withKeys(warned)) expect(inputs).toContain(key);
     expect(yaml).toContain('steps.goldens.outputs.failed');
     expect(outputs).toContain('failed');
+  });
+
+  it('work as a job of their own, with the keys of the providers the goldens that run live call', () => {
+    const yaml = alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' });
+    expect(yaml.startsWith(['- uses: actions/checkout@v7', ...SETUP, `- uses: ${ACTION}`].join('\n'))).toBe(true);
+    // Every golden replays offline: no key, no env.
+    expect(yaml).not.toContain('  env:');
+    // Two goldens fork: their provider's key goes to the test step, or they fail and Slack hears of it on every run.
+    const live = alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL', keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'] });
+    expect(live).toContain('    fail-on-divergence: false\n  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n\n- name: Tell Slack');
+    for (const key of withKeys(live)) expect(inputs).toContain(key);
+    expect(alertsNeeds('SLACK_WEBHOOK_URL', { count: 2, why: ['fork'], keys: ['ANTHROPIC_API_KEY'] })).toEqual([
+      ['an incoming webhook from your Slack workspace', 'Slack app'],
+      ['its URL as a repository secret', 'SLACK_WEBHOOK_URL'],
+      ['the test step’s outputs, by its id', 'id: goldens'],
+      ['2 goldens run live (fork)', 'ANTHROPIC_API_KEY'],
+      ['Node 22.16 or later on the runner, not 23', 'node-version: 22'],
+    ]);
+    expect(alertsNeeds('X', { count: 1, why: ['fork', 'injection gate'], keys: ['OPENAI_API_KEY', 'GEMINI_API_KEY'] })[3]).toEqual(['1 golden runs live (fork, injection gate)', 'OPENAI_API_KEY, GEMINI_API_KEY']);
+    expect(alertsNeeds('X').map((r) => r[1])).toEqual(['Slack app', 'X', 'id: goldens', 'node-version: 22']);
+  });
+
+  it('say what fails a golden: the injection gate too, and in amber what can’t be decided, unless it warns', () => {
+    const fail = alertFailures('fail');
+    expect(fail.map((r) => [r[1], r[2]])).toEqual([
+      ['diverged', 'err'],
+      ['live call', 'err'],
+      ['exit ≠ 0', 'err'],
+      ['check failed', 'err'],
+      ['injection', 'err'],
+      ['inconclusive', 'warn'],
+    ]);
+    expect(fail.at(-1)![0]).toBe('a gate, a judge or an injection test can’t decide');
+    expect(alertFailures()).toEqual(fail);
+    // Warn lets them through: they no longer fail a golden.
+    expect(alertFailures('warn').map((r) => r[1])).toEqual(['diverged', 'live call', 'exit ≠ 0', 'check failed', 'injection']);
   });
 
   it('quotes a value YAML would read as something else', () => {

@@ -528,5 +528,7 @@ describe('the jobs the screen starts', () => {
   it('asks the CI endpoint for the panels\' options, leaving out what is not set', () => {
     expect(ciQuery()).toBe('');
     expect(ciQuery({ fix: true, budget: '5.00', repairer: 'openai:gpt-5', onlyMain: false, secret: 'TEAM_HOOK' })).toBe('?fix=on&budget=5.00&repairer=openai%3Agpt-5&onlyMain=off&secret=TEAM_HOOK');
+    // The Inconclusive goldens control: the server takes it as it is.
+    expect(ciQuery({ inconclusive: 'warn' })).toBe('?inconclusive=warn');
   });
 });

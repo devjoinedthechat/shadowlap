@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { PACK_FORMAT, PACK_LIMITS, type Gate, type Normalizer } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
-import { specFor, type TestEntry, type TestSpec } from './checks.js';
+import { judgeChecksOf, specFor, type TestEntry, type TestSpec } from './checks.js';
 import { configPath, loadTests } from './config.js';
 
 /**
@@ -156,7 +156,7 @@ export function rawExpectFor(entries: readonly TestEntry[], recordingDir: string
 }
 
 /** How a golden is tested, in the words the Tests screen uses. */
-export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[] } {
+export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[]; injection: boolean; judges: string[] } {
   return {
     mode: spec?.fork ? 'fork' : 'replay',
     repeat: spec?.repeat ?? 1,
@@ -165,6 +165,9 @@ export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; re
     gate: spec?.gate ?? null,
     // The exit status is part of every golden's oracle; the screen lists the checks someone wrote.
     checks: spec ? oracleLabels(spec).slice(1) : [],
+    // What runs live in CI besides a fork: its injection gate, and the judges a fork asks.
+    injection: !!spec?.injection,
+    judges: spec ? [...new Set(judgeChecksOf(spec).map((j) => j.model))] : [],
   };
 }
 
@@ -179,6 +182,10 @@ export interface GoldenInfo {
   /** Its gate under `tests`, or null: then `repeat` and `passes` decide. */
   gate: Gate | null;
   checks: string[];
+  /** It has an injection gate, which runs it live from the call that reads the payload. */
+  injection: boolean;
+  /** The models of its judge checks (`claude-haiku-4-5`, `openai:gpt-5.5`). */
+  judges: string[];
   error: string | null;
 }
 

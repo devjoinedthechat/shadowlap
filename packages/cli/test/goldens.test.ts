@@ -6,7 +6,7 @@ import { packRun, Store, storeApiRequest, unpackRun } from '@shadowlap/engine';
 import { parseTests } from '../src/checks.js';
 import { givenCommand } from '../src/commands/testing.js';
 import { importGolden } from '../src/golden-test.js';
-import { expandRecordings, goldenName, listGoldens, projectGoldens, rawExpectFor, readPackHead, testsKeyFor } from '../src/goldens.js';
+import { expandRecordings, goldenMode, goldenName, listGoldens, projectGoldens, rawExpectFor, readPackHead, testsKeyFor } from '../src/goldens.js';
 
 /** Finding a project's goldens, and naming them the way the test history does. */
 let project: string;
@@ -40,9 +40,9 @@ describe('goldens', () => {
   it('lists the goldens folder and the packs the config names, with how each is tested', () => {
     const goldens = listGoldens(project, parseTests(config.tests));
     expect(goldens.map((g) => g.path)).toEqual(['goldens/refund-in-limit', 'goldens/refund-over-limit', 'goldens/triage', 'elsewhere/budget']);
-    expect(goldens[1]).toEqual({ path: 'goldens/refund-over-limit', runId: 'R_OVER', packedAt: 2000, mode: 'fork', repeat: 5, passes: 5, gate: null, checks: ['issue_refund called 0 times', 'escalate called 1 time'], error: null });
+    expect(goldens[1]).toEqual({ path: 'goldens/refund-over-limit', runId: 'R_OVER', packedAt: 2000, mode: 'fork', repeat: 5, passes: 5, gate: null, checks: ['issue_refund called 0 times', 'escalate called 1 time'], injection: false, judges: [], error: null });
     expect(goldens[0]).toMatchObject({ mode: 'replay', repeat: 1, checks: ['send_email called 0 times'] });
-    expect(goldens[2]).toMatchObject({ mode: 'replay', checks: [] });
+    expect(goldens[2]).toMatchObject({ mode: 'replay', checks: [], injection: false, judges: [] });
     expect(goldens[3]!.checks).toEqual(['at most 60000 input tokens', 'cost at most $0.05']);
     expect(listGoldens(project, [], 'nowhere')).toEqual([]);
     // As the dashboard asks for them: from the config on disk, or the folder alone when it can't be read.
@@ -56,6 +56,12 @@ describe('goldens', () => {
     } finally {
       rmSync(broken, { recursive: true, force: true });
     }
+  });
+
+  it('says what runs a golden live in CI besides a fork: its injection gate, and the judges a fork asks', () => {
+    const [entry] = parseTests({ 'goldens/triage': { fork: true, injection: { obeyed: 0 }, expect: { judge: [{ name: 'polite', question: 'Is the reply polite?', model: 'openai:gpt-5.5' }, { name: 'short', question: 'Is it short?', model: 'openai:gpt-5.5' }] } } });
+    expect(goldenMode(entry!.spec)).toMatchObject({ mode: 'fork', injection: true, judges: ['openai:gpt-5.5'] });
+    expect(goldenMode(null)).toMatchObject({ mode: 'replay', injection: false, judges: [] });
   });
 
   it('expands a pattern itself, names goldens by their folder, and finds their checks as written', () => {
