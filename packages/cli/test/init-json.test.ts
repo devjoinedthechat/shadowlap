@@ -72,6 +72,7 @@ describe('shadowlap init --json', () => {
       command: 'uv run agent.py',
       commandFrom: 'the entry file agent.py',
       config: 'wrote an empty shadowlap.config.json',
+      node: null,
     });
     expect(j.folder).toMatchObject({ kind: 'Python · uv', label: 'Python · uv · pyproject.toml · uv.lock', files: ['pyproject.toml', 'uv.lock'] });
     // Everything the report had is still there, for scripts that read it.
@@ -145,7 +146,8 @@ export const tools = {
 `,
     });
     const j = json(dir);
-    expect(j.summary).toMatchObject({ language: 'Node 22 · TypeScript · pnpm', sdk: '@ai-sdk/anthropic 3.0.0', framework: 'Vercel AI SDK 7.0.0', command: 'pnpm agent' });
+    // The pin with its minor, as for Python: 22.13, not 22.
+    expect(j.summary).toMatchObject({ language: 'Node 22.13 · TypeScript · pnpm', sdk: '@ai-sdk/anthropic 3.0.0', framework: 'Vercel AI SDK 7.0.0', command: 'pnpm agent', node: { version: '22.13', from: '.nvmrc', tooOld: false } });
     expect(j.wrap).toEqual([
       { language: 'typescript', tools: ['delete_record', 'search-docs'], code: "import { withEffects } from '@shadowlap/adapters/ai-sdk';\n\nconst tools = withEffects({ … }, { delete_record: 'write', 'search-docs': 'read' });" },
     ]);
@@ -188,6 +190,58 @@ export const tools = {
       ['save_report', 'write', false, 'agent.py'],
       ['notify_slack', 'write', false, 'agent.py'],
     ]);
+  });
+});
+
+/** The CLI's environment in a test: no colour, no telemetry, and a project list of its own. */
+const cliEnv = (home: string) => ({ ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: home });
+
+describe('a Node pin', () => {
+  const NODE18 = { 'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/sdk': '0.30.0' } }), 'package-lock.json': '{}', 'agent.mjs': "import Anthropic from '@anthropic-ai/sdk';\n" };
+
+  it('keeps its minor, and says when it is older than the 18.18 the guard needs, for the setup to flag', () => {
+    const j = json(project({ ...NODE18, '.nvmrc': '18.17\n' }));
+    expect(j.summary).toMatchObject({ language: 'Node 18.17 · npm', node: { version: '18.17', from: '.nvmrc', tooOld: true } });
+    expect(initFindings(j, 1).nodePin).toEqual({ version: '18.17', from: '.nvmrc' });
+    // A major alone names its newest release; .node-version counts as .nvmrc does.
+    expect(json(project({ ...NODE18, '.node-version': '18\n' })).summary.node).toEqual({ version: '18', from: '.node-version', tooOld: false });
+    expect(json(project({ ...NODE18, '.nvmrc': 'v16.20.2\n' })).summary.node).toMatchObject({ version: '16.20', tooOld: true });
+    // None pinned, or not a version.
+    expect(json(project(NODE18)).summary.node).toBeNull();
+    expect(json(project({ ...NODE18, '.nvmrc': 'lts/*\n' })).summary.node).toBeNull();
+    expect(initFindings(json(project(NODE18)), 1).nodePin).toBeNull();
+  });
+
+  it('is flagged in a terminal, before the steps', () => {
+    const dir = project({ ...NODE18, '.nvmrc': '18.17\n' });
+    const text = spawnSync(process.execPath, [CLI, 'init'], { cwd: dir, encoding: 'utf8', env: cliEnv(tempDir('sl-initjson-node-')) });
+    expect(text.status).toBe(0);
+    expect(text.stdout).toContain("! .nvmrc pins Node 18.17, too old for Shadowlap's guard, which needs Node 18.18 or later: the agent wouldn't start. Pin 18.18 or later before you record.");
+    expect(text.stdout.indexOf('.nvmrc pins')).toBeLessThan(text.stdout.indexOf('1. Install'));
+  });
+});
+
+describe('shadowlap init as a dashboard job', () => {
+  it('prints only what it found, as the drawer beside the setup shows it, and ends on what it did with the config', async () => {
+    const slHome = tempDir('sl-initjson-drawer-');
+    const dir = project({ ...RESEARCH, '.nvmrc': '18.17\n', 'package.json': '{}', 'agent.mjs': '' });
+    const child = spawn(process.execPath, [CLI, 'init'], { cwd: dir, env: { ...cliEnv(slHome), SHADOWLAP_EVENTS_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
+    const out: Buffer[] = [];
+    child.stdout!.on('data', (c: Buffer) => out.push(c));
+    (child.stdio[3] as NodeJS.ReadableStream).resume();
+    expect(await new Promise<number | null>((resolve) => child.on('close', resolve))).toBe(0);
+    const lines = Buffer.concat(out).toString('utf8').trimEnd().split('\n');
+    expect(lines[0]).toBe(`▸ reading ${dir} · runs nothing`);
+    expect(lines).toContain('  model SDK    anthropic 0.69.0');
+    expect(lines).toContain('  framework    Pydantic AI');
+    expect(lines).toContain('  tool         search_filings  read');
+    // A tool that isn't wrapped is flagged, with what it suggests and why.
+    expect(lines.filter((l) => l.startsWith('! tool')).map((l) => l.replace(/ \(.*\)$/, ''))).toEqual(['! tool         save_report  not wrapped · suggest write', '! tool         notify_slack  not wrapped · suggest write']);
+    expect(lines.find((l) => l.startsWith('! node'))).toBe("! node         .nvmrc pins Node 18.17, too old for Shadowlap's guard, which needs Node 18.18 or later: the agent wouldn't start. Pin 18.18 or later before you record.");
+    // It ends on the config, and leaves out the steps a terminal gets: the setup's own buttons are those.
+    expect(lines.at(-1)).toBe('✓ wrote shadowlap.config.json (empty)');
+    const text = lines.join('\n');
+    for (const step of ['1. Install', 'Record a run', 'shadowlap replay', 'shadowlap dashboard', 'Created shadowlap.config.json']) expect(text).not.toContain(step);
   });
 });
 

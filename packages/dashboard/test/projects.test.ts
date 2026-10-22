@@ -215,6 +215,25 @@ describe('setupView', () => {
     });
   });
 
+  it('flags a Node pinned before 18.18, where the agent wouldn’t start, and keeps Record off until it is raised', () => {
+    const node = (version: string) => findings({ language: `Node ${version} · npm`, tools: [], wrap: [], nodePin: { version, from: '.nvmrc' } });
+    const old = view(entry('triage-bot', { stage: 'inspected', findings: node('18.17') }), facts());
+    expect(old.inspect.findings!.rows[0]).toMatchObject({ label: 'Language', value: 'Node 18.17 · npm' });
+    expect(old.inspect.node).toEqual({
+      title: 'Node 18.17 is too old for Shadowlap’s guard.',
+      text: '.nvmrc pins it, and an agent on a Node before 18.18 never starts under Shadowlap: that Node refuses the guard Shadowlap loads into it. Pin 18.18 or later to record.',
+      recheck: { label: 'I raised it, check again', action: 'recheck' },
+    });
+    expect(old.record).toMatchObject({ text: 'Waits for a Node pin of 18.18 or later: .nvmrc pins 18.17, where the agent wouldn’t start under Shadowlap.', command: { enabled: false }, button: { label: 'Record a run', enabled: false } });
+    // Raised, or a major alone (its newest release), or none at all: nothing to flag, and Record is on.
+    for (const pin of ['18.18', '18', '22']) {
+      const ok = view(entry('triage-bot', { stage: 'inspected', findings: node(pin) }), facts());
+      expect(ok.inspect.node, pin).toBeNull();
+      expect(ok.record.button, pin).toMatchObject({ enabled: true });
+    }
+    expect(view(entry('research-agent', { stage: 'inspected', findings: findings() }), facts()).inspect.node).toBeNull();
+  });
+
   it('follows the recording as it streams in', () => {
     const p = entry('research-agent', { stage: 'inspected', findings: findings(), runId: RUN, command: ['uv', 'run', 'research-agent'] });
     const v = view(p, facts({ runs: 1, recordings: [run('running')], live: true }), { run: { runId: RUN, status: 'running', calls: 3, spent: 0.01, durationMs: null } });

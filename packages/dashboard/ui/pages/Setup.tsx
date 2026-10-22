@@ -419,6 +419,16 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
           </div>
         </div>
       ) : null}
+      {step.node ? (
+        <div className="warnbox">
+          <b>{step.node.title}</b> {step.node.text}
+          <div className="actions">
+            <button className="btn" type="button" disabled={!!why} title={why ?? undefined} onClick={() => onInspect(true)}>
+              {step.node.recheck.label}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </SetupStep>
   );
 }

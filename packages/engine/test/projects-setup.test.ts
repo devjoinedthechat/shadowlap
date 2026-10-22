@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store, recordEvent } from '../src/index.js';
-import { LIVE_RUN_MS, calibrationOutcome, countRunsAndAttempts, deriveSetup, earlierStage, emptyStoreFacts, initialSetup, isLiveRun, laterStage, readStoreFacts, runTotals, stageAtLeast, storeFacts, type RunFact, type SetupFindings, type StoreFacts } from '../src/projects/index.js';
+import { AGENT_NODE_MIN, LIVE_RUN_MS, calibrationOutcome, countRunsAndAttempts, deriveSetup, earlierStage, emptyStoreFacts, initialSetup, isLiveRun, laterStage, nodePinTooOld, readStoreFacts, runTotals, stageAtLeast, storeFacts, type RunFact, type SetupFindings, type StoreFacts } from '../src/projects/index.js';
 
 const dirs: string[] = [];
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -404,5 +404,15 @@ describe('calibrationOutcome', () => {
     expect(calibrationOutcome(already, { write: true })).toEqual({ done: true, added: [{ path: '$.metadata.user_id', why: null }], proposed: [], stopped: null });
     // Stopped short with --write: what it found is in the config, and the step isn't done.
     expect(calibrationOutcome(result({ clean: false, normalizers: [uuid], stopped: { why: 'a change Shadowlap cannot tell apart from a real one' } }), { write: true })).toEqual({ done: false, added: [{ path: '$.metadata.user_id', why: null }], proposed: [], stopped: 'a change Shadowlap cannot tell apart from a real one' });
+  });
+});
+
+describe('nodePinTooOld', () => {
+  it('flags a Node pinned before the 18.18 the guard needs, its minor kept, and a major alone as its newest release', () => {
+    expect(AGENT_NODE_MIN).toBe('18.18');
+    expect(['18.17', 'v18.17.1', '16', '16.20', '18.0'].map(nodePinTooOld)).toEqual([true, true, true, true, true]);
+    expect(['18.18', '18', '18.20.4', '20', '22.16', 'v24'].map(nodePinTooOld)).toEqual([false, false, false, false, false, false]);
+    // Not a version: nothing to say.
+    expect(['lts/*', 'node', ''].map(nodePinTooOld)).toEqual([null, null, null]);
   });
 });

@@ -82,6 +82,32 @@ export interface SetupFindings {
    * forwards there (`SHADOWLAP_UPSTREAM_OPENAI`). Absent in findings an older version kept.
    */
   modelServer?: ModelServer | null;
+  /**
+   * The Node the project pins in `.nvmrc` or `.node-version`, its minor kept (`18.17`, or `22` for a
+   * major alone), and the file it is in. Absent in findings an older version kept.
+   */
+  nodePin?: { version: string; from: string } | null;
+}
+
+/**
+ * The oldest Node an agent can run on under Shadowlap: the guard and in-process capture go into it
+ * through `--import` in NODE_OPTIONS, which Node takes from 18.18 on. An older one refuses them and
+ * exits before any of the agent runs.
+ */
+export const AGENT_NODE_MIN = '18.18';
+
+/**
+ * Whether a pinned Node (`18.17`, `16`, `v18.17.1`) is older than {@link AGENT_NODE_MIN}. A major
+ * alone names that major's newest release, so `18` is new enough and `16` isn't. Null for what isn't
+ * a version (`lts/*`, `node`).
+ */
+export function nodePinTooOld(version: string): boolean | null {
+  const m = /^\s*v?(\d+)(?:\.(\d+))?/.exec(version);
+  if (!m) return null;
+  const [minMajor, minMinor] = AGENT_NODE_MIN.split('.').map(Number) as [number, number];
+  const major = Number(m[1]);
+  if (major !== minMajor) return major < minMajor;
+  return m[2] !== undefined && Number(m[2]) < minMinor;
 }
 
 /** Tools found but not wrapped: a replay runs them for real, since their calls aren't recorded. */

@@ -1,7 +1,9 @@
 import {
+  AGENT_NODE_MIN,
   UPSTREAM_ENV,
   defaultGolden,
   nameConfirms,
+  nodePinTooOld,
   quoteArgv,
   setupCommands,
   stageAtLeast,
@@ -296,6 +298,11 @@ export interface InspectStep extends StepBase {
   folded: boolean;
   /** Tools that aren't wrapped: what that means, the code to wrap them, and the re-check. */
   warning: { title: string; text: string; code: WrapSnippet[]; copy: string; recheck: { label: string; action: 'recheck' } } | null;
+  /**
+   * The project pins a Node older than Shadowlap's guard takes (18.18): an agent on it wouldn't
+   * start, so Record waits until the pin is raised and the folder checked again.
+   */
+  node: { title: string; text: string; recheck: { label: string; action: 'recheck' } } | null;
 }
 
 export interface RecordStep extends StepBase {
@@ -423,6 +430,8 @@ export function setupView(input: SetupInput): SetupView {
   const writes = unwrapped.filter((t) => t.effect === 'write');
   const one = unwrapped.length === 1;
   const passedInspect = !findings && (stageAtLeast(stage, 'recorded') || live);
+  // A Node pinned below what the guard takes: the agent wouldn't start, so recording waits for it.
+  const oldNode = findings?.nodePin && nodePinTooOld(findings.nodePin.version) ? findings.nodePin : null;
   const inspect: InspectStep = {
     key: 'inspect',
     n: 1,
@@ -446,13 +455,22 @@ export function setupView(input: SetupInput): SetupView {
             recheck: { label: `I wrapped ${one ? 'it' : 'them'}, check again`, action: 'recheck' },
           }
         : null,
+    node: oldNode
+      ? {
+          title: `Node ${oldNode.version} is too old for Shadowlap’s guard.`,
+          text: `${oldNode.from} pins it, and an agent on a Node before ${AGENT_NODE_MIN} never starts under Shadowlap: that Node refuses the guard Shadowlap loads into it. Pin ${AGENT_NODE_MIN} or later to record.`,
+          recheck: { label: 'I raised it, check again', action: 'recheck' },
+        }
+      : null,
   };
 
   // 2 · Record a first run
   const missed = recorded ? setup.unwrappedAtRecord : [];
   // A model server the dashboard can't forward to (credentials in its address, or not a plain URL) is recorded in a terminal.
-  const canRecord = inspected && !(server && !server.upstream);
-  const recordText = !server
+  const canRecord = inspected && !(server && !server.upstream) && !oldNode;
+  const recordText = oldNode
+    ? `Waits for a Node pin of ${AGENT_NODE_MIN} or later: ${oldNode.from} pins ${oldNode.version}, where the agent wouldn’t start under Shadowlap.`
+    : !server
     ? 'Runs the command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.'
     : server.upstream
       ? `Runs the command once with a local sidecar in front of your model server. Model calls go to ${server.url}, the model server this project uses.`

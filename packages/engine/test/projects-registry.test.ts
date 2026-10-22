@@ -504,6 +504,20 @@ describe('ProjectRegistry: setup', () => {
     expect(registry.noteInspected('local-agent', findings()).setup.findings?.modelServer).toBeNull();
   });
 
+  it('keeps the Node the project pins, and reads findings without one as pinning none', () => {
+    const { registry, agent } = setup();
+    agent('node-agent');
+    registry.add('~/node-agent');
+    expect(registry.noteInspected('node-agent', findings({ nodePin: { version: '18.17', from: '.nvmrc' } })).setup.findings?.nodePin).toEqual({ version: '18.17', from: '.nvmrc' });
+    expect(registry.get('node-agent')!.setup.findings?.nodePin).toEqual({ version: '18.17', from: '.nvmrc' });
+    expect(registry.noteInspected('node-agent', findings()).setup.findings?.nodePin).toBeNull();
+    // One written by hand that isn't a pin is none.
+    const raw = JSON.parse(readFileSync(registry.file, 'utf8')) as { projects: Array<{ setup: { findings: Record<string, unknown> } }> };
+    raw.projects[0]!.setup.findings.nodePin = { version: 18 };
+    writeFileSync(registry.file, JSON.stringify(raw));
+    expect(registry.get('node-agent')!.setup.findings?.nodePin).toBeNull();
+  });
+
   it('remembers the commands confirmed in each folder, exactly, the newest twenty', () => {
     const { registry, agent } = setup();
     agent('triage-bot');

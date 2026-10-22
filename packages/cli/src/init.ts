@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Effect } from '@shadowlap/engine';
-import { ProjectRegistry, describeFolder, modelServerFinding, type FolderKind, type ModelServer, type RegistryOptions, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
+import { AGENT_NODE_MIN, ProjectRegistry, describeFolder, modelServerFinding, nodePinTooOld, type FolderKind, type ModelServer, type RegistryOptions, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
 import { CONFIG_FILE, CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
 import { providers as sidecarProviders } from '@shadowlap/sidecar';
 import { quoteArgv } from './ui.js';
@@ -865,6 +865,11 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean, { gl
     out(`${p.yellow('!')} No model SDK found (Anthropic, OpenAI, Gemini, Azure OpenAI, Vertex AI, Bedrock). An HTTP client of your own is recorded when it calls one of those APIs from Node or Python, or when it reads ANTHROPIC_BASE_URL, OPENAI_BASE_URL or GOOGLE_GEMINI_BASE_URL.`);
     out();
   }
+  const oldNode = tooOldNode(r);
+  if (oldNode) {
+    out(`${p.yellow('!')} ${nodePinWords(oldNode)}`);
+    out();
+  }
 
   let step = 0;
   const head = (title: string) => {
@@ -920,6 +925,32 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean, { gl
   return lines.join('\n');
 }
 
+/**
+ * What `init` prints as a dashboard job, whose drawer sits beside the setup's own steps: only what it
+ * found, a line each, as the design's drawer has it, ending on what it did with shadowlap.config.json.
+ * The next steps a terminal gets are the setup's own buttons there, so they are left out.
+ */
+export function formatInitJob(json: InitJson, p: Palette): string {
+  const lines: string[] = [];
+  const s = json.summary;
+  const row = (label: string, value: string, warn = false) => lines.push(`${warn ? p.yellow('!') : ' '} ${label.padEnd(13)}${value}`);
+  lines.push(`▸ reading ${json.cwd} · runs nothing`);
+  if (!json.languages.length) {
+    lines.push(`${p.yellow('!')} No package.json, pyproject.toml or source files here: no project to inspect.`);
+    return lines.join('\n');
+  }
+  row('language', `${s.language ?? 'not recognised'}${json.folder.files.length ? ` (${json.folder.files.join(', ')})` : ''}`);
+  if (s.node?.tooOld) row('node', nodePinWords(s.node), true);
+  row('model SDK', s.sdk ?? 'none found', !s.sdk);
+  if (json.modelServer) row('model server', `${json.modelServer.url}   from ${json.modelServer.from}`);
+  row('framework', s.framework ?? 'none detected');
+  row('command', s.command ? `${s.command}   from ${s.commandFrom ?? 'the project'}` : 'none found');
+  for (const t of json.tools) row('tool', t.wrapped ? `${t.name}  ${t.effect}` : `${t.name}  not wrapped · suggest ${t.suggested} (${t.why})`, !t.wrapped);
+  for (const w of json.hardcodedBaseUrls.filter((x) => !captured(x.url))) row('base URL', `${w.file}:${w.line} sets ${w.url}, a host Shadowlap doesn't know: calls through it aren't recorded`, true);
+  lines.push(json.config.created ? `${p.green('✓')} wrote ${basename(json.config.path)} (empty)` : `  ${s.config}`);
+  return lines.join('\n');
+}
+
 // ---------------------------------------------------------------------------------------------
 // `init --json`: the findings as the dashboard's setup shows them
 
@@ -955,6 +986,11 @@ export interface InitJson extends Omit<InitReport, 'tools' | 'config' | 'modelSe
     commandFrom: string | null;
     /** What happened to shadowlap.config.json. */
     config: string;
+    /**
+     * The Node the project pins (`.nvmrc`, `.node-version`), its minor kept, and whether it is older
+     * than Shadowlap's guard takes (18.18): an agent on it wouldn't start. Null without a pin.
+     */
+    node: { version: string; from: string; tooOld: boolean } | null;
   };
   tools: InitJsonTool[];
   /** Names of the tools that aren't wrapped: a replay runs them for real, since their calls aren't recorded. */
@@ -974,13 +1010,29 @@ function readText(path: string, limit = 2 * 1024 * 1024): string {
   }
 }
 
-/** The runtime version a project pins: `.python-version` (3.12), `.nvmrc` or `.node-version` (22). */
-function pinnedVersion(cwd: string, files: string[], minor: boolean): string | null {
+/** The runtime version a project pins, its minor kept: `.python-version` (3.12), `.nvmrc` or `.node-version` (18.17, or 22 for a major alone). */
+function pinnedVersion(cwd: string, files: string[]): { version: string; from: string } | null {
   for (const f of files) {
     const m = /^\s*v?(\d+)(?:\.(\d+))?/.exec(readText(join(cwd, f), 4096));
-    if (m) return minor && m[2] ? `${m[1]}.${m[2]}` : m[1]!;
+    if (m) return { version: m[2] ? `${m[1]}.${m[2]}` : m[1]!, from: f };
   }
   return null;
+}
+
+/** The Node a JavaScript or TypeScript project pins (`.nvmrc`, `.node-version`), or null. */
+function nodePinOf(cwd: string, languages: readonly Language[]): { version: string; from: string } | null {
+  return languages.includes('typescript') || languages.includes('javascript') ? pinnedVersion(cwd, ['.nvmrc', '.node-version']) : null;
+}
+
+/** The project's Node pin when it is older than the guard takes (AGENT_NODE_MIN), or null. */
+function tooOldNode(r: Pick<InitReport, 'cwd' | 'languages'>): { version: string; from: string } | null {
+  const pin = nodePinOf(r.cwd, r.languages);
+  return pin && nodePinTooOld(pin.version) ? pin : null;
+}
+
+/** What `init` says of a Node pin the guard can't go into: the agent wouldn't start under Shadowlap. */
+export function nodePinWords(pin: { version: string; from: string }): string {
+  return `${pin.from} pins Node ${pin.version}, too old for Shadowlap's guard, which needs Node ${AGENT_NODE_MIN} or later: the agent wouldn't start. Pin ${AGENT_NODE_MIN} or later before you record.`;
 }
 
 const cleanVersion = (v: string) => v.replace(/^[\^~>=<v\s]+/, '').split(/[\s,|]/)[0]!;
@@ -1066,8 +1118,8 @@ function languageLine(cwd: string, r: InitReport, folder: FolderKind): string | 
   const parts: string[] = [];
   const python = r.languages.includes('python');
   const node = r.languages.includes('typescript') || r.languages.includes('javascript');
-  if (python) parts.push(['Python', pinnedVersion(cwd, ['.python-version'], true)].filter(Boolean).join(' '));
-  if (node) parts.push(['Node', pinnedVersion(cwd, ['.nvmrc', '.node-version'], false)].filter(Boolean).join(' '));
+  if (python) parts.push(['Python', pinnedVersion(cwd, ['.python-version'])?.version].filter(Boolean).join(' '));
+  if (node) parts.push(['Node', pinnedVersion(cwd, ['.nvmrc', '.node-version'])?.version].filter(Boolean).join(' '));
   if (r.languages.includes('typescript')) parts.push('TypeScript');
   if (!parts.length) return folder.kind;
   // With both, the folder knows a manager for each side; the report keeps one.
@@ -1122,6 +1174,7 @@ export function initJson(r: InitReport, wroteConfig: boolean): InitJson {
     return version ? `${n} ${version}` : n;
   });
   const configName = basename(r.config.path);
+  const node = nodePinOf(r.cwd, r.languages);
   return {
     ...r,
     config: { ...r.config, created: wroteConfig },
@@ -1136,6 +1189,7 @@ export function initJson(r: InitReport, wroteConfig: boolean): InitJson {
       command: r.command ? quoteArgv(r.command.argv) : null,
       commandFrom: r.command?.from ?? null,
       config: wroteConfig ? `wrote an empty ${configName}` : r.config.existed ? `${configName} exists · left as it is` : `no ${configName} written: no project found here`,
+      node: node ? { ...node, tooOld: nodePinTooOld(node.version) === true } : null,
     },
     tools: r.tools.map((t) => ({ ...t, wrapped: t.effect !== null })),
     unwrapped: r.tools.filter((t) => !t.effect).map((t) => t.name),
@@ -1159,6 +1213,8 @@ export function initFindings(json: InitJson, at: number = Date.now()): SetupFind
     wrap: json.wrap,
     // Recording from the dashboard forwards there, as init tells a terminal to; never with credentials.
     modelServer: json.modelServer ? modelServerFinding({ url: json.modelServer.url, upstream: json.modelServer.upstream, from: json.modelServer.from }) : null,
+    // The setup's first step flags one older than the guard takes, and Record waits for it.
+    nodePin: json.summary.node ? { version: json.summary.node.version, from: json.summary.node.from } : null,
   };
 }
 

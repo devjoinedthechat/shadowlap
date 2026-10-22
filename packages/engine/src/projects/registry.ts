@@ -181,6 +181,7 @@ function toFindings(raw: unknown): SetupFindings | null {
       .filter((w) => typeof w.code === 'string')
       .map((w) => ({ ...w, language: w.language === 'python' || w.language === 'typescript' ? w.language : 'javascript', tools: strings(w.tools), code: String(w.code) })),
     modelServer: toModelServer(raw.modelServer),
+    nodePin: isObject(raw.nodePin) && typeof raw.nodePin.version === 'string' ? { version: raw.nodePin.version, from: str(raw.nodePin.from) ?? '.nvmrc' } : null,
   };
 }
 
@@ -299,6 +300,7 @@ function boundedFindings(f: SetupFindings): SetupFindings {
     tools: f.tools.slice(0, MAX_TOOLS),
     wrap: f.wrap.map((w) => ({ ...w, code: w.code.length > MAX_WRAP_CHARS ? `${w.code.slice(0, MAX_WRAP_CHARS)}\n…` : w.code })),
     modelServer: f.modelServer ? modelServerFinding({ url: f.modelServer.url, upstream: f.modelServer.upstream ?? '', from: f.modelServer.from }) : null,
+    nodePin: f.nodePin ? { version: f.nodePin.version.slice(0, 32), from: f.nodePin.from.slice(0, 64) } : null,
   };
 }
 

@@ -17,7 +17,7 @@ The first release: record, replay and fork AI agent runs, find the call that los
 - **MCP servers** behind `shadowlap mcp -- <server>`, a stdio proxy that records, replays and fences `tools/call`, with effects from the tools' annotations.
 - **Framework adapters**, each tested against the real framework: the Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain and LangGraph and the Anthropic tool runner in TypeScript; Pydantic AI, the OpenAI Agents SDK, LangGraph and CrewAI in Python.
 - **Scopes** for parts of an agent that run at once, so concurrent sub-agents keep their own recorded answers.
-- **`shadowlap init`** finds a project's model SDKs, framework, agent command and tools, suggests an effect for each tool, warns about a client that bypasses the sidecar, and prints the steps to a first recording.
+- **`shadowlap init`** finds a project's model SDKs, framework, agent command and tools, suggests an effect for each tool, warns about a client that bypasses the sidecar and about a Node pinned before 18.18, and prints the steps to a first recording.
 - **`shadowlap doctor`** checks Node and its SQLite, the guard preloads, Python, the store and the configuration, and gives the fix for each problem it finds.
 - **The Node it needs, in one line.** The CLI runs on Node 22.16 or later, not 23, whose built-in SQLite has the full-text search every store uses; on another it says so before it loads. An agent on a Node before 18.18, which refuses the guard's preload, is named the same way, and no empty run is kept of it. When a launcher such as `npx node@18.17.0` picks that Node, `run` and `replay` can't ask it: they keep the empty run, and its summary says what Node's refusal above it means.
 
