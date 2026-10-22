@@ -194,6 +194,10 @@ describe('what made a fork, when it changed an answer', () => {
     const model = pair(policy, policy, [{ kind: 'model', at: 2, flag: '--model 2:claude-opus-5' }]);
     expect(compare(model).intervention).toBeNull();
     model.store.close();
+    // An override that left the call answered as recorded changed nothing there.
+    const unchanged = pair(policy, { ...policy, origin: 'overridden' }, [{ kind: 'override', at: 2, flag: '--override 2=…' }], 3);
+    expect(compare(unchanged).intervention).toBeNull();
+    unchanged.store.close();
     // A request changed at #1, before the override at #2: #2 no longer pairs with the recording's.
     const early = pair(policy, { ...policy, origin: 'overridden', result: { approval: 'none' } }, [{ kind: 'override', at: 2, flag: '--override 2=…' }], 1);
     expect(compare(early).intervention).toBeNull();

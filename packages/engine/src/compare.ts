@@ -329,6 +329,8 @@ function interventionOf(store: Store, side: 'a' | 'b', parent: CallRecord[], chi
   const was = parent.find((c) => c.callNo === n);
   const now = childCalls.find((c) => c.callNo === n);
   if (!was || !now || was.kind !== now.kind || was.name !== now.name) return null;
+  // A failure, an override or a plant that left the call answered as recorded changed nothing there.
+  if (iv.flag !== '--diverge-at' && was.end?.responseRef && was.end.responseRef === now.end?.responseRef && was.end.outcome === now.end.outcome) return null;
   const flag = iv.value ? `${iv.flag} ${iv.value}` : iv.flag;
   const value = (iv.value ?? '').replace(/^\d+[=:]/, '');
   const base = { run: side, flag, callNo: n, name: now.name };
