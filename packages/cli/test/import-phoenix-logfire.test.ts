@@ -1,0 +1,201 @@
+import { readFileSync } from 'node:fs';
+import { createServer, type IncomingMessage, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { afterEach, describe, expect, it } from 'vitest';
+import { Store } from '@shadowlap/engine';
+import { fetchLogfireRecords, logfireHost, readLogfire } from '../src/import-logfire.js';
+import { fetchPhoenixSpans, phoenixHostFromEnv, readPhoenix } from '../src/import-phoenix.js';
+import { importTrace, providerRequest, type TraceModelCall, type TraceToolCall } from '../src/import-trace.js';
+
+/**
+ * The Phoenix and Logfire importers. The fixtures are what the real tools gave for one run of a refund
+ * agent on the Anthropic SDK (order A-1042, refunded $240): Phoenix 20 answering its REST API for the
+ * trace OpenInference's Anthropic instrumentation sent it, once from an agent that passes the request's
+ * blocks back as plain dicts and once as the SDK's own objects; and the spans the Logfire SDK wrote,
+ * with `logfire.instrument_anthropic()` and with Pydantic AI's instrumentation, as rows of the
+ * `records` table its query API reads.
+ */
+
+const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/traces/${name}`, import.meta.url), 'utf8')) as { data: Array<Record<string, unknown>> };
+const PHOENIX_TRACE = '4a2db41deabc4aec332fb9fbfa0fc3e2';
+const PHOENIX_SDK_OBJECTS = '3e4096353fce83a482ccbf37d3f1291c';
+const LOGFIRE_ANTHROPIC = '01a16460e2f311342463057f62b79fa9';
+const LOGFIRE_PYDANTIC_AI = '01a1645823196b3b712c68b9ad92e363';
+const logfireRows = (trace: string) => fixture('logfire-records.json').data.filter((r) => r.trace_id === trace);
+
+const models = (calls: Array<TraceModelCall | TraceToolCall>) => calls.filter((c): c is TraceModelCall => c.kind === 'model').sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
+const tools = (calls: Array<TraceModelCall | TraceToolCall>) => calls.filter((c): c is TraceToolCall => c.kind === 'tool').sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
+const turns = (c: TraceModelCall) => c.messages.map((m) => `${m.role}:${m.parts.map((p) => p.type).join('+')}`);
+
+describe('import phoenix: OpenInference spans from its REST API', () => {
+  it('reads LLM spans as model calls, rebuilt from the request the Anthropic instrumentation logged, and TOOL spans as tool calls', () => {
+    const trace = readPhoenix(fixture('phoenix-spans.json').data, PHOENIX_TRACE);
+    expect(trace).toMatchObject({ id: PHOENIX_TRACE, spans: 6, skipped: [] });
+    const calls = models(trace.calls);
+    expect(calls).toHaveLength(3);
+    for (const c of calls) {
+      // The model the agent asked for, not the one that answered (llm.model_name).
+      expect(c).toMatchObject({ provider: 'anthropic', model: 'claude-sonnet-5', settings: { maxTokens: 1024 }, stream: false });
+      expect(c.rawRequest).toMatchObject({ model: 'claude-sonnet-5', max_tokens: 1024, system: 'You are a support agent. Follow the refund policy.' });
+      expect(c.rawResponse).toMatchObject({ type: 'message', role: 'assistant' });
+      expect(c.tools?.map((t) => t.name)).toEqual(['lookup_order', 'issue_refund']);
+    }
+    expect(calls.map((c) => c.output?.parts.map((p) => (p.type === 'tool_call' ? p.name : p.type)))).toEqual([['text', 'lookup_order'], ['text', 'issue_refund'], ['text']]);
+    expect(tools(trace.calls).map((t) => [t.name, t.args, t.output])).toEqual([
+      ['lookup_order', { order_id: 'A-1042' }, { order_id: 'A-1042', total: 240, status: 'delivered' }],
+      ['issue_refund', { order_id: 'A-1042', amount: 240 }, { refunded: 240, order_id: 'A-1042' }],
+    ]);
+  });
+
+  it('rebuilds from the logged messages where the instrumentation logged the SDK\'s blocks as text', () => {
+    const calls = models(readPhoenix(fixture('phoenix-spans-sdk-objects.json').data, PHOENIX_SDK_OBJECTS).calls);
+    // The first request carries no blocks of the SDK's; the later ones logged `ToolUseBlock(id=…)`.
+    expect(calls.map((c) => c.rawRequest !== undefined)).toEqual([true, false, false]);
+    expect(calls.map((c) => c.model)).toEqual(['claude-sonnet-5', 'claude-sonnet-5', 'claude-sonnet-5']);
+    expect(turns(calls[2]!)).toEqual(['system:text', 'user:text', 'assistant:text+tool_call', 'user:text', 'assistant:text+tool_call', 'user:text']);
+    expect(JSON.stringify(calls)).not.toContain('ToolUseBlock(');
+  });
+
+  it('writes the trace as a run the dashboard and replay read, with each tool call that kept its output', () => {
+    const store = Store.open(':memory:');
+    const trace = readPhoenix(fixture('phoenix-spans.json').data, PHOENIX_TRACE);
+    const { result, counts } = importTrace(store, trace, { source: 'phoenix:4a2db41d', labels: ['phoenix'], author: null });
+    expect(counts).toMatchObject({ modelCalls: 3, modelCallsImported: 3, withToolDefinitions: 3, toolCalls: 2, toolCallsKept: 2 });
+    expect(store.getCalls(result.run.runId).map((c) => (c.kind === 'api' ? 'model' : c.name))).toEqual(['model', 'lookup_order', 'model', 'issue_refund', 'model']);
+    store.close();
+  });
+});
+
+describe('import logfire: spans from its query API', () => {
+  it('reads the GenAI spans logfire.instrument_anthropic() writes, and the functions @logfire.instrument wrapped as tool calls', () => {
+    const trace = readLogfire(logfireRows(LOGFIRE_ANTHROPIC), LOGFIRE_ANTHROPIC);
+    expect(trace).toMatchObject({ spans: 6, skipped: [] });
+    const calls = models(trace.calls);
+    expect(calls).toHaveLength(3);
+    for (const c of calls) expect(c).toMatchObject({ provider: 'anthropic', model: 'claude-sonnet-5', settings: { maxTokens: 1024 }, tools: [{ name: 'lookup_order' }, { name: 'issue_refund' }] });
+    // The system prompt comes from gen_ai.system_instructions; the conversation as Logfire logged it.
+    expect(turns(calls[0]!)).toEqual(['system:text', 'user:text']);
+    expect(tools(trace.calls).map((t) => [t.name, t.args, t.output])).toEqual([
+      ['lookup_order', { order_id: 'A-1042' }, { order_id: 'A-1042', total: 240, status: 'delivered' }],
+      ['issue_refund', { order_id: 'A-1042', amount: 240 }, { refunded: 240, order_id: 'A-1042' }],
+    ]);
+  });
+
+  it("keeps Pydantic AI's call, with what the Anthropic SDK's own span says went on the wire", () => {
+    const trace = readLogfire(logfireRows(LOGFIRE_PYDANTIC_AI), LOGFIRE_PYDANTIC_AI);
+    // Ten spans: the agent's, each model request's, the SDK's request under each, and each tool's.
+    expect(trace.spans).toBe(10);
+    const calls = models(trace.calls);
+    expect(calls).toHaveLength(3);
+    for (const c of calls) {
+      // Pydantic AI's span logs the conversation; the SDK's span under it the max_tokens and streaming it sent.
+      expect(c).toMatchObject({ model: 'claude-sonnet-5', settings: { maxTokens: 128000 }, stream: true });
+      expect(c.messages.length).toBeGreaterThan(1);
+    }
+    expect(turns(calls[2]!)).toEqual(['system:text', 'user:text', 'assistant:text+tool_call', 'user:tool_result', 'assistant:text+tool_call', 'user:tool_result']);
+    expect(tools(trace.calls).map((t) => [t.name, t.callId])).toEqual([['lookup_order', 'toolu_lookup_order_11'], ['issue_refund', 'toolu_issue_refund_13']]);
+  });
+
+  it('reads JSON columns that arrive as text too', () => {
+    const rows = logfireRows(LOGFIRE_ANTHROPIC).map((r) => ({ ...r, attributes: JSON.stringify(r.attributes), otel_events: JSON.stringify(r.otel_events) }));
+    expect(models(readLogfire(rows, LOGFIRE_ANTHROPIC).calls)).toHaveLength(3);
+  });
+});
+
+describe('a request logged with its blocks as text is not the provider\'s', () => {
+  it('reads plain requests, and not one whose content blocks are strings', () => {
+    expect(providerRequest({ model: 'claude-sonnet-5', messages: [{ role: 'user', content: 'hi' }] })).toBeDefined();
+    expect(providerRequest({ model: 'claude-sonnet-5', messages: [{ role: 'assistant', content: [{ type: 'text', text: 'hi' }] }] })).toBeDefined();
+    expect(providerRequest({ model: 'claude-sonnet-5', messages: [{ role: 'assistant', content: ["ToolUseBlock(id='toolu_1', name='lookup_order')"] }] })).toBeUndefined();
+  });
+});
+
+describe('reading Phoenix and Logfire', () => {
+  let server: Server | null = null;
+  afterEach(async () => {
+    await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    server = null;
+  });
+  const listen = async (handler: (req: IncomingMessage, body: string) => { status: number; body: unknown }) => {
+    server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => (body += c.toString()));
+      req.on('end', () => {
+        const out = handler(req, body);
+        res.writeHead(out.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(out.body));
+      });
+    });
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
+    return `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
+  };
+
+  it("finds Phoenix where its own client does, and Logfire's region in the read token", () => {
+    expect(phoenixHostFromEnv({ PHOENIX_COLLECTOR_ENDPOINT: 'http://phoenix.internal:6006/v1/traces' })).toBe('http://phoenix.internal:6006');
+    expect(phoenixHostFromEnv({ PHOENIX_ENDPOINT: 'https://app.phoenix.arize.com/s/acme', PHOENIX_BASE_URL: 'http://ignored' })).toBe('https://app.phoenix.arize.com/s/acme');
+    expect(phoenixHostFromEnv({})).toBeUndefined();
+    expect(logfireHost('pylf_v1_eu_donotstore7a1c')).toBe('https://logfire-eu.pydantic.dev');
+    expect(logfireHost('pylf_v1_us_donotstore7a1c')).toBe('https://logfire-us.pydantic.dev');
+    // A token from before regions is a US one.
+    expect(logfireHost('donotstore7a1c')).toBe('https://logfire-us.pydantic.dev');
+  });
+
+  it("fetches a trace's spans from Phoenix a page at a time, in the order they started, with the API key", async () => {
+    const spans = fixture('phoenix-spans.json').data;
+    const seen: string[] = [];
+    const host = await listen((req) => {
+      seen.push(`${req.url} ${req.headers.authorization}`);
+      const cursor = new URL(req.url!, 'http://x').searchParams.get('cursor');
+      return { status: 200, body: cursor ? { data: spans.slice(4), next_cursor: null } : { data: spans.slice(0, 4), next_cursor: 'U3Bhbjo0' } };
+    });
+    const got = await fetchPhoenixSpans(PHOENIX_TRACE, { host, apiKey: 'phx-key', project: 'support-agent' });
+    expect(got).toHaveLength(6);
+    expect(seen).toEqual([
+      `/v1/projects/support-agent/spans?trace_id=${PHOENIX_TRACE}&sort=start_time&order=asc&limit=1000 Bearer phx-key`,
+      `/v1/projects/support-agent/spans?trace_id=${PHOENIX_TRACE}&sort=start_time&order=asc&limit=1000&cursor=U3Bhbjo0 Bearer phx-key`,
+    ]);
+  });
+
+  it('says why Phoenix refused, or why it has nothing to give', async () => {
+    const refused = await listen(() => ({ status: 401, body: 'Unauthorized' }));
+    await expect(fetchPhoenixSpans(PHOENIX_TRACE, { host: refused, apiKey: null, project: 'default' })).rejects.toThrow(/asks for an API key \(401\): set PHOENIX_API_KEY/);
+    await expect(fetchPhoenixSpans(PHOENIX_TRACE, { host: refused, apiKey: 'phx-secret', project: 'default' })).rejects.toThrow(/refused the API key \(401\): check PHOENIX_API_KEY/);
+    const noProject = await listen(() => ({ status: 404, body: 'Not Found' }));
+    await expect(fetchPhoenixSpans(PHOENIX_TRACE, { host: noProject, apiKey: null, project: 'refunds' })).rejects.toThrow(/has no project refunds: give the trace's project with --project/);
+    const empty = await listen(() => ({ status: 200, body: { data: [], next_cursor: null } }));
+    await expect(fetchPhoenixSpans(PHOENIX_TRACE, { host: empty, apiKey: null, project: 'default' })).rejects.toThrow(/has no trace 4a2db41d\w+ in project default/);
+    // A Phoenix older than 13.9 ignores the filter and lists the project's spans.
+    const other = { context: { trace_id: 'f'.repeat(32), span_id: '1'.repeat(16) }, name: 'x', span_kind: 'LLM' };
+    const old = await listen(() => ({ status: 200, body: { data: [other], next_cursor: null } }));
+    await expect(fetchPhoenixSpans(PHOENIX_TRACE, { host: old, apiKey: null, project: 'default' })).rejects.toThrow(/older than 13\.9/);
+    const notPhoenix = await listen(() => ({ status: 200, body: { hello: 'world' } }));
+    await expect(fetchPhoenixSpans(PHOENIX_TRACE, { host: notPhoenix, apiKey: null, project: 'default' })).rejects.toThrow(/not a list of spans: is http:\/\/127\.0\.0\.1:\d+ Phoenix's address/);
+  });
+
+  it("queries a trace's spans from Logfire with the read token, from the start it is given", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const host = await listen((req, body) => {
+      expect(`${req.method} ${req.url} ${req.headers.authorization}`).toBe('POST /v2/query Bearer pylf_v1_us_test');
+      const q = JSON.parse(body) as Record<string, unknown>;
+      bodies.push(q);
+      return { status: 200, body: { schema: { fields: [] }, data: logfireRows(LOGFIRE_ANTHROPIC) } };
+    });
+    const since = new Date('2026-09-22T00:00:00Z');
+    expect(await fetchLogfireRecords(LOGFIRE_ANTHROPIC, { host, token: 'pylf_v1_us_test', since })).toHaveLength(6);
+    expect(bodies[0]).toMatchObject({ min_timestamp: '2026-09-22T00:00:00.000Z', limit: 10_000 });
+    expect(bodies[0]!.sql).toContain(`FROM records WHERE trace_id = '${LOGFIRE_ANTHROPIC}' AND kind = 'span' ORDER BY start_timestamp`);
+  });
+
+  it('says why Logfire refused, or had no such trace since the start given, without the token', async () => {
+    const refused = await listen(() => ({ status: 401, body: { detail: 'Invalid read token' } }));
+    const err = await fetchLogfireRecords(LOGFIRE_ANTHROPIC, { host: refused, token: 'pylf_v1_us_secret', since: new Date() }).catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/refused the read token \(401\): check LOGFIRE_READ_TOKEN/);
+    expect((err as Error).message).not.toContain('pylf_v1_us_secret');
+    const busy = await listen(() => ({ status: 429, body: {} }));
+    await expect(fetchLogfireRecords(LOGFIRE_ANTHROPIC, { host: busy, token: 't', since: new Date() })).rejects.toThrow(/query budget/);
+    const empty = await listen(() => ({ status: 200, body: { schema: { fields: [] }, data: [] } }));
+    await expect(fetchLogfireRecords(LOGFIRE_ANTHROPIC, { host: empty, token: 't', since: new Date('2026-10-01T00:00:00Z') })).rejects.toThrow(/no trace 01a16460\w+ that started since 2026-10-01: for an older one, give --since/);
+    // Only a trace id ever goes into the query.
+    await expect(fetchLogfireRecords("x' OR '1'='1", { host: empty, token: 't', since: new Date() })).rejects.toThrow(/not a trace id/);
+  });
+});

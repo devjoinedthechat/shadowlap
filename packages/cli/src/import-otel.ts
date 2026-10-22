@@ -244,11 +244,26 @@ function entityValue(raw: unknown, key: 'inputs' | 'outputs'): unknown {
   return v;
 }
 
+/**
+ * A function `@logfire.instrument` wrapped: its arguments are attributes of their own, named in the
+ * span's `logfire.json_schema`, and its return value is `return` (with `record_return=True`).
+ */
+function isLogfireFunction(s: Span): boolean {
+  return typeof s.attrs['logfire.msg_template'] === 'string' && typeof s.attrs['code.function'] === 'string';
+}
+
+function logfireArguments(a: Record<string, unknown>): Record<string, unknown> {
+  const schema = maybeJson(a['logfire.json_schema']);
+  const named = isObject(schema) && isObject(schema.properties) ? Object.keys(schema.properties) : Object.keys(a).filter((k) => !k.startsWith('code.') && !k.startsWith('logfire.'));
+  return Object.fromEntries(named.filter((k) => k !== 'return' && !UNSAFE.has(k) && a[k] !== undefined).map((k) => [k, maybeJson(a[k])]));
+}
+
 function toolCall(s: Span): TraceToolCall {
   const a = s.attrs;
   const name = clean(str(a['gen_ai.tool.name']) ?? str(a['tool.name']) ?? str(a['traceloop.entity.name']) ?? s.name.replace(/^execute_tool\s+/, ''), 200);
-  const args = a['gen_ai.tool.call.arguments'] ?? (a['traceloop.entity.input'] !== undefined ? entityValue(a['traceloop.entity.input'], 'inputs') : a['input.value']);
-  const out = a['gen_ai.tool.call.result'] ?? (a['traceloop.entity.output'] !== undefined ? entityValue(a['traceloop.entity.output'], 'outputs') : a['output.value']);
+  const logfire = a['gen_ai.tool.call.arguments'] === undefined && a['traceloop.entity.input'] === undefined && a['input.value'] === undefined && isLogfireFunction(s);
+  const args = logfire ? logfireArguments(a) : (a['gen_ai.tool.call.arguments'] ?? (a['traceloop.entity.input'] !== undefined ? entityValue(a['traceloop.entity.input'], 'inputs') : a['input.value']));
+  const out = logfire ? a.return : (a['gen_ai.tool.call.result'] ?? (a['traceloop.entity.output'] !== undefined ? entityValue(a['traceloop.entity.output'], 'outputs') : a['output.value']));
   return { kind: 'tool', what: `span ${s.name}`, name, callId: str(a['gen_ai.tool.call.id']) ?? str(a['tool_call.id']), args: maybeJson(args), output: maybeJson(out), error: s.error, startedAt: s.start, endedAt: s.end };
 }
 
@@ -290,8 +305,9 @@ function openInferenceModelCall(s: Span): TraceModelCall {
     kind: 'model',
     what: `span ${s.name}`,
     provider: str(a['llm.provider']) ?? str(a['llm.system']),
-    // The model asked for: llm.model_name is often the one that answered (a dated version of it).
-    model: (raw && str(raw.model)) ?? (isObject(params) ? str(params.model) : null) ?? str(a['llm.model_name']),
+    // The model asked for: llm.model_name is often the one that answered (a dated version of it), and
+    // newer instrumentations name the one asked for apart.
+    model: (raw && str(raw.model)) ?? (isObject(params) ? str(params.model) : null) ?? str(a['llm.request.model_name']) ?? str(a['llm.model_name']),
     messages: indexed(a, 'llm.input_messages')
       .map((row) => messageOf(openInferenceMessage(row)))
       .filter((m): m is TraceMessage => m !== null),
@@ -342,6 +358,12 @@ function modelCall(s: Span): TraceModelCall {
 
 /** The message attributes a `gen_ai.client.inference.operation.details` event carries for its span. */
 const DETAILS = ['gen_ai.input.messages', 'gen_ai.output.messages', 'gen_ai.system_instructions', 'gen_ai.tool.definitions'];
+
+/** A span's attributes with what its `gen_ai.client.inference.operation.details` event carries, where the span has none of its own. */
+function withDetails(attrs: Record<string, unknown>, events: SpanEvent[]): void {
+  const details = events.find((e) => e.name === 'gen_ai.client.inference.operation.details');
+  if (details) for (const key of DETAILS) if (attrs[key] === undefined && details.attrs[key] !== undefined) attrs[key] = details.attrs[key];
+}
 
 /**
  * GenAI events sent as log records (`resourceLogs`), by the span they belong to: `traceId/spanId`.
@@ -400,8 +422,7 @@ function spansOf(payload: unknown): Span[] {
           const fromLogs = logged.get(`${traceId}/${spanId}`) ?? [];
           // Stable, so events at the same instant keep the order they were written in.
           const events = fromLogs.length ? [...own, ...fromLogs].sort((a, b) => (a.time ?? 0) - (b.time ?? 0)) : own;
-          const details = events.find((e) => e.name === 'gen_ai.client.inference.operation.details');
-          if (details) for (const key of DETAILS) if (attrs[key] === undefined && details.attrs[key] !== undefined) attrs[key] = details.attrs[key];
+          withDetails(attrs, events);
           out.push({
             traceId,
             spanId,
@@ -452,6 +473,66 @@ export interface OtelRead {
 export function readOtel(payloads: unknown[]): OtelRead {
   const spans = spansOf(payloads);
   if (!spans.length) throw new Error('not an OpenTelemetry trace: no spans under "resourceSpans" (or "batches", as Tempo writes it)');
+  return { traces: tracesOf(spans), spans: spans.length };
+}
+
+/**
+ * A span as a trace store's API returns it (Phoenix, Logfire), read as a file's span is: its
+ * attributes an object, its times in milliseconds, and its instrumentation's name where the store
+ * keeps it.
+ */
+export interface StoredSpan {
+  traceId: string;
+  spanId: string;
+  parentSpanId: string | null;
+  name: string;
+  scope: string;
+  start: number | null;
+  end: number | null;
+  attrs: Record<string, unknown>;
+  events: Array<{ name: string; time: number | null; attrs: Record<string, unknown> }>;
+  error: string | null;
+}
+
+/** Reads the spans a trace store returned into one trace per trace id, as readOtel reads a file's. */
+export function readStoredSpans(stored: StoredSpan[]): OtelRead {
+  const own = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([k]) => !UNSAFE.has(k)));
+  const spans = stored.map((s): Span => {
+    const attrs = own(s.attrs);
+    const events = s.events.map((e) => ({ name: e.name, attrs: own(e.attrs), time: e.time }));
+    withDetails(attrs, events);
+    return { traceId: clean(s.traceId, 64), spanId: s.spanId, parentSpanId: s.parentSpanId ?? '', name: clean(s.name), scope: s.scope, start: s.start, end: s.end, attrs, events, error: s.error === null ? null : clean(s.error, 500) };
+  });
+  return { traces: tracesOf(spans), spans: spans.length };
+}
+
+/** Whether a model span logged the messages it sent. */
+function logsMessages(s: Span): boolean {
+  if (typeof s.attrs['openinference.span.kind'] === 'string') return s.attrs['input.value'] !== undefined || indexed(s.attrs, 'llm.input_messages').length > 0;
+  return (inputMessages(s)?.length ?? 0) > 0;
+}
+
+/**
+ * A framework's model call, with what its client library's span says went on the wire: the request's
+ * settings and streaming (Pydantic AI's span leaves out the max_tokens it sends), and its timing.
+ */
+function onTheWire(call: TraceModelCall, sent: Span | undefined): TraceModelCall {
+  if (!sent) return call;
+  const wire = modelCall(sent);
+  return {
+    ...call,
+    model: wire.model ?? call.model,
+    settings: { ...call.settings, ...wire.settings },
+    stream: wire.stream || call.stream,
+    usage: call.usage ?? wire.usage,
+    responseId: call.responseId ?? wire.responseId,
+    startedAt: wire.startedAt ?? call.startedAt,
+    endedAt: wire.endedAt ?? call.endedAt,
+  };
+}
+
+/** Model and tool calls out of spans, one trace per trace id. */
+function tracesOf(spans: Span[]): Trace[] {
   const byTrace = new Map<string, Span[]>();
   for (const s of spans) {
     const list = byTrace.get(s.traceId);
@@ -462,31 +543,48 @@ export function readOtel(payloads: unknown[]): OtelRead {
   const traces: Trace[] = [];
   for (const [id, list] of byTrace) {
     const kinds = new Map(list.map((s) => [s.spanId, kindOf(s)]));
-    // A framework's model span wraps the client library's: keep the one closest to the wire. Every
-    // ancestor of a model span is a wrapper; the walk stops at a span already seen, so a file whose
-    // parents form a loop cannot hang it.
     const byId = new Map(list.map((s) => [s.spanId, s]));
+    // The spans above one, nearest first. The walk stops at a span already seen, so a file whose
+    // parents form a loop cannot hang it.
+    const above = (s: Span): Span[] => {
+      const out: Span[] = [];
+      const seen = new Set([s.spanId]);
+      for (let parent = byId.get(s.parentSpanId); parent && !seen.has(parent.spanId); parent = byId.get(parent.parentSpanId)) {
+        seen.add(parent.spanId);
+        out.push(parent);
+      }
+      return out;
+    };
+    // A framework's model span wraps the client library's: keep the one closest to the wire, and
+    // every model span above it is a wrapper. Unless the library's span logged no messages and the
+    // framework's did (the Anthropic SDK's own span under Pydantic AI's): then the framework's span
+    // keeps the call, and the library's lends it what went on the wire.
+    const wire = new Map<string, Span>();
+    const lent = new Set<string>();
     const wrappers = new Set<string>();
     for (const s of list) {
       if (kinds.get(s.spanId) !== 'model') continue;
-      const seen = new Set([s.spanId]);
-      for (let parent = byId.get(s.parentSpanId); parent && !seen.has(parent.spanId) && !wrappers.has(parent.spanId); parent = byId.get(parent.parentSpanId)) {
-        seen.add(parent.spanId);
-        wrappers.add(parent.spanId);
+      const parents = above(s);
+      const framework = logsMessages(s) ? undefined : parents.find((p) => kinds.get(p.spanId) === 'model');
+      if (framework && logsMessages(framework)) {
+        lent.add(s.spanId);
+        if (!wire.has(framework.spanId)) wire.set(framework.spanId, s);
+        continue;
       }
+      for (const p of parents) wrappers.add(p.spanId);
     }
     const skipped: Skip[] = [];
     const calls: TraceCall[] = [];
     for (const s of list) {
       const kind = kinds.get(s.spanId);
       if (kind === 'embedding') skipped.push({ url: `span ${s.name}`, reason: 'an embeddings call: only model and tool calls are imported' });
-      else if (kind === 'model' && !wrappers.has(s.spanId)) calls.push(modelCall(s));
+      else if (kind === 'model' && !wrappers.has(s.spanId) && !lent.has(s.spanId)) calls.push(onTheWire(modelCall(s), wire.get(s.spanId)));
       else if (kind === 'tool') calls.push(toolCall(s));
     }
     // A span named after a tool the model asked for is that tool's call, whatever else it says.
     const asked = calledToolNames(calls);
     for (const s of list) {
-      if (kinds.get(s.spanId) === null && asked.has(s.name) && (s.attrs['gen_ai.tool.call.arguments'] !== undefined || s.attrs['traceloop.entity.input'] !== undefined || s.attrs['input.value'] !== undefined)) calls.push(toolCall(s));
+      if (kinds.get(s.spanId) === null && asked.has(s.name) && (s.attrs['gen_ai.tool.call.arguments'] !== undefined || s.attrs['traceloop.entity.input'] !== undefined || s.attrs['input.value'] !== undefined || isLogfireFunction(s))) calls.push(toolCall(s));
     }
     // `shadowlap export otel` leaves prompt text out, so its traces hold no messages to replay.
     if (!calls.some((c) => c.kind === 'model' && c.messages.length) && list.some((s) => s.attrs['shadowlap.run.id'] !== undefined || s.attrs['shadowlap.call_no'] !== undefined)) {
@@ -494,5 +592,5 @@ export function readOtel(payloads: unknown[]): OtelRead {
     }
     traces.push({ id, calls, spans: list.length, skipped });
   }
-  return { traces, spans: spans.length };
+  return traces;
 }

@@ -9,7 +9,7 @@ import { emitJobEvent } from './job-events.js';
  * whole import as one JSON object — the object `--json` prints and the job's result.
  */
 
-export type ImportFormat = 'har' | 'nock' | 'vcr' | 'litellm' | 'otel' | 'langfuse' | 'langsmith';
+export type ImportFormat = 'har' | 'nock' | 'vcr' | 'litellm' | 'otel' | 'langfuse' | 'langsmith' | 'phoenix' | 'logfire';
 
 /** What a trace source kept, for the import to say so. */
 export interface TraceKept {

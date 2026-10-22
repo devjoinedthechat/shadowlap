@@ -399,12 +399,15 @@ export function settingsOf(...sources: unknown[]): ModelSettings {
 /**
  * The request a source logged as a call's input, when it is the provider's own request (LangSmith's
  * wrapped clients, OpenInference's OpenAI and Anthropic instrumentations): a model and plain role
- * messages. LangChain's serialized messages are not a provider's.
+ * messages. LangChain's serialized messages are not a provider's, nor is a request whose content
+ * blocks were logged as text: an instrumentation that logs with `json.dumps(…, default=str)` turns
+ * the SDK's own blocks, which an agent passes back as it got them, into `ToolUseBlock(id=…)`.
  */
 export function providerRequest(inputs: Record<string, unknown>): Record<string, unknown> | undefined {
   const messages = inputs.messages;
   if (typeof inputs.model !== 'string' || !Array.isArray(messages) || Array.isArray(messages[0])) return undefined;
   if (!messages.every((m) => isObject(m) && typeof m.role === 'string')) return undefined;
+  if (messages.some((m) => Array.isArray((m as Record<string, unknown>).content) && ((m as Record<string, unknown>).content as unknown[]).some((block) => !isObject(block)))) return undefined;
   return inputs;
 }
 
