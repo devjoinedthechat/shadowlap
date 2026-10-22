@@ -299,7 +299,8 @@ table.runst .rsub { padding-left: 22px; }
 table.runst .st.fk { white-space: normal; align-items: baseline; }
 table.runst .st.fk i { flex: none; transform: translateY(-1px); }
 /* a fork that failed a check names it under its status, in the room the column has anyway: whole on hover */
-table.runst .st.named { display: flex; align-items: baseline; }
+/* positioned, so its words for a screen reader stay inside the table's scroll rather than widen a phone's page */
+table.runst .st.named { display: flex; align-items: baseline; position: relative; }
 table.runst .st.named i { flex: none; transform: translateY(-1px); }
 table.runst .st.named .stw { flex: 1; min-width: 0; }
 table.runst .st.named .stc { display: block; width: 0; min-width: 100%; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 12px; }
