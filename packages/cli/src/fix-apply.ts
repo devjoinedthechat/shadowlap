@@ -3,7 +3,7 @@ import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyLeft, fixRecords, markFixApplied, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, type Store, type StoredFix, type StoredRepair } from '@shadowlap/engine';
+import { applyLeft, fixRecords, markFixApplied, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, safeLine, type Store, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 import { fieldChange } from '@shadowlap/dashboard';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
 import { physicalPath } from './real-path.js';
@@ -281,7 +281,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
   } else {
     // A change of request fields (--set, --model) is in no file: making it in the agent is left to you.
     const change = fieldChange(fixRecords(store, fix));
-    o.log(change ? `  verified with ${change}, a change to the requests no patch carries: make it in your agent` : '  verified on the working tree, with no repair behind it: there is no patch to apply');
+    o.log(change ? `  verified with ${safeLine(change)}, a change to the requests no patch carries: make it in your agent` : '  verified on the working tree, with no repair behind it: there is no patch to apply');
   }
 
   const who = resolveAuthor({ cwd: o.cwd });

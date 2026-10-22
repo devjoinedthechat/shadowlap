@@ -164,11 +164,13 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     if (apply.inTree) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(its patch is in your working tree already: ${apply.goldens ? 'copies the goldens it is missing, runs them and marks it applied' : 'marks it applied'})`)}`);
     else if (apply.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${apply.gitApply ? p.dim(`   (or by hand: ${apply.gitApply})`) : ''}`);
     // A change of request fields no patch carries: making it in the agent is left to you.
-    else if (apply.change) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(verified with ${apply.change}: once your agent makes that change, marks it applied)`)}`);
+    else if (apply.change) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(verified with ${one(apply.change, 200)}: once your agent makes that change, marks it applied)`)}`);
     else out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim('(verified on your working tree: marks it applied)')}`);
   }
   if (d.applied) {
-    out.push(p.dim(`  applied${d.applied.via === 'repair --apply' ? ' by repair --apply' : ''}: patch ${d.applied.patch === 'already' ? 'was already in the tree' : d.applied.patch === 'none' ? 'none (verified on the working tree)' : 'applied'}${d.applied.goldens.length ? ` · ${d.applied.goldens.length} golden${s(d.applied.goldens.length)} copied` : ''} · tests ${d.applied.tests}`));
+    // With no patch, a change of request fields is named: the agent makes it, not a file.
+    const none = apply?.change ? `none (verified with ${one(apply.change, 200)}: set it in your agent)` : 'none (verified on the working tree)';
+    out.push(p.dim(`  applied${d.applied.via === 'repair --apply' ? ' by repair --apply' : ''}: patch ${d.applied.patch === 'already' ? 'was already in the tree' : d.applied.patch === 'none' ? none : 'applied'}${d.applied.goldens.length ? ` · ${d.applied.goldens.length} golden${s(d.applied.goldens.length)} copied` : ''} · tests ${d.applied.tests}`));
     if (apply?.pending) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(to ${apply.pending})`)}`);
   }
   return out.join('\n');

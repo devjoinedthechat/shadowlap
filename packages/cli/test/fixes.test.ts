@@ -49,7 +49,9 @@ function script(ctx: ScriptContext) {
     case 2: {
       if (small) return { message: message([toolUse('issue_refund', { order_id: order, amount: 40 }, `toolu_decide_${ctx.requestNo}`)], usage) };
       decisions++;
-      const escalates = system.includes('escalate every refund above the limit') || (mode === 'alternate' && decisions % 2 === 0);
+      // Asked at temperature 1 (`verify --set temperature=1`), it escalates too: a change to the requests, in no file.
+      const hotter = (ctx.request as { temperature?: unknown }).temperature === 1;
+      const escalates = system.includes('escalate every refund above the limit') || hotter || (mode === 'alternate' && decisions % 2 === 0);
       return {
         message: escalates
           ? message([text('Above the limit.'), toolUse('escalate', { reason: 'above the refund limit' }, `toolu_decide_${ctx.requestNo}`)], usage)
@@ -378,6 +380,37 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     } finally {
       s.close();
     }
+  });
+
+  it('names a change of request fields by the fields it set, and leaves making it to the agent once applied', async () => {
+    const { failed } = await runs('refund-over-limit');
+    mode = 'alternate';
+    const blamed = json(await shadowlap(['blame', failed[0], '--expect', ORACLE, '--json']));
+    const fixId = blamed.fix.fixId as string;
+    // Titled by how its run failed: fix ls and fix show say what it must do, and leave what failed to the title.
+    expect((await shadowlap(['fix', 'ls'])).stdout).toMatch(/\n +must: issue_refund never called with \{"amount":240\} · opened \d+[sm] ago\n/);
+    expect((await shadowlap(['fix', 'show', fixId])).stdout).toMatch(/\n {2}open · refund-over-limit · 1 failing run · 0 good · opened \d+[sm] ago\n {2}must: issue_refund never called with \{"amount":240\}\n/);
+    mode = 'refund';
+    const verified = await shadowlap(['verify', '--fixes', failed[0], '--set', 'temperature=1', '--expect', ORACLE]);
+    expect(verified.code, verified.out).toBe(0);
+    const change = "temperature=1 from each run's first model call";
+    const shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
+    expect(shown.status).toBe('verified');
+    expect(shown.verify[0].code).toMatch(/^temperature=1 from each run's first model call · at [0-9a-f]{7,}$/);
+    expect(shown.actions.apply).toMatchObject({ kind: 'mark', change, gitApply: null });
+    const human = (await shadowlap(['fix', 'show', fixId])).stdout;
+    expect(human).toMatch(/✓ accepted {2}temperature=1 from each run's first model call · at [0-9a-f]{7,} {2}Every failing run fixed\n/);
+    expect(human).toContain(`next: shadowlap fix apply ${fixId.slice(0, 13)} (verified with ${change}: once your agent makes that change, marks it applied)\n`);
+
+    const applied = await shadowlap(['fix', 'apply', fixId]);
+    expect(applied.code, applied.out).toBe(0);
+    expect(applied.out).toContain(`verified with ${change}, a change to the requests no patch carries: make it in your agent\n`);
+    expect(applied.stdout).toContain(`✓ ${fixId.slice(0, 13)} applied: verified with ${change}; no patch, set it in your agent\n`);
+    // Never that it was verified on the working tree, or that there was simply no patch to apply.
+    expect(applied.out).not.toMatch(/verified on the working tree|no patch to apply/);
+    const after = (await shadowlap(['fix', 'show', fixId])).stdout;
+    expect(after).toContain(`applied: patch none (verified with ${change}: set it in your agent) · tests skipped`);
+    expect(after).not.toContain('verified on the working tree');
   });
 
   it('keeps a fix open after a repair that accepts nothing, with every candidate tried and why it was dropped', async () => {
