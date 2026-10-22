@@ -47,7 +47,7 @@ export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
-export type { CallDifference, RunComparison } from './compare.js';
+export type { CallDifference, ComparedIntervention, RunComparison } from './compare.js';
 export type { RequestManifest } from './manifest.js';
 export { deepEqual, firstDifference, headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
 export { DEFAULT_REPLAY_OPTIONS, Session } from './session.js';

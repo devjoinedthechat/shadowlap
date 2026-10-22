@@ -14,9 +14,10 @@ import { useApp } from '../state.js';
 
 /**
  * Compare: what changed between two runs (code, system prompt, tools, model), then call by call: the
- * identical prefix, the first request that differs, where the paths went from there, and calls where
- * the same request got a different answer. With no runs named it opens the newest fork or replay
- * against its parent. A run still recording is compared again as its calls arrive.
+ * identical prefix, what made the fork when no request shows it, the first request that differs,
+ * where the paths went from there, and calls where the same request got a different answer. With no
+ * runs named it opens the newest fork or replay against its parent. A run still recording is
+ * compared again as its calls arrive.
  */
 export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
   const { runs, exported, meta } = useApp();
@@ -273,7 +274,16 @@ function ResponseDifferences({ c }: { c: CompareView }) {
               <tr key={r.callNo} className="static">
                 <td className="num">{r.callNo}</td>
                 <td>{callName(r.kind, r.name)}</td>
-                <td className="wrapcell">{r.detail}</td>
+                <td className="wrapcell">
+                  {r.detail}
+                  {/* The call a replay's flag answered: what it got instead, and the flag. */}
+                  {r.by ? (
+                    <>
+                      {' · '}
+                      <code>{r.by}</code>
+                    </>
+                  ) : null}
+                </td>
                 <td className="num">
                   <a href={href.run(c.a.runId, r.callNo)} title={`Open ${shortId(c.a.runId)} at #${r.callNo}`}>
                     {shortId(c.a.runId).slice(-4)}

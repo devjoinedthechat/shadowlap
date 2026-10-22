@@ -12,6 +12,7 @@ import { loadApiRequest } from './manifest.js';
 import type { Palette } from './report.js';
 import { requestPathLabel } from './request-paths.js';
 import { plain } from './report.js';
+import { oneLine, runInterventions, type InterventionFlag } from './run-facts.js';
 import { safeLine, safeText } from './text.js';
 import type { Store } from './store.js';
 import type { CallKind, CallRecord, DiffEntry, Hint, RunRecord } from './types.js';
@@ -40,6 +41,11 @@ export interface CallDifference {
    * but nothing the model said changed.
    */
   sameAnswer?: true;
+  /**
+   * For the call the replay's flag answered (`intervention`): the flag. Its detail then says what
+   * the call got instead of what it recorded, as the comparison leads with it.
+   */
+  by?: string;
 }
 
 export interface RunComparison {
@@ -65,6 +71,34 @@ export interface RunComparison {
   onlyInB: number;
   /** What differs between the runs as a whole: prompts, tool definitions, models and code version. */
   changes: RunChanges;
+  /**
+   * What made the fork, when one run is the other's replay and its flag changed an answer rather
+   * than a request: no card above says it, so the comparison leads with it. Null otherwise.
+   */
+  intervention: ComparedIntervention | null;
+}
+
+/**
+ * The flag that made one run of a pair from the other, when it changed what a call answered: a
+ * failure injected in place of an answer (`--fail-at`), a tool's result or a person's answer given
+ * instead of the recorded one (`--override`), an instruction planted in a tool's result
+ * (`--inject-result`), or a model call asked again (`--diverge-at`). Said with what each run got
+ * at that call: `#19 got HTTP 529 instead of an answer`.
+ */
+export interface ComparedIntervention {
+  /** The run the flag made: `b`, a replay of `a`, or `a` when the pair is the other way round. */
+  run: 'a' | 'b';
+  kind: 'fail' | 'override' | 'answer' | 'plant' | 'resample';
+  /** The flag as the run keeps it: `--fail-at 19=529`, `--override 16=@policy.json`. */
+  flag: string;
+  callNo: number;
+  /** The call it acted on: `POST /v1/messages`, `lookup_policy`. */
+  name: string;
+  /** What the run it was made from got at that call, and what it got, each in a line (`an answer`, `HTTP 529`); null where a model was asked again. */
+  before: string | null;
+  after: string | null;
+  /** Both, as a sentence: `#19 got HTTP 529 instead of an answer`, `#16 lookup_policy returned … instead of …`. */
+  words: string;
 }
 
 /** A call that paired cleanly: same request, same answer, in both runs. */
@@ -238,6 +272,100 @@ function courseOf(store: Store, calls: CallRecord[], from: number): RunCourse {
   return { calls: rest.length, modelCalls: rest.filter((c) => c.kind === 'api').length, path: pathOf(rest, null), answer: finalAnswer(store, rest) || null };
 }
 
+/** The flags that change what a call answered rather than what was asked, and so show in no request. */
+const ANSWERING_FLAGS = new Set(['--fail-at', '--override', '--inject-result', '--diverge-at']);
+
+/** How much of each value the comparison quotes. */
+const VALUE_SHOWN = 80;
+
+/** A tool call's result as it came back, as JSON in a line (a string in quotes); null when nothing was stored. */
+function resultLine(store: Store, c: CallRecord): string | null {
+  if (!c.end?.responseRef) return null;
+  try {
+    const payload = store.getJson<{ result?: unknown }>(c.end.responseRef);
+    return payload && 'result' in payload ? oneLine(JSON.stringify(payload.result) ?? 'null', VALUE_SHOWN) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What a person typed, as a `user_input` call's result keeps it (`{ text }`); null when it can't be read. */
+function inputText(store: Store, c: CallRecord): string | null {
+  if (!c.end?.responseRef) return null;
+  try {
+    const r = store.getJson<{ result?: unknown }>(c.end.responseRef)?.result;
+    return typeof r === 'object' && r !== null && typeof (r as { text?: unknown }).text === 'string' ? oneLine((r as { text: string }).text, VALUE_SHOWN) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A failure `--fail-at` gives a tool, in words: `a timeout`, `an error`, `HTTP 503`. */
+function toolFailure(what: string): string {
+  if (/^timeout$/i.test(what)) return 'a timeout';
+  if (/^\d{3}$/.test(what)) return `HTTP ${what}`;
+  return 'an error';
+}
+
+const quoted = (s: string | null) => (s === null ? 'nothing' : JSON.stringify(s));
+
+/** What the call got, as its row of response differences says it, beside its number and name: `got HTTP 529 instead of an answer`. */
+function whatItGot(iv: ComparedIntervention): string {
+  const said = iv.words.replace(/^#\d+ /, '');
+  return said.startsWith(`${iv.name} `) ? said.slice(iv.name.length + 1) : said;
+}
+
+/**
+ * What made `child` from `parent`, when its flag changed what a call answered, with what each got
+ * there. Null when no such flag made it, and when the replay left its recording before that call
+ * (a request changed first), so the call no longer pairs with the recording's.
+ */
+function interventionOf(store: Store, side: 'a' | 'b', parent: CallRecord[], child: RunRecord, childCalls: CallRecord[], answers: readonly CallDifference[]): ComparedIntervention | null {
+  if (child.mode !== 'replay') return null;
+  const iv: InterventionFlag | undefined = runInterventions(store, child, childCalls).find((f) => ANSWERING_FLAGS.has(f.flag) && f.callNo !== null);
+  if (!iv || iv.callNo === null) return null;
+  const n = iv.callNo;
+  if (child.divergence && child.divergence.callNo < n) return null;
+  const was = parent.find((c) => c.callNo === n);
+  const now = childCalls.find((c) => c.callNo === n);
+  if (!was || !now || was.kind !== now.kind || was.name !== now.name) return null;
+  const flag = iv.value ? `${iv.flag} ${iv.value}` : iv.flag;
+  const value = (iv.value ?? '').replace(/^\d+[=:]/, '');
+  const base = { run: side, flag, callNo: n, name: now.name };
+  switch (iv.flag) {
+    case '--fail-at': {
+      if (now.kind === 'api') {
+        const status = typeof now.end?.meta.status === 'number' ? now.end.meta.status : /^\d{3}$/.test(value) ? Number(value) : null;
+        const after = status !== null ? `HTTP ${status}` : 'a failure';
+        const before = was.end?.outcome === 'ok' ? 'an answer' : 'its recorded failure';
+        return { ...base, kind: 'fail', before, after, words: `#${n} got ${after} instead of ${before}` };
+      }
+      const before = resultLine(store, was);
+      const after = toolFailure(value);
+      return { ...base, kind: 'fail', before, after, words: `#${n} ${now.name} got ${after} instead of ${before ?? 'its result'}` };
+    }
+    case '--override': {
+      if (now.kind === 'tool' && now.meta.input === true) {
+        const before = inputText(store, was);
+        const after = inputText(store, now);
+        return { ...base, kind: 'answer', before, after, words: `#${n} the user answered ${quoted(after)} instead of ${quoted(before)}` };
+      }
+      const before = resultLine(store, was);
+      const after = resultLine(store, now);
+      return { ...base, kind: 'override', before, after, words: `#${n} ${now.name} returned ${after ?? 'nothing'} instead of ${before ?? 'nothing'}` };
+    }
+    case '--inject-result': {
+      const before = resultLine(store, was);
+      return { ...base, kind: 'plant', before, after: value, words: `#${n} ${now.name} returned ${before ?? 'its result'} with ${quoted(value)} planted in it` };
+    }
+    default: {
+      // Asked again with the request as recorded: how it answered is the response difference's to show.
+      const answered = answers.find((r) => r.callNo === n);
+      return { ...base, kind: 'resample', before: null, after: null, words: `#${n} was asked again and answered ${answered && !answered.sameAnswer ? 'differently' : 'the same'}` };
+    }
+  }
+}
+
 export function compareRuns(store: Store, a: RunRecord, allA: CallRecord[], b: RunRecord, allB: CallRecord[]): RunComparison {
   // The agents' calls: a run whose judge was asked differs in no call of the agent's.
   const aCalls = agentCallsOf(allA);
@@ -277,17 +405,25 @@ export function compareRuns(store: Store, a: RunRecord, allA: CallRecord[], b: R
       responseDifferences.push({ callNo: y.callNo, kind: y.kind, name: y.name, ...responseDifference(store, x, y) });
     }
   }
+  // A replay of the other run: the flag that made it, when it changed an answer, which no request shows.
+  const intervention = b.parentRunId === a.runId ? interventionOf(store, 'b', allA, b, allB, responseDifferences) : a.parentRunId === b.runId ? interventionOf(store, 'a', allB, a, allA, responseDifferences) : null;
+  // The call it answered got something else because of the flag: its difference says by which flag,
+  // and what it got instead (a model asked again: how it answered each time, as any answer does).
+  const answers = intervention
+    ? responseDifferences.map((r) => (r.callNo !== intervention.callNo ? r : intervention.kind === 'resample' ? { ...r, by: intervention.flag } : { ...r, detail: whatItGot(intervention), by: intervention.flag }))
+    : responseDifferences;
   return {
     a: { runId: a.runId, calls: aCalls.length },
     b: { runId: b.runId, calls: bCalls.length },
     identicalPrefix,
     prefix,
     firstRequestDifference,
-    responseDifferences,
+    responseDifferences: answers,
     after,
     onlyInA: after ? 0 : Math.max(0, aCalls.length - n),
     onlyInB: after ? 0 : Math.max(0, bCalls.length - n),
     changes: runChanges(store, a, aCalls, b, bCalls),
+    intervention,
   };
 }
 
@@ -315,13 +451,16 @@ export function formatComparison(c: RunComparison, p: Palette = plain): string {
     return lines.join('\n');
   }
   if (c.identicalPrefix) lines.push(`  ${p.green('=')} calls 1–${c.identicalPrefix}: same requests, same responses`);
+  // What made the fork, when no request shows it: the flag that changed an answer, with both answers, as Compare leads with it.
+  const iv = c.intervention;
+  if (iv) lines.push(`  ${p.yellow('⑂')} ${safeLine(iv.words)}${iv.run === 'a' ? ` in ${short(c.a.runId)}` : ''}, by ${safeLine(iv.flag)}`);
   // A model that answered the same way in a new response (its own id, its token counts) is said apart, as the dashboard says it.
   const changedAnswers = c.responseDifferences.filter((r) => !r.sameAnswer);
   const again = c.responseDifferences.length - changedAnswers.length;
   if (again) lines.push(`  ${p.green('=')} ${again} call${again === 1 ? '' : 's'} with the same request got the same answer in ${again === 1 ? 'a new response' : 'new responses'} (only ids or token counts differ)`);
   if (changedAnswers.length) {
     lines.push(`  ${p.yellow('≠')} ${changedAnswers.length} call${changedAnswers.length === 1 ? '' : 's'} with the same request but a different response:`);
-    for (const r of changedAnswers.slice(0, 12)) lines.push(`    #${r.callNo} ${r.kind} ${safeLine(r.name)}: ${safeLine(r.detail ?? '')}`);
+    for (const r of changedAnswers.slice(0, 12)) lines.push(`    #${r.callNo} ${r.kind} ${safeLine(r.name)}: ${safeLine(r.detail ?? '')}${r.by ? p.dim(` (${safeLine(r.by)})`) : ''}`);
     if (changedAnswers.length > 12) lines.push(p.dim(`    … ${changedAnswers.length - 12} more`));
   }
   const f = c.firstRequestDifference;
