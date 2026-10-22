@@ -157,8 +157,9 @@ function FixHeader({ fix, reload }: { fix: FixDetail; reload: () => void }) {
  * Repair from here, or Copy git apply and Apply the patch, each asking first. Disabled, with the
  * reason, where nothing runs, while another job uses the working tree, or when there is nothing to
  * do. A repair whose runs came from someone else's pack asks once more before it runs their command.
- * Repair from here is the lead action unless blame found that no answer of the model's lost the run:
- * then it stays, as a plain button that says so on hover (`repairAside`).
+ * Repair from here is the lead action unless it would end "No fix to try", the blame of every
+ * failing run having rescued it from no call: then it stays, as a plain button that says why on
+ * hover (`repairAside`).
  */
 export function FixActions({ fix }: { fix: FixDetail }) {
   const app = useApp();
@@ -277,8 +278,9 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
         onRun(ask.repairer);
       }}
     >
+      {/* A repair that ends "No fix to try" runs nothing live, so it bills nothing: the dialog says why instead. */}
       {aside && !ask.why ? <p className="fxdlg">{aside}</p> : null}
-      {ask.why ? null : <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.</p>}
+      {ask.why || aside ? null : <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.</p>}
       {ask.command ? <CmdLine>{ask.command}</CmdLine> : null}
     </Dialog>
   );

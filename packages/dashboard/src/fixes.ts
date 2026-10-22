@@ -321,9 +321,11 @@ export interface VerifyStep {
 export interface FixActions {
   /**
    * An open fix: repair from here. Argv after `shadowlap`, without `--db` or `--repairer`, which the
-   * caller adds (`repairJobArgv`); `command` is the whole command line, repairer included.
+   * caller adds (`repairJobArgv`); `command` is the whole command line, repairer included. `noFix`:
+   * why the repair would end "No fix to try" without running the agent, in a sentence (`noFixToTry`),
+   * or null when it would run it.
    */
-  repair: { argv: string[]; command: string } | null;
+  repair: { argv: string[]; command: string; noFix: string | null } | null;
   /**
    * A verified or applied fix: apply its repair's patch (`patch`), or mark a change verified in the
    * working tree applied (`mark`). Once `applied`, the button is "Patch applied" and disabled,
@@ -935,6 +937,32 @@ export function repairArgv(store: Store, rec: FixRecords): string[] {
   return ['repair', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...(scope ? ['--scope', scope] : []), ...runs.expect];
 }
 
+/**
+ * Why a repair from here would end "No fix to try" without running the agent, in a sentence, or
+ * null when it would run it. A repair reuses the blame kept on a failing run when it searched under
+ * the same check, rescue and scope, rather than search again (as `shadowlap repair` does): when that
+ * blame of every failing run left rescued it from no call, there is no passing path to learn from.
+ * Said as the CLI says why: no answer of the model's lost the runs, blame couldn't settle where they
+ * were lost, or nothing rescued them.
+ */
+function noFixToTry(store: Store, rec: FixRecords, scope: string | null): string | null {
+  const runs = rec.failing.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
+  if (!runs.length) return null;
+  const oracle = JSON.stringify(rec.fix.check.oracle);
+  const kept: StoredBlame[] = [];
+  for (const run of runs) {
+    const stored = run.meta?.blame;
+    const last = store.blamesOfRun(run.runId).at(-1);
+    if (!stored || !last || stored.outcome !== 'unrescuable') return null;
+    if (JSON.stringify(stored.oracle) !== oracle || Object.keys(stored.fields ?? {}).length || (stored.scope ?? null) !== scope) return null;
+    kept.push(last);
+  }
+  const one = runs.length === 1;
+  if (kept.every(noAnswerLost)) return `Blame found that no answer of the model's lost ${one ? 'this run' : 'these runs'}, so a rewrite of the prompt can't fix ${one ? 'it' : 'them'}: the repair ends “No fix to try”. Look at the tools, the harness or the command.`;
+  if (kept.every((b, i) => runs[i]!.meta?.blame?.unsettled === true || (b.outcome === 'unrescuable' && unsettledFirst(b.report)))) return `Blame couldn't settle where ${one ? 'the run was' : 'the runs were'} lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.`;
+  return 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
+}
+
 /** `shadowlap verify` of a change for a fix, as its empty Verify step shows it: the runs and the check a repair from it would take. Empty as `repairArgv` is. */
 function verifyArgv(store: Store, rec: FixRecords): string[] {
   const runs = fixRunArgs(store, rec);
@@ -1004,7 +1032,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
     actions: {
-      repair: fix.status === 'open' && repairArgs.length ? { argv: repairArgs, command: commandLine(repairJobArgv(repairArgs, configured)) } : null,
+      repair: fix.status === 'open' && repairArgs.length ? { argv: repairArgs, command: commandLine(repairJobArgv(repairArgs, configured)), noFix: noFixToTry(store, rec, b?.scope ?? null) } : null,
       apply:
         fix.status === 'open'
           ? null

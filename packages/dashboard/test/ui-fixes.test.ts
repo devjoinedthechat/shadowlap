@@ -54,7 +54,7 @@ describe('a fix', () => {
   });
 
   it('offers Repair from here on an open fix, Apply on a verified one, and Patch applied once it is in', () => {
-    const repair = { argv: ['repair'], command: 'shadowlap repair' };
+    const repair = { argv: ['repair'], command: 'shadowlap repair', noFix: null };
     const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', refused: null };
     expect(fixAction({ status: 'open', actions: actions({ repair }) })).toEqual({ kind: 'repair' });
     expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Repair from here', why: expect.stringMatching(/nothing to repair from here/) });
@@ -89,16 +89,17 @@ describe('a fix', () => {
     ]);
   });
 
-  it("keeps Repair from here but not as the lead when blame found no answer of the model's lost the run", () => {
-    const look = "No answer of the model's lost this run: look at the tools, the harness or the command.";
-    expect(repairAside({ blame: { look } as FixDetail['blame'] })).toBe("Blame found that no answer of the model's lost this run, so a rewrite of the prompt is unlikely to fix it: look at the tools, the harness or the command.");
-    expect(repairAside({ blame: { look: null } as FixDetail['blame'] })).toBeNull();
-    expect(repairAside({ blame: null })).toBeNull();
+  it('keeps Repair from here but not as the lead when the repair would end with no fix to try, and says why', () => {
+    const noFix = 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
+    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix } }) })).toBe(noFix);
+    // A blame that couldn't settle has a look of its own on the Blame step, which says nothing of a repair.
+    expect(repairAside({ actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair', noFix: null } }), blame: { look: 'Not settled: resampled from #1…' } as FixDetail['blame'] } as FixDetail)).toBeNull();
+    expect(repairAside({ actions: actions({}) })).toBeNull();
   });
 
   it('names the repairer Repair from here asks as the fix reads again, and sends that one', () => {
     const fix = (repairer: FixDetail['repairer'], o: Partial<FixDetail> = {}) =>
-      ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}` } }), ...o }) as FixDetail;
+      ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}`, noFix: null } }), ...o }) as FixDetail;
     // The page loaded before the config named a repairer; the dialog reads it again as it opens.
     const page = fix({ name: 'claude-code', configured: false, problem: null });
     const now = fix({ name: 'anthropic', configured: true, problem: null });
@@ -113,7 +114,7 @@ describe('a fix', () => {
   });
 
   it('keeps Repair off, saying why, when the repairer it would ask can’t be asked from here', () => {
-    const page = { status: 'open', repairer: { name: 'claude-code', configured: false, problem: null }, actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair --repairer claude-code' } }) } as FixDetail;
+    const page = { status: 'open', repairer: { name: 'claude-code', configured: false, problem: null }, actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair --repairer claude-code', noFix: null } }) } as FixDetail;
     const problem = 'This repair asks your own Claude Code, and claude was not found on this machine: install Claude Code, or set SHADOWLAP_CLAUDE to its path, or name another repairer in shadowlap.config.json (repair.repairer).';
     // claude went missing since the page loaded: the dialog reads the fix again as it opens.
     expect(repairAsk(page, { fix: { ...page, repairer: { ...page.repairer, problem } } })).toEqual({ ready: false, who: null, repairer: null, command: 'shadowlap repair --repairer claude-code', why: problem });

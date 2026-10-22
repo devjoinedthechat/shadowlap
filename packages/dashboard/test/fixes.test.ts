@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BLAME_DEFAULTS, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, unsettledFirst, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
@@ -423,8 +423,44 @@ describe('a fix', () => {
     const { fix } = blame(run, { expect: null });
     const d = fixDetail(store, fix.fixId)!;
     expect(d).toMatchObject({ defaultStep: 'blame', repair: null, verify: [], defaultVerify: null, applied: null });
-    expect(d.actions).toEqual({ repair: { argv: ['repair', '--fixes', run], command: `shadowlap repair --fixes ${run} --repairer claude-code` }, apply: null, applied: false });
+    expect(d.actions).toEqual({ repair: { argv: ['repair', '--fixes', run], command: `shadowlap repair --fixes ${run} --repairer claude-code`, noFix: null }, apply: null, applied: false });
     expect(d.commands.verify).toBe(`shadowlap verify --fixes ${run.slice(0, 10)}`);
+  });
+
+  it('says when a repair from here can only end with no fix to try, and why, as it would reuse the blames kept on the runs', () => {
+    // A blame as the CLI keeps it: whole with the fix, and the latest on the run, which a repair reuses.
+    const kept = (labels: string[], report: (runId: string) => BlameReport, o: { scope?: string; fields?: Record<string, unknown> } = {}) => {
+      const runId = makeRun(store, { labels });
+      const r = report(runId);
+      store.updateRunMeta(runId, { blame: { at: NOW, outcome: r.outcome, ...(unsettledFirst(r) ? { unsettled: true } : {}), callNo: r.blamed?.callNo ?? null, confidence: r.confidence, rescuedRunId: null, fields: o.fields ?? {}, ...(o.scope ? { scope: o.scope } : {}), oracle: r.oracle, probes: [], spent: 0 } });
+      return recordBlame(store, { runId, report: r, expect: EXPECT, scope: o.scope ?? null, command: 'shadowlap blame x', title: 'issue_refund called with amount 240', checkText: 'x', at: NOW }).fix.fixId;
+    };
+    const noFix = (fixId: string) => fixDetail(store, fixId)!.actions.repair!.noFix;
+    expect(noFix(kept(['a'], (r) => blameReport(r, 'unrescuable')))).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
+    const write = { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 };
+    expect(noFix(kept(['b'], (r) => ({ ...blameReport(r, 'unrescuable'), failedWrite: write })))).toBe("Blame found that no answer of the model's lost this run, so a rewrite of the prompt can't fix it: the repair ends “No fix to try”. Look at the tools, the harness or the command.");
+    // Its first probe couldn't tell: not settled, which is no finding that no answer of the model's lost the run.
+    const unsure = (r: string) => {
+      const base = blameReport(r, 'unrescuable');
+      return { ...base, probes: [{ ...base.probes[0]!, decision: 'inconclusive' as const }] };
+    };
+    const unsettled = kept(['c'], unsure);
+    expect(noFix(unsettled)).toBe("Blame couldn't settle where the run was lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.");
+    expect(noFix(unsettled)).not.toContain("no answer of the model's lost");
+    // In the blame's scope, which the repair keeps, it is reused all the same.
+    expect(noFix(kept(['d'], (r) => blameReport(r, 'unrescuable'), { scope: 'agent' }))).toMatch(/^No failing run was rescued/);
+    // A blame that found the call has a passing path to learn from: the repair runs.
+    expect(noFix(kept(['e'], (r) => blameReport(r)))).toBeNull();
+    // One made with a rescue the repair doesn't ask for is made again, live, and may find the call.
+    expect(noFix(kept(['f'], (r) => blameReport(r, 'unrescuable'), { fields: { temperature: 1 } }))).toBeNull();
+    // So is one kept with the fix only, from before blames were kept on the run as well.
+    const before = makeRun(store, { labels: ['g'] });
+    expect(noFix(recordBlame(store, { runId: before, report: blameReport(before, 'unrescuable'), expect: EXPECT, scope: null, command: 'b', title: 't', checkText: 'x', at: NOW }).fix.fixId)).toBeNull();
+    // A failing run of the fix never blamed is blamed live.
+    const fixId = kept(['h'], (r) => blameReport(r, 'unrescuable'));
+    recordBlame(store, { runId: makeRun(store, { labels: ['h'] }), report: blameReport('x'), expect: EXPECT, scope: null, command: 'b', title: 't', checkText: 'x', at: NOW + 1 });
+    expect(fixRecords(store, store.getFix(fixId)!).failing).toHaveLength(2);
+    expect(noFix(fixId)).toBeNull();
   });
 
   it("says a teammate's repair from the team store left its recordings on their machine, and applying here leaves nothing undone", () => {

@@ -119,12 +119,14 @@ export function patchLines(diff: string): Array<{ text: string; tone: 'add' | 'd
 }
 
 /**
- * Why Repair from here isn't the page's lead action, or null when it is: the fix's blame found that
- * no answer of the model's lost the run (its Blame step's `look`), so a rewrite of the prompt is
- * unlikely to fix it. The button stays, plain, with this on hover, and its dialog says it too.
+ * Why Repair from here isn't the page's lead action, or null when it is: the repair would end "No
+ * fix to try" without running the agent, since the blame of every failing run rescued it from no
+ * call (`noFix`, with why: no answer of the model's lost it, blame couldn't settle where, or nothing
+ * rescued it). The button stays, plain, with this on hover, and its dialog says it in place of what
+ * a repair that runs the agent costs.
  */
-export function repairAside(f: Pick<FixDetail, 'blame'>): string | null {
-  return f.blame?.look ? "Blame found that no answer of the model's lost this run, so a rewrite of the prompt is unlikely to fix it: look at the tools, the harness or the command." : null;
+export function repairAside(f: Pick<FixDetail, 'actions'>): string | null {
+  return f.actions.repair?.noFix ?? null;
 }
 
 /** What the Repair from here dialog says and sends, once the fix is read again as it opens. */
