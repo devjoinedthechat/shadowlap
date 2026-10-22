@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cacheUse, countOrigins, emptyOriginCounts, recordBlame, recordRepair, recordVerdict, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
+import { cacheUse, countOrigins, emptyOriginCounts, gateResult, recordBlame, recordRepair, recordVerdict, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { assistant, cachedUsage, RunBuilder, toolResult, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
 import { fixesSummary } from '../src/fixes.js';
@@ -362,6 +362,22 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', action: 'Fix', runId: failed, href: `#/run/${failed}` });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toBeNull();
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).needsLook.items.some((i) => i.kind === 'test')).toBe(false);
+    } finally {
+      local.close();
+    }
+  });
+
+  it('says a gated golden’s verdict as its gate does, the rule apart for the line’s hover (decision 9)', () => {
+    const local = Store.open(':memory:');
+    try {
+      const goldens: GoldenSource[] = [{ path: 'goldens/eval-pushy', runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: ['issue_refund called 0 times'], gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 } }];
+      const t = local.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'c91d0f4', startedAt: NOW - HOUR });
+      const g = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, [false, false, false]);
+      local.addTestResult({ sessionId: t.sessionId, golden: 'goldens/eval-pushy', ok: false, failure: 'check', reason: g.sentence, runId: null, revision: 'c91d0f4', at: NOW - HOUR + 1, data: { mode: 'fork', attempts: { total: 3, passed: 0, required: null, runs: [] }, verdict: 'failed', gate: g } });
+      local.finishTestSession(t.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: NOW - HOUR + 2 });
+      const row = overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items[0]!;
+      // The verdict word, the tally and the bound, whole: no rule in the line to cut off mid-figure.
+      expect(row).toMatchObject({ kind: 'test', title: 'A test failed: eval-pushy', detail: 'failed · 0 of 3 · rate <= 0.56 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
     } finally {
       local.close();
     }

@@ -213,6 +213,8 @@ export interface NeedsLookRow {
   at: number;
   /** For the line that stands for the rest of its kind: how many it stands for. */
   more?: number;
+  /** A gate decided it: its rule, for the line's hover (decision 9: the line says the verdict, the tally and the bound). */
+  rule?: string | null;
 }
 
 export interface NeedsLook {
@@ -542,7 +544,7 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
     }
   }
   const tests: NeedsLookRow[] = goldens.length
-    ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: t.verdict === 'inconclusive' ? ('warn' as const) : ('fail' as const), title: t.title, detail: t.line, action: t.verdict === 'inconclusive' ? 'Open' : 'Fix', href: t.href, runId: t.runId, fixId: null, at: t.at }))
+    ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: t.verdict === 'inconclusive' ? ('warn' as const) : ('fail' as const), title: t.title, detail: t.line, action: t.verdict === 'inconclusive' ? 'Open' : 'Fix', href: t.href, runId: t.runId, fixId: null, at: t.at, ...(t.rule ? { rule: t.rule } : {}) }))
     : [];
   // On Runs, as the design has it: the runs only here carry the local tag, and Push in the bulk bar
   // sends the ones picked (Settings → Store's Push local runs sends them all).

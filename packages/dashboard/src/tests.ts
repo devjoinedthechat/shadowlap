@@ -1,5 +1,6 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { liveChaosSession } from './chaos.js';
+import { gateLine, gateRuleOf } from './verdict.js';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -52,6 +53,12 @@ export interface GateView {
 export type GateResultView = GateResult & {
   /** `18 of 20 passed · rate >= 0.70 (95%) · pass^5 0.55`. */
   tally: string;
+  /**
+   * The rule it was decided by, said once under the table for every golden it decided (decision 9):
+   * `gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts`; null for a clean replay, which its
+   * one attempt settled.
+   */
+  rule: string | null;
   /** USD an attempt cost on average, to estimate what more attempts would; null when nothing was spent or it wasn't kept. */
   perAttempt: number | null;
   /** Run more attempts, for an inconclusive verdict; null otherwise. */
@@ -538,12 +545,17 @@ export function gateVerdictLine(g: GateResult): string {
   }
 }
 
-/** The line under a golden's last result: what it did, or why it failed; `normalizers` are the config's now. */
+/** Whether a result's line is its gate's verdict: a gate an attempt a check could not decide stopped decided nothing, and the result's reason says why. */
+const decidedByGate = (r: TestResult): boolean => !!r.data?.gate && r.data.gate.decision !== 'continue' && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit');
+
+/**
+ * The line under a golden's last result: what it did, or why it failed; `normalizers` are the
+ * config's now. A gated golden's is its tally and Wilson bound (and its baseline), the verdict word
+ * beside it and the gate's rule said once under the table (decision 9).
+ */
 export function resultLine(r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
   const data = r.data ?? {};
-  // A gate's verdict is its verdict line, passed, failed or inconclusive, with pass^k beside it; a gate
-  // an attempt a check could not decide stopped decided nothing, and the result's reason says why.
-  if (data.gate && data.gate.decision !== 'continue' && (r.ok || r.failure === 'inconclusive' || r.failure === 'check' || r.failure === 'exit')) return [gateVerdictLine(data.gate), formatPassK(data.gate)].filter(Boolean).join(' · ');
+  if (decidedByGate(r)) return gateLine(data.gate!, { word: false });
   if (!r.ok) {
     if (r.failure === 'diverged') {
       const d = divergenceOf(r);
@@ -681,7 +693,7 @@ export function gateResultView(r: TestResult, golden: string): GateResultView | 
   const spent = typeof agent === 'number' ? agent + (typeof judges === 'number' ? judges : 0) : undefined;
   const own = r.data?.attempts?.total ?? g.attempts;
   const perAttempt = typeof spent === 'number' && spent > 0 && own > 0 ? spent / own : null;
-  return { ...g, tally: formatTally(g), perAttempt, more: moreAttempts(g, golden, perAttempt) };
+  return { ...g, tally: formatTally(g), rule: gateRuleOf(g), perAttempt, more: moreAttempts(g, golden, perAttempt) };
 }
 
 /**
@@ -1208,8 +1220,13 @@ export interface FailingTest {
   title: string;
   /** Failed, or inconclusive: Needs a look lists both, told apart. */
   verdict: 'failed' | 'inconclusive';
-  /** Why: `diverged at call 1 · $.metadata.user_id looks like a UUID`. */
+  /**
+   * Why: `diverged at call 1 · $.metadata.user_id looks like a UUID`; a gate's verdict as every page
+   * says it, `failed · 4 of 8 · rate <= 0.78 (95%)`, its rule apart (`rule`).
+   */
   line: string;
+  /** The rule of the gate that decided it, for the line's hover; null when no gate did. */
+  rule: string | null;
   failure: TestFailure;
   runId: string | null;
   /** Where Fix → goes: the failing run, else the Tests screen. */
@@ -1227,7 +1244,10 @@ export function failingTests(store: Store, options: { goldens: GoldenList; folde
     .map((r) => {
       const runId = runIfKept(store, r.runId);
       const verdict = verdictOfResult(r) === 'inconclusive' ? 'inconclusive' : 'failed';
-      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line: lineOf(store, r, checksOf.get(r.golden) ?? [], options.normalizers ?? []), failure: r.failure ?? 'error', runId, href: verdict === 'inconclusive' ? '#/tests' : runId ? `#/run/${runId}` : '#/tests', at: r.at };
+      // A gate's verdict says its word, tally and bound; the rule goes on the line's hover.
+      const gate = decidedByGate(r) ? r.data!.gate! : null;
+      const line = gate ? gateLine(gate) : lineOf(store, r, checksOf.get(r.golden) ?? [], options.normalizers ?? []);
+      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line, rule: gateRuleOf(gate), failure: r.failure ?? 'error', runId, href: verdict === 'inconclusive' ? '#/tests' : runId ? `#/run/${runId}` : '#/tests', at: r.at };
     });
 }
 

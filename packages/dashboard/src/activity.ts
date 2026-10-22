@@ -1,8 +1,9 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, describeGate, formatTally, gateOf, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoredEvent } from '@shadowlap/engine';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
 import { shortReason, verdictOfResult } from './tests.js';
+import { gateLine, gateRuleOf as ruleOf } from './verdict.js';
 import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
 
 /**
@@ -330,17 +331,23 @@ function testEntry(store: Store, attempts: RunRecord[]): ActivityItem {
 }
 
 /**
- * A gate's evidence as the feed says it, after the verdict word, with the rule it was decided by:
- * `12 of 12 passed · rate >= 0.76 (95%) · pass^5 1.00 · gate: tells 90%+ from 70%- at <= 5% risk, up
- * to 20 attempts` (a clean replay needs no rule: its one attempt settled it); its tally alone when
- * the result kept less.
+ * A gate's verdict as the feed says it after the golden (decision 9): the verdict word, the tally and
+ * the Wilson bound, and against history the baseline, `failed · 4 of 8 · rate <= 0.78 (95%) · against
+ * 0.94 over the last 10 sessions (47 of 50)`; the rule it was decided by goes on the entry's hover
+ * (`gateRuleOf`). Its tally alone when the result kept less.
  */
 function gateTally(g: GateResult): string {
   try {
-    return g.clean ? formatTally(g) : `${formatTally(g)} · gate: ${describeGate(gateOf(g))}`;
+    return gateLine(g);
   } catch {
     return `${g.passes} of ${g.attempts} passed`;
   }
+}
+
+/** The rule a gate decided by, for an entry's hover: none for a clean replay, which its one attempt settled. */
+function gateRuleOf(g: GateResult | null | undefined): { rule: string } | Record<string, never> {
+  const rule = ruleOf(g);
+  return rule ? { rule } : {};
 }
 
 function testEnd(store: Store, run: RunRecord, test: { golden: string; session: string }, result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0]): ActivityItem {
@@ -361,12 +368,13 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   // A count settled before an attempt a check could not decide keeps that attempt apart: it neither passed nor failed.
   const tally = (a: NonNullable<typeof repeated>) => `${a.passed} of ${a.total} attempts passed${a.inconclusive ? `, ${a.inconclusive} inconclusive` : ''}`;
   // Its gate ran out of attempts, or a check could not be judged (which stops a gate before it decides), or its injection gate showed too little to say.
-  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · ${gate?.decision === 'inconclusive' ? gateTally(gate) : result.failure === 'injection' ? 'its injection test showed too little to say' : 'a check could not be judged'}` };
+  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden}${gate?.decision === 'inconclusive' ? `: ${gateTally(gate)}` : ` · ${result.failure === 'injection' ? 'its injection test showed too little to say' : 'a check could not be judged'}`}`, ...(gate?.decision === 'inconclusive' ? gateRuleOf(gate) : {}) };
   if (result?.ok) {
-    const how = gate ? gateTally(gate) : repeated ? tally(repeated) : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
+    if (gate) return { ...item, kind: 'test', text: `Test passed · ${golden}: ${gateTally(gate)}`, ...gateRuleOf(gate) };
+    const how = repeated ? tally(repeated) : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
     return { ...item, kind: 'test', text: `Test passed · ${golden} · ${how}` };
   }
-  if (result && gate) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${gateTally(gate)}` };
+  if (result && gate) return { ...item, kind: 'fail', text: `Test failed · ${golden}: ${gateTally(gate)}`, ...gateRuleOf(gate) };
   if (result && repeated) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${tally(repeated)}${typeof repeated.required === 'number' ? `, ${repeated.required} needed` : ''}` };
   const diverged = d && d.type !== 'forced' ? `diverged at call ${d.callNo}${drifted ? `, ${drifted}` : ''}` : null;
   if (result) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${result.failure === 'diverged' && diverged ? diverged : shortReason(result)}` };

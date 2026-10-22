@@ -670,7 +670,8 @@ describe('tests on the Overview and in Needs a look', () => {
 
   it('lists failing tests with why, linking to the failing run', () => {
     const store = sampleStore();
-    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', verdict: 'failed', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', at: T0 + 2 }]);
+    // No gate decided it: no rule goes with its line.
+    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', verdict: 'failed', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', rule: null, failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', at: T0 + 2 }]);
     store.deleteRun('R_C_LIMIT');
     expect(failingTests(store, { goldens: goldens.map((g) => g.path) })[0]).toMatchObject({ runId: null, href: '#/tests' });
     store.close();
@@ -1005,10 +1006,13 @@ describe('goldens with a gate', () => {
     expect(escalates!.gate).toEqual({ gate: sprt, description: 'tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', toPass: 12, toFail: 3 });
     expect(escalates!.modeLabel).toBe('fork · gate');
     expect(drops!.modeLabel).toBe('fork · history');
-    // The verdict word, the tally, the Wilson bound and the rule, then pass^k: never a claimed rate.
-    expect(escalates!.last).toMatchObject({ result: 'pass', verdict: 'passed', line: 'passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00' });
+    // Decision 9: the tally and the Wilson bound under the verdict word, and against history the
+    // baseline; the rule is said once under the table, never on each row, and never a claimed rate.
+    expect(escalates!.last).toMatchObject({ result: 'pass', verdict: 'passed', line: '12 of 12 · rate >= 0.76 (95%)' });
+    expect(drops!.last).toMatchObject({ result: 'fail', verdict: 'failed', line: '0 of 3 · rate <= 0.56 (95%) · against 1.00 over the last 10 sessions (30 of 30)' });
     const g = escalates!.last.gate!;
-    expect(g).toMatchObject({ kind: 'sprt', decision: 'pass', passes: 12, attempts: 12, tally: '12 of 12 passed · rate >= 0.76 (95%) · pass^5 1.00', perAttempt: 0.02, more: null });
+    expect(g).toMatchObject({ kind: 'sprt', decision: 'pass', passes: 12, attempts: 12, tally: '12 of 12 passed · rate >= 0.76 (95%) · pass^5 1.00', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', perAttempt: 0.02, more: null });
+    expect(drops!.last.gate!.rule).toBe('gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 3 attempts up to 40');
     expect(g.interval.lo).toBeCloseTo(0.7575, 4);
     if (g.evidence.kind !== 'sprt') throw new Error('an SPRT gate keeps its scores');
     expect(g.evidence.scores).toHaveLength(12);
@@ -1051,6 +1055,12 @@ describe('goldens with a gate', () => {
     expect(failingTests(store, { goldens: gated }).map((t) => [t.title, t.verdict, t.href])).toEqual([
       ['A test failed: drops', 'failed', '#/tests'],
       ['A test is inconclusive: flaky', 'inconclusive', '#/tests'],
+    ]);
+    // Needs a look says a gate's verdict as the gate does: the word, the tally and the bound (and the
+    // baseline), whole, with the rule apart for the line's hover, never cut off after it.
+    expect(failingTests(store, { goldens: gated }).map((t) => [t.line, t.rule])).toEqual([
+      ['failed · 0 of 3 · rate <= 0.56 (95%) · against 1.00 over the last 10 sessions (30 of 30)', 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 3 attempts up to 40'],
+      ['inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%)', 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts'],
     ]);
     store.close();
   });

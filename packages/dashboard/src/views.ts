@@ -175,6 +175,8 @@ export interface ActivityItem {
   ref?: string;
   /** The run it is about is recording now (a "Recording started" dot pulses only then). */
   live?: boolean;
+  /** The rule of the gate whose verdict it says, for its hover (decision 9: the line says the verdict, the tally and the bound). */
+  rule?: string;
 }
 
 /**
