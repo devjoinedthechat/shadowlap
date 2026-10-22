@@ -91,9 +91,11 @@ function decisionLooks(store: Store): NeedsLookRow[] {
   const out: NeedsLookRow[] = [];
   const seen = new Set<string>();
   for (const s of store.listDecisionSessions({ limit: 50 })) {
+    // The newest preview of each change says how it stands: one since that flags nothing settles it.
     const key = `${s.kind}\u0000${s.change}`;
-    if (s.flagged <= 0 || seen.has(key)) continue;
+    if (seen.has(key)) continue;
     seen.add(key);
+    if (s.flagged <= 0) continue;
     const full = store.getDecisionSession(s.sessionId);
     if (!full) continue;
     const verdict = verifiedAs(full.data);

@@ -97,6 +97,9 @@ describe('the upgrades’ results in Needs a look', () => {
     session('mg-01M5000000000000000000000C', 'migrate', NOW - 8_000, 'the model claude-haiku-4-5', { flagged: [refund], decisions: { flagged: [refund] }, passes: { verdict: 'accepted', runs: [] } });
     // One a verify rejected.
     session('mg-01M5000000000000000000000D', 'migrate', NOW - 7_000, 'the model gpt-5-mini', { flagged: [refund], decisions: { flagged: [refund] }, passes: { verdict: 'rejected', runs: [] } });
+    // A change whose newest preview flags nothing any more: its older preview that flagged a run is settled.
+    session('dc-01M5000000000000000000000E', 'decisions', NOW - 50_000, 'temperature=1', { flagged: [refund], verify: null });
+    store.putDecisionSession({ sessionId: 'dc-01M5000000000000000000000F', kind: 'decisions', at: NOW - 6_000, change: 'temperature=1', actor: null, revision: null, data: { flagged: [], verify: null }, runs: [{ runId: refund, golden: 'goldens/forecast', rank: null, changed: 0, data: { ...decisionRun, rank: null, decisions: [step(3, null)] } }] });
     expect(items().filter((i) => i.kind === 'decisions')).toEqual([
       { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the model gpt-5-mini', detail: 'a migration: a write, stop or judged change · verify rejected it', action: 'Open', href: `#/run/${refund}/5`, runId: refund, fixId: null, at: NOW - 7_000 },
       { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the prompt and tools in the working tree', detail: 'a preview: a write, stop or judged change · not verified yet', action: 'Open', href: `#/run/${refund}/5`, runId: refund, fixId: null, at: NOW - 9_000 },
