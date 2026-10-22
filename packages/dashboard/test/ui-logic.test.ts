@@ -507,10 +507,15 @@ describe('runs', () => {
     ]);
     // Cut off after the fork of the fork, no line leads past the last row shown.
     expect(treeLines(runTree([base, clean, fork, fork2, test2]).slice(0, 4)).at(-1)).toMatchObject({ depth: 2, on: [false, false] });
-    // A lineage deeper than the sidebar draws keeps to its deepest step.
+    // A lineage deeper than the sidebar draws keeps to its deepest step: four, where a run's id and a
+    // date beside it still fit the sidebar's width.
     const chain: RunLike[] = [base];
     for (let i = 1; i <= 12; i++) chain.push({ ...fork, runId: `01K5CQ9X${String(i).padStart(2, '0')}0000000000000000`, parentRunId: chain[i - 1]!.runId, startedAt: 3000 + i });
-    expect(Math.max(...treeLines(runTree(chain)).map((x) => x.depth))).toBe(TREE_DEPTH);
+    expect(TREE_DEPTH).toBe(4);
+    const deep = treeLines(runTree(chain));
+    expect(deep.map((x) => x.depth)).toEqual([0, 1, 2, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4]);
+    // Past it, each run is drawn at that step after the one before, the line at that step going on to the next.
+    expect(deep.slice(4).map((x) => x.on.at(-1))).toEqual([true, true, true, true, true, true, true, true, false]);
   });
 
   it('picks what Compare opens with', () => {

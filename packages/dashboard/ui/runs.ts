@@ -367,8 +367,12 @@ export function runTree<R extends RunLike>(runs: readonly R[]): Array<{ run: R; 
   return out;
 }
 
-/** The deepest a row is drawn in: a longer lineage (a replay of a replay of …) keeps to this step. */
-export const TREE_DEPTH = 8;
+/**
+ * The deepest a row is drawn in: four steps of 18px leave the sidebar's 252px room for a run's id and
+ * its time beside it, a date ("Sep 30") the widest; a fifth would push the date past the edge. A
+ * longer lineage (a replay of a replay of …) keeps to this step.
+ */
+export const TREE_DEPTH = 4;
 
 /**
  * The sidebar's tree as the rows shown draw it, one step in for each level: each row's depth, and
