@@ -307,6 +307,25 @@ describe('the Forks view', () => {
     expect(page.all('.fnode .attempts span').map((s) => s.textContent)).toEqual([1, 2, 3, 4, 5].map((k) => `0TEST${k}0000 · checks 1 of 1`));
     expect(titles.some((t) => t.startsWith('0OTHER'))).toBe(true);
   });
+
+  it('says what a gated golden’s gate made of its attempts in the session, with the rule once, as Tests does', async () => {
+    const gate = { verdict: 'inconclusive · 3 of 5 · rate 0.23 to 0.88 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 5 attempts' };
+    const lineage: LineageNode[] = [
+      { ...node(TICKET, { parentRunId: null, depth: 0, mode: 'record', kind: 'recording', test: null, origins: 'l'.repeat(30), calls: 30, checks: null, outcome: { kind: 'none' } }) },
+      ...[1, 2, 3, 4, 5].map((k) => {
+        const n = forked(`0GATE${k}`.padEnd(26, '0'), k, 10 + k);
+        return { ...n, checks: { passed: k <= 3 ? 1 : 0, total: 1 }, test: { ...n.test!, gate } };
+      }),
+    ];
+    const client = { lineage: () => Promise.resolve(lineage), fixBundles: () => Promise.resolve([]) };
+    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ForksView, { runId: '0GATE2'.padEnd(26, '0') })));
+    await page.until('the family to load', () => page!.all('.fnode').length > 0);
+    const bundle = page.all('.fnode').find((n) => n.textContent.includes('test · refund-over-limit'))!;
+    // The verdict word, the tally and the Wilson bound, with what the attempts spent; never a bare count of passes.
+    expect(page.one('.fnode.here .f2').textContent).toBe('inconclusive · 3 of 5 · rate 0.23 to 0.88 (95%) · ≈$0.088gate: tells 90%+ from 70%- at <= 5% risk, up to 5 attempts');
+    expect(page.all('.fnode .frule').map((r) => r.textContent)).toEqual(['gate: tells 90%+ from 70%- at <= 5% risk, up to 5 attempts']);
+    expect(bundle.textContent).not.toContain('3 passed');
+  });
 });
 
 describe('a diverged test’s diff', () => {

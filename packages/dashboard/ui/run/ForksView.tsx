@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useRef, type ReactNode } from 'react';
 import type { LineageNode } from '../api.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
-import { shortId, stamp } from '../format.js';
+import { approx, shortId, stamp } from '../format.js';
 import { familyRefresh } from '../connection.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
@@ -91,7 +91,7 @@ export function ForksView({ runId }: { runId: string }) {
       if (sub) items.push(<Fragment key={`${n.runId}:kids`}>{sub}</Fragment>);
     }
     for (const [group, attempts] of groups) items.push(<Bundle key={group} attempts={attempts} current={runId} />);
-    for (const [key, attempts] of sessions) if (attempts.length > 1) items.push(<Bundle key={key} attempts={attempts} current={runId} title={`test · ${goldenName(attempts[0]!.test!.golden)}`} />);
+    for (const [key, attempts] of sessions) if (attempts.length > 1) items.push(<Bundle key={key} attempts={attempts} current={runId} title={`test · ${goldenName(attempts[0]!.test!.golden)}`} gate={attempts.find((n) => n.test?.gate)?.test?.gate ?? null} />);
     if (parent !== null) for (const b of fixes.bundles) if (b.parentRunId === parent) items.push(<FixBundleNode key={b.key} bundle={b} current={runId} />);
     if (!items.length) return null;
     return parent === null ? <>{items}</> : <div className="fkids">{items}</div>;
@@ -99,7 +99,12 @@ export function ForksView({ runId }: { runId: string }) {
   return <div className="fam">{family(null)}</div>;
 }
 
-function Bundle({ attempts, current, title }: { attempts: LineageNode[]; current: string; title?: string }) {
+/**
+ * Attempts made together, as one node: a `--repeat`'s, or a golden's in one test session. A golden
+ * with a gate says what the gate made of them, as Tests does: the verdict word, the tally and the
+ * Wilson bound, then the rule, once, under it; without one, how many passed.
+ */
+function Bundle({ attempts, current, title, gate = null }: { attempts: LineageNode[]; current: string; title?: string; gate?: { verdict: string; rule: string | null } | null }) {
   // A test session's attempts are numbered by the golden's result, as --repeat's are by the replay.
   const numbered = (n: LineageNode) => n.repeat ?? (n.test?.attempt ? { attempt: n.test.attempt, of: attempts.length } : null);
   const b = repeatBundle(
@@ -108,14 +113,19 @@ function Bundle({ attempts, current, title }: { attempts: LineageNode[]; current
   );
   const first = attempts.find((n) => n.runId === b.attempts[0]?.runId) ?? attempts[0]!;
   const has = attempts.some((n) => n.runId === current);
+  const spent = attempts.reduce((sum, n) => sum + n.spent, 0);
+  const word = gate ? /^(passed|failed|inconclusive)\b/.exec(gate.verdict)?.[1] : null;
   return (
     <a className={`fnode${has ? ' here' : ''}`} href={href.run(first.runId)}>
-      {title ? <Glyph kind="test" label="Test attempts" /> : <Glyph kind="fork" label="Repeated attempts" />}
+      {title ? <Glyph kind={word === 'failed' ? 'fail' : word === 'inconclusive' ? 'warn' : 'test'} label="Test attempts" /> : <Glyph kind="fork" label="Repeated attempts" />}
       <span>
         <span className="f1">
           <code>{b.title}</code>
         </span>
-        <span className="f2 block">{b.line}</span>
+        <span className="f2 block">
+          {gate ? `${gate.verdict}${spent ? ` · ${approx(spent)}` : ''}` : b.line}
+          {gate?.rule ? <span className="frule">{gate.rule}</span> : null}
+        </span>
         <span className="attempts">
           {b.attempts.map((a) => (
             <span key={a.runId}>

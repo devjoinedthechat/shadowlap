@@ -1,4 +1,4 @@
-import { checksOf, cleanLabel, displayOrigin, ORIGIN_CODE, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
@@ -512,8 +512,13 @@ export interface LineageNode {
    * injected, f failed, b blocked, s stubbed): an attempt the list leaves out says what it did too.
    */
   origins: string;
-  /** A replay made by `shadowlap test`: its golden and session, and which of the golden's attempts in the session it is. */
-  test: { golden: string; session: string; attempt: number | null } | null;
+  /**
+   * A replay made by `shadowlap test`: its golden and session, and which of the golden's attempts in
+   * the session it is. For a golden replayed more than once in the session, `gate` is what its gate
+   * made of those attempts, as Tests says it: the verdict word, the tally and the Wilson bound, and
+   * the rule, stated once; null when the golden has no gate, or it decided nothing.
+   */
+  test: { golden: string; session: string; attempt: number | null; gate?: { verdict: string; rule: string | null } | null } | null;
   /** How the run stands as the run list says it: its kind, how it came out, and whether that failed. */
   kind?: RunKind;
   outcome?: RunOutcome;
@@ -538,6 +543,13 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
   }
   const modelOf = modelResolver(store);
   const stateOf = runStates(store);
+  // Each golden's gate in a session, read once however many of its attempts the family holds.
+  const gates = new Map<string, { verdict: string; rule: string | null } | null>();
+  const sessionGateOf = (t: NonNullable<LineageNode['test']>) => {
+    const key = `${t.session}\n${t.golden}`;
+    if (!gates.has(key)) gates.set(key, sessionGate(store, t.session, t.golden));
+    return gates.get(key)!;
+  };
   const out: LineageNode[] = [];
   const walk = (r: RunRecord, depth: number) => {
     if (out.length >= 1000) return;
@@ -562,12 +574,33 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
       repeat: r.meta?.repeat ?? null,
       checks: checksOf(r),
       origins: calls.map((c) => ORIGIN_CODE[displayOrigin(c.origin, c.end ? { outcome: c.end.outcome, injected: c.end.meta.injected } : null)]).join(''),
-      test: testOf(r),
+      test: withGate(testOf(r), sessionGateOf),
     });
     for (const child of store.childRuns(r.runId).sort((a, b) => a.startedAt - b.startedAt)) walk(child, depth + 1);
   };
   walk(root, 0);
   return out;
+}
+
+/** A golden's attempt in a test session that replayed it more than once, with its gate's verdict on them; any other test as it is. */
+function withGate(t: LineageNode['test'], gateFor: (t: NonNullable<LineageNode['test']>) => { verdict: string; rule: string | null } | null): LineageNode['test'] {
+  return t && t.attempt !== null ? { ...t, gate: gateFor(t) } : t;
+}
+
+/**
+ * What a golden's gate made of its attempts in one test session, as Tests says it: the
+ * verdict word, the tally and the Wilson bound, and the rule apart, to be stated once. A clean
+ * replay's one attempt settles it, with no rule to state. Null when the golden has no gate, the gate
+ * decided nothing (stopped by a check it couldn't judge, or by a signal), or what was kept can't be read.
+ */
+function sessionGate(store: Store, session: string, golden: string): { verdict: string; rule: string | null } | null {
+  try {
+    const g = store.listTestResults({ sessionId: session, golden, limit: 1 })[0]?.data?.gate;
+    if (!g || g.decision === 'continue') return null;
+    return g.clean ? { verdict: `${verdictLine(g)}, so its one attempt settles it`, rule: null } : { verdict: verdictLine(g), rule: `gate: ${describeGate(gateOf(g))}` };
+  } catch {
+    return null;
+  }
 }
 
 /** A test replay's golden, session and attempt, as its record keeps them; checked, since a run can come from someone else's pack. */

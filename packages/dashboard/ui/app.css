@@ -1622,6 +1622,8 @@ table.calls tbody tr.wspace:hover td, table.t tbody tr.wspace:hover td { backgro
 
 /* forks and provenance: a ledger row selects its call */
 .fnode .f2.block { display: block; }
+/* a gated golden's attempts in one session: its gate's rule, once, under the verdict */
+.fnode .f2 .frule { display: block; margin-top: 2px; font-size: 11.5px; }
 table.ledger tbody tr { cursor: pointer; }
 table.ledger tbody tr:hover td { background: var(--hover); }
 table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { gateResult, Store } from '@shadowlap/engine';
 import { ambiguousRunId, lineage, listRuns, noSuchRun, runDetail } from '../src/api.js';
 import { exportHtml, type StaticPayload } from '../src/index.js';
 import { recentRuns, type RunRow } from '../src/runs-list.js';
@@ -85,10 +85,27 @@ describe('a run’s page and lineage', () => {
       const once = addRun(local, { parent: rec, startedAt: NOW - HOUR, calls: 'rrrrrr', meta: { test: { golden: 'goldens/refund', session: 'S2' } } });
       expect(lineage(local, second)!.map((n) => [n.runId, n.origins, n.test])).toEqual([
         [rec, 'llllll', null],
-        [first, 'rrllfb', { golden: 'goldens/refund', session: 'S1', attempt: 1 }],
-        [second, 'rrllll', { golden: 'goldens/refund', session: 'S1', attempt: 2 }],
+        [first, 'rrllfb', { golden: 'goldens/refund', session: 'S1', attempt: 1, gate: null }],
+        [second, 'rrllll', { golden: 'goldens/refund', session: 'S1', attempt: 2, gate: null }],
         [once, 'rrrrrr', { golden: 'goldens/refund', session: 'S2', attempt: null }],
       ]);
+    } finally {
+      local.close();
+    }
+  });
+
+  it('gives a gated golden’s attempts in a session what its gate made of them, the rule apart, as Tests says it', () => {
+    const local = Store.open(':memory:');
+    try {
+      const rec = addRun(local, { startedAt: NOW - DAY, calls: 'llllll' });
+      const session = local.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: NOW - 3 * HOUR }).sessionId;
+      const runs = [1, 2, 3].map((k) => addRun(local, { parent: rec, startedAt: NOW - 3 * HOUR + k, divergence: 3, calls: 'rrllll', meta: { test: { golden: 'goldens/refund', session, attempt: k } } }));
+      const gate = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 3 };
+      local.addTestResult({ sessionId: session, golden: 'goldens/refund', ok: false, failure: 'inconclusive', runId: runs[2]!, goldenRunId: rec, data: { verdict: 'inconclusive', gate: gateResult(gate, [true, false, true], { decision: 'inconclusive' }) } });
+      const tests = lineage(local, runs[0]!)!.filter((n) => n.test).map((n) => n.test!.gate);
+      expect(tests).toEqual([1, 2, 3].map(() => ({ verdict: 'inconclusive · 2 of 3 · rate 0.21 to 0.94 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 3 attempts' })));
+      // Never "passes at least": the verdict word, the tally and the bound.
+      expect(JSON.stringify(tests)).not.toContain('at least');
     } finally {
       local.close();
     }
