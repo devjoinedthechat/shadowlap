@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appliedButton, applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -338,7 +338,7 @@ describe('the Verify step', () => {
 });
 
 describe('the Forks view’s bundles', () => {
-  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: 'R', title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, passes: 1, attempts: [], spent: 0, at: 0, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
+  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: 'R', title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, counts: null, passes: 1, attempts: [], spent: 0, at: 0, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
   const attempt = (runId: string, passed: boolean, rescued = false, verdict: 'passed' | 'failed' | 'inconclusive' = passed ? 'passed' : 'failed') => ({ runId, passed, verdict, note: passed ? 'passed' : verdict === 'inconclusive' ? 'inconclusive: judge "issued" answers yes' : 'failed', href: `#/run/${runId}`, rescued });
 
   it('leaves out every attempt they list but the rescued fork, which shows as a fork', () => {
@@ -346,11 +346,15 @@ describe('the Forks view’s bundles', () => {
     expect([...bundledRuns([b])]).toEqual(['B']);
   });
 
-  it('gives a verify the icon of its verdict', () => {
-    expect(bundleGlyph({ kind: 'blame', verdict: null }).kind).toBe('blame');
-    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted' })).toEqual({ kind: 'fixok', label: 'Verify accepted the change' });
-    expect(bundleGlyph({ kind: 'verify', verdict: 'rejected' }).kind).toBe('fixbad');
-    expect(bundleGlyph({ kind: 'verify', verdict: 'incomplete' }).kind).toBe('fork');
+  it('gives a verify the icon of its verdict, plain for one that doesn’t count for the fix', () => {
+    expect(bundleGlyph({ kind: 'blame', verdict: null, counts: null }).kind).toBe('blame');
+    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: true })).toEqual({ kind: 'fixok', label: 'Verify accepted the change' });
+    expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', counts: true }).kind).toBe('fixbad');
+    expect(bundleGlyph({ kind: 'verify', verdict: 'incomplete', counts: true }).kind).toBe('fork');
+    // Accepted under another check: no verdict on the fix, so never its lime check.
+    expect(bundleGlyph({ kind: 'verify', verdict: 'accepted', counts: false })).toEqual({ kind: 'fixok', label: "Verify attempts of a verdict that doesn't count for the fix", plain: true });
+    // A candidate a repair dropped is no verdict of the fix's: its icon is its own verdict's.
+    expect(bundleGlyph({ kind: 'verify', verdict: 'rejected', counts: null }).kind).toBe('fixbad');
   });
 
   it('asks the server for them until it says it has none, and leaves a run it doesn’t know unbundled', async () => {
@@ -377,6 +381,19 @@ describe('the Forks view’s bundles', () => {
     const money = (usd: number) => `≈$${usd.toFixed(3)}`;
     expect(bundleLine(bundle({ attempts: [attempt('A', true), attempt('B', false)], passes: 1, spent: 0.032 }), money)).toBe('2 attempts, 1 passed · ≈$0.032');
     expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('1 attempt, 1 passed · repair candidate 3 · accepted');
+  });
+
+  it('says a verdict that doesn’t count for the fix doesn’t, as the Verify step’s switch does, and keeps a revision with its “at”', () => {
+    const money = (usd: number) => `≈$${usd.toFixed(3)}`;
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, spent: 0.057, change: 'dbcef5d', verdict: 'accepted', counts: false }), money)).toBe("1 attempt, 1 passed · ≈$0.057 · dbcef5d · accepted · doesn't count");
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'dbcef5d', verdict: 'accepted', counts: true }), money)).toBe('1 attempt, 1 passed · dbcef5d · accepted');
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: "temperature=1 from each run's first model call · at dbcef5d", verdict: 'accepted', counts: true }), money)).toBe("1 attempt, 1 passed · temperature=1 from each run's first model call · at\u00a0dbcef5d · accepted");
+  });
+
+  it('keeps a change’s revision with the “at” before it, and a field’s own words as they are', () => {
+    expect(keepAt("temperature=1 from each run's first model call · at dbcef5d · accepted")).toBe("temperature=1 from each run's first model call · at\u00a0dbcef5d · accepted");
+    expect(keepAt(`system="look at this" from each run's first model call · at dbcef5d`)).toBe(`system="look at this" from each run's first model call · at\u00a0dbcef5d`);
+    expect(keepAt('repair candidate 3')).toBe('repair candidate 3');
   });
 
   it('marks an attempt that could not be judged apart from one that failed, and counts it apart', () => {

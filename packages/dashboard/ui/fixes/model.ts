@@ -494,19 +494,38 @@ export function attemptMark(a: { passed: boolean; verdict?: string }): 'unsure' 
   return a.passed ? undefined : a.verdict === 'inconclusive' ? 'unsure' : 'no';
 }
 
-/** A bundle's icon and the words for it: blame attempts, or a verify accepted or rejected. */
-export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict'>): { kind: 'blame' | 'fixok' | 'fixbad' | 'fork'; label: string } {
+/**
+ * A bundle's icon and the words for it: blame attempts, or a verify accepted or rejected. A verdict
+ * that doesn't count for the fix is no verdict on it, so its icon is a verify's, drawn plain
+ * (`plain`), as its Verify step draws the verdict.
+ */
+export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'>): { kind: 'blame' | 'fixok' | 'fixbad' | 'fork'; label: string; plain?: true } {
   if (b.kind === 'blame') return { kind: 'blame', label: 'Blame attempts' };
+  if (b.counts === false) return { kind: 'fixok', label: "Verify attempts of a verdict that doesn't count for the fix", plain: true };
   if (b.verdict === 'accepted') return { kind: 'fixok', label: 'Verify accepted the change' };
   if (b.verdict === 'rejected') return { kind: 'fixbad', label: 'Verify rejected the change' };
   return { kind: 'fork', label: 'Verify attempts, not settled' };
 }
 
-/** The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032" (with those that could not be judged counted apart), and for a verify the change and how it came out, as the Verify step's switch names it: "repair candidate 3 · accepted". */
-export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict'>, money: (usd: number) => string): string {
+/**
+ * The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032" (with those that could not be
+ * judged counted apart), and for a verify the change and how it came out, as the Verify step's
+ * switch names it: "repair candidate 3 · accepted", and "· doesn't count" after one that doesn't
+ * count for the fix. A revision stays with the "at" before it (`keepAt`).
+ */
+export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict' | 'counts'>, money: (usd: number) => string): string {
   const n = b.attempts.length;
   const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
-  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...(b.kind === 'verify' && b.change ? [b.change, ...(b.verdict ? [b.verdict] : [])] : [])].join(' · ');
+  const verified = b.kind === 'verify' && b.change ? [keepAt(b.change), ...(b.verdict ? [b.verdict] : []), ...(b.counts === false ? ["doesn't count"] : [])] : [];
+  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...verified].join(' · ');
+}
+
+/**
+ * A change's name as the page sets it, the revision kept with the "at" before it, so a line never
+ * ends on "at": "temperature=1 from each run's first model call · at dbcef5d".
+ */
+export function keepAt(name: string): string {
+  return name.replace(/ · at (\S)/g, ' · at $1');
 }
 
 // ---------------------------------------------------------------------------------------------- report.md

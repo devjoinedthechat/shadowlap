@@ -108,6 +108,8 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .glyph.cap { color: var(--o-over); }
 .glyph.fail, .glyph.fixbad { color: var(--err); }
 .glyph.warn { color: var(--warn); }
+/* A verify's attempts under a verdict that doesn't count for the fix: no verdict on it, so no verdict's colour. */
+.glyph.plain { color: var(--dim); }
 .run .r1 { grid-column: 2; display: flex; align-items: center; gap: 7px; min-width: 0; }
 .run .id { font: 500 12px var(--mono); color: var(--ink); }
 .run .when { margin-left: auto; font-size: 11px; color: var(--faint); white-space: nowrap; }

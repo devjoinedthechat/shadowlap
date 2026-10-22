@@ -485,6 +485,21 @@ describe('a fix', () => {
     expect(fixBundles(store, run)!.filter((b) => b.kind === 'verify').map((b) => b.change)).toEqual(['f353f41', "temperature=1 from each run's first model call · at f353f41", "temperature=1, model=claude-opus-5 from each run's first claude-haiku-4-5 call · at f353f41"]);
   });
 
+  it("says in the Forks view's bundles whether each verdict counts for the fix it leads to, as the Verify step's switch does", () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run);
+    // Checked under the exit code alone, then under the fix's check.
+    const exitOnly = recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }], { oracle: ['the agent exits 0'], codeVersion: 'f353f41' }), expect: null, command: 'shadowlap verify --fixes label:double-email', at: NOW });
+    const counted = recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }], { codeVersion: 'f353f41' }), expect: EXPECT, command: 'shadowlap verify --fixes label:double-email', at: NOW + 1 });
+    for (const v of store.listVerdicts()) for (const x of v.report.runs) for (const a of x.attempts) makeRunAs(a.runId, run, { verify: { role: 'target', passed: true } });
+    const bundles = fixBundles(store, run)!;
+    const byVerdict = (id: string) => bundles.find((b) => b.href === `#/fixes/${fix.fixId}/verify/${id}`)!;
+    expect(fixDetail(store, fix.fixId)!.verify.map((v) => v.label)).toEqual(['f353f41 · accepted', "f353f41 · accepted · doesn't count"]);
+    expect([byVerdict(exitOnly.verdict.verifyId).counts, byVerdict(counted.verdict.verifyId).counts]).toEqual([false, true]);
+    // Blame's attempts are no verdict.
+    expect(bundles.filter((b) => b.kind === 'blame').every((b) => b.counts === null)).toBe(true);
+  });
+
   it('heads a verdict by the runs it checked, and says every failing run was fixed only when it checked them all', () => {
     const runs = [makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] })];
     const good = makeRun(store, { labels: ['good'], status: 'completed' });

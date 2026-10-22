@@ -1580,10 +1580,16 @@ export interface FixBundle {
   /** For a probe: the model call asked again; the one blame named is where the run was lost. */
   callNo: number | null;
   blamed: boolean;
-  /** For verify: the change it checked (`repair candidate 3`, a code version), how it came out, and the run's role. */
+  /** For verify: the change it checked, named as the Verify step's switch names it (`changeName`), how it came out, and the run's role. */
   change: string | null;
   verdict: VerifyOutcome | null;
   role: VerifyRow['role'] | null;
+  /**
+   * For a verdict: whether it counts for the fix the bundle leads to, as its Verify step's switch
+   * says (false: "doesn't count"). Null for blame's attempts, a candidate a repair dropped (no
+   * verdict of the fix's), and attempts no stored report names.
+   */
+  counts: boolean | null;
   passes: number;
   attempts: FixBundleAttempt[];
   spent: number;
@@ -1710,6 +1716,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
           change: null,
           verdict: null,
           role: null,
+          counts: null,
           passes: attempts.filter((a) => a.passed).length,
           attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
           spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
@@ -1723,7 +1730,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
 
   // Verify: each verdict on a run in the family, and each candidate a repair tried and dropped (its
   // check is kept in the repair's report, not as a verdict), a bundle per run it replayed.
-  const verified = (key: string, x: VerifiedRun, change: string, verdict: VerifyOutcome, fix: StoredFix | null, href: string, at: number) => {
+  const verified = (key: string, x: VerifiedRun, change: string, verdict: VerifyOutcome, counts: boolean | null, fix: StoredFix | null, href: string, at: number) => {
     const attempts = x.attempts.filter((a) => exists(a.runId) && !bundled.has(a.runId));
     if (!attempts.length) return;
     for (const a of attempts) bundled.add(a.runId);
@@ -1737,6 +1744,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       change,
       verdict,
       role: ROLE[x.role],
+      counts,
       passes: attempts.filter((a) => a.passed).length,
       attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: false })),
       spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
@@ -1751,7 +1759,9 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
     for (const x of inFamily(v.report.runs)) {
       const fix = linkedFix(v.verifyId, 'verify', x.runId);
       const change = changeName(v);
-      verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at);
+      // Whether it counts for the fix it leads to, as that fix's Verify step says: kept with the link.
+      const counts = fix ? (store.linksTo(v.verifyId, 'verify').find((l) => l.fixId === fix.fixId)?.data?.counts ?? true) : null;
+      verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, counts, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at);
     }
   }
   const kept = new Set(verdicts.flatMap((v) => (v.repairId !== null && v.candidate !== null ? [`${v.repairId}#${v.candidate}`] : [])));
@@ -1760,7 +1770,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       if (!c.verify || kept.has(`${r.repairId}#${c.id}`)) continue;
       for (const x of inFamily(c.verify.runs)) {
         const fix = linkedFix(r.repairId, 'repair', x.runId);
-        verified(`${r.repairId}#${c.id}:${x.runId}`, x, `repair candidate ${c.id}`, c.verify.verdict, fix, fix ? fixHref(fix.fixId, 'repair') : runHref(x.runId), r.at);
+        verified(`${r.repairId}#${c.id}:${x.runId}`, x, `repair candidate ${c.id}`, c.verify.verdict, null, fix, fix ? fixHref(fix.fixId, 'repair') : runHref(x.runId), r.at);
       }
     }
   }
@@ -1801,6 +1811,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       change: null,
       verdict: null,
       role: g.role,
+      counts: null,
       passes: g.runs.filter(passed).length,
       attempts: g.runs.map((r) => ({ runId: r.runId, passed: passed(r), verdict: verdict(r), note: attemptNote(passed(r), undefined, r, verdict(r)), href: runHref(r.runId), rescued: r.runId === rescuedRunId })),
       spent: 0,
