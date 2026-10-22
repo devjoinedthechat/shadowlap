@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { cmdParts } from '../cmdline.js';
 import { copyText } from '../dom.js';
 import { ORIGIN_NAME, type Origin7 } from '../origins.js';
 import { useApp } from '../state.js';
@@ -174,12 +175,16 @@ export function Kpi({ k, value, pill, note, tone, href }: { k: string; value: Re
   );
 }
 
-/** A shell command as the CLI would take it. */
+/**
+ * A shell command as the CLI would take it, wrapping as the mock's commands do (`cmdParts`): between
+ * its words, never between a flag and its value or inside a flag, an id or a short value. Copied, it
+ * reads as the command.
+ */
 export function CmdLine({ children }: { children: string }) {
   return (
     <div className="cmdline">
       <b>$</b>
-      {children}
+      {cmdParts(children).map((p, i) => ('wbr' in p ? <wbr key={i} /> : p.whole ? <span key={i} className="nw">{p.text}</span> : <span key={i}>{p.text}</span>))}
     </div>
   );
 }

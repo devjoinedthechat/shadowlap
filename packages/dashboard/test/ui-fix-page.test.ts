@@ -198,6 +198,10 @@ describe('Repair from here', () => {
     await r!.click(button);
     await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
     expect(r!.all('.dialog .fxdlg').map(text)).toEqual(['The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.']);
+    // Its command wraps between words, each flag kept with its value: never "--" at a line's end and "repairer" at the next's start.
+    const kept = r!.all('.dialog .cmdline span.nw').map((e) => e.textContent);
+    expect(kept).toContain('--repairer ');
+    expect(kept[kept.indexOf('--repairer ') + 1]).toBe('claude-code');
   });
 });
 
@@ -269,6 +273,9 @@ describe('the Verify step', () => {
     expect(r!.one('.verdict .badge').className).not.toContain('ok');
     expect(text(r!.one('.verdict h2'))).toBe("Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times");
     expect(r!.all('.vpick a').map(text)).toEqual(["temperature=1 from each run's first model call · at f353f41 · accepted · doesn't count", '370712a+dirty · incomplete']);
+    // The revision stays with its "at", and no line starts on a dot.
+    expect(r!.all('.vpick a')[0]!.textContent).toBe("temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· accepted\u00a0· doesn't count");
+    expect(r!.one('.verdict p').textContent).toMatch(/^temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· a run passes/);
     expect(text(r!.one('.verdict p'))).toMatch(/^temperature=1 from each run's first model call · at f353f41 · a run passes when 4 of 5 attempts meet the check: the agent exits 0$/);
     expect(text(r!.one('.fxreceipt'))).toContain('spent to find out before it shipped');
   });

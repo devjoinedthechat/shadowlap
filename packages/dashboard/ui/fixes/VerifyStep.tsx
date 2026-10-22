@@ -1,11 +1,11 @@
 import { Badge, CmdLine, EmptyState, Pips } from '../components/bits.js';
 import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
-import { approx, money, num, shortId } from '../format.js';
+import { approx, GLUED_SEPARATOR, glued, money, num, shortId } from '../format.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import type { FixDetail, VerifyStep } from '../types.js';
-import { outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
+import { keepAt, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
 
 /**
  * The Verify step: one change verified at a time (a switch between them, each with its own URL and
@@ -29,7 +29,7 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
         <div className="vpick seg" role="group" aria-label="Changes verified">
           {fix.verify.map((x) => (
             <a key={x.verifyId} href={x.href} aria-pressed={x.verifyId === v.verifyId}>
-              {x.label}
+              {glued(keepAt(x.label))}
             </a>
           ))}
         </div>
@@ -112,7 +112,9 @@ function Verdict({ v }: { v: VerifyStep }) {
       <div>
         <h2>{v.headline}</h2>
         <p>
-          {v.code} · {v.oracle}
+          {glued(keepAt(v.code))}
+          {GLUED_SEPARATOR}
+          {v.oracle}
         </p>
         {/* Only a verdict that counts carries a note: rejected after the fix was applied. */}
         {v.note ? <p className="fxbad">{v.note}</p> : null}
