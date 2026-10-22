@@ -46,15 +46,31 @@ function overriddenCall(r: IndexedRun): number | null {
   return null;
 }
 
-/** An attempt's place among the attempts of its kind bundled under the same run (from 1), as the bundle lists them: oldest first. */
+/**
+ * An attempt's place among the attempts made with it (from 1), as its banner (`attemptPlace`) and the
+ * Forks view's bundle number them: those of its kind bundled under the same run (a probe's at the
+ * same model call, a verify's of the same role) and, for a probe, the fork blame rescued that run
+ * with, one of the probe's attempts though it shows as a fork of its own. An attempt that names the
+ * group it was made in (`meta.repeat`: one blame's probe of a call, one verify of a run) is counted
+ * in that group alone, in the order its attempts were started; one that names none, oldest first.
+ */
 function attemptIndex(index: RunIndex, r: IndexedRun): number | null {
-  if (!r.attemptOf || !r.attemptKind) return null;
-  const same = (index.attempts.get(r.attemptOf) ?? []).filter((a) => {
-    if (a.attemptKind !== r.attemptKind) return false;
+  const of = r.attemptOf;
+  if (!of || !r.attemptKind) return null;
+  const bundled = index.attempts.get(of) ?? [];
+  const rescuedId = r.attemptKind === 'probe' ? index.byId.get(of)?.meta.blame?.rescuedRunId : null;
+  const rescued = rescuedId ? index.byId.get(rescuedId) : undefined;
+  const runs = rescued && rescued.rescues === of && rescued.parentRunId === of ? [...bundled, rescued] : bundled;
+  const group = r.meta.repeat?.group || null;
+  const same = runs.filter((a) => {
+    if (group !== null && a.meta.repeat?.group !== group) return false;
+    if (a !== rescued && a.attemptKind !== r.attemptKind) return false;
     if (r.attemptKind === 'probe') return a.meta.probe?.callNo === r.meta.probe?.callNo;
     if (r.attemptKind === 'verify') return a.meta.verify?.role === r.meta.verify?.role;
     return true;
   });
+  const started = (a: IndexedRun) => (group !== null ? (a.meta.repeat?.attempt ?? 0) : 0);
+  same.sort((a, b) => started(a) - started(b) || a.startedAt - b.startedAt || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0));
   const i = same.findIndex((a) => a.runId === r.runId);
   return i < 0 ? null : i + 1;
 }

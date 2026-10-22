@@ -7,7 +7,7 @@ import { lineage, listRuns, runDetail } from '../src/api.js';
 import { exportHtml, type StaticPayload } from '../src/index.js';
 import { asksRead } from '../src/run-stats.js';
 import { listRunsPage, type RunRow } from '../src/runs-list.js';
-import { addRun, capture, DAY, HOUR } from './read-model-store.js';
+import { addRun, blameOf, capture, DAY, HOUR } from './read-model-store.js';
 
 /**
  * A run is named by its id, with one quiet line that says what it was (decision 10): the server
@@ -92,6 +92,43 @@ describe('a run’s about line, as the server serves it', () => {
     expect(found('A-1131')).toEqual([id.rec]);
     expect(found('override')).toEqual([id.fork]);
     expect(found('A-1131 nothing-like-it')).toEqual([]);
+  });
+
+  it('numbers an attempt as its banner does: the fork blame rescued its run with is one of its probe’s attempts', () => {
+    // A store of its own, so the lists above keep the runs they name.
+    const store = Store.open(join(dir, 'attempts.db'));
+    try {
+      const lost = addRun(store, { startedAt: NOW - 6 * HOUR, argv: ['node', 'agent.mjs', 'A-1042'], status: 'failed', calls: 'llllll' });
+      // Blame asked the model #5 again four times; the second attempt passed, and rescued the run.
+      const probe = [1, 2, 3, 4].map((n) => addRun(store, { parent: lost, startedAt: NOW - 5 * HOUR + n * 60_000, divergence: 5, calls: 'rrrrll', meta: { probe: { of: lost, callNo: 5, passed: n === 2 }, repeat: { group: 'b1-5', attempt: n, of: 4 } } }));
+      store.updateRunMeta(lost, { blame: blameOf(5, probe[1], NOW - 4 * HOUR) });
+      const shown = (runId: string) => {
+        const d = runDetail(store, runId)!;
+        return [d.about?.text, d.attemptPlace && `${d.attemptPlace.k} of ${d.attemptPlace.n}`];
+      };
+      expect(probe.map(shown)).toEqual([
+        ['resampled #5, attempt 1', '1 of 4'],
+        // It shows as a fork of its own, and says what it rescued.
+        ['rescued #5', '2 of 4'],
+        // The attempts after it count it, as their banners do.
+        ['resampled #5, attempt 3', '3 of 4'],
+        ['resampled #5, attempt 4', '4 of 4'],
+      ]);
+      expect(lineage(store, lost)!.filter((n) => n.runId !== lost).map((n) => n.about?.text)).toEqual(['resampled #5, attempt 1', 'rescued #5', 'resampled #5, attempt 3', 'resampled #5, attempt 4']);
+
+      // A run verified twice: each verify's attempts are numbered within it, as its bundle and banners number them.
+      const good = addRun(store, { startedAt: NOW - 3 * HOUR, argv: ['node', 'agent.mjs', 'A-1120'], calls: 'll' });
+      const verify = (group: string, of: number, from: number) => Array.from({ length: of }, (_, i) => addRun(store, { parent: good, startedAt: from + i * 60_000, calls: 'rl', meta: { verify: { role: 'good', passed: true }, repeat: { group, attempt: i + 1, of } } }));
+      verify(`v1-${good}`, 2, NOW - 2 * HOUR);
+      const again = verify(`v2-${good}`, 3, NOW - HOUR);
+      expect(again.map(shown)).toEqual([
+        ['verify · good, attempt 1', '1 of 3'],
+        ['verify · good, attempt 2', '2 of 3'],
+        ['verify · good, attempt 3', '3 of 3'],
+      ]);
+    } finally {
+      store.close();
+    }
   });
 
   it('is kept with a finished run’s totals: a dashboard opened again reads no request for it', () => {
