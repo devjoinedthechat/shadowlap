@@ -44,7 +44,7 @@ Shadowlap records your agent's model calls and the tools you wrap, then replays 
 
 ## From failure to proof
 
-One order, start to finish. The support agent refunds order&nbsp;A&#8209;1042 for $240, though its policy sends refunds above $100 to a manager. Two more $240 orders go&nbsp;the&nbsp;same&nbsp;way.
+The support agent refunds order&nbsp;A&#8209;1042 for $240, though its policy sends refunds above $100 to a manager. Two more $240 orders go&nbsp;the&nbsp;same&nbsp;way.
 
 All three runs are labelled `refund-bug`. A fourth run refunds $60, within the limit, and is&nbsp;labelled&nbsp;`good`.
 
@@ -105,7 +105,7 @@ npm install -g @anthropic-ai/sdk
 
 ### Keep it fixed in CI
 
-Blame opened a fix for this failure, and repair verified it. Apply it: the patch goes into your working tree, the fixed runs become goldens (recordings kept as tests), and those&nbsp;tests&nbsp;run.
+Blame opened fix `fx-01M5FYD8YZ` for this failure, and repair verified its patch. Apply it: the patch goes into your working tree, the fixed runs become goldens (recordings kept as tests), and those&nbsp;tests&nbsp;run.
 
 ```console
 $ shadowlap fix apply fx-01M5FYD8YZ
@@ -116,7 +116,7 @@ $ shadowlap fix apply fx-01M5FYD8YZ
   3 of 3 goldens copied to goldens/, shadowlap test passed
 ```
 
-Commit the goldens with the fix. In CI, <code>shadowlap&nbsp;test</code> replays them offline, with no real key. It fails on a changed request, a live call, an error exit or a failed [check](docs/checks.md). On GitHub, add one step after checkout, Node&nbsp;setup and&nbsp;your&nbsp;build&nbsp;([full&nbsp;workflow](docs/ci.md#github-actions)):
+Commit the goldens with the patch. In CI, <code>shadowlap&nbsp;test</code> replays them offline, with no real key. It fails on a changed request, a live call, an error exit or a failed [check](docs/checks.md). On GitHub, add one step after checkout, Node&nbsp;setup and&nbsp;your&nbsp;build&nbsp;([full&nbsp;workflow](docs/ci.md#github-actions)):
 
 ```yaml
 - uses: devjoinedthechat/shadowlap@v0.1.0
@@ -129,7 +129,9 @@ With [`fix-on-failure`](docs/ci.md#fix-on-failure), the Action proposes a fix fo
 
 ## Model and prompt changes
 
-A second agent, `refund_agent.mjs`, handles the same order from support ticket&nbsp;T&#8209;8812. Before you move it to another model, [<code>shadowlap&nbsp;decisions</code>](docs/decisions.md) asks its recorded model calls again under that model to see which decisions change. No tool runs. Changes are ranked by what they do, writes first. Under a scripted Haiku, the agent no longer issues&nbsp;the&nbsp;refund:
+A second agent, `refund_agent.mjs`, handles the same order from support ticket&nbsp;T&#8209;8812. Before you move it to another model, [<code>shadowlap&nbsp;decisions</code>](docs/decisions.md) sends its recorded model calls to that model and shows which decisions&nbsp;change.
+
+No tool runs. Changes are ranked by what they do, writes first. Under a scripted Haiku, the agent no longer issues&nbsp;the&nbsp;refund:
 
 ```console
 $ shadowlap decisions 01M5FYDVBW --model claude-haiku-4-5
@@ -190,7 +192,7 @@ Then record a run, replay it and open&nbsp;the&nbsp;dashboard:
 ```sh
 # record, with your usual key
 shadowlap run -- node agent.mjs
-# replay it; a clean replay needs no real key
+# replay it; no real key if clean
 shadowlap replay <run>
 # step through it in your browser
 shadowlap dashboard
@@ -252,7 +254,7 @@ shadowlap run -- node agent.mjs
             SHADOWLAP_URL, SHADOWLAP_RUN_ID for Shadowlap's SDKs
 ```
 
-- **Matched by request, not order.** A call is identified by its request, after your [normalizers](docs/normalizers-and-redaction.md) mask values such as ids, and by how many identical requests came before it. Parallel calls match in whatever order&nbsp;they&nbsp;arrive.
+- **Matched by request, not order.** A call is identified by its request and by how many identical requests came before it, after your [normalizers](docs/normalizers-and-redaction.md) mask values such as&nbsp;ids. Parallel calls match in whatever order&nbsp;they&nbsp;arrive.
 - **Forked at the first change.** After it, model calls and `read` tools run live; `write` tools are blocked unless you&nbsp;stub&nbsp;or&nbsp;allow&nbsp;them.
 
 ## Integrations
@@ -261,7 +263,7 @@ shadowlap run -- node agent.mjs
 |:---|:---|
 | [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure&nbsp;OpenAI, Vertex&nbsp;AI, Amazon&nbsp;Bedrock and OpenAI&#8209;compatible servers (Ollama,&nbsp;vLLM, OpenRouter,&nbsp;Groq) |
 | [SDKs](docs/sdk.md) | TypeScript and Python; any other language over the&nbsp;[wire&nbsp;protocol](docs/protocol.md) |
-| [Frameworks](docs/frameworks.md) | In&nbsp;TypeScript, Vercel&nbsp;AI&nbsp;SDK, OpenAI&nbsp;Agents&nbsp;SDK, Mastra, LangChain and LangGraph, the Anthropic tool runner; in&nbsp;Python, OpenAI&nbsp;Agents&nbsp;SDK, LangChain and LangGraph, CrewAI,&nbsp;Pydantic&nbsp;AI |
+| [Frameworks](docs/frameworks.md) | TypeScript: Mastra, Vercel&nbsp;AI&nbsp;SDK, OpenAI&nbsp;Agents&nbsp;SDK, LangChain, LangGraph, Anthropic&nbsp;tool&nbsp;runner<br>Python: CrewAI, OpenAI&nbsp;Agents&nbsp;SDK, LangChain, LangGraph, Pydantic&nbsp;AI |
 | [Test suites](docs/testing.md) | pytest, Vitest and node:test; a test records&nbsp;once, then&nbsp;replays&nbsp;offline |
 | [MCP](docs/mcp.md) | Servers over stdio or Streamable&nbsp;HTTP, recorded through the <code>shadowlap&nbsp;mcp</code>&nbsp;proxy |
 | [CI](docs/ci.md) | The GitHub Action; JUnit, JSON and Markdown reports for any&nbsp;other&nbsp;CI |
@@ -274,7 +276,7 @@ shadowlap run -- node agent.mjs
 - **Local only.** The sidecar and the dashboard listen on 127.0.0.1 behind a session token; recordings stay in your project, readable&nbsp;only&nbsp;by&nbsp;you.
 - **Keys never stored.** API keys pass through to the provider; a clean replay needs no&nbsp;real&nbsp;key.
 - **Masked on the way out.** Your redaction rules mask packs, exports, share links and what repair shows its model. Runs you push to your own bucket go as recorded, with&nbsp;nothing&nbsp;masked.
-- **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector you run. Prompts and tool data are never sent ([every&nbsp;field](docs/telemetry.md)), and `DO_NOT_TRACK=1` turns&nbsp;it&nbsp;off.
+- **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector you run, and [what&nbsp;is&nbsp;sent](docs/telemetry.md) never includes prompts or tool&nbsp;data. `DO_NOT_TRACK=1` opts&nbsp;out.
 
 [SECURITY.md](SECURITY.md) lists every safeguard and how to report&nbsp;a&nbsp;vulnerability.
 
