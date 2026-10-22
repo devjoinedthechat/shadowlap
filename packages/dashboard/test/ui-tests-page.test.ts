@@ -128,6 +128,8 @@ describe('the Tests page', () => {
     expect(ci.textContent).toContain('Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.');
     expect(ci.textContent).not.toContain('throwaway store');
     expect(one(ci, '.cmdline').textContent).toBe(`$shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
+    // It wraps between its words only.
+    expect(all(ci, '.cmdline.words span')).toHaveLength(8);
     expect(all(ci, 'button').map((b) => b.textContent.trim())).toEqual(['Copy']);
     // budget has a gate against history: CI must keep the store between runs.
     expect(ci.textContent).toContain('A gate against history needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.');

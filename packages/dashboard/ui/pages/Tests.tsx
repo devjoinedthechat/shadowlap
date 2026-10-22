@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type BisectMiss, type BisectRevision, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type InconclusiveView, type TestsView } from '../api.js';
-import { Badge, CmdLine, CopyButton, EmptyState, PageHeader } from '../components/bits.js';
+import { Badge, CmdLine, CommandLine, CopyButton, EmptyState, PageHeader } from '../components/bits.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
@@ -241,7 +241,7 @@ export function TestsPage() {
             <p className="muted">
               Replay goldens run offline and need no key. {injection ? 'A golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys.' : 'A golden marked fork runs live from where it forks, and needs the providers’ keys.'} A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.
             </p>
-            <CmdLine>{view.commands.ci}</CmdLine>
+            <CommandLine command={view.commands.ci} />
             {historyGate ? (
               <p className="muted after">
                 A gate against history needs the store kept between runs: the Action’s <code>keep-history</code> does it, or cache <code>.shadowlap/shadowlap.db</code>.

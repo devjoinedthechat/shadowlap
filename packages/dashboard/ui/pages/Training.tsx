@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { JOB_KINDS, type ModelsView, type PairGroupView, type PipView, type TaskUpdate, type TrainingView } from '../api.js';
-import { Badge, CmdLine, EmptyState, Kpi, PageHeader, Seg } from '../components/bits.js';
+import { Badge, CmdLine, CommandLine, EmptyState, Kpi, PageHeader, Seg } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { tipText } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
@@ -567,7 +567,7 @@ function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () 
       <p className="muted trnote">
         It writes <code>{d.out}</code> in the project folder, and the job’s drawer offers it for download.
       </p>
-      <CmdLine>{exportCommand(format, min, d.out)}</CmdLine>
+      <CommandLine command={exportCommand(format, min, d.out)} />
     </Dialog>
   );
 }
@@ -707,7 +707,7 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
         </div>
       ) : null}
       {note ? <p className="muted trnote">{note}</p> : null}
-      {command ? <CmdLine>{command}</CmdLine> : null}
+      {command ? <CommandLine command={command} /> : null}
       {busy ? <p className="trbusy">{busy}</p> : null}
       {/* Why a provider's models aren't in the list: beside the list, not beside your own endpoint, unless the endpoint is all there is. */}
       {notes && (pick !== ENDPOINT || !d?.options.length) ? <p className="trnotes">{notes}</p> : null}

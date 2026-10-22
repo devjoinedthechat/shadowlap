@@ -132,6 +132,8 @@ describe('the Training page', () => {
     const dialog = () => r!.one('.dialog');
     expect(dialog().textContent).toContain('It writes .shadowlap/exports/pairs.jsonl in the project folder');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence high --format openai-preference --out .shadowlap/exports/pairs.jsonl');
+    // Word by word, so it wraps between them and never inside openai-preference.
+    expect(r.all('.dialog .cmdline.words span').map((w) => w.textContent)).toEqual(['shadowlap', 'export', 'pairs', '--min-confidence', 'high', '--format', 'openai-preference', '--out', '.shadowlap/exports/pairs.jsonl']);
     expect(r.all('.dialog select')[0]!.children.map((o) => o.textContent)).toEqual(['OpenAI preference', 'TRL preference']);
     await r.type(r.all('.dialog select')[0]!, 'trl');
     await r.type(r.all('.dialog select')[1]!, 'medium');
@@ -146,6 +148,8 @@ describe('the Training page', () => {
     await r.click(r.byText('button', 'Score a model'));
     await r.until('the models to be listed', () => r!.all('.dialog .cmdline').length === 1);
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap tasks score goldens/01M5GS0TFN goldens/01M5GS0VWV --model claude-haiku-4-5 --attempts 5');
+    // Word by word, so --model never breaks between its dashes.
+    expect(r.all('.dialog .cmdline.words span').map((w) => w.textContent)).toEqual(['shadowlap', 'tasks', 'score', 'goldens/01M5GS0TFN', 'goldens/01M5GS0VWV', '--model', 'claude-haiku-4-5', '--attempts', '5']);
     expect(r.one('.dialog p.trnotes').textContent).toBe("Not listed: Ollama, on this machine (isn't running)");
   });
 });
