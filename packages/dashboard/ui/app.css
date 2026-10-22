@@ -2125,6 +2125,11 @@ table.gt td.glast .kc { white-space: nowrap; }
 .tag.inc { color: var(--cq-amber); border-color: color-mix(in srgb, var(--cq-amber) 45%, transparent); }
 .banner.inc { background: color-mix(in srgb, var(--cq-amber) 5%, transparent); }
 .banner.inc .bk, .banner.inc .bn { color: var(--cq-amber); }
+/* an attempt's banner: its verdict word first, in the verdict's colour; it wraps rather than cut its words */
+.banner .why em { font-style: normal; }
+.banner .why em.ok { color: var(--cq-lime); } .banner .why em.no { color: var(--cq-red); } .banner .why em.inc { color: var(--cq-amber); } .banner .why em.mu { color: var(--cq-muted); }
+.banner.wrap { flex-wrap: wrap; row-gap: 4px; }
+.banner.wrap .why { flex: 1 1 280px; white-space: normal; overflow: visible; text-overflow: clip; }
 /* a golden's error-path presets under its last result: failed in red, inconclusive in amber, passed quiet */
 table.gt td.glast .gpre { display: block; margin-top: 4px; text-decoration: none; }
 table.gt td.glast .gpre.err { color: var(--cq-red); }

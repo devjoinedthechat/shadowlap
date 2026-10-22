@@ -1,6 +1,7 @@
 import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunAbout, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
+import { presetMarks, type PresetMark } from './chaos.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
 import { captureSource, loadRunIndex } from './run-index.js';
@@ -471,12 +472,17 @@ export interface LineageNode {
   kind?: RunKind;
   outcome?: RunOutcome;
   failed?: boolean;
+  /**
+   * An error-path preset's attempt: the preset and how it came out by the preset's verdict, from the
+   * session that decided it (chaos.ts `presetMarks`), since the run alone reads as a healthy fork.
+   */
+  preset?: PresetMark;
 }
 
 /**
  * Every run in the family of a run: its root recording and all that descends from it, depth first,
  * oldest first, each standing as the run list says (an attempt or fork its recorder left is
- * interrupted here as there).
+ * interrupted here as there), a preset's attempt with its preset's verdict.
  */
 export function lineage(store: Store, idOrPrefix: string, options: ReadOptions = {}): LineageNode[] | null {
   const run = lookupRun(store, idOrPrefix);
@@ -493,8 +499,10 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
   const stateOf = runStates(store);
   const index = loadRunIndex(store);
   const out: LineageNode[] = [];
+  const attempts: RunRecord[] = [];
   const walk = (r: RunRecord, depth: number) => {
     if (out.length >= 1000) return;
+    if (r.meta?.chaos) attempts.push(r);
     // The run asked about is the page's own: its calls as the page last read them (run-calls.ts),
     // so its Forks view, asked again as runs move, doesn't read a long run again.
     const calls = r.runId === run.runId ? runCalls(store, r.runId) : store.getCalls(r.runId);
@@ -523,6 +531,12 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
   // Every node's about line at once: a recording's first request is read once, and kept.
   const abouts = aboutsOf(store, index, out.map((n) => index.byId.get(n.runId)).filter((r) => r !== undefined));
   for (const n of out) n.about = abouts.get(n.runId) ?? null;
+  // Each preset's attempt by the session that decided it, an earlier session's as much as the newest's.
+  const marks = attempts.length ? presetMarks(store, attempts) : null;
+  for (const n of out) {
+    const mark = marks?.get(n.runId);
+    if (mark) n.preset = mark;
+  }
   return out;
 }
 

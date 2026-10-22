@@ -1,4 +1,4 @@
-import { CHAOS_PRESETS, isChaosPreset, parsePresets, PRESET_LABELS, presetHits, recorderGone, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type Store } from '@shadowlap/engine';
+import { CHAOS_PRESETS, isChaosPreset, parsePresets, PRESET_LABELS, presetHits, recorderGone, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type Store } from '@shadowlap/engine';
 
 /**
  * Error-path presets as the dashboard shows them: the results `test --chaos` and `replay --chaos`
@@ -29,9 +29,11 @@ export interface ChaosCell {
   /**
    * Each attempt's run, open one to see the error path the agent took, with its verdict: inconclusive
    * when it said nothing of that path (the replay never reached the call, or only a check no attempt
-   * can decide kept it from passing), never failed.
+   * can decide kept it from passing), never failed. `reason` says why one failed (the check, or the
+   * agent's exit with its last line) or why it couldn't say; null for one that passed, or one kept
+   * before attempts kept why.
    */
-  runs: Array<{ runId: string; verdict: AttemptVerdict; passed: boolean; exitCode: number }>;
+  runs: Array<{ runId: string; verdict: AttemptVerdict; passed: boolean; exitCode: number; reason: string | null }>;
   gate: Record<string, unknown> | null;
   at: number;
   sessionId: string;
@@ -111,7 +113,12 @@ function cellOf(r: ChaosResult): ChaosCell {
     attempts: r.attempts,
     detail: d.detail ?? '',
     reason: d.reason ?? null,
-    runs: runs.map((x, i) => ({ runId: x.runId, verdict: attemptVerdict(x, r, i === runs.length - 1), passed: x.passed, exitCode: x.exitCode })),
+    runs: runs.map((x, i) => {
+      const verdict = attemptVerdict(x, r, i === runs.length - 1);
+      // Why it failed as the CLI prints it, the agent's last line after its exit: `the agent exited with code 1 (TimeoutError: …)`.
+      const reason = verdict === 'passed' || !x.reason ? null : `${x.reason}${x.lastLine ? ` (${x.lastLine})` : ''}`;
+      return { runId: x.runId, verdict, passed: x.passed, exitCode: x.exitCode, reason };
+    }),
     gate: d.gate ?? null,
     at: r.at,
     sessionId: r.sessionId,
@@ -174,11 +181,39 @@ export function chaosView(store: Store, o: { sessions?: number } = {}): ChaosVie
   return { presets: PRESET_INFO, matrices: matrices(store.latestChaosResults()), sessions: store.listChaosSessions({ limit: o.sessions ?? 20 }).map((s) => sessionView(store, s)) };
 }
 
+/** A session's results on one recording (every session's, under an empty session id), read once for every attempt of a family that asks. */
+type SessionResults = Map<string, ChaosResult[]>;
+
+function sessionResults(store: Store, sessionId: string, runId: string, read: SessionResults): ChaosResult[] {
+  const key = `${sessionId}\n${runId}`;
+  let list = read.get(key);
+  if (!list) read.set(key, (list = store.listChaosResults(sessionId ? { sessionId, runId } : { runId })));
+  return list;
+}
+
+/**
+ * The results a preset's attempt was decided in: those of its own session (`meta.chaos.session`) on
+ * its recording, for the golden it ran for, so an attempt keeps its preset's verdict after the
+ * presets run again; else those of whichever session's result lists it. Empty for a run no preset
+ * made, or one no kept result lists.
+ */
+function attemptResults(store: Store, run: RunRecord, read: SessionResults = new Map()): ChaosResult[] {
+  const chaos = run.meta?.chaos;
+  if (!chaos || !run.parentRunId) return [];
+  const golden = typeof chaos.golden === 'string' ? chaos.golden : null;
+  const lists = (r: ChaosResult) => r.golden === golden && (r.data?.runs ?? []).some((x) => x.runId === run.runId);
+  const ofSession = (sessionId: string) => sessionResults(store, sessionId, run.parentRunId!, read).filter((r) => r.golden === golden);
+  const own = typeof chaos.session === 'string' && chaos.session ? ofSession(chaos.session) : [];
+  if (own.some(lists)) return own;
+  const kept = sessionResults(store, '', run.parentRunId, read).find(lists);
+  return kept ? ofSession(kept.sessionId) : [];
+}
+
 /**
  * The presets matrix of one run: the run's own when presets ran on it (the newest, when goldens that
- * hold the same recording each have one), else that of the recording it is an attempt of, for the
- * golden it ran for (a preset's attempt opens on its recording's matrix). Null when no preset has
- * run on either.
+ * hold the same recording each have one); for a preset's attempt, the matrix of the session it was
+ * decided in, on its recording (an attempt opens on its recording's matrix as that session left it),
+ * else the recording's newest. Null when no preset has run on either.
  */
 export function chaosOfRun(store: Store, runId: string): ChaosMatrix | null {
   const run = store.getRun(runId);
@@ -188,8 +223,35 @@ export function chaosOfRun(store: Store, runId: string): ChaosMatrix | null {
   if (own) return own;
   const chaos = run.meta?.chaos;
   if (!chaos || !run.parentRunId) return null;
+  const decided = matrices(attemptResults(store, run))[0];
+  if (decided) return decided;
   const golden = typeof chaos.golden === 'string' ? chaos.golden : null;
   return matrices(latest.filter((r) => r.runId === run.parentRunId && r.golden === golden))[0] ?? null;
+}
+
+/** How a preset's attempt came out, by its preset's verdict, as a family's tree marks it. */
+export interface PresetMark {
+  /** The preset in words: `tool timeout`. */
+  label: string;
+  verdict: AttemptVerdict;
+}
+
+/**
+ * Each preset's attempt among `runs`, by the session it was decided in (attempts of earlier sessions
+ * too, which the recording's newest matrix no longer lists): its preset's words and its own verdict.
+ * A family's runs read each session's results once.
+ */
+export function presetMarks(store: Store, runs: readonly RunRecord[]): Map<string, PresetMark> {
+  const out = new Map<string, PresetMark>();
+  const read: SessionResults = new Map();
+  for (const run of runs) {
+    if (!run.meta?.chaos) continue;
+    for (const c of matrices(attemptResults(store, run, read))[0]?.cells ?? []) {
+      const x = c.runs.find((a) => a.runId === run.runId);
+      if (x) out.set(run.runId, { label: c.label, verdict: x.verdict });
+    }
+  }
+  return out;
 }
 
 /** How a golden's presets came out, as Tests' row and Needs a look say it. */

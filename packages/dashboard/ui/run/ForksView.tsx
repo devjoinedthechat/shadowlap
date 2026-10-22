@@ -10,7 +10,6 @@ import { familyLineParts, repeatBundle } from '../runs.js';
 import { useApp } from '../state.js';
 import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
 import { lineageRunLike } from './model.js';
-import { presetAttempts } from './preset.js';
 
 /**
  * Forks: the run's family as a tree, its recording and every replay and fork of it, each by its id and
@@ -26,10 +25,6 @@ export function ForksView({ runId }: { runId: string }) {
   const members = useRef<ReadonlySet<string>>(new Set());
   const lineage = useLoad(() => client.lineage(runId), runId, familyRefresh(runsTick, live, members.current));
   if (lineage.data) members.current = new Set(lineage.data.map((n) => n.runId));
-  // The recording's error-path presets: an attempt one failed reads as failed, never as a healthy fork.
-  const root = lineage.data?.find((n) => n.depth === 0)?.runId ?? null;
-  const presets = useLoad(() => (root ? client.runChaos(root) : null), `presets:${root ?? 'none'}`, runsTick);
-  const presetOf = useMemo(() => presetAttempts(presets.data), [presets.data]);
   const byId = useMemo(() => new Map((runs ?? []).map((r) => [r.runId, r])), [runs]);
   // Blame's and verify's attempts, bundled by the fixes read model under the run they replayed.
   const fixes = useFixBundles(runId);
@@ -50,9 +45,9 @@ export function ForksView({ runId }: { runId: string }) {
     const here = n.runId === runId || n.runId.startsWith(runId);
     // The kind, unless the about line says it already ("clean replay").
     const said = n.about && !line.err && line.text.startsWith(`${n.about.text} · `) ? n.about.text.length + 3 : 0;
-    // A preset's attempt that failed or couldn't say, by the preset's verdict: its run alone reads as a healthy fork.
-    const preset = presetOf.get(n.runId);
-    const presetWord = !line.err && preset && preset.verdict !== 'passed' ? preset.verdict : null;
+    // A preset's attempt that failed or couldn't say, by the verdict of the session that decided it
+    // (the lineage carries it, an earlier session's too): its run alone reads as a healthy fork.
+    const presetWord = !line.err && n.preset && n.preset.verdict !== 'passed' ? n.preset.verdict : null;
     return (
       <a key={n.runId} className={`fnode${here ? ' here' : ''}`} href={href.run(n.runId, n.divergence?.callNo ?? null)}>
         <RunIcon run={r} className="" />

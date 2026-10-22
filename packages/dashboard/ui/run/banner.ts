@@ -69,7 +69,8 @@ export interface BannerInput {
 
 export type Banner =
   | { kind: 'recording' }
-  | { kind: 'preset'; callNo: number | null; name: string | null; verdict: PresetAttempt['verdict']; why: string; golden: string | null }
+  /** An attempt's banner: where it forked, its verdict word first, then what was done (`presetWhy`), and Tests → for a golden's. */
+  | { kind: 'preset'; callNo: number | null; verdict: PresetAttempt['verdict']; why: string; golden: string | null }
   | { kind: 'rescued'; callNo: number | null; why: string }
   | { kind: 'diverged'; callNo: number; name: string; why: string; path: string | null; normalizer: boolean; diff: boolean }
   | { kind: 'fork'; callNo: number; name: string; why: string; flag: string | null; path: string | null; normalizer: boolean; diff: boolean }
@@ -267,9 +268,15 @@ function interruptedWhy(i: Pick<BannerInput, 'type' | 'callCount'>): string {
 export function bannerFor(i: BannerInput): Banner | null {
   const d = i.divergence;
   if (i.status === 'running') return { kind: 'recording' };
-  // An error-path preset's attempt says which preset it played in and how it came out, by the
-  // preset's verdict: its run alone reads as a healthy fork, the failure being one Shadowlap injected.
-  if (i.preset) return { kind: 'preset', callNo: i.preset.callNo, name: i.preset.target, verdict: i.preset.verdict, why: presetWhy(i.preset), golden: i.preset.golden };
+  // An error-path preset's attempt says how it came out by the preset's verdict, then which preset it
+  // played in where, in every attempt's grammar: its run alone reads as a healthy fork, the failure
+  // being one Shadowlap injected. One that couldn't say says why at its end.
+  if (i.preset) {
+    const p = i.preset;
+    const writes = writesWord(i.interventions);
+    const why = [presetWhy(p), ...(writes ? [writes] : []), ...(p.verdict === 'inconclusive' ? [p.outcome] : [])].join(' · ');
+    return { kind: 'preset', callNo: d?.callNo ?? p.callNo, verdict: p.verdict, why, golden: p.golden };
+  }
   if (i.rescued && d) return { kind: 'rescued', callNo: i.rescued.callNo, why: `a blame attempt that passed: the model was asked ${i.rescued.callNo !== null ? `#${i.rescued.callNo}` : 'the call'} again · ${writesWord(i.interventions) ?? 'writes stubbed'}` };
   // A test of a golden that may fork went live from where it left the recording, and its checks
   // judged it: where it forked is not what it failed on, so its banner is its checks, or its failure.

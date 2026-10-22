@@ -194,16 +194,20 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
         </section>
       );
     case 'preset':
-      // In the preset's verdict's colour: failed red, inconclusive amber, passed as checks that passed.
+      // Every attempt's banner: where it forked, its verdict word first in the verdict's colour, then
+      // what was done. It wraps rather than cut its words; a golden's leads back to its presets on Tests.
       return (
-        <section className={`banner ${b.verdict === 'failed' ? 'blame' : b.verdict === 'inconclusive' ? 'inc' : 'live'}`}>
-          <span className="bk">preset at</span>
+        <section className="banner fork wrap">
+          <span className="bk">forked at</span>
           {b.callNo !== null ? call(b.callNo) : null}
-          {b.name ? <code>{b.name}</code> : null}
-          <Why>{b.why}</Why>
+          <span className="why">
+            <em className={b.verdict === 'failed' ? 'no' : b.verdict === 'inconclusive' ? 'inc' : 'ok'}>{b.verdict}</em>
+            {/* A tally never breaks inside: "attempt 1 of 6". */}
+            {` · ${b.why.replace(/(\d+) of (\d+)/g, '$1 of $2')}`}
+          </span>
           {b.golden ? (
             <span className="end">
-              <a className="more" href={href.tests()}>
+              <a className="more" href={href.tests()} title={`${goldenName(b.golden)} on Tests`}>
                 Tests →
               </a>
             </span>

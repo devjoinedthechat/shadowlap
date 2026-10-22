@@ -206,7 +206,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   // None of it applies while the run records, so it is asked for once it has ended, and again as runs change.
   const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const actions = useActionRunner(runId, !!run.source, offers);
-  // An error-path preset's attempt: the preset it played in and its verdict, from its recording's presets.
+  // An error-path preset's attempt: the preset it played in and its verdict, from the presets of the session that decided it.
   const presets = useLoad(() => (run.run.meta?.chaos && !live ? client.runChaos(runId) : null), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
   const preset = useMemo(() => presetAttempt(presets, run.run.runId), [presets, run.run.runId]);
 
