@@ -16,20 +16,29 @@
 import type { RunAbout } from './types.js';
 
 /**
- * Small words (two letters or fewer, articles, prepositions) and amounts: a cut never ends on one
- * ("A customer asks for a …") or starts with one ("… of order A-1131"), and an amount goes only with
- * the order number beside it ("A-1042 ($240)"), so the number outlasts it.
+ * Small words (two letters or fewer, articles, prepositions), amounts and what only a machine reads
+ * (a UUID, a hash): a cut never ends on one ("A customer asks for a …") or starts with one ("… of
+ * order A-1131"), and an amount goes only with the order number beside it ("A-1042 ($240)"), so the
+ * number outlasts it.
  */
 const LIGHT = /^(a|an|the|of|for|to|from|and|or|in|on|at|by|with|my|our|your|their|is|was|it|·|:|–|—|-)$/i;
 const AMOUNT = /^\(?[$€£]\d[\d,.]*\)?[,.;:]?$/;
 
+/**
+ * A UUID (`d9091835-5bac-4eba-acac-0f3c19eb863d`), a hash of seven hex characters or more with a
+ * letter and a digit (`7f3a9c2e`), or a ULID: an id no person reads, so it is never the number a cut
+ * keeps ("New ticket T-8812 …", never "New … d9091835-…)"). Quotes and brackets around it don't count.
+ */
+const MACHINE_ID = /^(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,}|[0-9A-HJKMNP-TV-Z]{26})$/i;
+const machineId = (w: string): boolean => MACHINE_ID.test(w.replace(/^[("'[{]+|[)"'\]},.;:!?]+$/g, ''));
+
 function light(w: string): boolean {
   const b = w.replace(/[,.;:!?()]+$/g, '');
-  return LIGHT.test(b) || AMOUNT.test(w) || (b.length <= 2 && !/\d/.test(b));
+  return LIGHT.test(b) || AMOUNT.test(w) || (b.length <= 2 && !/\d/.test(b)) || machineId(w);
 }
 
 /** A word that holds a number, an order or a ticket (`A-1042`, `T-8812`): one a cut keeps. */
-const idWord = (w: string): boolean => /\d/.test(w) && !AMOUNT.test(w);
+const idWord = (w: string): boolean => /\d/.test(w) && !AMOUNT.test(w) && !machineId(w);
 
 /** What a cut leaves out reads as this, kept with the word before it: no line starts with it. */
 export const CUT = ' …';

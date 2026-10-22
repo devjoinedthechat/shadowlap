@@ -54,6 +54,20 @@ describe('the shorter forms of an about line', () => {
     expect(ordered.map((f) => f.t)).toEqual(['Ticket T-8812 arrived damaged today', `Ticket T-8812${CUT} damaged today`, `Ticket${CUT} today`, `Ticket T-8812${CUT}`, '']);
   });
 
+  it('never keep an id no person reads, a UUID or a hash, as the number: the ticket wins', () => {
+    const line = 'New ticket T-8812 (request d9091835-5bac-4eba-acac-0f3c19eb863d)';
+    const forms = cutForms(line);
+    // No form keeps the UUID alone after the cut, as if it were the line's number.
+    expect(forms.filter((f) => after(f)?.startsWith('d9091835'))).toEqual([]);
+    expect(forms).toContain(`New ticket T-8812${CUT}`);
+    // In a room the whole line and its UUID can't fit, the ticket's form is the one that does.
+    const ordered = orderForms(aboutForms({ text: line, from: 'user' }), (t) => t.length * 7);
+    expect(ordered.find((f) => f.w <= 200)!.t).toBe(`New ticket T-8812${CUT}`);
+    // A git hash or a ULID reads the same way; a ticket or an order is still a number.
+    expect(cutForms('Deploy 7f3a9c2e to the staging cluster for order A-1042').every((f) => f.includes('A-1042'))).toBe(true);
+    expect(cutForms('Replay 01M5GRX4VY5XKQ0MRGD13QZKZN for the refund').some((f) => before(f).startsWith('01M5GRX4VY5X'))).toBe(false);
+  });
+
   it('for a command, cut it only at its end after a whole word, so an id is whole or left out', () => {
     expect(hintForms('shadowlap replay 01K5CQ4N7G')).toEqual(['shadowlap replay 01K5CQ4N7G', `shadowlap replay${CUT}`, `shadowlap${CUT}`, '']);
     expect(hintForms('shadowlap diff 01K5CQ4N7G 01K5CQ4P2R', 'against 01K5CQ4N7G')).toEqual(['shadowlap diff 01K5CQ4N7G 01K5CQ4P2R', 'against 01K5CQ4N7G', '']);
