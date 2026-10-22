@@ -93,6 +93,12 @@ export const RULES_GONE = 'The rules can’t be read while the folder is gone.';
 /** Where Coding agents lists the project's instruction files, while its folder is gone. */
 export const FILES_GONE = 'The instruction files can’t be read while the folder is gone.';
 
+/** Where Tools lists the tools the recordings called, while the folder, and the store in it, are gone. */
+export const TOOLS_GONE = 'The recorded tool calls can’t be read while the folder is gone.';
+
+/** Where Tools lists the MCP servers, while the folder that holds their configs is gone. */
+export const MCP_GONE = 'The MCP configs can’t be read while the folder is gone.';
+
 /**
  * Where a tab's rules would be when it has none to show for a reason other than having none: the
  * file can't be read, or the folder is gone. Null when the list is what the file says.

@@ -10,8 +10,8 @@ import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
  * near a run's start match across days, and Calibrate, which replays a recording until it is clean
  * and proposes a normalizer for each value that changed. While shadowlap.config.json can't be read
  * there are no rules to show and nothing to calibrate against (every command refuses the file), so
- * the table says so and Calibrate isn't offered; the same with the project's folder gone, where
- * nothing is edited either.
+ * the table says so, the clock shows no mode as chosen, and Calibrate isn't offered; the same with
+ * the project's folder gone, where nothing is edited either.
  */
 export function MatchingTab() {
   const app = useApp();
@@ -63,7 +63,8 @@ export function MatchingTab() {
               <button
                 key={k}
                 type="button"
-                aria-pressed={data.clock.mode === k}
+                // Which the file says isn't known while it can't be read: neither is shown as chosen.
+                aria-pressed={!unreadable && data.clock.mode === k}
                 disabled={!!off}
                 title={off ?? (k === 'exact' ? 'Dates must match exactly' : 'Dates near each run’s start match across days')}
                 onClick={() => {

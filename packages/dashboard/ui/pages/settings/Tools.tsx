@@ -7,19 +7,22 @@ import { num, whenShort } from '../../format.js';
 import { useLoad } from '../../hooks.js';
 import type { ToolsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
-import { CommandLine, LoadProblem, Loading, useSettingsData } from './common.js';
+import { CommandLine, LoadProblem, Loading, MCP_GONE, TOOLS_GONE, useFolderGone, useSettingsData } from './common.js';
 import { MCP_FORMS, addServerNotes, copiedLineText, entryEnvFor, mcpEntryText, mcpRows, pasteFile, pasteWhere, serverNameFor, type McpRow } from './logic.js';
 
 /**
  * Tools: every tool the recordings called, by what happens to it after a fork (reads run live,
  * writes are blocked or stubbed), the hosts the config records as tools, and the MCP servers:
  * those the project's client configs list and those calls came through, each with its transport,
- * its command or URL and its tools, with the `shadowlap mcp` line that records one.
+ * its command or URL and its tools, with the `shadowlap mcp` line that records one. With the
+ * project's folder gone, neither the store's calls nor the client configs can be read, and the tab
+ * says so where they would be, rather than that there are none.
  */
 export function ToolsTab() {
   const { client } = useApp();
   const { data, error } = useSettingsData(() => client.settings.tools(), 'settings:tools');
   const [adding, setAdding] = useState(false);
+  const gone = useFolderGone();
   if (error && !data) return <LoadProblem error={error} />;
   if (!data) return <Loading title="Tool effects" />;
   const none = !data.live.length && !data.fenced.length;
@@ -32,7 +35,11 @@ export function ToolsTab() {
       <div className="pbody">
         <p className="muted">Declared in the agent’s code. After a fork, reads run live and writes are blocked or stubbed, so a replay never acts on the world twice.</p>
       </div>
-      {none ? (
+      {gone ? (
+        <div className="egrp">
+          <p className="muted">{TOOLS_GONE}</p>
+        </div>
+      ) : none ? (
         <div className="egrp">
           <p className="muted">
             No tool calls recorded yet. Wrap a tool with <code>tool()</code> from the SDK and say what it does (<code>pure</code>, <code>read</code> or <code>write</code>), and its calls are recorded with it.
@@ -44,7 +51,7 @@ export function ToolsTab() {
           <ToolGroup title="blocked or stubbed after a fork" tools={data.fenced} write />
         </>
       )}
-      {data.http.length ? (
+      {data.http.length && !gone ? (
         <div className="egrp">
           <span className="k">hosts recorded as tools</span>
           <div className="tchips">
@@ -65,7 +72,7 @@ export function ToolsTab() {
           </div>
         </div>
       ) : null}
-      <McpBlock data={data} onAdd={() => setAdding(true)} />
+      <McpBlock data={data} gone={!!gone} onAdd={() => setAdding(true)} />
       {adding ? <AddServerDialog files={data.mcp.files} onClose={() => setAdding(false)} /> : null}
     </section>
   );
@@ -100,7 +107,7 @@ function ToolGroup({ title, tools, write }: { title: string; tools: ToolsSetting
   );
 }
 
-function McpBlock({ data, onAdd }: { data: ToolsSettings; onAdd: () => void }) {
+function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; onAdd: () => void }) {
   const rows = mcpRows(data.mcp);
   const broken = data.mcp.files.filter((f) => f.error);
   return (
@@ -109,7 +116,9 @@ function McpBlock({ data, onAdd }: { data: ToolsSettings; onAdd: () => void }) {
       <p className="muted">
         Put <code>shadowlap mcp</code> in front of a server in the client’s config. Its tool calls are then recorded, replayed and fenced like any other tool. A tool marked <code>readOnlyHint</code> is read; any other is write, unless <code>mcp.effects</code> in the config says otherwise.
       </p>
-      {rows.length ? (
+      {gone ? (
+        <p className="muted none">{MCP_GONE}</p>
+      ) : rows.length ? (
         <div className="tscroll mcptable">
           <table className="t">
             <thead>

@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SkillOffer } from '../src/agent-skill.js';
-import type { CodingAgentsSettings, MatchingSettings, RedactionSettings, StoreSettings } from '../src/settings.js';
+import type { CodingAgentsSettings, MatchingSettings, RedactionSettings, StoreSettings, ToolsSettings } from '../src/settings.js';
 import type { Client } from '../ui/api.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
 import { agentFileWords, cursorRuleWords, skillWords } from '../ui/pages/settings/logic.js';
@@ -12,10 +12,11 @@ import { render, type Rendered } from './ui-render.js';
  * Settings in the states a project gets into. With shadowlap.config.json unreadable, Matching still
  * said "No normalizers yet" under the warning, and Store offered Set up the store, which writes the
  * same unreadable file. With the project's folder gone, Settings showed a healthy empty project and
- * Add rule failed with a raw ENOENT, and Coding agents said the project had no instruction files.
- * And Coding agents said agents need no plugin, while `shadowlap skill install` puts a Cursor rule
- * into the project, which the tab never offered: it is built as the design has it now. Rendered as
- * the page renders them, from what the server sends.
+ * Add rule failed with a raw ENOENT, Coding agents and Tools said the project had no instruction
+ * files, tool calls or MCP servers, and Matching showed a clock mode it hadn't read. And Coding
+ * agents said agents need no plugin, while `shadowlap skill install` puts a Cursor rule into the
+ * project, which the tab never offered: it is built as the design has it now. Rendered as the page
+ * renders them, from what the server sends.
  */
 
 const BROKEN = 'shadowlap.config.json: not valid JSON (Unterminated string in JSON at position 400 (line 18 column 11))';
@@ -264,5 +265,40 @@ describe('Coding agents, as the design has it', () => {
     expect(r.one('.agentsgone').textContent).toBe('The instruction files can’t be read while the folder is gone.');
     expect(r.all('.agentfiles')).toHaveLength(0);
     expect(r.all('.settab button').map((b) => b.textContent)).toEqual(['Copy the section']);
+  });
+});
+
+describe('the rest of Settings while its file or folder can’t be read', () => {
+  const tools = { live: [], fenced: [], http: [], mcp: { files: [], servers: [], recorded: [], effects: [], clientConfigs: [], otherForms: [] } } as unknown as ToolsSettings;
+
+  it('says on Tools that the recorded calls and the MCP configs can’t be read while the folder is gone', async () => {
+    r = await page(app({ missing: true, client: { tools: async () => tools } }), 'tools');
+    await r.until('the tab', () => r!.all('.egrp').length > 0);
+    const text = r.one('.settab').textContent;
+    expect(text).toContain('The recorded tool calls can’t be read while the folder is gone.');
+    expect(text).toContain('The MCP configs can’t be read while the folder is gone.');
+    expect(text).not.toContain('No tool calls recorded yet');
+    expect(text).not.toContain('No MCP server in');
+  });
+
+  it('still says there are none in a folder that is there', async () => {
+    r = await page(app({ client: { tools: async () => tools } }), 'tools');
+    await r.until('the tab', () => r!.all('.egrp').length > 0);
+    expect(r.one('.settab').textContent).toContain('No tool calls recorded yet');
+  });
+
+  it('shows no clock mode as chosen while the file can’t be read, or the folder is gone', async () => {
+    const pressed = (x: Rendered) => x.all('.settab .seg[aria-label="Clock"] button').map((b) => b.getAttribute('aria-pressed'));
+    r = await page(app({ client: { matching: async () => matching(BROKEN) } }), 'matching');
+    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    expect(pressed(r)).toEqual(['false', 'false']);
+    await r.unmount();
+    r = await page(app({ missing: true, client: { matching: async () => matching(null) } }), 'matching');
+    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    expect(pressed(r)).toEqual(['false', 'false']);
+    await r.unmount();
+    r = await page(app({ client: { matching: async () => matching(null) } }), 'matching');
+    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    expect(pressed(r)).toEqual(['true', 'false']);
   });
 });
