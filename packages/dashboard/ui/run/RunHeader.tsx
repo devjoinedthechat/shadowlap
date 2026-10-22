@@ -9,6 +9,7 @@ import { dur, shortId, stamp } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { compareTarget, failedWord, isFailed, isInterrupted, runTag, runType } from '../runs.js';
+import { bulkToast, deleteText, deleteWhat } from '../runspage/bulk.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
@@ -175,9 +176,11 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
       {share.open && share.anchor ? <ShareMenu anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
       {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} /> : null}
       {deleting ? (
+        // As Runs' Delete and `shadowlap rm` delete it: with the attempts bundled under it, named here
+        // and counted when it is done.
         <ConfirmDialog
-          title={`Delete ${shortId(r.runId)}?`}
-          text="This removes the run and the recorded data nothing else uses. Its forks and replays keep their own copies, but lose the link to it."
+          title={`Delete ${deleteWhat([r.runId], run.attempts ?? 0)}?`}
+          text={deleteText(1, run.attempts ?? 0, [])}
           command={`shadowlap rm ${shortId(r.runId)}`}
           ok="Delete run"
           danger
@@ -185,8 +188,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
           onOk={() => {
             setDeleting(false);
             client.remove(r.runId).then(
-              () => {
-                toast(`Deleted ${shortId(r.runId)}`);
+              (out) => {
+                toast(bulkToast({ verb: 'Deleted', done: [r.runId], of: 1, skipped: [], attempts: out.attempts?.length ?? 0 }));
                 refresh();
                 navigate(href.runs());
               },

@@ -109,15 +109,34 @@ describe('the Overview: today', () => {
     expect(t.replays).toBe(1);
     expect(t.forks).toEqual({ count: 1, live: 4, blocked: 1 });
     expect(t.tests).toEqual({ count: 2, failed: 1, inconclusive: 0, latestFailure: { runId: id.test2, outcome: { kind: 'diverged', callNo: 1 } } });
-    expect(t.blame).toEqual({ probes: 0, attempts: 0, runs: [] });
+    expect(t.blame).toEqual({ blames: 0, probes: 0, attempts: 0, runs: [] });
   });
 
   it('counts blame probes by the call they probed, and the rescued fork once, as a fork', () => {
     const sep29 = overviewSummary(store, { tz: TZ, now: at(9, 29, 18) });
     // Two runs probed call #3: the one that rescued the run is a fork row; the other is an attempt.
     // Blamed before Fixes kept blames: in no fix, so no title.
-    expect(sep29.today.blame).toEqual({ probes: 1, attempts: 1, runs: [{ runId: id.failed1, outcome: 'blamed', lostAt: 3, title: null, fixId: null }] });
+    expect(sep29.today.blame).toEqual({ blames: 1, probes: 1, attempts: 1, runs: [{ runId: id.failed1, outcome: 'blamed', lostAt: 3, title: null, fixId: null }] });
     expect(sep29.today.forks).toMatchObject({ count: 1 });
+  });
+
+  it('counts the blames that ran today, as the lines beside them count runs: a run blamed twice is two blames', () => {
+    const local = Store.open(':memory:');
+    try {
+      const a = addRun(local, { startedAt: NOW - 5 * HOUR, status: 'failed', calls: 'llllll' });
+      const b = addRun(local, { startedAt: NOW - 5 * HOUR, status: 'failed', calls: 'llllll' });
+      // Blame marks each attempt with its own name and the call it probed, `<blame>-<call>`.
+      const probe = (run: string, blame: string, callNo: number, attempt: number, at: number) => addRun(local, { parent: run, startedAt: at, divergence: callNo, calls: 'rrllll', meta: { probe: { of: run, callNo, passed: false }, repeat: { group: `${blame}-${callNo}`, attempt, of: 2 } } });
+      // a blamed in the morning, two calls probed twice each, and again an hour ago; b once.
+      for (const callNo of [3, 5]) for (const n of [1, 2]) probe(a, 'mf3k2q1x', callNo, n, NOW - 4 * HOUR);
+      probe(a, 'mf4a9z0c', 5, 1, NOW - HOUR);
+      probe(b, 'mf3k8c2d', 3, 1, NOW - 2 * HOUR);
+      const blame = overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame;
+      expect(blame).toMatchObject({ blames: 3, probes: 3, attempts: 6 });
+      expect(blame.runs.map((r) => r.runId)).toEqual([a, b]);
+    } finally {
+      local.close();
+    }
   });
 });
 
@@ -259,6 +278,21 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
     }
   });
 
+  it('counts failures reproduced in the unit the funnel counts blamed: a failure is a fix, however many of its runs blame replayed', () => {
+    const local = Store.open(':memory:');
+    try {
+      const runs = [0, 1, 2].map((i) => makeRun(local, { labels: ['refund-bug'], startedAt: NOW - 2 * DAY + i * HOUR, calls: ['api', 'tool', 'api', 'tool', 'api', 'tool', 'api'] }));
+      // Three runs of one failure, each blamed: the second and third join the first one's fix.
+      for (const [i, runId] of runs.entries()) recordBlame(local, { runId, report: blameReport(runId), expect: EXPECT, scope: null, command: `shadowlap blame ${runId.slice(0, 10)}`, title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW - DAY + i * HOUR });
+      expect(local.listFixes()).toHaveLength(1);
+      const s = overviewSummary(local, { tz: 'UTC', now: NOW });
+      expect(s.outcomes.reproduced).toEqual({ value: 1, lastWeek: 0, open: 1 });
+      expect(s.fixes).toMatchObject({ failures: 1, blamed: 1 });
+    } finally {
+      local.close();
+    }
+  });
+
   it('counts blames and verdicts in the viewer’s weeks, the weeks its runs are counted in', () => {
     const local = Store.open(':memory:');
     try {
@@ -334,8 +368,12 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       session(NOW - 9 * DAY, true);
       session(NOW - HOUR, false);
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, goldens });
-      expect(s.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, inconclusive: 0, lastWeek: 2, regressions: 1, lastRunAt: NOW - HOUR + 10 });
-      expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', action: 'Fix', runId: failed, href: `#/run/${failed}` });
+      expect(s.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, inconclusive: 0, untested: 0, lastWeek: 2, regressions: 1, lastRunAt: NOW - HOUR + 10 });
+      // No fix holds the failure yet: the line opens the failing run, and says so.
+      expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', action: 'Open', runId: failed, href: `#/run/${failed}` });
+      // Blamed, the failure has a fix: Fix leads to it.
+      const { fix } = recordBlame(local, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'c', title: 'refund-in-limit diverged', checkText: 'x', at: NOW - HOUR / 2 });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items.find((i) => i.kind === 'test')).toMatchObject({ action: 'Fix', runId: failed, fixId: fix.fixId, href: `#/fixes/${fix.fixId}` });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toBeNull();
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).needsLook.items.some((i) => i.kind === 'test')).toBe(false);
     } finally {
@@ -349,7 +387,8 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       story(local);
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'northwind-agent-runs/support-agent', onlyLocal: 7 } });
       // On Runs, as the design has it: the local tags show which, and the bulk bar pushes them.
-      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs', runId: null, fixId: null, at: 0 });
+      // Push leads to those runs: Runs with Local picked.
+      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs?type=local', runId: null, fixId: null, at: 0 });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 1 } }).needsLook.items.at(-1)).toMatchObject({ title: '1 run is only on this machine', detail: 'push it so the team can open it' });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 0 } }).needsLook.items.some((i) => i.kind === 'local')).toBe(false);
       // A store's setup left unfinished leads back to it, first.
@@ -398,7 +437,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       addRun(local, { parent: failed, startedAt: NOW - HOUR, divergence: 3, calls: 'rrllll', meta: { probe: { of: failed, callNo: 3, passed: false }, repeat: { group: 'p', attempt: 1, of: 1 } } });
       const { fix } = recordBlame(local, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'c', title: 'issue_refund called with amount 240', checkText: 'x', at: NOW - HOUR });
       // Still probing: nothing on the run says how it came out yet.
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame).toEqual({ probes: 1, attempts: 1, runs: [{ runId: failed, outcome: null, lostAt: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }] });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame).toEqual({ blames: 1, probes: 1, attempts: 1, runs: [{ runId: failed, outcome: null, lostAt: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }] });
       // Done, and no model call rescued it: Today says so, as Needs a look does, rather than "not placed yet".
       local.updateRunMeta(failed, { blame: blameOf(null, null, NOW - HOUR / 2) });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'unrescuable', lostAt: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);

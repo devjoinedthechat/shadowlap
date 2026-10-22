@@ -80,9 +80,12 @@ const COUNTERS_SQL = `SELECT name, n FROM change_counts WHERE name IN ('runs', '
 const VERSION_SQL = `SELECT (SELECT data_version FROM pragma_data_version()) AS dv, total_changes() AS tc`;
 
 interface TeamFacts {
+  /** Every run only here among `localRuns`, however many: the status names the first LOCAL_IDS. */
   counts: TeamRunCounts;
   /** The CI providers whose runs the store's index lists, for "ci (GitHub Actions)". */
   ciProviders: string[];
+  /** Those runs as a set, made when the Runs page's Local chip first asks. */
+  local?: ReadonlySet<string>;
 }
 const kept = new WeakMap<Store, { key: string; version: string; facts: TeamFacts }>();
 
@@ -109,7 +112,7 @@ function teamFacts(store: Store, key: string): TeamFacts {
   const version = versionOf(store, ended);
   const hit = kept.get(store);
   if (hit && hit.key === key && hit.version === version) return hit.facts;
-  const facts = { counts: teamRunCounts(store, key, LOCAL_IDS, ended), ciProviders: store.teamSummary(key).ciProviders };
+  const facts: TeamFacts = { counts: teamRunCounts(store, key, Number.MAX_SAFE_INTEGER, ended), ciProviders: store.teamSummary(key).ciProviders };
   kept.set(store, { key, version, facts });
   return facts;
 }
@@ -117,6 +120,16 @@ function teamFacts(store: Store, key: string): TeamFacts {
 /** The by-run counts against one store (its identity, `storeKey`), kept until runs or the store's rows change. */
 export function countsOf(store: Store, key: string): TeamRunCounts {
   return teamFacts(store, key).counts;
+}
+
+/**
+ * Every run only on this machine against one store, as `onlyLocal` counts them: what the Runs page's
+ * Local chip lists, where Needs a look's Push leads. Kept with the counts.
+ */
+export function localRunSet(store: Store, key: string): ReadonlySet<string> {
+  const facts = teamFacts(store, key);
+  facts.local ??= new Set(facts.counts.localRuns);
+  return facts.local;
 }
 
 /** Whether the setup recorded with what this machine knows of a store (team_sync's `setup`, store-setup.ts) is under way. */
@@ -162,7 +175,7 @@ export function teamStoreStatus(store: Store, input: TeamStoreInput): TeamStoreS
     syncedAt: pushedAt === null && pulledAt === null ? null : Math.max(pushedAt ?? 0, pulledAt ?? 0),
     inStore: counts.inStore,
     onlyLocal: counts.onlyLocal,
-    localRuns: counts.localRuns,
+    localRuns: counts.localRuns.slice(0, LOCAL_IDS),
     localAttempts: counts.localAttempts,
     queued: counts.queued,
     check,

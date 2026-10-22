@@ -122,11 +122,31 @@ describe('the Runs table', () => {
     expect(ids(['recording'])).toEqual([id.live, id.rec, id.failed, id.pack, id.old]);
     expect(ids(['failed'])).toEqual([id.test1, id.inj, id.failed]);
     expect(ids(['fork', 'failed'])).toEqual([id.inj]);
-    expect(all().chipCounts).toEqual({ all: 14, recording: 5, fork: 5, clean: 1, test: 2, capture: 1, failed: 3 });
+    expect(all().chipCounts).toEqual({ all: 14, recording: 5, fork: 5, clean: 1, test: 2, capture: 1, failed: 3, local: 0 });
   });
 
-  it('matches every word of the filter field against id, labels, command, source and revision', () => {
+  it('shows the runs only on this machine under Local, with a team store, and counts them in the date range', () => {
+    // As the team store's status counts them: what Needs a look's Push leads to.
+    const localRuns = new Set([id.rec, id.failed, id.old]);
+    const page = all({ types: ['local'], localRuns });
+    expect(page.runs.map((r) => r.runId)).toEqual([id.rec, id.failed, id.old]);
+    expect(page.chipCounts.local).toBe(3);
+    expect(all({ types: ['local', 'failed'], localRuns }).runs.map((r) => r.runId)).toEqual([id.failed]);
+    expect(all({ localRuns, from: NOW - 3 * DAY }).chipCounts.local).toBe(2);
+    // The calendar counts the failures among them out of them, not out of every run.
+    expect(runsByDay(store, { types: ['local'], localRuns, tz: 'UTC', now: NOW }).totals).toMatchObject({ runs: 2, failed: 1, all: 2 });
+    // Without a team store, nothing is local.
+    expect(all({ types: ['local'] }).runs).toEqual([]);
+    expect(runsPageOptions(new URLSearchParams('types=local'))).toEqual({ types: ['local'] });
+  });
+
+  it('matches every word of the filter field against id, labels, command, source, revision and kind', () => {
     const ids = (q: string) => all({ q }).runs.map((r) => r.runId);
+    // What the line under the id calls a run, as an exported copy's filter finds it.
+    expect(ids('clean replay')).toEqual([id.clean]);
+    expect(ids('fork @5')).toEqual([id.p1]);
+    expect(ids('capture')).toEqual([id.cap]);
+    expect(runsByDay(store, { tz: 'UTC', now: NOW, q: 'clean replay' }).totals).toMatchObject({ runs: 1 });
     expect(ids('refund-bug')).toEqual([id.failed]);
     expect(ids('AGENT.MJS')).toEqual([id.failed]);
     expect(ids('2026-09-30')).toEqual([id.cap]);
@@ -141,7 +161,7 @@ describe('the Runs table', () => {
     const today = localDay(NOW, 'Europe/Berlin');
     const page = all({ from: today.start, to: today.end });
     expect(page.runs.map((r) => r.runId)).toEqual([id.live, id.failat, id.fork2, id.fork, id.clean, id.test2, id.test1, id.inj]);
-    expect(page.chipCounts).toEqual({ all: 8, recording: 1, fork: 4, clean: 1, test: 2, capture: 0, failed: 2 });
+    expect(page.chipCounts).toEqual({ all: 8, recording: 1, fork: 4, clean: 1, test: 2, capture: 0, failed: 2, local: 0 });
   });
 
   it('lists attempts when asked, each naming the run it belongs to', () => {
@@ -331,6 +351,22 @@ describe('bulk actions', () => {
       expect(local.getRun(rescued)!.parentRunId).toBeNull();
       expect(listRunsPage(local).runs.map((r) => r.runId)).toEqual([live, rescued]);
       expect(deleteRuns(local, [live])).toMatchObject({ done: [], skipped: [{ runId: live, reason: 'still recording' }] });
+    } finally {
+      local.close();
+    }
+  });
+
+  it('deletes the attempts bundled under an attempt too, and counts every one on the row', () => {
+    const local = Store.open(':memory:');
+    try {
+      const rec = addRun(local, { startedAt: NOW - DAY, calls: 'llll', status: 'failed' });
+      const probe = addRun(local, { parent: rec, startedAt: NOW - DAY + MIN, divergence: 3, calls: 'rrll', meta: { probe: { of: rec, callNo: 3, passed: false }, repeat: { group: 'g-3', attempt: 1, of: 1 } } });
+      // A --repeat of the probe: bundled under the probe, which is bundled under the run.
+      const again = addRun(local, { parent: probe, startedAt: NOW - DAY + 2 * MIN, calls: 'rrll', meta: { repeat: { group: 'again', attempt: 1, of: 1 } } });
+      expect(listRunsPage(local).runs).toMatchObject([{ runId: rec, attempts: 2 }]);
+      expect(deleteRuns(local, [rec])).toMatchObject({ done: [rec], attempts: [probe, again], skipped: [] });
+      // Nothing of it is left to show as a run of its own.
+      expect(local.allRuns()).toEqual([]);
     } finally {
       local.close();
     }

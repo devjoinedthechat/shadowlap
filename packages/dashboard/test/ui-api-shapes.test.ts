@@ -100,6 +100,13 @@ describe('a run', () => {
     expect(normalizeRunDetail(detail({ notRecorded: { hosts: [], tools: [] } })).notRecorded).toBeNull();
   });
 
+  it('reads how many attempts deleting the run takes with it, as a count or not at all', () => {
+    expect(normalizeRunDetail(detail({ attempts: 6 })).attempts).toBe(6);
+    expect('attempts' in normalizeRunDetail(detail({ attempts: '6' as never }))).toBe(false);
+    expect('attempts' in normalizeRunDetail(detail({ attempts: -1 }))).toBe(false);
+    expect(normalizeRunDetail(detail({})).attempts).toBeUndefined();
+  });
+
   it('places a rescue that names no call where the fork left, and keeps a blame that placed the failure nowhere', () => {
     const d = normalizeRunDetail(detail({ rescuedBy: { runId: '01K5CQ4N7G', callNo: null }, blame: { outcome: 'unrescuable', callNo: null, modelCall: null, confidence: 'low', rescuedRunId: null, scope: null, at: 1 } }, { callNo: 5 }));
     expect(d.rescuedBy).toEqual({ runId: '01K5CQ4N7G', callNo: 5 });

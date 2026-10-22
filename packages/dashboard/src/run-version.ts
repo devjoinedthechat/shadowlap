@@ -1,18 +1,20 @@
 import { createHash } from 'node:crypto';
 import type { RunRecord, Store } from '@shadowlap/engine';
-import { runState } from './runs-list.js';
+import { loadRunIndex } from './run-index.js';
+import { bundleOf, runState } from './runs-list.js';
 
 /**
  * Where a run's page answer (`GET /api/runs/:id`) stands, worked out without building it: the rows
  * of the family the answer reads (the run, the runs it came from, its children, the attempts filed
- * with it), the calls of the run and of its parent (the newest call event and how many), the run's
+ * with it), the attempts bundled under it at any depth (its Delete names how many go with it), the
+ * calls of the run and of its parent (the newest call event and how many), the run's
  * state as the run list works it out (a run its recorder left reads interrupted though nothing is
  * written), and the fixes. Another run starting, recording or ending moves none of it. The page asks
  * again whenever runs move, and a long run's answer is megabytes worked out from every call: from
  * this, an answer the page already has is a 304 at the cost of a few small reads.
  */
 
-const FORMAT = 'v2';
+const FORMAT = 'v3';
 
 /** As far back as the answer looks for the tools a replay's recording kept off the record. */
 const ANCESTORS = 16;
@@ -46,6 +48,9 @@ export function runVersionTag(store: Store, run: RunRecord, extra: string): stri
     callsStamp(store, run.runId),
     run.parentRunId ? callsStamp(store, run.parentRunId) : '',
     JSON.stringify(runState(store, run.runId)),
+    bundleOf(loadRunIndex(store), run.runId)
+      .map((a) => a.runId)
+      .join(','),
     String(store.changeCounts().fixes ?? 0),
     extra,
   ];

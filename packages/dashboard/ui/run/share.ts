@@ -1,4 +1,4 @@
-import { num } from '../format.js';
+import { num, shortId } from '../format.js';
 import type { RunOffers } from '../types.js';
 
 /**
@@ -76,6 +76,32 @@ export const DATASET_MAX_RUNS = 500;
 /** Why a dataset can't be made from this many runs (the Runs page picks up to 1,000), or null when it can. */
 export function datasetTooMany(count: number): string | null {
   return count > DATASET_MAX_RUNS ? `One dataset takes at most ${num(DATASET_MAX_RUNS)} runs: pick fewer, or export a label from a terminal with shadowlap export dataset --label <label>.` : null;
+}
+
+/**
+ * The file a dataset goes into, in `.shadowlap/exports/`: one run's id, or how many runs and when
+ * (UTC, to the second), as the `export-dataset` job names it when not told (src/run-exports.ts
+ * `datasetName`). The dialog picks it when it opens and sends it, so its command is the one run.
+ */
+export function datasetFile(ids: readonly string[], now: Date): string {
+  if (ids.length === 1) return `dataset-${ids[0]!.slice(0, 10).toLowerCase()}.jsonl`;
+  return `dataset-${ids.length}-runs-${now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')}.jsonl`;
+}
+
+/** A dataset of up to this many runs spells out every id in its command; past it, the first five and how many more. */
+const DATASET_IDS_SHOWN = 10;
+
+/**
+ * The command the `export-dataset` job runs, as its dialog shows it: the runs, which calls and the
+ * format picked, and the file it writes. `full` for Copy; `shown` names the first few runs of a long
+ * pick and how many more, as a bulk Delete's does.
+ */
+export function datasetCommand(ids: readonly string[], o: { format: string; calls: string; file: string }): { shown: string; full: string } {
+  const tail = `--calls ${o.calls} --format ${o.format} --out .shadowlap/exports/${o.file}`;
+  const short = ids.map((id) => shortId(id));
+  const full = `shadowlap export dataset ${short.join(' ')} ${tail}`;
+  if (short.length <= DATASET_IDS_SHOWN) return { shown: full, full };
+  return { shown: `shadowlap export dataset ${short.slice(0, 5).join(' ')} … and ${num(short.length - 5)} more ${tail}`, full };
 }
 
 /** The folder a pack goes into unless another is typed: inside the project's exports folder (decision 5). */

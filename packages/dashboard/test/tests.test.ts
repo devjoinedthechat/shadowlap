@@ -652,7 +652,9 @@ describe('tests on the Overview and in Needs a look', () => {
     expect(testsSummary(store, { goldens: ['goldens/refund-flow', 'goldens/new'], now: T0 + DAY })).toMatchObject({ total: 2, passing: 1, failing: 0, untested: 1, line: 'no regressions' });
     expect(testsSummary(Store.open(':memory:'), { goldens: [] })).toMatchObject({ empty: true, total: 0, line: 'no goldens yet', lastRunAt: null, lastWeek: null });
     // The Overview's outcome strip compares with when its week started.
-    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY }, { goldens })).toEqual({ goldens: 3, passing: 2, inconclusive: 0, lastWeek: 2, regressions: 1, lastRunAt: T0 + 100 });
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY }, { goldens })).toEqual({ goldens: 3, passing: 2, inconclusive: 0, untested: 0, lastWeek: 2, regressions: 1, lastRunAt: T0 + 100 });
+    // A golden that never ran is counted, so passing and the rest add up to the goldens on disk.
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY }, { goldens: [...goldens.map((g) => g.path), 'goldens/new'] })).toMatchObject({ goldens: 4, passing: 2, regressions: 1, untested: 1 });
     expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - 3 * DAY }, { goldens })).toMatchObject({ lastWeek: 1 });
     expect(overviewTests(Store.open(':memory:'), { now: T0, weekStart: T0 - DAY }, { goldens: [] })).toBeNull();
     store.close();
@@ -670,7 +672,8 @@ describe('tests on the Overview and in Needs a look', () => {
 
   it('lists failing tests with why, linking to the failing run', () => {
     const store = sampleStore();
-    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', verdict: 'failed', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', at: T0 + 2 }]);
+    // No fix holds the failure: the line opens the failing run, and says Open, not Fix.
+    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', verdict: 'failed', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', next: 'open', fixId: null, at: T0 + 2 }]);
     store.deleteRun('R_C_LIMIT');
     expect(failingTests(store, { goldens: goldens.map((g) => g.path) })[0]).toMatchObject({ runId: null, href: '#/tests' });
     store.close();
@@ -1076,6 +1079,41 @@ describe('goldens with a gate', () => {
     expect(view.verdict).toMatchObject({ state: 'inconclusive', inconclusive: 2, title: 'escalates inconclusive: a check could not be judged' });
     expect(escalates!.history.map((c) => c.note)).toEqual([why]);
     expect(failingTests(store, { goldens: gated.slice(0, 2) }).map((t) => t.line)).toEqual(['injection inconclusive: no attempt showed anything', why]);
+    store.close();
+  });
+
+  it('says where each failing golden leads: more attempts for a gate that ran out, an update for a replay golden a judge could not decide, a run again for an injection test, else its run', () => {
+    const store = gatedStore();
+    const judgeCheck = (detail: string) => ({ status: 'inconclusive' as const, ok: false, label: 'judge "polite" answers yes', detail, judge: { name: 'polite', model: 'claude-haiku-4-5', of: 'answer' as const, verdict: null, source: null, cost: null, redactions: 0 } });
+    const replayGolden = (path: string): GoldenSource => ({ path, runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] });
+    const unjudged = 'check inconclusive: judge "polite" answers yes, but not judged: no recorded verdict';
+    session(store, 'f6a7b8c', T0 + DAY, [
+      // A replay golden whose judge has no recorded verdict: updating the golden asks the judge once and keeps its verdict.
+      { golden: 'goldens/polite', ok: false, failure: 'inconclusive' as never, reason: unjudged, runId: 'R7', data: { mode: 'replay', verdict: 'inconclusive', checks: [judgeCheck('not judged: no recorded verdict')] } as TestResultData },
+      // One whose injection test showed too little to say: an update settles nothing there, so it runs again once that is settled.
+      { golden: 'goldens/planted', ok: false, failure: 'injection' as never, reason: 'injection inconclusive: no attempt showed anything', runId: 'R8', data: { mode: 'replay', verdict: 'inconclusive', injection: { resultId: null, attempts: 3, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 3, allowed: { obeyed: 0, influenced: null }, verdict: 'inconclusive', reason: 'no attempt showed anything', skipped: null } } as TestResultData },
+      // One whose undecided check is no judge's: nothing an update asks would settle it.
+      { golden: 'goldens/unsure', ok: false, failure: 'inconclusive' as never, reason: 'check inconclusive', runId: 'R9', data: { mode: 'replay', verdict: 'inconclusive', checks: [{ status: 'inconclusive', ok: false, label: 'send_email called 1 time', detail: 'not decided' }] } as TestResultData },
+      // One whose gate the unjudged attempt stopped before it decided anything: the judge is what to settle, as Tests offers it.
+      { golden: 'goldens/stopped', ok: false, failure: 'inconclusive' as never, reason: unjudged, runId: 'R11', data: { mode: 'replay', verdict: 'inconclusive', gate: gateResult(sprt, [true, true], { decision: 'continue' }), checks: [judgeCheck('not judged: no recorded verdict')] } as TestResultData },
+      // A path the CLI would read as an option is never offered to it.
+      { golden: '-polite', ok: false, failure: 'inconclusive' as never, reason: unjudged, runId: 'R12', data: { mode: 'replay', verdict: 'inconclusive', checks: [judgeCheck('not judged: no recorded verdict')] } as TestResultData },
+    ]);
+    const goldens = [...gated, ...['goldens/polite', 'goldens/planted', 'goldens/unsure', 'goldens/stopped', '-polite'].map(replayGolden)];
+    // A golden that forks asks its judge live: one that lacked a key is opened, where Tests names the key.
+    const keyless: GoldenSource = { ...replayGolden('goldens/keyless'), mode: 'fork' };
+    session(store, 'f6a7b8d', T0 + DAY + 1, [{ golden: 'goldens/keyless', ok: false, failure: 'inconclusive' as never, reason: unjudged, runId: 'R10', data: { mode: 'fork', verdict: 'inconclusive', checks: [judgeCheck('not judged: no key for anthropic')] } as TestResultData }]);
+    const next = Object.fromEntries(failingTests(store, { goldens: [...goldens, keyless] }).map((t) => [t.golden, [t.next, t.href]]));
+    expect(next).toEqual({
+      'goldens/flaky': ['run-more', '#/tests'],
+      'goldens/drops': ['open', '#/tests'],
+      'goldens/polite': ['update', '#/tests'],
+      'goldens/planted': ['run-again', '#/tests'],
+      'goldens/unsure': ['open', '#/tests'],
+      'goldens/stopped': ['update', '#/tests'],
+      '-polite': ['open', '#/tests'],
+      'goldens/keyless': ['open', '#/tests'],
+    });
     store.close();
   });
 

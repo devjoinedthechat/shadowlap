@@ -19,7 +19,7 @@ const ROWS: Array<[string, string]> = [
   ['w', 'write the call\'s request and response to a JSON file in the working directory'],
   ['p', 'open the parent run'],
   ['o', 'open the run, at the selected call, in the dashboard: charts, search, compare'],
-  ['x', 'delete the selected run (runs view; asks first)'],
+  ['x', 'delete the selected run with its attempts, as rm does (runs view; asks first)'],
   ['?', 'this help'],
   ['Esc / q', 'back / quit'],
 ];

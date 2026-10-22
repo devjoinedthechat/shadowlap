@@ -9,7 +9,7 @@ import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, run
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
-import { bundlesAttempts, compareTarget, defaultComparePair, isFailed, matchesChip, matchesText, runOutcome, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, type RunLike } from '../ui/runs.js';
+import { bundlesAttempts, compareTarget, defaultComparePair, isFailed, kindWord, matchesChip, matchesText, runOutcome, runStatus, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
 import { inScope, scopeChips, scopeCount, scopesOf } from '../ui/scopes.js';
 import { binCalls, gridCells, miniCells, stripCells, type StripItem } from '../ui/strip.js';
 
@@ -413,7 +413,52 @@ describe('runs', () => {
     expect(sideLine(fork)).toEqual({ text: 'fork @17 · 13 live · 1 blocked' });
     expect(sideLine(clean)).toEqual({ text: 'clean replay · 30/30' });
     expect(sideLine(live)).toEqual({ text: 'recording · 9 calls so far' });
-    expect(sideLine(test)).toEqual({ err: 'test failed', text: ' · diverged at #1' });
+  });
+
+  it('says a failure in the sidebar in the words of Runs’ Status, then what the run is', () => {
+    const lost = { ...base, status: 'failed' as const, outcome: { kind: 'lost', callNo: 9 }, failed: true };
+    expect(runOutcome(lost)).toEqual({ tone: 'err', text: 'lost at #9' });
+    // Not "check failed": Runs says where blame found it lost.
+    expect(sideLine(lost)).toEqual({ err: 'lost at #9', text: ' · 30 calls' });
+    expect(sideLine(test)).toEqual({ err: 'diverged at #1', text: ' · test' });
+    const failedFork = { ...fork, outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true };
+    expect(sideLine(failedFork)).toEqual({ err: 'check failed', text: ' · fork @17' });
+    // The agent's exit names no check; a check that could not be decided is amber, neither passed nor
+    // failed, and the sidebar says it in the design's one word where Runs, with the room, says more.
+    expect(sideLine({ ...base, status: 'failed', outcome: { kind: 'check-failed', check: null }, failed: true })).toEqual({ err: 'failed', text: ' · 30 calls' });
+    const unsure = { ...test, status: 'completed' as const, outcome: { kind: 'inconclusive', check: 'judge "polite" answers yes' }, failed: false };
+    expect(sideLine(unsure)).toEqual({ warn: 'inconclusive', text: ' · test' });
+    expect(runOutcome(unsure)).toEqual({ tone: 'warn', text: 'check inconclusive' });
+  });
+
+  it('says what a fork did in its Status: what came of its writes, or the check it failed', () => {
+    const none = { outcome: { kind: 'none' }, failed: false };
+    expect(runOutcome({ ...fork, ...none })).toEqual({ tone: 'fk', text: 'forked · 1 write blocked' });
+    expect(runOutcome(fork)).toEqual({ tone: 'fk', text: 'forked · 1 write blocked' });
+    expect(runOutcome({ ...fork, ...none, origins: 'rrrlss' })).toEqual({ tone: 'fk', text: 'forked · 2 writes stubbed' });
+    expect(runOutcome({ ...fork, ...none, origins: 'rrlbsb' })).toEqual({ tone: 'fk', text: 'forked · 3 writes fenced' });
+    expect(runOutcome({ ...fork, ...none, origins: 'rrll' })).toEqual({ tone: 'fk', text: 'forked · no writes fenced' });
+    // A replay that ended early never forked, and a recording has nothing to say.
+    expect(runOutcome({ ...fork, ...none, divergence: { callNo: 11, type: 'ended_early' } })).toEqual({ tone: 'n', text: '—' });
+    expect(runOutcome({ ...base, ...none })).toEqual({ tone: 'n', text: '—' });
+    // Its checks passed, or it stopped before it ended: the outcome says so, as for any run.
+    expect(runStatus({ ...fork, outcome: { kind: 'passed', checks: 1 }, failed: false })).toEqual({ tone: 'ok', text: '1 check passed' });
+    expect(runStatus({ ...fork, ...none, status: 'crashed' })).toEqual({ tone: 'n', text: 'interrupted' });
+    // A fork that failed a check names it, in its own words.
+    const failedFork = { ...fork, outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true };
+    expect(runStatus(failedFork)).toEqual({ tone: 'err', text: 'check failed', check: 'send_email called 1 time' });
+    // The outcome stays in a word or two for the lists that say it beside other things; a recording names no check here.
+    expect(runOutcome(failedFork)).toEqual({ tone: 'err', text: 'check failed' });
+    expect(runStatus({ ...base, outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, failed: true })).toEqual({ tone: 'err', text: 'check failed' });
+    expect(runStatus({ ...fork, outcome: { kind: 'lost', callNo: 4 }, failed: true })).toEqual({ tone: 'err', text: 'lost at #4' });
+  });
+
+  it('says clean replay wherever a clean replay is named', () => {
+    expect(kindWord(clean)).toBe('clean replay');
+    expect(runSubline(clean)).toBe('clean replay of 01K5CQ4N7G · python refund_agent.py');
+    // A replay that never finished is no clean replay.
+    expect(kindWord({ ...clean, status: 'failed', origins: 'rrr' })).toBe('replay');
+    expect(matchesText(clean, 'clean replay')).toBe(true);
   });
 
   it('says attempts are bundled only when the run list tells them apart', () => {
@@ -445,6 +490,35 @@ describe('runs', () => {
       ['01K5CQ4R1T', 1],
       ['01K5CQ2E8M', 0],
     ]);
+  });
+
+  it('draws the tree a step in per level, with branch lines down to each run’s later siblings', () => {
+    // The recording, its clean replay and its fork; a fork of the fork and a test of it under that.
+    const fork2: RunLike = { ...fork, runId: '01K5CQ4V3H00000000000000GG', parentRunId: fork.runId, divergence: { callNo: 19, type: 'request_changed' }, startedAt: 3500 };
+    const test2: RunLike = { ...clean, runId: '01K5CQ7P5N00000000000000HH', parentRunId: fork.runId, test: { golden: 'goldens/refund-over-limit' }, startedAt: 3600 };
+    const rows = treeLines(runTree([capture, base, clean, fork, fork2, test2]));
+    expect(rows.map((x) => [x.run.runId.slice(0, 10), x.depth, x.on, x.kids])).toEqual([
+      // The family whose newest run is newest comes first.
+      ['01K5CQ4N7G', 0, [], true],
+      // The clean replay has a later sibling: the line goes on through it, down to the fork.
+      ['01K5CQ4N9A', 1, [true], false],
+      ['01K5CQ4R1T', 1, [false], true],
+      // A fork of the fork sits under it, a step further in; the test of the fork after it.
+      ['01K5CQ4V3H', 2, [false, true], false],
+      ['01K5CQ7P5N', 2, [false, false], false],
+      ['01K5CQ2E8M', 0, [], false],
+    ]);
+    // Cut off after the fork of the fork, no line leads past the last row shown.
+    expect(treeLines(runTree([base, clean, fork, fork2, test2]).slice(0, 4)).at(-1)).toMatchObject({ depth: 2, on: [false, false] });
+    // A lineage deeper than the sidebar draws keeps to its deepest step: four, where a run's id and a
+    // date beside it still fit the sidebar's width.
+    const chain: RunLike[] = [base];
+    for (let i = 1; i <= 12; i++) chain.push({ ...fork, runId: `01K5CQ9X${String(i).padStart(2, '0')}0000000000000000`, parentRunId: chain[i - 1]!.runId, startedAt: 3000 + i });
+    expect(TREE_DEPTH).toBe(4);
+    const deep = treeLines(runTree(chain));
+    expect(deep.map((x) => x.depth)).toEqual([0, 1, 2, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4]);
+    // Past it, each run is drawn at that step after the one before, the line at that step going on to the next.
+    expect(deep.slice(4).map((x) => x.on.at(-1))).toEqual([true, true, true, true, true, true, true, true, false]);
   });
 
   it('picks what Compare opens with', () => {

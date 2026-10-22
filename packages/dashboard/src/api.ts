@@ -7,7 +7,7 @@ import { recentRuns, type RunRow } from './runs-list.js';
 import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
 import { runCalls } from './run-calls.js';
 // How a run stands, as the run list works it out: a run's page and its family read the same state.
-import { runState, runStates, type RunState } from './runs-list.js';
+import { bundleOf, runState, runStates, type RunState } from './runs-list.js';
 
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './run-page.js';
 
@@ -107,6 +107,11 @@ export interface RunDetail extends RunPageFacts {
    * opens its first fork or replay, never one of those.
    */
   children: Array<{ runId: string; label: string; startedAt: number; attempt?: true }>;
+  /**
+   * How many attempts are bundled under it, at any depth (a `--repeat` of one of blame's probes too),
+   * as Runs counts them: what deleting it takes with it, which its Delete names.
+   */
+  attempts: number;
   /** Actions that need no selected call: replay, stub writes, add the suggested normalizer, pack. */
   actions: ActionItem[];
   /** The fix the run takes part in, and how (Fixes' fixForRun): the banner's fix, blame and Run blame. */
@@ -258,6 +263,7 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     calls: (after === undefined ? calls : calls.filter((c) => c.callNo > after)).map((c) => row(store, c, options, analysis.facts(c.callNo), shown.status === 'running')),
     parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
     children: childRows(store, runId),
+    attempts: bundleOf(loadRunIndex(store), runId).length,
     actions: actionsFor(run, undefined),
     ...runPageFacts(store, run, calls),
     fix: fixForRun(store, run.runId),

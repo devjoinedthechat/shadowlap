@@ -167,6 +167,12 @@ export function normalizeState(v: unknown): RunStateView | null {
 export function normalizeRunDetail(d: RunDetail): RunDetail {
   const out: RunDetail = { ...d, actions: normalizeActions(d.actions) };
   if (d.state !== undefined) out.state = normalizeState(d.state);
+  // The attempts deleting it takes with it: a count, or, unsaid, none named.
+  if (d.attempts !== undefined) {
+    const n = int(d.attempts);
+    if (n !== null && n >= 0) out.attempts = n;
+    else delete out.attempts;
+  }
   const forkAt = int(d.forkAt) ?? d.run.divergence?.callNo ?? null;
   if (d.cache !== undefined) {
     out.cache = isObject(d.cache)

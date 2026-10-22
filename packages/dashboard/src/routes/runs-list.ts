@@ -6,6 +6,7 @@ import { deleteRuns, knownRuns, labelRuns, listRunsPage, matchingRuns, runsByDay
 import { loadRunIndex } from '../run-index.js';
 import { bisectChoices, type BisectChoices } from '../tests.js';
 import { goldensOf } from './overview.js';
+import { localRunSet } from '../team-store.js';
 import { localRunIds, teamStoreFor } from './store.js';
 
 /**
@@ -14,6 +15,9 @@ import { localRunIds, teamStoreFor } from './store.js';
  *
  *   GET  /api/runs/page?limit&cursor&from&to&types&q&attempts&sort   a page of the table
  *   GET  /api/runs/days?weeks&tz&types&q&attempts                    runs per day, in the viewer's days
+ *
+ * With a team store, `types=local` (the Local chip, where Needs a look's Push leads) is the runs only
+ * on this machine, as the store's status counts them, and the chip counts say how many.
  *   GET  /api/runs/bisect?from&to&types&q                             Find the commit, for the days picked
  *   POST /api/runs/labels { ids, add, remove }                        label several runs
  *   POST /api/runs/delete { ids }                                     delete several runs
@@ -44,15 +48,15 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/runs/page', (r) => {
     const o = runsPageOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
+    const team = teamStoreFor(ctx);
     let page: ReturnType<typeof listRunsPage>;
     try {
-      page = listRunsPage(store, { ...o, ...ctx.read });
+      page = listRunsPage(store, { ...o, ...ctx.read, localRuns: team ? localRunSet(store, team.key) : null });
     } catch (err) {
       return asRangeError(err);
     }
     // With a team store, each row says whether it, or an attempt bundled under it, is only here:
     // the `local` tag, and what Push in the bulk bar sends.
-    const team = teamStoreFor(ctx);
     let runs: RunsPageRow[] = page.runs;
     if (team) {
       const index = loadRunIndex(store);
@@ -69,8 +73,9 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/runs/days', (r) => {
     const o = runsByDayOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
+    const team = o.types?.includes('local') ? teamStoreFor(ctx) : null;
     try {
-      r.tagged(runsByDay(store, o));
+      r.tagged(runsByDay(store, { ...o, localRuns: team ? localRunSet(store, team.key) : null }));
     } catch (err) {
       asRangeError(err);
     }

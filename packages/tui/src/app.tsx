@@ -1,6 +1,6 @@
 import { Box, useApp, useInput, useStdout } from 'ink';
 import { useEffect, useMemo, useState } from 'react';
-import type { CallRecord, Price, RunRecord, Store } from '@shadowlap/engine';
+import { attemptBundles, deletionPlan, withAttempts, type CallRecord, type Price, type RunRecord, type Store } from '@shadowlap/engine';
 import { recordingNow } from './actions.js';
 import { Help } from './components/Help.js';
 import { RunsView } from './components/RunsView.js';
@@ -112,11 +112,16 @@ export function App({ store, runId, callNo, spawnCli, openDashboard, columns, ro
         width={width}
         height={height}
         onOpen={(id) => setView(open(id))}
+        attemptsOf={(id) => withAttempts(attemptBundles(store.allRuns()), id).length}
         onDelete={(id) => {
-          // A run still recording, or one a run in progress replays from, is left alone, as `rm` and the dashboard leave it.
-          const why = store.deletionHold(id);
-          if (why) return `${id.slice(0, 10)} was not deleted: ${why}; delete it once that has ended`;
-          store.deleteRun(id);
+          // As `rm` and the dashboard delete it: with the attempts bundled under it, and left alone
+          // while it records, a run in progress replays from it, or an attempt of it still runs.
+          const plan = deletionPlan(store, [id]);
+          const held = plan.held[0];
+          if (held) return `${id.slice(0, 10)} was not deleted: ${held.why}; delete it once that has ended`;
+          store.transaction(() => {
+            for (const r of [...plan.runs, ...plan.attempts]) store.deleteRun(r);
+          });
           store.gcBlobs();
           setTick((n) => n + 1);
           return null;

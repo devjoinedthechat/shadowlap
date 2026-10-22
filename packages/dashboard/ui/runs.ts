@@ -177,11 +177,11 @@ export function runTag(r: RunLike): { cls: string; text: string } {
   return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'replay' };
 }
 
-/** What kind of run it is, in a word or two: recording, replay, fork @17, capture, test. */
+/** What kind of run it is, in a word or two: recording, clean replay, replay, fork @17, capture, test. */
 export function kindWord(r: RunLike): string {
   const t = runType(r);
   if (t === 'fork') return forkAt(r.divergence!);
-  if (t === 'clean') return 'replay';
+  if (t === 'clean') return 'clean replay';
   return t;
 }
 
@@ -201,27 +201,53 @@ export function runSubline(r: RunLike): string {
   return `${p.what} · ${p.source}`;
 }
 
-/** The sidebar's line: what happened, in a few words. */
-export function sideLine(r: RunLike): { text: string; err?: string } {
+/**
+ * The sidebar's line: what happened, in a few words. A run that failed says so first, in the words
+ * of Runs' Status (`lost at #9`, `diverged at #3`, `check failed`), and one whose check could not be
+ * decided says `inconclusive`, as the design's sidebar words it (Runs, with the room, says `check
+ * inconclusive`); then what it is. `err` is said in red, `warn` in amber.
+ */
+export function sideLine(r: RunLike): { text: string; err?: string; warn?: string } {
   const counts = runCounts(r);
   const calls = plural(r.calls, 'call');
   if (isLive(r)) return { text: `${runType(r) === 'recording' || runType(r) === 'capture' ? 'recording' : 'running'} · ${calls} so far` };
   const t = runType(r);
-  if (t === 'clean') return { text: counts ? `clean replay · ${num(counts.rep)}/${num(r.calls)}` : `clean replay · ${calls}` };
   // Stopped before it ended, failing nothing else: what it is, then that, as the Forks view says it.
   if (isInterrupted(r)) return { text: `${kindWord(r)} · interrupted · ${calls}` };
+  const out = runOutcome(r);
+  // A recording or a capture is what a run is unless the line says otherwise: its calls follow.
+  const what = ` · ${t === 'recording' || t === 'capture' ? calls : kindWord(r)}`;
+  if (out.tone === 'err') return { err: out.text, text: what };
+  if (out.tone === 'warn') return { warn: 'inconclusive', text: what };
+  if (t === 'clean') return { text: counts ? `clean replay · ${num(counts.rep)}/${num(r.calls)}` : `clean replay · ${calls}` };
   if (t === 'fork') {
     const went = counts ? ` · ${num(counts.live + counts.fail)} live${counts.block ? ` · ${num(counts.block)} blocked` : ''}${counts.stub ? ` · ${num(counts.stub)} stubbed` : ''}` : ` · ${calls}`;
     return { text: `${forkAt(r.divergence!)}${went}` };
   }
   if (t === 'capture') return { text: `capture · ${calls}` };
-  if (t === 'test') return isFailed(r) ? { err: 'test failed', text: r.divergence && r.outcome?.kind !== 'check-failed' ? ` · diverged at #${r.divergence.callNo}` : ` · ${calls}` } : { text: counts && counts.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(counts.live)} live` : 'test · offline · 0 upstream' };
-  if (isFailed(r)) return { err: failedWord(r), text: ` · ${calls}` };
+  if (t === 'test') return { text: counts && counts.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(counts.live)} live` : 'test · offline · 0 upstream' };
   return { text: `${runSource(r)} · ${calls}` };
 }
 
-/** The Runs table's status: the outcome only, in a dot and a few words. */
-export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' | 'n'; text: string } {
+/** What a fork's fence did to the writes after it, as the sidebar counts them: `2 writes blocked`, `1 write stubbed`, `3 writes fenced` (both), `no writes fenced`. */
+export function fencedText(c: Pick<OriginCounts, 'block' | 'stub'>): string {
+  if (c.block && c.stub) return `${plural(c.block + c.stub, 'write')} fenced`;
+  if (c.block) return `${plural(c.block, 'write')} blocked`;
+  if (c.stub) return `${plural(c.stub, 'write')} stubbed`;
+  return 'no writes fenced';
+}
+
+/** A run with nothing to report: a fork says what came of its writes (`forked · 2 writes blocked`), any other run a dash. */
+function nothingToReport(r: RunLike): { tone: 'fk' | 'n'; text: string } {
+  const counts = runType(r) === 'fork' && r.divergence?.type !== 'ended_early' ? runCounts(r) : null;
+  return counts ? { tone: 'fk', text: `forked · ${fencedText(counts)}` } : { tone: 'n', text: '—' };
+}
+
+/**
+ * The Runs table's status: the outcome only, in a dot and a few words. A fork with nothing else to
+ * report says what came of its writes, by a neutral dot (`fk`): what it fenced is no verdict.
+ */
+export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' | 'n' | 'fk'; text: string } {
   if (isLive(r)) return { tone: 'live', text: 'in progress' };
   const o = r.outcome;
   if (o) {
@@ -235,7 +261,7 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' |
     if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: checksPassedText(o.checks, o.notApplicable) };
     if (o.kind === 'clean') return { tone: 'ok', text: 'clean' };
     // A run cut short (its recorder stopped before it ended) has no outcome, but says why.
-    if (o.kind === 'none') return { tone: 'n', text: r.status === 'crashed' ? 'interrupted' : '—' };
+    if (o.kind === 'none') return r.status === 'crashed' ? { tone: 'n', text: 'interrupted' } : nothingToReport(r);
   }
   if (r.test && r.divergence) return { tone: 'err', text: `diverged at #${r.divergence.callNo}` };
   if (r.blame && r.blame.callNo) return { tone: 'err', text: `lost at #${r.blame.callNo}` };
@@ -248,7 +274,19 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' |
   if (r.status === 'failed') return { tone: 'err', text: 'failed' };
   const t = runType(r);
   if (t === 'clean' || t === 'test') return { tone: 'ok', text: 'clean' };
-  return { tone: 'n', text: '—' };
+  return nothingToReport(r);
+}
+
+/**
+ * The Runs table's Status: the outcome, and for a fork, what it did that its recording didn't: what
+ * came of its writes (`forked · 2 writes blocked`), or the check it failed, named in its own words
+ * under `check failed` (`check`), as the run's page names a check it can tell no more of.
+ */
+export function runStatus(r: RunLike): { tone: ReturnType<typeof runOutcome>['tone']; text: string; check?: string } {
+  const out = runOutcome(r);
+  const check = r.outcome?.kind === 'check-failed' ? r.outcome.check : null;
+  if (out.tone === 'err' && check && runType(r) === 'fork') return { ...out, check };
+  return out;
 }
 
 /**
@@ -260,7 +298,8 @@ export function runSpent(r: RunLike): { text: string; captured: boolean } {
   return { text: approx(r.spent || (r.imported ? r.captured : 0)), captured: false };
 }
 
-export type RunChip = 'all' | 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed';
+/** The Runs page's chips: the kinds, Failed, and with a team store Local, the runs only on this machine. */
+export type RunChip = 'all' | 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed' | 'local';
 export const RUN_CHIPS: ReadonlyArray<[RunChip, string]> = [
   ['all', 'All'],
   ['recording', 'Recordings'],
@@ -269,11 +308,14 @@ export const RUN_CHIPS: ReadonlyArray<[RunChip, string]> = [
   ['test', 'Tests'],
   ['capture', 'Captures'],
   ['failed', 'Failed'],
+  ['local', 'Local'],
 ];
 
+/** Whether a run is one a chip shows, in a list worked out in the page (an exported copy, which has no team store: Local shows none). */
 export function matchesChip(r: RunLike, chip: RunChip): boolean {
   if (chip === 'all') return true;
   if (chip === 'failed') return isFailed(r);
+  if (chip === 'local') return false;
   return runType(r) === chip;
 }
 
@@ -324,6 +366,34 @@ export function runTree<R extends RunLike>(runs: readonly R[]): Array<{ run: R; 
   };
   for (const r of [...roots].sort((a, b) => familyTime(b) - familyTime(a))) walk(r, 0);
   return out;
+}
+
+/**
+ * The deepest a row is drawn in: four steps of 18px leave the sidebar's 252px room for a run's id and
+ * its time beside it, a date ("Sep 30") the widest; a fifth would push the date past the edge. A
+ * longer lineage (a replay of a replay of …) keeps to this step.
+ */
+export const TREE_DEPTH = 4;
+
+/**
+ * The sidebar's tree as the rows shown draw it, one step in for each level: each row's depth, and
+ * for its branch lines, level by level, whether a later sibling follows the run at that level of its
+ * lineage (`on`, the run itself last: the line goes on through the row), and whether runs hang under
+ * it (`kids`). Worked out from the rows as listed, so no line leads to a run left off the list.
+ */
+export function treeLines<R>(rows: ReadonlyArray<{ run: R; depth: number }>): Array<{ run: R; depth: number; on: boolean[]; kids: boolean }> {
+  const depth = (i: number) => Math.min(rows[i]!.depth, TREE_DEPTH);
+  return rows.map((row, i) => {
+    const d = depth(i);
+    const on: boolean[] = [];
+    for (let k = 1; k <= d; k++) {
+      // The first row after this one that leaves the level-k run's subtree: a sibling of it, or not.
+      let j = i + 1;
+      while (j < rows.length && depth(j) > k) j++;
+      on.push(j < rows.length && depth(j) === k);
+    }
+    return { run: row.run, depth: d, on, kids: i + 1 < rows.length && depth(i + 1) > d };
+  });
 }
 
 /**

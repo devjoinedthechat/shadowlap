@@ -154,7 +154,8 @@ export function kindLabel(kind: RunKind, divergence: { callNo: number; type?: st
  * session, unless the golden was replayed more than once: then every attempt but the one its result
  * shows names that one (`meta.test.of`), a replay of the same recording, and is bundled under it.
  * Whether the run it names is that (a test run of the same golden, session and recording) only the
- * whole store can tell: the dashboard's run index checks it.
+ * whole store can tell: `filedTestAttempt` checks it, for `attemptBundles` and the dashboard's run
+ * index alike.
  */
 export function classifyRun(run: ClassifiableRun, ctx: ClassifyContext = {}): RunClass {
   const kind = runKind(run, ctx);
@@ -171,6 +172,65 @@ export function classifyRun(run: ClassifiableRun, ctx: ClassifyContext = {}): Ru
   // (a pack can carry anything), and must not hide under, or be deleted with, a run it names.
   if (attemptKind === 'probe' && typeof m.probe?.of === 'string' && run.parentRunId !== null && m.probe.of !== run.parentRunId) return { kind, attemptOf: null, attemptKind: null };
   return { kind, attemptOf: run.parentRunId, attemptKind };
+}
+
+/**
+ * Whether a test run that names `head` as the attempt its result shows (`meta.test.of`) is filed
+ * under it: `head` is a test run of the same golden and session that replayed the same recording,
+ * and no attempt itself. A run naming any other run (a pack can carry anything) is listed as a run
+ * of its own, and is never hidden under, or deleted with, the run it names.
+ */
+export function filedTestAttempt(attempt: Pick<ClassifiableRun, 'parentRunId' | 'meta'>, head: Pick<ClassifiableRun, 'parentRunId' | 'meta'>): boolean {
+  const a = attempt.meta?.test;
+  const h = head.meta?.test;
+  if (!isObject(a) || !isObject(h)) return false;
+  const text = (v: unknown) => (typeof v === 'string' ? v : '');
+  return typeof h.of !== 'string' && text(h.golden) === text(a.golden) && text(h.session) === text(a.session) && head.parentRunId === attempt.parentRunId;
+}
+
+/**
+ * The attempts bundled under each run, as every list bundles them (`classifyRun`): each attempt by
+ * the run it is filed under, when that run is among `runs`, and a test's only under a run it may be
+ * filed under (`filedTestAttempt`). The fork blame rescued its run with shows as a fork of its own,
+ * so it is in no bundle. What the lists leave out, and what goes when the run it is filed under is
+ * deleted (`withAttempts`).
+ */
+export function attemptBundles(runs: readonly ClassifiableRun[]): Map<string, string[]> {
+  const byId = new Map(runs.map((r) => [r.runId, r]));
+  const rescued = new Set<string>();
+  for (const r of runs) {
+    const id = isObject(r.meta?.blame) ? r.meta.blame.rescuedRunId : undefined;
+    if (typeof id === 'string') rescued.add(id);
+  }
+  const out = new Map<string, string[]>();
+  for (const r of runs) {
+    const c = classifyRun(r, { rescued: rescued.has(r.runId) });
+    const head = c.attemptOf ? byId.get(c.attemptOf) : undefined;
+    if (!c.attemptKind || !head || head.runId === r.runId) continue;
+    if (c.attemptKind === 'test' && !filedTestAttempt(r, head)) continue;
+    const list = out.get(head.runId);
+    if (list) list.push(r.runId);
+    else out.set(head.runId, [r.runId]);
+  }
+  return out;
+}
+
+/**
+ * The attempts bundled under a run, and those bundled under them in turn (a `--repeat` of one of
+ * blame's probes), in the order found: what a list shows only through the run, and what goes with it
+ * when it is deleted. Never the run itself.
+ */
+export function withAttempts(bundles: ReadonlyMap<string, readonly string[]>, runId: string): string[] {
+  const out: string[] = [];
+  const seen = new Set([runId]);
+  for (let i = -1; i < out.length; i++) {
+    for (const id of bundles.get(i < 0 ? runId : out[i]!) ?? []) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
 }
 
 /**

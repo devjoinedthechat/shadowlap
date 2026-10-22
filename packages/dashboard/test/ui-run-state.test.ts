@@ -118,8 +118,8 @@ describe('a test whose golden may fork, in the sidebar', () => {
     const test: RunLike = { ...base, mode: 'replay', parentRunId: '01K5CQ4N7F0000000000000000', divergence: { callNo: 3, type: 'request_changed' }, test: { golden: 'goldens/budget' }, origins: 'rrllllll', kind: 'test', outcome: { kind: 'passed', checks: 1 }, failed: false };
     expect(sideLine(test)).toEqual({ text: 'test · forked at #3 · 6 live' });
     expect(sideLine({ ...test, origins: 'rrrrrrrr', divergence: null })).toEqual({ text: 'test · offline · 0 upstream' });
-    // Failing its check after it forked, it failed on the check, not at the fork.
-    expect(sideLine({ ...test, outcome: { kind: 'check-failed', check: 'at most 29000 input tokens' }, failed: true })).toEqual({ err: 'test failed', text: ' · 8 calls' });
+    // Failing its check after it forked, it failed on the check, not at the fork, in the word Runs' Status uses.
+    expect(sideLine({ ...test, outcome: { kind: 'check-failed', check: 'at most 29000 input tokens' }, failed: true })).toEqual({ err: 'check failed', text: ' · test' });
   });
 });
 

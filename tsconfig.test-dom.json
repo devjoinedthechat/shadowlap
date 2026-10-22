@@ -17,7 +17,10 @@
     "packages/dashboard/test/ui-dialog-tab.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
-    "packages/dashboard/test/ui-tests-chaos.test.ts"
+    "packages/dashboard/test/ui-tests-chaos.test.ts",
+    "packages/dashboard/test/ui-runs-bulk.test.ts",
+    "packages/dashboard/test/ui-overview-lists.test.ts",
+    "packages/dashboard/test/ui-sidebar-runs.test.ts"
   ],
   "exclude": []
 }

@@ -9,7 +9,7 @@ import { sentence } from '../../toast.js';
 import type { JobView } from '../../types.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
-import { UNUSED_WORTH, bytesText, gcDeleteCommand, gcDryRun, gcGivesBack, proposedCount } from './logic.js';
+import { UNUSED_WORTH, bytesText, gcDeleteCommand, gcDeleteWhat, gcDryRun, gcGivesBack, proposedCount } from './logic.js';
 import { settingsChanged } from './events.js';
 
 /**
@@ -50,7 +50,8 @@ function CleanupFooter({ job }: { job: JobView }) {
   const dry = gcDryRun(job);
   if (!dry) return null;
   const runs = `${dry.count.toLocaleString('en-US')} ${dry.count === 1 ? 'run' : 'runs'}`;
-  const since = dry.olderThanDays !== null ? `They started more than ${dry.olderThanDays} ${dry.olderThanDays === 1 ? 'day' : 'days'} ago.` : dry.cutoff !== null ? `They started before ${new Date(dry.cutoff).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}.` : '';
+  const they = dry.count === 1 ? 'It' : 'They';
+  const since = dry.olderThanDays !== null ? `${they} started more than ${dry.olderThanDays} ${dry.olderThanDays === 1 ? 'day' : 'days'} ago.` : dry.cutoff !== null ? `${they} started before ${new Date(dry.cutoff).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}.` : '';
   // No run old enough, but space to give back: a plain gc, which deletes no run.
   const freeOnly = dry.count === 0;
   const label = freeOnly ? `Free ${bytesText(gcGivesBack(dry))}` : `Delete ${runs}`;
@@ -62,11 +63,11 @@ function CleanupFooter({ job }: { job: JobView }) {
       {/* Over the page, not inside the drawer, whose header and footer styles would reach it. */}
       {asking ? createPortal(
         <Dialog
-          title={`${label}?`}
+          title={freeOnly ? `${label}?` : `Delete ${gcDeleteWhat(dry)}?`}
           text={
             freeOnly
               ? `No run is deleted. ${dry.bytes ? `Blobs no run uses are removed (${bytesText(dry.bytes)})` : 'Nothing any run uses is removed'}, and the store is compacted${dry.free >= UNUSED_WORTH ? `, giving back ${bytesText(dry.free)} that deleted runs left unused` : ''}.`
-              : `${since} Blobs no other run uses go with them${dry.bytes ? `, freeing ${bytesText(dry.bytes)}` : ''}. Runs still recording are never touched. This can’t be undone; if other runs match by now, nothing is deleted.`
+              : `${since}${dry.attempts ? ` The attempts bundled under ${dry.count === 1 ? 'it' : 'them'} go too, however new, as shadowlap rm takes them.` : ''} Blobs no other run uses go with ${dry.count === 1 ? 'it' : 'them'}${dry.bytes ? `, freeing ${bytesText(dry.bytes)}` : ''}. Runs still recording are never touched. This can’t be undone; if other runs match by now, nothing is deleted.`
           }
           ok={label}
           tone={freeOnly ? 'lime' : 'danger'}

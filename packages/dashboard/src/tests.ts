@@ -1193,13 +1193,14 @@ export function testsSummary(store: Store, options: { goldens: GoldenList; now?:
 
 /**
  * The Tests passing number of the Overview's outcome strip, in the shape its `tests` hook takes:
- * goldens with a result, how many pass, how many passed when this week started, the regressions
- * caught, and when the tests last ran. Null when there are no goldens yet.
+ * the goldens on disk, each by its newest result as Tests shows it (passing, failed, inconclusive,
+ * or not run yet), how many passed when this week started, and when the tests last ran. Null when
+ * there are no goldens yet.
  */
-export function overviewTests(store: Store, asOf: { now: number; weekStart: number }, options: { goldens: GoldenList }): { goldens: number; passing: number; inconclusive: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
+export function overviewTests(store: Store, asOf: { now: number; weekStart: number }, options: { goldens: GoldenList }): { goldens: number; passing: number; inconclusive: number; untested: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
   const s = testsSummary(store, { goldens: options.goldens, now: asOf.now, weekStart: asOf.weekStart });
   if (s.empty) return null;
-  return { goldens: s.total, passing: s.passing, inconclusive: s.inconclusive, lastWeek: s.lastWeek ? s.lastWeek.passing : null, regressions: s.failing, lastRunAt: s.lastRunAt };
+  return { goldens: s.total, passing: s.passing, inconclusive: s.inconclusive, untested: s.untested, lastWeek: s.lastWeek ? s.lastWeek.passing : null, regressions: s.failing, lastRunAt: s.lastRunAt };
 }
 
 export interface FailingTest {
@@ -1212,22 +1213,58 @@ export interface FailingTest {
   line: string;
   failure: TestFailure;
   runId: string | null;
-  /** Where Fix → goes: the failing run, else the Tests screen. */
+  /** Where its line goes: the fix its failing run belongs to, else the failing run, else the Tests screen. */
   href: string;
+  /** What the line's word says it leads to (Needs a look's "Fix →", "Run more →"): see `failingNext`. */
+  next: 'fix' | 'open' | 'run-more' | 'run-again' | 'update';
+  /** The fix that holds the failing run, when one does. */
+  fixId: string | null;
   at: number;
+}
+
+/**
+ * What a failing test leads to, so the word before its arrow says where it goes: the fix its failing
+ * run belongs to (`fix`), else the run (`open`). An inconclusive golden goes to its report on Tests,
+ * named by what settles it, as the design's Needs a look names it: more attempts when its gate ran
+ * out of them (`run-more`); running it again when its injection test showed too little to say, once
+ * what kept it from saying is settled, as its report says (`run-again`); updating the golden when it
+ * replays offline and a judge check had no verdict to judge from, which asks the judge once and keeps
+ * its verdict (`update`, `unjudgedOffline`). Any other reason is opened (`open`): a judge that lacked
+ * a key on a golden that forks, a check that couldn't be decided for another reason.
+ */
+function failingNext(r: TestResult, o: { fixId: string | null; mode: GoldenSource['mode'] | null }): FailingTest['next'] {
+  if (verdictOfResult(r) !== 'inconclusive') return o.fixId ? 'fix' : 'open';
+  if (gateResultView(r, r.golden)?.more) return 'run-more';
+  if (r.failure === 'injection') return 'run-again';
+  return o.mode === 'replay' && unjudgedOffline(r) ? 'update' : 'open';
+}
+
+/**
+ * A result inconclusive because a judge check had no verdict, on a replay that stayed clean, and not
+ * because a gate ran out of attempts between its bounds. Updating the golden (`test <golden>
+ * --update`, which Tests offers then) settles it: it asks the judge once, live, and keeps the
+ * verdict in the pack. Not an injection test that showed too little to say, which an update doesn't
+ * settle, nor a golden whose path the CLI would read as an option.
+ */
+function unjudgedOffline(r: TestResult): boolean {
+  if (r.failure !== 'inconclusive' || r.data?.gate?.decision === 'inconclusive' || r.data?.divergence || optionLike(r.golden)) return false;
+  return (r.data?.checks ?? []).some((c) => checkStatus(c) === 'inconclusive' && !!c.judge);
 }
 
 /** Goldens on disk failing now, newest failure first: Needs a look's failing tests. */
 export function failingTests(store: Store, options: { goldens: GoldenList; folder?: string; normalizers?: readonly Normalizer[] }): FailingTest[] {
   const folder = options.folder ?? 'goldens';
-  const checksOf = new Map(options.goldens.filter((g): g is GoldenSource => typeof g !== 'string').map((g) => [g.path, g.checks]));
+  const sources = new Map(options.goldens.filter((g): g is GoldenSource => typeof g !== 'string').map((g) => [g.path, g]));
   return [...latestResults(store, options.goldens).values()]
     .filter((r) => !r.ok)
     .sort((a, b) => b.at - a.at)
     .map((r) => {
       const runId = runIfKept(store, r.runId);
       const verdict = verdictOfResult(r) === 'inconclusive' ? 'inconclusive' : 'failed';
-      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line: lineOf(store, r, checksOf.get(r.golden) ?? [], options.normalizers ?? []), failure: r.failure ?? 'error', runId, href: verdict === 'inconclusive' ? '#/tests' : runId ? `#/run/${runId}` : '#/tests', at: r.at };
+      const fixId = verdict === 'failed' && runId ? (fixOfRun(store, runId)?.fixId ?? null) : null;
+      const next = failingNext(r, { fixId, mode: sources.get(r.golden)?.mode ?? null });
+      const href = fixId ? `#/fixes/${fixId}` : verdict === 'inconclusive' ? '#/tests' : runId ? `#/run/${runId}` : '#/tests';
+      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line: lineOf(store, r, sources.get(r.golden)?.checks ?? [], options.normalizers ?? []), failure: r.failure ?? 'error', runId, href, next, fixId, at: r.at };
     });
 }
 

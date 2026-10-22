@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { asTheyStand, DATASET_FORMATS, datasetRows, type DatasetFormat, type RunRecord, type Store } from '@shadowlap/engine';
+import { asTheyStand, attemptBundles, DATASET_FORMATS, datasetRows, deletionPlan, type DatasetFormat, type RunRecord, type Store } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent, inDashboardJob } from '../job-events.js';
@@ -187,39 +187,33 @@ export function register(program: Command): void {
 
   program
     .command('rm')
-    .description('Delete runs (their forks keep their data but lose the link); blobs nothing references any more are removed')
+    .description("Delete runs, with the attempts bundled under them (--repeat, blame's probes, verify, a test's repeats, error-path presets); their forks keep their data but lose the link; blobs nothing references any more are removed")
     .argument('<run...>', 'run ids or unique prefixes')
     .option('--forks', 'also delete the forks of each run, recursively')
     .action((runArgs: string[], flags: { forks?: boolean }) => {
       const store = readStore(program.opts<GlobalOpts>());
-      const targets = new Map<string, RunRecord>();
-      const collect = (run: RunRecord) => {
-        targets.set(run.runId, run);
-        if (flags.forks) for (const child of store.childRuns(run.runId)) collect(child);
-      };
-      for (const arg of runArgs) collect(requireRun(store, arg));
-      // A run still recording, or one a run in progress replays from, is left alone, as the dashboard leaves it.
-      const live = store.recordingRuns().live.map((r) => r.run);
-      const held = [...targets.values()].flatMap((run) => {
-        const why = store.deletionHold(run.runId, live);
-        return why ? [{ run, why }] : [];
+      const asked = runArgs.map((arg) => requireRun(store, arg).runId);
+      // Each run goes with the attempts bundled under it, as the dashboard deletes it: left behind,
+      // they would show as runs of their own. A run still recording, one a run in progress replays
+      // from, and one with an attempt still running, is left alone, as the dashboard leaves it.
+      const plan = deletionPlan(store, asked, { forks: flags.forks === true });
+      store.transaction(() => {
+        for (const id of [...plan.runs, ...plan.attempts]) store.deleteRun(id);
       });
-      for (const { run } of held) targets.delete(run.runId);
-      for (const run of targets.values()) store.deleteRun(run.runId);
-      const gc = targets.size ? store.gcBlobs() : null;
+      const gc = plan.runs.length ? store.gcBlobs() : null;
       store.close();
-      if (targets.size) process.stdout.write(`${p.green('✓')} deleted ${targets.size} run${targets.size === 1 ? '' : 's'} (${[...targets.keys()].map((id) => shortId(id)).join(', ')}); ${gc!.removed} blob${gc!.removed === 1 ? '' : 's'}, ${formatBytes(gc!.bytes)} freed\n`);
+      if (plan.runs.length) process.stdout.write(`${p.green('✓')} ${deletedLine(plan.runs, plan.attempts.length)}; ${gc!.removed} blob${gc!.removed === 1 ? '' : 's'}, ${formatBytes(gc!.bytes)} freed\n`);
       if (gc?.recording.length) process.stdout.write(p.dim(`  blobs are left while ${gc.recording.length === 1 ? 'a run is' : `${gc.recording.length} runs are`} still recording (${gc.recording.map((id) => shortId(id)).join(', ')}); shadowlap gc frees them once ${gc.recording.length === 1 ? 'it ends' : 'they end'}\n`));
-      for (const { run, why } of held) process.stderr.write(`${p.yellow('!')} left ${shortId(run.runId)}: ${why}; delete it once that has ended\n`);
-      if (held.length) process.exitCode = 1;
+      for (const { runId, why } of plan.held) process.stderr.write(`${p.yellow('!')} left ${shortId(runId)}: ${why}; delete it once that has ended\n`);
+      if (plan.held.length) process.exitCode = 1;
     });
 
   program
     .command('gc')
-    .description('Clean up the store: delete old runs (--older-than, --keep), remove blobs nothing references, and vacuum. Runs still recording are never touched, and while one is, blobs wait for a later gc; a run whose process stopped without ending it is marked interrupted')
+    .description('Clean up the store: delete old runs (--older-than, --keep), each with the attempts bundled under it as rm deletes them, remove blobs nothing references, and vacuum. Runs still recording are never touched, and while one is, blobs wait for a later gc; a run whose process stopped without ending it is marked interrupted')
     .option('--older-than <days>', 'delete runs that started more than <days> days ago', parseIntArg)
     .option('--before <time>', 'delete runs that started before this time: epoch milliseconds (the cutoff a dry run prints) or an ISO date', parseTime)
-    .option('--keep <n>', 'keep only the newest <n> runs', parseIntArg)
+    .option('--keep <n>', 'keep only the newest <n> runs (an attempt goes with the run it came from, and is not counted)', parseIntArg)
     .option('--expect <runs>', 'delete only the runs a dry run listed: its "expect" value (<count>-<digest>); refuse, deleting nothing, if other runs match now', parseExpect)
     .option('--dry-run', 'show what it would delete and free, and change nothing')
     .option('--json', 'machine-readable output')
@@ -236,11 +230,18 @@ export function register(program: Command): void {
         store?.close();
       }
       if (!report.dryRun && (report.count || report.blobs || report.abandonedCount)) {
-        recordEvents(opts, [{ kind: 'runs.cleaned', data: { runs: report.count, blobs: report.blobs, bytes: report.bytes, interrupted: report.abandonedCount, olderThanDays: report.olderThanDays, keep: report.keep } }]);
+        recordEvents(opts, [{ kind: 'runs.cleaned', data: { runs: report.count, attempts: report.attempts, blobs: report.blobs, bytes: report.bytes, interrupted: report.abandonedCount, olderThanDays: report.olderThanDays, keep: report.keep } }]);
       }
       emitJobEvent({ type: 'result', data: report });
       process.stdout.write(flags.json ? JSON.stringify(report, null, 2) + '\n' : formatGc(report));
     });
+}
+
+/** What rm deleted: "deleted 2 runs (01K5CQ4N7G, 01K5CQ4N9A) and the 6 attempts bundled under them". */
+export function deletedLine(runs: readonly string[], attempts: number): string {
+  const what = `deleted ${runs.length} run${runs.length === 1 ? '' : 's'} (${runs.map((id) => shortId(id)).join(', ')})`;
+  if (!attempts) return what;
+  return `${what} and the ${attempts === 1 ? 'attempt' : `${attempts} attempts`} bundled under ${runs.length === 1 ? 'it' : 'them'}`;
 }
 
 /** How a copy says the redaction rules were applied to it. */
@@ -271,9 +272,12 @@ function parseExpect(value: string): string {
   return v;
 }
 
-/** Names a set of runs exactly, and says how many: `<count>-<the first 16 hex of the SHA-256 of their sorted ids>`. */
-export function expectToken(runIds: readonly string[]): string {
-  return `${runIds.length}-${createHash('sha256').update([...runIds].sort().join('\n')).digest('hex').slice(0, 16)}`;
+/**
+ * Names a set of runs exactly, and says how many: `<count>-<the first 16 hex of the SHA-256 of their
+ * sorted ids>`, the ids of the attempts bundled under them, which go with them, hashed among theirs.
+ */
+export function expectToken(runIds: readonly string[], attemptIds: readonly string[] = []): string {
+  return `${runIds.length}-${createHash('sha256').update([...runIds, ...attemptIds].sort().join('\n')).digest('hex').slice(0, 16)}`;
 }
 
 /** A run as gc lists it. */
@@ -297,13 +301,18 @@ export interface GcReport {
   keep: number | null;
   /** Runs that started before this time (epoch ms) are deleted; null without --older-than or --before. A dry run's cutoff, passed back as --before, picks the same runs. */
   cutoff: number | null;
-  /** Runs in the store before. */
+  /** Runs in the store before, as the lists count them: an attempt counts with the run it is bundled under. */
   total: number;
   /** How many runs it deleted, or would delete. */
   count: number;
+  /** The attempts bundled under those runs, at any depth, which went, or would go, with them, as `rm` takes them. */
+  attempts: number;
   /** The first 100 of them, newest first. */
   runs: GcRun[];
-  /** Names exactly those runs: `gc --before <cutoff> --expect <this>` deletes them, or refuses and deletes nothing when the runs that match changed. */
+  /**
+   * Names exactly those runs and their attempts: `gc --before <cutoff> --expect <this>` deletes them,
+   * or refuses and deletes nothing when the runs that match, or the attempts under them, changed.
+   */
   expect: string;
   /**
    * Blobs freed and the bytes they took in the store; for a dry run, what deleting those runs frees.
@@ -324,8 +333,9 @@ export interface GcReport {
   abandonedCount: number;
   /**
    * Runs that matched but are left because a run in progress replays from them (a replay, fork or
-   * attempt serves its answers from one), with why, as `rm` and the dashboard leave them: the first
-   * 100, and how many. A later gc deletes them once that has ended.
+   * attempt serves its answers from one), or an attempt of them is still running, with why, as `rm`
+   * and the dashboard leave them: the first 100, and how many. A later gc deletes them once that has
+   * ended.
    */
   held: Array<GcRun & { why: string }>;
   heldCount: number;
@@ -351,7 +361,7 @@ const listed = (r: RunRecord): GcRun => {
 function emptyReport(dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
   const expect = expectToken([]);
   if (flags.expect !== undefined && flags.expect !== expect) throw new Error(`gc would delete 0 runs, not the ${flags.expect.split('-')[0]} the dry run listed: there is no store at ${dbPath}`);
-  return { dryRun: flags.dryRun === true, olderThanDays: flags.olderThan ?? null, keep: flags.keep ?? null, cutoff: cutoffOf(flags, now), total: 0, count: 0, runs: [], expect, blobs: 0, bytes: 0, recording: [], recordingCount: 0, abandoned: [], abandonedCount: 0, held: [], heldCount: 0, deferred: false, store: { path: dbPath, before: 0, free: 0, after: flags.dryRun ? null : 0 } };
+  return { dryRun: flags.dryRun === true, olderThanDays: flags.olderThan ?? null, keep: flags.keep ?? null, cutoff: cutoffOf(flags, now), total: 0, count: 0, attempts: 0, runs: [], expect, blobs: 0, bytes: 0, recording: [], recordingCount: 0, abandoned: [], abandonedCount: 0, held: [], heldCount: 0, deferred: false, store: { path: dbPath, before: 0, free: 0, after: flags.dryRun ? null : 0 } };
 }
 
 function cutoffOf(flags: GcFlags, now: number): number | null {
@@ -359,30 +369,33 @@ function cutoffOf(flags: GcFlags, now: number): number | null {
 }
 
 /**
- * Picks the runs `gc` deletes, says what that frees, and deletes unless it is a dry run. A run still
- * recording is never picked, nor one a run in progress replays from (Store.deletionHold, the rule rm
- * and the dashboard follow); one its process abandoned is picked like any ended run, and a real gc
- * marks it interrupted.
+ * Picks the runs `gc` deletes, says what that frees, and deletes unless it is a dry run. Runs are
+ * counted and picked as the lists show them: an attempt is bundled under the run it came from, goes
+ * with it as `rm` takes it, and counts for neither `--keep` nor `total` on its own (one whose run is
+ * gone is a run like any other). A run still recording is never picked, nor one a run in progress
+ * replays from, nor one with an attempt still running (`deletionPlan`, the rule rm and the dashboard
+ * follow); one its process abandoned is picked like any ended run, and a real gc marks it
+ * interrupted.
  */
 export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
-  const runs = store.allRuns(); // newest first
+  const all = store.allRuns(); // newest first
+  const bundled = new Set([...attemptBundles(all).values()].flat());
+  const runs = all.filter((r) => !bundled.has(r.runId));
   const { live, abandoned } = store.recordingRuns(now);
   const recording = new Set(live.map((r) => r.run.runId));
   const cutoff = cutoffOf(flags, now);
   const matching = runs.filter((r, i) => !recording.has(r.runId) && ((cutoff !== null && r.startedAt < cutoff) || (flags.keep !== undefined && i >= flags.keep)));
-  const liveRuns = live.map((r) => r.run);
-  const held = matching.flatMap((run) => {
-    const why = store.deletionHold(run.runId, liveRuns);
-    return why ? [{ ...listed(run), why }] : [];
-  });
-  const doomed = matching.filter((r) => !held.some((h) => h.runId === r.runId));
-  const expect = expectToken(doomed.map((r) => r.runId));
+  const plan = deletionPlan(store, matching.map((r) => r.runId), { live: live.map((r) => r.run) });
+  const byId = new Map(all.map((r) => [r.runId, r]));
+  const held = plan.held.map(({ runId, why }) => ({ ...listed(byId.get(runId)!), why }));
+  const doomed = plan.runs.map((id) => byId.get(id)!);
+  const expect = expectToken(plan.runs, plan.attempts);
   if (flags.expect !== undefined && flags.expect !== expect) {
     const was = Number(flags.expect.split('-')[0]);
-    const why = was === doomed.length ? `the same number of runs, but not the same ones` : `${doomed.length} run${doomed.length === 1 ? '' : 's'}, not the ${was} it listed`;
+    const why = was === doomed.length ? `the same number of runs, but not the same ones or not the same attempts under them` : `${doomed.length} run${doomed.length === 1 ? '' : 's'}, not the ${was} it listed`;
     throw new Error(`the runs gc would delete changed since the dry run (${why}). Nothing was deleted; run the dry run again.`);
   }
-  const freed = store.unreferencedBlobs(doomed.map((r) => r.runId));
+  const freed = store.unreferencedBlobs([...plan.runs, ...plan.attempts]);
   const size = store.size();
   const report: GcReport = {
     dryRun: flags.dryRun === true,
@@ -391,6 +404,7 @@ export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date
     cutoff,
     total: runs.length,
     count: doomed.length,
+    attempts: plan.attempts.length,
     runs: doomed.slice(0, LISTED).map(listed),
     expect,
     blobs: freed.hashes.length,
@@ -408,7 +422,7 @@ export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date
   store.transaction(() => {
     // Interrupted as of the last thing it recorded: what the recording process would have said had it been asked to stop.
     for (const a of abandoned) store.endRun(a.run.runId, 'crashed', a.lastAt);
-    for (const r of doomed) store.deleteRun(r.runId);
+    for (const id of [...plan.runs, ...plan.attempts]) store.deleteRun(id);
   });
   const gc = store.gcBlobs();
   report.blobs = gc.removed;
@@ -437,17 +451,19 @@ function formatGc(r: GcReport): string {
   const ids = (list: GcRun[], count: number) => `${list.slice(0, 5).map((x) => shortId(x.runId)).join(', ')}${count > 5 ? `, … ${count - 5} more` : ''}`;
   const since = r.olderThanDays !== null ? `older than ${plural(r.olderThanDays, 'day')}` : r.cutoff !== null ? `started before ${new Date(r.cutoff).toISOString()}` : null;
   const criteria = [since, r.keep !== null ? `beyond the newest ${r.keep}` : null].filter(Boolean).join(' or ');
+  // The attempts that go with the runs, as rm names them: ", with the 6 attempts bundled under them".
+  const bundled = r.attempts ? `, with the ${r.attempts === 1 ? 'attempt' : `${r.attempts} attempts`} bundled under ${r.count === 1 ? 'it' : 'them'}` : '';
   const lines: string[] = [];
   if (r.abandonedCount) {
     const what = `${plural(r.abandonedCount, 'run')} ${r.abandonedCount === 1 ? 'was' : 'were'} left recording by a process that stopped (${ids(r.abandoned, r.abandonedCount)})`;
     lines.push(`${p.yellow('!')} ${what}: ${r.dryRun ? 'gc would mark them interrupted' : 'marked interrupted'}${p.dim('; they hold nothing up')}`);
   }
   if (criteria) {
-    const count = r.count ? `${r.count} of ${r.total}` : 'none';
+    const count = r.count ? `${r.count} of ${r.total}${bundled}` : 'none';
     lines.push(`${p.dim('▸')} runs ${criteria}: ${count} ${p.dim('· runs still recording are never touched')}`);
     for (const run of r.runs.slice(0, SHOWN)) lines.push(`    ${shortId(run.runId)}  ${run.mode}  ${run.status}  ${p.dim(ago(run.startedAt))}  ${p.dim(safe(run.command))}`);
     if (r.count > SHOWN) lines.push(p.dim(`    … and ${r.count - SHOWN} more`));
-    // Left as rm leaves them: a run in progress replays from each.
+    // Left as rm leaves them: a run in progress replays from each, or an attempt of it still runs.
     for (const run of r.held.slice(0, SHOWN)) lines.push(`  ${p.yellow('!')} left ${shortId(run.runId)}: ${run.why}; gc deletes it once that has ended`);
     if (r.heldCount > SHOWN) lines.push(p.dim(`    … and ${r.heldCount - SHOWN} more left`));
   } else {
@@ -461,7 +477,7 @@ function formatGc(r: GcReport): string {
     // No run to delete, but blobs and unused pages to give back: plain gc deletes no run and does that, once no run is recording.
     const back = [r.blobs ? `${formatBytes(r.bytes)} of blobs nothing references` : null, r.store.free >= UNUSED_SHOWN ? `${formatBytes(r.store.free)} of unused space` : null].filter(Boolean).join(' and ');
     if (r.count) {
-      lines.push(`${p.green('✓')} dry run: would delete ${plural(r.count, 'run')} and free ${formatBytes(r.bytes)}. To delete exactly these runs: shadowlap gc${r.cutoff !== null ? ` --before ${r.cutoff}` : ''}${r.keep !== null ? ` --keep ${r.keep}` : ''} --expect ${r.expect}`);
+      lines.push(`${p.green('✓')} dry run: would delete ${plural(r.count, 'run')}${bundled ? `${bundled},` : ''} and free ${formatBytes(r.bytes)}. To delete exactly these runs: shadowlap gc${r.cutoff !== null ? ` --before ${r.cutoff}` : ''}${r.keep !== null ? ` --keep ${r.keep}` : ''} --expect ${r.expect}`);
     } else if (back && !r.recordingCount) {
       lines.push(`${p.green('✓')} dry run: no runs to delete; would give back ${back}. To do that: shadowlap gc`);
     } else if (back) {
@@ -471,11 +487,11 @@ function formatGc(r: GcReport): string {
     }
   } else if (r.deferred) {
     lines.push(`  ${p.yellow('!')} no blobs collected: ${waiting}. A recording stores a blob just before the call that uses it, so gc leaves blobs alone until it ends; run gc again then.`);
-    lines.push(`${p.green('✓')} deleted ${plural(r.count, 'run')} · store ${formatBytes(r.store.before)} → ${formatBytes(r.store.after ?? r.store.before)}`);
+    lines.push(`${p.green('✓')} deleted ${plural(r.count, 'run')}${bundled} · store ${formatBytes(r.store.before)} → ${formatBytes(r.store.after ?? r.store.before)}`);
   } else {
     lines.push(`  blobs nothing referenced: ${r.blobs} · ${formatBytes(r.bytes)}`);
     const size = `store ${formatBytes(r.store.before)} → ${formatBytes(r.store.after ?? r.store.before)}`;
-    if (r.count) lines.push(`${p.green('✓')} deleted ${plural(r.count, 'run')} and ${plural(r.blobs, 'blob')} · ${size}`);
+    if (r.count) lines.push(`${p.green('✓')} deleted ${plural(r.count, 'run')}${bundled ? `${bundled},` : ''} and ${plural(r.blobs, 'blob')} · ${size}`);
     else lines.push(`${p.green('✓')} ${r.blobs ? `removed ${plural(r.blobs, 'blob')} nothing referenced and ` : ''}compacted the store · ${size}`);
   }
   return lines.join('\n') + '\n';

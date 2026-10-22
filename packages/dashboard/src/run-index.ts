@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { CHECK_STATUSES, classifyRun, hasRecordedCommand, isFailedOutcome, kindLabel, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunKind, type RunMode, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
+import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, kindLabel, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunKind, type RunMode, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
 
 /**
  * Every run in the store, classified, from one light query: the run columns, the few fields of
@@ -286,7 +286,8 @@ function readRunIndex(store: Store): RunIndex {
     // A test's attempt is filed only under a test run of the same golden and session that replayed
     // the same recording and is no attempt itself: one naming any other run (a pack can carry
     // anything) must not hide under it, or be deleted with it, and is listed as a run of its own.
-    if (r.attemptKind === 'test' && !sameTest(r, byId.get(r.attemptOf)!)) {
+    // The engine's rule, as `shadowlap rm` bundles attempts.
+    if (r.attemptKind === 'test' && !filedTestAttempt(classifiable(r), classifiable(byId.get(r.attemptOf)!))) {
       r.attemptOf = null;
       r.attemptKind = null;
       continue;
@@ -298,13 +299,6 @@ function readRunIndex(store: Store): RunIndex {
     else attempts.set(r.attemptOf, [r]);
   }
   return { runs, byId, attempts, counts: { runs: runs.length - bundled, attempts: bundled } };
-}
-
-/** Whether `head` is the run a test attempt may be filed under: the same golden, session and recording, and no attempt itself. */
-function sameTest(attempt: IndexedRun, head: IndexedRun): boolean {
-  const a = attempt.meta.test;
-  const h = head.meta.test;
-  return !!a && !!h && head.kind === 'test' && h.of === null && h.golden === a.golden && h.session === a.session && head.parentRunId === attempt.parentRunId;
 }
 
 /** How many ancestors a run has in the store (0 for a recording, 1 for its fork, …). */

@@ -11,12 +11,15 @@ import { callTotals, priced, spentOf, type StatsOptions } from './run-stats.js';
  * wants them.
  */
 
-/** The table's type chips. The kinds add up (forks or clean replays); Failed narrows to failures. */
-export type RunType = 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed';
-export const RUN_TYPES: readonly RunType[] = ['recording', 'fork', 'clean', 'test', 'capture', 'failed'];
+/**
+ * The table's type chips. The kinds add up (forks or clean replays); Failed narrows to failures, and
+ * Local, with a team store, to the runs only on this machine (`localRuns`).
+ */
+export type RunType = 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed' | 'local';
+export const RUN_TYPES: readonly RunType[] = ['recording', 'fork', 'clean', 'test', 'capture', 'failed', 'local'];
 
 /** The kinds each chip shows. A recording from a pack is a recording; a replay that never finished shows under All. */
-const TYPE_KINDS: Readonly<Record<Exclude<RunType, 'failed'>, readonly RunKind[]>> = {
+const TYPE_KINDS: Readonly<Record<Exclude<RunType, 'failed' | 'local'>, readonly RunKind[]>> = {
   recording: ['recording', 'pack'],
   fork: ['fork'],
   clean: ['clean'],
@@ -37,6 +40,11 @@ export interface RunFilter {
   q?: string;
   /** List attempts as rows too. */
   includeAttempts?: boolean;
+  /**
+   * With a team store, the runs only on this machine, as its status counts them (`teamRunCounts`):
+   * what the Local chip shows, and counts. Without one, Local matches nothing.
+   */
+  localRuns?: ReadonlySet<string> | null;
 }
 
 export interface RunsPageOptions extends RunFilter, StatsOptions {
@@ -63,7 +71,7 @@ export interface RunRow extends RunListItem {
   failed: boolean;
   /** One character per call: r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed. */
   origins: string;
-  /** Attempts bundled under this run. */
+  /** Attempts bundled under this run, those bundled under them in turn included: what deleting it takes with it. */
   attempts: number;
   /** The model call blame found lost the run. */
   lostAt: number | null;
@@ -82,6 +90,8 @@ export interface ChipCounts {
   test: number;
   capture: number;
   failed: number;
+  /** Runs only on this machine, with a team store; 0 without one. */
+  local: number;
 }
 
 export interface RunsPage {
@@ -97,7 +107,7 @@ export interface RunsPage {
 interface Matcher {
   /** Listed at all: attempts only when asked, and within the date range. */
   scope(r: IndexedRun): boolean;
-  /** The chips' kinds and the filter field, without Failed: what failures are counted out of. */
+  /** The chips' kinds, Local and the filter field, without Failed: what failures are counted out of. */
   base(r: IndexedRun): boolean;
   /** Everything the filter asks for. */
   matches(r: IndexedRun): boolean;
@@ -105,16 +115,21 @@ interface Matcher {
 
 function matcher(filter: RunFilter): Matcher {
   const types = filter.types ?? [];
-  const kinds = new Set(types.flatMap((t) => (t === 'failed' ? [] : TYPE_KINDS[t])));
+  const kinds = new Set(types.flatMap((t) => (t === 'failed' || t === 'local' ? [] : TYPE_KINDS[t])));
   const failedOnly = types.includes('failed');
+  const localOnly = types.includes('local');
+  const local = filter.localRuns ?? null;
   const words = (filter.q ?? '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 20);
+  // What the line under a run's id says it is (`clean replay`, `fork @17`) counts too, as an exported
+  // copy's filter reads it (ui/runs.ts `matchesText`).
   const text = (r: IndexedRun) => {
     if (!words.length) return true;
-    const hay = [r.runId, ...r.meta.labels, r.argv.join(' '), r.source ?? '', r.codeVersion ?? ''].join(' ').toLowerCase();
+    const hay = [r.runId, ...r.meta.labels, r.argv.join(' '), r.source ?? '', r.codeVersion ?? '', r.label].join(' ').toLowerCase();
     return words.every((w) => hay.includes(w));
   };
   const scope = (r: IndexedRun) => (filter.includeAttempts || !r.bundled) && (filter.from == null || r.startedAt >= filter.from) && (filter.to == null || r.startedAt < filter.to);
-  const base = (r: IndexedRun) => scope(r) && (!kinds.size || kinds.has(r.kind)) && text(r);
+  // Local narrows what failures are counted out of, as a kind does: the calendar's "8 of 12 local runs".
+  const base = (r: IndexedRun) => scope(r) && (!kinds.size || kinds.has(r.kind)) && (!localOnly || !!local?.has(r.runId)) && text(r);
   return { scope, base, matches: (r) => base(r) && (!failedOnly || r.failed) };
 }
 
@@ -195,12 +210,13 @@ export function runStates(store: Store): (runId: string) => RunState | null {
   };
 }
 
-export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) => boolean): ChipCounts {
-  const c: ChipCounts = { all: 0, recording: 0, fork: 0, clean: 0, test: 0, capture: 0, failed: 0 };
+export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) => boolean, localRuns: ReadonlySet<string> | null = null): ChipCounts {
+  const c: ChipCounts = { all: 0, recording: 0, fork: 0, clean: 0, test: 0, capture: 0, failed: 0, local: 0 };
   for (const r of runs) {
     if (!inScope(r)) continue;
     c.all++;
     if (r.failed) c.failed++;
+    if (localRuns?.has(r.runId)) c.local++;
     for (const t of ['recording', 'fork', 'clean', 'test', 'capture'] as const) if (TYPE_KINDS[t].includes(r.kind)) c[t]++;
   }
   return c;
@@ -265,7 +281,7 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
     runs: rows(store, index, page.map((x) => x.r), options),
     total: matching.length,
     next: last && start + limit < keyed.length ? encodeCursor(last.k) : null,
-    chipCounts: chipCounts(all, m.scope),
+    chipCounts: chipCounts(all, m.scope, options.localRuns ?? null),
   };
 }
 
@@ -303,7 +319,7 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
       outcome: r.outcome,
       failed: r.failed,
       origins: t?.codes ?? '',
-      attempts: index.attempts.get(r.runId)?.length ?? 0,
+      attempts: bundleOf(index, r.runId).length,
       lostAt: lostAt(c),
       checks: checksOf(c),
       author: r.meta.author,
@@ -526,11 +542,29 @@ export interface DeleteResult {
 }
 
 /**
- * Deletes several runs, with the attempts bundled under each. A run still in progress is left alone,
- * as is one a run in progress reads from: an attempt of it, or a replay or fork of it, would lose the
- * answers it has yet to serve. Forks of a deleted run keep their own data and lose the link to it.
- * In progress means a process is still recording it (the store's recordingRuns): a run a killed
- * process left marked running can be deleted, as gc would.
+ * The attempts bundled under a run, and those bundled under them in turn (a `--repeat` of one of
+ * blame's probes): what the lists show only through the run, and what goes with it when it is
+ * deleted, so none is left behind as a run of its own.
+ */
+export function bundleOf(index: RunIndex, runId: string): IndexedRun[] {
+  const out: IndexedRun[] = [];
+  const seen = new Set([runId]);
+  for (let i = -1; i < out.length; i++) {
+    for (const a of index.attempts.get(i < 0 ? runId : out[i]!.runId) ?? []) {
+      if (seen.has(a.runId)) continue;
+      seen.add(a.runId);
+      out.push(a);
+    }
+  }
+  return out;
+}
+
+/**
+ * Deletes several runs, with the attempts bundled under each, as `shadowlap rm` does. A run still
+ * in progress is left alone, as is one a run in progress reads from: an attempt of it, or a replay
+ * or fork of it, would lose the answers it has yet to serve. Forks of a deleted run keep their own
+ * data and lose the link to it. In progress means a process is still recording it (the store's
+ * recordingRuns): a run a killed process left marked running can be deleted, as gc would.
  */
 export function deleteRuns(store: Store, ids: unknown): DeleteResult | { error: string } {
   const list = idList(ids);
@@ -555,7 +589,7 @@ export function deleteRuns(store: Store, ids: unknown): DeleteResult | { error: 
       skipped.push({ runId: run.runId, reason: run.mode === 'record' ? 'still recording' : 'still running' });
       continue;
     }
-    const bundle = index.attempts.get(run.runId) ?? [];
+    const bundle = bundleOf(index, run.runId);
     if (bundle.some(inProgress)) {
       skipped.push({ runId: run.runId, reason: 'an attempt of it is still running' });
       continue;

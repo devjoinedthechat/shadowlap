@@ -110,6 +110,7 @@ export function PromptDialog({
   multiline = false,
   ok,
   command,
+  after,
   maxLength,
   choices,
   onRun,
@@ -124,6 +125,8 @@ export function PromptDialog({
   ok: string;
   /** The command it will run, shown under the field: as it is, or worked out from the answer so far. */
   command?: string | ((answer: string) => string);
+  /** Under the command, worked out from the answer so far: Copy for a command too long to show whole. */
+  after?: (answer: string) => ReactNode;
   maxLength?: number;
   /** Answers to pick from; any other answer is accepted too. */
   choices?: readonly PromptChoice[];
@@ -222,6 +225,7 @@ export function PromptDialog({
         field
       )}
       {command ? <CmdLine>{typeof command === 'function' ? command(answer) : command}</CmdLine> : null}
+      {after?.(answer)}
     </Dialog>
   );
 }

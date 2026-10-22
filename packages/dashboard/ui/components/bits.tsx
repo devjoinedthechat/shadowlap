@@ -149,7 +149,7 @@ export function DeltaPill({ now, then, format = (n: number) => n.toLocaleString(
 }
 
 /** A number with its label and a line under it; a link when it opens a page. */
-export function Kpi({ k, value, pill, note, tone, href }: { k: string; value: ReactNode; pill?: ReactNode; note?: ReactNode; tone?: 'lime' | 'err' | ''; href?: string }) {
+export function Kpi({ k, value, pill, note, tone, href }: { k: string; value: ReactNode; pill?: ReactNode; note?: ReactNode; tone?: 'lime' | 'err' | 'warn' | ''; href?: string }) {
   const body = (
     <>
       <span className="k">{k}</span>

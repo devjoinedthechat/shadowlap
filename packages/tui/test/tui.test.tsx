@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeConversation, normalizeResponse, Store, unpackRun } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { diffLines } from '../src/components/DiffView.js';
+import { Help } from '../src/components/Help.js';
 import { conversationLines, fitItems } from '../src/render.js';
 import { parseSse, streamView } from '../src/sse.js';
 
@@ -252,6 +253,34 @@ describe('ease of use', () => {
     frame = await frameWith(lastFrame, runId.slice(0, 10));
     expect(frame).toContain('1 run');
     store.close();
+  });
+
+  it('deletes a run with the attempts bundled under it, as rm does, and says so before it asks', async () => {
+    const { store, runId } = goldenStore();
+    const attempts = [1, 2].map((n) => {
+      const a = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { verify: { role: 'target', passed: n === 1 } } });
+      store.endRun(a.runId, 'completed');
+      return a.runId;
+    });
+    const { lastFrame, stdin } = render(<App store={store} columns={140} rows={30} />);
+    await frameWith(lastFrame, '3 runs');
+    stdin.write('/');
+    await frameWith(lastFrame, RUN_SEARCH);
+    stdin.write(runId.slice(0, 10));
+    stdin.write('\r');
+    await frameWith(lastFrame, '1/3 runs');
+    stdin.write('x');
+    await frameWith(lastFrame, `delete run ${runId.slice(0, 10)}, the 2 attempts bundled under it and their calls?`);
+    stdin.write('y');
+    await frameWithout(lastFrame, 'delete run');
+    expect([runId, ...attempts].map((id) => store.getRun(id))).toEqual([null, null, null]);
+    store.close();
+  });
+
+  it('says in its help that x deletes the attempts bundled under the run with it', () => {
+    const { lastFrame, unmount } = render(<Help width={140} height={30} />);
+    expect(plain(lastFrame())).toContain('delete the selected run with its attempts, as rm does (runs view; asks first)');
+    unmount();
   });
 
   it('leaves a run that is still recording, and says why', async () => {

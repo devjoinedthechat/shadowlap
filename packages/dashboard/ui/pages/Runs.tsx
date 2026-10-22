@@ -35,6 +35,13 @@ import { viewerTimeZone } from './Overview.js';
  */
 
 const PAGE = 50;
+
+/**
+ * What the page holds, every kind of attempt in one word: `--repeat`'s, blame's and verify's, a
+ * golden's repeats in one test session and the error-path presets' are all bundled.
+ */
+export const RUNS_TEXT = 'Recordings, and the replays and forks made from them. Attempts are bundled under the run they came from.';
+
 const kept = {
   chip: 'all' as RunChip,
   query: '',
@@ -113,10 +120,10 @@ async function loadRows(client: Client, q: RunsQuery, limit: number): Promise<Ru
   return { ...first, runs, next };
 }
 
-const CHIP_TYPES: Readonly<Record<RunChip, readonly string[]>> = { all: [], recording: ['recording'], fork: ['fork'], clean: ['clean'], test: ['test'], capture: ['capture'], failed: ['failed'] };
+const CHIP_TYPES: Readonly<Record<RunChip, readonly string[]>> = { all: [], recording: ['recording'], fork: ['fork'], clean: ['clean'], test: ['test'], capture: ['capture'], failed: ['failed'], local: ['local'] };
 
 function pickedRun(r: TableRun): PickedRun {
-  return { runId: r.runId, status: r.status, startedAt: r.startedAt, ...(r.local !== undefined ? { local: r.local } : {}) };
+  return { runId: r.runId, status: r.status, startedAt: r.startedAt, attempts: r.attempts ?? 0, ...(r.local !== undefined ? { local: r.local } : {}) };
 }
 
 function ServerRuns() {
@@ -205,7 +212,8 @@ function ServerRuns() {
   const rows: TableRun[] = page.data?.runs ?? [];
   const counts: ChipCounts | null = page.data?.chipCounts ?? null;
 
-  // What the bar knows of a run picked follows the table: a recording that ends can then be deleted.
+  // What the bar knows of a run picked follows the table: a recording that ends can then be deleted,
+  // and a delete names the attempts a blame added meanwhile.
   useEffect(() => {
     if (!picked.size || !page.data) return;
     let changed = false;
@@ -214,7 +222,7 @@ function ServerRuns() {
       const was = next.get(r.runId);
       if (!was) continue;
       const now = pickedRun(r);
-      if (was.status !== now.status || was.local !== now.local) {
+      if (was.status !== now.status || was.local !== now.local || was.attempts !== now.attempts) {
         next.set(r.runId, now);
         changed = true;
       }
@@ -281,11 +289,7 @@ function ServerRuns() {
       <PageHeader
         eyebrow={p ? compactPath(p.path) : 'runs'}
         title="Runs"
-        text={
-          <>
-            Recordings, and the replays and forks made from them. Attempts from <code>--repeat</code>, blame and verify are bundled under the run they came from.
-          </>
-        }
+        text={RUNS_TEXT}
         actions={
           <>
             {store && hasKind(JOB_KINDS.pull) ? (
@@ -304,7 +308,7 @@ function ServerRuns() {
       />
       {cal.data ? <Calendar data={cal.data} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} actionsOff={actionsOff} /> : null}
       <div className="tbar">
-        <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
+        <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
         <label className="tin">
           <span className="sr">Filter runs</span>
           <input type="search" placeholder="Filter by id, command, label or revision" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -349,15 +353,7 @@ function ExportedRuns() {
       <PageHeader
         eyebrow="exported copy"
         title="Runs"
-        text={
-          bundlesAttempts(runs ?? []) ? (
-            <>
-              Recordings, and the replays and forks made from them. Attempts from <code>--repeat</code>, blame and verify are bundled under the run they came from.
-            </>
-          ) : (
-            'Recordings, and the replays and forks made from them.'
-          )
-        }
+        text={bundlesAttempts(runs ?? []) ? RUNS_TEXT : 'Recordings, and the replays and forks made from them.'}
       />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, count: counts[key] }))} value={chip} onChange={setChip} hideEmpty />

@@ -48,7 +48,7 @@ The conversation tab needs no state reconstruction: every model request carries 
 | `y`, `w` | Copy the request (or the response, on that tab) to the clipboard; write request and response to `shadowlap-<run>-call<n>.json` |
 | `p` | Open the parent run |
 | `o` | Open the run, at the selected call, in the dashboard. The first `o` starts the dashboard in the same process; it stops when you quit, and so do the jobs started from it (they are killed at once when the terminal closes). Without a browser (over SSH), the link is shown and copied |
-| `x` | Delete the selected run (runs view; asks first). A run still recording, or one a replay in progress reads from, stays, and the reason is shown |
+| `x` | Delete the selected run with the attempts bundled under it (`--repeat`, blame's probes, verify's attempts, and theirs in turn), as `rm` does (runs view; asks first, naming how many attempts go with it). A run still recording, one a replay in progress reads from, and one with an attempt still running stay, and the reason is shown |
 | `?`, `Esc`/`q` | Help; back / quit |
 
 The header line summarizes the run: calls, how many replayed, ran live, were blocked or stubbed, tokens saved and what they were worth, the approximate cost of the live calls, wall time, status, age and revision. A run that is still recording is tailed live. The layout follows terminal resizes; the minimum is 60×12. In a terminal too narrow for all of the header or the keys in the footer, what fits is shown whole, in order, and ` · …` stands for the rest, as it does for the keys above the run tree.

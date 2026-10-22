@@ -210,35 +210,98 @@ export function packFolder(root: string, raw: unknown): string | { error: string
   return `./${rel}`;
 }
 
-/** `pack <run> <folder>`: a folder to commit as a golden or hand to someone, redacted. */
-export function packJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>): Built {
-  const run = runOf(store, req.runId);
-  if ('error' in run) return run;
-  const root = projectRoot(project);
-  if (typeof root !== 'string') return root;
-  const folder = packFolder(root, req.dir ?? `${EXPORTS_DIR}/${short(run.runId)}`);
+/** A pack's folder checked, and `.shadowlap/exports/` made when it is in there: `./…`, or why it can't be written. */
+function packTarget(root: string, raw: unknown): string | { error: string; status?: number } {
+  const folder = packFolder(root, raw);
   if (typeof folder !== 'string') return folder;
   if (folder.startsWith(`./${EXPORTS_DIR}/`)) {
     const dir = exportsDir(root);
     if (typeof dir !== 'string') return dir;
   }
   const unsafe = unsafePack(root, folder.slice(2));
-  if (unsafe) return { error: unsafe, status: 409 };
+  return unsafe ? { error: unsafe, status: 409 } : folder;
+}
+
+/**
+ * `pack <run> <folder>`: a folder to commit as a golden or hand to someone, redacted. Given `runIds`
+ * (the Runs page's bulk Pack), `dir` is the folder that holds a folder per run (`packFolders`), and
+ * the job runs one `pack` after another, so its drawer lists every folder it wrote.
+ */
+export function packJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>): Built {
+  if (req.runIds !== undefined) return packRunsJob(store, project, req);
+  const run = runOf(store, req.runId);
+  if ('error' in run) return run;
+  const root = projectRoot(project);
+  if (typeof root !== 'string') return root;
+  const folder = packTarget(root, req.dir ?? `${EXPORTS_DIR}/${short(run.runId)}`);
+  if (typeof folder !== 'string') return folder;
   return { args: ['pack', run.runId, folder], runId: run.runId, title: 'Packing' };
 }
 
 const RUN_ID = /^[0-9A-Za-z]{1,26}$/;
+
+/** The most runs one Pack job takes: each is a command of its own, and its drawer lists every folder (ui/runspage/bulk.ts `PACK_MAX`). */
+export const MAX_PACK_RUNS = 100;
+
+/**
+ * Where each run of a bulk Pack goes, inside `dir`: a folder named by the first ten characters of its
+ * id in lower case, as one run's pack is named (`.shadowlap/exports/01k5cq4n7g`), or by its whole id
+ * where two of the runs share those ten (runs started in the same millisecond). The bulk bar's
+ * dialog shows the same names (ui/runspage/bulk.ts `packFolders`).
+ */
+export function packFolders(runIds: readonly string[], dir: string): Array<{ runId: string; folder: string }> {
+  const parent = dir.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  const shorts = runIds.map(short);
+  return runIds.map((runId, i) => ({ runId, folder: `${parent}/${shorts.indexOf(shorts[i]!) === shorts.lastIndexOf(shorts[i]!) ? shorts[i] : runId.toLowerCase()}` }));
+}
+
+/** Several runs packed by one job, each into its own folder inside `dir` (`.shadowlap/exports` unless asked). */
+function packRunsJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>): Built {
+  const raw = Array.isArray(req.runIds) ? req.runIds : [];
+  if (!raw.length) return { error: 'name the runs to pack' };
+  if (raw.length > MAX_PACK_RUNS) return { error: `at most ${MAX_PACK_RUNS} runs in one pack job` };
+  const runIds: string[] = [];
+  for (const r of raw) {
+    if (typeof r !== 'string' || !RUN_ID.test(r)) return { error: 'a run id is not one' };
+    const run = runOf(store, r);
+    if ('error' in run) return run;
+    if (!runIds.includes(run.runId)) runIds.push(run.runId);
+  }
+  const root = projectRoot(project);
+  if (typeof root !== 'string') return root;
+  const dir = req.dir ?? EXPORTS_DIR;
+  if (typeof dir !== 'string' || !dir.trim()) return { error: 'name a folder for the packs' };
+  const commands: string[][] = [];
+  for (const { runId, folder } of packFolders(runIds, dir)) {
+    const target = packTarget(root, folder);
+    if (typeof target !== 'string') return target;
+    commands.push(['pack', runId, target]);
+  }
+  const [first, ...rest] = commands;
+  return { args: first!, ...(rest.length ? { then: rest } : {}), runId: runIds.length === 1 ? runIds[0]! : null, title: runIds.length === 1 ? 'Packing' : `Packing ${runIds.length} runs` };
+}
+
 /** The most runs one dataset takes: the Runs page's bulk bar offers Dataset up to this many (ui/runspage/bulk.ts). */
 export const MAX_DATASET_RUNS = 500;
 
-/** A file name of the dataset: one run's id, or how many runs and when. */
+/** A file name of the dataset: one run's id, or how many runs and when (the dialog names it the same way, ui/run/share.ts `datasetFile`). */
 function datasetName(runIds: readonly string[], now: Date): string {
   if (runIds.length === 1) return `dataset-${short(runIds[0]!)}.jsonl`;
   const stamp = now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
   return `dataset-${runIds.length}-runs-${stamp}.jsonl`;
 }
 
-/** `export dataset <runs…> --calls final|model --format …`: one JSON line per example, into `.shadowlap/exports/`. */
+/** A file name the dialog chose for a copy in `.shadowlap/exports/`: letters, digits, `.`, `-` and `_`, or null. */
+function exportFile(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const name = raw.trim();
+  return /^[A-Za-z0-9_][\w.-]{0,99}$/.test(name) ? name : null;
+}
+
+/**
+ * `export dataset <runs…> --calls final|model --format …`: one JSON line per example, into
+ * `.shadowlap/exports/`, under the name the dialog shows in its command (`out`), else one of its own.
+ */
 export function exportDatasetJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>, now = new Date()): Built {
   const raw = Array.isArray(req.runIds) ? req.runIds : req.runId !== undefined ? [req.runId] : [];
   if (!raw.length) return { error: 'name the runs to export' };
@@ -257,7 +320,9 @@ export function exportDatasetJob(store: Store, project: ProjectInfo | null, req:
   if (calls !== 'final' && calls !== 'model') return { error: 'calls is final (each run’s last model call) or model (every model call)' };
   const root = projectRoot(project);
   if (typeof root !== 'string') return root;
-  const target = exportTarget(root, datasetName(runIds, now));
+  const file = req.out === undefined || req.out === null || req.out === '' ? datasetName(runIds, now) : exportFile(req.out);
+  if (!file) return { error: 'a file name is letters, digits, dots, dashes and underscores, such as dataset.jsonl' };
+  const target = exportTarget(root, file);
   if (typeof target !== 'string') return target;
   return { args: ['export', 'dataset', ...runIds, '--calls', calls, '--format', format, '--out', target], runId: runIds.length === 1 ? runIds[0]! : null, title: 'Exporting a dataset' };
 }
