@@ -14,6 +14,8 @@ export interface JobLike {
   kind?: string;
   /** What the command reported as its outcome (what `--json` would print). */
   result?: unknown;
+  /** Someone asked it to stop. */
+  stopped?: boolean;
 }
 
 /** What following a job does after a poll for it failed. */
@@ -201,7 +203,9 @@ export function calibrationTarget(runId: string | null | undefined, runs: readon
  */
 export function jobStatus(job: JobLike, lines: readonly string[], lost = false): { text: string; tone: '' | 'ok' | 'warn' | 'err' } {
   if (lost && !job.done) return { text: 'lost · the dashboard server no longer has this job', tone: 'err' };
-  if (!job.done) return { text: 'running', tone: '' };
+  if (!job.done) return { text: job.stopped ? 'stopping' : 'running', tone: '' };
+  // Stopped on request: that is how it ended, whatever its exit code says.
+  if (job.stopped) return { text: job.code === null ? 'stopped' : `stopped · exit ${job.code}`, tone: 'warn' };
   // Blame, repair and fix apply say how they came out in their result.
   const fixes = fixJobStatus(job);
   if (fixes) return fixes;
@@ -257,6 +261,7 @@ export function lastLine(lines: readonly string[]): string {
  * the exit code, the last line the job printed says it instead.
  */
 export function endToast(job: JobLike, lines: readonly string[]): string {
+  if (job.stopped) return `${jobTitle(job)} stopped`;
   const status = jobStatus(job, lines).text;
   const generic = /^(finished · )?exit \d+$/.test(status);
   const last = lastLine(lines);
@@ -269,4 +274,48 @@ export function endToast(job: JobLike, lines: readonly string[]): string {
  */
 export function jobRunning(jobs: ReadonlyArray<{ job: Pick<JobLike, 'done' | 'kind'>; lost?: boolean }>, kinds: ReadonlySet<string>): boolean {
   return jobs.some((w) => !w.job.done && !w.lost && kinds.has(w.job.kind ?? ''));
+}
+
+/** A job as Stop and the top bar's chip read it: whether it runs, and how it uses its working tree. */
+export interface RunningJob {
+  id: string;
+  done: boolean;
+  args?: readonly string[];
+  title?: string;
+  kind?: string;
+  stopped?: boolean;
+  /** When it started: the chip opens the newest. */
+  startedAt?: number;
+  worktree?: { use: 'reads' | 'writes'; doing: string } | null;
+}
+
+/**
+ * What Stop asks first, for a job that changes the working tree (a repair trying a candidate there,
+ * a patch being applied): stopped part way, the tree is what it says. Null for any other job, which
+ * Stop stops at once, as Ctrl-C would: a run it was making ends as interrupted.
+ */
+export function stopAsk(job: RunningJob): { title: string; text: string; ok: string } | null {
+  if (job.done || job.worktree?.use !== 'writes') return null;
+  const [command, sub] = job.args ?? [];
+  if (command === 'repair')
+    return { title: 'Stop the repair?', text: 'It is trying candidates in your working tree. Stopped, it puts back the file it changed, as Ctrl-C does, and reports what it found so far.', ok: 'Stop the repair' };
+  if (command === 'fix' && sub === 'apply')
+    return { title: 'Stop applying the patch?', text: 'It is changing your working tree. Stopped part way, the patch may be in while the fix isn’t marked applied: Apply it again to finish.', ok: 'Stop applying' };
+  const doing = job.worktree.doing;
+  return { title: `Stop ${(job.title ?? 'this job').toLowerCase()}?`, text: `${doing.charAt(0).toUpperCase()}${doing.slice(1)}. Stopped part way, the tree is left as it is then.`, ok: 'Stop it' };
+}
+
+/**
+ * The top bar's chip while jobs run (`1 job running`), and the job a click reopens: the newest one
+ * running whose drawer isn't open. None while nothing runs, or while the only job running has its
+ * drawer open already. A job stopping still runs. The server lists jobs newest first, but one this
+ * tab has just started may not be in its list yet, so they go by when they started.
+ */
+export function runningChip(jobs: readonly RunningJob[], open: string | null): { count: number; label: string; opens: string; title: string } | null {
+  const running = jobs.filter((j) => !j.done).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+  const opens = running.find((j) => j.id !== open);
+  if (!opens) return null;
+  const n = running.length;
+  const names = running.map((j) => jobTitle({ args: [...(j.args ?? [])], done: false, code: null, ...(j.title ? { title: j.title } : {}) }));
+  return { count: n, label: `${n} ${n === 1 ? 'job' : 'jobs'} running`, opens: opens.id, title: `${[...new Set(names)].join(', ')}: open ${n === 1 ? 'its' : 'the newest one’s'} drawer` };
 }

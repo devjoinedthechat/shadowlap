@@ -83,6 +83,11 @@ export interface AppState {
   /** Shows a started job in the drawer and follows it to the end. */
   watchJob: (p: Promise<JobView>) => void;
   jobs: WatchedJob[];
+  /**
+   * Opens a job's drawer again: one this page follows, or one it doesn't (started in another tab, or
+   * before the page loaded), which it then follows to its end.
+   */
+  openJob: (id: string) => void;
   closeJob: (id: string) => void;
   /** Closes every job's drawer, as leaving a page does; running jobs go on and say when they finish. */
   closeJobs: () => void;
@@ -444,6 +449,13 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     [follow, fail, toast],
   );
 
+  const openJob = useCallback(
+    (id: string) => {
+      if (jobsNow.current.some((w) => w.job.id === id)) setJobs((list) => list.map((w) => ({ ...w, open: w.job.id === id })));
+      else watchJob(client.job(id, 0));
+    },
+    [client, jobsNow, watchJob],
+  );
   const closeJob = useCallback((id: string) => setJobs((list) => list.map((w) => (w.job.id === id ? { ...w, open: false } : w)).filter((w) => w.open || (!w.job.done && !w.lost))), []);
   const closeJobs = useCallback(() => setJobs((list) => (list.some((w) => w.open) ? list.filter((w) => !w.job.done && !w.lost).map((w) => ({ ...w, open: false })) : list)), []);
 
@@ -495,6 +507,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       toastText,
       watchJob,
       jobs,
+      openJob,
       closeJob,
       closeJobs,
       registerLayer,
@@ -510,7 +523,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       runCommands,
       setRunCommands,
     }),
-    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
+    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, openJob, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

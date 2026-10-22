@@ -274,12 +274,19 @@ describe('jobs', () => {
     const failed = await waitJob(dash, (await startJob(dash, { kind: 'fake', mode: 'fail' })).id);
     expect(failed.code).toBe(3);
     expect(failed.lines).toContain('it went wrong');
+    // It ended on its own: the drawer says how, not that someone stopped it.
+    expect(failed.stopped).toBe(false);
 
     const sleeping = await startJob(dash, { kind: 'fake', mode: 'sleep' });
+    expect(sleeping.stopped).toBe(false);
     expect(((await (await post(dash, `jobs/${sleeping.id}/stop`, {})).json()) as { stopped: boolean }).stopped).toBe(true);
     const stopped = await waitJob(dash, sleeping.id);
     expect(stopped.done).toBe(true);
     expect(stopped.lines).not.toContain('woke');
+    // Its view says it was stopped, in the list of jobs too, whose chip and drawer read it.
+    expect(stopped.stopped).toBe(true);
+    const { jobs } = (await (await api(dash, 'jobs')).json()) as { jobs: JobView[] };
+    expect(jobs.find((j) => j.id === sleeping.id)?.stopped).toBe(true);
     expect(((await (await post(dash, `jobs/${sleeping.id}/stop`, {})).json()) as { stopped: boolean }).stopped).toBe(false);
     expect((await post(dash, 'jobs/0123456789abcdef/stop', {})).status).toBe(404);
   });

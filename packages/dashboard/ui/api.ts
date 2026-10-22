@@ -155,6 +155,8 @@ export interface Client {
   /** Starts a job of a registered kind (`POST /api/jobs`). */
   startJob(kind: string, fields: Record<string, unknown>): Promise<JobView>;
   job(jobId: string, after: number): Promise<JobView>;
+  /** Asks a running job to stop (`POST /api/jobs/:id/stop`): false when it had ended already. */
+  stopJob(jobId: string): Promise<{ stopped: boolean }>;
   /** The jobs the server remembers, newest first, running ones included, without their output. */
   jobs(): Promise<JobListItem[]>;
   remove(id: string): Promise<{ deleted: string }>;
@@ -390,6 +392,7 @@ export function createClient(token: string): Client {
     action: (runId, key, callNo, value) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}) }) }),
     startJob: (kind, fields) => request<JobView>('jobs', { method: 'POST', body: JSON.stringify({ ...fields, kind }) }),
     job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
+    stopJob: (jobId) => request<{ stopped: boolean }>(`jobs/${id(jobId)}/stop`, { method: 'POST', body: '{}' }),
     jobs: async () => (await request<{ jobs: JobListItem[] }>('jobs')).jobs,
     remove: (runId) => request<{ deleted: string }>(`runs/${id(runId)}`, { method: 'DELETE' }),
     // The API authenticates with a header, which a plain link cannot send, and a token in a URL would
@@ -507,6 +510,7 @@ export function createExportedClient(data: StaticPayload): Client {
     action: readOnly,
     startJob: readOnly,
     job: readOnly,
+    stopJob: readOnly,
     jobs: () => Promise.resolve([]),
     remove: readOnly,
     exportHtml: readOnly,

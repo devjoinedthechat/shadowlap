@@ -57,6 +57,8 @@ export interface JobView {
   startedAt: number;
   endedAt: number | null;
   done: boolean;
+  /** Someone asked it to stop (`POST /api/jobs/:id/stop`): its end is that stop, not its own. */
+  stopped: boolean;
   /** The exit code; null while running, or when the process was killed by a signal. */
   code: number | null;
   /** The run to open: the last one the job reported that is not an attempt (or found in its output). */

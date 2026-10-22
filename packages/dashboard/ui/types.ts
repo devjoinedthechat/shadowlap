@@ -357,6 +357,8 @@ export interface JobView {
   opensRun: boolean;
   startedAt: number;
   done: boolean;
+  /** Someone asked it to stop (Stop in its drawer, or another tab's): its end is that stop. */
+  stopped?: boolean;
   code: number | null;
   newRunId: string | null;
   lines: string[];

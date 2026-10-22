@@ -28,6 +28,8 @@ export class FakeText {
 const NATURAL = new Set(['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
 
 export class FakeElement {
+  /** An element's, as react-dom's createPortal checks of the element a dialog is drawn into. */
+  readonly nodeType = 1;
   parentNode: FakeElement | null = null;
   readonly childNodes: Child[] = [];
   readonly attributes = new Map<string, string>();
