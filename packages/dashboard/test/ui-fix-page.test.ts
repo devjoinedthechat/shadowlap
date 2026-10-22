@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { markFixApplied, recordBlame, recordRepair, Store, type BlameReport } from '@shadowlap/engine';
-import { blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
+import { decideVerify, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport } from '@shadowlap/engine';
+import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail } from '../src/fixes.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
@@ -157,5 +157,52 @@ describe('Apply the patch', () => {
     expect(text(r!.one('.dialog pre.fxpatch'))).toContain('+You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.');
     // To read only: Close, and nothing to run.
     expect(r!.all('.dialog footer button').map(text)).toEqual(['Close']);
+  });
+});
+
+describe('the Verify step', () => {
+  /** A run blamed under the fix's check, with a verdict that counts and could not settle it, then one under the exit code alone. */
+  function verdicts(): { fixId: string; counted: string; other: string } {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    const unsettled = verifyReport([{ runId: run, role: 'target', pass: true }]);
+    unsettled.runs[0] = { ...unsettled.runs[0]!, verdict: 'open', decision: 'inconclusive' };
+    Object.assign(unsettled, decideVerify(unsettled.runs, null));
+    const counted = recordVerdict(store, { report: unsettled, expect: EXPECT, command: 'shadowlap verify --fixes label:double-email', at: NOW + 1 }).verdict.verifyId;
+    const exitOnly = { ...verifyReport([{ runId: run, role: 'target', pass: true, recorded: true }], { oracle: ['the agent exits 0'], codeVersion: 'f353f41' }), fields: { temperature: 1 } };
+    const other = recordVerdict(store, { report: exitOnly, expect: null, command: 'shadowlap verify --fixes label:double-email --set temperature=1', at: NOW + 2 }).verdict.verifyId;
+    return { fixId: fix.fixId, counted, other };
+  }
+
+  it('opens on the newest verdict that counts, and says an incomplete one spent, never that it found out', async () => {
+    const { fixId } = verdicts();
+    await open(fixId, 'verify');
+    expect(r!.one('.verdict').className).toBe('verdict n');
+    expect(text(r!.one('.verdict h2'))).toBe('Not every run settled');
+    expect(r!.all('.vpick a').filter((a) => a.getAttribute('aria-pressed') === 'true').map(text)).toEqual(['370712a+dirty · incomplete']);
+    expect(text(r!.one('.fxreceipt'))).toMatch(/^\d+ attempts · \d+ upstream requests · ≈\$[\d.]+ spent\. A run whose replay doesn’t fork/);
+  });
+
+  it("draws a verdict that doesn't count plain, headed with why, and marks it so in the switch", async () => {
+    const { fixId, other } = verdicts();
+    await open(fixId, 'verify', other);
+    // Accepted under its own check, but no verdict on the fix: never in lime.
+    expect(r!.one('.verdict').className).toBe('verdict n');
+    expect(r!.one('.verdict .badge').className).not.toContain('ok');
+    expect(text(r!.one('.verdict h2'))).toBe("Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times");
+    expect(r!.all('.vpick a').map(text)).toEqual(["f353f41 · accepted · doesn't count", '370712a+dirty · incomplete']);
+    expect(text(r!.one('.verdict p'))).toMatch(/^f353f41 · a run passes when 4 of 5 attempts meet the check: the agent exits 0$/);
+    expect(text(r!.one('.fxreceipt'))).toContain('spent to find out before it shipped');
+  });
+
+  it('heads a verdict that counts by the runs it checked', async () => {
+    const runs = [newRun({ labels: ['refund-bug'] }), newRun({ labels: ['refund-bug'] })];
+    let fixId = '';
+    for (const x of runs) fixId = blame(x).fix.fixId;
+    recordVerdict(store, { report: verifyReport([{ runId: runs[0]!, role: 'target', pass: true }]), expect: EXPECT, command: 'v', at: NOW + 1 });
+    await open(fixId, 'verify');
+    expect(r!.one('.verdict').className).toBe('verdict ok');
+    expect(text(r!.one('.verdict h2'))).toBe('Fixes 1 of 1 target run');
+    expect(text(r!.byText('nav.stepper a b', '1 fixed'))).toBe('1 fixed');
   });
 });

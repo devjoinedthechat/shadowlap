@@ -738,7 +738,7 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .trio b { display: block; margin-top: 6px; font: 700 22px var(--disp); letter-spacing: -.03em; }
 .vchips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
 .vchips .vn { font: 12px var(--mono); color: var(--faint); }
-.vpick { margin-bottom: 14px; }
+.vpick { margin-bottom: 14px; flex-wrap: wrap; max-width: 100%; }
 .seg a { display: inline-block; text-decoration: none; color: var(--faint); font: 500 12px var(--body); padding: 4px 10px; border-radius: 7px; }
 .seg a:hover { color: var(--ink); }
 .seg a[aria-pressed="true"] { background: var(--ink); color: var(--bg); }

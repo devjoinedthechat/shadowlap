@@ -57,10 +57,11 @@ describe('the Fixes list', () => {
       ['todo', 'not verified'],
     ]);
     expect(list.fixes[1]).toMatchObject({ status: 'verified', label: 'refund-bug', failing: 2, good: 1, check: 'issue_refund never called with {"amount":240}', verifiedAt: NOW - DAY });
+    // What its verdicts that held did, run by run: never "3 of 3 held", which counts the good run as held.
     expect(list.fixes[1]!.steps.map((s) => [s.state, s.short])).toEqual([
       ['done', 'lost at #5'],
       ['done', 'prompt fix'],
-      ['done', '3 of 3 held'],
+      ['done', '2 fixed · 1 kept'],
     ]);
     expect(list.fixes[1]!.attempts).toBeGreaterThan(0);
     expect(fixList(store, { status: 'open' }).fixes.map((f) => f.fixId)).toEqual([openFix.fixId]);
@@ -170,7 +171,7 @@ describe('a fix', () => {
     ]);
     expect(d.goodRuns.map((r) => r.runId)).toEqual([good]);
     expect(d.steps[1]).toMatchObject({ title: 'Escalate refunds above the policy limit', meta: 'candidate 3 of 3 · proposed by claude-code' });
-    expect(d.steps[2]).toMatchObject({ title: '3 of 3 runs held', meta: '1 earlier change rejected' });
+    expect(d.steps[2]).toMatchObject({ title: '2 fixed · 1 kept', meta: '1 earlier change rejected' });
     const diff = store.getRepair('repair-munzln2i')!.report.patch;
     expect(diff).toContain('diff --git a/agent.mjs b/agent.mjs');
     expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1 }, applied: false });
@@ -414,8 +415,58 @@ describe('a fix', () => {
     expect(d).toMatchObject({ status: 'open', defaultStep: 'blame', oracle: ['the agent exits 0', 'issue_refund with {"amount":240} called 0 times'] });
     expect(d.steps[2]).toEqual({ key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: 'verified only under another check' });
     expect(d.verify).toHaveLength(1);
-    expect(d.verify[0]).toMatchObject({ verdict: 'accepted', counts: false, note: "Checked under another check, so it doesn't count for this fix: it doesn't check issue_refund with {\"amount\":240} called 0 times." });
+    expect(d.verify[0]).toMatchObject({ verdict: 'accepted', counts: false, note: null, headline: "Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times", label: "370712a+dirty · accepted · doesn't count" });
     expect(d.actions).toMatchObject({ repair: { argv: ['repair', '--fixes', 'label:refund-bug', '--expect', JSON.stringify(EXPECT)] }, apply: null, applied: false });
+  });
+
+  it("opens the Verify step on the newest verdict that counts, never on a later one that doesn't", () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run);
+    // Under the fix's check, a run it could not settle: it counts, and the step is not settled.
+    const unsettled = verifyReport([{ runId: run, role: 'target', pass: true }]);
+    unsettled.runs[0] = { ...unsettled.runs[0]!, verdict: 'open', decision: 'inconclusive' };
+    Object.assign(unsettled, decideVerify(unsettled.runs, null));
+    const counted = recordVerdict(store, { report: unsettled, expect: EXPECT, command: 'v', at: NOW }).verdict;
+    // Then accepted under the exit code alone: it doesn't count, and never opens as the fix's verdict.
+    const other = recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true, recorded: true }], { oracle: EXIT_ORACLE }), expect: null, command: 'v', at: NOW + 1 }).verdict;
+    const d = fixDetail(store, fix.fixId)!;
+    expect(d.steps[2]).toMatchObject({ short: 'not settled' });
+    expect(d.verify.map((v) => v.verifyId)).toEqual([other.verifyId, counted.verifyId]);
+    expect(d.defaultVerify).toBe(counted.verifyId);
+    expect(d.verify.map((v) => [v.label, v.headline])).toEqual([
+      ["370712a+dirty · accepted · doesn't count", "Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times"],
+      ['370712a+dirty · incomplete', 'Not every run settled'],
+    ]);
+    // With no verdict that counts, the newest opens.
+    const lone = makeRun(store, { labels: ['lone'] });
+    const { fix: loneFix } = blame(lone);
+    const only = recordVerdict(store, { report: verifyReport([{ runId: lone, role: 'target', pass: true, recorded: true }], { oracle: EXIT_ORACLE }), expect: null, command: 'v', at: NOW + 2 }).verdict;
+    expect(fixDetail(store, loneFix.fixId)!.defaultVerify).toBe(only.verifyId);
+  });
+
+  it('heads a verdict by the runs it checked, and says every failing run was fixed only when it checked them all', () => {
+    const runs = [makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] })];
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    let fixId = '';
+    for (const r of runs) fixId = blame(r).fix.fixId;
+    expect(fixRecords(store, store.getFix(fixId)!).failing).toHaveLength(3);
+    const verdict = (rows: Parameters<typeof verifyReport>[0], at: number) => recordVerdict(store, { report: verifyReport(rows), expect: EXPECT, command: 'v', at }).verdict.verifyId;
+    // One of its three failing runs, and the good run.
+    const one = verdict([{ runId: runs[0]!, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }], NOW);
+    let d = fixDetail(store, fixId)!;
+    expect(d.verify.find((v) => v.verifyId === one)!.headline).toBe('Fixes 1 of 1 target run, keeps 1 of 1 good');
+    expect(d.steps[2]).toMatchObject({ short: '1 fixed · 1 kept', title: '1 fixed · 1 kept', meta: '2 failing runs not verified' });
+    // Two more, one of them held out: still not every failing run.
+    const two = verdict([{ runId: runs[1]!, role: 'target', pass: true }, { runId: runs[2]!, role: 'holdout', pass: true }], NOW + 1);
+    d = fixDetail(store, fixId)!;
+    expect(d.verify.find((v) => v.verifyId === two)!.headline).toBe('Fixes 1 of 1 target run, 1 of 1 held-out');
+    // Counted run by run across the verdicts that held: every failing run now, the good run once.
+    expect(d.steps[2]).toMatchObject({ title: '3 fixed · 1 kept', meta: 'every failing run fixed, every good run kept' });
+    const all = verdict([{ runId: runs[0]!, role: 'target', pass: true }, { runId: runs[1]!, role: 'target', pass: true }, { runId: runs[2]!, role: 'holdout', pass: true }, { runId: good, role: 'good', pass: true }], NOW + 2);
+    expect(fixDetail(store, fixId)!.verify.find((v) => v.verifyId === all)!.headline).toBe('Every failing run fixed, every good run kept');
+    // Rejected for a failing run it checked: never "every failing run", which it never checked.
+    const rejected = verdict([{ runId: runs[0]!, role: 'target', pass: false }, { runId: good, role: 'good', pass: true }], NOW + 3);
+    expect(fixDetail(store, fixId)!.verify.find((v) => v.verifyId === rejected)!.headline).toBe('The change did not fix the failing runs it checked');
   });
 
   it('offers Repair from here on an open fix, and an empty Repair and Verify step', () => {

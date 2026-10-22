@@ -292,12 +292,13 @@ export interface VerifyStep {
   verdict: VerifyOutcome;
   /** Whether it counts for this fix: it checked the fix's check on a run that failed it as recorded. */
   counts: boolean;
-  /** Why it doesn't count, or that it was rejected after the fix was applied; null otherwise. */
+  /** That it was rejected after the fix was applied; null otherwise. One that doesn't count says why in its `headline`. */
   note: string | null;
   /** What was verified: the code version, or "repair candidate 3". */
   code: string;
-  /** How the switch between changes names it: "repair candidate 3 · accepted". */
+  /** How the switch between changes names it: "repair candidate 3 · accepted", and "· doesn't count" after one that doesn't count for the fix. */
   label: string;
+  /** By the runs it checked ("Fixes 1 of 1 target run, keeps 1 of 1 good"), or for one that doesn't count, why ("Doesn't count for this fix: …"). */
   headline: string;
   /** "a run passes when 4 of 5 attempts meet the check: …" */
   oracle: string;
@@ -364,7 +365,7 @@ export interface FixDetail extends FixRow {
   /** The repair the Repair step shows (the latest accepted that counts, else the latest accepted, else the latest), and every repair, newest first. */
   repair: RepairStep | null;
   repairs: Array<{ repairId: string; at: number; outcome: RepairOutcome; accepted: boolean; title: string }>;
-  /** Every change verified, newest first, and the one shown without one in the URL. */
+  /** Every change verified, newest first, and the one shown without one in the URL: the newest that counts for the fix, else the newest. */
   verify: VerifyStep[];
   defaultVerify: string | null;
   /** Commands that run each step again, as the empty steps show them. */
@@ -445,12 +446,11 @@ function sourceText(fix: StoredFix): string | null {
   return pr || null;
 }
 
-/** Why a verdict doesn't count for a fix, in a sentence. */
-function standingNote(st: VerdictStanding): string | null {
+/** Why a verdict doesn't count for a fix, as its heading says it: `Doesn't count for this fix: its check leaves out send_email called 1 time`. Null for one that counts. */
+function uncountedHead(st: VerdictStanding): string | null {
   if (st.counts) return null;
-  if (st.why === 'another-check') return `Checked under another check, so it doesn't count for this fix${st.missing?.length ? `: it doesn't check ${st.missing.join('; ')}` : ''}.`;
-  if (st.why === 'already-passing') return "Every run of this fix it checked already passed as recorded, so it proves nothing here.";
-  return 'None of the runs it checked fails in this fix.';
+  const why = st.why === 'another-check' ? (st.missing?.length ? `its check leaves out ${st.missing.join('; ')}` : 'it was checked under another check') : st.why === 'already-passing' ? 'every run of this fix it checked already passed as recorded' : 'none of the runs it checked fails in this fix';
+  return `Doesn't count for this fix: ${why}`;
 }
 
 /** The latest settled verdict that counts, given after the fix was applied, when it rejected the change. */
@@ -466,6 +466,31 @@ function brokenOf(rec: FixRecords): string | null {
   if (rec.fix.status !== 'applied') return null;
   if (rec.fix.data.applied?.tests === 'failed') return 'shadowlap test failed on its goldens';
   return rejectedSinceApplied(rec) ? 'a verify rejected it after it was applied' : null;
+}
+
+/**
+ * What the verdicts that held did, run by run, across every accepted verdict that counts: "3 fixed ·
+ * 1 kept", a run counted once however many verdicts checked it. Never "4 of 4 held", which counts a
+ * good run as held and reads as if every failing run was in one verdict.
+ */
+function fixedKept(rec: FixRecords): { text: string; kept: number } {
+  const fixed = new Set<string>();
+  const kept = new Set<string>();
+  for (const v of counting(rec)) {
+    if (v.verdict !== 'accepted') continue;
+    for (const x of v.report.runs) {
+      const o = outcomeOf(x);
+      if (o === 'fixed') fixed.add(x.runId);
+      else if (o === 'kept') kept.add(x.runId);
+    }
+  }
+  return { text: [fixed.size ? `${fixed.size} fixed` : '', kept.size ? `${kept.size} kept` : ''].filter(Boolean).join(' · ') || 'verified', kept: kept.size };
+}
+
+/** The fix's failing runs that no accepted verdict that counts has checked as failing runs. */
+function notVerified(rec: FixRecords): string[] {
+  const checked = new Set(counting(rec).flatMap((v) => (v.verdict === 'accepted' ? v.report.runs.filter((x) => x.role !== 'good').map((x) => x.runId) : [])));
+  return rec.failing.filter((id) => !checked.has(id));
 }
 
 function stepsOf(rec: FixRecords): FixStep[] {
@@ -500,13 +525,12 @@ function stepsOf(rec: FixRecords): FixStep[] {
 
   let verify: FixStep;
   if (v) {
-    const runs = v.report.runs;
-    const held = runs.filter((x) => outcomeOf(x) !== 'broken').length;
-    const kept = runs.some((x) => x.role === 'good');
+    const held = fixedKept(rec);
+    const left = notVerified(rec).length;
     const earlier = rejected.filter((x) => x.at < v.at).length;
     const later = rejected.filter((x) => x.at > v.at).length;
-    const meta = [earlier ? `${earlier} earlier change${s(earlier)} rejected` : kept ? 'every failing run fixed, every good run kept' : 'every failing run fixed', ...(later ? [`${later} later change${s(later)} rejected`] : [])].join(' · ');
-    verify = { key: 'verify', n: '03', state: 'done', short: `${held} of ${runs.length} held`, title: `${held} of ${runs.length} run${s(runs.length)} held`, meta };
+    const meta = [earlier ? `${earlier} earlier change${s(earlier)} rejected` : left ? `${left} failing run${s(left)} not verified` : held.kept ? 'every failing run fixed, every good run kept' : 'every failing run fixed', ...(later ? [`${later} later change${s(later)} rejected`] : [])].join(' · ');
+    verify = { key: 'verify', n: '03', state: 'done', short: held.text, title: held.text, meta };
   } else if (rejected.length) verify = { key: 'verify', n: '03', state: 'no', short: 'rejected', title: 'Rejected', meta: `${rejected.length} change${s(rejected.length)} rejected` };
   else if (counting(rec).length) {
     // A run it took is inconclusive (its gate ran out of attempts, or an attempt could not be judged), or the verify stopped first.
@@ -775,14 +799,30 @@ function pct(before: number, after: number): string {
   return `${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d) < 10 ? Math.abs(d).toFixed(1) : Math.round(Math.abs(d))}%`;
 }
 
-function headline(v: StoredVerdict): string {
+/**
+ * A verdict's heading, by the runs it checked. An accepted one that counts reads "Every failing run
+ * fixed, every good run kept" only when it checked every failing run of the fix; else it says what
+ * it did, role by role, as repair's Verified line does: "Fixes 1 of 1 target run, 1 of 1 held-out,
+ * keeps 1 of 1 good". One that doesn't count for the fix says why instead (`uncountedHead`).
+ */
+function headline(rec: FixRecords, v: StoredVerdict, standing: VerdictStanding): string {
+  const uncounted = uncountedHead(standing);
+  if (uncounted) return uncounted;
   const runs = v.report.runs;
   if (v.verdict === 'accepted') {
-    const failing = runs.some((x) => x.role !== 'good');
+    const checked = new Set(runs.filter((x) => x.role !== 'good').map((x) => x.runId));
     const good = runs.some((x) => x.role === 'good');
-    return failing && good ? 'Every failing run fixed, every good run kept' : failing ? 'Every failing run fixed' : 'Every good run kept';
+    if (rec.failing.length && rec.failing.every((id) => checked.has(id))) return good ? 'Every failing run fixed, every good run kept' : 'Every failing run fixed';
+    const tally = (role: VerifiedRun['role']) => {
+      const of = runs.filter((x) => x.role === role);
+      return { n: of.length, text: `${of.filter((x) => x.verdict === 'pass').length} of ${of.length}` };
+    };
+    const [t, h, g] = [tally('target'), tally('holdout'), tally('good')];
+    const parts = [t.n ? `fixes ${t.text} target run${s(t.n)}` : '', h.n ? `${t.n ? '' : 'fixes '}${h.text} held-out` : '', g.n ? `keeps ${g.text} good` : ''].filter(Boolean);
+    const said = parts.join(', ');
+    return said ? `${said.charAt(0).toUpperCase()}${said.slice(1)}` : 'No runs checked';
   }
-  if (v.verdict === 'rejected') return runs.some((x) => x.role === 'good' && x.verdict === 'fail') ? 'The change broke a run that worked' : 'The change did not fix every failing run';
+  if (v.verdict === 'rejected') return runs.some((x) => x.role === 'good' && x.verdict === 'fail') ? 'The change broke a run that worked' : 'The change did not fix the failing runs it checked';
   return 'Not every run settled';
 }
 
@@ -832,10 +872,11 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
     at: v.at,
     verdict: v.verdict,
     counts: standing.counts,
-    note: standingNote(standing) ?? (regressed ? 'Rejected after the fix was applied: it no longer holds.' : null),
+    // One that doesn't count says why in its heading.
+    note: regressed ? 'Rejected after the fix was applied: it no longer holds.' : null,
     code,
-    label: `${code} · ${v.verdict}`,
-    headline: headline(v),
+    label: `${code} · ${v.verdict}${standing.counts ? '' : " · doesn't count"}`,
+    headline: headline(rec, v, standing),
     oracle: sprtGate(r.gate) ? `a run's attempts must meet the check: ${r.oracle.join('; ')}; its gate decides after each one: ${describeGate(sprtGate(r.gate)!)}` : `a run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the check: ${r.oracle.join('; ')}`,
     needed: r.needed,
     attemptsPerRun: r.attemptsPerRun,
@@ -1033,7 +1074,6 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
   const b = shownBlame(rec);
   const p = shownRepair(rec);
   const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v));
-  const accepted = acceptedVerdict(rec);
   const done = row.steps.filter((x) => x.state === 'done');
   const repairArgs = repairArgv(store, rec);
   const verifyArgs = verifyArgv(store, rec);
@@ -1085,7 +1125,8 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
       return { repairId: x.repairId, at: x.at, outcome: x.outcome, accepted: x.accepted, title: c ? commitTitle(c) : 'No fix yet' };
     }),
     verify,
-    defaultVerify: accepted?.verifyId ?? verify[0]?.verifyId ?? null,
+    // The newest that counts: one that doesn't count for the fix never opens the step.
+    defaultVerify: counting(rec).at(-1)?.verifyId ?? verify[0]?.verifyId ?? null,
     commands: {
       blame: commandLine(['blame', blameRun ? short(blameRun) : '<run>', ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])]),
       repair: commandLine(repairJobArgv(repairArgs.length ? shortIds(repairArgs) : ['repair', '--fixes', '<runs>'], configured)),

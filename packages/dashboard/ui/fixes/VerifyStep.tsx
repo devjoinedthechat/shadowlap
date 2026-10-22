@@ -10,7 +10,8 @@ import { outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
 /**
  * The Verify step: one change verified at a time (a switch between them, each with its own URL), its
  * verdict and oracle, each run's role and outcome, what the change does to tokens and cost per run,
- * and what finding out took.
+ * and what finding out took. It opens on the newest verdict that counts for the fix; one that
+ * doesn't is drawn plain, headed with why, and marked so in the switch.
  */
 export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | null }) {
   const v = verifyFor(fix, sub);
@@ -84,8 +85,9 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
         </table>
       </section>
       <Deltas v={v} />
+      {/* An incomplete verdict found nothing out, so its receipt says what it spent and no more. */}
       <p className="fxreceipt">
-        {num(v.attempts)} attempt{v.attempts === 1 ? '' : 's'} · {num(v.upstreamRequests)} upstream request{v.upstreamRequests === 1 ? '' : 's'} · {approx(v.spent)} spent to find out before it shipped. A run whose replay doesn’t fork settles in one free attempt.
+        {num(v.attempts)} attempt{v.attempts === 1 ? '' : 's'} · {num(v.upstreamRequests)} upstream request{v.upstreamRequests === 1 ? '' : 's'} · {approx(v.spent)} spent{v.verdict === 'incomplete' ? '' : ' to find out before it shipped'}. A run whose replay doesn’t fork settles in one free attempt.
         {v.unknownModels.length ? ` No price for ${v.unknownModels.join(', ')}.` : ''}
       </p>
       <CmdLine>{v.command}</CmdLine>
@@ -102,7 +104,8 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
 
 function Verdict({ v }: { v: VerifyStep }) {
   const { toast } = useApp();
-  const tone = verdictTone(v.verdict);
+  // One that doesn't count for the fix is no verdict on it: plain, whatever it said of its own check.
+  const tone = v.counts ? verdictTone(v.verdict) : 'n';
   return (
     <div className={`verdict ${tone}`}>
       <Badge tone={tone}>{v.verdict}</Badge>
@@ -111,7 +114,8 @@ function Verdict({ v }: { v: VerifyStep }) {
         <p>
           {v.code} · {v.oracle}
         </p>
-        {v.note ? <p className={v.counts ? 'fxbad' : 'fxdim'}>{v.note}</p> : null}
+        {/* Only a verdict that counts carries a note: rejected after the fix was applied. */}
+        {v.note ? <p className="fxbad">{v.note}</p> : null}
       </div>
       <div className="actions">
         <button className="btn sm" type="button" onClick={() => void copyText(v.command).then((ok) => toast(ok ? 'Copied the command' : 'Copying was refused by the browser'))}>

@@ -124,8 +124,9 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     out.push('', p.bold(`Verify · ${d.verify.length} change${s(d.verify.length)} verified`));
     for (const v of d.verify) {
       const badge = v.verdict === 'accepted' ? p.green('✓ accepted') : v.verdict === 'rejected' ? p.red('✗ rejected') : p.yellow('! incomplete');
-      out.push(`  ${badge}  ${one(v.code, 40)}  ${v.headline}${v.counts ? '' : p.dim(" (doesn't count)")}`);
-      if (v.note) out.push(`    ${v.counts ? p.red(one(v.note, 200)) : p.yellow(one(v.note, 200))}`);
+      // One that doesn't count for the fix is headed with why.
+      out.push(`  ${badge}  ${one(v.code, 40)}  ${v.counts ? v.headline : p.yellow(v.headline)}`);
+      if (v.note) out.push(`    ${p.red(one(v.note, 200))}`);
       out.push(p.dim(`    ${one(v.oracle, 200)}`));
       const rows = v.rows.map((x) => [x.role, x.runId.slice(0, 10), x.outcome, x.deterministic && !x.inconclusive ? 'clean replay' : `${tally(x)}${x.rate?.bound ? ` · ${x.rate.bound}` : ''}`, x.note === 'clean replay' ? '' : one(x.note, 70)]);
       if (rows.length) out.push(table(rows, '    '));
