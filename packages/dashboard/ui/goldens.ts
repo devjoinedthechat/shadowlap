@@ -164,7 +164,8 @@ export function sourceText(row: GoldenRow): { runId: string } | { text: string }
   return { text: row.source.packedAt ? `packed ${shortDate(row.source.packedAt)}` : 'a pack made elsewhere' };
 }
 
-export type ReportTone = '' | 'no' | 'del' | 'add' | 'dim';
+/** A report line's colour: a failure red (`no`, `del`), what is sent now lime (`add`), what couldn't be decided amber (`y`), the rest quiet. */
+export type ReportTone = '' | 'no' | 'del' | 'add' | 'dim' | 'y';
 
 export interface ReportLine {
   text: string;
@@ -214,12 +215,13 @@ export function checkReportLine(c: NonNullable<FailureView['checks']>[number]): 
         : status === 'inconclusive'
           ? `? ${c.label}: inconclusive · ${c.detail ?? ''}${reason}`
           : `– ${c.label}: not applicable · ${c.detail ?? ''}${reason}`;
-  return { text: `    ${text}`, tone: status === 'failed' ? 'no' : '' };
+  // Failed in red, inconclusive in amber, as every report and page colours them.
+  return { text: `    ${text}`, tone: status === 'failed' ? 'no' : status === 'inconclusive' ? 'y' : '' };
 }
 
 /** An inconclusive golden's report, as the CLI prints it: the line, its gate's evidence, its checks and the attempts. */
 export function inconclusiveLines(v: InconclusiveView): ReportLine[] {
-  const lines: ReportLine[] = [{ text: `? ${v.name}: ${v.reason}`, tone: '' }];
+  const lines: ReportLine[] = [{ text: `? ${v.name}: ${v.reason}`, tone: 'y' }];
   if (v.gate) lines.push({ text: `    ${v.gate.tally}`, tone: '' });
   for (const c of v.checks ?? []) lines.push(checkReportLine(c));
   // The details repeat the tally first when a gate wrote them.

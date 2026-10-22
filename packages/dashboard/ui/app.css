@@ -1811,6 +1811,7 @@ code.flag { white-space: nowrap; font-size: .92em; }
 .gpanel p.muted.after { margin: 12px 0 0; }
 p.hintx.tfoot { display: block; margin: 14px 2px 0; }
 pre.report .dim { color: var(--faint); }
+pre.report .y { color: var(--cq-amber); }
 table.gt tr.still { cursor: default; }
 table.gt .chk em.nil { font-style: normal; font-size: 12.5px; }
 td.hist i.go { cursor: pointer; }

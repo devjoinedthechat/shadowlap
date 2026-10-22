@@ -87,7 +87,7 @@ describe('what each colour may mean', () => {
   });
 
   it('draws what is inconclusive in the consequence amber', () => {
-    for (const s of ['.st.warn', '.glyph.warn', '.tag.inc']) expect(value(s, 'color'), s).toBe('var(--cq-amber)');
+    for (const s of ['.st.warn', '.glyph.warn', '.tag.inc', 'pre.report .y']) expect(value(s, 'color'), s).toBe('var(--cq-amber)');
     expect(value('td.hist i.inc::before', 'background')).toBe('var(--cq-amber)');
   });
 });

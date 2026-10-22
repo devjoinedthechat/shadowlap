@@ -164,6 +164,8 @@ describe('the goldens table', () => {
       '    ✗ send_email called 0 times: called 1 time',
       '    attempt 1  ✓ passed',
     ]);
+    // Its ? line in amber: neither passed nor failed.
+    expect(inconclusiveLines(v)[0]!.tone).toBe('y');
     expect(inconclusiveHint(v)).toBe("Neither verdict holds at the gate's stated risk yet: more attempts settle it, not a change to the agent. Run more attempts continues it to 40: about 17 more on average, about $0.34, settling it 38% of the time.");
     expect(inconclusiveHint({ ...v, gate: null })).toContain('A check could not be judged');
     // An injection gate that showed too little to say: its own hint.
@@ -217,7 +219,8 @@ describe('the reports', () => {
 
   it('says each check under a golden as the CLI does: passed, failed, inconclusive or not applicable', () => {
     expect(checkReportLine({ status: 'not-applicable', ok: true, label: 'when lookup_order has result.total > 200: escalate called at least 1 time', detail: 'the condition never held' })).toEqual({ text: '    – when lookup_order has result.total > 200: escalate called at least 1 time: not applicable · the condition never held', tone: '' });
-    expect(checkReportLine({ status: 'inconclusive', ok: false, label: 'judge "explains" answers yes', detail: 'not judged: no recorded verdict' })).toEqual({ text: '    ? judge "explains" answers yes: inconclusive · not judged: no recorded verdict', tone: '' });
+    // Inconclusive in amber, as the CLI's reports and every page colour it.
+    expect(checkReportLine({ status: 'inconclusive', ok: false, label: 'judge "explains" answers yes', detail: 'not judged: no recorded verdict' })).toEqual({ text: '    ? judge "explains" answers yes: inconclusive · not judged: no recorded verdict', tone: 'y' });
     expect(checkReportLine({ status: 'failed', ok: false, label: 'judge "explains" answers yes', detail: 'it answered no', reason: 'the reply never says why' })).toEqual({ text: '    ✗ judge "explains" answers yes: it answered no · the reply never says why', tone: 'no' });
     // A result kept before checks had a status reads as its ok says.
     expect(checkReportLine({ ok: true, label: 'exits 0', detail: null })).toEqual({ text: '    ✓ exits 0', tone: '' });
