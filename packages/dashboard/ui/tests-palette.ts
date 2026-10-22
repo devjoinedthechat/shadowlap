@@ -23,6 +23,8 @@ export interface TestsPaletteCommand {
   label: string;
   hint: string;
   mono: boolean;
+  /** It opens what starts a job (Update goldens…): paused while the server can't be reached. */
+  job?: boolean;
   run: () => void;
 }
 

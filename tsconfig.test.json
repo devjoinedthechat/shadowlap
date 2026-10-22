@@ -44,6 +44,12 @@
     "packages/dashboard/test/ui-palette-ids.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
     // This renders the Tests page.
-    "packages/dashboard/test/ui-tests-chaos.test.ts"
+    "packages/dashboard/test/ui-tests-chaos.test.ts",
+    // These render the job drawer and the top bar, the palette, the card a refused link shows and
+    // an exported copy's Provenance.
+    "packages/dashboard/test/ui-job-stop.test.ts",
+    "packages/dashboard/test/ui-palette-modes.test.ts",
+    "packages/dashboard/test/ui-token-card.test.ts",
+    "packages/dashboard/test/ui-exported-provenance.test.ts"
   ]
 }

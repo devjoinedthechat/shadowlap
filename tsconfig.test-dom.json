@@ -17,7 +17,11 @@
     "packages/dashboard/test/ui-dialog-tab.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
-    "packages/dashboard/test/ui-tests-chaos.test.ts"
+    "packages/dashboard/test/ui-tests-chaos.test.ts",
+    "packages/dashboard/test/ui-job-stop.test.ts",
+    "packages/dashboard/test/ui-palette-modes.test.ts",
+    "packages/dashboard/test/ui-token-card.test.ts",
+    "packages/dashboard/test/ui-exported-provenance.test.ts"
   ],
   "exclude": []
 }

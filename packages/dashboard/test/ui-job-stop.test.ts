@@ -135,7 +135,7 @@ describe('The top bar’s jobs chip', () => {
   it('counts a job started elsewhere, and opens its drawer', async () => {
     const openJob = vi.fn();
     const j = REPAIR();
-    r = await render(createElement(AppContext.Provider, { value: app({ client: client([listedJob(j)]), openJob }) }, createElement(TopBar, { route: { page: 'fixes', id: null } })));
+    r = await render(createElement(AppContext.Provider, { value: app({ client: client([listedJob(j)]), openJob }) }, createElement(TopBar, { route: { page: 'fixes', id: null, step: null, sub: null } })));
     await r.until('the chip', () => r!.all('button.jobchip').length > 0);
     const chip = r.one('button.jobchip');
     expect(chip.textContent).toBe('1 job running');
