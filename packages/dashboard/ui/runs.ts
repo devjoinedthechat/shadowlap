@@ -244,7 +244,7 @@ function nothingToReport(r: RunLike): { tone: 'fk' | 'n'; text: string } {
 
 /**
  * The Runs table's status: the outcome only, in a dot and a few words. A fork with nothing else to
- * report says what came of its writes, in the fork's colour (`fk`).
+ * report says what came of its writes, by a neutral dot (`fk`): what it fenced is no verdict.
  */
 export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' | 'n' | 'fk'; text: string } {
   if (isLive(r)) return { tone: 'live', text: 'in progress' };

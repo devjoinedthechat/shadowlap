@@ -112,7 +112,7 @@ describe('the Runs table', () => {
     };
     expect(status(FORK.runId)).toEqual(['st fk', 'forked · 2 writes blocked']);
     expect(status(FORK2.runId)).toEqual(['st fk', 'forked · 2 writes stubbed']);
-    // Where the table is tight, it wraps after the dot only.
+    // At every width it wraps after the dot only, onto the row's second line.
     expect(row(r, FORK.runId).querySelector('.st')!.textContent).toBe('forked\u00a0· 2\u00a0writes\u00a0blocked');
     // The check it failed, named under the words, and whole on hover.
     expect(status(FAILED_FORK.runId)).toEqual(['st err named', 'check failed: “send_email called 1 time”']);

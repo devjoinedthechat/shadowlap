@@ -13,14 +13,15 @@ import { Person } from './people.js';
 /**
  * The Runs table: a run's id under its icon and what it is, who made it (with a team store), its
  * labels, its calls by origin, calls, what it spent live, how it came out (a fork, what came of its
- * writes or the check it failed) and when. It fits from 1024px up without scrolling sideways: long
- * commands are cut with an ellipsis, Labels hides below 1380px, By and Calls by origin below 1140px.
+ * writes by a neutral dot, or the check it failed) and when. It fits from 1024px up without scrolling
+ * sideways: long commands are cut with an ellipsis, Labels hides below 1380px, By and Calls by origin
+ * below 1140px, and a fork's status wraps onto the row's second line rather than widen its column.
  * A row opens its run unless a control in it was used.
  */
 
 export type TableRun = RunListItem & { local?: boolean; localAttempts?: { run: boolean; attempts: number }; ci?: string | null };
 
-/** A status kept whole between its dots, so where the table is tight it wraps after a dot only: `forked ·` / `2 writes blocked`. */
+/** A status kept whole between its dots, so it wraps after a dot only: `forked ·` / `2 writes blocked`. */
 const afterDots = (text: string) =>
   text
     .split(' · ')

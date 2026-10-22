@@ -283,10 +283,12 @@ table.runst .rsub { padding-left: 22px; }
 .st.warn { color: var(--warn); } .st.warn i { background: var(--warn); }
 .st.n { color: var(--faint); padding-left: 13px; } .st.n i { background: var(--line2); }
 .st.warn { color: var(--warn); } .st.warn i { background: var(--warn); }
-/* a fork's own outcome, what came of its writes, in plain text by a dot in the fork's colour; where the table is tight
-   (Labels gives way there) it wraps after its dot rather than take the Run column's room */
-.st.fk { color: var(--dim); } .st.fk i { background: var(--warn); }
-@media (max-width: 1380px) { table.runst .st.fk { white-space: normal; align-items: baseline; } table.runst .st.fk i { flex: none; transform: translateY(-1px); } }
+/* a fork's own outcome, what came of its writes, in plain text by a neutral dot: what a fork fenced is no verdict, and
+   amber says inconclusive in this column. At every width it wraps after its dot onto the row's second line, as the row is
+   two lines tall anyway, rather than take the Run column's room */
+.st.fk { color: var(--dim); } .st.fk i { background: var(--line2); }
+table.runst .st.fk { white-space: normal; align-items: baseline; }
+table.runst .st.fk i { flex: none; transform: translateY(-1px); }
 /* a fork that failed a check names it under its status, in the room the column has anyway: whole on hover */
 table.runst .st.named { display: flex; align-items: baseline; }
 table.runst .st.named i { flex: none; transform: translateY(-1px); }
