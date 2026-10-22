@@ -9,8 +9,9 @@ import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
- * Tests tells the truth about checks: each check is marked by how the golden's last result came out
- * on it, with no tick on one that failed and none at all before a result.
+ * Tests tells the truth about checks and CI: each check is marked by how the golden's last result
+ * came out on it (no tick on one that failed, none at all before a result), and the page says CI
+ * replays goldens offline and runs those marked fork live, with the one documented command.
  */
 
 const T0 = Date.UTC(2026, 9, 20, 10, 0);
@@ -107,6 +108,20 @@ describe('the Tests page', () => {
     expect(checks(page, 'budget')).toEqual([{ cls: 'ck', mark: null, words: 'input tokens ≤ 29,000' }]);
     // Each mark says its status to a screen reader.
     expect(page.all('table.gt td.chk b.cm').map((b) => b.getAttribute('aria-label'))).toEqual(['passed', 'failed', 'failed', 'passed', 'inconclusive']);
+  });
+
+  it('says CI runs replay goldens offline and fork goldens live, with the one command docs/gating.md has, to copy', async () => {
+    const page = await open();
+    expect(page.one('.ph p').textContent).toBe('Every golden CI runs, and how it did at each revision.');
+    expect(page.all('button').map((b) => b.textContent.trim())).not.toContain('Copy CI command');
+    const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
+    expect(ci.textContent).toContain('Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.');
+    expect(ci.textContent).not.toContain('throwaway store');
+    expect(one(ci, '.cmdline').textContent).toBe(`$shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
+    expect(all(ci, 'button').map((b) => b.textContent.trim())).toEqual(['Copy']);
+    // budget has a gate against history: CI must keep the store between runs.
+    expect(ci.textContent).toContain('A gate against history needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.');
+    expect(page.document.body.textContent).toContain('A golden whose checks say what the agent must do is also a task a model can be scored on.');
   });
 });
 

@@ -225,7 +225,8 @@ describe('the Tests screen', () => {
     // Once Find the commit has run, its answer shows above the buttons.
     recordEvent(store, { kind: 'bisect.found', ref: 'goldens/refund-in-limit', at: T0 + 60_000, data: { good: 'c91d0f4', bad: 'd2e8a1f', first: { rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00' }, why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', replays: 4, tokens: 0, upstreamRequests: 0 } });
     expect(testsView(store, goldens).divergences[0]!.found).toEqual({ rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00', why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', untested: [], replays: 4, tokens: 0, at: T0 + 60_000 });
-    expect(view.commands).toEqual({ ci: 'shadowlap test goldens/* --junit report.xml', inCi: 'shadowlap test goldens/* --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"', pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] });
+    // One CI command, as docs/gating.md writes it: the pattern quoted for the CLI to expand, with the reports and annotations.
+    expect(view.commands).toEqual({ ci: `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] });
     store.close();
   });
 
@@ -392,7 +393,7 @@ describe('the Tests screen', () => {
     expect(testPatterns(list)).toEqual(['goldens/*', 'evals/b']);
     const view = testsView(store, list);
     expect(view.commands.run).toEqual(['test', 'goldens/*', 'evals/b']);
-    expect(view.commands.ci).toBe('shadowlap test goldens/* evals/b --junit report.xml');
+    expect(view.commands.ci).toBe(`shadowlap test 'goldens/*' evals/b --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     expect(view.rows.find((r) => r.path === '--writes')).toMatchObject({ error: 'its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json', last: { line: 'can\'t be read: its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json' } });
     expect(runTestsJob(list, {})).toEqual({ title: 'Running the tests', args: ['test', 'goldens/*', 'evals/b'] });
     for (const golden of ['--online', '--writes', '-x/y']) {
@@ -409,10 +410,10 @@ describe('the Tests screen', () => {
     const pack = (path: string): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] });
     const both = testsView(store, [pack('goldens/a'), pack('goldens/b'), pack('packs/budget'), pack('goldens/team/c')]).commands;
     expect(both.run).toEqual(['test', 'goldens/*', 'packs/budget', 'goldens/team/c']);
-    expect(both.ci).toBe('shadowlap test goldens/* packs/budget goldens/team/c --junit report.xml');
+    expect(both.ci).toBe(`shadowlap test 'goldens/*' packs/budget goldens/team/c --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     const elsewhere = testsView(store, [pack('my packs/budget')], { folder: 'recordings' }).commands;
     expect(elsewhere.run).toEqual(['test', 'my packs/budget']);
-    expect(elsewhere.inCi).toBe(`shadowlap test 'my packs/budget' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"`);
+    expect(elsewhere.ci).toBe(`shadowlap test 'my packs/budget' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     expect(elsewhere.pack).toBe('shadowlap pack <run> recordings/<name>');
     expect(testsView(store, []).commands.run).toEqual(['test', 'goldens/*']);
     store.close();

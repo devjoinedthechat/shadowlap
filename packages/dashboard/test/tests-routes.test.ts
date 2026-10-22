@@ -130,7 +130,7 @@ describe('GET /api/tests', () => {
     expect(d).toMatchObject({ golden: 'goldens/refund-in-limit', callNo: 1, normalizerFixes: true, maybeReal: false, bisect: { good: 'c91d0f4', bad: 'd2e8a1f' } });
     expect(d!.volatile).toMatchObject({ path: '$.metadata.user_id', looks: 'a UUID', certain: true });
     expect(view.commands.run).toEqual(['test', 'goldens/*', 'evals/kept-elsewhere']);
-    expect(view.commands.ci).toBe('shadowlap test goldens/* evals/kept-elsewhere --junit report.xml');
+    expect(view.commands.ci).toBe(`shadowlap test 'goldens/*' evals/kept-elsewhere --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
   });
 
   it('answers 304 when nothing changed, and shows no goldens on a dashboard given none', async () => {
@@ -431,7 +431,7 @@ describe('the Tests jobs', () => {
     try {
       const view = await getJson<TestsView>(d, 'tests');
       expect(view.commands.run).toEqual(['test', 'goldens/*', 'allow']);
-      expect(view.commands.ci).toBe('shadowlap test goldens/* allow --junit report.xml');
+      expect(view.commands.ci).toBe(`shadowlap test 'goldens/*' allow --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
       expect(view.rows.find((r) => r.path === '--online')!.error).toMatch(/^its path starts with "-"/);
       expect((await getJson<CiWorkflowsView>(d, 'ci/workflows')).recordings).toBe('goldens/* allow');
       const start = (body: unknown) => api(d, 'jobs', { method: 'POST', body: JSON.stringify(body) });

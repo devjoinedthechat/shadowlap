@@ -1,11 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type BisectMiss, type BisectRevision, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type InconclusiveView, type TestsView } from '../api.js';
-import { Badge, CmdLine, EmptyState, PageHeader } from '../components/bits.js';
+import { Badge, CmdLine, CopyButton, EmptyState, PageHeader } from '../components/bits.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
-import { copyText } from '../dom.js';
 import { treeBusy } from '../fixes/model.js';
 import { useServerJobs } from '../fixes/tree.js';
 import { asksUpdate, checkMark, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, sessionLine, sessionWait, sourceText, testsBusy, type ReportLine } from '../goldens.js';
@@ -18,9 +17,10 @@ import { keepTests, onTestsChanged, testsPaletteCommands } from '../tests-palett
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 
 /**
- * Tests (#/tests): every golden CI replays offline and how it did at each revision. The verdict for
- * the goldens' last results, the table (where each came from, its mode, checks, history and last
- * result), each failure as the CLI prints it with what fixes it, and how to run them in CI.
+ * Tests (#/tests): every golden CI runs and how it did at each revision. The verdict for the goldens'
+ * last results, the table (where each came from, its mode, checks, history and last result), each
+ * failure as the CLI prints it with what fixes it, and how CI runs them: replay goldens offline,
+ * those marked fork live from where they fork.
  */
 
 /** The jobs that change what this page shows: while one of this tab's runs, the verdict's session reads as running. */
@@ -81,7 +81,7 @@ export function TestsPage() {
     setOpen(null);
     guard(() => watchJob(client.startJob(kind, fields)));
   };
-  const header = (actions?: ReactNode) => <PageHeader eyebrow="goldens · shadowlap test" title="Tests" text="Every recording CI replays offline, and how it did at each revision." actions={actions} />;
+  const header = (actions?: ReactNode) => <PageHeader eyebrow="goldens · shadowlap test" title="Tests" text="Every golden CI runs, and how it did at each revision." actions={actions} />;
 
   if (!view) {
     return (
@@ -103,6 +103,8 @@ export function TestsPage() {
   const runWait = wait('run the tests');
   const updateWait = wait('update them');
   const findWait = wait('find the commit');
+  // A gate against history needs the store kept between CI's runs.
+  const historyGate = view.rows.some((r) => r.gate?.gate.kind === 'baseline');
   const actions = (
     <>
       <a className="btn" href={href.settings('alerts')}>
@@ -114,9 +116,6 @@ export function TestsPage() {
           Update goldens…
         </button>
       ) : null}
-      <button className="btn" type="button" onClick={() => void copyText(view.commands.ci).then((ok) => toast(ok ? 'Copied the CI command' : 'Copying was refused by the browser'))}>
-        Copy CI command
-      </button>
       {hasKind(JOB_KINDS.tests) ? (
         <button className="btn lime" type="button" disabled={!!runWait} title={runWait ?? undefined} onClick={() => start(JOB_KINDS.tests, {})}>
           Run tests
@@ -217,10 +216,17 @@ export function TestsPage() {
         <section className="panel">
           <header>
             <h2>In CI</h2>
+            <span className="sp" />
+            <CopyButton text={view.commands.ci} label="the CI command" />
           </header>
           <div className="pbody">
-            <p className="muted">Each golden is unpacked into a throwaway store and replayed with every provider offline. A divergence, a live call, a non-zero exit or a failed check fails it.</p>
-            <CmdLine>{view.commands.inCi}</CmdLine>
+            <p className="muted">Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.</p>
+            <CmdLine>{view.commands.ci}</CmdLine>
+            {historyGate ? (
+              <p className="muted after">
+                A gate against history needs the store kept between runs: the Action’s <code>keep-history</code> does it, or cache <code>.shadowlap/shadowlap.db</code>.
+              </p>
+            ) : null}
           </div>
         </section>
         <section className="panel">
@@ -279,7 +285,7 @@ function Verdict({ view, running }: { view: TestsView; running: boolean }) {
         <div>
           <h2>{view.goldens === 1 ? 'One golden, not tested yet' : `${view.goldens} goldens, none tested yet`}</h2>
           <p>
-            Run tests replays each one offline: <SessionCommand text={command} />
+            {view.rows.some((r) => r.mode === 'fork') ? 'Run tests replays each one, those marked fork live from where they fork' : 'Run tests replays each one offline'}: <SessionCommand text={command} />
           </p>
         </div>
       </div>

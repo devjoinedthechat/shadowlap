@@ -74,7 +74,7 @@ function view(over: Partial<TestsView> = {}): TestsView {
     diverged: ['goldens/refund-in-limit'],
     running: null,
     chaosRunning: null,
-    commands: { ci: 'shadowlap test goldens/* --junit report.xml', inCi: '', pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] },
+    commands: { ci: `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] },
     note: '',
     ...over,
   };

@@ -35,7 +35,7 @@ const view = (diverged: string[], rows = [row('refund-flow', 'pass'), row('limit
   chaosRunning: null,
   failures: [],
   diverged,
-  commands: { ci: '', inCi: '', pack: '', run: ['test', 'goldens/*'], updateAll: null },
+  commands: { ci: '', pack: '', run: ['test', 'goldens/*'], updateAll: null },
   note: '',
 });
 

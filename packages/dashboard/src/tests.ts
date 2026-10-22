@@ -401,10 +401,11 @@ export interface TestsView {
    */
   chaosRunning: { id: string; command: string; startedAt: number } | null;
   commands: {
-    /** Copy CI command. */
+    /**
+     * The In CI panel's one command, as docs/gating.md writes it: every golden, its pattern quoted for
+     * the CLI to expand, with a JUnit report, the job summary and the GitHub annotations.
+     */
     ci: string;
-    /** The In CI panel's command, with the job summary. */
-    inCi: string;
     /** Add a golden. */
     pack: string;
     /** Run tests, as arguments: the CLI expands the pattern itself. */
@@ -439,8 +440,8 @@ export function testPatterns(goldens: readonly GoldenSource[], folder = 'goldens
 /** Why a golden can't be read: a path that would read as an option (whatever is there), or its pack. */
 const unreadable = (g: GoldenSource): string | null => (optionLike(g.path) ? OPTION_LIKE : (g.error ?? null));
 
-/** A word as a shell reads it: `goldens/*` stays as it is, a path with a space is quoted. */
-const shellWord = (s: string) => (/^[A-Za-z0-9_./*:@%+=,-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+/** A word as a shell reads it: a plain path stays as it is; a pattern (`goldens/*`), which the CLI expands itself, and a path with a space are quoted. */
+const ciWord = (s: string) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
@@ -1196,8 +1197,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     running: live ? sessionView(store, live) : null,
     chaosRunning: presets ? { id: presets.sessionId, command: presets.command.join(' '), startedAt: presets.startedAt } : null,
     commands: {
-      ci: `shadowlap test ${patterns.map(shellWord).join(' ')} --junit report.xml`,
-      inCi: `shadowlap test ${patterns.map(shellWord).join(' ')} --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"`,
+      ci: `shadowlap test ${patterns.map(ciWord).join(' ')} --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`,
       pack: `shadowlap pack <run> ${folder}/<name>`,
       run: ['test', ...patterns],
       updateAll: diverged.length ? ['test', ...diverged, '--update'] : null,
