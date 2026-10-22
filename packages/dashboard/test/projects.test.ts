@@ -155,7 +155,9 @@ describe('addProjectPage', () => {
 describe('setupView', () => {
   it('starts with the folder to inspect, and the other steps waiting', () => {
     const v = view(entry('research-agent'), facts());
-    expect(v).toMatchObject({ eyebrow: 'research-agent · ~/research-agent', title: 'No runs yet', intro: 'Record the agent once. Every lap after that replays for free.', skip: null, done: null, shows: 'everywhere' });
+    // What the setup is for: reproducing and testing the agent, not replays that cost nothing (a fork's live part is paid for).
+    expect(v).toMatchObject({ eyebrow: 'research-agent · ~/research-agent', title: 'No runs yet', intro: 'Record the agent once. Then reproduce it exactly, fork it at any call, and keep it as a test.', skip: null, done: null, shows: 'everywhere' });
+    expect(v.intro).not.toMatch(/free|lap/);
     expect(v.steps.map((s) => [s.title, s.state, s.cli])).toEqual([
       ['Inspect the folder', 'current', ['shadowlap init']],
       ['Record a first run', 'todo', ['shadowlap run -- <the command that starts your agent>']],

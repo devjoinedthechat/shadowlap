@@ -13,6 +13,7 @@ import { RemoveProjectDialog } from '../shell/RemoveProject.js';
 import { useTestsWait, useTreeBusy } from '../fixes/tree.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
+import { SETUP_INTRO } from '../../src/setup-words.js';
 import { NotFoundPage } from './NotFound.js';
 
 /**
@@ -179,7 +180,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
     const name = projectOf(meta)?.name ?? 'this project';
     return (
       <Page>
-        <PageHeader eyebrow={name} title="No runs yet" text="Record the agent once. Every lap after that replays for free." />
+        <PageHeader eyebrow={name} title="No runs yet" text={SETUP_INTRO} />
         <StepList steps={setupSteps()} />
       </Page>
     );

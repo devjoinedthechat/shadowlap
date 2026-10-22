@@ -17,6 +17,7 @@ import {
   type StoredEvent,
   type WrapSnippet,
 } from '@shadowlap/engine';
+import { SETUP_INTRO } from './setup-words.js';
 
 /**
  * The dashboard's read model for projects: plain data for the project switcher, the Add a project
@@ -558,7 +559,7 @@ export function setupView(input: SetupInput): SetupView {
     project: { id: project.id, name: project.name, path },
     eyebrow: `${project.name} · ${path}`,
     title: setup.shows === 'everywhere' ? 'No runs yet' : `Set up ${project.name}`,
-    intro: 'Record the agent once. Every lap after that replays for free.',
+    intro: SETUP_INTRO,
     skip: recorded && !tested && !finished ? { label: 'Skip the rest', action: 'finishsetup' } : null,
     inspect,
     record,
