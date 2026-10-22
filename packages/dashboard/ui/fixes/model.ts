@@ -589,7 +589,9 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 /**
  * How a blame, a repair or a fix apply ended, as the drawer's status says it, from the result the
  * command reported: "lost at #5 · exit 0", "no fix found · exit 1", "applied · tests passed · exit 0".
- * Null for any other job, or a result this doesn't know, so the drawer reads the output instead.
+ * A repair whose repairer was never asked (claude was not found, none is configured, it had nothing
+ * to rewrite) and that tried nothing else looked for no fix: "repairer not asked", in amber. Null
+ * for any other job, or a result this doesn't know, so the drawer reads the output instead.
  */
 export function fixJobStatus(job: { kind?: string; code: number | null; result?: unknown }): { text: string; tone: 'ok' | 'warn' | 'err' } | null {
   const r = job.result;
@@ -610,7 +612,10 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
   }
   if (job.kind === 'repair') {
     if (r.outcome === 'fixed') return { text: `${isRecord(r.error) ? 'fixed, not handed over' : 'fixed'} · ${exit}`, tone };
-    if (r.outcome === 'not-fixed') return { text: `no fix found · ${exit}`, tone: 'err' };
+    if (r.outcome === 'not-fixed') {
+      const unasked = typeof r.noRepairer === 'string' && r.noRepairer.trim() !== '' && !(Array.isArray(r.candidates) && r.candidates.length);
+      return unasked ? { text: `repairer not asked · ${exit}`, tone: 'warn' } : { text: `no fix found · ${exit}`, tone: 'err' };
+    }
     if (r.outcome === 'no-diagnosis') return { text: `nothing to try · ${exit}`, tone: 'err' };
     if (r.outcome === 'stopped') return { text: `stopped · ${exit}`, tone: 'err' };
     return null;

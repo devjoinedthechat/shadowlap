@@ -435,6 +435,12 @@ describe('the job drawer', () => {
     expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped early · exit 1', tone: 'err' });
     expect(jobStatus(job('repair', 0, { outcome: 'fixed' }), [])).toEqual({ text: 'fixed · exit 0', tone: 'ok' });
     expect(jobStatus(job('repair', 1, { outcome: 'not-fixed' }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });
+    // Claude Code was never asked, and nothing else was tried: no fix was looked for, which is no failure of the agent's.
+    const unasked = { outcome: 'not-fixed', noRepairer: 'the repairer could not be asked: claude was not found', candidates: [] };
+    expect(jobStatus(job('repair', 1, unasked), [])).toEqual({ text: 'repairer not asked · exit 1', tone: 'warn' });
+    expect(jobStatus(job('repair', 1, { ...unasked, noRepairer: 'no repairer is configured' }), [])).toEqual({ text: 'repairer not asked · exit 1', tone: 'warn' });
+    // A model switch was tried and rejected first: a fix was looked for, and none found.
+    expect(jobStatus(job('repair', 1, { ...unasked, noRepairer: 'no repairer is configured', candidates: [{ id: 1, state: 'rejected' }] }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });
     expect(jobStatus(job('repair', 1, { outcome: 'fixed', error: { message: 'gh refused' } }), [])).toEqual({ text: 'fixed, not handed over · exit 1', tone: 'err' });
     expect(jobStatus(job('apply', 0, { status: 'applied', tests: 'passed' }), [])).toEqual({ text: 'applied · tests passed · exit 0', tone: 'ok' });
     expect(jobStatus(job('apply', 1, { status: 'applied', tests: 'failed' }), [])).toEqual({ text: 'applied · tests failed · exit 1', tone: 'err' });

@@ -18,6 +18,7 @@ import {
   gitApplyCommand,
   GOOD_LABEL,
   hasRecordedCommand,
+  NO_REPAIRER,
   noRepairerOf,
   outcomeOf,
   patchFiles,
@@ -1191,6 +1192,18 @@ export interface NeedsLookItem {
 }
 
 /**
+ * Why a repair that accepted nothing found no fix, when its repairer was never asked and nothing
+ * else was tried: in a few words, `the repairer could not be asked` (claude was not found, say), or
+ * that none is configured or it had nothing to rewrite. Null for a repair that looked for a fix.
+ */
+function unaskedWords(r: StoredRepair): string | null {
+  if (r.accepted || r.report.candidates.length) return null;
+  const none = noRepairerOf(r.report)?.text;
+  if (!none) return null;
+  return none.startsWith(NO_REPAIRER.notAsked) ? NO_REPAIRER.notAsked : none;
+}
+
+/**
  * What needs a look about fixes, most urgent first: applied fixes that don't hold, failures with no
  * fix yet (open fixes, then failed runs never blamed), then verified fixes not applied.
  */
@@ -1205,7 +1218,10 @@ export function needsLookFixes(store: Store, options: { limit?: number } = {}): 
       const where = b?.outcome === 'blamed' && b.report.blamed ? `lost at model call #${b.report.blamed.callNo}` : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
       // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
       const elsewhere = noAnswerLost(b);
-      open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : rec.repairs.length ? 'no fix found yet' : 'no fix yet'}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
+      // A repair whose repairer was never asked looked for no fix: it says why, not that none was found.
+      const last = rec.repairs.at(-1);
+      const repaired = last ? (unaskedWords(last) ?? 'no fix found yet') : 'no fix yet';
+      open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : repaired}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
     } else if (fix.status === 'verified') {
       const p = shownRepair(rec);
       const c = p && acceptedCandidate(p);

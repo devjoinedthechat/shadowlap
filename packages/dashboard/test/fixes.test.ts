@@ -592,6 +592,23 @@ describe('fixes for the other views', () => {
     expect(needsLookFixes(store, { limit: 2 })).toHaveLength(2);
   });
 
+  it('says a repair could not ask its repairer, rather than that it found no fix', () => {
+    const email = { tools: { send_email: 1 } };
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { expect: email, at: NOW });
+    const detail = () => needsLookFixes(store).find((x) => x.fixId === fix.fixId)!.detail;
+    expect(detail()).toBe('lost at model call #5 · no fix yet');
+    const nothing = { ...repairReport({ targets: [run], accepted: false }), repairer: null, candidates: [], diagnosis: null, cost: { blame: 0, repairer: null, verify: 0 } };
+    const why = 'the repairer could not be asked: claude was not found';
+    recordRepair(store, { repairId: 'repair-claudegone', dir: '.shadowlap/repairs/repair-claudegone', report: { ...nothing, why, noRepairer: why, warnings: [`${why}: install Claude Code, or set SHADOWLAP_CLAUDE to its path`] }, expect: email, command: 'r', at: NOW + 1 });
+    expect(detail()).toBe('lost at model call #5 · the repairer could not be asked');
+    recordRepair(store, { repairId: 'repair-norepairer', dir: '.shadowlap/repairs/repair-norepairer', report: { ...nothing, why: 'no repairer is configured', noRepairer: 'no repairer is configured' }, expect: email, command: 'r', at: NOW + 2 });
+    expect(detail()).toBe('lost at model call #5 · no repairer is configured');
+    // One that tried candidates and accepted none looked for a fix, and found none.
+    recordRepair(store, { repairId: 'repair-tried', dir: '.shadowlap/repairs/repair-tried', report: repairReport({ targets: [run], accepted: false }), expect: email, command: 'r', at: NOW + 3 });
+    expect(detail()).toBe('lost at model call #5 · no fix found yet');
+  });
+
   it("opens a fix no answer of the model's lost, rather than offering to fix it, and says where to look", () => {
     const digest = makeRun(store, { labels: ['digest'] });
     const report = { ...blameReport(digest, 'unrescuable', { oracle: EXIT_ORACLE }), failedWrite: { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 } };
