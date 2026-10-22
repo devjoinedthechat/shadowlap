@@ -53,8 +53,11 @@ describe('Needs a look and Activity', () => {
   const gated: NeedsLookRow = { kind: 'test', icon: 'fail', title: 'A test failed: eval-pushy', detail: 'failed · 4 of 8 · rate <= 0.78 (95%)', rule: RULE, action: 'Fix', href: '#/tests', runId: null, fixId: null, at: 1 };
   const plain: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5GRZKRY', detail: 'Write this week’s refund digest · not blamed yet', action: 'Run blame', href: '#/run/01M5GRZKRY', runId: '01M5GRZKRY', fixId: null, at: 2 };
 
+  // Needs a look reads whether actions run here (a read-only dashboard's lines say Open): here they do.
+  const inApp = (el: ReturnType<typeof createElement>) => createElement(AppContext.Provider, { value: { actionsOff: null } as unknown as AppState }, el);
+
   it('says a gate’s verdict whole, each figure unbroken, with its rule on the row’s hover', async () => {
-    r = await render(createElement(NeedsLook, { items: [gated, plain], total: 2 }));
+    r = await render(inApp(createElement(NeedsLook, { items: [gated, plain], total: 2 })));
     const [row, other] = r.all('.attn a');
     const d = row!.querySelector('.d')!;
     expect(d.className).toBe('d gv');
@@ -71,7 +74,7 @@ describe('Needs a look and Activity', () => {
 
   it('fits a failed run’s about line to one line before what is left to do, never clamping it mid-word', async () => {
     const about = { text: 'Write this week’s refund digest, grouped by region, and post it to #refunds before the Monday review with the leads', from: 'user' as const };
-    r = await render(createElement(NeedsLook, { items: [{ ...plain, detail: 'not blamed yet', about }], total: 1 }));
+    r = await render(inApp(createElement(NeedsLook, { items: [{ ...plain, detail: 'not blamed yet', about }], total: 1 })));
     const d = r.one('.attn a .d');
     expect(d.className).toBe('d ab');
     // The about line is a line the fitter fits at whole words (about.ts), with all of it on hover.
