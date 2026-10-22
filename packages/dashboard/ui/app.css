@@ -2259,6 +2259,7 @@ table.gt .gev .wib { margin: 0; width: 96px; }
 .gfoot { padding: 10px 18px 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; color: var(--faint); font-size: 12px; }
 .gfoot p { margin: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .gfoot .chip { flex: none; }
+.gfoot .gnames { font-weight: 500; color: var(--dim); }
 /* Needs a look and Activity: a gate's verdict wraps whole after its dots, never clamped mid-figure; its rule is on hover */
 .needs .attn .d.gv, .feed .w.gv { display: block; -webkit-line-clamp: none; overflow: visible; overflow-wrap: normal; }
 /* Needs a look: a failed run's about line on one line, fitted at whole words (never clamped), then what is left to do, kept whole */

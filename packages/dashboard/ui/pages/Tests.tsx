@@ -544,21 +544,28 @@ function GateEvidence({ g, verdict }: { g: GateShown; verdict: GoldenRow['last']
 
 /**
  * Each gate's rule, stated once under the table for every golden it decided (decision 9), beside the
- * mode its goldens show: no row repeats it.
+ * mode its goldens show: no row repeats it. Where two rules share a mode (two goldens' gates with
+ * different limits), each names the goldens it decided, so "up to 12 attempts" says whose it is.
  */
 function GateRules({ rows }: { rows: readonly GoldenRow[] }) {
-  const rules = new Map<string, string>();
+  const rules = new Map<string, { mode: string; names: string[] }>();
   for (const r of rows) {
     const rule = r.last.gate?.rule;
-    if (rule && !rules.has(rule)) rules.set(rule, r.modeLabel);
+    if (!rule) continue;
+    const kept = rules.get(rule);
+    if (kept) kept.names.push(r.name);
+    else rules.set(rule, { mode: r.modeLabel, names: [r.name] });
   }
   if (!rules.size) return null;
+  const modes = [...rules.values()].map((x) => x.mode);
+  const shared = (mode: string) => modes.filter((m) => m === mode).length > 1;
   return (
     <div className="gfoot">
-      {[...rules].map(([rule, mode]) => (
+      {[...rules].map(([rule, { mode, names }]) => (
         <p key={rule}>
           <span className="chip">{mode}</span>
           <span>
+            {shared(mode) ? <b className="gnames">{`${names.join(', ')}: `}</b> : null}
             <RuleText rule={rule} />
           </span>
         </p>

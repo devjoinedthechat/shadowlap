@@ -160,6 +160,28 @@ describe('Tests’ Last result', () => {
       // Each figure keeps its words where the rule wraps.
       expect(rules[0]![1]).toContain('tells\u00a090%+\u00a0from\u00a070%- at\u00a0<=\u00a05%\u00a0risk, up\u00a0to\u00a020\u00a0attempts');
       expect(r.all('table.gt td').filter((td) => td.textContent.includes('gate:'))).toEqual([]);
+      // One rule for both: no golden named beside it.
+      expect(r.all('.gfoot .gnames')).toEqual([]);
+    } finally {
+      delete g.location;
+    }
+  });
+
+  it('names the goldens of each rule where two rules share a mode, so a limit says whose it is', async () => {
+    const g = globalThis as { location?: unknown };
+    g.location = { hash: '#/tests' };
+    try {
+      const v = view();
+      // The flaky golden's gate decided with a lower limit: its own rule, beside the same mode.
+      const flaky = v.rows.find((x) => x.name === 'flaky')!;
+      flaky.last.gate!.rule = RULE.replace('up to 20 attempts', 'up to 12 attempts');
+      r = await render(page(v));
+      await r.until('the goldens to load', () => r!.all('td.glast').length === 3);
+      const rules = r.all('.gfoot p').map((p) => [p.querySelector('.chip')!.textContent, p.children[1]!.textContent.replace(/\u00a0/g, ' ')]);
+      expect(rules).toEqual([
+        ['fork · gate', `escalates: ${RULE}`],
+        ['fork · gate', `flaky: ${RULE.replace('up to 20 attempts', 'up to 12 attempts')}`],
+      ]);
     } finally {
       delete g.location;
     }
