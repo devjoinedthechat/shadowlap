@@ -1044,10 +1044,10 @@ function agentOfRun(store: Store, run: RunRecord): string | null {
 }
 
 /**
- * The good runs a repair or a verify from a fix keeps: the fix's own, those its verdicts kept; else
- * the runs labelled good that run the same agent as its failing runs (`label:good` when that is all
- * of them, else by id), since a good run of another agent checks nothing a change to this one
- * touches; else none.
+ * The good runs a repair or a verify from a fix keeps: the fix's own good runs (those a repair or a
+ * verify of it kept); else the runs labelled good that run the same agent as its failing runs
+ * (`label:good` when that is all of them, else by id), since a good run of another agent checks
+ * nothing a change to this one touches; else none.
  */
 function keepArgs(store: Store, rec: FixRecords, left: readonly string[]): string[] {
   const own = rec.good.filter((id) => store.getRun(id) !== null);
