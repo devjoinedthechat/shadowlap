@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { wholeInput } from '../../../engine/src/tokens.js';
 import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
@@ -35,7 +36,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
     byKind: s.byKind,
     upstreamRequests: s.upstreamRequests,
     cost: s.cost,
-    tokensNotRespent: s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0),
+    tokensNotRespent: wholeInput(s.tokensNotRespent),
     counts: countOrigins(run.calls.map(originOf)),
     capture: runType(runLikeOf(run)) === 'capture',
     ...spentBy(run),

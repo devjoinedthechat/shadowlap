@@ -12,7 +12,7 @@ export interface MetricInput {
   byKind: { api: number; tool: number };
   upstreamRequests: number;
   cost: { spent: number; saved: number; captured: number; unknownModels: readonly string[] };
-  /** Input tokens the replayed calls did not send again. */
+  /** Input tokens the replayed calls did not send again: uncached, written to the cache and read from it, as `show` and `test` count them. */
   tokensNotRespent: number;
   counts: OriginCounts;
   /** A run imported from a capture: its cost is what the traffic cost where it ran. */
@@ -61,7 +61,7 @@ export function metricItems(m: MetricInput): MetricItem[] {
   if (n.fail) items.push(failed);
   if (n.block + n.stub) items.push([n.block + n.stub, n.block && n.stub ? 'fenced' : n.stub ? 'stubbed' : 'blocked']);
   items.push(upstream, spent);
-  if (m.cost.saved || m.tokensNotRespent) items.push([money(m.cost.saved), `not re-spent${m.tokensNotRespent ? ` · ${ktok(m.tokensNotRespent)} tokens` : ''}`, 'q']);
+  if (m.cost.saved || m.tokensNotRespent) items.push([money(m.cost.saved), `not re-spent${m.tokensNotRespent ? ` · ${ktok(m.tokensNotRespent)} input tokens` : ''}`, 'q']);
   if (m.notWaitedMs) items.push([receiptDuration(m.notWaitedMs), 'not waited', 'q']);
   return items;
 }

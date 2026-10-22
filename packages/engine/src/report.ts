@@ -1,4 +1,5 @@
 import { importedRecording } from './classify.js';
+import { wholeInput } from './tokens.js';
 import { firstDifference } from './diff.js';
 import { isJudgeCall } from './judge-scope.js';
 import { normalizeAddCommand } from './volatile.js';
@@ -182,10 +183,10 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
     lines.push(`${p.green('●')} Recorded ${p.bold(s.runId)}: ${s.total} calls (${kinds}), ${s.upstreamRequests} upstream requests${s.cost.spent ? `, ≈${formatUsd(s.cost.spent)}` : ''}`);
   } else if (s.divergence?.type === 'ended_early') {
     const d = s.divergence;
-    const saved = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
+    const saved = wholeInput(s.tokensNotRespent);
     lines.push(`${p.red('✗')} Ended early at call ${d.callNo}: ${endedEarlyCount(d)} replayed (${kinds}), ${s.upstreamRequests} upstream requests, ${formatTokens(saved)} input tokens not re-spent`);
   } else if (!s.divergence) {
-    const saved = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
+    const saved = wholeInput(s.tokensNotRespent);
     lines.push(
       `${p.green('✓')} Replay clean: ${s.byOrigin.replayed}/${s.total} calls replayed (${kinds}), ${s.upstreamRequests} upstream requests, ${formatTokens(saved)} input tokens not re-spent${s.cost.saved ? ` (≈${formatUsd(s.cost.saved)})` : ''}`,
     );

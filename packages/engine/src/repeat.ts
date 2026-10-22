@@ -2,6 +2,7 @@ import { agentCallsOf } from './judge-scope.js';
 import type { Palette } from './report.js';
 import { formatTokens, plain } from './report.js';
 import { formatUsd } from './prices.js';
+import { wholeInput } from './tokens.js';
 import { safeLine } from './text.js';
 import type { CallRecord, RunStatus, RunSummary } from './types.js';
 
@@ -154,7 +155,7 @@ export function summarizeRepeats(parentRunId: string, given: RepeatAttemptInput[
     succeeded: attempts.filter((a) => a.exitCode === 0).length,
     spent: inputs.reduce((sum, i) => sum + i.summary.cost.spent, 0),
     saved: inputs.reduce((sum, i) => sum + i.summary.cost.saved, 0),
-    tokensNotRespent: inputs.reduce((sum, i) => sum + i.summary.tokensNotRespent.inputTokens + (i.summary.tokensNotRespent.cacheReadInputTokens ?? 0), 0),
+    tokensNotRespent: inputs.reduce((sum, i) => sum + wholeInput(i.summary.tokensNotRespent), 0),
   };
 }
 

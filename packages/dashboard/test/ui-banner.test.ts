@@ -52,7 +52,7 @@ describe('the run’s numbers', () => {
       [1, 'blocked'],
       [7, 'upstream requests'],
       ['≈$0.030', 'spent'],
-      ['$0.021', 'not re-spent · 41.2k tokens', 'q'],
+      ['$0.021', 'not re-spent · 41.2k input tokens', 'q'],
       ['340 ms', 'not waited', 'q'],
     ]);
     expect(receiptDuration(2_900)).toBe('2.9 s');

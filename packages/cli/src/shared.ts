@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { dirname, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { InvalidArgumentError } from 'commander';
-import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
+import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, wholeInput, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { defaultDbPath } from './config.js';
 import { Telemetry, type EventInput } from './telemetry.js';
@@ -32,7 +32,7 @@ export function usageOf(result: EndRunResultLike, durationMs: number, exitCode: 
     stubbed: s.byOrigin.stubbed,
     overridden: s.byOrigin.overridden,
     divergence: s.divergence?.type ?? null,
-    tokensNotRespent: s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0),
+    tokensNotRespent: wholeInput(s.tokensNotRespent),
     durationMs,
     exitCode,
   };
@@ -248,7 +248,8 @@ export function describeCall(store: Store, c: CallRecord): string[] {
   let detail = '';
   if (c.kind === 'api') {
     const u = end?.meta.usage;
-    if (u) detail = `${formatTokens(u.inputTokens + (u.cacheReadInputTokens ?? 0))}→${formatTokens(u.outputTokens)} tok`;
+    // Input tokens as every page counts them: uncached, written to the cache and read from it.
+    if (u) detail = `${formatTokens(wholeInput(u))}→${formatTokens(u.outputTokens)} tok`;
     const model = shortModel(end?.meta.model ?? c.meta.model);
     detail = [detail, model, end?.meta.stopReason ?? ''].filter(Boolean).join(' · ');
   } else if (c.kind === 'tool' && c.requestRef) {

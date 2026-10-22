@@ -98,7 +98,8 @@ export type { PackOptions, PackResult, RecordingMismatch, UnpackResult } from '.
 export type { Palette } from './report.js';
 export { conversationRequest, conversationRequestFor, LiveConversations, Lru, responseInfo, runConversations, runStamp } from './conversations.js';
 export type { CallConversation, ConversationOptions, ConversationSpan, RequestedTool, RunConversations } from './conversations.js';
-export { CACHE_MISS_MIN_TOKENS, cacheMisses, cacheRead, cacheUse, importedRecording, runCache, runCacheUse, sumCacheUse, wholeInput } from './cache.js';
+export { CACHE_MISS_MIN_TOKENS, cacheMisses, cacheRead, cacheUse, importedRecording, runCache, runCacheUse, sumCacheUse } from './cache.js';
+export { wholeInput } from './tokens.js';
 export type { CacheMiss, CacheUse, CacheUseMiss, CacheUseOptions, RunCache, RunCacheUse } from './cache.js';
 export { notWaited, recordedDurations } from './waits.js';
 export type { NotWaited, RunSelection } from './waits.js';
