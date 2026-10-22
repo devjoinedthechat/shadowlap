@@ -2129,3 +2129,5 @@ table.gt td.glast .gpre { display: block; margin-top: 4px; text-decoration: none
 table.gt td.glast .gpre.err { color: var(--cq-red); }
 table.gt td.glast .gpre.warn { color: var(--cq-amber); }
 table.gt td.glast a.gpre:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* the Forks view: what couldn't be decided in the consequence amber */
+.fnode .f2 em.inc { color: var(--cq-amber); }

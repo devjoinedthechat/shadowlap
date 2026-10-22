@@ -8,9 +8,10 @@ import { testsPalette } from '../ui/goldens.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { bannerFor, type BannerInput } from '../ui/run/banner.js';
 import { exitWords, presetAttempt, presetTag, presetWhy } from '../ui/run/preset.js';
+import { ForksView } from '../ui/run/ForksView.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { ChaosMatrix, RunDetail } from '../ui/types.js';
+import type { ChaosMatrix, LineageNode, RunDetail } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -96,6 +97,27 @@ describe('a preset’s attempt', () => {
     const plain = header(null);
     expect(plain).toContain('<span class="tag fork">fork @2</span>');
     expect(plain).toContain('<span>exited with an error</span>');
+  });
+});
+
+describe('a preset’s attempts in the Forks view', () => {
+  let r: Rendered | null = null;
+  afterEach(async () => {
+    await r?.unmount();
+    r = null;
+  });
+
+  it('marks an attempt its preset failed, so it never reads as a healthy fork', async () => {
+    const node = (runId: string, parentRunId: string | null, about: string, status: 'completed' | 'failed'): LineageNode => ({ runId, parentRunId, depth: parentRunId ? 1 : 0, mode: parentRunId ? 'replay' : 'record', status, label: parentRunId ? 'fork @2' : 'recording', divergence: parentRunId ? { callNo: 2, type: 'forced' } : null, calls: 2, spent: 0, saved: 0, startedAt: parentRunId ? 2 : 1, repeat: null, checks: null, about: { text: about, from: parentRunId ? 'change' : 'user' } });
+    const nodes = [node(REC, null, 'Triage the unread threads', 'completed'), node(ATTEMPT, REC, 'tool timeout #2', 'failed'), node(PASSED, REC, 'empty result #2', 'completed')];
+    const client = { lineage: () => Promise.resolve(nodes), fixBundles: () => Promise.resolve([]), runChaos: (id: string) => Promise.resolve(id === REC ? matrix : null) } as unknown as Client;
+    const app = { client, exported: false, meta: null, runs: [], live: [], feeds: {}, tick: 0, runsTick: 0, jobs: [], hasKind: () => true, registerLayer: () => () => undefined };
+    r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ForksView, { runId: REC })));
+    await r.until('the presets to load', () => r!.all('.fnode .f2 em').length === 1);
+    const [, failed, passed] = r.all('.fnode .f2');
+    expect(failed!.querySelector('em')!.textContent).toBe('preset failed');
+    expect(failed!.textContent.startsWith('preset failed · ')).toBe(true);
+    expect(passed!.querySelector('em')).toBeNull();
   });
 });
 

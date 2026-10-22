@@ -38,6 +38,13 @@ export function presetAttempt(matrix: ChaosMatrix | null | undefined, runId: str
   return null;
 }
 
+/** Each attempt a recording's presets made, by its run id: a family's tree marks those that failed or couldn't say. */
+export function presetAttempts(matrix: ChaosMatrix | null | undefined): Map<string, PresetAttempt> {
+  const out = new Map<string, PresetAttempt>();
+  for (const c of matrix?.cells ?? []) for (const x of c.runs) out.set(x.runId, presetAttempt(matrix, x.runId)!);
+  return out;
+}
+
 /**
  * The banner's line, its verdict first so a line cut short at the banner's end still says it: `tool
  * timeout preset · failed: the agent exited with code 1 · on goldens/inbox`.
