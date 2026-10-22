@@ -147,8 +147,8 @@ describe('two runs named', () => {
     await page.until('the answer', () => page!.all('.stepempty h3').length > 0);
     expect(page.one('.stepempty h3').textContent).toBe('Not in this store');
     expect(page.one('.stepempty p').textContent).toBe(`No run ${GONE} in this store. Pick another run for B.`);
-    // The pickers stay, to pick it.
-    expect(page.all('select').length).toBe(2);
+    // The run pickers stay, to pick it.
+    expect(page.all('.rpick').length).toBe(2);
   });
 
   it('says an id that starts several runs’ ids matches several runs, with the side to name in full', async () => {

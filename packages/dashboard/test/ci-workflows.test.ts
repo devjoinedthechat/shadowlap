@@ -75,6 +75,7 @@ describe('the pull request a fix opens', () => {
       ['live call', 'err'],
       ['exit ≠ 0', 'err'],
       ['check failed', 'err'],
+      ['injection', 'err'],
       ['inconclusive', 'warn'],
     ]);
   });
