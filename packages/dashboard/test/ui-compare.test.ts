@@ -166,11 +166,11 @@ describe('the pickers and live runs', () => {
     expect(compareTarget({ runId: 'FORK', parentRunId: 'REC' }, [])).toEqual(['REC', 'FORK']);
   });
 
-  it('words each run as the mock does: a recording, a fork at its call, a clean replay', () => {
+  it('words each run as every list does: a recording, a fork at its call, a clean replay', () => {
     const run = (o: Partial<RunLike>): RunLike => ({ runId: '01K5CQ4N7G000000000000000A', parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: 'python refund_agent.py', codeVersion: null, startedAt: 1, calls: 30, spent: 0, saved: 0, captured: 0, imported: false, covers: null, source: null, labels: [], ...o });
     expect(pickerLabel(run({}))).toBe('01K5CQ4N7G · recording');
     expect(pickerLabel(run({ mode: 'replay', parentRunId: 'p', divergence: { callNo: 17, type: 'request_changed' } }))).toBe('01K5CQ4N7G · fork @17');
-    expect(pickerLabel(run({ mode: 'replay', parentRunId: 'p' }))).toBe('01K5CQ4N7G · clean');
+    expect(pickerLabel(run({ mode: 'replay', parentRunId: 'p' }))).toBe('01K5CQ4N7G · clean replay');
   });
 
   it('reads the comparison again while either run records, by full or short id', () => {

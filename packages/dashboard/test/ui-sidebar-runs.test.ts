@@ -1,5 +1,6 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { RUNS_TEXT } from '../ui/pages/Runs.js';
 import { RunsTable } from '../ui/runspage/RunsTable.js';
 import { RecentRuns } from '../ui/shell/Sidebar.js';
 import type { RunListItem } from '../ui/types.js';
@@ -8,7 +9,8 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
 /**
  * The lists agree on depth and words. The sidebar draws a family as deep as it goes, a step in for
  * each level with its branch lines, as the Overview's grid nests it, and says a failure as Runs'
- * Status says it. Runs gives a fork's Status what came of its writes, or the check it failed.
+ * Status says it. Runs gives a fork's Status what came of its writes, or the check it failed, and
+ * says clean replay where it names one.
  */
 
 const T = Date.UTC(2026, 9, 22, 7, 48);
@@ -118,5 +120,13 @@ describe('the Runs table', () => {
     expect(status(LOST.runId)).toEqual(['st err', 'lost at #9']);
     // A recording with nothing to report keeps its dash.
     expect(status(REC.runId)).toEqual(['st n', '—']);
+  });
+
+  it('says clean replay where it names one, and that every attempt is bundled', async () => {
+    r = await render(table([CLEAN, FORK]));
+    expect(text(row(r, CLEAN.runId).querySelector('.rsub')!)).toBe('clean replay of 01M5H2DKE9 · node refund_agent.mjs T-8812');
+    expect(text(row(r, FORK.runId).querySelector('.rsub')!)).toBe('fork @16 of 01M5H2DKE9 · node refund_agent.mjs T-8812');
+    // Not only --repeat's, blame's and verify's: a golden's repeats and the error-path presets' too.
+    expect(RUNS_TEXT).toBe('Recordings, and the replays and forks made from them. Attempts are bundled under the run they came from.');
   });
 });

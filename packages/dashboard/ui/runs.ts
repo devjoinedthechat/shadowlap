@@ -177,11 +177,11 @@ export function runTag(r: RunLike): { cls: string; text: string } {
   return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'replay' };
 }
 
-/** What kind of run it is, in a word or two: recording, replay, fork @17, capture, test. */
+/** What kind of run it is, in a word or two: recording, clean replay, replay, fork @17, capture, test. */
 export function kindWord(r: RunLike): string {
   const t = runType(r);
   if (t === 'fork') return forkAt(r.divergence!);
-  if (t === 'clean') return 'replay';
+  if (t === 'clean') return 'clean replay';
   return t;
 }
 

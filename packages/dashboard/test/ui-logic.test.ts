@@ -9,7 +9,7 @@ import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, run
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
-import { bundlesAttempts, compareTarget, defaultComparePair, isFailed, matchesChip, matchesText, runOutcome, runStatus, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
+import { bundlesAttempts, compareTarget, defaultComparePair, isFailed, kindWord, matchesChip, matchesText, runOutcome, runStatus, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
 import { inScope, scopeChips, scopeCount, scopesOf } from '../ui/scopes.js';
 import { binCalls, gridCells, miniCells, stripCells, type StripItem } from '../ui/strip.js';
 
@@ -448,6 +448,14 @@ describe('runs', () => {
     expect(runOutcome(failedFork)).toEqual({ tone: 'err', text: 'check failed' });
     expect(runStatus({ ...base, outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, failed: true })).toEqual({ tone: 'err', text: 'check failed' });
     expect(runStatus({ ...fork, outcome: { kind: 'lost', callNo: 4 }, failed: true })).toEqual({ tone: 'err', text: 'lost at #4' });
+  });
+
+  it('says clean replay wherever a clean replay is named', () => {
+    expect(kindWord(clean)).toBe('clean replay');
+    expect(runSubline(clean)).toBe('clean replay of 01K5CQ4N7G · python refund_agent.py');
+    // A replay that never finished is no clean replay.
+    expect(kindWord({ ...clean, status: 'failed', origins: 'rrr' })).toBe('replay');
+    expect(matchesText(clean, 'clean replay')).toBe(true);
   });
 
   it('says attempts are bundled only when the run list tells them apart', () => {

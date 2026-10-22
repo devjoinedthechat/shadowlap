@@ -35,6 +35,13 @@ import { viewerTimeZone } from './Overview.js';
  */
 
 const PAGE = 50;
+
+/**
+ * What the page holds, every kind of attempt in one word: `--repeat`'s, blame's and verify's, a
+ * golden's repeats in one test session and the error-path presets' are all bundled.
+ */
+export const RUNS_TEXT = 'Recordings, and the replays and forks made from them. Attempts are bundled under the run they came from.';
+
 const kept = {
   chip: 'all' as RunChip,
   query: '',
@@ -282,11 +289,7 @@ function ServerRuns() {
       <PageHeader
         eyebrow={p ? compactPath(p.path) : 'runs'}
         title="Runs"
-        text={
-          <>
-            Recordings, and the replays and forks made from them. Attempts from <code>--repeat</code>, blame and verify are bundled under the run they came from.
-          </>
-        }
+        text={RUNS_TEXT}
         actions={
           <>
             {store && hasKind(JOB_KINDS.pull) ? (
@@ -350,15 +353,7 @@ function ExportedRuns() {
       <PageHeader
         eyebrow="exported copy"
         title="Runs"
-        text={
-          bundlesAttempts(runs ?? []) ? (
-            <>
-              Recordings, and the replays and forks made from them. Attempts from <code>--repeat</code>, blame and verify are bundled under the run they came from.
-            </>
-          ) : (
-            'Recordings, and the replays and forks made from them.'
-          )
-        }
+        text={bundlesAttempts(runs ?? []) ? RUNS_TEXT : 'Recordings, and the replays and forks made from them.'}
       />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, count: counts[key] }))} value={chip} onChange={setChip} hideEmpty />
