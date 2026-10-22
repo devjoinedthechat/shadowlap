@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { CodeBlock } from '../../components/bits.js';
 import { Tile } from '../../components/Icon.js';
 import { shortFixId } from '../../fixes/model.js';
@@ -261,14 +261,26 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
 
 /**
  * What each choice for an inconclusive golden (a gate, a judge or an injection test that can't
- * decide) does to the steps, both panels' as the action's `inconclusive` input takes it.
+ * decide) does, in the design's words for its "in CI" row (the Gates panel's), and that it sets
+ * both panels' steps, as the action's `inconclusive` input takes it.
  */
-const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', string> = {
-  fail: 'A gate, judge or injection test that can’t decide counts as failed: Slack hears of it, and the job fails.',
-  warn: 'A gate, judge or injection test that can’t decide warns instead: Slack doesn’t hear of it, and the job goes on. Fix on failure’s step lets it through too.',
+const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', ReactNode> = {
+  fail: <>Fails the step, as a failed one does. Run more attempts can settle it. It sets Fix on failure’s step too.</>,
+  warn: (
+    <>
+      Lets the step pass with a warning: <code>inconclusive: warn</code>. Every report still says inconclusive. It sets Fix on failure’s step too.
+    </>
+  ),
+};
+
+/** What the toast says when the choice changes. */
+const INCONCLUSIVE_TOAST: Record<'fail' | 'warn', string> = {
+  fail: 'An inconclusive golden fails the step, the default',
+  warn: 'An inconclusive golden warns · both steps say inconclusive: warn',
 };
 
 function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
+  const { toast } = useApp();
   const a = view.alerts;
   const toggle = () => set({ onlyMain: !o.onlyMain });
   return (
@@ -313,13 +325,22 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
           </div>
           <div className="setrow tight">
             <div>
-              <b>Inconclusive goldens</b>
+              <b>An inconclusive golden</b>
               <span>{INCONCLUSIVE_WORDS[o.inconclusive ?? 'fail']}</span>
             </div>
-            <div className="seg" role="group" aria-label="Inconclusive goldens">
+            <div className="seg" role="group" aria-label="An inconclusive golden in CI">
               {(['fail', 'warn'] as const).map((k) => (
-                <button key={k} type="button" aria-pressed={(o.inconclusive ?? 'fail') === k} onClick={() => set({ inconclusive: k })}>
-                  {k === 'fail' ? 'Fail' : 'Warn'}
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={(o.inconclusive ?? 'fail') === k}
+                  onClick={() => {
+                    if ((o.inconclusive ?? 'fail') === k) return;
+                    set({ inconclusive: k });
+                    toast(INCONCLUSIVE_TOAST[k]);
+                  }}
+                >
+                  {k === 'fail' ? 'Fails' : 'Warns'}
                 </button>
               ))}
             </div>

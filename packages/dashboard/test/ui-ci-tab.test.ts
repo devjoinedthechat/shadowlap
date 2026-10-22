@@ -8,9 +8,9 @@ import { render, type Rendered } from './ui-render.js';
 
 /**
  * Settings → CI as the page renders the server's answer: the steps as a job of their own runs them,
- * the failures a golden counts, an inconclusive one in amber, the Inconclusive goldens control,
- * which asks the server again with the choice, the keys a row lists, each kept whole, and a config
- * that can't be read.
+ * the failures a golden counts, an inconclusive one in amber, the design's An inconclusive golden
+ * control, which asks the server again with the choice, the keys a row lists, each kept whole, and a
+ * config that can't be read.
  */
 
 const goldens = [
@@ -56,20 +56,26 @@ describe('Settings → CI', () => {
     expect(r.all('.cip .codebox')[0]!.textContent).toContain('- uses: actions/checkout@v7\n  with:\n    ref: ${{ github.head_ref || github.ref }}\n- uses: actions/setup-node@v7\n');
   });
 
-  it('asks the server again when Inconclusive goldens is set to warn, which takes the row away and adds the input', async () => {
+  it('asks the server again when An inconclusive golden is set to Warns, in the design’s words, which takes the row away and adds the input to both steps', async () => {
     const ask = vi.fn(async (o: Partial<CiWorkflowOptions> = {}) => ciWorkflows({ ...CI_DEFAULTS, ...o }, { preview: null, failing: 0, at: null, repository: null, branch: null }));
-    r = await render(createElement(AppContext.Provider, { value: app(ask as unknown as Client['ciWorkflows']) }, createElement(SettingsPage, { tab: 'alerts' })));
+    const toast = vi.fn();
+    r = await render(createElement(AppContext.Provider, { value: app(ask as unknown as Client['ciWorkflows'], toast) }, createElement(SettingsPage, { tab: 'alerts' })));
     await r.until('the panels', () => r!.all('#alerts .cilist').length > 1);
-    const seg = r.one('#alerts .seg[aria-label="Inconclusive goldens"]');
+    const row = () => r!.all('#alerts .setrow').find((x) => x.querySelector('b')?.textContent === 'An inconclusive golden')!;
+    expect(row().querySelector('span')!.textContent).toBe('Fails the step, as a failed one does. Run more attempts can settle it. It sets Fix on failure’s step too.');
+    const seg = r.one('#alerts .seg[aria-label="An inconclusive golden in CI"]');
     expect(seg.querySelectorAll('button').map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([
-      ['Fail', 'true'],
-      ['Warn', 'false'],
+      ['Fails', 'true'],
+      ['Warns', 'false'],
     ]);
-    await r.click(r.byText('#alerts .seg[aria-label="Inconclusive goldens"] button', 'Warn'));
+    await r.click(r.byText('#alerts .seg[aria-label="An inconclusive golden in CI"] button', 'Warns'));
     await r.until('the answer for warn', () => r!.all('#alerts .teamside .cilist li').length === 5);
     expect(ask).toHaveBeenLastCalledWith(expect.objectContaining({ inconclusive: 'warn' }));
-    expect(r.all('#alerts .codebox')[0]!.textContent).toContain('    inconclusive: warn\n');
-    expect(r.byText('#alerts .seg[aria-label="Inconclusive goldens"] button', 'Warn').getAttribute('aria-pressed')).toBe('true');
+    expect(toast).toHaveBeenCalledWith('An inconclusive golden warns · both steps say inconclusive: warn');
+    for (const code of r.all('.cip .codebox')) expect(code.textContent).toContain('    inconclusive: warn\n');
+    expect(row().querySelector('span')!.textContent).toBe('Lets the step pass with a warning: inconclusive: warn. Every report still says inconclusive. It sets Fix on failure’s step too.');
+    expect(row().querySelector('span code')!.textContent).toBe('inconclusive: warn');
+    expect(r.byText('#alerts .seg[aria-label="An inconclusive golden in CI"] button', 'Warns').getAttribute('aria-pressed')).toBe('true');
   });
 
   it('keeps each key of a long list whole, breaking only after a comma', async () => {
