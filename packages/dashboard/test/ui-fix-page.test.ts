@@ -70,6 +70,27 @@ function blame(runId: string, o: { report?: BlameReport; expect?: unknown; title
   return recordBlame(store, { runId, report: o.report ?? blameReport(runId), expect: o.expect === undefined ? EXPECT : o.expect, scope: null, command: `shadowlap blame ${runId.slice(0, 10)}`, title: o.title ?? 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
 }
 
+describe('the Blame step', () => {
+  const panels = () => r!.all('section.panel header h2').map(text);
+
+  it('titles the row of calls by where the run was lost only when blame named the call', async () => {
+    const lost = newRun({ labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api'] });
+    await open(blame(lost).fix.fixId, 'blame');
+    expect(panels()[0]).toBe('Where the run was lost');
+    await r!.unmount();
+    // No answer of the model's rescued it: no call lost it, so its row is the run's calls, never where it was lost.
+    const none = newRun({ labels: ['digest'], calls: ['api', 'tool', 'api'] });
+    await open(blame(none, { report: blameReport(none, 'unrescuable'), expect: null, title: 'The agent exited with code 1' }).fix.fixId, 'blame');
+    expect(panels()[0]).toBe('The run’s calls');
+    expect(panels()).not.toContain('Where the run was lost');
+    await r!.unmount();
+    // Nor did a search that stopped part way.
+    const stopped = newRun({ labels: ['triage'], calls: ['api', 'tool', 'api'] });
+    await open(blame(stopped, { report: blameReport(stopped, 'stopped') }).fix.fixId, 'blame');
+    expect(panels()[0]).toBe('The run’s calls');
+  });
+});
+
 describe('the Repair step', () => {
   it('heads an accepted repair with when and by whom, and says what every stage cost in a grey line above its command', async () => {
     const run = newRun({ labels: ['refund-bug'] });

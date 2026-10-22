@@ -55,7 +55,8 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
       <div className="grid2">
         <section className="panel">
           <header>
-            <h2>Where the run was lost</h2>
+            {/* Where the run was lost only once blame named the call: otherwise these are the run's calls, with what each probe found. */}
+            <h2>{b.outcome === 'blamed' ? 'Where the run was lost' : 'The run’s calls'}</h2>
             <span className="sub">each probe re-asks one model call; everything before it replays free</span>
           </header>
           <div className="pbody">
