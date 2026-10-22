@@ -459,6 +459,52 @@ To hear about failures in Slack, let the action count them without failing, post
 
 They need an incoming webhook from your Slack workspace, its URL as a repository secret (`SLACK_WEBHOOK_URL` here), the test step's `id`, and Node 22.16 or later, not 23. A golden that runs live, one marked `fork` (a gate's golden is one) or with an [injection gate](#injection-gates), needs its providers' keys in the test step's `env`, or it fails and Slack hears of it on every run: the dashboard's Settings → CI adds them by name, from the providers those goldens' recordings called and their judges' (`2 goldens run live (fork) · ANTHROPIC_API_KEY`), and where it can't name them, a comment in that `env` says to add your agent's own. The `github.ref` condition keeps pull requests quiet, since their checks already show a failure; drop it to post for every branch. The dashboard's Settings → CI writes your repository's default branch there, and as the base of a fix pull request: the branch origin's HEAD names, else `main` or `master`, whichever the repository has. A golden counts as failed when its replay diverges, it tries a live call where it must replay offline, the agent exits with an error, a check fails (token and cost budgets included) or its injection gate fails, and when a gate, a judge or an injection test can't decide (inconclusive), unless the step says `inconclusive: warn`. Settings → CI's **An inconclusive golden** (**Fails** or **Warns**) sets that for both steps. While `shadowlap.config.json` can't be read, Settings → CI says so, and each step says in its `env` what it leaves out until the file is fixed: which goldens run live and their keys, and whether Fix on failure pushes.
 
+## One job for all of it
+
+Fix on failure, Alerts and the team store's push are inputs and steps around one run of the goldens, so they go in one job: the action runs once, with `id: goldens`, and the steps you turned on follow it. The dashboard's Settings → CI writes it from its switches (**Fix pull requests**, **Tell Slack**, **Team store**, which follows Push from CI, and **An inconclusive golden**):
+
+```yaml
+# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }
+- uses: actions/checkout@v7
+  with:
+    ref: ${{ github.head_ref || github.ref }}
+- uses: actions/setup-node@v7
+  with:
+    node-version: 22
+- run: npm ci && npm run build   # whatever your agent needs to run
+- run: npm install -g @anthropic-ai/claude-code
+# here, the bucket's credentials: the two if: steps shadowlap store ci prints
+- uses: devjoinedthechat/shadowlap@v0.1.0
+  id: goldens
+  with:
+    version: 0.1.0
+    recordings: goldens/*
+    fail-on-divergence: false
+    fix-on-failure: true
+    fix-budget: 2.00
+    repairer: claude-code
+    push: true
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # and your agent's own provider keys: blame and verify run it live
+
+- name: Tell Slack
+  if: steps.goldens.outputs.failed != '0' && github.ref == 'refs/heads/main'
+  uses: slackapi/slack-github-action@v4
+  with:
+    webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+    webhook-type: incoming-webhook
+    payload: |
+      text: "Shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed on ${{ github.ref_name }}. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+- name: Fail the job
+  if: steps.goldens.outputs.failed != '0'
+  run: exit 1
+```
+
+With Slack on, the action counts the failures without failing the step (`fail-on-divergence: false`), so a fix can open and Slack can hear of it before **Fail the job** fails it; with Slack off, the action fails the job itself. Each part needs what its section above says, once: the job's permissions add up, and its `env` holds every golden's keys while Fix on failure is on (blame and verify run the agent live), else those of the goldens that run live. With Push from CI on, the step pushes whichever parts are on, so the store setup's CI step (Settings → Store) gives this job the bucket's credentials alone, the two `if:` steps `shadowlap store ci --provider github` prints, where the comment stands: no second job runs the goldens again.
+
 ## Keeping goldens honest
 
 - **Values an agent makes anew on every run** (a request id, a per-run UUID, a temp path) diverge on the first CI run. Run [`shadowlap calibrate`](./normalizers-and-redaction.md#calibrate) on a recording before you pack it, or add the [normalizer](./normalizers-and-redaction.md) the report suggests; normalizers apply at match time, so old goldens keep working. Today's date in a prompt needs neither: [dates near a run's start](./normalizers-and-redaction.md#dates-and-times) already match.

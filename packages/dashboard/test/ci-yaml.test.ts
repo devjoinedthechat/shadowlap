@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar, VERSION } from '../src/ci-yaml.js';
+import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar, VERSION, workflowNeeds, workflowYaml } from '../src/ci-yaml.js';
 
 /** The workflow steps behind Settings → CI, checked against the action they use and the docs that show them. */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -198,6 +198,73 @@ describe('the Fix on failure step', () => {
   });
 });
 
+describe('your workflow', () => {
+  const fix = { budget: '2.00', repairer: 'claude-code' };
+  const alerts = { onlyMain: true, secret: 'SLACK_WEBHOOK_URL' };
+  const steps = (yaml: string) => yaml.split('\n').filter((l) => l.startsWith('- '));
+
+  it('runs the goldens once, in one job, whatever is turned on: one checkout, one Node, the action once with its id', () => {
+    for (const push of [null, 'oidc', 'keys'] as const)
+      for (const f of [null, fix])
+        for (const a of [null, alerts]) {
+          const all = steps(workflowYaml({ fix: f, alerts: a, push, keys: ['ANTHROPIC_API_KEY'] }));
+          expect(all.filter((l) => l.startsWith('- uses: actions/checkout@'))).toHaveLength(1);
+          expect(all.filter((l) => l.startsWith('- uses: actions/setup-node@'))).toHaveLength(1);
+          expect(all.filter((l) => l === `- uses: ${ACTION}`)).toHaveLength(1);
+          expect(workflowYaml({ fix: f, alerts: a, push })).toContain(`- uses: ${ACTION}\n  id: goldens\n  with:\n`);
+        }
+  });
+
+  it('is the Alerts steps when only Slack is on, and the plain test step when nothing is', () => {
+    expect(workflowYaml({ fix: null, alerts })).toBe(alertsYaml(alerts));
+    const plain = workflowYaml({ fix: null, alerts: null });
+    expect(steps(plain)).toEqual(['- uses: actions/checkout@v7', '- uses: actions/setup-node@v7', '- run: npm ci && npm run build   # whatever your agent needs to run', `- uses: ${ACTION}`]);
+    // It fails the job itself: no count to read, nothing after it.
+    expect(plain).not.toContain('fail-on-divergence');
+  });
+
+  it('opens a fix and tells Slack from the same step, the fix’s branch checked out and its keys in its env', () => {
+    const yaml = workflowYaml({ fix, alerts, keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] });
+    expect(yaml.split('\n')[0]).toBe('# the job needs: permissions: { contents: write, pull-requests: write }');
+    expect(yaml).toContain('- uses: actions/checkout@v7\n  with:\n    ref: ${{ github.head_ref || github.ref }}\n');
+    expect(yaml).toContain('- run: npm install -g @anthropic-ai/claude-code\n');
+    expect(withKeys(yaml)).toEqual(['version', 'recordings', 'fail-on-divergence', 'fix-on-failure', 'fix-budget', 'repairer']);
+    expect(yaml).toContain('  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}\n\n- name: Tell Slack\n');
+    expect(steps(yaml).slice(-2)).toEqual(['- name: Tell Slack', '- name: Fail the job']);
+  });
+
+  it('pushes from the same step while Push from CI is on, with the bucket’s credentials, a fix or not', () => {
+    const oidc = workflowYaml({ fix: null, alerts: null, push: 'oidc', liveKeys: ['ANTHROPIC_API_KEY'] });
+    expect(oidc.split('\n')[0]).toBe('# the job needs: permissions: { contents: read, id-token: write }');
+    expect(oidc).toContain("# here, the bucket's credentials: the two if: steps shadowlap store ci prints\n- uses: ");
+    expect(withKeys(oidc)).toEqual(['version', 'recordings', 'push']);
+    expect(oidc).toContain('  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}');
+    const r2 = workflowYaml({ fix: null, alerts, push: 'keys' });
+    expect(r2.split('\n')[0]).toBe("# and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push");
+    expect(r2).toContain("    push: ${{ !startsWith(github.event_name, 'pull_request') }}\n  env:\n    R2_ACCESS_KEY_ID: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_ACCESS_KEY_ID || '' }}\n");
+    expect(workflowYaml({ fix, alerts: null, push: 'oidc' }).split('\n')[0]).toBe('# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }');
+    for (const push of [null, 'oidc', 'keys'] as const) for (const key of withKeys(workflowYaml({ fix, alerts, push, inconclusive: 'warn' }))) expect(inputs).toContain(key);
+  });
+
+  it('is YAML a workflow reads as written, its expressions left whole for GitHub', () => {
+    for (const push of [null, 'oidc', 'keys'] as const)
+      for (const line of workflowYaml({ fix, alerts, push }).split('\n')) {
+        if (!line.trim() || line.trimStart().startsWith('#')) continue;
+        expect(line, line).toMatch(/^(?: {2})*(?:- )?(?:[a-z-]+:(?: .*)?|[A-Z0-9_]+: .*|text: .*|exit 1)$|^ {6}text: /);
+      }
+  });
+
+  it('needs what each part turned on needs, once each, then Node', () => {
+    const needs = workflowNeeds({ fix: fixOnFailureNeeds('claude-code', 'oidc', ['ANTHROPIC_API_KEY']), alerts: alertsNeeds('SLACK_WEBHOOK_URL'), push: 'oidc' });
+    expect(needs.filter((r) => r[1] === 'id-token: write')).toHaveLength(1);
+    expect(needs.at(-1)).toEqual(['Node 22.16 or later on the runner, not 23', 'node-version: 22']);
+    expect(needs.filter((r) => r[1] === 'node-version: 22')).toHaveLength(1);
+    expect(needs.map((r) => r[1])).toEqual(expect.arrayContaining(['ANTHROPIC_API_KEY', 'contents: write', 'Slack app', 'id: goldens']));
+    // Neither part on, with Push from CI: the bucket's credentials alone.
+    expect(workflowNeeds({ fix: null, alerts: null, push: 'keys' })).toEqual([['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets'], ['Node 22.16 or later on the runner, not 23', 'node-version: 22']]);
+  });
+});
+
 describe('the Alerts steps', () => {
   it('post the failed count to Slack, only for main when asked, then fail the job', () => {
     const yaml = alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' });
@@ -331,6 +398,7 @@ describe('docs/ci.md', () => {
     expect(docs).toContain(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'oidc' }));
     expect(docs).toContain(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'keys' }));
     expect(docs).toContain(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' }));
+    expect(docs).toContain(workflowYaml({ fix: { budget: '2.00', repairer: 'claude-code' }, alerts: { onlyMain: true, secret: 'SLACK_WEBHOOK_URL' }, push: 'oidc' }));
     for (const input of inputs) expect(docs, `docs/ci.md lists the input ${input}`).toContain(`| \`${input}\` |`);
   });
 });

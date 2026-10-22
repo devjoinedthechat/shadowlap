@@ -2,21 +2,24 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { judgeTarget, type Store } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, shortStoreName, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
-import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, VERSION, WORKFLOW_FILE, type BucketCredentials, type LiveGoldens } from './ci-yaml.js';
+import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, VERSION, WORKFLOW_FILE, workflowNeeds, workflowYaml, type BucketCredentials, type LiveGoldens } from './ci-yaml.js';
 import { fixDetail, fixList } from './fixes.js';
 import type { TeamStoreInput } from './team-store.js';
 
 /**
- * The read model behind Settings → CI (`GET /api/ci/workflows`): the two panels' workflow steps,
- * what each needs, and a preview of what lands, for the options the panels are set to. The YAML
- * comes from ci-yaml.ts, as docs/ci.md shows it; nothing here is stored, since the steps go into the
- * repository's own workflow file. Whether the Fix on failure step pushes is none of its options: it
+ * The read model behind Settings → CI (`GET /api/ci/workflows`): your workflow, one job in which the
+ * action runs the goldens once and the parts turned on follow it (a fix pull request, Slack), what
+ * it needs, and for each part a preview of what lands, for the options the panels are set to. The
+ * YAML comes from ci-yaml.ts, as docs/ci.md shows it; nothing here is stored, since the steps go
+ * into the repository's own workflow file. Whether the step pushes is none of its options: it
  * follows Push from CI, read from shadowlap.config.json as Settings → Store reads it.
  */
 
 export interface CiWorkflowOptions {
   /** Fix on failure is on: when it is off, the panel dims its settings and a failed check just fails the build. */
   fix: boolean;
+  /** Alerts are on: the workflow tells Slack, then fails the job; off, its panel dims and the test step fails the job itself. */
+  alerts: boolean;
   /** Dollars per failing golden: `2.00`. */
   budget: string;
   /** As `repair --repairer` takes it: `claude-code`, `anthropic`, `openai:gpt-5`. */
@@ -29,7 +32,7 @@ export interface CiWorkflowOptions {
   inconclusive?: 'fail' | 'warn';
 }
 
-export const CI_DEFAULTS: CiWorkflowOptions = { fix: false, budget: '2.00', repairer: 'claude-code', onlyMain: true, secret: 'SLACK_WEBHOOK_URL' };
+export const CI_DEFAULTS: CiWorkflowOptions = { fix: false, alerts: true, budget: '2.00', repairer: 'claude-code', onlyMain: true, secret: 'SLACK_WEBHOOK_URL' };
 
 /** A row of an "it needs" or "it never" list, or a failure with its tag: what it is, and the value on the right. */
 export interface CiListRow {
@@ -84,6 +87,18 @@ export interface CiWorkflowsView {
   /** Where the steps go: `.github/workflows/agent.yml`. */
   file: string;
   action: string;
+  /**
+   * Your workflow: one job, the action once (`id: goldens`), then the parts turned on (`fix`,
+   * `alerts`), pushing to the team store when Push from CI is on; what it needs for what is on, and
+   * what fails a golden in it.
+   */
+  workflow: {
+    fix: boolean;
+    alerts: boolean;
+    yaml: string;
+    needs: CiListRow[];
+    failures: CiListRow[];
+  };
   fixOnFailure: {
     on: boolean;
     budget: string;
@@ -92,6 +107,7 @@ export interface CiWorkflowsView {
     repairers: Array<{ value: string; label: string }>;
     /** What the panel says while it is off. */
     offNote: string;
+    /** Its step as a job of its own, as docs/ci.md shows it, and what that needs. */
     yaml: string;
     needs: CiListRow[];
     never: CiListRow[];
@@ -100,11 +116,15 @@ export interface CiWorkflowsView {
     teamStore: CiTeamStore;
   };
   alerts: {
+    on: boolean;
+    /** What the panel says while it is off. */
+    offNote: string;
     onlyMain: boolean;
     /** The repository's default branch, which "only for the main branch" means: `main`, `master`, or what origin names. */
     branch: string;
     /** The secret's name as GitHub allows it (letters, digits and `_`). */
     secret: string;
+    /** Its steps as a job of their own, as docs/ci.md shows them, and what they need. */
     yaml: string;
     needs: CiListRow[];
     /** What counts as a failure, each with its tag, and its tone. */
@@ -132,7 +152,7 @@ const REPAIRER = /^(claude-code|anthropic|openai)(:[A-Za-z0-9._\-/]{1,80})?$/;
 /** The panels' options from the query string; anything left out takes its default. */
 export function parseCiOptions(q: URLSearchParams): CiWorkflowOptions | { error: string } {
   const out: CiWorkflowOptions = { ...CI_DEFAULTS };
-  for (const [key, name] of [['fix', 'fix'], ['onlyMain', 'onlyMain']] as const) {
+  for (const [key, name] of [['fix', 'fix'], ['alerts', 'alerts'], ['onlyMain', 'onlyMain']] as const) {
     const raw = q.get(key);
     if (raw === null || raw === '') continue;
     const v = BOOL[raw.toLowerCase()];
@@ -253,16 +273,17 @@ export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | nu
   } catch {
     loc = null;
   }
-  if (!loc) return { push: false, name: null, credentials: null, note: 'None yet, so fixes stay in GitHub. With one, this follows Push from CI.', lands: [] };
+  if (!loc) return { push: false, name: null, credentials: null, note: 'None yet, so test runs and fixes stay in GitHub. With one, this follows Push from CI.', lands: [] };
   const push = input?.ciPush !== false;
   const credentials: BucketCredentials = ciStep('github', loc, { version: VERSION }).oidc ? 'oidc' : 'keys';
   return {
     push,
     name: shortStoreName(loc),
     credentials,
-    note: push ? 'Follows Push from CI: on, so fixes from your branches go there too.' : 'Follows Push from CI: off, so fixes stay in GitHub.',
+    note: push ? 'Follows Push from CI: on, so the test runs, and fixes from your branches, go there too.' : 'Follows Push from CI: off, so test runs and fixes stay in GitHub.',
     lands: push
       ? [
+          { label: 'each test run and the session’s report', value: 'test --push' },
           { label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' },
           credentials === 'oidc' ? { label: 'from a pull request’s job, only its runs, in its own folder', value: 'pr/<n>/' } : { label: 'from a pull request’s job, nothing: R2 keys can’t be kept to pr/', value: 'no push' },
         ]
@@ -483,9 +504,30 @@ export function ciWorkflows(
   // With Push from CI on, the step pushes too and needs the bucket's credentials; off, it is as it was.
   const teamStore = ciTeamStore(context.teamStore ?? null, unreadable);
   const push = teamStore.push ? teamStore.credentials : null;
+  const fixNeeds = fixOnFailureNeeds(o.repairer, push, keys, unreadable);
+  const alertNeeds = alertsNeeds(o.secret, live, unreadable);
   return {
     file: WORKFLOW_FILE,
     action: ACTION,
+    workflow: {
+      fix: o.fix,
+      alerts: o.alerts,
+      yaml: workflowYaml({
+        fix: o.fix ? { budget: o.budget, repairer: o.repairer } : null,
+        alerts: o.alerts ? { onlyMain: o.onlyMain, secret: o.secret, branch: main } : null,
+        push,
+        recordings,
+        ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}),
+        keys,
+        keysUnknown,
+        liveKeys: live?.keys ?? [],
+        liveKeysUnknown: !!live?.unknown,
+        unreadable,
+      }),
+      // What the parts turned on need; the goldens that run live need their keys whichever is on.
+      needs: rows(workflowNeeds({ fix: o.fix ? fixNeeds : null, alerts: o.alerts ? alertNeeds : alertNeeds.filter((r) => /runs? live|which goldens/.test(r[0])), push })),
+      failures: rows(alertFailures(inconclusive)),
+    },
     fixOnFailure: {
       on: o.fix,
       budget: o.budget,
@@ -494,17 +536,19 @@ export function ciWorkflows(
       repairers: REPAIRERS.map((r) => ({ ...r })),
       offNote: 'Off: a failed check fails the build, and nobody opens a fix.',
       yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings, push, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}), ...(keys.length ? { keys } : {}), ...(keysUnknown ? { keysUnknown } : {}), ...(unreadable ? { unreadable } : {}) }),
-      needs: rows(fixOnFailureNeeds(o.repairer, push, keys, unreadable)),
+      needs: rows(fixNeeds),
       never: rows(fixOnFailureNever(o.budget)),
       preview: context.preview ? { ...context.preview, base: main, spent: context.preview.spent.replace(/ of \$[\d.]+$/, ` of $${o.budget}`) } : examplePreview(o.budget, main),
       teamStore,
     },
     alerts: {
+      on: o.alerts,
+      offNote: 'Off: Slack hears nothing, and a failed golden fails the build.',
       onlyMain: o.onlyMain,
       branch: main,
       secret: alertsSecret(o.secret),
       yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings, branch: main, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}), ...(live?.keys.length ? { keys: live.keys } : {}), ...(live?.unknown ? { keysUnknown: true } : {}), ...(unreadable ? { unreadable } : {}) }),
-      needs: rows(alertsNeeds(o.secret, live, unreadable)),
+      needs: rows(alertNeeds),
       failures: rows(alertFailures(inconclusive)),
       inconclusive,
       message: { app: 'GitHub Actions', text: message.text, link: message.link, at: context.at },

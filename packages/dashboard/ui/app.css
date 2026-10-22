@@ -1594,7 +1594,7 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .cip + .cip { margin-top: 16px; }
 .cip .cimain > p.muted { margin: 0 0 6px; }
 .cip .offnote { display: block; margin-top: 6px; font-weight: 500; color: var(--warn); }
-.cip.off .cimain .setrow, .cip.off .codewrap, .cip.off .prcard, .cip.off .teamside ul { opacity: .45; }
+.cip.off .cimain .setrow, .cip.off .codewrap, .cip.off .prcard, .cip.off .slackmsg, .cip.off .teamside ul { opacity: .45; }
 .cip .teamside .k { display: block; margin: 0 0 8px; }
 .cip .teamside .alertcard + .k { margin-top: 20px; }
 .setrow select.sel, .setrow input.inp { height: 32px; min-width: 170px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 10px; outline: none; flex: none; }

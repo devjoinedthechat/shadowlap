@@ -6,7 +6,7 @@ import { recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engi
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { providers } from '@shadowlap/sidecar';
 import { ciFixBranch, ciTeamStore, ciWorkflows, CI_DEFAULTS, fixPreview, gitFacts, goldenProviders, liveGoldens, parseCiOptions, PROVIDER_KEYS, verifyLine } from '../src/ci-workflows.js';
-import { alertsYaml, fixOnFailureYaml } from '../src/ci-yaml.js';
+import { alertsYaml, fixOnFailureYaml, workflowYaml } from '../src/ci-yaml.js';
 import { readTeamStoreInput } from '../src/team-store.js';
 
 /**
@@ -34,7 +34,10 @@ const tmp = () => {
 describe('the panels\' options', () => {
   it('take their defaults, and what the query string gives', () => {
     expect(parseCiOptions(new URLSearchParams())).toEqual(CI_DEFAULTS);
-    expect(parseCiOptions(new URLSearchParams('fix=true&budget=$1&repairer=anthropic:claude-opus-5-5&onlyMain=0&secret=HOOK'))).toEqual({ fix: true, budget: '1.00', repairer: 'anthropic:claude-opus-5-5', onlyMain: false, secret: 'HOOK' });
+    expect(parseCiOptions(new URLSearchParams('fix=true&budget=$1&repairer=anthropic:claude-opus-5-5&onlyMain=0&secret=HOOK'))).toEqual({ fix: true, alerts: true, budget: '1.00', repairer: 'anthropic:claude-opus-5-5', onlyMain: false, secret: 'HOOK' });
+    // Slack alerts are a part of the workflow that can be left out.
+    expect(parseCiOptions(new URLSearchParams('alerts=off'))).toMatchObject({ alerts: false });
+    expect(parseCiOptions(new URLSearchParams('alerts=maybe'))).toEqual({ error: 'alerts is on or off' });
     // What an inconclusive golden does to the step: fail it, the default, or warn.
     expect(parseCiOptions(new URLSearchParams('inconclusive=warn'))).toMatchObject({ inconclusive: 'warn' });
     expect(parseCiOptions(new URLSearchParams('inconclusive=maybe'))).toEqual({ error: 'inconclusive is fail or warn' });
@@ -205,6 +208,40 @@ describe('the goldens that run live in CI', () => {
   });
 });
 
+describe('your workflow', () => {
+  const context = { preview: null, failing: 0, at: null, repository: null, branch: null };
+  const goldens = [
+    { path: 'goldens/refund-flow', live: ['fork' as const], keys: ['ANTHROPIC_API_KEY'], known: true },
+    { path: 'goldens/triage', live: [], keys: ['OPENAI_API_KEY'], known: true },
+  ];
+
+  it('is one job, from the switches: the action once, then a fix and Slack where they are on', () => {
+    const plain = ciWorkflows({ ...CI_DEFAULTS, alerts: false }, { ...context, goldens }).workflow;
+    expect(plain).toMatchObject({ fix: false, alerts: false });
+    expect(plain.yaml).toBe(workflowYaml({ fix: null, alerts: null, keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'], keysUnknown: false, liveKeys: ['ANTHROPIC_API_KEY'], liveKeysUnknown: false, unreadable: false }));
+    // Only the golden that runs live needs its key without a fix; with one, every golden's.
+    expect(plain.yaml).toContain('    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}');
+    expect(plain.yaml).not.toContain('OPENAI_API_KEY');
+    expect(plain.needs.map((r) => r.label)).toEqual(['1 golden runs live (fork)', 'Node 22.16 or later on the runner, not 23']);
+    const both = ciWorkflows({ ...CI_DEFAULTS, fix: true }, { ...context, goldens }).workflow;
+    expect(both.yaml.match(/- uses: devjoinedthechat\/shadowlap@/g)).toHaveLength(1);
+    expect(both.yaml).toContain('    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}');
+    expect(both.needs.map((r) => r.value)).toEqual(expect.arrayContaining(['ANTHROPIC_API_KEY', 'contents: write', 'pull-requests: write', 'Slack app', 'id: goldens', 'node-version: 22']));
+    expect(both.failures.map((r) => r.value)).toContain('inconclusive');
+  });
+
+  it('pushes the test runs while Push from CI is on, a fix or not, needing the bucket’s credentials once', () => {
+    const store = { store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' };
+    const w = ciWorkflows(CI_DEFAULTS, { ...context, teamStore: store }).workflow;
+    expect(w.yaml).toContain('    push: true\n');
+    expect(w.yaml.split('\n')[0]).toBe('# the job needs: permissions: { contents: read, id-token: write }');
+    expect(w.needs.filter((r) => r.value === 'id-token: write')).toHaveLength(1);
+    const fixed = ciWorkflows({ ...CI_DEFAULTS, fix: true }, { ...context, teamStore: store }).workflow;
+    expect(fixed.needs.filter((r) => r.value === 'id-token: write')).toHaveLength(1);
+    expect(ciWorkflows(CI_DEFAULTS, { ...context, teamStore: { ...store, ciPush: false } }).workflow.yaml).not.toContain('push:');
+  });
+});
+
 describe('the team store Fix on failure follows', () => {
   const context = { preview: null, failing: 0, at: null, repository: null, branch: null };
   const plain = fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code' });
@@ -215,8 +252,9 @@ describe('the team store Fix on failure follows', () => {
       push: true,
       name: 'northwind-agent-runs/support-agent',
       credentials: 'oidc',
-      note: 'Follows Push from CI: on, so fixes from your branches go there too.',
+      note: 'Follows Push from CI: on, so the test runs, and fixes from your branches, go there too.',
       lands: [
+        { label: 'each test run and the session’s report', value: 'test --push' },
         { label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' },
         // A pull request's own credentials write only to its folder, and it sends no fixes.
         { label: 'from a pull request’s job, only its runs, in its own folder', value: 'pr/<n>/' },
@@ -239,13 +277,13 @@ describe('the team store Fix on failure follows', () => {
   it('leaves the step as it was when Push from CI is off, or there is no store to push to', () => {
     const off = ciWorkflows(CI_DEFAULTS, { ...context, teamStore: { store: 's3://northwind-agent-runs/support-agent', ciPush: false } }).fixOnFailure;
     expect(off.yaml).toBe(plain);
-    expect(off.teamStore).toEqual({ push: false, name: 'northwind-agent-runs/support-agent', credentials: 'oidc', note: 'Follows Push from CI: off, so fixes stay in GitHub.', lands: [] });
+    expect(off.teamStore).toEqual({ push: false, name: 'northwind-agent-runs/support-agent', credentials: 'oidc', note: 'Follows Push from CI: off, so test runs and fixes stay in GitHub.', lands: [] });
     expect(off.needs.map((r) => r.value)).toEqual(['ANTHROPIC_API_KEY', 'env', 'contents: write', 'pull-requests: write', 'ref: head_ref', 'node-version: 22']);
     // No project, no store, or one that isn't a store URL: nothing to push to.
     for (const teamStore of [undefined, null, { store: null }, { store: 'ftp://nowhere/runs' }]) {
       const none = ciWorkflows(CI_DEFAULTS, { ...context, ...(teamStore === undefined ? {} : { teamStore }) }).fixOnFailure;
       expect(none.yaml).toBe(plain);
-      expect(none.teamStore).toEqual({ push: false, name: null, credentials: null, note: 'None yet, so fixes stay in GitHub. With one, this follows Push from CI.', lands: [] });
+      expect(none.teamStore).toEqual({ push: false, name: null, credentials: null, note: 'None yet, so test runs and fixes stay in GitHub. With one, this follows Push from CI.', lands: [] });
     }
   });
 

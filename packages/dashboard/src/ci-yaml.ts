@@ -311,6 +311,105 @@ export function alertsYaml(s: AlertsSettings): string {
 }
 
 /**
+ * Your workflow, as Settings → CI writes it: one job, in which the action runs the goldens once
+ * (`id: goldens`), then the steps of what is turned on. `fix` opens a fix pull request when a check
+ * fails (the branch checked out, Claude Code installed for its repairer, its inputs, its keys and
+ * GH_TOKEN, the permissions it needs); `alerts` tells Slack, so the action counts the failures
+ * without failing (`fail-on-divergence: false`), then Slack is told and the job fails; `push`
+ * follows Push from CI: the test runs, and each fix, go to the team store, with the bucket's
+ * credentials as `shadowlap store ci` gives them. Neither on is the plain test step, which fails the
+ * job itself. Its env holds every golden's keys when blame and verify run the agent live (`fix`),
+ * else those of the goldens that run live; comments say what it can't name or read.
+ */
+export interface WorkflowSettings {
+  fix: Pick<FixOnFailureSettings, 'budget' | 'repairer'> | null;
+  alerts: Pick<AlertsSettings, 'onlyMain' | 'secret' | 'branch'> | null;
+  push?: BucketCredentials | null;
+  recordings?: string;
+  inconclusive?: 'fail' | 'warn';
+  /** Every golden's keys (for blame and verify), and whether one's can't be named. */
+  keys?: readonly string[];
+  keysUnknown?: boolean;
+  /** The keys of the goldens that run live in CI, and whether one's can't be named. */
+  liveKeys?: readonly string[];
+  liveKeysUnknown?: boolean;
+  unreadable?: boolean;
+}
+
+export function workflowYaml(s: WorkflowSettings): string {
+  const fix = s.fix ? { ...s.fix, repairer: s.fix.repairer.trim() || 'anthropic' } : null;
+  const push = s.push ?? null;
+  const lines: string[] = [];
+  const permissions = [...(fix ? ['contents: write', 'pull-requests: write'] : push === 'oidc' ? ['contents: read'] : []), ...(push === 'oidc' ? ['id-token: write'] : [])];
+  if (permissions.length) lines.push(`# the job needs: permissions: { ${permissions.join(', ')} }`);
+  if (push === 'keys') lines.push(BUCKET_COMMENT.keys);
+  lines.push(...(fix ? CHECKOUT_BRANCH : [CHECKOUT]), ...SETUP_NODE, INSTALL);
+  if (fix && (fix.repairer === 'claude-code' || fix.repairer.startsWith('claude-code:'))) lines.push('- run: npm install -g @anthropic-ai/claude-code');
+  if (push === 'oidc') lines.push(BUCKET_COMMENT.oidc);
+  lines.push(
+    `- uses: ${ACTION}`,
+    '  id: goldens',
+    '  with:',
+    `    version: ${VERSION}`,
+    `    recordings: ${scalar(s.recordings ?? 'goldens/*')}`,
+    ...(s.alerts ? ['    fail-on-divergence: false'] : []),
+    ...inconclusiveLine(s.inconclusive),
+    ...(fix ? ['    fix-on-failure: true', `    fix-budget: ${dollars(fix.budget)}`, `    repairer: ${scalar(fix.repairer)}`] : []),
+    ...(push === 'oidc' ? ['    push: true'] : push === 'keys' ? [`    push: \${{ ${NOT_A_PULL_REQUEST} }}`] : []),
+  );
+  const r2 = push === 'keys' ? R2_KEYS.map((k) => `${k}: \${{ ${NOT_A_PULL_REQUEST} && secrets.${k} || '' }}`) : [];
+  if (fix) {
+    const key = repairerKey(fix.repairer);
+    const known = (s.keys ?? []).length > 0 && !s.keysUnknown;
+    const agentKeys = (s.keys ?? []).filter((k, i, all) => k !== key && all.indexOf(k) === i);
+    lines.push('  env:', keyLine(key), '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}', ...r2.map((l) => `    ${l}`), ...agentKeys.map(keyLine), ...(known ? [] : [`    ${AGENT_KEYS_COMMENT}`]), ...(s.unreadable ? [`    ${FIX_UNREADABLE_COMMENT}`] : []));
+  } else {
+    const keys = [...new Set(s.liveKeys ?? [])];
+    const notes = [...(s.liveKeysUnknown ? [`# ${keys.length ? 'and ' : ''}your agent's own provider keys: the goldens that run live call them`] : []), ...(s.unreadable ? [ALERTS_UNREADABLE_COMMENT] : [])];
+    if (r2.length) lines.push('  env:', ...r2.map((l) => `    ${l}`), ...keys.map(keyLine), ...notes.map((n) => `    ${n}`));
+    else lines.push(...envLines(keys, notes));
+  }
+  if (s.alerts) {
+    const failed = "steps.goldens.outputs.failed != '0'";
+    const cond = failed + (s.alerts.onlyMain ? ` && github.ref == 'refs/heads/${s.alerts.branch ?? 'main'}'` : '');
+    lines.push(
+      '',
+      '- name: Tell Slack',
+      `  if: ${cond}`,
+      '  uses: slackapi/slack-github-action@v4',
+      '  with:',
+      `    webhook: \${{ secrets.${alertsSecret(s.alerts.secret)} }}`,
+      '    webhook-type: incoming-webhook',
+      '    payload: |',
+      `      text: "${ALERT_TEXT}"`,
+      '',
+      '- name: Fail the job',
+      `  if: ${failed}`,
+      '  run: exit 1',
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
+ * What your workflow needs, as label and value: each turned-on part's own rows, once each, then Node.
+ * Push's credentials are the team store's, whichever parts are on.
+ */
+export function workflowNeeds(o: { fix: NeedRow[] | null; alerts: NeedRow[] | null; push: BucketCredentials | null }): NeedRow[] {
+  const rows: NeedRow[] = [];
+  const add = (r: NeedRow) => {
+    if (r[1] === NODE_NEED[1]) return;
+    if (!rows.some((x) => x[0] === r[0] && x[1] === r[1])) rows.push(r);
+  };
+  for (const r of o.fix ?? []) add(r);
+  for (const r of o.alerts ?? []) add(r);
+  if (!o.fix && o.push === 'oidc') add(['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write']);
+  if (!o.fix && o.push === 'keys') add(['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets']);
+  rows.push(NODE_NEED);
+  return rows;
+}
+
+/**
  * The goldens that run live in CI and the keys they need, as a needs row says them: "2 goldens run
  * live (fork) · ANTHROPIC_API_KEY". `count` goldens, for `why` (a fork, an injection gate).
  */

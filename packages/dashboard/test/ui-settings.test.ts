@@ -427,15 +427,15 @@ describe('the CI tab', () => {
     const row = (teamStore: { store: string | null; ciPush?: boolean }) =>
       renderToStaticMarkup(createElement(TeamStoreRow, { store: ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null, teamStore }).fixOnFailure.teamStore }));
     const on = row({ store: 's3://northwind-agent-runs/support-agent' });
-    expect(on).toContain('<b>Team store</b><span>Follows Push from CI: on, so fixes from your branches go there too.</span>');
+    expect(on).toContain('<b>Team store</b><span>Follows Push from CI: on, so the test runs, and fixes from your branches, go there too.</span>');
     expect(on).toContain('href="#/settings/store"');
     expect(on).toContain('title="Push from CI is set in Settings → Store, for northwind-agent-runs/support-agent"');
     // No switch of its own: Push from CI is set in one place.
     expect(on).not.toMatch(/<button|<select|<input|role="switch"|aria-pressed/);
-    expect(row({ store: 's3://northwind-agent-runs/support-agent', ciPush: false })).toContain('Follows Push from CI: off, so fixes stay in GitHub.');
+    expect(row({ store: 's3://northwind-agent-runs/support-agent', ciPush: false })).toContain('Follows Push from CI: off, so test runs and fixes stay in GitHub.');
     // With none, the link leads to setting one up, which the row says there isn't yet.
     const none = row({ store: null });
-    expect(none).toContain('None yet, so fixes stay in GitHub. With one, this follows Push from CI.');
+    expect(none).toContain('None yet, so test runs and fixes stay in GitHub. With one, this follows Push from CI.');
     expect(none).toContain('title="Set up a team store in Settings → Store"');
   });
 });

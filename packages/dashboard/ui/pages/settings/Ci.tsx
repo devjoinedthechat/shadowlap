@@ -13,14 +13,16 @@ import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
 
 /**
- * CI (`#/settings/alerts`, as Alerts had it): two panels with one layout. Settings on the left as
- * rows ending in what the step needs; on the right, what lands and a short list; the workflow file
- * across the bottom with Copy. The panels come from `GET /api/ci/workflows` (src/ci-workflows.ts),
- * asked again as you pick, which fills in the project's goldens, its newest verified fix, its
- * repository, its default branch and its team store: Fix on failure follows Push from CI, which
- * Settings → Store sets, and with it on the step pushes each fix there too. While
- * shadowlap.config.json can't be read, the tab says so as the others do, and each step says what it
- * leaves out. Nothing is stored: the steps go into your own workflow file and run in your CI.
+ * CI (`#/settings/alerts`, as Alerts had it): your workflow first, one job in which the action runs
+ * the goldens once and the parts you turn on follow it, built from its switches (fix pull requests,
+ * Slack, the team store, which follows Push from CI, and what an inconclusive golden does), with
+ * what it needs, what fails a golden, and the workflow file across the bottom with Copy. Then a
+ * panel for each part, in the same layout: its settings on the left, what lands on the right,
+ * dimmed while it is off. The panels come from `GET /api/ci/workflows` (src/ci-workflows.ts), asked
+ * again as you pick, which fills in the project's goldens, its newest verified fix, its repository,
+ * its default branch and its team store. While shadowlap.config.json can't be read, the tab says so
+ * as the others do, and the workflow says what it leaves out. Nothing is stored: the steps go into
+ * your own workflow file and run in your CI.
  */
 
 /** What the panels were changed to, kept while the dashboard is open; what isn't changed is the server's default. */
@@ -38,6 +40,7 @@ export function CiTab() {
     if (error) return <LoadProblem error={error} />;
     return (
       <>
+        <Loading title="Your workflow" />
         <Loading title="Fix on failure" />
         <Loading title="Alerts" />
       </>
@@ -49,15 +52,20 @@ export function CiTab() {
     <>
       {/* The steps read the goldens' tests and the store from it: each says what it leaves out until it is fixed. */}
       {view.configError ? <ConfigProblem error={view.configError} /> : null}
-      <FixOnFailure
+      <Workflow
         o={o}
         view={view}
         set={set}
-        onToggle={(on) => {
+        onFix={(on) => {
           set({ fix: on });
-          toast(on ? 'Fix on failure is on · add the step to your workflow' : 'Fix on failure is off');
+          toast(on ? 'Fix pull requests are on · your workflow has the step' : 'Fix pull requests are off');
+        }}
+        onAlerts={(on) => {
+          set({ alerts: on });
+          toast(on ? 'Slack alerts are on · your workflow has the steps' : 'Slack alerts are off');
         }}
       />
+      <FixOnFailure o={o} view={view} set={set} />
       <Alerts o={o} view={view} set={set} />
       {error ? <p className="fieldnote err">{error.message}</p> : null}
     </>
@@ -140,22 +148,109 @@ function Select({ label, value, options, onChange }: { label: string; value: str
   );
 }
 
-function FixOnFailure({ o, view, set, onToggle }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void; onToggle: (on: boolean) => void }) {
+/** A switch, as the design draws one: a pill that takes Space and Enter as a click. */
+function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
+  return (
+    <span
+      className="switch"
+      role="switch"
+      tabIndex={0}
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+      onKeyDown={(e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          onChange(!on);
+        }
+      }}
+    >
+      <i />
+    </span>
+  );
+}
+
+/**
+ * Your workflow: the switches it is built from, what it needs for what is on, what fails a golden in
+ * it, and the one job's steps: one checkout, one Node, the action once (`id: goldens`), then a fix
+ * pull request and Slack where they are on.
+ */
+function Workflow({ o, view, set, onFix, onAlerts }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void; onFix: (on: boolean) => void; onAlerts: (on: boolean) => void }) {
+  const { toast } = useApp();
+  const w = view.workflow;
+  return (
+    <section className="panel set cip" id="workflow">
+      <header>
+        <h2>Your workflow</h2>
+        <span className="sub">one job: the action runs your goldens once, then what you turn on</span>
+      </header>
+      <div className="alertgrid">
+        <div className="pbody cimain">
+          <div className="setrow tight">
+            <div>
+              <b>Fix pull requests</b>
+              <span>When an outcome check fails, CI runs blame, repair and verify, and opens a pull request with the fix verify accepted.</span>
+            </div>
+            <Switch on={o.fix} label="Fix pull requests" onChange={onFix} />
+          </div>
+          <div className="setrow tight">
+            <div>
+              <b>Tell Slack</b>
+              <span>The action counts the goldens that failed; Slack hears of them, then the job fails.</span>
+            </div>
+            <Switch on={o.alerts} label="Tell Slack" onChange={onAlerts} />
+          </div>
+          {view.fixOnFailure.teamStore ? <TeamStoreRow store={view.fixOnFailure.teamStore} /> : null}
+          <div className="setrow tight">
+            <div>
+              <b>An inconclusive golden</b>
+              <span>{INCONCLUSIVE_WORDS[o.inconclusive ?? 'fail']}</span>
+            </div>
+            <div className="seg" role="group" aria-label="An inconclusive golden in CI">
+              {(['fail', 'warn'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={(o.inconclusive ?? 'fail') === k}
+                  onClick={() => {
+                    if ((o.inconclusive ?? 'fail') === k) return;
+                    set({ inconclusive: k });
+                    toast(INCONCLUSIVE_TOAST[k]);
+                  }}
+                >
+                  {k === 'fail' ? 'Fails' : 'Warns'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <span className="k cineeds">it needs</span>
+          <CiList rows={w.needs} />
+        </div>
+        <div className="pbody teamside">
+          <span className="k">a golden fails when</span>
+          <CiList rows={w.failures} tone="err" />
+          {view.fixOnFailure.teamStore?.lands.length ? (
+            <>
+              <span className="k">and in the team store</span>
+              <CiList rows={view.fixOnFailure.teamStore.lands} />
+            </>
+          ) : null}
+        </div>
+      </div>
+      <div className="pbody cicode">
+        <CodeBlock file={view.file} code={w.yaml} copyLabel="your workflow’s steps" />
+      </div>
+    </section>
+  );
+}
+
+function FixOnFailure({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
   const f = view.fixOnFailure;
   return (
-    <section className={`panel set cip${o.fix ? '' : ' off'}`}>
+    <section className={`panel set cip${o.fix ? '' : ' off'}`} id="fix-on-failure">
       <header>
         <h2>Fix on failure</h2>
         <span className="sub">a fix pull request when a rule breaks in CI</span>
-        <span className="sp" />
-        <div className="seg" role="group" aria-label="Fix on failure">
-          <button type="button" aria-pressed={o.fix} onClick={() => !o.fix && onToggle(true)}>
-            On
-          </button>
-          <button type="button" aria-pressed={!o.fix} onClick={() => o.fix && onToggle(false)}>
-            Off
-          </button>
-        </div>
       </header>
       <div className="alertgrid">
         <div className="pbody cimain">
@@ -177,25 +272,13 @@ function FixOnFailure({ o, view, set, onToggle }: { o: CiWorkflowOptions; view: 
             </div>
             <Select label="Repairer" value={o.repairer} options={f.repairers} onChange={(repairer) => set({ repairer })} />
           </div>
-          {f.teamStore ? <TeamStoreRow store={f.teamStore} /> : null}
-          <span className="k cineeds">it needs</span>
-          <CiList rows={f.needs} />
         </div>
         <div className="pbody teamside">
           <span className="k">{f.preview.example ? 'what lands in GitHub · example' : 'what lands in GitHub'}</span>
           <PullRequest pr={f.preview} />
-          {f.teamStore?.lands.length ? (
-            <>
-              <span className="k">and in the team store</span>
-              <CiList rows={f.teamStore.lands} />
-            </>
-          ) : null}
           <span className="k">it never</span>
           <CiList rows={f.never} />
         </div>
-      </div>
-      <div className="pbody cicode">
-        <CodeBlock file={view.file} code={f.yaml} copyLabel="the workflow step" />
       </div>
     </section>
   );
@@ -262,14 +345,14 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
 
 /**
  * What each choice for an inconclusive golden (a gate, a judge or an injection test that can't
- * decide) does, in the design's words for its "in CI" row (the Gates panel's), and that it sets
- * both panels' steps, as the action's `inconclusive` input takes it.
+ * decide) does, in the design's words for its "in CI" row (the Gates panel's), as the action's
+ * `inconclusive` input takes it.
  */
 const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', ReactNode> = {
-  fail: <>Fails the step, as a failed one does. Run more attempts can settle it. It sets Fix on failure’s step too.</>,
+  fail: <>Fails the step, as a failed one does. Run more attempts can settle it.</>,
   warn: (
     <>
-      Lets the step pass with a warning: <code>inconclusive: warn</code>. Every report still says inconclusive. It sets Fix on failure’s step too.
+      Lets the step pass with a warning: <code>inconclusive: warn</code>. Every report still says inconclusive.
     </>
   ),
 };
@@ -277,15 +360,13 @@ const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', ReactNode> = {
 /** What the toast says when the choice changes. */
 const INCONCLUSIVE_TOAST: Record<'fail' | 'warn', string> = {
   fail: 'An inconclusive golden fails the step, the default',
-  warn: 'An inconclusive golden warns · both steps say inconclusive: warn',
+  warn: 'An inconclusive golden warns · the step says inconclusive: warn',
 };
 
 function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
-  const { toast } = useApp();
   const a = view.alerts;
-  const toggle = () => set({ onlyMain: !o.onlyMain });
   return (
-    <section className="panel set cip" id="alerts">
+    <section className={`panel set cip${o.alerts ? '' : ' off'}`} id="alerts">
       <header>
         <h2>Alerts</h2>
         <span className="sub">a message in Slack when a golden fails in CI</span>
@@ -294,28 +375,14 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
         <div className="pbody cimain">
           <p className="muted">
             <span className="ln">The test step counts the goldens that failed.</span> <span className="ln">These steps post the count to Slack, then fail the job.</span>
+            {o.alerts ? null : <b className="offnote">{a.offNote}</b>}
           </p>
           <div className="setrow tight">
             <div>
               <b>Only for the {a.branch} branch</b>
               <span>Pull requests stay quiet; their checks already show it.</span>
             </div>
-            <span
-              className="switch"
-              role="switch"
-              tabIndex={0}
-              aria-checked={o.onlyMain}
-              aria-label={`Only for the ${a.branch} branch`}
-              onClick={toggle}
-              onKeyDown={(e) => {
-                if (e.key === ' ' || e.key === 'Enter') {
-                  e.preventDefault();
-                  toggle();
-                }
-              }}
-            >
-              <i />
-            </span>
+            <Switch on={o.onlyMain} label={`Only for the ${a.branch} branch`} onChange={(onlyMain) => set({ onlyMain })} />
           </div>
           <div className="setrow tight">
             <div>
@@ -324,30 +391,6 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
             </div>
             <input className="inp" type="text" spellCheck={false} autoComplete="off" aria-label="Webhook secret" value={o.secret} onChange={(e) => set({ secret: typedSecret(e.target.value) })} />
           </div>
-          <div className="setrow tight">
-            <div>
-              <b>An inconclusive golden</b>
-              <span>{INCONCLUSIVE_WORDS[o.inconclusive ?? 'fail']}</span>
-            </div>
-            <div className="seg" role="group" aria-label="An inconclusive golden in CI">
-              {(['fail', 'warn'] as const).map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  aria-pressed={(o.inconclusive ?? 'fail') === k}
-                  onClick={() => {
-                    if ((o.inconclusive ?? 'fail') === k) return;
-                    set({ inconclusive: k });
-                    toast(INCONCLUSIVE_TOAST[k]);
-                  }}
-                >
-                  {k === 'fail' ? 'Fails' : 'Warns'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <span className="k cineeds">it needs</span>
-          <CiList rows={a.needs} />
         </div>
         <div className="pbody teamside">
           <span className="k">what lands in Slack</span>
@@ -363,12 +406,7 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
               <span className="sl">{a.message.link}</span>
             </div>
           </div>
-          <span className="k">a golden fails when</span>
-          <CiList rows={a.failures} tone="err" />
         </div>
-      </div>
-      <div className="pbody cicode">
-        <CodeBlock file={view.file} code={a.yaml} copyLabel={`the workflow steps (secret ${a.secret})`} />
       </div>
     </section>
   );
