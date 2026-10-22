@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { aboutForms, CUT, cutForms, fitLines, hintForms, orderForms, tabAbout, type FitLine } from '../ui/about.js';
+import { aboutForms, changeForms, CUT, cutForms, fitLines, hintForms, orderForms, tabAbout, type FitLine } from '../ui/about.js';
 import { AboutLine, FitHint } from '../ui/components/About.js';
 
 /**
@@ -47,6 +47,15 @@ describe('the shorter forms of an about line', () => {
     const user = aboutForms({ text: line, from: 'user' });
     expect(user[0]).toBe(line);
     expect(user.at(-1)).toBe('');
+  });
+
+  it('shortens a field set by its path to the path’s last parts, the value and the call kept whole', () => {
+    expect(aboutForms({ text: 'thinking.budget_tokens=4096 #17', from: 'change' })).toEqual(['thinking.budget_tokens=4096 #17', 'budget_tokens=4096 #17', '']);
+    expect(changeForms('metadata.tags.priority=high #3')).toEqual(['tags.priority=high #3', 'priority=high #3']);
+    // A field with no path, and any other change, has no shorter form.
+    expect(aboutForms({ text: 'temperature=1 #17', from: 'change' })).toEqual(['temperature=1 #17', '']);
+    expect(changeForms('claude-haiku-4-5 #17')).toEqual([]);
+    expect(changeForms('lookup_policy live #16')).toEqual([]);
   });
 
   it('are tried widest first, the forms that keep the line’s end before those that stop at a number', () => {

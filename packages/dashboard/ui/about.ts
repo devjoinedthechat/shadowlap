@@ -90,13 +90,28 @@ export function sourceForms(s: string): string[] {
 }
 
 /**
+ * The shorter forms of a change of a request field, set by its dotted path (`thinking.budget_tokens=4096
+ * #17`): the path's last parts with the value and the call, `budget_tokens=4096 #17`, which still say
+ * what changed and where. The value and the call are never cut; nor is any other change.
+ */
+export function changeForms(s: string): string[] {
+  const m = /^([^\s=]+)=(\S+)((?: #\d+)?)$/.exec(s);
+  if (!m) return [];
+  const parts = m[1]!.split('.');
+  const out: string[] = [];
+  for (let k = 1; k < parts.length; k++) if (parts[k]) out.push(`${parts.slice(k).join('.')}=${m[2]}${m[3]}`);
+  return out;
+}
+
+/**
  * An about line and every shorter form of it, then nothing: with no room even for its shortest form,
  * a line gives its place up rather than show part of a word. What a replay or a fork changed, and a
- * clean replay's "clean replay", are never cut; an import of several files gives way a file at a time.
+ * clean replay's "clean replay", are never cut, but for a field set by its path, which may drop the
+ * path's first parts (`changeForms`); an import of several files gives way a file at a time.
  */
 export function aboutForms(about: Pick<RunAbout, 'text' | 'from'>): string[] {
   const whole = about.text;
-  const cuts = about.from === 'change' || about.from === 'nothing' ? [] : about.from === 'source' && whole.includes(', ') ? sourceForms(whole) : cutForms(whole);
+  const cuts = about.from === 'change' ? changeForms(whole) : about.from === 'nothing' ? [] : about.from === 'source' && whole.includes(', ') ? sourceForms(whole) : cutForms(whole);
   const out = [whole];
   for (const c of cuts) if (!out.includes(c)) out.push(c);
   return [...out.slice(0, 1), ...out.slice(1).sort((a, b) => b.length - a.length), ''];
@@ -236,11 +251,15 @@ function markIn(el: HTMLElement, word: string): void {
  * Fits every about line and command hint in `scope`: `[data-about]` lines take their about line's
  * forms (`data-from` says where it comes from: a change is never cut), `[data-fit]` hints are cut at
  * their end, or take `data-short`. A line `data-mark` names a search word in is marked where the
- * word still is. Lines not laid out (a hidden column) are left as they are.
+ * word still is. Lines not laid out (a hidden column) are left as they are. A status beside a line
+ * that may give way (`[data-gives]`, the sidebar's "· check failed") does, before a test replay's
+ * golden would: a golden's name can't be cut, and the run reads by it.
  */
 export function fitAbouts(scope: ParentNode): void {
   // Only a page that lays itself out can be measured (a test's document without layout is left whole).
   if (typeof getComputedStyle !== 'function' || typeof document === 'undefined' || typeof document.createRange !== 'function') return;
+  // A status that gave way last time is back, until this fit finds it must give way again.
+  for (const el of scope.querySelectorAll<HTMLElement>('[data-gives]')) if (el.style) el.style.display = '';
   const lines: Array<FitLine & { el: HTMLElement }> = [];
   for (const el of scope.querySelectorAll<HTMLElement>('[data-about], [data-fit]')) {
     if (!el.dataset || typeof el.getBoundingClientRect !== 'function' || !el.getClientRects().length) continue;
@@ -251,5 +270,12 @@ export function fitAbouts(scope: ParentNode): void {
     lines.push({ el, forms: ordered, write: (t) => (el.textContent = t), overflows: () => overflowing(el), room: () => boxWidth(el) });
   }
   fitLines(lines);
+  // A golden that gave up its place: the status beside it gives way instead, and the golden is fitted again.
+  const yielded = lines.filter((x) => x.el.dataset.from === 'golden' && x.el.textContent === '' && x.forms.length > 1);
+  const statuses = yielded.map((x) => x.el.parentElement?.querySelector<HTMLElement>(':scope > [data-gives]') ?? null);
+  if (statuses.some(Boolean)) {
+    for (const st of statuses) if (st) st.style.display = 'none';
+    fitLines(yielded.filter((_, i) => statuses[i]));
+  }
   for (const x of lines) if (x.el.dataset.mark) markIn(x.el, x.el.dataset.mark);
 }

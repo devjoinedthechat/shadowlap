@@ -126,7 +126,7 @@ export const RecentRuns = memo(function RecentRuns({ runs, current, loading }: {
               <span className="r2">
                 <AboutLine about={r.about} className="ra" />
                 {st ? (
-                  <span className="r2s">
+                  <span className="r2s" data-gives="">
                     <span className="dot">·</span>
                     {st.tone ? <em className={st.tone === 'warn' ? 'inc' : undefined}>{st.text}</em> : st.text}
                   </span>
