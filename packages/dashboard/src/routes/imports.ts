@@ -5,7 +5,7 @@ import type { Router } from '../router.js';
 
 /**
  * Import a capture or a trace (Runs → Import a capture): a file the browser uploaded first
- * (`POST /api/uploads`), or a Langfuse or LangSmith trace by its id. The `import` job kind runs
+ * (`POST /api/uploads`), or a trace by its id from Langfuse, LangSmith, Phoenix or Logfire. The `import` job kind runs
  * `shadowlap import <format> <file> --name=<name picked>`. It leaves out `--json`, which a job
  * needed only for the full run ids: the CLI reports each run it made by its full id on the job's
  * events pipe (and what `--json` prints, as the job's result), with a link to each, so the drawer
@@ -18,25 +18,50 @@ import type { Router } from '../router.js';
 /** The file formats `shadowlap import` reads, each its own subcommand: the CLI detects nothing. */
 export const FILE_FORMATS = Object.keys(IMPORT_FILE_FORMATS) as ImportFileFormat[];
 export type FileFormat = ImportFileFormat;
-export const TRACE_SOURCES = ['langfuse', 'langsmith'] as const;
+export const TRACE_SOURCES = ['langfuse', 'langsmith', 'phoenix', 'logfire'] as const;
 export type TraceSource = (typeof TRACE_SOURCES)[number];
 
-/** Where each trace store is reached unless its own SDK's variable says otherwise (as the CLI reads them). */
-const TRACE_HOSTS: Record<TraceSource, { env: string[]; fallback: string; keys: string[][] }> = {
-  langfuse: { env: ['LANGFUSE_HOST', 'LANGFUSE_BASE_URL'], fallback: 'https://cloud.langfuse.com', keys: [['LANGFUSE_PUBLIC_KEY'], ['LANGFUSE_SECRET_KEY']] },
-  langsmith: { env: ['LANGSMITH_ENDPOINT', 'LANGCHAIN_ENDPOINT'], fallback: 'https://api.smith.langchain.com', keys: [['LANGSMITH_API_KEY', 'LANGCHAIN_API_KEY']] },
+/** The project Phoenix files a trace under when its instrumentation names none. */
+const PHOENIX_PROJECT = 'default';
+
+/**
+ * Each trace store as the CLI reaches it: its name, the variables its own SDK reads for its address
+ * (the first one set wins, less a path it may carry that isn't the API's), where it is otherwise, and
+ * the keys it needs, each a variable or its alternatives. Phoenix asks for a key only with
+ * authentication on: the CLI sends PHOENIX_API_KEY when it is set, and goes without otherwise. A
+ * Logfire read token names its region (`pylf_v1_eu_…`); one from before regions is in the US.
+ */
+const TRACE_HOSTS: Record<TraceSource, { name: string; env: string[]; path?: RegExp; fallback: (env: NodeJS.ProcessEnv) => string; keys: string[][]; optional?: string }> = {
+  langfuse: { name: 'Langfuse', env: ['LANGFUSE_HOST', 'LANGFUSE_BASE_URL'], fallback: () => 'https://cloud.langfuse.com', keys: [['LANGFUSE_PUBLIC_KEY'], ['LANGFUSE_SECRET_KEY']] },
+  langsmith: { name: 'LangSmith', env: ['LANGSMITH_ENDPOINT', 'LANGCHAIN_ENDPOINT'], fallback: () => 'https://api.smith.langchain.com', keys: [['LANGSMITH_API_KEY', 'LANGCHAIN_API_KEY']] },
+  phoenix: { name: 'Phoenix', env: ['PHOENIX_ENDPOINT', 'PHOENIX_COLLECTOR_ENDPOINT', 'PHOENIX_BASE_URL'], path: /\/v1\/traces\/?$/, fallback: () => 'http://localhost:6006', keys: [], optional: 'PHOENIX_API_KEY' },
+  logfire: {
+    name: 'Logfire',
+    env: ['LOGFIRE_BASE_URL'],
+    fallback: (env) => (/^pylf_v\d+_([a-z]+)_/.exec(env.LOGFIRE_READ_TOKEN?.trim() ?? '')?.[1] === 'eu' ? 'https://logfire-eu.pydantic.dev' : 'https://logfire-us.pydantic.dev'),
+    keys: [['LOGFIRE_READ_TOKEN']],
+  },
 };
 
-/** A trace id as Langfuse and LangSmith write them, checked as the CLI checks it. */
+/**
+ * A trace id, checked as the CLI checks it: as Langfuse and LangSmith write them, and as
+ * OpenTelemetry does (32 hex characters) for Phoenix and Logfire.
+ */
 const TRACE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/;
+const OTEL_TRACE_ID = /^[0-9a-f]{32}$/i;
+const traceIdOk = (s: TraceSource, id: string) => (s === 'phoenix' || s === 'logfire' ? OTEL_TRACE_ID : TRACE_ID).test(id);
 
 export interface TraceSourceView {
-  /** Every key the CLI reads for it is set in the dashboard's environment (what each is, never). */
+  /** Every key the CLI needs for it is set in the dashboard's environment (what each is, never). */
   keys: boolean;
-  /** The variables that hold them, for the dialog to name. */
+  /** The variables that hold them, for the dialog to name: those it needs, else the one it sends when set. */
   keyNames: string[];
-  /** Where it is reached: the variable its SDK reads, else its public API. */
+  /** The key is sent only when it is set: a Phoenix without authentication needs none. */
+  optional?: true;
+  /** Where it is reached: the variable its SDK reads, else its public API (Phoenix: this machine). */
   host: string;
+  /** Phoenix: the project the CLI looks for the trace in unless told another (PHOENIX_PROJECT_NAME, else default). */
+  project?: string;
 }
 
 /** Whether this machine can fetch from each trace store, read from the environment the CLI's jobs get. */
@@ -44,9 +69,23 @@ export function traceSources(env: NodeJS.ProcessEnv): Record<TraceSource, TraceS
   const set = (names: string[]) => names.some((n) => !!env[n]?.trim());
   const view = (s: TraceSource): TraceSourceView => {
     const t = TRACE_HOSTS[s];
-    return { keys: t.keys.every(set), keyNames: t.keys.map((alts) => alts[0]!), host: t.env.map((n) => env[n]?.trim()).find(Boolean) ?? t.fallback };
+    const named = t.env.map((n) => env[n]?.trim()).find(Boolean);
+    return {
+      keys: t.keys.every(set),
+      keyNames: t.optional ? [t.optional] : t.keys.map((alts) => alts[0]!),
+      ...(t.optional ? { optional: true as const } : {}),
+      host: named ? (t.path ? named.replace(t.path, '') : named) : t.fallback(env),
+      ...(s === 'phoenix' ? { project: env.PHOENIX_PROJECT_NAME?.trim() || PHOENIX_PROJECT } : {}),
+    };
   };
-  return { langfuse: view('langfuse'), langsmith: view('langsmith') };
+  return { langfuse: view('langfuse'), langsmith: view('langsmith'), phoenix: view('phoenix'), logfire: view('logfire') };
+}
+
+/** A Phoenix project's name or id from the dialog, as the CLI takes it. Null when it isn't one. */
+export function phoenixProject(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const project = raw.trim();
+  return project && project.length <= 200 && !/[/?#]/.test(project) && !/[\u0000-\u001f\u007f]/.test(project) ? project : null;
 }
 
 /**
@@ -72,25 +111,32 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/imports', (r) => r.json({ formats: FILE_FORMATS, traces: traceSources(process.env), uploadLimit: ctx.project && !ctx.readOnly ? ctx.uploads.maxBytes : null }));
 
   ctx.jobs.registerJobKind('import', {
-    title: (req) => (req.format === 'langfuse' || req.format === 'langsmith' ? 'Importing a trace' : 'Importing a capture'),
+    title: (req) => ((TRACE_SOURCES as readonly unknown[]).includes(req.format) ? 'Importing a trace' : 'Importing a capture'),
     build: (req, { upload }) => {
       const format = req.format;
       if ((TRACE_SOURCES as readonly unknown[]).includes(format)) {
         const source = format as TraceSource;
         const traceId = typeof req.traceId === 'string' ? req.traceId.trim() : '';
-        if (!TRACE_ID.test(traceId)) return { error: 'traceId: the id from the trace’s page' };
+        if (!traceIdOk(source, traceId)) return { error: source === 'phoenix' || source === 'logfire' ? 'traceId: the trace’s id, 32 hex characters' : 'traceId: the id from the trace’s page' };
         let host: string | null = null;
         if (req.host !== undefined && req.host !== null && req.host !== '') {
           host = traceHost(req.host);
           if (!host) return { error: 'host: an https address, without credentials (the keys come from this machine’s environment)' };
         }
+        let project: string | null = null;
+        if (source === 'phoenix' && req.project !== undefined && req.project !== null && req.project !== '') {
+          project = phoenixProject(req.project);
+          if (!project) return { error: 'project: a Phoenix project’s name or id' };
+        }
         const env = traceSources(process.env)[source];
-        if (!env.keys) return { error: `${source === 'langfuse' ? 'Langfuse' : 'LangSmith'} needs ${env.keyNames.join(' and ')} in the environment of the shadowlap dashboard process: set ${env.keyNames.length === 1 ? 'it' : 'them'} and start the dashboard again`, status: 409 };
+        if (!env.keys) return { error: `${TRACE_HOSTS[source].name} needs ${env.keyNames.join(' and ')} in the environment of the shadowlap dashboard process: set ${env.keyNames.length === 1 ? 'it' : 'them'} and start the dashboard again`, status: 409 };
         // The CLI goes where the environment says (its SDK's variable, else the public API) unless
         // told otherwise: a host typed in the dialog that differs from that one goes on the command
         // line, the public API included when the environment names another.
         const passHost = host && host !== (traceHost(env.host) ?? env.host) ? host : null;
-        return { args: ['import', source, traceId, ...(passHost ? ['--host', passHost] : [])], opensRun: true };
+        // So does a Phoenix project other than the one it would look in, as one argument.
+        const passProject = project && project !== env.project ? project : null;
+        return { args: ['import', source, traceId, ...(passHost ? ['--host', passHost] : []), ...(passProject ? [`--project=${passProject}`] : [])], opensRun: true };
       }
       if (!(FILE_FORMATS as readonly unknown[]).includes(format)) return { error: `format: one of ${[...FILE_FORMATS, ...TRACE_SOURCES].join(', ')}` };
       const file = upload(req.uploadId);

@@ -49,11 +49,14 @@ function moved(runs: number, attempts: number, fixes: number | null): { what: st
   return { what: !runs && attempts ? plural(attempts, 'attempt') : `${plural(runs, 'run')}${attempts ? ` and ${plural(attempts, 'attempt')}` : ''}`, fixes: many };
 }
 
+/** A trace import's source as the CLI names it: the trace store, and the trace id's first characters. */
+const TRACE_SOURCE = /^(langfuse|langsmith|phoenix|logfire):/;
+
 /** What a capture import is called in the feed: the source's name (`trace.json`, `langfuse:7f3a9c2e`), never its folder. */
 function importName(e: StoredEvent, d: Record<string, unknown>): string {
   const from = str(d.source) ?? str(d.file) ?? e.ref ?? str(d.from);
   if (!from) return 'a capture';
-  return /^(langfuse|langsmith):/.test(from) ? from : basename(from.replace(/[\\/]+$/, '')) || from;
+  return TRACE_SOURCE.test(from) ? from : basename(from.replace(/[\\/]+$/, '')) || from;
 }
 
 /** Why a verify rejected a fix: the mock's words when it broke a good run, else its first reason. */
@@ -423,7 +426,7 @@ function imported(store: Store, runs: RunRecord[], at: number): ActivityItem {
   const first = runs[0]!;
   const from = typeof first.meta?.imported?.from === 'string' ? first.meta.imported.from : '';
   // A capture a teammate pushed: a pull marks it with the store, not the file it came from.
-  const name = pulledRun(first) ? 'a capture' : /^(langfuse|langsmith):/.test(from) ? from : basename(from.replace(/[\\/]+$/, '')) || 'a capture';
+  const name = pulledRun(first) ? 'a capture' : TRACE_SOURCE.test(from) ? from : basename(from.replace(/[\\/]+$/, '')) || 'a capture';
   const item = base(first, `r:${first.runId}:import`, at);
   if (first.meta?.covers?.length) {
     const models = runs.reduce((n, run) => n + facts(store, run).summary.byKind.api, 0);

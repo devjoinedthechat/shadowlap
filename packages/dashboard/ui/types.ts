@@ -431,7 +431,7 @@ export type TeamStoreView = import('../src/team-store.js').TeamStoreStatus & { y
 /** Where the trace stores are reached from this machine, and whether their keys are set here. */
 export interface ImportSources {
   formats: readonly string[];
-  traces: { langfuse: import('../src/routes/imports.js').TraceSourceView; langsmith: import('../src/routes/imports.js').TraceSourceView };
+  traces: Record<import('../src/routes/imports.js').TraceSource, import('../src/routes/imports.js').TraceSourceView>;
   uploadLimit: number | null;
 }
 

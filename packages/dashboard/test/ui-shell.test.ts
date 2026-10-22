@@ -7,7 +7,7 @@ import { knownParent, noteParent, onParentNoted } from '../ui/parents.js';
 import { stripScroll } from '../ui/place.js';
 import { exportedLine } from '../ui/projects.js';
 import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled, RM_ALL, rmCommand } from '../ui/runspage/bulk.js';
-import { TRACE_COPY } from '../ui/runspage/imports.js';
+import { phoenixProjectOk, TRACE_COPY, traceIdOk } from '../ui/runspage/imports.js';
 import { copyCompares } from '../ui/runs.js';
 import { crumbParent, liveChip, topPill } from '../ui/shell/top.js';
 import { errorText, sentence, TOAST_MS } from '../ui/toast.js';
@@ -187,7 +187,18 @@ describe('importing a trace', () => {
   it('names the format of a trace id instead of offering a made-up one', () => {
     expect(TRACE_COPY.langfuse.id).toBe('a UUID or 32 hex characters, from the trace’s page');
     expect(TRACE_COPY.langsmith.id).toBe('a UUID, from the trace’s page in LangSmith');
+    expect(TRACE_COPY.phoenix.id).toBe('32 hex characters, from the trace’s page in Phoenix');
+    expect(TRACE_COPY.logfire.id).toBe('32 hex characters, from the trace’s details in Logfire');
     for (const t of Object.values(TRACE_COPY)) expect(t.id).not.toMatch(/[0-9a-f]{8}/);
+  });
+
+  it('checks a trace id as its store writes it, and a Phoenix project as the CLI takes it', () => {
+    expect(traceIdOk('langsmith', '0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c')).toBe(true);
+    expect(traceIdOk('phoenix', '0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c')).toBe(false);
+    expect(traceIdOk('logfire', '01A16460E2F311342463057F62B79FA9')).toBe(true);
+    expect(traceIdOk('phoenix', '01a16460e2f3113424630')).toBe(false);
+    expect(phoenixProjectOk('support-agent')).toBe(true);
+    for (const bad of ['', 'a/b', 'a?b', 'a#b', 'x'.repeat(201)]) expect(phoenixProjectOk(bad), bad).toBe(false);
   });
 });
 

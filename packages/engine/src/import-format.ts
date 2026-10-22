@@ -5,7 +5,7 @@
  * imports: the dashboard's browser bundle uses this too.
  */
 
-/** The file formats `shadowlap import` reads. Langfuse and LangSmith traces are fetched, not uploaded. */
+/** The file formats `shadowlap import` reads. Langfuse, LangSmith, Phoenix and Logfire traces are fetched, not uploaded. */
 export type ImportFileFormat = 'har' | 'nock' | 'vcr' | 'litellm' | 'otel';
 
 /** Each format's name as the import dialog shows it. */
