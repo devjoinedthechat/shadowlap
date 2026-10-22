@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairCostLine, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairCostLine, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -100,6 +100,16 @@ describe('a fix', () => {
     expect(markText({ inTree: false, goldens: 0, pulled: false, change: null })).toBe('It was verified on your working tree as it is, so there is no patch to apply: this marks it applied.');
     // A change of request fields is in no file: never "no patch to apply", which reads as if the change were in the tree.
     expect(markText({ inTree: false, goldens: 0, pulled: false, change: "temperature=1 from each run's first model call" })).toBe("It was verified with temperature=1 from each run's first model call, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.");
+  });
+
+  it('says a fix with no patch was marked applied, naming the change its agent makes, never that a patch went in', () => {
+    expect(appliedButton({ kind: 'patch', pulled: false, change: null })).toEqual({ label: 'Patch applied', title: 'The patch is in the working tree and its goldens pass' });
+    expect(appliedButton({ kind: 'patch', pulled: true, change: null }).title).toBe('The patch is in the working tree; its goldens are on the machine that ran the repair');
+    const field = appliedButton({ kind: 'mark', pulled: false, change: "temperature=1 from each run's first model call" });
+    expect(field).toEqual({ label: 'Marked applied', title: "Verified with temperature=1 from each run's first model call, a change to the requests that your agent makes, not to your files" });
+    const tree = appliedButton({ kind: 'mark', pulled: false, change: null });
+    expect(tree).toEqual({ label: 'Marked applied', title: 'Verified on your working tree as it was, and marked applied' });
+    for (const b of [field, tree]) expect(b.title).not.toMatch(/patch/);
   });
 
   it('asks before applying with every file the patch changes and the patch itself, and runs nothing from a teammate’s', () => {

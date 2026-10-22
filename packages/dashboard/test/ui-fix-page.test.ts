@@ -273,4 +273,25 @@ describe('Mark applied for a change of request fields', () => {
     await r!.click(r!.byText('.ph .actions button', 'Mark applied'));
     expect(text(r!.one('.dialog header p'))).toBe("It was verified with temperature=1 from each run's first model call, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.");
   });
+
+  it('reads Marked applied once marked, its hover naming the change, never a patch', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    recordVerdict(store, { report: { ...verifyReport([{ runId: run, role: 'target', pass: true }], { codeVersion: 'f353f41' }), fields: { temperature: 1 } }, expect: EXPECT, command: 'shadowlap verify --fixes label:double-email --set temperature=1', at: NOW + 1 });
+    markFixApplied(store, fix.fixId, { patch: 'none', repairId: null, goldens: [], tests: 'skipped', via: 'fix apply' });
+    await open(fix.fixId);
+    const button = r!.byText('.ph .actions button', 'Marked applied');
+    expect(button.disabled).toBe(true);
+    expect(button.props.title).toBe("Verified with temperature=1 from each run's first model call, a change to the requests that your agent makes, not to your files");
+    expect(r!.all('.ph .actions button').map(text)).toEqual(['Marked applied']);
+  });
+
+  it('reads Marked applied for a fix verified on the working tree, as it was', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }], { codeVersion: 'f353f41' }), expect: EXPECT, command: 'shadowlap verify --fixes label:double-email', at: NOW + 1 });
+    markFixApplied(store, fix.fixId, { patch: 'none', repairId: null, goldens: [], tests: 'skipped', via: 'fix apply' });
+    await open(fix.fixId);
+    expect(r!.byText('.ph .actions button', 'Marked applied').props.title).toBe('Verified on your working tree as it was, and marked applied');
+  });
 });

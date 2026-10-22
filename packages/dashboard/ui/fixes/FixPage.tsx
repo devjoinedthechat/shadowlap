@@ -16,7 +16,7 @@ import { errorText } from '../toast.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
-import { applyText, fixAction, fixName, fixStamp, laterStamp, markText, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, statusBadge, stepFor, updateOutdatedAsk } from './model.js';
+import { appliedButton, applyText, fixAction, fixName, fixStamp, laterStamp, markText, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, statusBadge, stepFor, updateOutdatedAsk } from './model.js';
 import { FailedMust, Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
@@ -200,15 +200,18 @@ export function FixActions({ fix }: { fix: FixDetail }) {
         </button>
       </>
     );
-  if (action.kind === 'applied')
+  if (action.kind === 'applied') {
+    // A fix with no patch was only marked applied: its button says so, and never speaks of a patch.
+    const done = appliedButton(fix.actions.apply);
     return (
       <>
         {copy}
-        <button className="btn" type="button" disabled title={fix.actions.apply?.pulled ? 'The patch is in the working tree; its goldens are on the machine that ran the repair' : 'The patch is in the working tree and its goldens pass'}>
-          Patch applied
+        <button className="btn" type="button" disabled title={done.title}>
+          {done.label}
         </button>
       </>
     );
+  }
   const kind = action.kind === 'repair' ? JOB_KINDS.repair : JOB_KINDS.applyFix;
   const aside = action.kind === 'repair' ? repairAside(fix) : null;
   const missing = app.hasKind(kind) ? null : `This dashboard doesn’t run ${action.kind === 'repair' ? 'repair' : 'fix apply'}: run it in a terminal.`;

@@ -139,6 +139,17 @@ export function markText(apply: Pick<NonNullable<FixDetail['actions']['apply']>,
 }
 
 /**
+ * The plain button an applied fix shows in place of its action, and its hover. A fix applied with a
+ * patch reads "Patch applied"; one with no patch was only marked applied, so it reads "Marked
+ * applied", and its hover names the change of request fields it was verified with, which the agent
+ * makes, or says it was verified on the working tree as it was: never "the patch", which it hasn't got.
+ */
+export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'kind' | 'pulled' | 'change'> | null): { label: 'Patch applied' | 'Marked applied'; title: string } {
+  if (apply?.kind === 'mark') return { label: 'Marked applied', title: apply.change ? `Verified with ${apply.change}, a change to the requests that your agent makes, not to your files` : 'Verified on your working tree as it was, and marked applied' };
+  return { label: 'Patch applied', title: apply?.pulled ? 'The patch is in the working tree; its goldens are on the machine that ran the repair' : 'The patch is in the working tree and its goldens pass' };
+}
+
+/**
  * What Apply the patch says before it changes the working tree: every file the patch changes, how
  * it goes in, and what runs after. A teammate's patch, from the team store, runs nothing here: no
  * replay of the goldens, until it has been read.
