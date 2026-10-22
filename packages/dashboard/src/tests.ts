@@ -24,6 +24,8 @@ export interface GoldenSource {
   gate?: Gate | null;
   /** Its checks, as the CLI labels them. */
   checks: string[];
+  /** Its tests entry gives it an injection test, which `shadowlap test` runs live from each planted payload. */
+  injection?: boolean;
   /** Why the pack can't be read, when it can't. */
   error?: string | null;
 }
@@ -216,6 +218,8 @@ export interface GoldenRow {
   checks: string[];
   /** Each of `checks`, in their order, with how its last result came out on it. */
   checkResults: GoldenCheck[];
+  /** It has an injection test, which runs live, so CI needs the providers' keys for it whatever its mode. */
+  injection: boolean;
   history: HistoryCell[];
   /** `verdict` tells inconclusive apart (`result` reads it as `fail`); `gate`, what its gate decided, for a golden with one; `injection`, its injection gate's result. */
   last: { result: 'pass' | 'fail' | null; verdict: GoldenVerdict | null; failure: TestFailure | null; line: string; at: number | null; updated: boolean; gate: GateResultView | null; injection?: InjectionGateData | null };
@@ -1073,6 +1077,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       gate: gateView(g.gate),
       checks: g.checks,
       checkResults: goldenChecks(store, g.checks, latest),
+      injection: !!g.injection,
       history: revisions.map((rev) => {
         // Its own column's sessions, and a session that ran only some goldens there, or on that
         // commit with changes on top (Add normalizer and re-run), where no column is its own.

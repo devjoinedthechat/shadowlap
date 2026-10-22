@@ -419,6 +419,18 @@ describe('the Tests screen', () => {
     store.close();
   });
 
+  it('marks a golden with an injection test, which runs live in CI whatever its mode', () => {
+    const store = Store.open(':memory:');
+    const pack = (path: string, injection?: boolean): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [], ...(injection === undefined ? {} : { injection }) });
+    // A list from before goldens said so reads as none.
+    expect(testsView(store, [pack('goldens/a', true), pack('goldens/b', false), pack('goldens/c')]).rows.map((r) => [r.name, r.injection])).toEqual([
+      ['a', true],
+      ['b', false],
+      ['c', false],
+    ]);
+    store.close();
+  });
+
   it('has an empty state, and says all goldens pass when they do', () => {
     const store = Store.open(':memory:');
     const empty = testsView(store, []);

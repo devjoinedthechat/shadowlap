@@ -21,6 +21,7 @@ const row = (name: string, over: Partial<GoldenRow> = {}): GoldenRow => ({
   gate: null,
   checks: ['issue_refund called 1 time', 'send_email called 1 time'],
   checkResults: ['issue_refund called 1 time', 'send_email called 1 time'].map((label) => ({ label, status: 'passed', detail: null, reason: null, source: null, attempts: null })),
+  injection: false,
   history: [],
   last: { result: 'pass', verdict: 'passed', failure: null, line: '8/8 replayed · checks passed', at: T, updated: false, gate: null },
   runId: null,

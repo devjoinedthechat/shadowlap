@@ -105,6 +105,8 @@ export function TestsPage() {
   const findWait = wait('find the commit');
   // A gate against history needs the store kept between CI's runs.
   const historyGate = view.rows.some((r) => r.gate?.gate.kind === 'baseline');
+  // An injection test runs live from each payload it plants, as a fork does: CI needs the keys for it.
+  const injection = view.rows.some((r) => r.injection);
   const actions = (
     <>
       <a className="btn" href={href.settings('alerts')}>
@@ -220,7 +222,9 @@ export function TestsPage() {
             <CopyButton text={view.commands.ci} label="the CI command" />
           </header>
           <div className="pbody">
-            <p className="muted">Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.</p>
+            <p className="muted">
+              Replay goldens run offline and need no key. {injection ? 'A golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys.' : 'A golden marked fork runs live from where it forks, and needs the providers’ keys.'} A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.
+            </p>
             <CmdLine>{view.commands.ci}</CmdLine>
             {historyGate ? (
               <p className="muted after">

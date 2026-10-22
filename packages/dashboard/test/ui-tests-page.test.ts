@@ -26,7 +26,7 @@ const GOLDENS: GoldenSource[] = [
   golden('goldens/budget', ['at most 29000 input tokens'], { mode: 'fork', gate: parseGate({ baseline: 'history' }, 'gate') }),
 ];
 
-function view(): TestsView {
+function view(goldens: GoldenSource[]): TestsView {
   const s = Store.open(':memory:');
   const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'd2e8a1f', startedAt: T0 });
   const result = (golden: string, ok: boolean, data: NonNullable<Parameters<Store['addTestResult']>[0]['data']>, failure?: 'check' | 'inconclusive') => s.addTestResult({ sessionId: session.sessionId, golden, ok, ...(failure ? { failure } : {}), reason: ok ? null : 'failed', runId: null, revision: 'd2e8a1f', at: T0 + 1, data });
@@ -35,13 +35,13 @@ function view(): TestsView {
   const judge = { name: 'explains-escalation', model: 'claude-haiku-4-5', of: 'answer' as const, verdict: null, source: null, cost: null, redactions: 0, cut: 0 };
   result('goldens/judged', false, { mode: 'replay', verdict: 'inconclusive', checks: [passed('escalate called 1 time'), { ok: false, status: 'inconclusive', label: JUDGE, detail: 'not judged: no recorded verdict and the test runs offline', judge }] }, 'inconclusive');
   s.finishTestSession(session.sessionId, { passed: 1, failed: 1, upstreamRequests: 0, endedAt: T0 + 100 });
-  const v = testsView(s, GOLDENS);
+  const v = testsView(s, goldens);
   s.close();
   return v;
 }
 
-function page(started: Array<{ kind: string; fields: Record<string, unknown> }>) {
-  const v = view();
+function page(started: Array<{ kind: string; fields: Record<string, unknown> }>, goldens: GoldenSource[]) {
+  const v = view(goldens);
   const client = {
     tests: () => Promise.resolve(v),
     jobs: () => Promise.resolve([]),
@@ -75,10 +75,10 @@ afterEach(async () => {
   delete g.location;
 });
 
-async function open(started: Array<{ kind: string; fields: Record<string, unknown> }> = []) {
+async function open(started: Array<{ kind: string; fields: Record<string, unknown> }> = [], goldens = GOLDENS) {
   g.location = { hash: '#/tests' };
-  r = await render(page(started));
-  await r.until('the goldens to load', () => r!.all('table.gt tbody tr').length === GOLDENS.length);
+  r = await render(page(started, goldens));
+  await r.until('the goldens to load', () => r!.all('table.gt tbody tr').length === goldens.length);
   return r;
 }
 
@@ -122,6 +122,12 @@ describe('the Tests page', () => {
     // budget has a gate against history: CI must keep the store between runs.
     expect(ci.textContent).toContain('A gate against history needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.');
     expect(page.document.body.textContent).toContain('A golden whose checks say what the agent must do is also a task a model can be scored on.');
+  });
+
+  it('says an injection test runs live too, and needs the keys, when a golden has one', async () => {
+    const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, injection: true } : x)));
+    const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
+    expect(all(ci, 'p.muted')[0]!.textContent).toBe('Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.');
   });
 });
 

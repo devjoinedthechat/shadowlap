@@ -156,7 +156,7 @@ export function rawExpectFor(entries: readonly TestEntry[], recordingDir: string
 }
 
 /** How a golden is tested, in the words the Tests screen uses. */
-export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[] } {
+export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[]; injection: boolean } {
   return {
     mode: spec?.fork ? 'fork' : 'replay',
     repeat: spec?.repeat ?? 1,
@@ -165,6 +165,8 @@ export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; re
     gate: spec?.gate ?? null,
     // The exit status is part of every golden's oracle; the screen lists the checks someone wrote.
     checks: spec ? oracleLabels(spec).slice(1) : [],
+    // Its injection test runs live from each planted payload, so CI needs the providers' keys for it.
+    injection: !!spec?.injection,
   };
 }
 
@@ -179,6 +181,8 @@ export interface GoldenInfo {
   /** Its gate under `tests`, or null: then `repeat` and `passes` decide. */
   gate: Gate | null;
   checks: string[];
+  /** Its tests entry gives it an injection test (`"injection"`), which `shadowlap test` runs live. */
+  injection: boolean;
   error: string | null;
 }
 
