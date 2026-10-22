@@ -593,6 +593,41 @@ function projectsInside(parents: readonly Ranked[], prefix: string, depth: numbe
   return out;
 }
 
+/** Folders code is usually kept in (`code`, `projects`) before the others, then by name. */
+const codeFirst = (a: Ranked, b: Ranked) => Number(!CODE_FOLDERS.has(a.name.toLowerCase())) - Number(!CODE_FOLDERS.has(b.name.toLowerCase())) || BY_NAME.compare(a.name, b.name);
+
+/**
+ * The projects in a configured root that has no project files of its own, as typing its path
+ * finds them: its folders with project files, and in place of each one without, the projects one
+ * level inside it (`code/invoice-bot`), within the `inside…` limits. A folder that holds no project
+ * isn't listed: the root is offered by the projects in it. Real folders only, never a link, a hidden
+ * folder or a system one. By what they show as.
+ */
+function rootProjects(root: string, suggest: (m: Ranked) => FolderSuggestion): FolderSuggestion[] {
+  let handle;
+  try {
+    handle = opendirSync(root);
+  } catch {
+    return [];
+  }
+  const children: Ranked[] = [];
+  try {
+    let scanned = 0;
+    for (let entry = handle.readSync(); entry && ++scanned <= SUGGEST_LIMITS.insideScanned; entry = handle.readSync()) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || systemName(entry.name, 0)) continue;
+      children.push({ name: entry.name, path: join(root, entry.name), rank: 0 });
+    }
+  } finally {
+    handle.closeSync();
+  }
+  children.sort((a, b) => BY_NAME.compare(a.name, b.name));
+  const described = children.slice(0, SUGGEST_LIMITS.insideEach).map((c) => ({ ...c, suggestion: suggest(c) }));
+  const inside = projectsInside(described.filter((d) => !d.suggestion.folder.kind).sort(codeFirst), '', 1, suggest);
+  return described
+    .flatMap((d) => (d.suggestion.folder.kind ? [d.suggestion] : (inside.get(d.path) ?? []).map((x) => x.suggestion)))
+    .sort((a, b) => BY_NAME.compare(a.display, b.display));
+}
+
 /**
  * Completes a typed path with the folders it could mean, one directory level at a time: `~/co`
  * lists the home folder's subfolders matching "co" (those that start with it first), `~/code/`
@@ -695,7 +730,6 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
 
   // Projects one level inside the folders that have no project files: those that match first, then
   // the rest; in each, the folders code is usually kept in (`~/code`, `~/projects`) before the others.
-  const codeFirst = (a: Ranked, b: Ranked) => Number(!CODE_FOLDERS.has(a.name.toLowerCase())) - Number(!CODE_FOLDERS.has(b.name.toLowerCase())) || byName(a, b);
   const parents = [...described.filter((d) => !d.suggestion.folder.kind).sort(codeFirst), ...others.sort(codeFirst)];
   const inside = projectsInside(parents, prefix, depth + 1, suggest);
   const listedHere = described.flatMap((d) => {
@@ -709,17 +743,17 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
   let folders = listedHere.map((d) => d.suggestion);
 
   // With nothing typed, the configured roots are offered too: a root with project files as itself,
-  // so it can be opened; one without them by the projects one level inside it, in its place, as a
-  // folder of the home folder is; one that holds neither as itself. Each folder once, and room is
-  // kept for them: a long home folder doesn't push the roots someone configured off the list.
+  // so it can be opened; one without them by the projects in it, in its place, as typing its path
+  // finds them (a folder of its own without project files gives way to the projects one level inside
+  // it, as a folder of the home folder does); one that holds neither as itself. Each folder once, and
+  // room is kept for them: a long home folder doesn't push the roots someone configured off the list.
   const fromRoots: FolderSuggestion[] = [];
   if (query.trim() === '' || query.trim() === '~') {
     const realHome = realpathOrNull(home) ?? resolve(home);
     const shown = new Set(folders.map((f) => f.path));
     for (const r of roots.filter((x) => x !== realHome)) {
       const own = suggest({ name: basename(r), path: r });
-      // The root's own folders are at its top, as the home folder's are.
-      const found = own.folder.kind ? [] : (projectsInside([{ name: basename(r), path: r, rank: 0 }], '', 0, suggest).get(r) ?? []).map((x) => x.suggestion);
+      const found = own.folder.kind ? [] : rootProjects(r, suggest);
       for (const f of found.length ? found : [own]) {
         if (shown.has(f.path)) continue;
         shown.add(f.path);

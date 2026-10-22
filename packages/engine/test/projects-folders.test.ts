@@ -298,6 +298,10 @@ describe('suggestFolders', () => {
     const work = files(join(roots, 'work'), {
       'agent-one/pyproject.toml': '',
       'agent-two/package.json': '{}',
+      // A folder of the root's own without project files gives way to the projects one level inside it.
+      'code/invoice-bot/package.json': '{}',
+      'code/invoice-bot/pnpm-lock.yaml': '',
+      'code/scratch/notes.md': '',
       'notes/readme.md': '',
       'Library/x/package.json': '{}',
     });
@@ -308,10 +312,14 @@ describe('suggestFolders', () => {
     expect(fromRoots.map((f) => [f.path, f.folder.kind])).toEqual([
       [join(work, 'agent-one'), 'Python · pip'],
       [join(work, 'agent-two'), 'Node · npm'],
+      [join(work, 'code', 'invoice-bot'), 'Node · pnpm'],
       [project, 'Node · npm'],
       [empty, null],
     ]);
     expect(fromRoots[1]).toMatchObject({ added: true, projectId: 'agent-two' });
+    // The same projects the root's own path lists, typed.
+    const typed = suggestFolders(`${work}/`, { home, roots: [work] }).folders.filter((f) => f.folder.kind);
+    expect(typed.map((f) => f.path).sort()).toEqual(fromRoots.slice(0, 3).map((f) => f.path).sort());
     // A long home folder leaves room for them.
     const two = suggestFolders('', { home, roots: [work], limit: 2 });
     expect(two.folders.map((f) => f.name)).toEqual(['agent-one', 'agent-two']);
