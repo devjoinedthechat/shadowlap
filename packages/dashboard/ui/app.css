@@ -2114,6 +2114,12 @@ table.gt .gev .wib { margin: 0; width: 96px; }
 .gfoot .chip { flex: none; }
 /* Needs a look and Activity: a gate's verdict wraps whole after its dots, never clamped mid-figure; its rule is on hover */
 .needs .attn .d.gv, .feed .w.gv { display: block; -webkit-line-clamp: none; overflow: visible; overflow-wrap: normal; }
+/* Needs a look: a failed run's about line on one line, fitted at whole words (never clamped), then what is left to do, kept whole */
+.needs .attn .d.ab { display: flex; align-items: baseline; min-width: 0; white-space: nowrap; overflow: hidden; -webkit-line-clamp: none; overflow-wrap: normal; }
+.needs .attn .d.ab .rab { flex: 0 1 auto; color: inherit; }
+.needs .attn .d.ab .abs { flex: none; }
+.needs .attn .d.ab .dot { margin: 0 5px; }
+.rab:empty + .abs .dot { display: none; }
 .fnode .f2 .frule { display: block; margin-top: 2px; font-size: 11.5px; }
 /* an activity entry with nowhere to go reads as a plain row: never a link back to the page it is on */
 .feed > .plain { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 18px; border-top: 1px solid var(--line); cursor: default; }

@@ -230,7 +230,8 @@ describe('the Overview: this week’s runs as rows of calls', () => {
       const failed = addRun(local, { startedAt: NOW - 3 * HOUR, status: 'failed', meta: { labels: ['digest'] }, calls: [{ code: 'l', request: ask("Write this week's refund digest and post it to #refunds.") }] });
       const out = overviewSummary(local, { tz: TZ, now: NOW });
       // Needs a look names a failed run by its id, and says what it was about: its label is no name.
-      expect(out.needsLook.items.find((x) => x.runId === failed)).toMatchObject({ kind: 'unblamed', title: `A run failed: ${failed.slice(0, 10)}`, detail: "Write this week's refund digest and post it to #refunds · not blamed yet" });
+      // The page fits the about line to one line, then what is left to do, kept whole.
+      expect(out.needsLook.items.find((x) => x.runId === failed)).toMatchObject({ kind: 'unblamed', title: `A run failed: ${failed.slice(0, 10)}`, about: { text: "Write this week's refund digest and post it to #refunds", from: 'user' }, detail: 'not blamed yet' });
       const rows = new Map(out.grid.families.flatMap((f) => f.rows).map((r) => [r.runId, r.about?.text]));
       expect(rows.get(rec)).toBe('Ticket T-8812: order A-1042 arrived damaged');
       expect(rows.get(fork)).toBe('HTTP 529 #2');

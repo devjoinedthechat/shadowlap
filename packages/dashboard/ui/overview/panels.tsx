@@ -135,8 +135,11 @@ export function WeekGrid({ grid, now }: { grid: RunGrid; now: number }) {
 export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; total: number }) {
   const [open, setOpen] = useState(false);
   const shown = needsLookShown(items, open);
+  // A run's about line takes one line, fitted at whole words to the room its status leaves it.
+  const box = useRef<HTMLElement>(null);
+  useFitAbouts(box);
   return (
-    <section className="panel needs">
+    <section className="panel needs" ref={box}>
       <header>
         <h2>Needs a look</h2>
         <span className="sub">{num(total)}</span>
@@ -152,6 +155,16 @@ export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; to
               {x.rule ? (
                 <span className="d gv">
                   <DotLine text={x.detail} />
+                </span>
+              ) : x.about?.text ? (
+                // What the run was about (decision 10), then what is left to do, kept whole: the about
+                // line gives way at whole words, never cut mid-word, and the dot goes with it.
+                <span className="d ab">
+                  <AboutLine about={x.about} />
+                  <span className="abs">
+                    <span className="dot">·</span>
+                    {x.detail}
+                  </span>
                 </span>
               ) : (
                 <span className="d" title={x.detail}>

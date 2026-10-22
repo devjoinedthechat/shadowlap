@@ -217,6 +217,11 @@ export interface NeedsLookRow {
   more?: number;
   /** A gate decided it: its rule, for the line's hover (decision 9: the line says the verdict, the tally and the bound). */
   rule?: string | null;
+  /**
+   * The run's about line (decision 10), for a failed run never blamed: the page fits it to one line
+   * at whole words, followed by `detail` kept whole (`not blamed yet`).
+   */
+  about?: RunAbout | null;
 }
 
 export interface NeedsLook {
@@ -537,15 +542,18 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
   const of = (kind: string) => fixes.filter((f) => f.kind === kind);
   const fixRow = (f: (typeof fixes)[number]): NeedsLookRow => ({ kind: f.kind, icon: f.icon, title: f.title, detail: f.detail, action: f.action, href: f.href, runId: f.runId, fixId: f.fixId, at: f.at });
   // A failed run never blamed is named by its id, and says what it was about (decision 10): its
-  // about line in place of its command, worked out for the lines shown, not for every such run.
+  // about line in place of its command, which the page fits to one line at whole words before what
+  // is left to do, kept whole; worked out for the lines shown, not for every such run.
   const unblamed = of('unblamed').map(fixRow);
   const shownUnblamed = unblamed.slice(0, unblamed.length <= NEEDS_LOOK_EACH + 1 ? unblamed.length : NEEDS_LOOK_EACH);
   if (shownUnblamed.length) {
     const index = loadRunIndex(store);
     const abouts = aboutsOf(store, index, shownUnblamed.map((x) => index.byId.get(x.runId!)).filter((r): r is IndexedRun => r !== undefined));
     for (const x of shownUnblamed) {
-      const about = abouts.get(x.runId!)?.text;
-      if (about) x.detail = `${about} · not blamed yet`;
+      const about = abouts.get(x.runId!);
+      if (!about?.text) continue;
+      x.about = about;
+      x.detail = 'not blamed yet';
     }
   }
   const tests: NeedsLookRow[] = goldens.length

@@ -69,6 +69,19 @@ describe('Needs a look and Activity', () => {
     expect(tip(other!)).toBeNull();
   });
 
+  it('fits a failed run’s about line to one line before what is left to do, never clamping it mid-word', async () => {
+    const about = { text: 'Write this week’s refund digest, grouped by region, and post it to #refunds before the Monday review with the leads', from: 'user' as const };
+    r = await render(createElement(NeedsLook, { items: [{ ...plain, detail: 'not blamed yet', about }], total: 1 }));
+    const d = r.one('.attn a .d');
+    expect(d.className).toBe('d ab');
+    // The about line is a line the fitter fits at whole words (about.ts), with all of it on hover.
+    const line = d.querySelector('.rab')!;
+    expect([line.getAttribute('data-about'), line.getAttribute('data-from'), line.getAttribute('title')]).toEqual([about.text, 'user', about.text]);
+    // Then what is left to do, whole, after its dot.
+    expect(d.querySelector('.abs')!.textContent).toBe('·not blamed yet');
+    expect(d.children.map((c) => c.className)).toEqual(['rab', 'abs']);
+  });
+
   it('gives a gate’s entry its rule on hover, and leaves an entry with nowhere to go a plain row', async () => {
     const items: ActivityItem[] = [
       { id: 'a', at: 3, kind: 'fail', text: 'Test failed · eval-pushy: failed · 4 of 8 · rate <= 0.78 (95%)', runId: '01M5GRZKRYAAAAAAAAAAAAAAAA', href: '#/run/01M5GRZKRYAAAAAAAAAAAAAAAA', rule: RULE },
