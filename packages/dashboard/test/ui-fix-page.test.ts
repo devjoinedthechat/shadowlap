@@ -30,9 +30,9 @@ afterEach(async () => {
 });
 
 /** The app as the shell gives it, its server answering from the store; `inTree` stands for git saying a patch is in the working tree. */
-function app(o: { inTree?: boolean; started?: Array<[string, unknown]> } = {}): AppState {
+function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } = {}): AppState {
   const client = {
-    fix: (id: string) => Promise.resolve(fixDetail(store, id, o.inTree ? { patchInTree: () => true } : {})),
+    fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}) })),
     fixes: () => Promise.resolve(fixList(store)),
     jobs: () => Promise.resolve([]),
     startJob: (kind: string, fields: unknown) => {
@@ -57,7 +57,7 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]> } = {}): 
 }
 
 /** The fix's page, opened at a step, once it has loaded. */
-async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]> } = {}): Promise<Rendered> {
+async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } = {}): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(o) }, createElement(FixPage, { id: fixId, step, sub })));
   await r.until('the fix to load', () => r!.all('h1').length === 1);
   return r;
@@ -190,6 +190,13 @@ describe('Repair from here', () => {
     await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
     const notes = r!.all('.dialog .fxdlg').map(text);
     expect(notes).toEqual(['No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.']);
+    await r!.unmount();
+    // Where claude can't be found the dialog says so, and still that the repair would end with no fix to try.
+    await open(fix.fixId, null, null, { problem: 'This repair asks your own Claude Code, and claude was not found on this machine.' });
+    await r!.click(r!.byText('.ph .actions button', 'Repair from here'));
+    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
+    expect(text(r!.one('.dialog header p'))).toBe('This repair asks your own Claude Code, and claude was not found on this machine.');
+    expect(r!.all('.dialog .fxdlg').map(text)).toEqual(['No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.']);
   });
 
   it('says the agent runs live and is billed when the repair has a passing path to learn from', async () => {
