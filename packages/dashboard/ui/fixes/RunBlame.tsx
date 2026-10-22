@@ -3,6 +3,7 @@ import { asksConsent, consentTitle } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { ConfirmDialog, Dialog } from '../components/Dialog.js';
+import { Icon } from '../components/Icon.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
 import { parseCheck } from './model.js';
@@ -17,7 +18,7 @@ import { useTreeBusy } from './tree.js';
  * confirmed. Disabled, with the reason, where nothing runs or while a repair or an apply changes the
  * working tree the agent would run from.
  */
-export function RunBlameButton({ runId, failed = [], className = 'linkbtn', title = 'Find the model call where this run was lost' }: { runId: string; failed?: readonly string[]; className?: string; /** The hover when nothing stops it. */ title?: string }) {
+export function RunBlameButton({ runId, failed = [], className = 'linkbtn', title = 'Find the model call where this run was lost', icon = false }: { runId: string; failed?: readonly string[]; className?: string; /** The hover when nothing stops it. */ title?: string; /** With the fix loop's icon, as the run page's lead button. */ icon?: boolean }) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
   const [asking, setAsking] = useState<null | { kind: 'check' } | { kind: 'consent'; why: string; fields: Record<string, unknown> }>(null);
@@ -52,6 +53,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
   return (
     <>
       <button className={className} type="button" disabled={!!why} title={why ?? title} onClick={() => app.guard(() => void start({}))}>
+        {icon ? <Icon name="loop" /> : null}
         Run blame
       </button>
       {asking?.kind === 'check' ? (

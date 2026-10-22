@@ -18,7 +18,8 @@ import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, type MetricInput } from './metrics.js';
 import { attemptLinks, attemptOf, originOf, pulledSpender, runLikeOf } from './model.js';
-import { blameOfferFor, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from './offers.js';
+import { fixStatusWords, nextStepOf, runBlameOffer } from './next-step.js';
+import { blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from './offers.js';
 import { UpdateGoldenDialog } from './RunDialogs.js';
 
 /** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
@@ -194,29 +195,35 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     </button>
   );
   const off = app.actionsOff;
+  // The header leads with the run's next step; the banner doesn't offer it again.
+  const next = nextStepOf(run, { offers, exported: app.exported, preset, blame, checks });
   // Run blame: the fixes' blame job, which finds the check the run failed (asking when nothing names
-  // it) and ends with a link to the fix. Not for a run blame has been run on already, nor in a copy.
+  // it) and ends with a link to the fix. Not for a run blame has been run on already, nor in a copy,
+  // nor where the header leads with it.
   const runBlame = (blamed: boolean) => {
-    if (blamed || app.exported) return null;
-    const offer = blameOfferFor(offers, {
-      blamed,
-      capture: !!run.source,
-      argv: r.command.argv,
-      status: r.status,
-      failed: checks.filter((c) => !c.ok).map((c) => c.label),
-      fixExpect: run.blameExpect,
-      ownExpect: r.meta?.expect,
-      modelCalls: run.summary.byKind.api,
-    });
+    if (next.key === 'blame') return null;
+    const offer = runBlameOffer(run, { offers, exported: app.exported, blame: blamed ? blame : null, checks });
     // The server picks the check, as the CLI judges the run; disabled with why on a read-only dashboard or while a repair holds the tree.
     return offer ? <RunBlameButton runId={r.runId} failed={offer.failed} title={blameTitle(offer)} /> : null;
   };
-  const fixLink = (step?: string) =>
-    run.fix ? (
+  // The fix, linked; where the header opens it already, how it stands instead (open, verified).
+  const fixLink = (step?: string) => {
+    if (!run.fix) return null;
+    if (next.key === 'fix') {
+      const st = fixStatusWords(run.fix.status);
+      return (
+        <span className={`st ${st.tone}`} title={`“${run.fix.title}” is ${st.why}`}>
+          <i />
+          {st.text}
+        </span>
+      );
+    }
+    return (
       <a className="more" href={run.fix.href ?? href.fixes(run.fix.id, step ?? null)}>
         Fix →
       </a>
-    ) : null;
+    );
+  };
   switch (b.kind) {
     case 'recording':
       return (

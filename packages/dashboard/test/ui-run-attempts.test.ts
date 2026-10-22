@@ -5,7 +5,9 @@ import type { Client } from '../ui/api.js';
 import { attemptOutcome, bannerFor, type BannerInput } from '../ui/run/banner.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { attemptLinks, attemptOf, forkKindWords } from '../ui/run/model.js';
+import { nextStepOf } from '../ui/run/next-step.js';
 import { Banner, DiffPanel, type BannerProps } from '../ui/run/parts.js';
+import { RunHeader } from '../ui/run/RunHeader.js';
 import { familyLine, kindTag, runTag, type RunLike } from '../ui/runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { LineageNode, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
@@ -74,6 +76,11 @@ function props(run: RunDetail, o: Partial<BannerProps> = {}): BannerProps {
   return { run, blame: null, rescued: null, checks: [], offers: null, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined, ...o };
 }
 
+/** The header's props, as the run page gives them. */
+function header(run: RunDetail, offers: RunOffers | null) {
+  return { run, call: null, selected: 7, rescued: false, offers, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: () => undefined, onFindCommit: () => undefined };
+}
+
 const base: BannerInput = { status: 'completed', type: 'fork', divergence: null, intervention: null, rescued: null, blame: null, notRecorded: null, checks: [], fix: null, upstreamRequests: 8 };
 const at7 = { callNo: 7, type: 'request_changed', name: 'POST /v1/messages', replayedBefore: 6, diff: [{ path: '$.messages[4].content[0].content' }] };
 
@@ -105,16 +112,25 @@ describe('a fork that failed', () => {
     expect(bannerFor({ ...base, divergence: at7, intervention: plant, checks: [check] })).toMatchObject({ kind: 'fork', failed: true });
   });
 
-  it('offers Run blame in its banner, with the check the server picked; one that passed has nothing to blame', async () => {
+  it('leads with Run blame in its header, with the check the server picked, and its banner doesn’t offer it again; one that passed is compared with its parent', async () => {
     const failed = { status: 'completed', kind: 'fork', outcome: { kind: 'check-failed', check: 'send_email called 1 time' }, failed: true, interrupted: false, label: 'fork @7' };
     const run = detail({ runId: PLANTED, parent: TICKET, divergence: { ...at7, kind: 'api' }, meta: { checks: [check] }, interventions: [plant], state: failed });
     const offers = { blame: { from: 'run', expect: { tools: { send_email: 1 } }, failed: ['send_email called 1 time'] }, test: null } as unknown as RunOffers;
-    page = await render(createElement(AppContext.Provider, { value: app() }, createElement(Banner, props(run, { checks: [check], offers }))));
+    expect(nextStepOf(run, { offers, exported: false })).toMatchObject({ key: 'blame', offer: { from: 'run' } });
+    page = await render(createElement(AppContext.Provider, { value: app() }, createElement('div', null, createElement(RunHeader, header(run, offers)), createElement(Banner, props(run, { checks: [check], offers })))));
     expect(page.one('.banner.fork .bk').textContent).toBe('forked at');
-    expect(page.byText('.banner.fork button', 'Run blame').props.title).toBe('Find the model call where this run was lost, with the checks it was replayed with');
-    await page.unmount();
-    page = await render(createElement(AppContext.Provider, { value: app() }, createElement(Banner, props({ ...run, state: { ...failed, outcome: { kind: 'none' }, failed: false } } as RunDetail, { offers }))));
     expect(page.all('.banner.fork button').some((b) => b.textContent === 'Run blame')).toBe(false);
+    const lead = page.byText('.rhead .actions button', 'Run blame');
+    expect(lead.className).toBe('btn lime');
+    expect(lead.props.title).toBe('Find the model call where this run was lost, with the checks it was replayed with');
+    // Replay is there, plain: the one lime button is the next step.
+    expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
+    await page.unmount();
+    const passed = { ...run, state: { ...failed, outcome: { kind: 'none' }, failed: false } } as RunDetail;
+    expect(nextStepOf(passed, { offers: { blame: null }, exported: false })).toEqual({ key: 'compare', parent: TICKET });
+    page = await render(createElement(AppContext.Provider, { value: app() }, createElement('div', null, createElement(RunHeader, header(passed, offers)), createElement(Banner, props(passed, { offers })))));
+    expect(page.all('button').some((b) => b.textContent === 'Run blame')).toBe(false);
+    expect(page.byText('.rhead .actions a', 'Compare with parent').className).toBe('btn lime');
   });
 });
 

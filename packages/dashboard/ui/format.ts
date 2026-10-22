@@ -167,6 +167,9 @@ export const GLUED_SEPARATOR = '\u00a0· ';
 /** Items joined by ` · ` as a line that wraps only after a separator's space, never before its dot. */
 export const glued = (text: string): string => text.replaceAll(' · ', GLUED_SEPARATOR);
 
+/** A count kept with its unit where a line wraps, as a tally is: "1 time", "2 times (2 blocked)", "3 calls" never part. */
+export const wholeCounts = (text: string): string => text.replace(/(\d) (?=(?:times?|calls?|attempts?|blocked|stubbed)\b)/g, '$1\u00a0');
+
 /**
  * A command line's words, split at the spaces a shell splits at (outside '…' and "…"), each kept
  * with its quotes: what a command line on the page wraps between, so a flag and its value or a
