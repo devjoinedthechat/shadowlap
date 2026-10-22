@@ -134,6 +134,8 @@ describe('an attempt', () => {
     const verify = { ...base, divergence: verifyFork, intervention: stub[0]!, interventions: stub, attempt: { kind: 'verify' as const, k: 1, n: 3, role: 'target', verdict: 'passed' as const } };
     expect(bannerFor(verify)).toEqual({ kind: 'attempt', of: 'verify', callNo: 1, why: 'verify\u00a0· target, attempt 1 of 3: the change it verified is in the request · writes stubbed', flag: null, path: '$.system', outcome: { tone: 'ok', text: 'passed' }, diff: true });
     expect(bannerFor({ ...verify, attempt: { ...verify.attempt, role: 'holdout' } })).toMatchObject({ why: 'verify\u00a0· held-out, attempt 1 of 3: the change it verified is in the request · writes stubbed' });
+    // A role the record doesn't name (a run from someone else's pack) is left out.
+    expect(bannerFor({ ...verify, attempt: { ...verify.attempt, role: null } })).toMatchObject({ why: 'verify, attempt 1 of 3: the change it verified is in the request · writes stubbed' });
     // A change made with a flag (--model, --set) names itself.
     const model = { flag: '--model', value: '1:claude-opus-5', callNo: 1 };
     expect(bannerFor({ ...verify, intervention: model, interventions: [model, ...stub] })).toMatchObject({ why: 'verify\u00a0· target, attempt 1 of 3: claude-opus-5 answers from here with --model 1:claude-opus-5 · writes stubbed', flag: '--model 1:claude-opus-5' });

@@ -435,10 +435,10 @@ function attemptBanner(i: BannerInput, a: AttemptInput): Banner {
   } else if (a.kind === 'verify') {
     // The change it verified: a flag (`--model`, `--set`) names itself; a change in the code (its
     // revision is the line under the run's id) is in the request where the attempt forked.
-    const role = VERIFY_ROLES[a.role ?? ''] ?? 'attempt';
+    const role = VERIFY_ROLES[a.role ?? ''];
     const change = iv ? flagWhy(iv, i.flagCall ?? null, d?.name ?? null) : d?.type === 'request_changed' ? 'the change it verified is in the request' : how;
     // One part, held together, as the bundle names it (`verify · target`): a narrow line drops what follows it, never the role.
-    what = `verify\u00a0· ${role}, ${which}: ${change}`;
+    what = `verify${role ? `\u00a0· ${role}` : ''}, ${which}: ${change}`;
     flag = iv ? flagText(iv) : null;
   } else {
     // A replay made again: the flag that made it, as its fork banner says it, or what changed.
