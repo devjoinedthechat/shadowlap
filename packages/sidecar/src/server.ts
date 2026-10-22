@@ -1542,6 +1542,14 @@ export class Sidecar {
     return capturedHttp(rec) && req ? { ...req, args: withoutStoredCredentials(req.args) } : req;
   }
 
+  /** A model call with its fingerprint headers as matching reads them (Provider.matchHeaders). */
+  private asMatched(rec: CallRecord): CallRecord {
+    const provider = rec.kind === 'api' ? this.providers.get(String(rec.meta.provider ?? '')) : undefined;
+    const headers = rec.meta.fingerprintHeaders as Record<string, string> | undefined;
+    if (!provider?.matchHeaders || !headers) return rec;
+    return { ...rec, meta: { ...rec.meta, fingerprintHeaders: provider.matchHeaders(headers) } };
+  }
+
   /**
    * Normalizers are a matching-time concern: a recording made before a normalizer was added must
    * still match under it. So a parent's fingerprints (and, since fingerprints partition occurrences,
@@ -1552,14 +1560,6 @@ export class Sidecar {
    * as proxyHttp stores a live call's. `only` limits the calls fingerprinted again; the others keep
    * their stored fingerprints, and every call's occurrence is counted again.
    */
-  /** A model call with its fingerprint headers as matching reads them (Provider.matchHeaders). */
-  private asMatched(rec: CallRecord): CallRecord {
-    const provider = rec.kind === 'api' ? this.providers.get(String(rec.meta.provider ?? '')) : undefined;
-    const headers = rec.meta.fingerprintHeaders as Record<string, string> | undefined;
-    if (!provider?.matchHeaders || !headers) return rec;
-    return { ...rec, meta: { ...rec.meta, fingerprintHeaders: provider.matchHeaders(headers) } };
-  }
-
   private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: readonly number[] | undefined, withoutPromptMask = false, redactions: Normalizer[] = [], only?: (rec: CallRecord) => boolean): CallRecord[] {
     const counts = new Map<string, number>();
     return calls.map((rec) => {
@@ -1732,6 +1732,11 @@ interface JudgeAccess {
   meta?: { check: string; ask: string; v?: number };
 }
 
+/** A request's headers as matching reads them (Provider.matchHeaders): as sent, for most providers. */
+function matchedHeaders(provider: Provider | undefined, headers: Readonly<Record<string, string>>): Record<string, string> {
+  return provider?.matchHeaders?.(headers) ?? { ...headers };
+}
+
 /**
  * How a judge's request is matched against the recording: by its bytes as sent, with none of the
  * project's normalizers and no masking of dates or prompts, since the judge read all of it and its
@@ -1739,11 +1744,6 @@ interface JudgeAccess {
  * judge's request (judgeRules), apply as a copy applied them, so a pack's masked request still
  * matches the one a replay sends. Nothing is matched fuzzily because of a judge.
  */
-/** A request's headers as matching reads them (Provider.matchHeaders): as sent, for most providers. */
-function matchedHeaders(provider: Provider | undefined, headers: Readonly<Record<string, string>>): Record<string, string> {
-  return provider?.matchHeaders?.(headers) ?? { ...headers };
-}
-
 function judgeFingerprint(req: { method: string; path: string; headers: Record<string, string>; body: unknown }, redactions: readonly Normalizer[], provider: Provider, matchPath: string | undefined): { fingerprint: string } {
   return fingerprintApi(req, judgeRules(redactions), provider.fingerprintHeaders, undefined, { matchPath });
 }
