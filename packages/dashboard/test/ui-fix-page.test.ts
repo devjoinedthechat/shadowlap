@@ -183,15 +183,15 @@ describe('the Verify step', () => {
     expect(text(r!.one('.fxreceipt'))).toMatch(/^\d+ attempts · \d+ upstream requests · ≈\$[\d.]+ spent\. A run whose replay doesn’t fork/);
   });
 
-  it("draws a verdict that doesn't count plain, headed with why, and marks it so in the switch", async () => {
+  it("draws a verdict that doesn't count plain, headed with why, and marks it so in the switch, named by the field it set", async () => {
     const { fixId, other } = verdicts();
     await open(fixId, 'verify', other);
     // Accepted under its own check, but no verdict on the fix: never in lime.
     expect(r!.one('.verdict').className).toBe('verdict n');
     expect(r!.one('.verdict .badge').className).not.toContain('ok');
     expect(text(r!.one('.verdict h2'))).toBe("Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times");
-    expect(r!.all('.vpick a').map(text)).toEqual(["f353f41 · accepted · doesn't count", '370712a+dirty · incomplete']);
-    expect(text(r!.one('.verdict p'))).toMatch(/^f353f41 · a run passes when 4 of 5 attempts meet the check: the agent exits 0$/);
+    expect(r!.all('.vpick a').map(text)).toEqual(["temperature=1 from each run's first model call · at f353f41 · accepted · doesn't count", '370712a+dirty · incomplete']);
+    expect(text(r!.one('.verdict p'))).toMatch(/^temperature=1 from each run's first model call · at f353f41 · a run passes when 4 of 5 attempts meet the check: the agent exits 0$/);
     expect(text(r!.one('.fxreceipt'))).toContain('spent to find out before it shipped');
   });
 
@@ -204,5 +204,16 @@ describe('the Verify step', () => {
     expect(r!.one('.verdict').className).toBe('verdict ok');
     expect(text(r!.one('.verdict h2'))).toBe('Fixes 1 of 1 target run');
     expect(text(r!.byText('nav.stepper a b', '1 fixed'))).toBe('1 fixed');
+  });
+});
+
+describe('Mark applied for a change of request fields', () => {
+  it('says which fields, since no patch carries them, never that there is no patch to apply', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    recordVerdict(store, { report: { ...verifyReport([{ runId: run, role: 'target', pass: true }], { codeVersion: 'f353f41' }), fields: { temperature: 1 } }, expect: EXPECT, command: 'shadowlap verify --fixes label:double-email --set temperature=1', at: NOW + 1 });
+    await open(fix.fixId);
+    await r!.click(r!.byText('.ph .actions button', 'Mark applied'));
+    expect(text(r!.one('.dialog header p'))).toBe("It was verified with temperature=1 from each run's first model call, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.");
   });
 });

@@ -25,7 +25,7 @@ export { provenance, showRunJson } from './api.js';
 export { countMasked } from './run-page.js';
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './api.js';
 // Fixes: the read model behind #/fixes, the Overview's fix numbers, Needs a look and the run page's banners.
-export { blameCheckFor, DEFAULT_REPAIRER, fixBundles, fixDetail, fixesSummary, fixForRun, fixHref, fixList, needsLookFixes, repairArgv, repairJobArgv } from './fixes.js';
+export { blameCheckFor, DEFAULT_REPAIRER, fieldChange, fixBundles, fixDetail, fixesSummary, fixForRun, fixHref, fixList, needsLookFixes, repairArgv, repairJobArgv } from './fixes.js';
 export { repairerProblem } from './repairer-check.js';
 export { patchInTree } from './patch-in-tree.js';
 export type { BlameCheck, BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixesSummary, FixForRun, FixList, FixRef, FixRow, FixRunRef, FixStep, NeedsLookItem, PatchCheck, RepairStep, RunBlame as FixRunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';

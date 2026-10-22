@@ -55,7 +55,7 @@ describe('a fix', () => {
 
   it('offers Repair from here on an open fix, Apply on a verified one, and Patch applied once it is in', () => {
     const repair = { argv: ['repair'], command: 'shadowlap repair', noFix: null };
-    const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', patchFile: 'x/fix.patch', refused: null, inTree: false, goldens: 1 };
+    const patch = { kind: 'patch' as const, argv: ['fix', 'apply', 'fx-1'], gitApply: 'git apply x/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff: 'diff --git a/agent.mjs b/agent.mjs\n', patchFile: 'x/fix.patch', refused: null, inTree: false, goldens: 1, change: null };
     expect(fixAction({ status: 'open', actions: actions({ repair }) })).toEqual({ kind: 'repair' });
     expect(fixAction({ status: 'open', actions: actions({}) })).toEqual({ kind: 'none', label: 'Repair from here', why: expect.stringMatching(/nothing to repair from here/) });
     expect(fixAction({ status: 'verified', actions: actions({ apply: patch }) })).toEqual({ kind: 'apply', label: 'Apply the patch' });
@@ -72,9 +72,11 @@ describe('a fix', () => {
   });
 
   it('says what marking a fix applied does: for a patch in the tree already, what applying still does', () => {
-    expect(markText({ inTree: true, goldens: 2, pulled: false })).toBe('The patch is already in your working tree: this copies the goldens it is missing into goldens/, runs them with shadowlap test and marks the fix applied.');
-    expect(markText({ inTree: true, goldens: 0, pulled: true })).toBe('The patch is already in your working tree: this marks the fix applied. The recordings the fixed code made stay on the machine that ran the repair.');
-    expect(markText({ inTree: false, goldens: 0, pulled: false })).toBe('It was verified on your working tree as it is, so there is no patch to apply: this marks it applied.');
+    expect(markText({ inTree: true, goldens: 2, pulled: false, change: null })).toBe('The patch is already in your working tree: this copies the goldens it is missing into goldens/, runs them with shadowlap test and marks the fix applied.');
+    expect(markText({ inTree: true, goldens: 0, pulled: true, change: null })).toBe('The patch is already in your working tree: this marks the fix applied. The recordings the fixed code made stay on the machine that ran the repair.');
+    expect(markText({ inTree: false, goldens: 0, pulled: false, change: null })).toBe('It was verified on your working tree as it is, so there is no patch to apply: this marks it applied.');
+    // A change of request fields is in no file: never "no patch to apply", which reads as if the change were in the tree.
+    expect(markText({ inTree: false, goldens: 0, pulled: false, change: "temperature=1 from each run's first model call" })).toBe("It was verified with temperature=1 from each run's first model call, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.");
   });
 
   it('asks before applying with every file the patch changes and the patch itself, and runs nothing from a teammate’s', () => {
@@ -341,7 +343,7 @@ describe('the Forks view’s bundles', () => {
   it('says how many attempts passed, what they cost, and for a verify the change and how it came out', () => {
     const money = (usd: number) => `≈$${usd.toFixed(3)}`;
     expect(bundleLine(bundle({ attempts: [attempt('A', true), attempt('B', false)], passes: 1, spent: 0.032 }), money)).toBe('2 attempts, 1 passed · ≈$0.032');
-    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('1 attempt, 1 passed · repair candidate 3 accepted');
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true)], passes: 1, change: 'repair candidate 3', verdict: 'accepted' }), money)).toBe('1 attempt, 1 passed · repair candidate 3 · accepted');
   });
 
   it('marks an attempt that could not be judged apart from one that failed, and counts it apart', () => {
@@ -349,7 +351,7 @@ describe('the Forks view’s bundles', () => {
     expect([attempt('A', true), attempt('B', false), unsure].map(attemptMark)).toEqual([undefined, 'no', 'unsure']);
     // An attempt kept before attempts had a verdict reads as whether it passed.
     expect(attemptMark({ passed: false })).toBe('no');
-    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree incomplete');
+    expect(bundleLine(bundle({ kind: 'verify', attempts: [attempt('A', true), unsure], passes: 1, change: 'working tree', verdict: 'incomplete' }), (usd) => `≈$${usd.toFixed(3)}`)).toBe('2 attempts, 1 passed, 1 inconclusive · working tree · incomplete');
   });
 });
 

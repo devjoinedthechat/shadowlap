@@ -97,10 +97,11 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
 /**
  * What Mark applied says before it runs `fix apply`: for a patch already in the working tree, what
  * apply still does (copies the goldens it is missing and runs them, unless the repair's recordings
- * stayed on a teammate's machine); for a change verified on the working tree as it is, that there
- * is no patch to apply.
+ * stayed on a teammate's machine); for a change of request fields, which ones, since no patch
+ * carries them; for a change verified on the working tree as it is, that there is no patch to apply.
  */
-export function markText(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'inTree' | 'goldens' | 'pulled'>): string {
+export function markText(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'inTree' | 'goldens' | 'pulled' | 'change'>): string {
+  if (apply.change) return `It was verified with ${apply.change}, a change to the requests rather than to your files: once your agent makes it, this marks the fix applied.`;
   if (!apply.inTree) return 'It was verified on your working tree as it is, so there is no patch to apply: this marks it applied.';
   if (apply.goldens) return 'The patch is already in your working tree: this copies the goldens it is missing into goldens/, runs them with shadowlap test and marks the fix applied.';
   return `The patch is already in your working tree: this marks the fix applied.${apply.pulled ? ' The recordings the fixed code made stay on the machine that ran the repair.' : ''}`;
@@ -457,11 +458,11 @@ export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict'>): { kind: 'bl
   return { kind: 'fork', label: 'Verify attempts, not settled' };
 }
 
-/** The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032" (with those that could not be judged counted apart), and for a verify the change and how it came out. */
+/** The line under a bundle's title: "4 attempts, 2 passed · ≈$0.032" (with those that could not be judged counted apart), and for a verify the change and how it came out, as the Verify step's switch names it: "repair candidate 3 · accepted". */
 export function bundleLine(b: Pick<FixBundle, 'kind' | 'attempts' | 'passes' | 'spent' | 'change' | 'verdict'>, money: (usd: number) => string): string {
   const n = b.attempts.length;
   const unsure = b.attempts.filter((a) => a.verdict === 'inconclusive').length;
-  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...(b.kind === 'verify' && b.change ? [`${b.change}${b.verdict ? ` ${b.verdict}` : ''}`] : [])].join(' · ');
+  return [`${n} attempt${s(n)}, ${b.passes} passed${unsure ? `, ${unsure} inconclusive` : ''}`, ...(b.spent ? [money(b.spent)] : []), ...(b.kind === 'verify' && b.change ? [b.change, ...(b.verdict ? [b.verdict] : [])] : [])].join(' · ');
 }
 
 // ---------------------------------------------------------------------------------------------- report.md

@@ -30,6 +30,12 @@ function blame(runId: string, o: { outcome?: BlameReport['outcome']; at?: number
   });
 }
 
+/** An attempt as the CLI makes it: a replay of the run it checked, under the id its report gives it, marked. */
+function makeRunAs(runId: string, parent: string, meta: Record<string, unknown>): void {
+  store.createRun({ runId, mode: 'replay', parentRunId: parent, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 2_000, meta });
+  store.endRun(runId, 'completed');
+}
+
 /** The refund story: a failing run blamed, a held-out run and a good one, a rejected verify, then an accepted repair. */
 function story() {
   const failing = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api', 'tool', 'api'] });
@@ -174,7 +180,7 @@ describe('a fix', () => {
     expect(d.steps[2]).toMatchObject({ title: '2 fixed · 1 kept', meta: '1 earlier change rejected' });
     const diff = store.getRepair('repair-munzln2i')!.report.patch;
     expect(diff).toContain('diff --git a/agent.mjs b/agent.mjs');
-    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1 }, applied: false });
+    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1, change: null }, applied: false });
     expect(d.commands.blame).toBe(`shadowlap blame ${failing.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}'`);
     // The good run its verdicts kept: label:good would also take any run labelled good since.
     expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps ${good.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
@@ -444,6 +450,25 @@ describe('a fix', () => {
     expect(fixDetail(store, loneFix.fixId)!.defaultVerify).toBe(only.verifyId);
   });
 
+  it('names a verdict of request fields by the fields it set and where from, not by the commit alone', () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run);
+    const fields = (set: Record<string, unknown>, command: string, at: number) => recordVerdict(store, { report: { ...verifyReport([{ runId: run, role: 'target', pass: true }], { codeVersion: 'f353f41' }), fields: set }, expect: EXPECT, command, at });
+    fields({}, 'shadowlap verify --fixes label:double-email', NOW);
+    fields({ temperature: 1 }, 'shadowlap verify --fixes label:double-email --set temperature=1', NOW + 1);
+    fields({ temperature: 1, model: 'claude-opus-5' }, "shadowlap verify --fixes label:double-email --model claude-opus-5 --set temperature=1 --from 'claude-haiku-4-5'", NOW + 2);
+    const d = fixDetail(store, fix.fixId)!;
+    // Three changes verified at one commit, none read alike.
+    expect(d.verify.map((v) => v.label)).toEqual([
+      "temperature=1, model=claude-opus-5 from each run's first claude-haiku-4-5 call · at f353f41 · accepted",
+      "temperature=1 from each run's first model call · at f353f41 · accepted",
+      'f353f41 · accepted',
+    ]);
+    // So do the Forks view's bundles under the run.
+    for (const v of store.listVerdicts()) for (const x of v.report.runs) for (const a of x.attempts) makeRunAs(a.runId, run, { verify: { role: 'target', passed: true } });
+    expect(fixBundles(store, run)!.filter((b) => b.kind === 'verify').map((b) => b.change)).toEqual(['f353f41', "temperature=1 from each run's first model call · at f353f41", "temperature=1, model=claude-opus-5 from each run's first claude-haiku-4-5 call · at f353f41"]);
+  });
+
   it('heads a verdict by the runs it checked, and says every failing run was fixed only when it checked them all', () => {
     const runs = [makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] }), makeRun(store, { labels: ['refund-bug'] })];
     const good = makeRun(store, { labels: ['good'], status: 'completed' });
@@ -548,6 +573,7 @@ describe('a fix', () => {
       refused: 'it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone',
       inTree: false,
       goldens: 1,
+      change: null,
     });
     expect(d.repair!.files[0]).toEqual({ name: 'fix.patch', note: '2 files · +2 −1' });
   });
@@ -561,7 +587,7 @@ describe('a fix', () => {
     expect(d).toMatchObject({ status: 'applied', broken: null, applied: { via: 'repair --apply', goldens: [], tests: 'skipped' } });
     expect(d.actions).toEqual({
       repair: null,
-      apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: null, pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them', pulled: false, files: ['agent.mjs'], diff: store.getRepair('repair-applied')!.report.patch, patchFile: '.shadowlap/repairs/repair-applied/fix.patch', refused: null, inTree: false, goldens: 1 },
+      apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: null, pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them', pulled: false, files: ['agent.mjs'], diff: store.getRepair('repair-applied')!.report.patch, patchFile: '.shadowlap/repairs/repair-applied/fix.patch', refused: null, inTree: false, goldens: 1, change: null },
       applied: true,
     });
     // fix apply copied them and the test failed: the fix doesn't hold, and Needs a look says so first.

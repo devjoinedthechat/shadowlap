@@ -56,6 +56,7 @@ import {
   unsettledFirst,
   unsettledReason,
 } from '@shadowlap/engine';
+import { splitCommandLine } from './settings.js';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -294,7 +295,7 @@ export interface VerifyStep {
   counts: boolean;
   /** That it was rejected after the fix was applied; null otherwise. One that doesn't count says why in its `headline`. */
   note: string | null;
-  /** What was verified: the code version, or "repair candidate 3". */
+  /** What was verified, named by what changed (`changeName`): "repair candidate 3", the request fields it set, or the code version. */
   code: string;
   /** How the switch between changes names it: "repair candidate 3 · accepted", and "· doesn't count" after one that doesn't count for the fix. */
   label: string;
@@ -340,9 +341,11 @@ export interface FixActions {
    * patch is in: `inTree` for a verified fix whose patch is in the working tree already (merged, or
    * applied by hand), which applying only marks applied, and the fix applied. `patchFile` is where
    * the patch is, relative to the project folder. `goldens`: how many recordings the fixed code made
-   * that applying copies into the goldens folder and tests.
+   * that applying copies into the goldens folder and tests. `change`: for a change of request fields
+   * (`--set`, `--model`) with no patch, what it set (`fieldChange`): marking it applied leaves making
+   * it in the agent to you.
    */
-  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number } | null;
+  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; change: string | null } | null;
   applied: boolean;
 }
 
@@ -826,13 +829,57 @@ function headline(rec: FixRecords, v: StoredVerdict, standing: VerdictStanding):
   return 'Not every run settled';
 }
 
+/** The models `--from` named in a verify's command line: the fields it set changed only their calls. */
+function fromModels(command: string): string[] {
+  let words: string[];
+  try {
+    words = splitCommandLine(command);
+  } catch {
+    return [];
+  }
+  return words.flatMap((w, i) => (w === '--from' && words[i + 1] ? [words[i + 1]!] : []));
+}
+
+/**
+ * What a verdict verified, named by what changed: a repair's candidate (`repair candidate 3`); the
+ * request fields it set (`--set`, `--model`) from each run's first model call, at the code it ran
+ * (`temperature=1 from each run's first model call · at 35034be`; with `--from`, from each run's
+ * first call of those models); else the code itself, by its version (`working tree` outside git).
+ * Two changes verified at one commit never read alike.
+ */
+function changeName(v: Pick<StoredVerdict, 'candidate' | 'command' | 'report'>): string {
+  if (v.candidate !== null) return `repair candidate ${v.candidate}`;
+  const fields = fieldsSet(v);
+  if (!fields) return v.report.codeVersion ?? 'working tree';
+  return `${fields}${v.report.codeVersion ? ` · at ${v.report.codeVersion}` : ''}`;
+}
+
+/** The request fields a verdict's change set, and from where: `temperature=1 from each run's first model call`; null for a change all in the code. */
+function fieldsSet(v: Pick<StoredVerdict, 'command' | 'report'>): string | null {
+  const fields = Object.entries(v.report.fields ?? {});
+  if (!fields.length) return null;
+  const set = fields.map(([k, x]) => `${k}=${typeof x === 'string' ? x : JSON.stringify(x)}`).join(', ');
+  const from = fromModels(v.command);
+  return `${set} from each run's first ${from.length ? `${from.join(' or ')} call` : 'model call'}`;
+}
+
+/**
+ * For a fix verified with no repair behind it, the request fields the change that verified it set
+ * (`temperature=1 from each run's first model call`): a change no patch carries, which applying it
+ * can only mark applied. Null when the change was all in the code, or a repair's.
+ */
+export function fieldChange(rec: FixRecords): string | null {
+  const v = acceptedVerdict(rec);
+  return v && v.candidate === null ? fieldsSet(v) : null;
+}
+
 function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
   const r = v.report;
   const fixId = rec.fix.fixId;
   const standing = rec.standing.get(v.verifyId) ?? { counts: true, why: null };
   const appliedAt = rec.fix.appliedAt;
   const regressed = standing.counts && v.verdict === 'rejected' && rec.fix.status === 'applied' && appliedAt !== null && v.at > appliedAt;
-  const code = v.candidate !== null ? `repair candidate ${v.candidate}` : (r.codeVersion ?? 'working tree');
+  const code = changeName(v);
   const rows: VerifyRow[] = r.runs.map((x) => {
     const failure = x.verdict === 'fail' ? x.attempts.find((a) => !a.passed)?.failures[0] : undefined;
     const forks = [...new Set(x.attempts.map((a) => a.forkedAt).filter((f): f is number => f !== null))];
@@ -1114,6 +1161,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
               refused,
               inTree,
               goldens: toApply && !pulled(toApply) ? toApply.report.output.goldens.length : 0,
+              change: toApply ? null : fieldChange(rec),
             },
       applied: fix.status === 'applied',
     },
@@ -1644,7 +1692,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
   for (const v of verdicts) {
     for (const x of inFamily(v.report.runs)) {
       const fix = linkedFix(v.verifyId, 'verify', x.runId);
-      const change = v.candidate !== null ? `repair candidate ${v.candidate}` : (v.report.codeVersion ?? 'working tree');
+      const change = changeName(v);
       verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at);
     }
   }

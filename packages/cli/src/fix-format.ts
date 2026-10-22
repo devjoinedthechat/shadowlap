@@ -124,8 +124,9 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     out.push('', p.bold(`Verify · ${d.verify.length} change${s(d.verify.length)} verified`));
     for (const v of d.verify) {
       const badge = v.verdict === 'accepted' ? p.green('✓ accepted') : v.verdict === 'rejected' ? p.red('✗ rejected') : p.yellow('! incomplete');
-      // One that doesn't count for the fix is headed with why.
-      out.push(`  ${badge}  ${one(v.code, 40)}  ${v.counts ? v.headline : p.yellow(v.headline)}`);
+      // Named by what changed (a request field set is named by it, never by its commit alone); one
+      // that doesn't count for the fix is headed with why.
+      out.push(`  ${badge}  ${one(v.code, 90)}  ${v.counts ? v.headline : p.yellow(v.headline)}`);
       if (v.note) out.push(`    ${p.red(one(v.note, 200))}`);
       out.push(p.dim(`    ${one(v.oracle, 200)}`));
       const rows = v.rows.map((x) => [x.role, x.runId.slice(0, 10), x.outcome, x.deterministic && !x.inconclusive ? 'clean replay' : `${tally(x)}${x.rate?.bound ? ` · ${x.rate.bound}` : ''}`, x.note === 'clean replay' ? '' : one(x.note, 70)]);
@@ -148,6 +149,8 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     // Merged, or applied by hand: there is nothing to apply, and fix apply only marks it applied.
     if (apply.inTree) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(its patch is in your working tree already: ${apply.goldens ? 'copies the goldens it is missing, runs them and marks it applied' : 'marks it applied'})`)}`);
     else if (apply.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${apply.gitApply ? p.dim(`   (or by hand: ${apply.gitApply})`) : ''}`);
+    // A change of request fields no patch carries: making it in the agent is left to you.
+    else if (apply.change) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(verified with ${apply.change}: once your agent makes that change, marks it applied)`)}`);
     else out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim('(verified on your working tree: marks it applied)')}`);
   }
   if (d.applied) {

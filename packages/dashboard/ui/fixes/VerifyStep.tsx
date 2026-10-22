@@ -8,10 +8,10 @@ import type { FixDetail, VerifyStep } from '../types.js';
 import { outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
 
 /**
- * The Verify step: one change verified at a time (a switch between them, each with its own URL), its
- * verdict and oracle, each run's role and outcome, what the change does to tokens and cost per run,
- * and what finding out took. It opens on the newest verdict that counts for the fix; one that
- * doesn't is drawn plain, headed with why, and marked so in the switch.
+ * The Verify step: one change verified at a time (a switch between them, each with its own URL and
+ * named by what changed), its verdict and oracle, each run's role and outcome, what the change does
+ * to tokens and cost per run, and what finding out took. It opens on the newest verdict that counts
+ * for the fix; one that doesn't is drawn plain, headed with why, and marked so in the switch.
  */
 export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | null }) {
   const v = verifyFor(fix, sub);
