@@ -214,12 +214,15 @@ describe('read models at scale', () => {
     // 2.4 to 3.1 times on Node 24, whose plain read is faster. Under 8 times leaves room for both, and
     // fails a first look that read the whole store again for each run.
     expect(first.cpu, `the first look took ${ms(first)}, ${(first.cpu / plain).toFixed(1)} times a plain read of every call`).toBeLessThan(8 * plain);
-    // The lists name a run by its id with its about line, which for a recording quotes what its user
-    // asked first: their first look works that out for the runs they show or filter (a word in the
-    // filter field reads every run's), and keeps it with their totals, reading no run's calls again.
+    // A run is named by its id with its about line, which for a recording quotes what its user asked
+    // first: a first look works that out only for the runs it shows (the Overview's grid and the
+    // failed runs Needs a look lists), and the lists for those they show or filter (a word in the
+    // filter field reads every run's), each keeping it with the run's totals, reading no calls again.
+    expect(first.asks).toBeGreaterThan(0);
+    expect(first.asks).toBeLessThanOrEqual(40 + 11);
     const lists = timed((s) => [listRunsPage(s, { q: 'agent' }), recentRuns(s)], 1);
     expect(lists.read).toBe(0);
-    expect(lists.asks).toBe(recordingCount);
+    expect(first.asks + lists.asks).toBe(recordingCount);
 
     const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }));
     const page = timed((s) => listRunsPage(s, {}));

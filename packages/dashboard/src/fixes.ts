@@ -1129,7 +1129,9 @@ export function needsLookFixes(store: Store, options: { limit?: number } = {}): 
       href: runHref(run.runId),
       icon: 'fail' as const,
       title: `A run failed: ${short(run.runId)}`,
-      detail: `${fixLabels(run).join(', ') || run.command.argv.join(' ').slice(0, 60)} · not blamed yet`,
+      // A run is named by its id (decision 10): its labels are no name. The Overview puts the run's
+      // about line in place of its command for the lines it shows.
+      detail: `${run.command.argv.join(' ')} · not blamed yet`,
       action: 'Run blame' as const,
       fixId: null,
       runId: run.runId,

@@ -548,7 +548,8 @@ describe('fixes for the other views', () => {
       ['ready', 'Apply'],
     ]);
     expect(items[0]).toMatchObject({ fixId: openFix.fixId, title: 'send_email called twice, not once', detail: 'lost at model call #5 · no fix yet', href: `#/fixes/${openFix.fixId}`, icon: 'blame' });
-    expect(items[1]).toMatchObject({ runId: unblamed, href: `#/run/${unblamed}`, detail: 'refund-bug · not blamed yet', expect: EXPECT, icon: 'fail' });
+    // A run is named by its id, with what it was about: a label is no name (this one asked nothing, so its command).
+    expect(items[1]).toMatchObject({ runId: unblamed, href: `#/run/${unblamed}`, title: `A run failed: ${unblamed.slice(0, 10)}`, detail: 'node agent.mjs · not blamed yet', expect: EXPECT, icon: 'fail' });
     expect(items[2]).toMatchObject({ runId: blamedBefore, detail: 'node agent.mjs · not blamed yet' });
     expect(items[2]).not.toHaveProperty('expect');
     expect(items[3]).toMatchObject({ fixId, title: 'A verified fix is ready', detail: 'Escalate refunds above the policy limit', href: `#/fixes/${fixId}/repair`, icon: 'fixok' });

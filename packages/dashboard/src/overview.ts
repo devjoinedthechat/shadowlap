@@ -1,5 +1,6 @@
-import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, originCells, sumCacheUse, type OriginCounts, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
+import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, originCells, sumCacheUse, type OriginCounts, type RunAbout, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
 import { fixesSummary, needsLookFixes } from './fixes.js';
+import { aboutsOf } from './run-about.js';
 import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
@@ -60,8 +61,8 @@ export interface TodayPanel {
   served: number;
   /** What replaying did not spend again today: attempts included, as the day's bar in the chart and the week's sums count money. */
   notRespent: number;
-  /** Recordings in progress, with their calls so far. */
-  recording: Array<{ runId: string; command: string; calls: number; startedAt: number }>;
+  /** Recordings in progress, with their calls so far and what each is about (its first user message, once it sent one). */
+  recording: Array<{ runId: string; command: string; calls: number; startedAt: number; about: RunAbout | null }>;
   /** Clean replays today. */
   replays: number;
   /** Forks today (the one blame rescued a run with among them), the calls that went live in them, and the writes they blocked. */
@@ -96,6 +97,8 @@ export interface GridRow {
   outcome: RunOutcome;
   failed: boolean;
   label: string;
+  /** What the run was about, for the row's hover: under a parent, what it changed. */
+  about: RunAbout | null;
   rescues: string | null;
   startedAt: number;
   calls: number;
@@ -363,7 +366,7 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
     day: today.key,
     served: sum(shown, (s) => s.origins.r),
     notRespent: sum(runs, (s) => s.saved),
-    recording: index.runs.filter((r) => recordingNow.has(r.runId) && r.mode === 'record' && !r.bundled).map((r) => ({ runId: r.runId, command: r.argv.join(' '), calls: r.calls, startedAt: r.startedAt })),
+    recording: recordingRows(store, index, recordingNow),
     replays: of('clean').length,
     forks: { count: forks.length, live: sum(forks, (s) => s.origins.l), blocked: sum(forks, (s) => s.origins.b) },
     tests: { count: tests.length, failed: failedTests.length, inconclusive: inconclusiveTests.length, latestFailure: failedTests[0] ? { runId: failedTests[0].runId, outcome: failedTests[0].outcome } : null },
@@ -379,6 +382,13 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
       }),
     },
   };
+}
+
+/** Recordings in progress, each with what it is about: a recording's first user message, read once it was sent. */
+function recordingRows(store: Store, index: RunIndex, recordingNow: ReadonlySet<string>): TodayPanel['recording'] {
+  const runs = index.runs.filter((r) => recordingNow.has(r.runId) && r.mode === 'record' && !r.bundled);
+  const abouts = runs.length ? aboutsOf(store, index, runs) : new Map<string, RunAbout>();
+  return runs.map((r) => ({ runId: r.runId, command: r.argv.join(' '), calls: r.calls, startedAt: r.startedAt, about: abouts.get(r.runId) ?? null }));
 }
 
 /**
@@ -445,6 +455,7 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
   }
   const shownRuns = picked.flat();
   const totals = callTotals(store, index, shownRuns.map((x) => x.run));
+  const abouts = aboutsOf(store, index, shownRuns.map((x) => x.run));
   const total = sumStats(runs.map((r) => stats.get(r.runId)).filter((s): s is RunStats => !!s));
   const shown = shownRuns.filter((x) => week.has(x.run.runId)).length;
   return {
@@ -468,6 +479,7 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
           outcome: run.outcome,
           failed: run.failed,
           label: run.label,
+          about: abouts.get(run.runId) ?? null,
           rescues: run.rescues,
           startedAt: run.startedAt,
           calls: run.calls,
@@ -517,6 +529,18 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
   const fixes = needsLookFixes(store);
   const of = (kind: string) => fixes.filter((f) => f.kind === kind);
   const fixRow = (f: (typeof fixes)[number]): NeedsLookRow => ({ kind: f.kind, icon: f.icon, title: f.title, detail: f.detail, action: f.action, href: f.href, runId: f.runId, fixId: f.fixId, at: f.at });
+  // A failed run never blamed is named by its id, and says what it was about (decision 10): its
+  // about line in place of its command, worked out for the lines shown, not for every such run.
+  const unblamed = of('unblamed').map(fixRow);
+  const shownUnblamed = unblamed.slice(0, unblamed.length <= NEEDS_LOOK_EACH + 1 ? unblamed.length : NEEDS_LOOK_EACH);
+  if (shownUnblamed.length) {
+    const index = loadRunIndex(store);
+    const abouts = aboutsOf(store, index, shownUnblamed.map((x) => index.byId.get(x.runId!)).filter((r): r is IndexedRun => r !== undefined));
+    for (const x of shownUnblamed) {
+      const about = abouts.get(x.runId!)?.text;
+      if (about) x.detail = `${about} · not blamed yet`;
+    }
+  }
   const tests: NeedsLookRow[] = goldens.length
     ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: t.verdict === 'inconclusive' ? ('warn' as const) : ('fail' as const), title: t.title, detail: t.line, action: t.verdict === 'inconclusive' ? 'Open' : 'Fix', href: t.href, runId: t.runId, fixId: null, at: t.at }))
     : [];
@@ -555,7 +579,7 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
     ...capped(of('broken').map(fixRow), (n) => ({ icon: 'fail', title: `${plural(n, 'more applied fix', 'more applied fixes')} ${n === 1 ? "doesn't" : "don't"} hold`, detail: 'each on Fixes', href: '#/fixes' })),
     ...capped(tests, (n) => ({ icon: 'fail', title: `${plural(n, 'more test')} failed or inconclusive`, detail: 'each on Tests', href: '#/tests' })),
     ...capped(of('open').map(fixRow), (n) => ({ icon: 'blame', title: `${plural(n, 'more failure')} with no fix yet`, detail: 'each on Fixes', href: '#/fixes' })),
-    ...capped(of('unblamed').map(fixRow), (n) => ({ icon: 'fail', title: `${plural(n, 'more failed run')} not blamed yet`, detail: 'the failed runs on Runs', href: '#/runs?type=failed' })),
+    ...capped(unblamed, (n) => ({ icon: 'fail', title: `${plural(n, 'more failed run')} not blamed yet`, detail: 'the failed runs on Runs', href: '#/runs?type=failed' })),
     ...capped(of('ready').map(fixRow), (n) => ({ icon: 'fixok', title: `${plural(n, 'more verified fix', 'more verified fixes')} ${n === 1 ? 'is' : 'are'} ready`, detail: 'each on Fixes', href: '#/fixes' })),
     ...local,
   ];
