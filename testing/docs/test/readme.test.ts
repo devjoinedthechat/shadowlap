@@ -140,7 +140,9 @@ function sources(dir: string): string[] {
 // heading renamed or a page moved leaves a link that lands on nothing, as #telemetry once did.
 describe('links into the repository that the code prints', () => {
   it('name a file that exists, and a heading it has', () => {
-    const files = [...readdirSync(join(root, 'packages')).flatMap((p) => sources(join(root, 'packages', p))), ...sources(join(root, 'sdks', 'python', 'shadowlap'))];
+    // Each package's folder; a file beside them (a Finder's .DS_Store) is none.
+    const packages = readdirSync(join(root, 'packages'), { withFileTypes: true }).filter((e) => e.isDirectory());
+    const files = [...packages.flatMap((p) => sources(join(root, 'packages', p.name))), ...sources(join(root, 'sdks', 'python', 'shadowlap'))];
     const links: Array<{ where: string; url: string; path: string; hash: string | undefined }> = [];
     for (const file of files) {
       for (const m of readFileSync(file, 'utf8').matchAll(/https:\/\/github\.com\/devjoinedthechat\/shadowlap(?:\/blob\/[\w.-]+\/([\w./-]+))?(?:#([\w-]+))?/g)) {
