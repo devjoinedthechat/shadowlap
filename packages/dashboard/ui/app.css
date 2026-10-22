@@ -803,7 +803,6 @@ p.muted { margin: 0 0 12px; }
 table.gt td { vertical-align: top; }
 table.gt .rsub { display: block; margin-top: 3px; color: var(--faint); font-size: 12px; white-space: normal; }
 table.gt .chk span { display: block; font-size: 12.5px; color: var(--dim); }
-table.gt .chk span::before { content: "✓ "; color: var(--faint); }
 th.hist, td.hist { width: 1%; white-space: nowrap; }
 th.hist span { display: inline-block; width: 52px; text-align: center; font: 10px var(--mono); letter-spacing: 0; text-transform: none; }
 td.hist i { display: inline-block; width: 52px; height: 12px; position: relative; }
@@ -1813,6 +1812,18 @@ td.hist i.go { cursor: pointer; }
 /* a job's buttons wrap in a narrow drawer; links beside its one primary action (each failing golden's run) sit above them */
 .drawer footer { flex-wrap: wrap; }
 .drawer .jlinks { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 10px 14px 0; font-size: 12.5px; }
+/* A check in Tests' table, marked by how the golden's last result came out on it (the mock's): ✓ passed, ✗ failed,
+   ? inconclusive in amber, – not applicable; one with no result has no mark, its words where the others' are */
+table.gt .chk .ck { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; line-height: 1.45; color: var(--dim); }
+table.gt .chk .ck + .ck { margin-top: 5px; }
+table.gt .chk .ck .cm { flex: none; width: 10px; font: 600 12px var(--mono); }
+table.gt .chk .ck:not([class*=" "]) .cw { padding-left: 16px; }
+table.gt .chk .ck .cw { display: block; min-width: 0; overflow-wrap: break-word; color: inherit; }
+table.gt .chk .ck small { display: block; color: var(--faint); font-size: 11.5px; }
+table.gt .chk .ck.passed .cm { color: var(--ok); }
+table.gt .chk .ck.failed .cm { color: var(--err); }
+table.gt .chk .ck.inconclusive .cm { color: var(--warn); }
+table.gt .chk .ck.not-applicable .cm, table.gt .chk .ck.not-applicable .cw { color: var(--faint); }
 /* where a golden came from stays on one line under its name, however many revisions the history shows */
 table.gt .rsub.gsrc { white-space: nowrap; }
 /* on a laptop the history keeps its newest four revisions, so the last result keeps room to read */

@@ -16,6 +16,7 @@ const row = (name: string, result: 'pass' | 'fail' | null): GoldenRow => ({
   modeHint: '',
   gate: null,
   checks: [],
+  checkResults: [],
   history: [],
   last: { result, verdict: result === 'fail' ? 'failed' : result === 'pass' ? 'passed' : null, failure: result === 'fail' ? 'diverged' : null, line: '', at: null, updated: false, gate: null },
   runId: null,

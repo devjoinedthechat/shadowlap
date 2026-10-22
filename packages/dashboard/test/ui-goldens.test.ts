@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { asksUpdate, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH, updatePlan } from '../ui/goldens.js';
+import { asksUpdate, checkMark, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH, updatePlan } from '../ui/goldens.js';
 import { jobStatus } from '../ui/jobs.js';
-import type { DivergenceView, FailureView, GoldenRow, InconclusiveView, TestsView } from '../ui/types.js';
+import type { DivergenceView, FailureView, GoldenCheck, GoldenRow, InconclusiveView, TestsView } from '../ui/types.js';
 
 /**
  * The Tests screen's words and choices, without a browser: the verdict's line, a history cell's
@@ -20,6 +20,7 @@ const row = (name: string, over: Partial<GoldenRow> = {}): GoldenRow => ({
   modeHint: 'must send exactly the requests it recorded',
   gate: null,
   checks: ['issue_refund called 1 time', 'send_email called 1 time'],
+  checkResults: ['issue_refund called 1 time', 'send_email called 1 time'].map((label) => ({ label, status: 'passed', detail: null, reason: null, source: null, attempts: null })),
   history: [],
   last: { result: 'pass', verdict: 'passed', failure: null, line: '8/8 replayed · checks passed', at: T, updated: false, gate: null },
   runId: null,
@@ -168,6 +169,24 @@ describe('the goldens table', () => {
     expect(inconclusiveHint({ ...v, gate: null })).toContain('A check could not be judged');
     // An injection gate that showed too little to say: its own hint.
     expect(inconclusiveHint({ ...v, gate: null, failure: 'injection', reason: 'injection inconclusive: 5 of 5 attempts could not be judged' })).toContain('its injection test showed too little to say');
+  });
+
+  it('marks each check by its last status, as the CLI does, with no mark before a result', () => {
+    const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', detail: null, reason: null, source: null, attempts: null, ...over });
+    expect(checkMark(c({}), true)).toMatchObject({ mark: '✓', status: 'passed', word: 'passed', text: 'issue_refund never called', sub: null, tip: { title: 'passed · issue_refund called 0 times', color: 'var(--ok)' } });
+    // Failed: what it found, and over several attempts how many passed it.
+    expect(checkMark(c({ status: 'failed', detail: 'called 1 time (1 blocked or stubbed)' }), true)).toMatchObject({ mark: '✗', sub: 'called 1 time (1 blocked or stubbed)', tip: { label: 'failed', value: 'called 1 time (1 blocked or stubbed)', color: 'var(--err)' } });
+    expect(checkMark(c({ status: 'failed', detail: 'called 1 time (1 blocked or stubbed)', attempts: { passed: 8, of: 12 } }), true).sub).toBe('8 of 12 attempts passed · the others: called 1 time (1 blocked or stubbed)');
+    // Inconclusive: a ? with why, in amber; not applicable: a dash, and why on hover.
+    expect(checkMark(c({ label: 'judge "calm" answers yes', status: 'inconclusive', detail: 'not judged: no recorded verdict and the test runs offline' }), true)).toMatchObject({ mark: '?', status: 'inconclusive', sub: 'not judged: no recorded verdict and the test runs offline', tip: { color: 'var(--warn)' } });
+    expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held' }), true)).toMatchObject({ mark: '–', word: 'not applicable', sub: 'not applicable', tip: { value: 'the condition never held' } });
+    // A judge's verdict says where it came from; a pass over attempts that weren't all passes says so.
+    expect(checkMark(c({ source: 'recording', reason: 'It names the limit.' }), true)).toMatchObject({ sub: 'judged from the recording', tip: { value: '“It names the limit.”' } });
+    expect(checkMark(c({ attempts: { passed: 17, of: 18 } }), true)).toMatchObject({ sub: '17 of 18 attempts passed', tip: { value: 'passed in 17 of 18 attempts' } });
+    expect(checkMark(c({ attempts: { passed: 12, of: 12 } }), true)).toMatchObject({ sub: null, tip: { value: 'passed in every attempt, 12 of 12' } });
+    // No result yet, or one that didn't judge this check: no mark, never a tick.
+    expect(checkMark(c({ status: null }), false)).toMatchObject({ mark: null, word: 'not run yet' });
+    expect(checkMark(c({ status: null }), true)).toMatchObject({ mark: null, word: 'not judged' });
   });
 
   it('says where each golden came from: a run here, or a pack made elsewhere', () => {

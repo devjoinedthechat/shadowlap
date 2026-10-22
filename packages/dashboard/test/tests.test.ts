@@ -1086,3 +1086,59 @@ describe('goldens with a gate', () => {
     expect(runTestsJob(gated, {})).toEqual({ title: 'Running the tests', args: ['test', 'goldens/*'] });
   });
 });
+
+describe('each golden\'s checks, by how its last result came out on them', () => {
+  const judge = (model: string) => ({ name: 'explains-escalation', model, of: 'answer' as const, verdict: null, source: null, cost: null, redactions: 0, cut: 0 });
+  const judgeLabel = 'judge "explains-escalation" answers yes';
+  const offline = { ok: false, status: 'inconclusive' as const, label: judgeLabel, detail: 'not judged: no recorded verdict and the test runs offline', judge: judge('claude-haiku-4-5') };
+  const noKey = { ...offline, detail: 'not judged: no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)' };
+  const passed = (label: string) => ({ ok: true, status: 'passed' as const, label, detail: null });
+  const failed = (label: string, detail: string) => ({ ok: false, status: 'failed' as const, label, detail });
+  const golden = (path: string, mode: 'replay' | 'fork', checks: string[]): GoldenSource => ({ path, runId: null, packedAt: T0, mode, repeat: 1, passes: 1, checks });
+  const GOLDENS = [
+    golden('goldens/clean', 'replay', ['escalate called 1 time', 'when lookup_order has result.amount > 100: escalate called at least 1 time', 'send_email called 1 time']),
+    golden('goldens/flaky', 'fork', ['issue_refund called 0 times']),
+    golden('goldens/judged', 'replay', ['escalate called 1 time', judgeLabel]),
+    golden('goldens/keyless', 'fork', [judgeLabel]),
+    golden('goldens/new', 'replay', ['escalate called 1 time']),
+  ];
+
+  function store() {
+    const s = Store.open(':memory:');
+    // The flaky golden's four attempts, each with its checks as its run kept them: one refunded.
+    const attempts = ['A1', 'A2', 'A3', 'A4'];
+    attempts.forEach((runId, i) => s.createRun({ runId, mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { checks: [i === 1 ? failed('issue_refund called 0 times', 'called 1 time (1 blocked or stubbed)') : passed('issue_refund called 0 times')] } }));
+    session(s, 'd2e8a1f', T0, [
+      // The config gained send_email's check since: the result never judged it.
+      { golden: 'goldens/clean', ok: true, runId: 'R1', data: { mode: 'replay', checks: [passed('escalate called 1 time'), { ok: true, status: 'not-applicable', label: 'when lookup_order has result.amount > 100: escalate called at least 1 time', detail: 'the condition never held: lookup_order #2: result.amount 45 <= 100' }] } },
+      { golden: 'goldens/flaky', ok: false, failure: 'check', reason: '3 of 4 attempts passed, 4 needed', runId: 'A2', data: { mode: 'fork', verdict: 'failed', checks: [failed('issue_refund called 0 times', 'called 1 time (1 blocked or stubbed)')], attempts: { total: 4, passed: 3, required: 4, runs: attempts } } },
+      { golden: 'goldens/judged', ok: false, failure: 'inconclusive' as never, reason: `check inconclusive: ${judgeLabel}, but not judged`, runId: 'R3', data: { mode: 'replay', verdict: 'inconclusive', checks: [passed('escalate called 1 time'), offline] } },
+      { golden: 'goldens/keyless', ok: false, failure: 'inconclusive' as never, reason: `check inconclusive: ${judgeLabel}, but not judged`, runId: 'R4', data: { mode: 'fork', verdict: 'inconclusive', checks: [noKey], divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, text: '' } } },
+    ]);
+    return s;
+  }
+
+  it('marks each check by its status in the attempt the result shows, and none before a result or for one it didn\'t judge', () => {
+    const s = store();
+    const rows = new Map(testsView(s, GOLDENS).rows.map((r) => [r.name, r]));
+    expect(rows.get('clean')!.checkResults.map((c) => [c.status, c.detail])).toEqual([
+      ['passed', null],
+      ['not-applicable', 'the condition never held: lookup_order #2: result.amount 45 <= 100'],
+      [null, null],
+    ]);
+    expect(rows.get('judged')!.checkResults.map((c) => [c.label, c.status, c.detail])).toEqual([
+      ['escalate called 1 time', 'passed', null],
+      [judgeLabel, 'inconclusive', 'not judged: no recorded verdict and the test runs offline'],
+    ]);
+    expect(rows.get('new')!.checkResults).toEqual([{ label: 'escalate called 1 time', status: null, detail: null, reason: null, source: null, attempts: null }]);
+    s.close();
+  });
+
+  it('counts the attempts of a golden run more than once that passed each check, and none when an attempt\'s run is gone', () => {
+    const s = store();
+    expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, attempts: { passed: 3, of: 4 } }]);
+    s.deleteRun('A3');
+    expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults[0]!.attempts).toBeNull();
+    s.close();
+  });
+});

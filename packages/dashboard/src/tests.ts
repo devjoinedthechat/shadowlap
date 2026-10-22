@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { liveChaosSession } from './chaos.js';
 
 /**
@@ -173,6 +173,30 @@ export interface HistoryCell {
   at: number | null;
 }
 
+/**
+ * One of a golden's checks, with how its last result came out on it: what the table marks it by
+ * (✓ passed, ✗ failed, ? inconclusive, – not applicable, and no mark without one).
+ */
+export interface GoldenCheck {
+  /** As the CLI labels it. */
+  label: string;
+  /**
+   * Its status in the last result, in the attempt that result shows; null when the golden hasn't run
+   * yet, or when its last result didn't judge this check (it ran under other checks, or couldn't run).
+   */
+  status: CheckStatus | null;
+  /** The result's words for it: what it found when it failed, why it couldn't be decided or didn't apply. */
+  detail: string | null;
+  /** A judge check: its reason for the verdict, and where the verdict came from (the recording, or the judge asked live). */
+  reason: string | null;
+  source: 'recording' | 'live' | null;
+  /**
+   * A golden run more than once in its last result: of the attempts that judged this check, how many
+   * passed it. Null for one attempt, or when an attempt's run is no longer in the store.
+   */
+  attempts: { passed: number; of: number } | null;
+}
+
 export interface GoldenRow {
   path: string;
   /** The path without the goldens folder: `refund-flow`. */
@@ -190,6 +214,8 @@ export interface GoldenRow {
   /** Its gate under `tests`, or null. */
   gate: GateView | null;
   checks: string[];
+  /** Each of `checks`, in their order, with how its last result came out on it. */
+  checkResults: GoldenCheck[];
   history: HistoryCell[];
   /** `verdict` tells inconclusive apart (`result` reads it as `fail`); `gate`, what its gate decided, for a golden with one; `injection`, its injection gate's result. */
   last: { result: 'pass' | 'fail' | null; verdict: GoldenVerdict | null; failure: TestFailure | null; line: string; at: number | null; updated: boolean; gate: GateResultView | null; injection?: InjectionGateData | null };
@@ -711,6 +737,54 @@ function moreAttempts(g: GateResult, golden: string, perAttempt: number | null):
 
 const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun(runId) ? runId : null);
 
+/**
+ * For a result of more than one attempt: of the attempts that judged each check (it passed, failed or
+ * couldn't be decided there), how many passed it, by label. Each attempt's run keeps its checks. Null
+ * for a single attempt, or when a run is gone: a tally missing an attempt would claim too much.
+ */
+function checkTallies(store: Store, r: TestResult): Map<string, { passed: number; of: number }> | null {
+  const runs = r.data?.attempts?.runs ?? [];
+  if (runs.length < 2) return null;
+  const out = new Map<string, { passed: number; of: number }>();
+  for (const id of runs) {
+    const run = store.getRun(id);
+    if (!run) return null;
+    const seen = new Set<string>();
+    for (const c of run.meta?.checks ?? []) {
+      // A label once per attempt; a check that did not apply there says nothing either way.
+      if (seen.has(c.label)) continue;
+      seen.add(c.label);
+      const status = checkStatus(c);
+      if (status === 'not-applicable') continue;
+      const t = out.get(c.label) ?? { passed: 0, of: 0 };
+      t.of++;
+      if (status === 'passed') t.passed++;
+      out.set(c.label, t);
+    }
+  }
+  return out;
+}
+
+/**
+ * A golden's checks with how its last result came out on each: the status the attempt it shows kept
+ * for it (the CLI judges a diverged replay's checks too, and fails what it didn't do), and over
+ * several attempts, how many passed it. A check the result didn't judge (added since, or a golden that
+ * couldn't run) has no status, as none has before the golden's first result.
+ */
+function goldenChecks(store: Store, labels: readonly string[], r: TestResult | null): GoldenCheck[] {
+  const kept = r?.data?.checks ?? [];
+  const used = new Set<number>();
+  const tallies = r && labels.length ? checkTallies(store, r) : null;
+  return labels.map((label) => {
+    const i = kept.findIndex((c, j) => !used.has(j) && c.label === label);
+    if (i < 0) return { label, status: null, detail: null, reason: null, source: null, attempts: null };
+    used.add(i);
+    const c = kept[i]!;
+    const tally = tallies?.get(label);
+    return { label, status: checkStatus(c), detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, attempts: tally && tally.of > 1 ? tally : null };
+  });
+}
+
 /** What the network guard prints when it blocks a connection, Node's and Python's alike, and the error it raises. */
 const GUARD_BLOCKED = /blocked (?:an )?outbound connection to (\S+?)(?=:\s|\s\(SHADOWLAP_GUARD)/g;
 
@@ -997,6 +1071,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       modeHint: mode.hint,
       gate: gateView(g.gate),
       checks: g.checks,
+      checkResults: goldenChecks(store, g.checks, latest),
       history: revisions.map((rev) => {
         // Its own column's sessions, and a session that ran only some goldens there, or on that
         // commit with changes on top (Add normalizer and re-run), where no column is its own.

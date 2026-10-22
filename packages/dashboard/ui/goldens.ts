@@ -1,5 +1,5 @@
 import { href } from './route.js';
-import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
+import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
 
 /**
  * The Tests screen's words and choices, from the tests read model (`GET /api/tests`): the verdict's
@@ -156,6 +156,63 @@ export function checkWords(label: string): string {
   m = /^cost at (most|least) (\$[\d.]+)$/.exec(label);
   if (m) return `cost ${m[1] === 'most' ? '≤' : '≥'} ${m[2]}`;
   return label;
+}
+
+/** Each status's mark, as the CLI's reports draw them: passed, failed, inconclusive, not applicable. */
+export const CHECK_MARK: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: '✓', failed: '✗', inconclusive: '?', 'not-applicable': '–' };
+
+/** A status as words: the four verdict words. */
+const STATUS_WORD: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: 'passed', failed: 'failed', inconclusive: 'inconclusive', 'not-applicable': 'not applicable' };
+
+/** The colour of each status's mark, as the history's cells and the verdict use them. */
+const STATUS_COLOR: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: 'var(--ok)', failed: 'var(--err)', inconclusive: 'var(--warn)', 'not-applicable': 'var(--faint)' };
+
+export interface CheckMarkView {
+  /** ✓ ✗ ? or –, and the class that colours it (`passed`, `failed`, `inconclusive`, `not-applicable`); null with no result. */
+  mark: string | null;
+  status: GoldenCheck['status'];
+  /** The status in words, for a screen reader and the hover: `failed`, `not run yet`. */
+  word: string;
+  /** The check, as the table names it. */
+  text: string;
+  /** A line under it: what failed and in how many attempts, why it couldn't be decided, or where a judge's verdict came from. */
+  sub: string | null;
+  /** The hover: the status and the check, and one row saying why. */
+  tip: { title: string; label: string; value: string; color: string };
+}
+
+/**
+ * A check in the table, marked by how the golden's last result came out on it: ✓ passed, ✗ failed
+ * (for a golden run more than once, how many attempts passed it and what the others did), ? in amber
+ * when it couldn't be decided (and why), – when it didn't apply, and no mark before a result exists
+ * or for a check the last result didn't judge. `ran`: the golden has a last result.
+ */
+export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
+  const text = checkWords(c.label);
+  const t = c.attempts;
+  if (!c.status) {
+    const word = ran ? 'not judged' : 'not run yet';
+    return { mark: null, status: null, word, text, sub: null, tip: { title: `${word} · ${c.label}`, label: word, value: ran ? 'its last result ran under other checks, or couldn’t run' : 'its golden hasn’t run yet', color: 'var(--line2)' } };
+  }
+  const word = STATUS_WORD[c.status];
+  const detail = c.detail ?? '';
+  let sub: string | null = null;
+  let value = '';
+  if (c.status === 'failed') {
+    sub = t ? `${t.passed} of ${t.of} attempts passed · the others: ${detail || 'failed'}` : detail || null;
+    value = t ? `${t.passed} of ${t.of} attempts passed; the others: ${detail || 'failed'}` : detail || 'failed';
+  } else if (c.status === 'inconclusive') {
+    sub = detail || null;
+    value = detail || 'it could not be decided';
+  } else if (c.status === 'not-applicable') {
+    sub = 'not applicable';
+    value = detail || 'its condition never held';
+  } else {
+    // A judge's verdict says where it came from; a check over several attempts, how many passed it.
+    sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : c.source === 'recording' ? 'judged from the recording' : c.source === 'live' ? `judged live${t ? ` in ${t.of} attempts` : ''}` : null;
+    value = [c.reason ? `“${c.reason}”` : null, t ? (t.passed === t.of ? `passed in every attempt, ${t.of} of ${t.of}` : `passed in ${t.passed} of ${t.of} attempts`) : null].filter(Boolean).join(' · ') || 'passed';
+  }
+  return { mark: CHECK_MARK[c.status], status: c.status, word, text, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: STATUS_COLOR[c.status] } };
 }
 
 /** Where a golden came from: a run in this store, or a pack made elsewhere. */

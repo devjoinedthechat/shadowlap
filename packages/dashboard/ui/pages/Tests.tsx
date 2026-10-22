@@ -8,7 +8,7 @@ import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
 import { treeBusy } from '../fixes/model.js';
 import { useServerJobs } from '../fixes/tree.js';
-import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, sessionLine, sessionWait, sourceText, testsBusy, type ReportLine } from '../goldens.js';
+import { asksUpdate, checkMark, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, sessionLine, sessionWait, sourceText, testsBusy, type ReportLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
@@ -345,13 +345,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
         </span>
       </td>
       <td className="chk hide-sm">
-        {row.checks.length ? (
-          row.checks.map((c, i) => <span key={`${c}:${i}`}>{checkWords(c)}</span>)
-        ) : (
-          <em className="nil" data-tip={tipText('No checks in shadowlap.config.json: it passes when it replays and the agent exits 0')}>
-            exit status only
-          </em>
-        )}
+        <Checks row={row} />
       </td>
       {showHistory ? (
         <td className="hist hide-sm">
@@ -402,6 +396,42 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
         {last.result !== null || row.error ? <span className="rsub">{last.line}</span> : null}
       </td>
     </tr>
+  );
+}
+
+/**
+ * A golden's checks, each marked by how its last result came out on it (✓ passed, ✗ failed, ? in
+ * amber when it couldn't be decided, – when it didn't apply; no mark before a result), with what
+ * failed, in how many attempts, or why, under it and on hover.
+ */
+function Checks({ row }: { row: GoldenRow }) {
+  if (!row.checks.length) {
+    return (
+      <em className="nil" data-tip={tipText('No checks in shadowlap.config.json: it passes when it replays and the agent exits 0')}>
+        exit status only
+      </em>
+    );
+  }
+  const ran = row.last.result !== null;
+  return (
+    <>
+      {row.checkResults.map((c, i) => {
+        const m = checkMark(c, ran);
+        return (
+          <span key={`${c.label}:${i}`} className={`ck${m.status ? ` ${m.status}` : ''}`} data-tip={tipCard(m.tip.title, [{ label: m.tip.label, value: m.tip.value, color: m.tip.color }])}>
+            {m.mark ? (
+              <b className="cm" role="img" aria-label={m.word}>
+                {m.mark}
+              </b>
+            ) : null}
+            <span className="cw">
+              {m.text}
+              {m.sub ? <small>{m.sub}</small> : null}
+            </span>
+          </span>
+        );
+      })}
+    </>
   );
 }
 
