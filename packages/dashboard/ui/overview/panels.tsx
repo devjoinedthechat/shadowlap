@@ -8,7 +8,7 @@ import { cents, clock, ktok, money, num, plural, shortId, whenShort } from '../f
 import { ORIGIN_CODE, ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
 import { href } from '../route.js';
 import type { ActivityItem, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, LiveRun, NeedsLookRow, OverviewSummary, RunGrid, TestsTile, TodayPanel as Today } from '../types.js';
-import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookAction, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from './model.js';
+import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookAction, needsLookKey, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from './model.js';
 
 /**
  * The Overview's panels, as the mock draws them: the outcome strip, this week's runs as rows of
@@ -146,7 +146,7 @@ export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; to
       <div className="attn">
         {total === 0 ? <div className="empty">Nothing needs a look.</div> : null}
         {shown.rows.map((x) => (
-          <a key={`${x.kind}:${x.fixId ?? x.runId ?? x.title}`} href={x.href}>
+          <a key={needsLookKey(x)} href={x.href}>
             <EventIcon kind={x.icon} />
             <span>
               <span className="t">{x.title}</span>

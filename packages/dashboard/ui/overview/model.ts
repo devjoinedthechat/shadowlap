@@ -117,6 +117,15 @@ export function needsLookAction(row: Pick<NeedsLookRow, 'action'>, actionsOff: s
   return actionsOff ? 'Open' : row.action;
 }
 
+/**
+ * What tells a Needs a look line from the others, as React keys it: its kind, the fix and the run it
+ * leads to, and its title. One fix can hold several goldens' failures (blame joins one regression's
+ * failing runs into one fix), so a failing golden's line is its golden's, not its fix's.
+ */
+export function needsLookKey(row: Pick<NeedsLookRow, 'kind' | 'fixId' | 'runId' | 'title'>): string {
+  return [row.kind, row.fixId ?? '', row.runId ?? '', row.title].join(':');
+}
+
 /** The line under Spent live: the receipt, what replaying saved. */
 export function spentNote(o: OverviewSummary['outcomes']['spent']): string {
   return `${cents(o.notRespent)} not re-spent · ${durLong(o.notWaitedMs)} not waited`;

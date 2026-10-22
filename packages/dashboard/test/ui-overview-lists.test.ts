@@ -1,5 +1,5 @@
 import { createElement, type ReactElement } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NeedsLook, Outcomes, TodayCard } from '../ui/overview/panels.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { NeedsLookRow, OverviewSummary, TestsTile, TodayPanel } from '../ui/types.js';
@@ -73,5 +73,23 @@ describe('Needs a look’s words', () => {
     await r.unmount();
     r = await render(inApp(createElement(NeedsLook, { items: rows, total: 3 }), 'This dashboard is read-only: it was started with --read-only.'));
     expect(r.all('.needs .go').map(text)).toEqual(['Open →', 'Open →', 'Open →']);
+  });
+
+  it('keeps a line for each failing golden when one fix holds them all, through Show more', async () => {
+    // One regression failed three goldens on the same check, and blame joined their runs into one fix.
+    const fixId = 'fx-01M5H2DV7NHAEH1GM5ARZXX3BG';
+    const held: NeedsLookRow[] = ['refund-in-limit', 'refund-over-limit', 'refund-partial'].map((name, i) => ({ kind: 'test', icon: 'fail', title: `A test failed: ${name}`, detail: 'check failed: issue_refund called 1 time', action: 'Fix', href: `#/fixes/${fixId}`, runId: `01M5H2EWWY8P621C63CJPVEM${i}A`, fixId, at: 3 - i }));
+    const open: NeedsLookRow = { kind: 'open', icon: 'blame', title: 'Refunds above the limit issued without approval', detail: 'lost at model call #5 · no fix yet', action: 'Fix it', href: `#/fixes/${fixId}`, runId: null, fixId, at: 0 };
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      r = await render(inApp(createElement(NeedsLook, { items: [...held, open], total: 4 })));
+      await r.click(r.all('.attn-more')[0]!);
+      expect(r.all('.needs .t').map(text)).toEqual(['A test failed: refund-in-limit', 'A test failed: refund-over-limit', 'A test failed: refund-partial', 'Refunds above the limit issued without approval']);
+      await r.click(r.all('.attn-more')[0]!);
+      expect(r.all('.needs .t').map(text)).toEqual(['A test failed: refund-in-limit', 'A test failed: refund-over-limit', 'A test failed: refund-partial']);
+      expect(errors.mock.calls.map((c) => c.map(String).join(' ')).filter((m) => /same key/.test(m))).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
