@@ -1213,22 +1213,41 @@ export interface FailingTest {
   line: string;
   failure: TestFailure;
   runId: string | null;
-  /** Where Fix → goes: the failing run, else the Tests screen. */
+  /** Where its line goes: the fix its failing run belongs to, else the failing run, else the Tests screen. */
   href: string;
+  /** What the line's word says it leads to (Needs a look's "Fix →", "Run more →"): see `failingNext`. */
+  next: 'fix' | 'open' | 'run-more' | 'update';
+  /** The fix that holds the failing run, when one does. */
+  fixId: string | null;
   at: number;
+}
+
+/**
+ * What a failing test leads to, so the word before its arrow says where it goes: the fix its failing
+ * run belongs to (`fix`), else the run (`open`). An inconclusive golden settles with more attempts
+ * when its gate ran out of them (`run-more`), or, a replay golden whose check could not be judged,
+ * by updating the golden, which keeps the judge's verdict (`update`); otherwise it is opened.
+ */
+function failingNext(r: TestResult, o: { fixId: string | null; mode: GoldenSource['mode'] | null }): FailingTest['next'] {
+  if (verdictOfResult(r) !== 'inconclusive') return o.fixId ? 'fix' : 'open';
+  if (gateResultView(r, r.golden)?.more) return 'run-more';
+  return o.mode === 'replay' && !r.data?.gate ? 'update' : 'open';
 }
 
 /** Goldens on disk failing now, newest failure first: Needs a look's failing tests. */
 export function failingTests(store: Store, options: { goldens: GoldenList; folder?: string; normalizers?: readonly Normalizer[] }): FailingTest[] {
   const folder = options.folder ?? 'goldens';
-  const checksOf = new Map(options.goldens.filter((g): g is GoldenSource => typeof g !== 'string').map((g) => [g.path, g.checks]));
+  const sources = new Map(options.goldens.filter((g): g is GoldenSource => typeof g !== 'string').map((g) => [g.path, g]));
   return [...latestResults(store, options.goldens).values()]
     .filter((r) => !r.ok)
     .sort((a, b) => b.at - a.at)
     .map((r) => {
       const runId = runIfKept(store, r.runId);
       const verdict = verdictOfResult(r) === 'inconclusive' ? 'inconclusive' : 'failed';
-      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line: lineOf(store, r, checksOf.get(r.golden) ?? [], options.normalizers ?? []), failure: r.failure ?? 'error', runId, href: verdict === 'inconclusive' ? '#/tests' : runId ? `#/run/${runId}` : '#/tests', at: r.at };
+      const fixId = verdict === 'failed' && runId ? (fixOfRun(store, runId)?.fixId ?? null) : null;
+      const next = failingNext(r, { fixId, mode: sources.get(r.golden)?.mode ?? null });
+      const href = fixId ? `#/fixes/${fixId}` : verdict === 'inconclusive' ? '#/tests' : runId ? `#/run/${runId}` : '#/tests';
+      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line: lineOf(store, r, sources.get(r.golden)?.checks ?? [], options.normalizers ?? []), failure: r.failure ?? 'error', runId, href, next, fixId, at: r.at };
     });
 }
 

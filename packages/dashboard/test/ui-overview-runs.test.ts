@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
-import { activityGlyph, activityLine, blameWords, chartScale, dayText, dotLine, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from '../ui/overview/model.js';
+import { activityGlyph, activityLine, blameWords, chartScale, dayText, dotLine, kindGlyph, needsLookAction, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, deleteText, deleteWhat, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
 import { datasetCommand, datasetFile } from '../ui/run/share.js';
@@ -59,6 +59,9 @@ describe('the Overview’s words', () => {
     expect(todayTestsLine(null, { count: 0, failed: 0 }, null)).toMatchObject({ text: 'no goldens yet', count: '0 goldens' });
     // Blame counts blames, as Replays and Forks count runs, with the model calls they probed and their attempts on hover.
     expect(todayBlameCount({ blames: 3, probes: 12, attempts: 48 })).toEqual({ count: '3 today', title: '12 probes · 48 attempts' });
+    // Where nothing runs, every line of Needs a look opens what it names.
+    expect(needsLookAction({ action: 'Run blame' }, null)).toBe('Run blame');
+    expect(needsLookAction({ action: 'Run blame' }, 'This dashboard is read-only: it was started with --read-only.')).toBe('Open');
     expect(spentNote({ value: 1.29, lastWeek: 1.69, notRespent: 2.81, notWaitedMs: 28 * 60_000 })).toBe('$2.81 not re-spent · 28m not waited');
   });
 

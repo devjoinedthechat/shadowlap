@@ -1,4 +1,5 @@
 import { memo, useState } from 'react';
+import { useApp } from '../state.js';
 import { DeltaPill, Kpi, Legend, Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { EventIcon, Glyph } from '../components/RunIcon.js';
@@ -7,7 +8,7 @@ import { cents, clock, ktok, money, num, plural, shortId, whenShort } from '../f
 import { ORIGIN_CODE, ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
 import { href } from '../route.js';
 import type { ActivityItem, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, LiveRun, NeedsLookRow, OverviewSummary, RunGrid, TestsTile, TodayPanel as Today } from '../types.js';
-import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from './model.js';
+import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookAction, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from './model.js';
 
 /**
  * The Overview's panels, as the mock draws them: the outcome strip, this week's runs as rows of
@@ -128,8 +129,12 @@ export function WeekGrid({ grid, now }: { grid: RunGrid; now: number }) {
 
 // ---------------------------------------------------------------------------------------------- needs a look
 
-/** Most urgent first; three, then "Show N more". A recording in progress shows under Today instead. */
+/**
+ * Most urgent first; three, then "Show N more". A recording in progress shows under Today instead.
+ * Each line's word says where it leads; where nothing runs (a read-only dashboard) every line opens.
+ */
 export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; total: number }) {
+  const { actionsOff } = useApp();
   const [open, setOpen] = useState(false);
   const shown = needsLookShown(items, open);
   return (
@@ -149,7 +154,7 @@ export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; to
                 {x.detail}
               </span>
             </span>
-            <span className="go">{x.action} →</span>
+            <span className="go">{needsLookAction(x, actionsOff)} →</span>
           </a>
         ))}
         {shown.more ? (

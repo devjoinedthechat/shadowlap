@@ -112,6 +112,11 @@ export function todayBlameCount(b: Pick<OverviewSummary['today']['blame'], 'blam
   return { count: `${num(b.blames)} today`, title: `${plural(b.probes, 'probe')} · ${plural(b.attempts, 'attempt')}` };
 }
 
+/** The word before a Needs a look line's arrow: where it leads, or Open on a dashboard that runs nothing (read-only). */
+export function needsLookAction(row: Pick<NeedsLookRow, 'action'>, actionsOff: string | null): string {
+  return actionsOff ? 'Open' : row.action;
+}
+
 /** The line under Spent live: the receipt, what replaying saved. */
 export function spentNote(o: OverviewSummary['outcomes']['spent']): string {
   return `${cents(o.notRespent)} not re-spent · ${durLong(o.notWaitedMs)} not waited`;

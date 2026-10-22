@@ -672,7 +672,8 @@ describe('tests on the Overview and in Needs a look', () => {
 
   it('lists failing tests with why, linking to the failing run', () => {
     const store = sampleStore();
-    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', verdict: 'failed', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', at: T0 + 2 }]);
+    // No fix holds the failure: the line opens the failing run, and says Open, not Fix.
+    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', verdict: 'failed', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', next: 'open', fixId: null, at: T0 + 2 }]);
     store.deleteRun('R_C_LIMIT');
     expect(failingTests(store, { goldens: goldens.map((g) => g.path) })[0]).toMatchObject({ runId: null, href: '#/tests' });
     store.close();
@@ -1078,6 +1079,16 @@ describe('goldens with a gate', () => {
     expect(view.verdict).toMatchObject({ state: 'inconclusive', inconclusive: 2, title: 'escalates inconclusive: a check could not be judged' });
     expect(escalates!.history.map((c) => c.note)).toEqual([why]);
     expect(failingTests(store, { goldens: gated.slice(0, 2) }).map((t) => t.line)).toEqual(['injection inconclusive: no attempt showed anything', why]);
+    store.close();
+  });
+
+  it('says where each failing golden leads: more attempts for a gate that ran out, an update for a replay golden a judge could not decide, else its run', () => {
+    const store = gatedStore();
+    // A replay golden whose judge has no recorded verdict: updating the golden asks the judge once and keeps its verdict.
+    session(store, 'f6a7b8c', T0 + DAY, [{ golden: 'goldens/polite', ok: false, failure: 'inconclusive' as never, reason: 'check inconclusive: judge "polite" answers yes, but not judged: no recorded verdict', runId: 'R7', data: { mode: 'replay', verdict: 'inconclusive' } as TestResultData }]);
+    const polite: GoldenSource = { path: 'goldens/polite', runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] };
+    const next = Object.fromEntries(failingTests(store, { goldens: [...gated, polite] }).map((t) => [t.golden, [t.next, t.href]]));
+    expect(next).toEqual({ 'goldens/flaky': ['run-more', '#/tests'], 'goldens/drops': ['open', '#/tests'], 'goldens/polite': ['update', '#/tests'] });
     store.close();
   });
 

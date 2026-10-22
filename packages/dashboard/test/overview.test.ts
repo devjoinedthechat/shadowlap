@@ -369,7 +369,11 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       session(NOW - HOUR, false);
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, goldens });
       expect(s.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, inconclusive: 0, untested: 0, lastWeek: 2, regressions: 1, lastRunAt: NOW - HOUR + 10 });
-      expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', action: 'Fix', runId: failed, href: `#/run/${failed}` });
+      // No fix holds the failure yet: the line opens the failing run, and says so.
+      expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', action: 'Open', runId: failed, href: `#/run/${failed}` });
+      // Blamed, the failure has a fix: Fix leads to it.
+      const { fix } = recordBlame(local, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'c', title: 'refund-in-limit diverged', checkText: 'x', at: NOW - HOUR / 2 });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items.find((i) => i.kind === 'test')).toMatchObject({ action: 'Fix', runId: failed, fixId: fix.fixId, href: `#/fixes/${fix.fixId}` });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toBeNull();
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).needsLook.items.some((i) => i.kind === 'test')).toBe(false);
     } finally {
