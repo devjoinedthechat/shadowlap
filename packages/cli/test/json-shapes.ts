@@ -55,7 +55,7 @@ export const SHAPES = {
   previewUnmasked: { section: 'normalize', fields: ['count', 'samples', 'places', 'remedies', 'covered', 'reasons'] },
   previewUnmaskedSample: { section: 'normalize', fields: ['value', 'key', 'callNo', 'kind', 'name', 'in', 'path', 'event'] },
   previewRemedy: { section: 'normalize', fields: ['rule', 'command', 'copies'] },
-  gc: { section: 'rm', fields: ['dryRun', 'olderThanDays', 'keep', 'cutoff', 'total', 'count', 'runs', 'expect', 'blobs', 'bytes', 'recording', 'recordingCount', 'abandoned', 'abandonedCount', 'held', 'heldCount', 'deferred', 'store'] },
+  gc: { section: 'rm', fields: ['dryRun', 'olderThanDays', 'keep', 'cutoff', 'total', 'count', 'attempts', 'runs', 'expect', 'blobs', 'bytes', 'recording', 'recordingCount', 'abandoned', 'abandonedCount', 'held', 'heldCount', 'deferred', 'store'] },
   gcStore: { section: 'rm', fields: ['path', 'before', 'after', 'free'] },
   doctor: { section: 'doctor', fields: ['name', 'verdict', 'detail'] },
   // check: recordings judged by checks, nothing replayed; and each check as it came out, wherever a command prints one.
