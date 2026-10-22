@@ -342,7 +342,8 @@ describe('a diverged test’s diff', () => {
     const html = renderToStaticMarkup(createElement(DiffPanel, { run, test }));
     expect(html).toContain('looks like a UUID: the agent makes a new one on every run.');
     expect(html).toContain('so the golden is updated after it');
-    expect(html).toContain('--path &#x27;$.metadata.user_id&#x27; --pattern uuid');
+    // The command wraps between its words, each its own element, so it is read without them.
+    expect(html.replace(/<[^>]+>/g, '')).toContain('--path &#x27;$.metadata.user_id&#x27; --pattern uuid');
     expect(html).not.toContain('no normalizer is suggested');
     // A value that only changed: the design's sentence, and older recordings match too.
     const changed = {
