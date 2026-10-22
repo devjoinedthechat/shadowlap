@@ -3,8 +3,8 @@ import { Fragment } from 'react';
 /**
  * Decision 9 on every page: a gate's verdict is its word, its tally and its Wilson bound (against
  * history, its baseline), `failed · 4 of 8 · rate <= 0.78 (95%)`, and the rule it was decided by is
- * stated once (under Tests' table, under the first bundle of a report) or on the line's hover (Needs
- * a look, Activity); never a claimed rate. The server words every line (src/verdict.ts); these draw
+ * stated once (under Tests' table, once in a run's family on the Forks view) or on the line's hover
+ * (Needs a look, Activity); never a claimed rate. The server words every line (src/verdict.ts); these draw
  * them, one way everywhere: a line breaks only after a dot, each short part kept whole, so "4 of 8"
  * and "rate <= 0.78 (95%)" never break inside; a rule keeps each figure with its words.
  */
@@ -55,10 +55,12 @@ export function ruleTip(title: string, rule: string | null | undefined): string 
  * failed left of the high one, an inconclusive one straddles them. Lime, red or amber by the verdict.
  */
 export function IntervalBar({ lo, hi, marks, tone }: { lo: number; hi: number; marks: readonly number[]; tone: 'ok' | 'no' | 'y' }) {
-  const pct = (x: number) => `${(Math.max(0, Math.min(1, x)) * 100).toFixed(1)}%`;
+  const at = (x: number) => Math.max(0, Math.min(1, x)) * 100;
+  const pct = (x: number) => `${at(x).toFixed(1)}%`;
   return (
     <span className={`wib ${tone}`} aria-hidden="true">
-      <i className="iv" style={{ left: pct(lo), width: `${Math.max(1.5, (Math.max(0, Math.min(1, hi)) - Math.max(0, Math.min(1, lo))) * 100).toFixed(1)}%` }} />
+      {/* At least a sliver wide, so an interval that narrow still shows. */}
+      <i className="iv" style={{ left: pct(lo), width: `${Math.max(1.5, at(hi) - at(lo)).toFixed(1)}%` }} />
       {marks.map((m, i) => (
         <i key={i} className="mk" style={{ left: pct(m) }} />
       ))}
