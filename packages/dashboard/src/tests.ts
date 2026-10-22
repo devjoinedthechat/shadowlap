@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { liveChaosSession } from './chaos.js';
 
 /**
@@ -377,6 +377,28 @@ export interface InconclusiveView {
   gate: GateResultView | null;
   /** `injection` when its injection gate is what is inconclusive. */
   failure?: TestFailure | null;
+  /** A judge check its last result couldn't decide for want of a verdict, and what settles it; null for any other reason. */
+  judge?: UnjudgedCheck | null;
+}
+
+/**
+ * A judge check a golden's last result couldn't decide, and what settles it. A golden that replays
+ * offline can't ask the judge, so Update golden (`update`, the arguments of `test <golden> --update`)
+ * asks it once, live, and keeps its verdict in the pack. A golden that forks asks its judges live,
+ * and what it lacked was a key for the judge's provider where the test ran (`keys`, the variables
+ * that key is read from). Neither when the result says another reason.
+ */
+export interface UnjudgedCheck {
+  /** The check's name in the config, and its label. */
+  name: string;
+  label: string;
+  /** The judge's model, and the provider it is asked through when its name says. */
+  model: string;
+  provider: JudgeProvider | null;
+  /** Why it wasn't judged, as the result kept it. */
+  why: string;
+  update: string[] | null;
+  keys: readonly string[] | null;
 }
 
 export interface TestsView {
@@ -790,6 +812,23 @@ function goldenChecks(store: Store, labels: readonly string[], r: TestResult | n
   });
 }
 
+/**
+ * The judge check an inconclusive result couldn't decide for want of a verdict, and what settles it:
+ * for a golden that replays offline and replayed clean, Update golden, which asks the judge once and
+ * keeps its verdict in the pack; for a golden that forks, the key it lacked, when that is why. Null
+ * when no judge check is what kept it undecided.
+ */
+function unjudgedCheck(path: string, mode: 'replay' | 'fork', r: TestResult): UnjudgedCheck | null {
+  const c = (r.data?.checks ?? []).find((x) => checkStatus(x) === 'inconclusive' && x.judge);
+  if (!c?.judge) return null;
+  const provider = judgeTarget(c.judge.model)?.provider ?? null;
+  const why = c.detail ?? 'not judged';
+  // Offline, nothing could ask the judge; --update asks it live, once, and keeps the verdict, for a replay that ran clean.
+  const update = mode === 'replay' && !r.data?.divergence && !optionLike(path) ? ['test', path, '--update'] : null;
+  const keys = mode === 'fork' && provider && /\bno key for\b/.test(why) ? JUDGE_KEYS[provider] : null;
+  return { name: c.judge.name, label: c.label, model: c.judge.model, provider, why, update, keys };
+}
+
 /** What the network guard prints when it blocks a connection, Node's and Python's alike, and the error it raises. */
 const GUARD_BLOCKED = /blocked (?:an )?outbound connection to (\S+?)(?=:\s|\s\(SHADOWLAP_GUARD)/g;
 
@@ -1117,7 +1156,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       // Its gate ran out of attempts between its bounds; or a check, or its injection gate, is what is
       // inconclusive (an attempt a check could not decide stopped its gate, which decided nothing).
       const gate = latest.data?.gate?.decision === 'inconclusive' ? latest.data.gate : null;
-      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: gate ? gateVerdictLine(gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: gate ? row.last.gate : null, failure: latest.failure });
+      inconclusive.push({ golden: row.path, name: row.name, runId: row.runId, reason: gate ? gateVerdictLine(gate) : (latest.reason ?? 'inconclusive'), checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, gate: gate ? row.last.gate : null, failure: latest.failure, judge: gate ? null : unjudgedCheck(row.path, row.mode, latest) });
       continue;
     }
     const past = store.listTestResults({ golden: row.path, limit: 1000 });

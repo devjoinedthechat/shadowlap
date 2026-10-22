@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { asksUpdate, checkMark, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH, updatePlan } from '../ui/goldens.js';
 import { jobStatus } from '../ui/jobs.js';
-import type { DivergenceView, FailureView, GoldenCheck, GoldenRow, InconclusiveView, TestsView } from '../ui/types.js';
+import type { DivergenceView, FailureView, GoldenCheck, GoldenRow, InconclusiveView, TestsView, UnjudgedCheck } from '../ui/types.js';
 
 /**
  * The Tests screen's words and choices, without a browser: the verdict's line, a history cell's
@@ -167,9 +167,17 @@ describe('the goldens table', () => {
       '    attempt 1  ✓ passed',
     ]);
     expect(inconclusiveHint(v)).toBe("Neither verdict holds at the gate's stated risk yet: more attempts settle it, not a change to the agent. Run more attempts continues it to 40: about 17 more on average, about $0.34, settling it 38% of the time.");
-    expect(inconclusiveHint({ ...v, gate: null })).toContain('A check could not be judged');
+    expect(inconclusiveHint({ ...v, gate: null })).toBe('A check could not be decided, as its line above says, so the golden is neither passed nor failed: settle what it lacks and run it again.');
     // An injection gate that showed too little to say: its own hint.
     expect(inconclusiveHint({ ...v, gate: null, failure: 'injection', reason: 'injection inconclusive: 5 of 5 attempts could not be judged' })).toContain('its injection test showed too little to say');
+  });
+
+  it('says what settles a judge check with no verdict: Update golden offline, the key for a golden that forks', () => {
+    const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', update: ['test', 'goldens/judged', '--update'], keys: null };
+    const v = { golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge } as InconclusiveView;
+    // Offline, no key settles it: the old hint asked for one.
+    expect(inconclusiveHint(v)).toBe('Its pack holds no verdict for the judge check explains-escalation, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.');
+    expect(inconclusiveHint({ ...v, judge: { ...judge, update: null, keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] } })).toBe('The test runs this golden live, and the judge check explains-escalation had no key to ask claude-haiku-4-5 with: set ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) where the tests run, in CI as a secret, and run it again.');
   });
 
   it('marks each check by its last status, as the CLI does, with no mark before a result', () => {
@@ -406,6 +414,23 @@ describe('waiting for a test job', () => {
 });
 
 describe('the Update golden dialog', () => {
+  it('asks the judge once for a golden that replays clean and only lacks its verdict, re-recording nothing', () => {
+    const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', update: ['test', 'goldens/judged', '--update'], keys: null };
+    const v = view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge }] });
+    const plan = updatePlan(v, ['goldens/judged']);
+    // As the mock's dialog has it: no card, since nothing diverged and the title names the golden.
+    expect(plan).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, instead: null, note: null, command: 'shadowlap test goldens/judged --update', ok: 'Update' });
+    expect(plan.text).toBe('Its replay is clean: only its judge check has no verdict in the pack. Updating asks the judge once, live, with the Anthropic key in the dashboard’s environment, and keeps the verdict; nothing is re-recorded.');
+    // A judge whose model names no provider is asked with whatever key its model needs.
+    expect(updatePlan(view({ ...v, inconclusive: [{ ...v.inconclusive[0]!, judge: { ...judge, provider: null } }] }), ['goldens/judged']).text).toContain('Updating asks the judge once, live, with the key in the dashboard’s environment, and keeps the verdict');
+    expect(plan.steps).toEqual([
+      ['Replayed offline, as recorded', 'clean'],
+      ['Its judge asked once, live', 'claude-haiku-4-5'],
+      ['Its verdict kept in the pack', 'the next test judges from it, free'],
+      ['You review the change', 'in your pull request'],
+    ]);
+  });
+
   it('shows one golden as a card, its checks, the amber note naming the path, and Update anyway', () => {
     const plan = updatePlan(view(), ['goldens/refund-in-limit']);
     expect(plan.title).toBe('Update refund-in-limit?');

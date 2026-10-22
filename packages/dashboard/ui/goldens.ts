@@ -288,7 +288,12 @@ export function inconclusiveLines(v: InconclusiveView): ReportLine[] {
 /** What an inconclusive verdict means, in one line under its report, with what more attempts would take when the gate can say. */
 export function inconclusiveHint(v: InconclusiveView): string {
   if (v.failure === 'injection') return 'The golden replays, but its injection test showed too little to say, for the reason above (a model call that failed, a run cut short, nothing a model read). Settle that and run it again; --inconclusive warn lets an inconclusive gate through meanwhile.';
-  if (!v.gate) return 'A check could not be judged, so the golden is neither passed nor failed: give the judge a recorded verdict or a key to ask.';
+  const j = v.judge;
+  // A replay golden's test runs offline: no key can settle it, only the verdict kept in its pack.
+  if (j?.update) return `Its pack holds no verdict for the judge check ${j.name}, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.`;
+  // A fork golden asks its judges live, from the environment the test runs in.
+  if (j?.keys?.length) return `The test runs this golden live, and the judge check ${j.name} had no key to ask ${j.model} with: set ${j.keys[0]}${j.keys.length > 1 ? ` (or ${j.keys.slice(1).join(' or ')})` : ''} where the tests run, in CI as a secret, and run it again.`;
+  if (!v.gate) return 'A check could not be decided, as its line above says, so the golden is neither passed nor failed: settle what it lacks and run it again.';
   const more = v.gate.more;
   const cost = more?.cost !== null && more?.cost !== undefined ? `, about $${more.cost.toFixed(2)}` : '';
   const estimate = more ? ` Run more attempts continues it to ${more.attempts}: about ${Math.round(more.expected)} more on average${cost}, settling it ${Math.round(more.settles * 100)}% of the time.` : '';
@@ -401,6 +406,7 @@ export function missedLine(m: BisectMiss): string {
 export interface UpdatePlan {
   title: string;
   text: string;
+  /** The golden as a card, or the diverged goldens as a list; none when the title names the one golden and nothing diverged. */
   goldens: Array<{ path: string; name: string; where: string }>;
   steps: Array<[string, string]>;
   /**
@@ -437,6 +443,9 @@ const updatesAfterRules = (d: DivergenceView) => !!d.normalizeAndTest && (d.norm
  * update is the fix then, or, when the rules alone make it match, a re-run.
  */
 export function updatePlan(view: TestsView, paths: readonly string[], has: (kind: string) => boolean = () => true): UpdatePlan {
+  // A golden whose replay is clean and only lacks a judge's verdict: the update asks the judge once and re-records nothing.
+  const judged = paths.length === 1 ? judgePlan(view, paths[0]!) : null;
+  if (judged) return judged;
   const ds = paths.map((p) => view.divergences.find((d) => d.golden === p)).filter((d): d is DivergenceView => !!d);
   const rows = paths.map((p) => view.rows.find((r) => r.path === p));
   const goldens = paths.map((p, i) => {
@@ -485,6 +494,39 @@ export function updatePlan(view: TestsView, paths: readonly string[], has: (kind
     ok: advise ? 'Update anyway' : 'Update',
   };
 }
+
+/**
+ * Update golden for a golden that replays offline and is inconclusive only for want of a judge's
+ * verdict, as the mock's dialog has it: no card (nothing diverged, and the title names the golden),
+ * its replay is clean, so nothing is re-recorded; the judge is asked once, live, with its provider's
+ * key where the dashboard runs, and its verdict is kept in the pack, which you review. Null for any
+ * other golden.
+ */
+function judgePlan(view: TestsView, path: string): UpdatePlan | null {
+  const v = view.inconclusive.find((x) => x.golden === path);
+  const j = v?.judge;
+  if (!v || !j?.update) return null;
+  const key = j.provider ? `the ${PROVIDER_KEY[j.provider] ?? j.provider} key` : 'the key';
+  return {
+    title: `Update ${v.name}?`,
+    text: `Its replay is clean: only its judge check has no verdict in the pack. Updating asks the judge once, live, with ${key} in the dashboard’s environment, and keeps the verdict; nothing is re-recorded.`,
+    goldens: [],
+    steps: [
+      ['Replayed offline, as recorded', 'clean'],
+      ['Its judge asked once, live', j.model],
+      ['Its verdict kept in the pack', 'the next test judges from it, free'],
+      ['You review the change', 'in your pull request'],
+    ],
+    advise: null,
+    instead: null,
+    note: null,
+    command: commandText(j.update),
+    ok: 'Update',
+  };
+}
+
+/** Whose key a judge's provider is asked with. */
+const PROVIDER_KEY: Record<string, string> = { anthropic: 'Anthropic', openai: 'OpenAI', gemini: 'Gemini' };
 
 /** Update goldens…, asked for from the palette or by a link: Tests opens its dialog, then drops `?update` from the address. */
 export const TESTS_UPDATE_HASH = '#/tests?update';

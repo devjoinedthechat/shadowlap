@@ -102,6 +102,7 @@ export function TestsPage() {
 
   const runWait = wait('run the tests');
   const updateWait = wait('update them');
+  const updateGoldenWait = wait('update it');
   const findWait = wait('find the commit');
   // A gate against history needs the store kept between CI's runs.
   const historyGate = view.rows.some((r) => r.gate?.gate.kind === 'baseline');
@@ -212,7 +213,16 @@ export function TestsPage() {
         <FailurePanel key={f.golden} f={f} off={findWait ?? undefined} button={findCommitButton(f, hasKind)} onBisect={() => guard(() => findCommit(f))} />
       ))}
       {view.inconclusive.map((v) => (
-        <InconclusivePanel key={v.golden} v={v} off={runWait ?? undefined} canRun={hasKind(JOB_KINDS.tests)} onMore={(job) => start(JOB_KINDS.tests, job)} />
+        <InconclusivePanel
+          key={v.golden}
+          v={v}
+          off={runWait ?? undefined}
+          canRun={hasKind(JOB_KINDS.tests)}
+          onMore={(job) => start(JOB_KINDS.tests, job)}
+          updateOff={updateGoldenWait ?? undefined}
+          canUpdate={hasKind(JOB_KINDS.testUpdate)}
+          onUpdate={() => guard(() => setOpen({ kind: 'update', paths: [v.golden] }))}
+        />
       ))}
       <div className="grid2 gpanel">
         <section className="panel">
@@ -507,17 +517,26 @@ function ReportPanel({ name, runId, lines, found, missed, children }: { name: st
 
 /**
  * A golden neither passed nor failed: its gate ran out of attempts between its bounds, or a check
- * couldn't be judged. Its report, and for a gate, Run more attempts, which continues it to twice its
- * limit with the attempts it has.
+ * couldn't be decided. Its report, and what settles it: for a gate, Run more attempts, which continues
+ * it to twice its limit with the attempts it has; for a judge check a replay golden couldn't ask
+ * offline, Update golden, which asks it once and keeps its verdict (it asks first); for one a golden
+ * that forks had no key for, the key, in the hint.
  */
-function InconclusivePanel({ v, off, canRun, onMore }: { v: InconclusiveView; off: string | undefined; canRun: boolean; onMore: (job: { golden: string; maxAttempts: number; continue: true }) => void }) {
+function InconclusivePanel({ v, off, canRun, onMore, updateOff, canUpdate, onUpdate }: { v: InconclusiveView; off: string | undefined; canRun: boolean; onMore: (job: { golden: string; maxAttempts: number; continue: true }) => void; updateOff: string | undefined; canUpdate: boolean; onUpdate: () => void }) {
   const more = v.gate?.more ?? null;
+  const update = v.judge?.update ?? null;
   return (
     <ReportPanel name={v.name} runId={v.runId} lines={inconclusiveLines(v)} found={null} missed={null}>
       {more && canRun ? (
         <div className="actions">
           <button className="btn lime" type="button" disabled={!!off} title={off ?? commandText(more.args)} onClick={() => onMore(more.job)}>
             Run more attempts
+          </button>
+        </div>
+      ) : update && canUpdate ? (
+        <div className="actions">
+          <button className="btn" type="button" disabled={!!updateOff} title={updateOff ?? commandText(update)} onClick={onUpdate}>
+            Update golden
           </button>
         </div>
       ) : null}

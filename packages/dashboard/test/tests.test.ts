@@ -1154,4 +1154,16 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
     expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults[0]!.attempts).toBeNull();
     s.close();
   });
+
+  it('settles a judge that had no verdict: Update golden for a golden that replays offline, the key for one that forks', () => {
+    const s = store();
+    const view = testsView(s, GOLDENS);
+    const judged = view.inconclusive.find((v) => v.golden === 'goldens/judged')!;
+    expect(judged.judge).toEqual({ name: 'explains-escalation', label: judgeLabel, model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', update: ['test', 'goldens/judged', '--update'], keys: null });
+    // Its update is the job Update golden runs.
+    expect(updateGoldensJob(GOLDENS, { golden: 'goldens/judged' })).toEqual({ title: 'Updating a golden', args: judged.judge!.update });
+    const keyless = view.inconclusive.find((v) => v.golden === 'goldens/keyless')!;
+    expect(keyless.judge).toMatchObject({ update: null, keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] });
+    s.close();
+  });
 });

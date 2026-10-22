@@ -44,6 +44,13 @@ export type JudgeReads = 'answer' | 'output' | 'run';
 /** The providers a judge can be asked through. */
 export type JudgeProvider = 'anthropic' | 'openai' | 'gemini';
 
+/** The environment variables a judge provider's key is read from, the usual one first. */
+export const JUDGE_KEYS: Readonly<Record<JudgeProvider, readonly string[]>> = {
+  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+  openai: ['OPENAI_API_KEY'],
+  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+};
+
 /** What a judge check asks, as the config's `judge` entries say it. */
 export interface JudgeAsk {
   question: string;

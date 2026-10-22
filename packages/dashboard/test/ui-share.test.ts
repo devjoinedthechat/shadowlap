@@ -300,6 +300,7 @@ describe('the diverged test’s actions', () => {
       ({
         rows: [{ path: t.golden, name: goldenName(t.golden), checks: t.checks ?? [], last: { line: '' } }],
         divergences: [{ golden: t.golden, name: goldenName(t.golden), callNo: 3, volatile: t.volatile, normalizerFixes: t.normalizerFixes, maybeReal: t.maybeReal, normalizeAndTest: t.normalizeAndTest, rulesAdded: t.normalized, found: null, missed: null, bisect: null, unreadable: null }],
+        inconclusive: [],
       }) as unknown as TestsView;
     const each = [added({ checks: CHECKS }), test({ golden: 'goldens/refund-in-limit', checks: CHECKS }), added({ normalized: true, checks: CHECKS }), added({ checks: [] }), test({ checks: ['issue_refund called 1 time'], volatile: { ...test().volatile!, certain: false } })];
     for (const t of each) {

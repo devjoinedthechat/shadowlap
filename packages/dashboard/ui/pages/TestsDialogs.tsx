@@ -15,14 +15,15 @@ import { commandText, revisionChoices, updatePlan, type UpdatePlan } from '../go
  * Update golden, or Update goldens… for every diverged one: what happens, the amber note when the
  * divergence is a value that changes every run (a normalizer is the lasting fix, offered instead
  * when the server runs it) or when the rule already in the config makes a re-run pass, and the
- * command. `has` says which jobs the server runs; `onInstead` runs the amber box's button.
+ * command. A golden that only lacks a judge's verdict has no card: nothing diverged, and the title
+ * names it. `has` says which jobs the server runs; `onInstead` runs the amber box's button.
  */
 export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onClose }: { view: TestsView; paths: string[]; has: (kind: string) => boolean; onUpdate: () => void; onInstead: (instead: NonNullable<UpdatePlan['instead']>) => void; onClose: () => void }) {
   const plan = updatePlan(view, paths, has);
   const one = plan.goldens.length === 1 ? plan.goldens[0]! : null;
   return (
     <Dialog title={plan.title} text={plan.text} ok={plan.ok} onOk={onUpdate} onClose={onClose}>
-      {one ? (
+      {!plan.goldens.length ? null : one ? (
         <div className="rmp">
           <span className="pa">
             <Icon name="tests" />

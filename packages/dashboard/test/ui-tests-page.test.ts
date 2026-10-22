@@ -9,9 +9,10 @@ import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
- * Tests tells the truth about checks and CI: each check is marked by how the golden's last result
- * came out on it (no tick on one that failed, none at all before a result), and the page says CI
- * replays goldens offline and runs those marked fork live, with the one documented command.
+ * Tests tells the truth about checks, CI and judges: each check is marked by how the golden's last
+ * result came out on it (no tick on one that failed, none at all before a result), the page says CI
+ * replays goldens offline and runs those marked fork live, with the one documented command, and a
+ * judge a replay golden couldn't ask offline is settled by Update golden, which asks first.
  */
 
 const T0 = Date.UTC(2026, 9, 20, 10, 0);
@@ -128,6 +129,25 @@ describe('the Tests page', () => {
     const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, injection: true } : x)));
     const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
     expect(all(ci, 'p.muted')[0]!.textContent).toBe('Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.');
+  });
+
+  it('settles a judge a replay golden couldn\'t ask offline with Update golden, which asks first and names its command', async () => {
+    const started: Array<{ kind: string; fields: Record<string, unknown> }> = [];
+    const page = await open(started);
+    const panel = page.all('section.gpanel').find((s) => one(s, 'h2').textContent === 'judged')!;
+    expect(panel.textContent).not.toContain('a key to ask');
+    expect(one(panel, 'p.hintx').textContent).toContain('Update golden asks it once, live, and keeps its verdict in the pack');
+    await page.click(all(panel, 'button').find((b) => b.textContent.trim() === 'Update golden')!);
+    expect(started).toEqual([]);
+    const dialog = page.one('.dialog');
+    expect(all(dialog, 'h2, h3')[0]!.textContent).toBe('Update judged?');
+    expect(dialog.textContent).toContain('nothing is re-recorded');
+    // No card and no Diverged list: nothing diverged, and the title names the golden.
+    expect(all(dialog, '.rmp, .ondisk.first')).toHaveLength(0);
+    expect(all(dialog, '.ondisk.steps li span').map((s) => s.textContent)).toEqual(['Replayed offline, as recorded', 'Its judge asked once, live', 'Its verdict kept in the pack', 'You review the change']);
+    expect(one(dialog, '.cmdline').textContent).toBe('$shadowlap test goldens/judged --update');
+    await page.click(page.byText('.dialog button', 'Update'));
+    expect(started).toEqual([{ kind: 'test-update', fields: { golden: 'goldens/judged' } }]);
   });
 });
 
