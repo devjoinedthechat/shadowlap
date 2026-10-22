@@ -12,7 +12,7 @@ import { compareTarget, failedWord, isFailed, isInterrupted, runTag, runType } f
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
-import { failureText, fixCheckShort } from './banner.js';
+import { failureText, fixCheckText } from './banner.js';
 import { checksOf, recordingWords, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
@@ -38,15 +38,15 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const failed = isFailed(like);
   const cut = isInterrupted(like);
   const outcome = like.outcome ?? null;
-  // Why it failed, in a few words: what the run did against the check it failed ("send_email called
-  // 1 time"; the banner says what was expected), the agent's exit, a fix's check. A test that
-  // diverged failed there, as `shadowlap test` says it; one whose golden may fork, on its checks.
+  // Why it failed, in the CLI's words: the check it failed and what the run did against it
+  // ("send_email called 1 time, but called 2 times (2 blocked)"), the agent's exit, a fix's check. A
+  // test that diverged failed there, as `shadowlap test` says it; one whose golden may fork, on its checks.
   const d = r.divergence;
   const failure = !failed
     ? null
     : type === 'test' && d && (!outcome || outcome.kind === 'diverged')
       ? `diverged at call ${d.callNo} (${d.kind} ${d.name})`
-      : (failureText({ status: r.status, checks: checksOf(run), blame: null, outcome, calls: run.calls }, true) ?? (run.fix?.check ? fixCheckShort(run.fix.check, run.calls, true) : null));
+      : (failureText({ status: r.status, checks: checksOf(run), blame: null, outcome, calls: run.calls }) ?? (run.fix?.check ? fixCheckText(run.fix.check, run.calls) : null));
   // A check (blame's among them), or the agent's exit: the word Runs and the sidebar use.
   const checkFailed = !!failure?.startsWith('check failed') || (failed && failedWord(like) === 'check failed');
   // An interrupted run says so after what it is, in grey: it stopped, it did not fail.

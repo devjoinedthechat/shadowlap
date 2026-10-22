@@ -14,6 +14,7 @@
     "packages/dashboard/test/ui-strip.test.ts",
     "packages/dashboard/test/ui-run-width.test.ts",
     "packages/dashboard/test/ui-run-scale.test.ts",
+    "packages/dashboard/test/ui-check-words.test.ts",
     "packages/dashboard/test/ui-dialog-tab.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",

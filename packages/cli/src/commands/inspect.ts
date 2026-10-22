@@ -230,7 +230,8 @@ export function register(program: Command): void {
         return row;
       });
       process.stdout.write(table(rows, '  ') + '\n');
-      if (run.divergence) process.stdout.write('\n' + formatDivergence(run.divergence, p) + '\n');
+      // The calls an override answered before the fork are named apart from those replayed, as the run's page says it.
+      if (run.divergence) process.stdout.write('\n' + formatDivergence(run.divergence, p, 12, calls) + '\n');
       store.close();
     });
 

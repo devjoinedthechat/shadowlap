@@ -267,14 +267,28 @@ export function divergenceLine(d: Pick<DivergenceReport, 'type' | 'callNo' | 'ki
 }
 
 /** The divergence report: the first unmatched call, its closest counterpart, and a structural diff. */
-export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEntries = 12): string {
+/**
+ * What a replay served from its recording before it diverged: `16 calls replayed`, or, given the
+ * run's calls, with those an override answered instead named apart (`15 calls replayed and #16
+ * overridden`), as the run's page says it and its Calls view shows each call.
+ */
+export function replayedBeforeWords(d: Pick<DivergenceReport, 'callNo' | 'replayedBefore'>, calls?: ReadonlyArray<Pick<CallRecord, 'callNo' | 'origin'>>): string {
+  const over = (calls ?? []).filter((c) => c.origin === 'overridden' && c.callNo < d.callNo).map((c) => `#${c.callNo}`);
+  if (!over.length) return `${d.replayedBefore} calls replayed`;
+  const n = Math.max(0, d.replayedBefore - over.length);
+  const named = over.length > 1 ? `${over.slice(0, -1).join(', ')} and ${over.at(-1)}` : over[0];
+  return `${n} ${n === 1 ? 'call' : 'calls'} replayed and ${named} overridden`;
+}
+
+/** A divergence report. Given the run's calls, the calls an override answered before it are named apart from those replayed. */
+export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEntries = 12, calls?: ReadonlyArray<Pick<CallRecord, 'callNo' | 'origin'>>): string {
   const lines: string[] = [];
   if (d.type === 'ended_early') {
     lines.push(`${p.red('✗')} Ended early at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${endedEarlyCount(d)} replayed`);
     lines.push(p.dim(`  every request the agent sent matched, but it stopped before its recording did, without making #${d.callNo}`));
     return lines.join('\n');
   }
-  const head = `${p.red('✗')} Diverged at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${d.replayedBefore} calls replayed before divergence`;
+  const head = `${p.red('✗')} Diverged at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${replayedBeforeWords(d, calls)} before divergence`;
   lines.push(head);
   switch (d.type) {
     case 'forced':

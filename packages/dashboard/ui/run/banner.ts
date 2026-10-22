@@ -57,8 +57,12 @@ export interface BannerInput {
   interrupted?: boolean;
   /** Whether the server counts the run as failed (`state.failed`): when it says not, no failure banner. */
   failed?: boolean;
-  /** The run's calls, to say a fix's check as what the run did (`send_email called 2 times`). */
-  calls?: ReadonlyArray<{ kind: string; name: string; detail?: string }>;
+  /**
+   * The run's calls: to say a check as the CLI does, with a tool's fenced calls counted exactly
+   * (`send_email called 1 time, but called 2 times (2 blocked)`), and what came before a fork
+   * (`15 replayed and #16 overridden before it`).
+   */
+  calls?: ReadonlyArray<CheckCall & { callNo?: number }>;
   /** How many calls it made, for the interrupted banner. */
   callCount?: number;
 }
@@ -84,6 +88,27 @@ export const DIVERGED: Readonly<Record<string, string>> = {
 };
 
 const replayedBefore = (n: number) => `${num(n)} ${n === 1 ? 'call' : 'calls'} replayed before it`;
+
+/** `#16`, `#15 and #16`, `#3, #9 and #16`. */
+function callList(nos: readonly number[]): string {
+  const ns = nos.map((n) => `#${n}`);
+  return ns.length > 1 ? `${ns.slice(0, -1).join(', ')} and ${ns.at(-1)}` : (ns[0] ?? '');
+}
+
+/**
+ * What came before a fork, from the recording, as the Calls view shows each call: `16 calls replayed
+ * before it`, never counting a call an override answered instead of the recording as replayed. The
+ * call the banner's flag names already (`tool #16 overridden with --override …`) is left at that:
+ * `15 calls replayed before it`, as the design words it; any other is named apart (`15 replayed and
+ * #16 overridden before it`). Without the run's calls, the divergence's count alone.
+ */
+export function beforeFork(d: { callNo: number; replayedBefore: number }, calls?: ReadonlyArray<{ callNo?: number; origin?: string }>, named: number | null = null): string {
+  const over = (calls ?? []).filter((c) => c.origin === 'overridden' && c.callNo !== undefined && c.callNo < d.callNo).map((c) => c.callNo!);
+  const replayed = Math.max(0, d.replayedBefore - over.length);
+  const apart = over.filter((n) => n !== named);
+  if (!apart.length) return replayedBefore(replayed);
+  return `${num(replayed)} replayed and ${callList(apart)} overridden before it`;
+}
 
 /** The flag as the banner names it: `--fail-at 19=529`. */
 export function flagText(iv: { flag: string; value?: string | null } | null): string | null {
@@ -159,27 +184,18 @@ function notRecordedWhy(nr: NonNullable<BannerInput['notRecorded']>): string {
   return parts.join(' ');
 }
 
-/** A failed check in the CLI's words: what was expected, and what happened when the run says. */
-export function failedCheckText(c: { label: string; detail?: string | null }): string {
-  return `check failed: ${c.label}${c.detail ? `, but ${c.detail}` : ''}`;
+/** A call a check counts, as the run page has it: its kind and name, its arguments in a line, and how it ran. */
+export interface CheckCall {
+  kind: string;
+  name: string;
+  detail?: string;
+  origin?: string;
 }
 
-/** How many times a tool was called, as the run page's short lines say it, the design's way: `2×`. */
-const timesShort = (n: number) => `${num(n)}×`;
+/** A tool count check as the CLI labels it: `issue_refund with {"amount":240} called 0 times`, `send_email called 1 time`. */
+const TOOL_CHECK = /^(\S+?)(?: with (\{.*\}))? called (?:\d|at least |at most )/;
 
-/**
- * A failed check as the line under the run's id says it: what happened. A check's label is what was
- * expected (`send_email called 0 times`) and its detail what the run did (`called 2 times`), so a
- * tool's count reads `send_email called 2×`; any other check, the CLI's own words.
- */
-export function failedCheckShort(c: { label: string; detail?: string | null }): string {
-  const did = c.detail?.split(';')[0]?.trim();
-  const at = c.label.lastIndexOf(' called ');
-  if (did?.startsWith('called ') && at > 0) return `check failed: ${c.label.slice(0, at)} ${did.replace(/^called ([\d,]+) times?\b/, (_m, n: string) => `called ${n}×`)}`;
-  return failedCheckText(c);
-}
-
-/** Whether a tool call's arguments (its one-line JSON) hold every key and value a check names. */
+/** Whether a tool call's arguments (its one-line JSON) hold every key and value a check names; null when they can't be read (cut short in its row). */
 function argsHold(detail: string | undefined, want: Record<string, unknown>): boolean | null {
   let args: unknown;
   try {
@@ -191,35 +207,115 @@ function argsHold(detail: string | undefined, want: Record<string, unknown>): bo
   return Object.entries(want).every(([k, v]) => JSON.stringify((args as Record<string, unknown>)[k]) === JSON.stringify(v));
 }
 
-/**
- * The check of the fix a failed run belongs to (`send_email never called`), when the run kept none of
- * its own, as what the run did: a tool's count from the run's calls (`send_email called 2×`), or
- * with the arguments the check names (`issue_refund called 1× with {"amount":240}`); any other check
- * named as one, so it never reads as what happened. `terse`, for the line under the run's id, leaves
- * the arguments to the banner when every call of the tool had them.
- */
-export function fixCheckShort(check: string, calls: ReadonlyArray<{ kind: string; name: string; detail?: string }>, terse = false): string {
-  const times = timesShort;
-  const withArgs = /^(\S+) (?:never called|called .+?) with (\{.*\})$/.exec(check);
-  if (withArgs) {
-    let want: unknown;
-    try {
-      want = JSON.parse(withArgs[2]!);
-    } catch {
-      want = null;
-    }
-    const tools = calls.filter((c) => c.kind === 'tool' && c.name === withArgs[1]);
-    const held = want && typeof want === 'object' && !Array.isArray(want) ? tools.map((c) => argsHold(c.detail, want as Record<string, unknown>)) : [null];
-    // Arguments cut short in the row can't be read: the check is then named as it is.
-    if (held.includes(null)) return `check failed: “${check}”`;
-    const n = held.filter(Boolean).length;
-    if (terse && n > 0 && n === tools.length) return `check failed: ${withArgs[1]} called ${times(n)}`;
-    return `check failed: ${withArgs[1]} called ${times(n)} with ${withArgs[2]}`;
+/** A JSON object a check names its arguments with, or null. */
+function argsOf(json: string | undefined): Record<string, unknown> | null {
+  if (!json) return null;
+  try {
+    const v: unknown = JSON.parse(json);
+    return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
   }
-  const m = /^(\S+) (?:never called|called .+)$/.exec(check);
-  if (!m) return `check failed: “${check}”`;
-  const n = calls.filter((c) => c.kind === 'tool' && c.name === m[1]).length;
-  return `check failed: ${m[1]} called ${times(n)}`;
+}
+
+/**
+ * The calls of a tool a check counts, as the CLI counts them: every call of it, fenced ones too, and
+ * when the check names arguments, those whose arguments hold them. Null when one's arguments can't
+ * be read: the count is then the check's own.
+ */
+function countedCalls(calls: readonly CheckCall[], name: string, args: Record<string, unknown> | null): CheckCall[] | null {
+  const named = calls.filter((c) => c.kind === 'tool' && c.name === name);
+  if (!args) return named;
+  const held = named.map((c) => argsHold(c.detail, args));
+  return held.includes(null) ? null : named.filter((_, i) => held[i]);
+}
+
+/** A tool's calls fenced after a fork, said exactly: `2 blocked`, `1 stubbed`, `1 blocked, 1 stubbed`; null for none. */
+export function fencedWords(calls: ReadonlyArray<Pick<CheckCall, 'origin'>>): string | null {
+  const blocked = calls.filter((c) => c.origin === 'blocked').length;
+  const stubbed = calls.filter((c) => c.origin === 'stubbed').length;
+  return [blocked ? `${num(blocked)} blocked` : '', stubbed ? `${num(stubbed)} stubbed` : ''].filter(Boolean).join(', ') || null;
+}
+
+/**
+ * What a run did against a check, as its detail says it, with a tool's calls fenced after a fork
+ * counted exactly: a check kept before the CLI told blocked from stubbed says `(2 blocked or
+ * stubbed)`, which the run's calls settle (`(2 blocked)`) when they give the same count.
+ */
+function exactDetail(c: { label: string; detail?: string | null }, calls: readonly CheckCall[] | undefined): string {
+  const detail = c.detail ?? '';
+  const loose = /\((\d+) blocked or stubbed\)/.exec(detail);
+  const tool = TOOL_CHECK.exec(c.label);
+  if (!loose || !tool || !calls) return detail;
+  if (tool[2] && !argsOf(tool[2])) return detail;
+  const counted = countedCalls(calls, tool[1]!, argsOf(tool[2]));
+  const fenced = counted?.filter((x) => x.origin === 'blocked' || x.origin === 'stubbed') ?? [];
+  const words = fencedWords(fenced);
+  return words && fenced.length === Number(loose[1]) ? detail.replace(loose[0], `(${words})`) : detail;
+}
+
+/**
+ * A failed check in the CLI's words, as `shadowlap test` and blame's attempts print it: what was
+ * expected, then what happened, with the arguments it names (`issue_refund with {"amount":240}
+ * called 0 times, but called 1 time (1 blocked)`). Given the run's calls, a tool's calls fenced after
+ * a fork are counted exactly.
+ */
+export function failedCheckText(c: { label: string; detail?: string | null }, calls?: readonly CheckCall[]): string {
+  return `check failed: ${c.label}${c.detail ? `, but ${exactDetail(c, calls)}` : ''}`;
+}
+
+/** How many times a fix's check says a tool is called (`never`, `once`, `twice`, `3 times`, `at least once`, `at most twice`, `1 to 3 times`), as a range. */
+function countRange(words: string): { min: number; max: number } | null {
+  const one = (w: string): number | null => (w === 'once' ? 1 : w === 'twice' ? 2 : /^\d+ times?$/.test(w) ? parseInt(w, 10) : null);
+  if (words === 'never') return { min: 0, max: 0 };
+  const least = /^at least (.+)$/.exec(words);
+  if (least) {
+    const n = one(least[1]!);
+    return n === null ? null : { min: n, max: Infinity };
+  }
+  const most = /^at most (.+)$/.exec(words);
+  if (most) {
+    const n = one(most[1]!);
+    return n === null ? null : { min: 0, max: n };
+  }
+  const span = /^(\d+) to (\d+) times$/.exec(words);
+  if (span) return { min: Number(span[1]), max: Number(span[2]) };
+  const n = one(words);
+  return n === null ? null : { min: n, max: n };
+}
+
+/** A count as the CLI's checks write it: `0 times`, `1 time`, `at least 2 times`, `at most 3 times`, `1 to 3 times`. */
+function countText(r: { min: number; max: number }): string {
+  const times = (n: number) => `${num(n)} ${n === 1 ? 'time' : 'times'}`;
+  if (r.min === r.max) return times(r.min);
+  if (r.max === Infinity) return `at least ${times(r.min)}`;
+  if (r.min === 0) return `at most ${times(r.max)}`;
+  return `${num(r.min)} to ${times(r.max)}`;
+}
+
+/**
+ * The check of the fix a failed run belongs to (`issue_refund never called with {"amount":240}`,
+ * `send_email called once`), when the run kept none of its own, in the CLI's words for a check a run
+ * failed: its label as `test` and blame print it, then what the run's calls did (`issue_refund with
+ * {"amount":240} called 0 times, but called 1 time (1 blocked)`), as the CLI adds to it when a tool
+ * was called with other arguments or not at all. A check the run's calls can't settle (arguments cut
+ * short in a row, a check of another kind, one the calls here meet) is named as it is, in quotes, so
+ * it never reads as what happened.
+ */
+export function fixCheckText(check: string, calls: readonly CheckCall[]): string {
+  const quoted = `check failed: “${check}”`;
+  const m = /^(\S+) (?:never called|called (.+?))(?: with (\{.*\}))?$/.exec(check);
+  const range = m ? (m[2] === undefined ? { min: 0, max: 0 } : countRange(m[2])) : null;
+  if (!m || !range || (m[3] && !argsOf(m[3]))) return quoted;
+  const counted = countedCalls(calls, m[1]!, argsOf(m[3]));
+  if (!counted) return quoted;
+  const n = counted.length;
+  if (n >= range.min && n <= range.max) return quoted;
+  const fenced = fencedWords(counted);
+  const named = calls.filter((c) => c.kind === 'tool' && c.name === m[1]).length;
+  const tools = [...new Set(calls.filter((c) => c.kind === 'tool').map((c) => c.name))];
+  const more = m[3] && named > n ? `; ${num(named - n)} ${named - n === 1 ? 'call' : 'calls'} with other arguments` : !named && tools.length ? `; tools called: ${tools.join(', ')}` : '';
+  return `check failed: ${m[1]}${m[3] ? ` with ${m[3]}` : ''} called ${countText(range)}, but called ${countText({ min: n, max: n })}${fenced ? ` (${fenced})` : ''}${more}`;
 }
 
 /**
@@ -227,12 +323,12 @@ export function fixCheckShort(check: string, calls: ReadonlyArray<{ kind: string
  * didn't. Its own failed check first, then the agent's exit, then the check the server's outcome
  * names (a fix's, for a run the fix lists as failing), then an interruption that failed something.
  */
-export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame' | 'outcome' | 'calls'>, short = false): string | null {
+export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame' | 'outcome' | 'calls'>): string | null {
   const failedCheck = i.checks.find(failedOne);
-  if (failedCheck) return short ? failedCheckShort(failedCheck) : failedCheckText(failedCheck);
+  if (failedCheck) return failedCheckText(failedCheck, i.calls);
   if (i.status === 'failed') return 'the agent exited with an error';
   const o = i.outcome;
-  if (o?.kind === 'check-failed' && o.check) return fixCheckShort(o.check, i.calls ?? [], short);
+  if (o?.kind === 'check-failed' && o.check) return fixCheckText(o.check, i.calls ?? []);
   if (i.status === 'crashed') return 'the run was interrupted';
   return i.blame ? 'blame confirmed it fails' : null;
 }
@@ -271,7 +367,7 @@ export function bannerFor(i: BannerInput): Banner | null {
     const diff = !!d.diff?.length;
     if (i.type === 'test') {
       const looks = i.volatile?.looks ? `this looks like ${i.volatile.looks}` : d.hints?.[0]?.message;
-      return { kind: 'diverged', callNo: d.callNo, name: d.name, why: `${replayedBefore(d.replayedBefore)}${looks ? ` · ${looks}` : ''}`, path, normalizer: true, diff };
+      return { kind: 'diverged', callNo: d.callNo, name: d.name, why: `${beforeFork(d, i.calls)}${looks ? ` · ${looks}` : ''}`, path, normalizer: true, diff };
     }
     const forced = d.type === 'forced' && d.reason ? d.reason.replace(/^forced live by /, '') : null;
     const iv = i.intervention;
@@ -280,7 +376,9 @@ export function bannerFor(i: BannerInput): Banner | null {
     const what = iv ? `${flagWhy(iv, i.flagCall ?? null, d.name)}${writes ? ` · ${writes}` : ''}` : (forced ?? DIVERGED[d.type] ?? d.type);
     // A model call answered with a failure says what the SDK did instead, as the design's line does; any other fork, what it replayed first.
     const failedModelCall = iv?.flag === '--fail-at' && i.flagCall?.kind !== 'tool';
-    return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${replayedBefore(d.replayedBefore)}`, flag: flagText(iv) ?? forced, path, normalizer: !!d.hints?.some((h) => h.normalizer), diff };
+    // An override's or a planted result's flag names its call: what came before the fork doesn't again.
+    const named = iv && (iv.flag === '--override' || iv.flag === '--inject-result') ? (iv.callNo ?? null) : null;
+    return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${beforeFork(d, i.calls, named)}`, flag: flagText(iv) ?? forced, path, normalizer: !!d.hints?.some((h) => h.normalizer), diff };
   }
   const b = i.blame;
   if (b && b.callNo !== null && b.outcome !== 'unrescuable' && b.outcome !== 'stopped') return { kind: 'lost', callNo: b.callNo, why: lostWhy(b), rescuedRunId: b.rescuedRunId ?? null };
