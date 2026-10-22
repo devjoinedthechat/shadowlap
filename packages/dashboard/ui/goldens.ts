@@ -1,5 +1,6 @@
+import { approx } from './format.js';
 import { href } from './route.js';
-import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
+import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
 
 /**
  * The Tests screen's words and choices, from the tests read model (`GET /api/tests`): the verdict's
@@ -158,6 +159,77 @@ export function checkWords(label: string): string {
   return label;
 }
 
+/** Each status's mark, as the CLI's reports draw them: passed, failed, inconclusive, not applicable. */
+export const CHECK_MARK: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: '✓', failed: '✗', inconclusive: '?', 'not-applicable': '–' };
+
+/** A status as words: the four verdict words. */
+const STATUS_WORD: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: 'passed', failed: 'failed', inconclusive: 'inconclusive', 'not-applicable': 'not applicable' };
+
+/** The colour of each status's mark, as the history's cells and the verdict use them. */
+const STATUS_COLOR: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: 'var(--ok)', failed: 'var(--err)', inconclusive: 'var(--warn)', 'not-applicable': 'var(--faint)' };
+
+export interface CheckMarkView {
+  /** ✓ ✗ ? or –, and the class that colours it (`passed`, `failed`, `inconclusive`, `not-applicable`); null with no result. */
+  mark: string | null;
+  status: GoldenCheck['status'];
+  /** The status in words, for a screen reader and the hover: `failed`, `not tested yet`. */
+  word: string;
+  /** The check, as the table names it. */
+  text: string;
+  /** A line under it: what failed and in how many attempts, why it couldn't be decided, where a judge's verdict came from, or that it was added since. */
+  sub: string | null;
+  /** The hover: the status and the check, and one row saying why. */
+  tip: { title: string; label: string; value: string; color: string };
+}
+
+/**
+ * A check in the table, marked by how the golden's last result came out on it: ✓ passed (a judge's,
+ * where its verdict came from: the recording, free, or live, at what cost), ✗ failed (for a golden
+ * run more than once, how many attempts passed it and what the others did), ? in amber when it
+ * couldn't be decided (and why), – when it didn't apply, and no mark on a check not tested yet: before
+ * a result exists, when the last test couldn't run the golden, or when it was added since, as the mock
+ * says it. `ran`: the golden has a last result.
+ */
+export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
+  const text = checkWords(c.label);
+  const t = c.attempts;
+  if (!c.status) {
+    const word = 'not tested yet';
+    const value = c.added ? 'Added to shadowlap.config.json since its last test: its next test judges it' : ran ? 'its last test couldn’t run the golden, so no check has a result' : 'its golden hasn’t run yet';
+    return { mark: null, status: null, word, text, sub: c.added ? 'added since its last test' : null, tip: { title: `${word} · ${c.label}`, label: word, value, color: 'var(--line2)' } };
+  }
+  const word = STATUS_WORD[c.status];
+  const detail = c.detail ?? '';
+  let sub: string | null = null;
+  let value = '';
+  if (c.status === 'failed') {
+    sub = t ? `${t.passed} of ${t.of} attempts passed · the others: ${detail || 'failed'}` : detail || null;
+    value = t ? `${t.passed} of ${t.of} attempts passed; the others: ${detail || 'failed'}` : detail || 'failed';
+  } else if (c.status === 'inconclusive') {
+    sub = detail || null;
+    value = detail || 'it could not be decided';
+  } else if (c.status === 'not-applicable') {
+    sub = 'not applicable';
+    value = detail || 'its condition never held';
+  } else {
+    // A check over several attempts says how many passed it; a judge's verdict, where it came from.
+    sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : judgedLine(c);
+    value = [c.reason ? `“${c.reason}”` : null, t ? (t.passed === t.of ? `passed in every attempt, ${t.of} of ${t.of}` : `passed in ${t.passed} of ${t.of} attempts`) : null].filter(Boolean).join(' · ') || 'passed';
+  }
+  return { mark: CHECK_MARK[c.status], status: c.status, word, text, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: STATUS_COLOR[c.status] } };
+}
+
+/**
+ * Where a judge check's verdict came from, as the CLI's check line says it: from the recording, free,
+ * or live, with what asking it cost when that is known (`judged live in 5 attempts · ≈$0.0021`). Null
+ * for any other check.
+ */
+function judgedLine(c: GoldenCheck): string | null {
+  if (c.source === 'recording') return 'judged from the recording · free';
+  if (c.source !== 'live') return null;
+  return c.live ? `judged live${c.live.asked > 1 ? ` in ${c.live.asked} attempts` : ''} · ${approx(c.live.cost)}` : 'judged live';
+}
+
 /** Where a golden came from: a run in this store, or a pack made elsewhere. */
 export function sourceText(row: GoldenRow): { runId: string } | { text: string } {
   if (row.source.kind === 'run') return { runId: row.source.runId };
@@ -231,7 +303,17 @@ export function inconclusiveLines(v: InconclusiveView): ReportLine[] {
 /** What an inconclusive verdict means, in one line under its report, with what more attempts would take when the gate can say. */
 export function inconclusiveHint(v: InconclusiveView): string {
   if (v.failure === 'injection') return 'The golden replays, but its injection test showed too little to say, for the reason above (a model call that failed, a run cut short, nothing a model read). Settle that and run it again; --inconclusive warn lets an inconclusive gate through meanwhile.';
-  if (!v.gate) return 'A check could not be judged, so the golden is neither passed nor failed: give the judge a recorded verdict or a key to ask.';
+  const j = v.judge;
+  // A replay golden's test runs offline: no key can settle it, only a verdict kept in its pack that answers what the replay asks.
+  if (j?.update) {
+    if (j.held === 'older') return `The verdict its pack holds for the judge check ${j.name} was given to an older form of the judge’s request, which a replay no longer sends, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.`;
+    // What the judge reads changed: a value made anew on every run changes it again, so its normalizer comes first.
+    if (j.held === 'material') return `The verdict its pack holds for the judge check ${j.name} was given on other material than the replay reads now, as its line above says, and the test replays offline, so the judge can’t be asked. If what changed is a value that changes every run, such as an id the agent prints, a normalizer for it is the lasting fix: add it first, since a verdict on one run’s value answers no other, and the next test would read not judged again. Update golden then asks the judge once, live, and keeps its verdict in the pack.`;
+    return `Its pack holds no verdict for the judge check ${j.name}, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.`;
+  }
+  // A fork golden asks its judges live, from the environment the test runs in.
+  if (j?.keys?.length) return `The test runs this golden live, and the judge check ${j.name} had no key to ask ${j.model} with: set ${j.keys[0]}${j.keys.length > 1 ? ` (or ${j.keys.slice(1).join(' or ')})` : ''} where the tests run, in CI as a secret, and run it again.`;
+  if (!v.gate) return 'A check could not be decided, as its line above says, so the golden is neither passed nor failed: settle what it lacks and run it again.';
   const more = v.gate.more;
   const cost = more?.cost !== null && more?.cost !== undefined ? `, about $${more.cost.toFixed(2)}` : '';
   const estimate = more ? ` Run more attempts continues it to ${more.attempts}: about ${Math.round(more.expected)} more on average${cost}, settling it ${Math.round(more.settles * 100)}% of the time.` : '';
@@ -344,12 +426,14 @@ export function missedLine(m: BisectMiss): string {
 export interface UpdatePlan {
   title: string;
   text: string;
+  /** The golden as a card, or the diverged goldens as a list; none when the title names the one golden and nothing diverged. */
   goldens: Array<{ path: string; name: string; where: string }>;
   steps: Array<[string, string]>;
   /**
    * The amber box: a value that changes every run diverged and no rule masks it yet, so a normalizer
    * is the lasting fix; or, for one golden, the rule for it is in the config now and alone makes the
-   * replay match, so a re-run passes without an update.
+   * replay match, so a re-run passes without an update; or a judge's verdict in the pack was given on
+   * other material, which a value that changes every run would make again, so its normalizer comes first.
    */
   advise: { title: string; text: string; path: string | null } | null;
   /** The amber box's button, named for what it runs: null for several goldens, or when the server runs none of it. */
@@ -380,6 +464,9 @@ const updatesAfterRules = (d: DivergenceView) => !!d.normalizeAndTest && (d.norm
  * update is the fix then, or, when the rules alone make it match, a re-run.
  */
 export function updatePlan(view: TestsView, paths: readonly string[], has: (kind: string) => boolean = () => true): UpdatePlan {
+  // A golden whose replay is clean and only lacks a judge's verdict: the update asks the judge once and re-records nothing.
+  const judged = paths.length === 1 ? judgePlan(view, paths[0]!) : null;
+  if (judged) return judged;
   const ds = paths.map((p) => view.divergences.find((d) => d.golden === p)).filter((d): d is DivergenceView => !!d);
   const rows = paths.map((p) => view.rows.find((r) => r.path === p));
   const goldens = paths.map((p, i) => {
@@ -428,6 +515,48 @@ export function updatePlan(view: TestsView, paths: readonly string[], has: (kind
     ok: advise ? 'Update anyway' : 'Update',
   };
 }
+
+/**
+ * Update golden for a golden that replays offline and is inconclusive only for want of a judge's
+ * verdict it could use, as the mock's dialog has it: no card (nothing diverged, and the title names
+ * the golden), its replay is clean, so nothing is re-recorded; the judge is asked once, live, with its
+ * provider's key where the dashboard runs, and its verdict is kept in the pack, which you review. What
+ * the pack holds says the rest: no verdict, one given to an older form of the judge's request, or one
+ * given on other material, where the amber box says that a value that changes every run needs its
+ * normalizer first, or the next test reads not judged again. Null for any other golden.
+ */
+function judgePlan(view: TestsView, path: string): UpdatePlan | null {
+  const v = view.inconclusive.find((x) => x.golden === path);
+  const j = v?.judge;
+  if (!v || !j?.update) return null;
+  const key = j.provider ? `the ${PROVIDER_KEY[j.provider] ?? j.provider} key` : 'the key';
+  const asks = `Updating asks the judge once, live, with ${key} in the dashboard’s environment, and keeps ${j.held === 'none' ? 'the' : 'its new'} verdict; nothing is re-recorded.`;
+  const material = j.held === 'material';
+  return {
+    title: `Update ${v.name}?`,
+    text:
+      j.held === 'older'
+        ? `Its replay is clean: only its judge check’s verdict in the pack was given to an older form of the judge’s request, which a replay no longer sends. ${asks}`
+        : material
+          ? `Its replay is clean, but its judge check’s verdict in the pack was given on other material than the replay reads now. ${asks}`
+          : `Its replay is clean: only its judge check has no verdict in the pack. ${asks}`,
+    goldens: [],
+    steps: [
+      ['Replayed offline, as recorded', 'clean'],
+      ['Its judge asked once, live', j.model],
+      ['Its verdict kept in the pack', material ? 'for what it reads now' : 'the next test judges from it, free'],
+      ['You review the change', 'in your pull request'],
+    ],
+    advise: material ? { title: 'A value that changes every run needs a normalizer', text: `${j.changed ? `What the judge reads changed: ${j.changed}. ` : ''}If that is such a value (an id the agent prints, say), add a normalizer for it first: a verdict given on one run’s value answers no other, and the next test reads not judged again.`, path: null } : null,
+    instead: null,
+    note: null,
+    command: commandText(j.update),
+    ok: material ? 'Update anyway' : 'Update',
+  };
+}
+
+/** Whose key a judge's provider is asked with. */
+const PROVIDER_KEY: Record<string, string> = { anthropic: 'Anthropic', openai: 'OpenAI', gemini: 'Gemini' };
 
 /** Update goldens…, asked for from the palette or by a link: Tests opens its dialog, then drops `?update` from the address. */
 export const TESTS_UPDATE_HASH = '#/tests?update';

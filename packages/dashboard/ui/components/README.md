@@ -54,7 +54,7 @@ project in the job, so a server switched since refuses it.
 | `Tag`, `Badge`, `Pips`, `Kbd` | `bits.tsx` | A run's kind beside its id; a status badge; one square per attempt; a key. |
 | `Chips`, `Tabs`, `Seg` | `bits.tsx` | Filter chips with counts (empty ones can hide); underlined tabs with counts; a segmented switch. |
 | `Kpi`, `DeltaPill` | `bits.tsx` | A number with its label and a line, with its change against last week. |
-| `CmdLine`, `CodeBlock`, `CopyButton` | `bits.tsx` | A shell command; a file with Copy in its header; copy and say so. |
+| `CmdLine`, `CommandLine`, `CodeBlock`, `CopyButton` | `bits.tsx` | A shell command; one long enough to wrap, which breaks only between its words (`shellWords` in `format.ts`); a file with Copy in its header; copy and say so. |
 | `SortTh`, `ShowMore`, `rowOpen` | `Table.tsx` | A sorting header for `table.t`, "Show 50 more", and a row that opens a page unless a control inside it was clicked. |
 | `JsonTree` | `Json.tsx` | A JSON value as a folding tree that draws a branch only when it is opened. |
 

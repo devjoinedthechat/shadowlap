@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attemptsOf, gateHistory, judgedUnder } from '../src/gate-history.js';
+import { attemptsOf, gateHistory, judgedUnder, testResultVerdict } from '../src/gate-history.js';
 import { Store, type TestFailure, type TestResultData } from '../src/store.js';
 
 /**
@@ -30,6 +30,18 @@ describe('attemptsOf', () => {
   it('counts no attempt a check couldn\'t judge, and nothing for a golden that couldn\'t run', () => {
     expect(attemptsOf({ ok: false, failure: 'inconclusive', data: fork(2, 3, { attempts: { total: 3, passed: 2, required: null, runs: [], inconclusive: 1 } }) })).toEqual({ passes: 2, attempts: 2 });
     expect(attemptsOf({ ok: false, failure: 'error', data: { mode: 'fork' } })).toBeNull();
+  });
+});
+
+describe('testResultVerdict', () => {
+  it('reads the verdict a result kept, and for one kept before verdicts were, its ok and failure', () => {
+    // An inconclusive gate shows a failing attempt and is not ok, but its verdict is its own.
+    expect(testResultVerdict({ ok: false, failure: 'inconclusive', data: fork(8, 12, { verdict: 'inconclusive' }) })).toBe('inconclusive');
+    expect(testResultVerdict({ ok: false, failure: 'injection', data: { verdict: 'inconclusive' } })).toBe('inconclusive');
+    expect(testResultVerdict({ ok: false, failure: 'check', data: { verdict: 'failed' } })).toBe('failed');
+    expect(testResultVerdict({ ok: true, failure: null, data: null })).toBe('passed');
+    expect(testResultVerdict({ ok: false, failure: 'inconclusive', data: null })).toBe('inconclusive');
+    expect(testResultVerdict({ ok: false, failure: 'diverged', data: null })).toBe('failed');
   });
 });
 

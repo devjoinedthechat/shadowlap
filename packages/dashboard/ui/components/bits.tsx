@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { cmdParts } from '../cmdline.js';
 import { copyText } from '../dom.js';
+import { shellWords } from '../format.js';
 import { ORIGIN_NAME, type Origin7 } from '../origins.js';
 import { useApp } from '../state.js';
 import { Icon } from './Icon.js';
@@ -185,6 +186,25 @@ export function CmdLine({ children }: { children: string }) {
     <div className="cmdline">
       <b>$</b>
       {cmdParts(children).map((p, i) => ('wbr' in p ? <wbr key={i} /> : p.whole ? <span key={i} className="nw">{p.text}</span> : <span key={i}>{p.text}</span>))}
+    </div>
+  );
+}
+
+/**
+ * A shell command as the page shows it (`.cmdline`), wrapping only between its words: a flag, a
+ * quoted value or a token breaks inside itself only when it is wider than the box. Copied, it
+ * reads as the command.
+ */
+export function CommandLine({ command }: { command: string }) {
+  return (
+    <div className="cmdline words">
+      <b>$</b>
+      {shellWords(command).map((w, i) => (
+        <Fragment key={i}>
+          {i ? ' ' : null}
+          <span>{w}</span>
+        </Fragment>
+      ))}
     </div>
   );
 }

@@ -16,6 +16,8 @@ const row = (name: string, result: 'pass' | 'fail' | null): GoldenRow => ({
   modeHint: '',
   gate: null,
   checks: [],
+  checkResults: [],
+  injection: false,
   history: [],
   last: { result, verdict: result === 'fail' ? 'failed' : result === 'pass' ? 'passed' : null, failure: result === 'fail' ? 'diverged' : null, line: '', at: null, updated: false, gate: null },
   runId: null,
@@ -34,7 +36,7 @@ const view = (diverged: string[], rows = [row('refund-flow', 'pass'), row('limit
   chaosRunning: null,
   failures: [],
   diverged,
-  commands: { ci: '', inCi: '', pack: '', run: ['test', 'goldens/*'], updateAll: null },
+  commands: { ci: '', pack: '', run: ['test', 'goldens/*'], updateAll: null },
   note: '',
 });
 

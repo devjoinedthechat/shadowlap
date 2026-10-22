@@ -221,7 +221,7 @@ export function register(program: Command): void {
         return;
       }
       if (!list.length) {
-        process.stdout.write('No tasks yet. A golden with outcome checks is a task: a model takes over at one call, and the checks score what it did.\n');
+        process.stdout.write('No tasks yet. A golden whose checks say what the agent must do is a task: a model takes over at one call, and the checks score what it did.\n');
         process.stdout.write(p.dim('  shadowlap pack <run> goldens/<name>, then add its checks under "tests" in shadowlap.config.json\n'));
         return;
       }
@@ -281,7 +281,7 @@ export function register(program: Command): void {
       const log = (line: string) => process.stderr.write(`${line}\n`);
       for (const s of skipped) log(`${p.yellow('!')} skipped ${safeLine(s.reason)}`);
       if (!scorable.length) {
-        log(all.length ? 'No task to score: a task is ready when its golden passes and its checks say whether the agent was right (shadowlap tasks).' : 'No tasks yet: pack a run as a golden and give it outcome checks (shadowlap tasks).');
+        log(all.length ? 'No task to score: a task is ready when its golden passes and its checks say whether the agent was right (shadowlap tasks).' : 'No tasks yet: pack a run as a golden and give it checks on what the agent must do (shadowlap tasks).');
         if (flags.json) process.stdout.write(JSON.stringify(scoreJson(target, targetVia(target, null), '', [], skipped), null, 2) + '\n');
         process.exitCode = 1;
         return;

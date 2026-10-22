@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { JOB_KINDS, type ModelsView, type PairGroupView, type PipView, type TaskUpdate, type TrainingView } from '../api.js';
-import { Badge, CmdLine, EmptyState, Kpi, PageHeader, Seg } from '../components/bits.js';
+import { Badge, CmdLine, CommandLine, EmptyState, Kpi, PageHeader, Seg } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { tipText } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
@@ -13,7 +13,7 @@ import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
-import { ENDPOINT, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
+import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreCommand, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
 
 /**
  * Training (#/training, #/training/tasks): preference pairs read from the attempts blame, verify and
@@ -60,7 +60,11 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
       <PageHeader
         eyebrow="pairs · tasks · on this machine"
         title="Training"
-        text="Answers to prefer and tasks to score, from failures you fixed."
+        text={
+          <>
+            <span className="ln">Answers to prefer, from attempts already in the store,</span> <span className="ln">and your goldens as tasks to score.</span>
+          </>
+        }
         actions={
           action ? (
             <button className="btn lime" type="button" disabled={!!action.off} title={action.off ?? undefined} onClick={() => guard(() => setDialog(action.kind))}>
@@ -97,7 +101,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
 
 // ---------------------------------------------------------------------------------------------- the strip
 
-/** The same four numbers on both tabs: what there is, what's usable, how models did, and what has left the machine. */
+/** The same four numbers on both tabs: what there is, what's usable, how models did, and what the last export wrote. */
 function TrainingStrip({ view }: { view: TrainingView }) {
   const { pairs, tasks, best, left } = view.strip;
   const count = (v: string) => (/^\d+$/.test(v) ? Number(v).toLocaleString('en-US') : v);
@@ -106,7 +110,7 @@ function TrainingStrip({ view }: { view: TrainingView }) {
       <Kpi k="Pairs" value={count(pairs.value)} note={pairs.sub} tone="lime" href={href.training('pairs')} />
       <Kpi k="Tasks ready" value={tasks.value} note={tasks.sub} href={href.training('tasks')} />
       <Kpi k="Best mean score" value={best.value} note={best.sub} href={href.training('tasks')} />
-      <Kpi k="Left this machine" value={count(left.value)} note={left.file ? <span title={left.file === '-' ? 'Written to standard output' : `Written to ${left.file}`}>{leftNote(left)}</span> : left.sub} />
+      <Kpi k="Exported" value={count(left.value)} note={left.file ? <span title={left.file === '-' ? 'Written to standard output' : `Written to ${left.file}`}>{leftNote(left)}</span> : left.sub} />
     </div>
   );
 }
@@ -370,7 +374,15 @@ function TasksTab({ view }: { view: TrainingView }) {
           <div className="pbody">
             <p className="muted">Serve the model you’re training on an OpenAI-compatible endpoint. Each attempt returns its score, to use as the reward.</p>
             <CmdLine>{view.serve?.command ?? 'shadowlap tasks serve goldens/ --port 4779'}</CmdLine>
-            {view.serve ? <pre className="report trserve">{`${view.serve.request}\n\n${view.serve.response}`}</pre> : <p className="muted trafter">Once a task is ready, each request scores one attempt at it.</p>}
+            {view.serve ? (
+              <>
+                {/* Nothing was asked: an example, with a placeholder run and one check missed, so a score reads as the share passed. */}
+                <p className="muted trafter">For example, one attempt and the score it answers with:</p>
+                <pre className="report trserve">{`${view.serve.request}\n\n${view.serve.response}`}</pre>
+              </>
+            ) : (
+              <p className="muted trafter">Once a task is ready, each request scores one attempt at it.</p>
+            )}
           </div>
         </section>
         <section className="panel">
@@ -556,6 +568,10 @@ function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () 
           </select>
         </label>
       </div>
+      <p className="muted trnote">
+        It writes <code>{d.out}</code> in the project folder, and the job’s drawer offers it for download.
+      </p>
+      <CommandLine command={exportCommand(format, min, d.out)} />
     </Dialog>
   );
 }
@@ -628,6 +644,8 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
   }, [pick]);
   const current = pick ?? '';
   const fields = pick === null ? null : scoreFields(d, current, endpoint, attempts);
+  // What the job runs: the tasks the picked model can answer, else every ready one.
+  const command = scoreCommand(fields, view.tasks.rows.filter((r) => r.status.key === 'ready').map((r) => r.golden));
   const notes = models.data ? notesLine(models.data.notes) : null;
   const leftOut = d ? leftOutLine(d.leftOut) : null;
   const note = models.error ? `The models couldn’t be listed (${models.error.message}). Your own endpoint still works.` : !listed ? 'Asking each provider for its models…' : pickNote(d, current, endpoint);
@@ -693,6 +711,7 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
         </div>
       ) : null}
       {note ? <p className="muted trnote">{note}</p> : null}
+      {command ? <CommandLine command={command} /> : null}
       {busy ? <p className="trbusy">{busy}</p> : null}
       {/* Why a provider's models aren't in the list: beside the list, not beside your own endpoint, unless the endpoint is all there is. */}
       {notes && (pick !== ENDPOINT || !d?.options.length) ? <p className="trnotes">{notes}</p> : null}

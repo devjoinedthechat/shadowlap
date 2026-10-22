@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, judgeTarget, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
+import { JUDGE_KEYS, JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, judgeTarget, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
 import { parseChaosFields } from './chaos-config.js';
 
 /**
@@ -165,12 +165,8 @@ export interface JudgeCheck {
 /** The providers a judge's model can belong to (the engine's, which builds each one's request). */
 export type { JudgeProvider };
 
-/** The environment variables a provider's key is read from. */
-export const JUDGE_KEYS: Readonly<Record<JudgeProvider, readonly string[]>> = {
-  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
-  openai: ['OPENAI_API_KEY'],
-  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
-};
+/** The environment variables a provider's key is read from (the engine's, which the dashboard names a missing key by). */
+export { JUDGE_KEYS };
 
 /** What an `expect` object asks for: the checks alone. */
 export interface ExpectSpec {

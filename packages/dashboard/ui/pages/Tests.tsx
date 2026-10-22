@@ -1,14 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type BisectMiss, type BisectRevision, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type InconclusiveView, type TestsView } from '../api.js';
-import { Badge, CmdLine, EmptyState, PageHeader } from '../components/bits.js';
+import { Badge, CmdLine, CommandLine, CopyButton, EmptyState, PageHeader } from '../components/bits.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
-import { copyText } from '../dom.js';
 import { treeBusy } from '../fixes/model.js';
 import { useServerJobs } from '../fixes/tree.js';
-import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, sessionLine, sessionWait, sourceText, testsBusy, type ReportLine } from '../goldens.js';
+import { glued } from '../format.js';
+import { asksUpdate, checkMark, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, sessionLine, sessionWait, sourceText, testsBusy, type ReportLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
@@ -18,9 +18,11 @@ import { keepTests, onTestsChanged, testsPaletteCommands } from '../tests-palett
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 
 /**
- * Tests (#/tests): every golden CI replays offline and how it did at each revision. The verdict for
- * the goldens' last results, the table (where each came from, its mode, checks, history and last
- * result), each failure as the CLI prints it with what fixes it, and how to run them in CI.
+ * Tests (#/tests): every golden CI runs and how it did at each revision. The verdict for the goldens'
+ * last results, the table (each golden with its mode and where it came from, its checks marked by
+ * how its last result came out, its history and its last result, fitted to its panel's width as the
+ * mock's container queries fit it), each failure as the CLI prints it with what fixes it, and how CI
+ * runs them: replay goldens offline, those marked fork live from where they fork.
  */
 
 /** The jobs that change what this page shows: while one of this tab's runs, the verdict's session reads as running. */
@@ -81,7 +83,7 @@ export function TestsPage() {
     setOpen(null);
     guard(() => watchJob(client.startJob(kind, fields)));
   };
-  const header = (actions?: ReactNode) => <PageHeader eyebrow="goldens · shadowlap test" title="Tests" text="Every recording CI replays offline, and how it did at each revision." actions={actions} />;
+  const header = (actions?: ReactNode) => <PageHeader eyebrow="goldens · shadowlap test" title="Tests" text="Every golden CI runs, and how it did at each revision." actions={actions} />;
 
   if (!view) {
     return (
@@ -102,7 +104,12 @@ export function TestsPage() {
 
   const runWait = wait('run the tests');
   const updateWait = wait('update them');
+  const updateGoldenWait = wait('update it');
   const findWait = wait('find the commit');
+  // A gate against history needs the store kept between CI's runs.
+  const historyGate = view.rows.some((r) => r.gate?.gate.kind === 'baseline');
+  // An injection test runs live from each payload it plants, as a fork does: CI needs the keys for it.
+  const injection = view.rows.some((r) => r.injection);
   const actions = (
     <>
       <a className="btn" href={href.settings('alerts')}>
@@ -114,9 +121,6 @@ export function TestsPage() {
           Update goldens…
         </button>
       ) : null}
-      <button className="btn" type="button" onClick={() => void copyText(view.commands.ci).then((ok) => toast(ok ? 'Copied the CI command' : 'Copying was refused by the browser'))}>
-        Copy CI command
-      </button>
       {hasKind(JOB_KINDS.tests) ? (
         <button className="btn lime" type="button" disabled={!!runWait} title={runWait ?? undefined} onClick={() => start(JOB_KINDS.tests, {})}>
           Run tests
@@ -145,31 +149,36 @@ export function TestsPage() {
     <Page>
       {header(actions)}
       <Verdict view={view} running={running} />
-      <section className="panel tscroll">
-        <table className="t gt">
-          <thead>
-            <tr>
-              <th>Golden</th>
-              <th className="hide-sm">Mode</th>
-              <th className="hide-sm">Checks</th>
-              {view.revisions.length ? (
-                <th className="hist hide-sm">
-                  {view.revisions.map((r, i) => (
-                    <span key={`${r}:${i}`} data-tip={tipText(r ? `revision ${r}` : 'no revision: not in a git repository')}>
-                      {revLabel(r)}
-                    </span>
-                  ))}
-                </th>
-              ) : null}
-              <th>Last result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {view.rows.map((row) => (
-              <GoldenTr key={row.path} row={row} showHistory={view.revisions.length > 0} />
-            ))}
-          </tbody>
-        </table>
+      {/* The table fits its panel at every width, as the mock's .gtw container queries fit it: below
+          1000px of room the oldest revisions give way, below 820px the checks go under the golden's
+          name, and on a phone the revisions become a strip there too. Last result keeps its width. */}
+      <section className="panel gtw">
+        <div className="tscroll">
+          <table className="t gt">
+            <thead>
+              <tr>
+                <th className="gg">Golden</th>
+                <th className="gck">Checks</th>
+                {view.revisions.length ? (
+                  <th className="hist">
+                    <span className="hn">By revision</span>
+                    {view.revisions.map((r, i) => (
+                      <span key={`${r}:${i}`} className={revClass(i, view.revisions.length)} data-tip={tipText(r ? `revision ${r}` : 'no revision: not in a git repository')}>
+                        {revLabel(r)}
+                      </span>
+                    ))}
+                  </th>
+                ) : null}
+                <th className="glast">Last result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {view.rows.map((row) => (
+                <GoldenTr key={row.path} row={row} showHistory={view.revisions.length > 0} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
       {view.divergences.map((d) => {
         const b = divergenceButtons(d, hasKind);
@@ -211,16 +220,34 @@ export function TestsPage() {
         <FailurePanel key={f.golden} f={f} off={findWait ?? undefined} button={findCommitButton(f, hasKind)} onBisect={() => guard(() => findCommit(f))} />
       ))}
       {view.inconclusive.map((v) => (
-        <InconclusivePanel key={v.golden} v={v} off={runWait ?? undefined} canRun={hasKind(JOB_KINDS.tests)} onMore={(job) => start(JOB_KINDS.tests, job)} />
+        <InconclusivePanel
+          key={v.golden}
+          v={v}
+          off={runWait ?? undefined}
+          canRun={hasKind(JOB_KINDS.tests)}
+          onMore={(job) => start(JOB_KINDS.tests, job)}
+          updateOff={updateGoldenWait ?? undefined}
+          canUpdate={hasKind(JOB_KINDS.testUpdate)}
+          onUpdate={() => guard(() => setOpen({ kind: 'update', paths: [v.golden] }))}
+        />
       ))}
       <div className="grid2 gpanel">
         <section className="panel">
           <header>
             <h2>In CI</h2>
+            <span className="sp" />
+            <CopyButton text={view.commands.ci} label="the CI command" />
           </header>
           <div className="pbody">
-            <p className="muted">Each golden is unpacked into a throwaway store and replayed with every provider offline. A divergence, a live call, a non-zero exit or a failed check fails it.</p>
-            <CmdLine>{view.commands.inCi}</CmdLine>
+            <p className="muted">
+              Replay goldens run offline and need no key. {injection ? 'A golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys.' : 'A golden marked fork runs live from where it forks, and needs the providers’ keys.'} A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.
+            </p>
+            <CommandLine command={view.commands.ci} />
+            {historyGate ? (
+              <p className="muted after">
+                A gate against history needs the store kept between runs: the Action’s <code>keep-history</code> does it, or cache <code>.shadowlap/shadowlap.db</code>.
+              </p>
+            ) : null}
           </div>
         </section>
         <section className="panel">
@@ -231,7 +258,7 @@ export function TestsPage() {
             <p className="muted">Pack a run you consider correct into the repository. Redaction rules apply to the copy.</p>
             <CmdLine>{view.commands.pack}</CmdLine>
             <p className="muted after">
-              A golden with outcome checks is also a task a model can be scored on.{' '}
+              A golden whose checks say what the agent must do is also a task a model can be scored on.{' '}
               <a className="more" href={href.training('tasks')}>
                 Training tasks
               </a>
@@ -279,7 +306,7 @@ function Verdict({ view, running }: { view: TestsView; running: boolean }) {
         <div>
           <h2>{view.goldens === 1 ? 'One golden, not tested yet' : `${view.goldens} goldens, none tested yet`}</h2>
           <p>
-            Run tests replays each one offline: <SessionCommand text={command} />
+            {view.rows.some((r) => r.mode === 'fork') ? 'Run tests replays each one, those marked fork live from where they fork' : 'Run tests replays each one offline'}: <SessionCommand text={command} />
           </p>
         </div>
       </div>
@@ -319,48 +346,59 @@ function SessionCommand({ text }: { text: string }) {
   );
 }
 
+/** A history column's class: `r0` the newest revision, `r1` the one before, and so on, by which the oldest give way on a narrow panel. */
+const revClass = (i: number, n: number) => `r${n - 1 - i}`;
+
+/** A history cell's class: how the golden came out at that revision, inconclusive told apart. */
+const cellClass = (h: GoldenRow['history'][number]) => (h.verdict === 'inconclusive' ? 'inc' : (h.result ?? 'none'));
+
 function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }) {
   const source = sourceText(row);
   const last = row.last;
+  const n = row.history.length;
   return (
     <tr className={row.runId ? undefined : 'still'} onClick={row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : undefined}>
-      <td>
-        <code>{row.name}</code>
-        <span className="rsub gsrc">
-          {'runId' in source ? (
-            <>
-              from{' '}
-              <a className="more" href={href.run(source.runId)}>
-                {source.runId.slice(0, 10)}
-              </a>
-            </>
-          ) : (
-            source.text
-          )}
+      <td className="gg">
+        <code className="gn">{row.name}</code>
+        <span className="gmeta">
+          <span className="chip" data-tip={tipText(row.modeHint)}>
+            {row.modeLabel}
+          </span>
+          {showHistory ? (
+            <span className="gstrip" aria-hidden="true">
+              {row.history.map((h, i) => (
+                <i key={`${h.revision}:${i}`} className={cellClass(h)} />
+              ))}
+            </span>
+          ) : null}
+          <span className="gsrc">
+            {'runId' in source ? (
+              <>
+                from{' '}
+                <a className="dlink" href={href.run(source.runId)}>
+                  <code>{source.runId.slice(0, 10)}</code>
+                </a>
+              </>
+            ) : (
+              source.text
+            )}
+          </span>
+        </span>
+        <span className="chk gin">
+          <Checks row={row} />
         </span>
       </td>
-      <td className="hide-sm">
-        <span className="chip" data-tip={tipText(row.modeHint)}>
-          {row.modeLabel}
-        </span>
-      </td>
-      <td className="chk hide-sm">
-        {row.checks.length ? (
-          row.checks.map((c, i) => <span key={`${c}:${i}`}>{checkWords(c)}</span>)
-        ) : (
-          <em className="nil" data-tip={tipText('No checks in shadowlap.config.json: it passes when it replays and the agent exits 0')}>
-            exit status only
-          </em>
-        )}
+      <td className="chk gck">
+        <Checks row={row} />
       </td>
       {showHistory ? (
-        <td className="hist hide-sm">
+        <td className="hist">
           {row.history.map((h, i) => {
             const t = historyTip(h, row.name);
             return (
               <i
                 key={`${h.revision}:${i}`}
-                className={`${h.verdict === 'inconclusive' ? 'inc' : (h.result ?? 'none')}${h.updated ? ' upd' : ''}${h.runId ? ' go' : ''}`}
+                className={`${cellClass(h)} ${revClass(i, n)}${h.updated ? ' upd' : ''}${h.runId ? ' go' : ''}`}
                 data-tip={tipCard(t.title, [{ label: t.label, value: t.value, color: t.color }])}
                 onClick={
                   h.runId
@@ -375,7 +413,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
           })}
         </td>
       ) : null}
-      <td>
+      <td className="glast">
         {last.verdict === 'inconclusive' ? (
           <span className="st warn">
             <i />
@@ -402,6 +440,42 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
         {last.result !== null || row.error ? <span className="rsub">{last.line}</span> : null}
       </td>
     </tr>
+  );
+}
+
+/**
+ * A golden's checks, each marked by how its last result came out on it (✓ passed, ✗ failed, ? in
+ * amber when it couldn't be decided, – when it didn't apply; no mark before a result), with what
+ * failed, in how many attempts, or why, under it and on hover.
+ */
+function Checks({ row }: { row: GoldenRow }) {
+  if (!row.checks.length) {
+    return (
+      <em className="nil" data-tip={tipText('No checks in shadowlap.config.json: it passes when it replays and the agent exits 0')}>
+        exit status only
+      </em>
+    );
+  }
+  const ran = row.last.result !== null;
+  return (
+    <>
+      {row.checkResults.map((c, i) => {
+        const m = checkMark(c, ran);
+        return (
+          <span key={`${c.label}:${i}`} className={`ck${m.status ? ` ${m.status}` : ''}`} data-tip={tipCard(m.tip.title, [{ label: m.tip.label, value: m.tip.value, color: m.tip.color }])}>
+            {m.mark ? (
+              <b className="cm" role="img" aria-label={m.word}>
+                {m.mark}
+              </b>
+            ) : null}
+            <span className="cw">
+              {m.text}
+              {m.sub ? <small>{glued(m.sub)}</small> : null}
+            </span>
+          </span>
+        );
+      })}
+    </>
   );
 }
 
@@ -467,17 +541,26 @@ function ReportPanel({ name, runId, lines, found, missed, children }: { name: st
 
 /**
  * A golden neither passed nor failed: its gate ran out of attempts between its bounds, or a check
- * couldn't be judged. Its report, and for a gate, Run more attempts, which continues it to twice its
- * limit with the attempts it has.
+ * couldn't be decided. Its report, and what settles it: for a gate, Run more attempts, which continues
+ * it to twice its limit with the attempts it has; for a judge check a replay golden couldn't ask
+ * offline, Update golden, which asks it once and keeps its verdict (it asks first); for one a golden
+ * that forks had no key for, the key, in the hint.
  */
-function InconclusivePanel({ v, off, canRun, onMore }: { v: InconclusiveView; off: string | undefined; canRun: boolean; onMore: (job: { golden: string; maxAttempts: number; continue: true }) => void }) {
+function InconclusivePanel({ v, off, canRun, onMore, updateOff, canUpdate, onUpdate }: { v: InconclusiveView; off: string | undefined; canRun: boolean; onMore: (job: { golden: string; maxAttempts: number; continue: true }) => void; updateOff: string | undefined; canUpdate: boolean; onUpdate: () => void }) {
   const more = v.gate?.more ?? null;
+  const update = v.judge?.update ?? null;
   return (
     <ReportPanel name={v.name} runId={v.runId} lines={inconclusiveLines(v)} found={null} missed={null}>
       {more && canRun ? (
         <div className="actions">
           <button className="btn lime" type="button" disabled={!!off} title={off ?? commandText(more.args)} onClick={() => onMore(more.job)}>
             Run more attempts
+          </button>
+        </div>
+      ) : update && canUpdate ? (
+        <div className="actions">
+          <button className="btn" type="button" disabled={!!updateOff} title={updateOff ?? commandText(update)} onClick={onUpdate}>
+            Update golden
           </button>
         </div>
       ) : null}

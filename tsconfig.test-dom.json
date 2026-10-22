@@ -21,7 +21,9 @@
     "packages/dashboard/test/ui-runs-bulk.test.ts",
     "packages/dashboard/test/ui-overview-lists.test.ts",
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
-    "packages/dashboard/test/ui-fix-page.test.ts"
+    "packages/dashboard/test/ui-fix-page.test.ts",
+    "packages/dashboard/test/ui-tests-page.test.ts",
+    "packages/dashboard/test/ui-training-page.test.ts"
   ],
   "exclude": []
 }

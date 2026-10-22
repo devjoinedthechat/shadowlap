@@ -55,7 +55,7 @@ export type { Decision, ReplayOptions, ResolveInput, SessionOptions } from './se
 export { divergenceLine, endedEarlyCount, formatDivergence, formatSummary, formatTokens, plain, storedModelResolver, summarizeRun } from './report.js';
 export type { ModelResolver, SummaryOptions } from './report.js';
 // Judge checks: the reserved scope replay strictness leaves out, what a judge reads, the request it is sent, its verdict and its cost.
-export { JUDGE_INSTRUCTIONS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, MATERIAL_LIMIT, RESERVED_SCOPE_PREFIX, VERDICT_SCHEMA, agentCallsOf, claudeTakes, escapeMaterial, isJudgeCall, judgeAskId, judgeCallsOf, judgedAnswers, judgeMaterial, judgePrompt, judgeRequest, judgeRules, judgeTarget, matchedClockOf, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, reachesJudgeRequest, readVerdict } from './judge.js';
+export { JUDGE_INSTRUCTIONS, JUDGE_KEYS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, MATERIAL_LIMIT, RESERVED_SCOPE_PREFIX, VERDICT_SCHEMA, agentCallsOf, claudeTakes, escapeMaterial, isJudgeCall, judgeAskId, judgeCallsOf, judgedAnswers, judgeMaterial, judgePrompt, judgeRequest, judgeRules, judgeTarget, matchedClockOf, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, reachesJudgeRequest, readVerdict } from './judge.js';
 export type { ClaudeTakes, GivenAnswer, JudgeAsk, JudgeMaterial, JudgeProvider, JudgeReads, JudgeRequest, JudgeVerdict, MatchMasks, MaterialResult } from './judge.js';
 export { aboutUsd, judgeLine, judgeParts, summarizeJudge } from './report.js';
 export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
@@ -83,7 +83,7 @@ export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateS
 export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decisionWord, describeGate, dropProbability, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, verdictLine, wilson, wilsonBound } from './stats.js';
 export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, GateOdds, GateOutcome, GateResult, SprtBounds, SprtEvidence, SprtGate, Tally } from './stats.js';
 // A golden's baseline for a gate against its history, pooled from the store's test history.
-export { attemptsOf, gateHistory, judgedUnder, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
+export { attemptsOf, gateHistory, judgedUnder, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, unifiedDiff } from './repair.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
 export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole } from './verify.js';
@@ -111,8 +111,8 @@ export type { ShowJson } from './show.js';
 // translation that lets a model of another provider take over a recorded conversation.
 export { contextLine, countPairs, findPairs, pairRows, PAIR_FORMATS, PAIR_SHAPES } from './pairs.js';
 export type { Pair, PairAnswer, PairConfidence, PairFormat, PairRowsOptions, PairSource, PairSourceKind, PairsResult } from './pairs.js';
-export { answersNothing, attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, goldenPaths, isModelRequest, isPack, isRecordedInput, INCONCLUSIVE_TEST_NOTE, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
-export type { Golden, OneSided, Takeover, Task, TaskCheck, TaskFields, TaskInput, TaskStatus } from './tasks.js';
+export { answersNothing, attemptScore, averageTokens, CAPS_ONLY_NOTE, defaultTakeover, describeTask, entryFor, goldenPaths, inconclusiveTestNote, inconclusiveWhy, isInconclusiveNote, isModelRequest, isPack, isRecordedInput, INCONCLUSIVE_TEST_NOTE, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
+export type { Golden, InconclusiveWhy, OneSided, Takeover, Task, TaskCheck, TaskFields, TaskInput, TaskStatus } from './tasks.js';
 export { anthropicBase, choiceTarget, endpointVia, isLoopback, listingInput, listModelChoices, mainRefusal, modelReach, ollamaBase, openAIBase, OFFICIAL, refusedLine } from './models.js';
 // A rule the config already has, for a value a divergence shows (test --update, Training's Update the golden).
 export { ruleInForce } from './volatile.js';

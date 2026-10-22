@@ -3,7 +3,6 @@ import { resolve } from 'node:path';
 import {
   attemptScore,
   chatShapeOf,
-  checkStatus,
   CLOUD_ADVICE,
   CLOUDS,
   commandIsImported,
@@ -14,6 +13,7 @@ import {
   estimateCost,
   formatDivergence,
   goldenPaths,
+  inconclusiveWhy,
   isJudgeCall,
   isModelRequest,
   oneSided,
@@ -21,8 +21,10 @@ import {
   projectPath,
   readGolden,
   takeoverRefusal,
+  testResultVerdict,
   type CallRecord,
   type Golden,
+  type InconclusiveWhy,
   type JudgeSummary,
   type OneSided,
   type Price,
@@ -33,6 +35,7 @@ import {
   type TaskCheck,
   type TaskFields,
   type TaskScoreRow,
+  type TestResult,
 } from '@shadowlap/engine';
 import { providers } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, EXIT_LABEL, formatBudget } from './attempts.js';
@@ -78,47 +81,46 @@ export function taskChecks(spec: TestSpec | null): TaskCheck[] {
 }
 
 /**
- * The newest finished `shadowlap test` run of each golden kept in the store (`meta.test`), by the
- * golden's path in the project: read once for every golden. A test still running says nothing yet,
- * so the one before it counts. Of a golden replayed more than once in a session, the attempt its
- * result shows counts: the others are filed under it (`meta.test.of`), and one a check could not
- * decide after its count was settled says nothing of how it came out. `shadowlap test` keeps its
- * runs only in a store it is given (`--db`).
+ * The newest result of each golden in the store's test history, by the golden's path in the project:
+ * what `shadowlap test` kept for it, the result Tests shows, read once for every golden. A golden a
+ * session is still testing, or one a signal cut short, has no result there yet, so the one before it
+ * counts. `shadowlap test` keeps its history in the project's store, or the one `--db` names.
  */
-export function lastTests(store: Store | null, root: string): Map<string, RunRecord> {
-  const out = new Map<string, RunRecord>();
+export function lastResults(store: Store | null, root: string): Map<string, TestResult> {
+  const out = new Map<string, TestResult>();
   if (!store) return out;
-  for (const run of store.allRuns()) {
-    // Newest first: the first finished run of a golden is its last test.
-    if (!run.meta?.test || run.status === 'running' || run.meta.test.of) continue;
-    const golden = projectPath(root, run.meta.test.golden);
-    if (!out.has(golden)) out.set(golden, run);
+  for (const r of store.latestTestResults()) {
+    // A golden named by its path and by another spelling of it is one golden: the newer result counts.
+    const golden = projectPath(root, r.golden);
+    const seen = out.get(golden);
+    if (!seen || r.at > seen.at) out.set(golden, r);
   }
   return out;
 }
 
-/**
- * Whether a golden's last test failed: it didn't complete, a check failed, or it diverged without
- * being allowed to fork. A check that could not be decided is no failure (`testInconclusive`). Null
- * when it never ran.
- */
-export function testFailed(last: RunRecord | undefined, spec: TestSpec | null): boolean | null {
-  if (!last) return null;
-  return last.status !== 'completed' || (last.meta?.checks ?? []).some((c) => checkStatus(c) === 'failed') || (!!last.divergence && !spec?.fork);
+/** What a golden's last test says about its task. */
+export interface LastTest {
+  /** Its verdict was failed: true, false, or null when it never ran. */
+  failed: boolean | null;
+  /** Its verdict was inconclusive, and why (its gate, a check, its injection test); null otherwise. */
+  inconclusive: InconclusiveWhy | null;
+  /** It passed, may fork (`fork` in its tests entry), and forked here: the call, and the run it shows. */
+  forkedAt: number | null;
+  forkedRun: string | null;
 }
 
 /**
- * Whether a golden's last test was inconclusive: it failed nothing, and a check could not be decided
- * (a judge with no verdict and no way to ask it, a condition it could not read). Neither passed nor
- * failed, so its checks are no reward yet. False when it failed or never ran.
+ * What a golden's last result says about its task, by the result's verdict, as Tests reads it: a gate
+ * that ran out of attempts between its bounds is inconclusive however many of its attempts failed a
+ * check, and a fixed count settled by the attempts before one a check could not decide keeps that
+ * verdict. Where it forked counts only for a golden that may fork and passed: otherwise the
+ * divergence failed it. Nothing is known of a golden that never ran.
  */
-export function testInconclusive(last: RunRecord | undefined, spec: TestSpec | null): boolean {
-  return testFailed(last, spec) === false && (last?.meta?.checks ?? []).some((c) => checkStatus(c) === 'inconclusive');
-}
-
-/** Where a golden's last test forked, when its test may fork (`fork` in its tests entry) and did; null otherwise. */
-export function testForkedAt(last: RunRecord | undefined, spec: TestSpec | null): number | null {
-  return last && spec?.fork && last.divergence ? last.divergence.callNo : null;
+export function lastTest(r: TestResult | undefined, spec: TestSpec | null): LastTest {
+  if (!r) return { failed: null, inconclusive: null, forkedAt: null, forkedRun: null };
+  const verdict = testResultVerdict(r);
+  const forkedAt = verdict === 'passed' && spec?.fork && r.data?.divergence ? r.data.divergence.callNo : null;
+  return { failed: verdict === 'failed', inconclusive: verdict === 'inconclusive' ? inconclusiveWhy(r) : null, forkedAt, forkedRun: forkedAt !== null ? r.runId : null };
 }
 
 /** The runs a golden's run came from, nearest first, as far as the store has them. */
@@ -143,7 +145,7 @@ export function loadTasks(root: string, store: Store | null): TaskList {
   const fields = new Map<string, TaskFields>();
   for (const e of entries) fields.set(e.recording, parseTaskFields(blocks[e.recording]?.task, `shadowlap.config.json: tests["${e.recording}"].task`));
   const keys = entries.map((e) => e.recording);
-  const tests = lastTests(store, root);
+  const results = lastResults(store, root);
   const tasks: LoadedTask[] = goldenPaths(root, keys).map(({ path: golden, exists }) => {
     const key = entryFor(root, keys, golden);
     const spec = key === null ? null : (entries.find((e) => e.recording === key)?.spec ?? null);
@@ -157,9 +159,19 @@ export function loadTasks(root: string, store: Store | null): TaskList {
         unreadable = err instanceof Error ? err.message : String(err);
       }
     }
-    const last = tests.get(golden);
-    const forkedAt = pack ? testForkedAt(last, spec) : null;
-    const task = describeTask({ path: golden, golden: pack, fields: key === null ? {} : (fields.get(key) ?? {}), checks: taskChecks(spec), testFailed: pack ? testFailed(last, spec) : null, testInconclusive: !!pack && testInconclusive(last, spec), forkedAt, forkedRun: forkedAt !== null ? (last?.runId ?? null) : null, ...(pack && store ? { ancestors: ancestorsOf(store, pack.run) } : {}) });
+    const last = pack ? lastTest(results.get(golden), spec) : null;
+    const task = describeTask({
+      path: golden,
+      golden: pack,
+      fields: key === null ? {} : (fields.get(key) ?? {}),
+      checks: taskChecks(spec),
+      testFailed: last?.failed ?? null,
+      testInconclusive: !!last?.inconclusive,
+      ...(last?.inconclusive ? { inconclusiveWhy: last.inconclusive } : {}),
+      forkedAt: last?.forkedAt ?? null,
+      forkedRun: last?.forkedRun ?? null,
+      ...(pack && store ? { ancestors: ancestorsOf(store, pack.run) } : {}),
+    });
     return { ...task, ...(unreadable ? { note: `its pack can't be read: ${unreadable}` } : {}), spec, dir, pack };
   });
   return { tasks, oneSided: oneSided(tasks) };

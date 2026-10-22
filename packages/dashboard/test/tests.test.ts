@@ -225,7 +225,8 @@ describe('the Tests screen', () => {
     // Once Find the commit has run, its answer shows above the buttons.
     recordEvent(store, { kind: 'bisect.found', ref: 'goldens/refund-in-limit', at: T0 + 60_000, data: { good: 'c91d0f4', bad: 'd2e8a1f', first: { rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00' }, why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', replays: 4, tokens: 0, upstreamRequests: 0 } });
     expect(testsView(store, goldens).divergences[0]!.found).toEqual({ rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00', why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', untested: [], replays: 4, tokens: 0, at: T0 + 60_000 });
-    expect(view.commands).toEqual({ ci: 'shadowlap test goldens/* --junit report.xml', inCi: 'shadowlap test goldens/* --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"', pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] });
+    // One CI command, as docs/gating.md writes it: the pattern quoted for the CLI to expand, with the reports and annotations.
+    expect(view.commands).toEqual({ ci: `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] });
     store.close();
   });
 
@@ -392,7 +393,7 @@ describe('the Tests screen', () => {
     expect(testPatterns(list)).toEqual(['goldens/*', 'evals/b']);
     const view = testsView(store, list);
     expect(view.commands.run).toEqual(['test', 'goldens/*', 'evals/b']);
-    expect(view.commands.ci).toBe('shadowlap test goldens/* evals/b --junit report.xml');
+    expect(view.commands.ci).toBe(`shadowlap test 'goldens/*' evals/b --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     expect(view.rows.find((r) => r.path === '--writes')).toMatchObject({ error: 'its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json', last: { line: 'can\'t be read: its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json' } });
     expect(runTestsJob(list, {})).toEqual({ title: 'Running the tests', args: ['test', 'goldens/*', 'evals/b'] });
     for (const golden of ['--online', '--writes', '-x/y']) {
@@ -409,12 +410,24 @@ describe('the Tests screen', () => {
     const pack = (path: string): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] });
     const both = testsView(store, [pack('goldens/a'), pack('goldens/b'), pack('packs/budget'), pack('goldens/team/c')]).commands;
     expect(both.run).toEqual(['test', 'goldens/*', 'packs/budget', 'goldens/team/c']);
-    expect(both.ci).toBe('shadowlap test goldens/* packs/budget goldens/team/c --junit report.xml');
+    expect(both.ci).toBe(`shadowlap test 'goldens/*' packs/budget goldens/team/c --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     const elsewhere = testsView(store, [pack('my packs/budget')], { folder: 'recordings' }).commands;
     expect(elsewhere.run).toEqual(['test', 'my packs/budget']);
-    expect(elsewhere.inCi).toBe(`shadowlap test 'my packs/budget' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"`);
+    expect(elsewhere.ci).toBe(`shadowlap test 'my packs/budget' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     expect(elsewhere.pack).toBe('shadowlap pack <run> recordings/<name>');
     expect(testsView(store, []).commands.run).toEqual(['test', 'goldens/*']);
+    store.close();
+  });
+
+  it('marks a golden with an injection test, which runs live in CI whatever its mode', () => {
+    const store = Store.open(':memory:');
+    const pack = (path: string, injection?: boolean): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [], ...(injection === undefined ? {} : { injection }) });
+    // A list from before goldens said so reads as none.
+    expect(testsView(store, [pack('goldens/a', true), pack('goldens/b', false), pack('goldens/c')]).rows.map((r) => [r.name, r.injection])).toEqual([
+      ['a', true],
+      ['b', false],
+      ['c', false],
+    ]);
     store.close();
   });
 
@@ -1122,5 +1135,161 @@ describe('goldens with a gate', () => {
     expect(runTestsJob(gated, { golden: 'goldens/flaky', maxAttempts: 0 })).toEqual({ error: 'maxAttempts is a whole number from 1 to 1000' });
     expect(runTestsJob(gated, { golden: 'goldens/flaky', maxAttempts: '40; rm -rf /' })).toMatchObject({ error: expect.any(String) });
     expect(runTestsJob(gated, {})).toEqual({ title: 'Running the tests', args: ['test', 'goldens/*'] });
+  });
+});
+
+describe('each golden\'s checks, by how its last result came out on them', () => {
+  const judge = (model: string) => ({ name: 'explains-escalation', model, of: 'answer' as const, verdict: null, source: null, cost: null, redactions: 0, cut: 0 });
+  const judgeLabel = 'judge "explains-escalation" answers yes';
+  const offline = { ok: false, status: 'inconclusive' as const, label: judgeLabel, detail: 'not judged: no recorded verdict and the test runs offline', judge: judge('claude-haiku-4-5') };
+  const noKey = { ...offline, detail: 'not judged: no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)' };
+  const passed = (label: string) => ({ ok: true, status: 'passed' as const, label, detail: null });
+  const failed = (label: string, detail: string) => ({ ok: false, status: 'failed' as const, label, detail });
+  const golden = (path: string, mode: 'replay' | 'fork', checks: string[]): GoldenSource => ({ path, runId: null, packedAt: T0, mode, repeat: 1, passes: 1, checks });
+  const GOLDENS = [
+    golden('goldens/clean', 'replay', ['escalate called 1 time', 'when lookup_order has result.amount > 100: escalate called at least 1 time', 'send_email called 1 time']),
+    golden('goldens/flaky', 'fork', ['issue_refund called 0 times']),
+    golden('goldens/judged', 'replay', ['escalate called 1 time', judgeLabel]),
+    golden('goldens/keyless', 'fork', [judgeLabel]),
+    golden('goldens/new', 'replay', ['escalate called 1 time']),
+  ];
+
+  function store() {
+    const s = Store.open(':memory:');
+    // The flaky golden's four attempts, each with its checks as its run kept them: one refunded.
+    const attempts = ['A1', 'A2', 'A3', 'A4'];
+    attempts.forEach((runId, i) => s.createRun({ runId, mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { checks: [i === 1 ? failed('issue_refund called 0 times', 'called 1 time (1 blocked or stubbed)') : passed('issue_refund called 0 times')] } }));
+    session(s, 'd2e8a1f', T0, [
+      // The config gained send_email's check since: the result never judged it.
+      { golden: 'goldens/clean', ok: true, runId: 'R1', data: { mode: 'replay', checks: [passed('escalate called 1 time'), { ok: true, status: 'not-applicable', label: 'when lookup_order has result.amount > 100: escalate called at least 1 time', detail: 'the condition never held: lookup_order #2: result.amount 45 <= 100' }] } },
+      { golden: 'goldens/flaky', ok: false, failure: 'check', reason: '3 of 4 attempts passed, 4 needed', runId: 'A2', data: { mode: 'fork', verdict: 'failed', checks: [failed('issue_refund called 0 times', 'called 1 time (1 blocked or stubbed)')], attempts: { total: 4, passed: 3, required: 4, runs: attempts } } },
+      { golden: 'goldens/judged', ok: false, failure: 'inconclusive' as never, reason: `check inconclusive: ${judgeLabel}, but not judged`, runId: 'R3', data: { mode: 'replay', verdict: 'inconclusive', checks: [passed('escalate called 1 time'), offline] } },
+      { golden: 'goldens/keyless', ok: false, failure: 'inconclusive' as never, reason: `check inconclusive: ${judgeLabel}, but not judged`, runId: 'R4', data: { mode: 'fork', verdict: 'inconclusive', checks: [noKey], divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, text: '' } } },
+    ]);
+    return s;
+  }
+
+  it('marks each check by its status in the attempt the result shows, and none before a result or for one it didn\'t judge', () => {
+    const s = store();
+    const rows = new Map(testsView(s, GOLDENS).rows.map((r) => [r.name, r]));
+    // send_email's check is newer than the result, which judged the golden's checks of then.
+    expect(rows.get('clean')!.checkResults.map((c) => [c.status, c.added, c.detail])).toEqual([
+      ['passed', false, null],
+      ['not-applicable', false, 'the condition never held: lookup_order #2: result.amount 45 <= 100'],
+      [null, true, null],
+    ]);
+    expect(rows.get('judged')!.checkResults.map((c) => [c.label, c.status, c.detail])).toEqual([
+      ['escalate called 1 time', 'passed', null],
+      [judgeLabel, 'inconclusive', 'not judged: no recorded verdict and the test runs offline'],
+    ]);
+    // Not run yet: no status, and nothing added since.
+    expect(rows.get('new')!.checkResults).toEqual([{ label: 'escalate called 1 time', status: null, added: false, detail: null, reason: null, source: null, live: null, attempts: null }]);
+    s.close();
+  });
+
+  it('tells a check added since the last test from one whose golden couldn\'t run', () => {
+    const s = Store.open(':memory:');
+    const list = [golden('goldens/broken', 'replay', ['escalate called 1 time']), golden('goldens/unchecked', 'replay', ['escalate called 1 time'])];
+    session(s, 'd2e8a1f', T0, [
+      // The pack couldn't be read: the result holds why, and no checks.
+      { golden: 'goldens/broken', ok: false, runId: 'R1', reason: "can't be read: no run.json", data: { mode: 'replay', details: "can't be read: no run.json" } },
+      // It ran with no checks: every check it has now was added since.
+      { golden: 'goldens/unchecked', ok: true, runId: 'R2', data: { mode: 'replay', calls: { total: 8, replayed: 8, live: 0, blocked: 0, stubbed: 0 } } },
+    ]);
+    const rows = new Map(testsView(s, list).rows.map((r) => [r.name, r.checkResults[0]!]));
+    expect(rows.get('broken')).toMatchObject({ status: null, added: false });
+    expect(rows.get('unchecked')).toMatchObject({ status: null, added: true });
+    s.close();
+  });
+
+  it('counts the attempts of a golden run more than once that passed each check, and none when an attempt\'s run is gone', () => {
+    const s = store();
+    expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: { passed: 3, of: 4 } }]);
+    s.deleteRun('A3');
+    expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults[0]!.attempts).toBeNull();
+    s.close();
+  });
+
+  it('settles a judge that had no verdict: Update golden for a golden that replays offline, the key for one that forks', () => {
+    const s = store();
+    const view = testsView(s, GOLDENS);
+    const judged = view.inconclusive.find((v) => v.golden === 'goldens/judged')!;
+    expect(judged.judge).toEqual({ name: 'explains-escalation', label: judgeLabel, model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', held: 'none', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null });
+    // Its update is the job Update golden runs.
+    expect(updateGoldensJob(GOLDENS, { golden: 'goldens/judged' })).toEqual({ title: 'Updating a golden', args: judged.judge!.update });
+    const keyless = view.inconclusive.find((v) => v.golden === 'goldens/keyless')!;
+    expect(keyless.judge).toMatchObject({ update: null, keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] });
+    s.close();
+  });
+
+  it('counts no attempts for a result that carried some over from an earlier session, its carried runs partly pruned', () => {
+    const s = Store.open(':memory:');
+    const list = [golden('goldens/gated', 'fork', ['issue_refund called 0 times'])];
+    const check = (ok: boolean) => (ok ? passed('issue_refund called 0 times') : failed('issue_refund called 0 times', 'called 1 time (1 blocked or stubbed)'));
+    // The first session's twelve attempts, of which pruning kept only the failing four and one more.
+    const carried = Array.from({ length: 12 }, (_, i) => `C${i + 1}`);
+    carried.forEach((runId, i) => s.createRun({ runId, mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { checks: [check(i % 3 !== 0)] } }));
+    session(s, 'd2e8a1f', T0, [{ golden: 'goldens/gated', ok: false, failure: 'inconclusive' as never, runId: 'C12', data: { mode: 'fork', verdict: 'inconclusive', checks: [check(true)], attempts: { total: 12, passed: 8, required: null, runs: carried } } }]);
+    for (const id of ['C2', 'C3', 'C5', 'C6', 'C8', 'C9', 'C11']) s.deleteRun(id);
+    // Run more attempts: three of this session's own, the twelve carried over counted by its gate alone.
+    const own = ['N1', 'N2', 'N3'];
+    own.forEach((runId, i) => s.createRun({ runId, mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { checks: [check(i !== 2)] } }));
+    const first = s.listTestResults({ golden: 'goldens/gated', limit: 1 })[0]!;
+    session(s, 'd2e8a1f', T0 + DAY, [{ golden: 'goldens/gated', ok: false, failure: 'check', runId: 'N3', data: { mode: 'fork', verdict: 'failed', checks: [check(false)], attempts: { total: 3, passed: 2, required: null, runs: own }, continued: { sessions: [first.sessionId], attempts: 12 } } }]);
+    // Its own runs alone would say 2 of 3 beside a result of 10 of 15: no tally, only what the check found.
+    expect(testsView(s, list).rows[0]!.checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: null }]);
+    s.close();
+  });
+
+  it('says where a passed judge\'s verdict came from, and what asking it live cost when that is known', () => {
+    const s = Store.open(':memory:');
+    const judged = (name: string, source: 'recording' | 'live', cost: number | null) => ({ ok: true, status: 'passed' as const, label: `judge "${name}" answers yes`, detail: null, reason: 'It names the limit.', source, judge: { name, model: 'claude-haiku-4-5', of: 'answer' as const, verdict: 'yes' as const, source, cost, redactions: 0, cut: 0 } });
+    const summary = (o: { live: number; replayed?: number; spent: number; unknownModels?: string[] }) => ({ calls: o.live + (o.replayed ?? 0), replayed: o.replayed ?? 0, live: o.live, notAsked: 0, upstreamRequests: o.live, spent: o.spent, saved: 0, unknownModels: o.unknownModels ?? [] });
+    const list = [
+      golden('goldens/replayed', 'replay', ['judge "polite" answers yes']),
+      golden('goldens/forked', 'fork', ['judge "polite" answers yes']),
+      golden('goldens/priceless', 'fork', ['judge "polite" answers yes']),
+      golden('goldens/two', 'fork', ['judge "polite" answers yes', 'judge "brief" answers yes']),
+    ];
+    session(s, 'd2e8a1f', T0, [
+      { golden: 'goldens/replayed', ok: true, runId: 'R1', data: { mode: 'replay', verdict: 'passed', checks: [judged('polite', 'recording', 0)], judge: summary({ live: 0, replayed: 1, spent: 0 }) } },
+      // Five attempts, the judge asked live in each: the summary's spend is its own.
+      { golden: 'goldens/forked', ok: true, runId: 'R2', data: { mode: 'fork', verdict: 'passed', checks: [judged('polite', 'live', 0.0004)], judge: summary({ live: 5, spent: 0.0021 }), attempts: { total: 5, passed: 5, required: null, runs: [] } } },
+      { golden: 'goldens/priceless', ok: true, runId: 'R3', data: { mode: 'fork', verdict: 'passed', checks: [judged('polite', 'live', null)], judge: summary({ live: 1, spent: 0, unknownModels: ['claude-haiku-4-5'] }) } },
+      // Two judges in one attempt: each check's own call says what it cost.
+      { golden: 'goldens/two', ok: true, runId: 'R4', data: { mode: 'fork', verdict: 'passed', checks: [judged('polite', 'live', 0.0004), judged('brief', 'recording', 0)], judge: summary({ live: 1, replayed: 1, spent: 0.0004 }) } },
+    ]);
+    const rows = new Map(testsView(s, list).rows.map((r) => [r.name, r.checkResults.map((c) => [c.source, c.live])]));
+    expect(rows.get('replayed')).toEqual([['recording', null]]);
+    expect(rows.get('forked')).toEqual([['live', { cost: 0.0021, asked: 5 }]]);
+    expect(rows.get('priceless')).toEqual([['live', null]]);
+    expect(rows.get('two')).toEqual([
+      ['live', { cost: 0.0004, asked: 1 }],
+      ['recording', null],
+    ]);
+    s.close();
+  });
+
+  it('reads what the pack holds for a judge from why it wasn\'t judged, and offers Update golden only where that is what\'s missing', () => {
+    const s = Store.open(':memory:');
+    const list = ['older', 'material', 'unknown'].map((name) => golden(`goldens/${name}`, 'replay', [judgeLabel]));
+    const why = {
+      older: "not judged: the recording's verdict was given to an older form of the judge's request, and the test runs offline: record it again with shadowlap test --update",
+      material: 'not judged: the recording\'s verdict was given on other material: it read "order 8f3a, and more" where it now reads "order 1b2c, and more", and the test runs offline',
+      unknown: "not judged: Shadowlap can't tell which provider serves my-judge",
+    };
+    session(
+      s,
+      'd2e8a1f',
+      T0,
+      Object.entries(why).map(([name, detail], i) => ({ golden: `goldens/${name}`, ok: false, failure: 'inconclusive' as never, runId: `R${i}`, data: { mode: 'replay' as const, verdict: 'inconclusive' as const, checks: [{ ...offline, detail }] } })),
+    );
+    const judges = new Map(testsView(s, list).inconclusive.map((v) => [v.name, v.judge]));
+    expect(judges.get('older')).toMatchObject({ held: 'older', changed: null, update: ['test', 'goldens/older', '--update'] });
+    // Where it differs, its quoted values whole, commas and all.
+    expect(judges.get('material')).toMatchObject({ held: 'material', changed: 'it read "order 8f3a, and more" where it now reads "order 1b2c, and more"', update: ['test', 'goldens/material', '--update'] });
+    // An update can't ask a judge whose provider no one can tell.
+    expect(judges.get('unknown')).toMatchObject({ held: null, changed: null, update: null });
+    s.close();
   });
 });

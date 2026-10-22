@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NO_COMMAND, packRun } from '../src/pack.js';
 import { Store } from '../src/store.js';
-import { attemptScore, averageTokens, describeTask, entryFor, goldenPaths, isModelRequest, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, readGolden, type Task, type TaskCheck } from '../src/tasks.js';
+import { attemptScore, averageTokens, CAPS_ONLY_NOTE, describeTask, entryFor, goldenPaths, inconclusiveWhy, isInconclusiveNote, isModelRequest, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, readGolden, type Task, type TaskCheck } from '../src/tasks.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from './training-fixtures.js';
 
 /** Goldens as tasks: where a model takes over, why, what the task rewards, and whether it can be scored. */
@@ -136,6 +136,11 @@ describe('tasks', () => {
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: OUTCOME, testFailed: true }))).toEqual(['blocked', 'its test fails']);
     // A last test that failed nothing but could not decide a check is inconclusive, and says so: never a test that fails.
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: OUTCOME, testFailed: false, testInconclusive: true }))).toEqual(['blocked', 'its last test is inconclusive: a check could not be decided']);
+    // Each way a last test comes out inconclusive says which: a gate that ran out of attempts is no test that fails either.
+    expect(status(describeTask({ path: 'g', golden, fields: {}, checks: OUTCOME, testFailed: false, testInconclusive: true, inconclusiveWhy: 'gate' }))).toEqual(['blocked', 'its last test is inconclusive: its gate ran out of attempts']);
+    expect(status(describeTask({ path: 'g', golden, fields: {}, checks: OUTCOME, testFailed: false, testInconclusive: true, inconclusiveWhy: 'injection' }))).toEqual(['blocked', 'its last test is inconclusive: its injection test showed too little to say']);
+    for (const why of ['gate', 'check', 'injection'] as const) expect(isInconclusiveNote(describeTask({ path: 'g', golden, fields: {}, checks: OUTCOME, testFailed: false, testInconclusive: true, inconclusiveWhy: why }).note)).toBe(true);
+    expect(isInconclusiveNote('its test fails')).toBe(false);
     // A test that may fork passed, but forked before the takeover: an attempt would leave the recording before the model answers.
     // Its note names the remedy, and the task the call and the test run that forked, which its row opens.
     const forked = describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 3, forkedRun: 'R' });
@@ -148,14 +153,26 @@ describe('tasks', () => {
     expect(status(describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 5 }))).toEqual(['ready', null]);
     expect(status(describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 7 }))).toEqual(['ready', null]);
     expect(describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 7, forkedRun: 'R' }).fork).toBeUndefined();
-    expect(status(describeTask({ path: 'g', golden, fields: {}, checks: CAPS, testFailed: false }))).toEqual(['not-a-task', 'its checks only cap tokens and cost']);
+    expect(status(describeTask({ path: 'g', golden, fields: {}, checks: CAPS, testFailed: false }))).toEqual(['not-a-task', CAPS_ONLY_NOTE]);
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: [], testFailed: false }))).toEqual(['not-a-task', 'it has no checks']);
+    // Nothing would score what a model did there, so none takes over: no call, and nothing after it.
+    for (const checks of [CAPS, []]) expect(describeTask({ path: 'g', golden, fields: {}, checks, testFailed: false })).toMatchObject({ takeover: null, after: { live: [], stubbed: [] }, prefix: 0, model: null, callName: null, tokensAfter: null });
     expect(status(describeTask({ path: 'gone', golden: null, fields: {}, checks: OUTCOME, testFailed: null }))).toEqual(['no-golden', 'the golden is gone']);
     // Packed straight from a capture: shadowlap test can't start its agent, so neither can a score.
     const captured = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE], { argv: [NO_COMMAND] }).run;
     packRun(store, captured.runId, join(root, 'captured'));
     expect(status(describeTask({ path: 'captured', golden: readGolden(join(root, 'captured'), 'captured'), fields: {}, checks: OUTCOME, testFailed: null }))).toEqual(['blocked', NO_COMMAND_NOTE]);
     store.close();
+  });
+
+  it('say why a last test was inconclusive, from what its result kept', () => {
+    // Its gate ran out of attempts between its bounds.
+    expect(inconclusiveWhy({ failure: 'inconclusive', data: { verdict: 'inconclusive', gate: { decision: 'inconclusive' } as never } })).toBe('gate');
+    // Its replay passed its gate, and its injection test showed too little to say.
+    expect(inconclusiveWhy({ failure: 'injection', data: { verdict: 'inconclusive', gate: { decision: 'pass' } as never } })).toBe('injection');
+    // A check could not be decided, which stopped its gate before it decided.
+    expect(inconclusiveWhy({ failure: 'inconclusive', data: { verdict: 'inconclusive' } })).toBe('check');
+    expect(inconclusiveWhy({ failure: 'inconclusive', data: null })).toBe('check');
   });
 
   it('play the agent\'s scope when a simulated user answers in another, and are not scored yet', () => {
