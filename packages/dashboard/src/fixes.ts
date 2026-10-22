@@ -1,5 +1,6 @@
 import {
   applyLeft,
+  BLAME_DEFAULTS,
   canonicalize,
   commitTitle,
   describeBlocks,
@@ -15,6 +16,8 @@ import {
   fixRecords,
   footprintDelta,
   formatUsd,
+  GATE_MAX_ATTEMPTS,
+  gateOdds,
   gitApplyCommand,
   GOOD_LABEL,
   hasRecordedCommand,
@@ -32,6 +35,7 @@ import {
   repairToApply,
   rescueRule,
   resolveFix,
+  SPRT_DEFAULTS,
   testsEntryFor,
   unrescuedWhy,
   verdictCounts,
@@ -336,6 +340,32 @@ export interface VerifyStep {
   command: string;
   repairId: string | null;
   candidate: number | null;
+  /** What settles an incomplete verdict that counts for the fix (`verifyMore`); null for any other. */
+  more: VerifyMore | null;
+}
+
+/**
+ * What settles an incomplete verdict that counts for the fix, when it is a change `shadowlap verify`
+ * checks by itself (not a repair's candidate, which only its repair can put in the working tree).
+ * `more`: Run more attempts, its runs verified again from the start (verify has no `--continue`),
+ * named by id in their roles, with twice the limit when a gate ran out of attempts, and without the
+ * `--budget` that stopped it (`budget`); `again`: Verify again, the same command once the check
+ * that couldn't be judged can be. `run` is the run it names first, and why it is open: its gate
+ * ran out of attempts (`inconclusive`), the verify stopped first (`stopped`, with why), or an
+ * attempt could not be judged (`unjudged`, with which attempt and why). `expected` is the attempts
+ * it runs on average, each run at the rate it passed at so far, and `cost` what that would cost at
+ * the verdict's own spend per attempt (null when it spent nothing it kept).
+ */
+export interface VerifyMore {
+  kind: 'more' | 'again';
+  run: { runId: string; state: 'inconclusive' | 'stopped' | 'unjudged'; why: string | null; attempt: number | null };
+  max: number;
+  expected: number;
+  cost: number | null;
+  /** The budget the verdict ran with, which Run more attempts leaves out; null when it had none. */
+  budget: string | null;
+  argv: string[];
+  command: string;
 }
 
 export interface FixActions {
@@ -364,6 +394,20 @@ export interface FixActions {
    */
   apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; change: string | null } | null;
   applied: boolean;
+  /**
+   * An open fix whose blame couldn't settle where its run was lost (`unsettled`: its first probe
+   * passed between the gate's two rates) or stopped part way (`stopped`): Blame again, the same
+   * blame under the fix's check, without the budget that stopped it, and for one not settled with
+   * more attempts and a lower bar, as blame's report says (`gate`). Null otherwise.
+   */
+  blameAgain: { kind: 'unsettled' | 'stopped'; argv: string[]; command: string; gate: SprtGate | null } | null;
+  /**
+   * An open fix whose blame rescued its run from no call, asking the recorded model again, and
+   * found nothing that says the model's answer isn't what lost it: Blame with a stronger model, the
+   * same blame with `--model <model>` after `argv`, the model asked for. `attempts` and `spent` are
+   * what the last blame took. Null otherwise.
+   */
+  blameStronger: { argv: string[]; command: string; attempts: number; spent: number } | null;
 }
 
 export interface FixDetail extends FixRow {
@@ -1002,6 +1046,141 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
     command: v.command,
     repairId: v.repairId,
     candidate: v.candidate,
+    more: standing.counts ? verifyMore(v) : null,
+  };
+}
+
+/**
+ * Blame again, or Blame with a stronger model, for an open fix whose shown blame placed its failure
+ * on no call (`FixActions`): built from the command that blame ran, under the fix's check now, with
+ * the run named in full and without its budget. Neither for a fix whose run is gone, or one whose
+ * command came from a capture, which has none to run again.
+ */
+function blameNext(store: Store, rec: FixRecords, b: StoredBlame | null): Pick<FixActions, 'blameAgain' | 'blameStronger'> {
+  const none = { blameAgain: null, blameStronger: null };
+  if (rec.fix.status !== 'open' || !b || b.outcome === 'blamed') return none;
+  const run = store.getRun(b.runId);
+  if (!run || !hasRecordedCommand(run)) return none;
+  const unsettled = unsettledFirst(b.report);
+  const stopped = b.outcome === 'stopped';
+  const parsed = commandWithout(b.command, 'blame', new Set([...SET_AGAIN, '--expect', ...(stopped || unsettled ? [] : ['--model'])]));
+  if (!parsed) return none;
+  // The run, named in full, in place of the short id the command was written with.
+  const rest = parsed.args[0] && !parsed.args[0].startsWith('-') ? parsed.args.slice(1) : parsed.args;
+  const expect = rec.fix.check.expect;
+  const head = ['blame', b.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : []), ...rest];
+  const g = sprtGate(b.report.gate);
+  const count = ['--attempts', String(b.report.attemptsPerProbe), '--passes', String(b.report.needed)];
+  if (stopped || unsettled) {
+    // Not settled: more attempts and a lower bar, as blame's report words it; stopped: the same gate, to the end.
+    const lower = g ? Math.max(0.05, +(g.good - 0.2).toFixed(2)) : null;
+    const gate: SprtGate | null = g && unsettled ? { ...g, good: lower !== null && lower > g.bad ? lower : g.good, max: Math.min(GATE_MAX_ATTEMPTS, g.max * 2) } : g;
+    const argv = [...head, ...(gate ? gateArg(gate, BLAME_DEFAULTS) : count), ...parsed.tail];
+    return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv, command: commandLine(argv), gate: unsettled ? gate : null }, blameStronger: null };
+  }
+  // A stronger model can't help when blame found the model's answer isn't what lost the run, nor one asked already.
+  if (noAnswerLost(b) || b.report.rescue.fields.model !== undefined) return none;
+  const argv = [...head, ...(g ? gateArg(g, BLAME_DEFAULTS) : count), ...parsed.tail];
+  return { blameAgain: null, blameStronger: { argv, command: `${commandLine(argv)} --model <model>`, attempts: b.report.attempts, spent: b.report.spent } };
+}
+
+/** The flags that select a verify's runs, each followed by the runs it names. */
+const RUN_FLAGS = new Set(['--fixes', '--holdout', '--keeps']);
+/** Flags a command takes a value after, which Run more attempts and Blame again set themselves. */
+const SET_AGAIN = new Set(['--gate', '--attempts', '--passes', '--budget']);
+const VERIFY_ROLE_FLAG: Readonly<Record<VerifiedRun['role'], string>> = { target: '--fixes', holdout: '--holdout', good: '--keeps' };
+
+/**
+ * A stored command's arguments after `shadowlap`, without the flags `drop` names and the values they
+ * take (a run-selecting flag takes every run after it), the rest as the CLI wrote them, the agent's
+ * command after `--` last. Null when it isn't `shadowlap <command>`, or can't be split.
+ */
+function commandWithout(command: string, sub: string, drop: ReadonlySet<string>): { args: string[]; budget: string | null; tail: string[] } | null {
+  let words: string[];
+  try {
+    words = splitCommandLine(command);
+  } catch {
+    return null;
+  }
+  if (words[0] !== 'shadowlap' || words[1] !== sub) return null;
+  const args: string[] = [];
+  let budget: string | null = null;
+  let i = 2;
+  for (; i < words.length; i++) {
+    const w = words[i]!;
+    if (w === '--') break;
+    if (RUN_FLAGS.has(w) && drop.has(w)) {
+      while (i + 1 < words.length && !words[i + 1]!.startsWith('-')) i++;
+      continue;
+    }
+    if (drop.has(w)) {
+      if (w === '--budget') budget = words[i + 1] ?? null;
+      i++;
+      continue;
+    }
+    args.push(w);
+  }
+  return { args, budget, tail: words.slice(i) };
+}
+
+/** `--gate` with the figures that differ from `defaults`, as the CLI writes it; nothing when none do. */
+function gateArg(gate: SprtGate, defaults: Omit<SprtGate, 'kind'>): string[] {
+  const differs = (['good', 'bad', 'risk', 'max'] as const).filter((k) => gate[k] !== defaults[k]);
+  return differs.length ? ['--gate', JSON.stringify(Object.fromEntries(differs.map((k) => [k, gate[k]])))] : [];
+}
+
+/**
+ * Run more attempts, or Verify again, for an incomplete verdict (`VerifyMore`), from the command it
+ * ran: its runs named in their roles, its change and check as they were, and the gate's limit
+ * doubled when a run's gate ran out of attempts. Null for a verdict that isn't incomplete, a
+ * repair's candidate, a fixed count with nothing stopped, or a command that can't be read again.
+ */
+function verifyMore(v: StoredVerdict): VerifyMore | null {
+  const r = v.report;
+  if (v.verdict !== 'incomplete' || v.candidate !== null || v.repairId !== null) return null;
+  const open = r.runs.filter((x) => x.verdict === 'open');
+  if (!open.length) return null;
+  const gate = sprtGate(r.gate);
+  const ranOut = open.filter((x) => x.decision === 'inconclusive' && !x.undecided);
+  const stopped = open.filter((x) => x.decision !== 'inconclusive' && !x.undecided);
+  const unjudged = open.filter((x) => !!x.undecided);
+  const kind: VerifyMore['kind'] = ranOut.length || stopped.length ? 'more' : 'again';
+  // A fixed count that ran out decides nothing more with more of the same.
+  if (kind === 'more' && !gate && !stopped.length) return null;
+  const parsed = commandWithout(v.command, 'verify', kind === 'more' ? new Set([...RUN_FLAGS, ...SET_AGAIN]) : new Set());
+  if (!parsed) return null;
+  const max = gate ? (ranOut.length ? Math.min(GATE_MAX_ATTEMPTS, gate.max * 2) : gate.max) : r.attemptsPerRun;
+  if (kind === 'more' && gate && ranOut.length && max <= gate.max) return null;
+  const raised: SprtGate | null = gate ? { ...gate, max } : null;
+  const roles = (['target', 'holdout', 'good'] as const).flatMap((role) => {
+    const ids = r.runs.filter((x) => x.role === role).map((x) => x.runId);
+    return ids.length ? [VERIFY_ROLE_FLAG[role], ...ids] : [];
+  });
+  const argv =
+    kind === 'again'
+      ? ['verify', ...parsed.args, ...parsed.tail]
+      : ['verify', ...roles, ...parsed.args, ...(raised ? gateArg(raised, SPRT_DEFAULTS) : ['--attempts', String(r.attemptsPerRun), '--passes', String(r.needed)]), ...parsed.tail];
+  // What it would take, each run from the start at the rate it passed at so far: a clean replay settles in one.
+  let expected = 0;
+  for (const x of r.runs) {
+    if (x.deterministic) expected += 1;
+    else if (raised) expected += gateOdds(raised, x.attempts.length ? x.passes / x.attempts.length : 0.5).attempts;
+    else expected += r.attemptsPerRun;
+  }
+  expected = Math.round(expected);
+  const spent = r.spent + (r.judge?.spent ?? 0);
+  const perAttempt = spent > 0 && r.attempts > 0 ? spent / r.attempts : null;
+  const first = ranOut[0] ?? stopped[0] ?? unjudged[0]!;
+  const state = first.undecided ? 'unjudged' : first.decision === 'inconclusive' ? 'inconclusive' : 'stopped';
+  return {
+    kind,
+    run: { runId: first.runId, state, why: state === 'unjudged' ? (first.undecided ?? null) : state === 'stopped' ? r.stopReason : null, attempt: state === 'unjudged' ? first.attempts.length : null },
+    max,
+    expected,
+    cost: perAttempt === null ? null : perAttempt * expected,
+    budget: kind === 'more' ? parsed.budget : null,
+    argv,
+    command: commandLine(argv),
   };
 }
 
@@ -1226,6 +1405,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
               change: toApply ? null : fieldChange(rec),
             },
       applied: fix.status === 'applied',
+      ...blameNext(store, rec, b),
     },
     blame: b ? blameStep(store, b) : null,
     blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, confidence: x.report.confidence })),

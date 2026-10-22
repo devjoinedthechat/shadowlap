@@ -197,7 +197,7 @@ describe('a fix', () => {
     expect(d.steps[2]).toMatchObject({ title: '2 fixed · 1 kept', meta: '1 earlier change rejected' });
     const diff = store.getRepair('repair-munzln2i')!.report.patch;
     expect(diff).toContain('diff --git a/agent.mjs b/agent.mjs');
-    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1, change: null }, applied: false });
+    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git -c core.autocrlf=false apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false, files: ['agent.mjs'], diff, patchFile: '.shadowlap/repairs/repair-munzln2i/fix.patch', refused: null, inTree: false, goldens: 1, change: null }, applied: false, blameAgain: null, blameStronger: null });
     expect(d.commands.blame).toBe(`shadowlap blame ${failing.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}'`);
     // The good run its verdicts kept: label:good would also take any run labelled good since.
     expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps ${good.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
@@ -534,7 +534,7 @@ describe('a fix', () => {
     const { fix } = blame(run, { expect: null });
     const d = fixDetail(store, fix.fixId)!;
     expect(d).toMatchObject({ defaultStep: 'blame', repair: null, verify: [], defaultVerify: null, applied: null });
-    expect(d.actions).toEqual({ repair: { argv: ['repair', '--fixes', run], command: `shadowlap repair --fixes ${run} --repairer claude-code`, noFix: null }, apply: null, applied: false });
+    expect(d.actions).toEqual({ repair: { argv: ['repair', '--fixes', run], command: `shadowlap repair --fixes ${run} --repairer claude-code`, noFix: null }, apply: null, applied: false, blameAgain: null, blameStronger: null });
     expect(d.commands.verify).toBe(`shadowlap verify --fixes ${run.slice(0, 10)}`);
   });
 
@@ -624,6 +624,8 @@ describe('a fix', () => {
       repair: null,
       apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: null, pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them', pulled: false, files: ['agent.mjs'], diff: store.getRepair('repair-applied')!.report.patch, patchFile: '.shadowlap/repairs/repair-applied/fix.patch', refused: null, inTree: false, goldens: 1, change: null },
       applied: true,
+      blameAgain: null,
+      blameStronger: null,
     });
     // fix apply copied them and the test failed: the fix doesn't hold, and Needs a look says so first.
     markFixApplied(store, fix.fixId, { patch: 'applied', repairId: 'repair-applied', goldens: [`goldens/${run.slice(0, 10)}`], tests: 'failed', via: 'fix apply' });
@@ -675,6 +677,84 @@ describe('a fix', () => {
     // Accepted again since, it holds again.
     recordVerdict(store, { report: verifyReport([{ runId: failing, role: 'target', pass: true }]), expect: EXPECT, command: 'v', at: NOW - 5 });
     expect(fixDetail(store, fixId)!.broken).toBeNull();
+  });
+});
+
+describe('what settles a fix left unsettled', () => {
+  const GATE: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
+  /** An open fix with a verify of a request field left incomplete: its target passed every attempt it made, then something stopped it. */
+  function incomplete(o: { decision?: 'continue' | 'inconclusive'; passes?: boolean[]; stopReason?: string | null; command?: string; undecided?: string } = {}) {
+    const failing = makeRun(store, { labels: ['double-email'] });
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    const { fix } = blame(failing, { expect: { tools: { send_email: 1 } } });
+    const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true, deterministic: true }]);
+    const outcomes = o.passes ?? [true, true, true, true];
+    const target = report.runs[0]!;
+    report.runs[0] = { ...target, attempts: outcomes.map((passed, i) => ({ ...target.attempts[0]!, runId: `${target.attempts[0]!.runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })), passes: outcomes.filter(Boolean).length, verdict: 'open', decision: o.decision ?? 'continue', gate: gateResult(GATE, outcomes, o.decision ? { decision: o.decision } : {}), ...(o.undecided ? { undecided: o.undecided } : {}) };
+    report.gate = GATE;
+    report.attemptsPerRun = GATE.max;
+    report.fields = { temperature: 1 };
+    const stopReason = o.stopReason === undefined ? 'the budget of $0.01 is spent' : o.stopReason;
+    Object.assign(report, decideVerify(report.runs, stopReason), { stopReason, attempts: outcomes.length + 1, spent: outcomes.length * 0.004 });
+    const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: o.command ?? `shadowlap verify --fixes label:double-email --keeps label:good --expect '{"tools":{"send_email":1}}' --set temperature=1 --budget 0.012`, at: NOW });
+    return { failing, good, fixId: fix.fixId, verifyId: verdict.verifyId };
+  }
+
+  it('runs a verify stopped by its budget again from the start, its runs named in their roles, without the budget, and says what that takes', () => {
+    const { failing, good, fixId } = incomplete();
+    const v = fixDetail(store, fixId)!.verify[0]!;
+    expect([v.verdict, v.counts]).toEqual(['incomplete', true]);
+    expect(v.more).toMatchObject({ kind: 'more', run: { runId: failing, state: 'stopped', why: 'the budget of $0.01 is spent', attempt: null }, max: 80, budget: '0.012' });
+    expect(v.more!.argv).toEqual(['verify', '--fixes', failing, '--keeps', good, '--expect', '{"tools":{"send_email":1}}', '--set', 'temperature=1']);
+    expect(v.more!.command).toBe(`shadowlap verify --fixes ${failing} --keeps ${good} --expect '{"tools":{"send_email":1}}' --set temperature=1`);
+    // A target that passed every attempt settles in about the 12 the gate needs; the good run, a clean replay, in one.
+    expect(v.more!.expected).toBe(13);
+    expect(v.more!.cost).toBeCloseTo((0.016 / 5) * 13, 6);
+  });
+
+  it('doubles the limit for a run whose gate ran out of attempts between its bounds', () => {
+    const outcomes = Array.from({ length: 80 }, (_, i) => i % 5 !== 0);
+    const { failing, fixId } = incomplete({ decision: 'inconclusive', passes: outcomes, stopReason: null });
+    const v = fixDetail(store, fixId)!.verify[0]!;
+    expect(v.more).toMatchObject({ kind: 'more', run: { runId: failing, state: 'inconclusive', why: null }, max: 160, budget: '0.012' });
+    expect(v.more!.argv.slice(-2)).toEqual(['--gate', '{"max":160}']);
+    expect(v.more!.expected).toBeGreaterThan(13);
+  });
+
+  it('verifies again, as it ran, a verdict an attempt that could not be judged stopped', () => {
+    const why = 'judge "sent-once" could not answer: no key for anthropic';
+    const { failing, fixId } = incomplete({ stopReason: null, undecided: why });
+    const v = fixDetail(store, fixId)!.verify[0]!;
+    expect(v.more).toMatchObject({ kind: 'again', run: { runId: failing, state: 'unjudged', why, attempt: 4 }, budget: null });
+    expect(v.more!.argv).toEqual(['verify', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--set', 'temperature=1', '--budget', '0.012']);
+  });
+
+  it('settles nothing from here for a verdict that was accepted, doesn’t count, or verified a repair’s candidate', () => {
+    const { fixId } = story();
+    expect(fixDetail(store, fixId)!.verify.map((v) => v.more)).toEqual([null, null]);
+  });
+
+  it('blames again, under the fix’s check, a blame that couldn’t settle or stopped part way; a stronger model for one nothing rescued', () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const report = blameReport(run, 'unrescuable');
+    report.gate = { ...BLAME_DEFAULTS, kind: 'sprt' };
+    report.probes = [{ ...report.probes[0]!, decision: 'inconclusive' }];
+    const { fix } = recordBlame(store, { runId: run, report, expect: EXPECT, scope: 'agent', command: `shadowlap blame ${run.slice(0, 10)} --expect '{"old":1}' --scope agent --budget 0.05`, title: 'email twice', checkText: 'send_email called once', at: NOW - DAY });
+    expect(unsettledFirst(report)).toBe(true);
+    const again = fixDetail(store, fix.fixId)!.actions.blameAgain!;
+    expect(again).toMatchObject({ kind: 'unsettled', gate: { good: 0.4, max: 40 } });
+    expect(again.argv).toEqual(['blame', run, '--expect', JSON.stringify(EXPECT), '--scope', 'agent', '--gate', '{"good":0.4,"max":40}']);
+    expect(fixDetail(store, fix.fixId)!.actions.blameStronger).toBeNull();
+    // Nothing rescued it, and nothing says the model's answer isn't what lost it: a stronger model may.
+    const plain = makeRun(store, { labels: ['digest'] });
+    const { fix: other } = recordBlame(store, { runId: plain, report: blameReport(plain, 'unrescuable'), expect: EXPECT, scope: null, command: `shadowlap blame ${plain.slice(0, 10)} --expect '{"x":1}'`, title: 'digest', checkText: 'exits 0', at: NOW - DAY });
+    const d = fixDetail(store, other.fixId)!;
+    expect(d.actions.blameAgain).toBeNull();
+    expect(d.actions.blameStronger).toMatchObject({ argv: ['blame', plain, '--expect', JSON.stringify(EXPECT), '--attempts', '5', '--passes', '2'], attempts: 4 });
+    expect(d.actions.blameStronger!.command).toMatch(/ --model <model>$/);
+    // Blame that found the call leaves neither.
+    const { fixId } = story();
+    expect(fixDetail(store, fixId)!.actions).toMatchObject({ blameAgain: null, blameStronger: null });
   });
 });
 

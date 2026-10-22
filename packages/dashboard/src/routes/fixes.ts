@@ -13,9 +13,10 @@ import type { Router } from '../router.js';
 /**
  * Fixes: the list (`GET /api/fixes`), a fix with its three steps (`GET /api/fixes/:id`), its title
  * (`PUT /api/fixes/:id/title`), and the attempts blame and verify made in a run's family, bundled
- * for the Forks view (`GET /api/fixes/family/:runId`). Three job kinds act on them: `blame` (a
- * failed run, with the check it failed), `repair` (an open fix, from its failing and good runs) and
- * `apply` (a verified fix's patch, into the working tree). Each builder checks what it is asked and
+ * for the Forks view (`GET /api/fixes/family/:runId`). Four job kinds act on them: `blame` (a
+ * failed run, with the check it failed; or an open fix's blame again, or with a stronger model),
+ * `repair` (an open fix, from its failing and good runs), `verify` (more attempts for a verdict left
+ * incomplete) and `apply` (a verified fix's patch, into the working tree). Each builder checks what it is asked and
  * builds the command line; the CLI records what it did, so the pages read it back from the store.
  * A blame needs the check the run failed: the one the request names, else the one it was judged by
  * (its own --expect, or the config's tests for the recording it replays, through its ancestors),
@@ -121,7 +122,52 @@ function selectedRuns(store: Store, argv: readonly string[]): RunRecord[] {
   return [...out.values()];
 }
 
+/** A model as `--model` takes it: a name, never a flag. */
+const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,119}$/;
+
+/**
+ * Blame again, or Blame with a stronger model, for an open fix whose blame placed its failure on no
+ * call: the command the fix's page offers (`actions.blameAgain`, `actions.blameStronger` with the
+ * model asked for), built by the server from that blame, never from the browser's arguments.
+ */
+function fixBlameJob(req: JobRequest, store: Store): JobBuildResult {
+  const fix = findFix(store, req.fixId);
+  const d = fixDetail(store, fix.fixId)!;
+  const id = short(fix.fixId);
+  let args: string[];
+  if (req.again === true) {
+    if (!d.actions.blameAgain) return { error: `${id}'s blame settled where its run was lost, or the fix isn't open: there is nothing to blame again`, status: 409 };
+    args = d.actions.blameAgain.argv;
+  } else {
+    if (typeof req.model !== 'string' || !MODEL.test(req.model.trim())) return { error: 'name the model to blame with, such as claude-opus-5-5' };
+    if (!d.actions.blameStronger) return { error: `${id}'s blame can't be made again with another model: it found where the run was lost, found the model's answer isn't what lost it, or asked another model already`, status: 409 };
+    args = [...d.actions.blameStronger.argv, '--model', req.model.trim()];
+  }
+  const run = lookupRun(store, args[1]!);
+  if (!run) return { error: `the run ${id} blamed is gone from the store`, status: 409 };
+  const consent = importedCommand([run], req.yes);
+  if (consent) return consent;
+  return { args: [...args, ...(req.yes === true ? ['--yes'] : [])], runId: run.runId, title: req.again === true ? 'Blaming again' : `Blaming with ${req.model}` };
+}
+
+/**
+ * Run more attempts, or Verify again, for an incomplete verdict of a fix (`VerifyStep.more`): the
+ * command the fix's page offers, built by the server from that verdict.
+ */
+function verifyJob(req: JobRequest, store: Store): JobBuildResult {
+  const fix = findFix(store, req.fixId);
+  const d = fixDetail(store, fix.fixId)!;
+  if (typeof req.verifyId !== 'string' || !req.verifyId) return { error: 'verifyId is required' };
+  const v = d.verify.find((x) => x.verifyId === req.verifyId);
+  if (!v) return { error: `no verdict ${req.verifyId.slice(0, 40)} on ${short(fix.fixId)}`, status: 404 };
+  if (!v.more) return { error: `${short(fix.fixId)}'s verdict ${v.verifyId.slice(0, 13)} is ${v.verdict}, or doesn't count for it: there is nothing to settle`, status: 409 };
+  const consent = importedCommand(v.rows.map((x) => store.getRun(x.runId)).filter((r): r is RunRecord => r !== null), req.yes);
+  if (consent) return consent;
+  return { args: [...v.more.argv, ...(req.yes === true ? ['--yes'] : [])], title: v.more.kind === 'more' ? 'Running more attempts' : 'Verifying again' };
+}
+
 function blameJob(req: JobRequest, store: Store, configDir: string | null): JobBuildResult {
+  if (req.fixId !== undefined && (req.again === true || req.model !== undefined)) return fixBlameJob(req, store);
   if (typeof req.runId !== 'string' || !req.runId) return { error: 'runId is required' };
   const run = lookupRun(store, req.runId);
   if (!run) return { error: `no run ${req.runId.slice(0, 40)}`, status: 404 };
@@ -232,4 +278,5 @@ export function register(router: Router, ctx: RouteContext): void {
   jobs.registerJobKind('blame', { title: () => 'Blaming', build: (req, b) => blameJob(req, b.store, b.project?.path ?? null) });
   jobs.registerJobKind('repair', { title: () => 'Repairing', build: (req, b) => repairJob(req, b.store, configuredRepairer(ctx)) });
   jobs.registerJobKind('apply', { title: () => 'Applying the patch', build: (req, b) => applyJob(req, b.store) });
+  jobs.registerJobKind('verify', { title: () => 'Verifying', build: (req, b) => verifyJob(req, b.store) });
 }

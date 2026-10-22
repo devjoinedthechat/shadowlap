@@ -9,7 +9,7 @@ import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '..
 const verify = (verifyId: string, verdict: VerifyStep['verdict'] = 'accepted'): VerifyStep =>
   ({ verifyId, verdict, href: `#/fixes/fx-1/verify/${verifyId}`, label: `x · ${verdict}` }) as VerifyStep;
 
-const actions = (o: Partial<FixDetail['actions']>): FixDetail['actions'] => ({ repair: null, apply: null, applied: false, ...o });
+const actions = (o: Partial<FixDetail['actions']>): FixDetail['actions'] => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, ...o });
 
 describe('the list', () => {
   it('keeps applied fixes under Verified, as the counts do', () => {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { gateResult, markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport, type RepairReport, type VerifyReport } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, decideVerify, gateResult, markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport, type RepairReport, type SprtGate, type VerifyReport } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { blameCheckFor, fixBundles } from '../src/fixes.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView, type ProjectConfig } from '../src/index.js';
@@ -703,6 +703,46 @@ describe('the apply job', () => {
   it('is listed with blame and repair among the kinds the dashboard runs', async () => {
     await start();
     const meta = await json(await api('meta'));
-    expect(meta.jobKinds).toEqual(expect.arrayContaining(['blame', 'repair', 'apply']));
+    expect(meta.jobKinds).toEqual(expect.arrayContaining(['blame', 'repair', 'apply', 'verify']));
+  });
+});
+
+describe('what settles an unsettled fix', () => {
+  it('runs more attempts for a verdict a budget stopped, as the page offers them, and refuses one with nothing to settle', async () => {
+    const { fixId, verifyId: settled } = (() => {
+      const { fixId: id } = story();
+      return { fixId: id, verifyId: store.listVerdicts().at(-1)!.verifyId };
+    })();
+    const failing = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(failing, { expect: { tools: { send_email: 1 } } });
+    const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
+    const report = verifyReport([{ runId: failing, role: 'target', pass: true }]);
+    report.runs[0] = { ...report.runs[0]!, verdict: 'open', decision: 'continue', gate: gateResult(gate, [true, true, true, true]) };
+    Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { gate, stopReason: 'the budget of $0.01 is spent', attemptsPerRun: 80 });
+    const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: `shadowlap verify --fixes label:double-email --expect '{"tools":{"send_email":1}}' --set temperature=1 --budget 0.012` });
+    await start();
+    await started({ kind: 'verify', fixId: fix.fixId, verifyId: verdict.verifyId });
+    expect(spawned.at(-1)).toEqual(['verify', '--fixes', failing, '--expect', '{"tools":{"send_email":1}}', '--set', 'temperature=1']);
+    expect((await job({ kind: 'verify', fixId, verifyId: settled })).status).toBe(409);
+    expect((await job({ kind: 'verify', fixId: fix.fixId, verifyId: 'vf-nope' })).status).toBe(404);
+    expect((await job({ kind: 'verify', fixId: fix.fixId })).status).toBe(400);
+  });
+
+  it('blames again a blame that couldn’t settle, and with the model asked for one nothing rescued, never with a flag for a model', async () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const report = blameReport(run, 'unrescuable');
+    report.gate = { ...BLAME_DEFAULTS, kind: 'sprt' };
+    report.probes = [{ ...report.probes[0]!, decision: 'inconclusive' }];
+    const { fix } = recordBlame(store, { runId: run, report, expect: EXPECT, scope: null, command: `shadowlap blame ${run.slice(0, 10)}`, title: 'email twice', checkText: 'send_email called once' });
+    const plain = makeRun(store, { labels: ['digest'] });
+    const { fix: other } = recordBlame(store, { runId: plain, report: blameReport(plain, 'unrescuable'), expect: EXPECT, scope: null, command: `shadowlap blame ${plain.slice(0, 10)}`, title: 'digest', checkText: 'exits 0' });
+    await start();
+    await started({ kind: 'blame', fixId: fix.fixId, again: true });
+    expect(spawned.at(-1)).toEqual(['blame', run, '--expect', JSON.stringify(EXPECT), '--gate', '{"good":0.4,"max":40}']);
+    await started({ kind: 'blame', fixId: other.fixId, model: 'claude-opus-5-5' });
+    expect(spawned.at(-1)).toEqual(['blame', plain, '--expect', JSON.stringify(EXPECT), '--attempts', '5', '--passes', '2', '--model', 'claude-opus-5-5']);
+    expect((await job({ kind: 'blame', fixId: other.fixId, model: '--writes=allow' })).status).toBe(400);
+    expect((await job({ kind: 'blame', fixId: other.fixId, again: true })).status).toBe(409);
+    expect((await job({ kind: 'blame', fixId: fix.fixId, model: 'claude-opus-5-5' })).status).toBe(409);
   });
 });
