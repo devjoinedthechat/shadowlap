@@ -207,7 +207,8 @@ export interface GoldenCheck {
   live: { cost: number; asked: number } | null;
   /**
    * A golden run more than once in its last result: of the attempts that judged this check, how many
-   * passed it. Null for one attempt, or when an attempt's run is no longer in the store.
+   * passed it. Null for one attempt, when an attempt's run is no longer in the store, or when the
+   * result carried attempts over from an earlier session (`test --continue`), whose runs pruning thins.
    */
   attempts: { passed: number; of: number } | null;
 }
@@ -780,11 +781,13 @@ const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun
 /**
  * For a result of more than one attempt: of the attempts that judged each check (it passed, failed or
  * couldn't be decided there), how many passed it, by label. Each attempt's run keeps its checks. Null
- * for a single attempt, or when a run is gone: a tally missing an attempt would claim too much.
+ * for a single attempt, when a run is gone, or for a result that carried attempts over from an earlier
+ * session (`test --continue`): its `attempts` are this session's alone, and pruning keeps only some of
+ * the carried ones' runs. A tally missing an attempt would claim too much.
  */
 function checkTallies(store: Store, r: TestResult): Map<string, { passed: number; of: number }> | null {
   const runs = r.data?.attempts?.runs ?? [];
-  if (runs.length < 2) return null;
+  if (runs.length < 2 || r.data?.continued) return null;
   const out = new Map<string, { passed: number; of: number }>();
   for (const id of runs) {
     const run = store.getRun(id);

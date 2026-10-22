@@ -1184,6 +1184,25 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
     s.close();
   });
 
+  it('counts no attempts for a result that carried some over from an earlier session, its carried runs partly pruned', () => {
+    const s = Store.open(':memory:');
+    const list = [golden('goldens/gated', 'fork', ['issue_refund called 0 times'])];
+    const check = (ok: boolean) => (ok ? passed('issue_refund called 0 times') : failed('issue_refund called 0 times', 'called 1 time (1 blocked or stubbed)'));
+    // The first session's twelve attempts, of which pruning kept only the failing four and one more.
+    const carried = Array.from({ length: 12 }, (_, i) => `C${i + 1}`);
+    carried.forEach((runId, i) => s.createRun({ runId, mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { checks: [check(i % 3 !== 0)] } }));
+    session(s, 'd2e8a1f', T0, [{ golden: 'goldens/gated', ok: false, failure: 'inconclusive' as never, runId: 'C12', data: { mode: 'fork', verdict: 'inconclusive', checks: [check(true)], attempts: { total: 12, passed: 8, required: null, runs: carried } } }]);
+    for (const id of ['C2', 'C3', 'C5', 'C6', 'C8', 'C9', 'C11']) s.deleteRun(id);
+    // Run more attempts: three of this session's own, the twelve carried over counted by its gate alone.
+    const own = ['N1', 'N2', 'N3'];
+    own.forEach((runId, i) => s.createRun({ runId, mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { checks: [check(i !== 2)] } }));
+    const first = s.listTestResults({ golden: 'goldens/gated', limit: 1 })[0]!;
+    session(s, 'd2e8a1f', T0 + DAY, [{ golden: 'goldens/gated', ok: false, failure: 'check', runId: 'N3', data: { mode: 'fork', verdict: 'failed', checks: [check(false)], attempts: { total: 3, passed: 2, required: null, runs: own }, continued: { sessions: [first.sessionId], attempts: 12 } } }]);
+    // Its own runs alone would say 2 of 3 beside a result of 10 of 15: no tally, only what the check found.
+    expect(testsView(s, list).rows[0]!.checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: null }]);
+    s.close();
+  });
+
   it('says where a passed judge\'s verdict came from, and what asking it live cost when that is known', () => {
     const s = Store.open(':memory:');
     const judged = (name: string, source: 'recording' | 'live', cost: number | null) => ({ ok: true, status: 'passed' as const, label: `judge "${name}" answers yes`, detail: null, reason: 'It names the limit.', source, judge: { name, model: 'claude-haiku-4-5', of: 'answer' as const, verdict: 'yes' as const, source, cost, redactions: 0, cut: 0 } });
