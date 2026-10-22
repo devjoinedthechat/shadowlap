@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { aboutForms, aboutHtml, CUT, cutForms, fitLines, hintForms, orderForms, type FitLine } from '../ui/about.js';
+import { aboutForms, CUT, cutForms, fitLines, hintForms, orderForms, type FitLine } from '../ui/about.js';
 import { AboutLine, FitHint } from '../ui/components/About.js';
 
 /**
@@ -92,9 +92,9 @@ describe('fitting a line to its room', () => {
 });
 
 describe('the about line in the page', () => {
-  it('keeps orders and labels whole where it wraps, and the "…" with the word before it', () => {
-    expect(aboutHtml(`order A-1042${CUT} refund-flow`)).toBe(`order <span class="nw">A-1042${CUT}</span> <span class="nw">refund-flow</span>`);
-    expect(aboutHtml('<b>')).toBe('&lt;b&gt;');
+  it('keeps the "…" of a cut with the word before it, so no line starts with it', () => {
+    expect(CUT).toBe('\u00a0…');
+    for (const f of cutForms('A customer asks for a refund of order A-1131')) expect(f).not.toMatch(/ …/);
   });
 
   it('draws one quiet line with all of it on hover, for the fitter; nothing for a run without one', () => {

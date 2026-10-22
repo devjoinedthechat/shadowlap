@@ -2006,3 +2006,78 @@ code.rnm { white-space: nowrap; }
 .lineage li .lt code { flex: none; }
 .lineage li .lt .rab { flex: 0 1 auto; }
 .lineage li .lt:hover code { text-decoration: underline; text-underline-offset: 3px; }
+/* the sidebar: a run in two lines, its id and when, then its about line and what needs a look, each line one line */
+.run .r1 { align-items: baseline; }
+.run .r1 .id { flex: 0 1 auto; min-width: 0; }
+.run .r2 { display: flex; align-items: baseline; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.run .r2 .rab { flex: 0 1 auto; color: var(--faint); }
+.run .r2 .r2s { flex: none; }
+.run .r2 .dot { margin: 0 5px; }
+.run .r2 em.inc { color: var(--warn); }
+/* a line with no room even for its shortest form gives its place up, and its dot goes with it */
+.rab:empty + .r2s .dot, .rab:empty + .rso .dot { display: none; }
+/* Runs: one row a run at desktop widths, the id and then its about line in a column of its own, fitted, so ids line up,
+   with the run's labels as chips at the column's end; on a phone the about line goes under the id, with what needs a
+   look, since Status is off-screen there */
+table.runst .runcell { width: 1%; max-width: none; overflow: visible; }
+table.runst .rid { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+table.runst .rid > .glyph { flex: none; }
+table.runst .rid code { font: 500 12.5px var(--mono); color: var(--ink); }
+table.runst .rid .tag-local { margin-left: 2px; }
+table.runst .abcell { width: 100%; max-width: 1px; }
+table.runst .abw { display: flex; align-items: center; gap: 12px; min-width: 0; }
+table.runst .abw .rab { flex: 0 1 auto; }
+table.runst .abw .labs { flex: none; display: flex; gap: 6px; margin-left: auto; }
+table.runst .bycell { width: 1%; }
+table.runst .rline { display: none; padding-left: 22px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: clip; max-width: none; }
+table.runst .rline .rab { flex: 0 1 auto; color: var(--faint); }
+table.runst .rline .rso { display: none; flex: none; }
+table.runst .rline .dot { margin: 0 5px; }
+table.runst .rline em { font-style: normal; color: var(--err); }
+table.runst .rline em.inc { color: var(--warn); }
+/* what only adds to a row gives way, measured, while About would get less than 200px, or a row would have less than its
+   shortest about line beside its labels (fitRunsTable): the strip of calls by origin, then the labels, then By */
+table.runst.no-org .orgcol, table.runst.no-org .orgcell, table.runst.no-labs .labs, table.runst.no-by .bycol, table.runst.no-by .bycell { display: none; }
+/* with less than 200px for About even then, and always on a tablet or a phone, the about line goes under the id */
+table.runst.stacked .abcol, table.runst.stacked .abcell { display: none; }
+table.runst.stacked .runcell { width: 100%; max-width: 1px; min-width: 176px; overflow: hidden; }
+table.runst.stacked .rline { display: flex; align-items: baseline; }
+/* still wider than its panel (a narrow tablet), a status may wrap after its dot onto the row's second line */
+table.runst.tight td.stcell, table.runst.tight td.stcell .st { white-space: normal; }
+table.runst.tight td.stcell .st { align-items: baseline; }
+table.runst.tight td.stcell .st i { flex: none; transform: translateY(-1px); }
+/* on a phone Status is off-screen, so the line says what needs a look after the about line */
+@media (max-width: 640px) {
+  table.runst .abcol, table.runst .abcell { display: none; }
+  table.runst .runcell, table.runst.stacked .runcell { width: 100%; max-width: 1px; min-width: 270px; overflow: hidden; }
+  table.runst .rline { display: flex; align-items: baseline; }
+  table.runst .rline .rso { display: inline; }
+}
+/* on a tablet Status wraps rather than push the about line out */
+@media (max-width: 1000px) { table.runst td.stcell { white-space: normal; min-width: 104px; } }
+/* the palette: a run by its id, its about line as the hint, fitted to the rest of the row; any other hint cut at its end */
+.palit .pl { min-width: 0; max-width: 64%; overflow: hidden; text-overflow: ellipsis; }
+.palit .pl.mono { flex: none; }
+.palit .ph2.rab { flex: 1 1 auto; color: var(--faint); text-overflow: clip; }
+/* run pickers (Compare): the id, then its about line as the hint, fitted to the rest of the button, and a list of runs in
+   the same form */
+.rpick { display: inline-flex; align-items: baseline; gap: 10px; width: 320px; max-width: 100%; min-width: 0; height: 34px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 9px; background: var(--panel); color: var(--ink); font: 13px var(--body); line-height: 32px; text-align: left; cursor: pointer; }
+.rpick:hover { border-color: var(--faint); }
+.rpick:focus-visible { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 18%, transparent); }
+.rpick .pid, .pop.rpicks .pid { flex: none; font: 500 12.5px var(--mono); color: var(--ink); }
+.rpick .rab, .pop.rpicks .rab { flex: 1 1 auto; color: var(--faint); font-size: 12.5px; }
+.rpick .caret, .pickers .rpick .caret { position: static; flex: none; align-self: center; width: 10px; height: 10px; transform: none; color: var(--faint); }
+.pop.rpicks { overflow-y: auto; }
+.pop.rpicks button { display: flex; align-items: baseline; gap: 10px; padding: 8px 10px; font-size: 13px; }
+.pop.rpicks button[aria-selected="true"] { background: var(--sel); }
+@media (max-width: 640px) { .pickers { width: 100%; } .pickers .pick { width: 100%; } .rpick { width: 100%; } .pickers .arrow { display: none; } }
+/* Compare's Open in: each run by its whole id */
+.cmpresp td a code.rnm { font-size: 12px; }
+/* the Forks view: a tree, each run by its id and its about line, which under a parent is what it changed */
+.fnode .fmain { display: block; min-width: 0; }
+.fnode .f1 { display: flex; align-items: baseline; gap: 10px; flex-wrap: nowrap; min-width: 0; }
+.fnode .f1 .fid { flex: none; font: 500 12.5px var(--mono); color: var(--ink); }
+.fnode .f1 .rab { flex: 0 1 auto; font-size: 12.5px; }
+.fnode .f1 .chip { flex: none; }
+/* on a phone the highlight alone marks this run, so its about line keeps the room */
+@media (max-width: 640px) { .fnode .f1 .thisrun { display: none; } }

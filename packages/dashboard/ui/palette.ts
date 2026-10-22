@@ -11,6 +11,8 @@ export interface PaletteEntry {
   group: PaletteGroup;
   label: string;
   hint: string;
+  /** Words it matches that don't show: a run's kind, command and labels, besides its id and about line. */
+  match?: string;
 }
 
 /**
@@ -37,7 +39,7 @@ export function words(query: string): string[] {
 }
 
 /**
- * The items a query shows. Every typed word must appear in the label or the hint. Groups keep their
+ * The items a query shows. Every typed word must appear in the label, the hint or what it matches unseen. Groups keep their
  * order; within a group, a label that starts with the first word comes first, then one that
  * contains it, then the rest. Actions keep the design's order (`ACTION_ORDER`) among equals; runs
  * come in the order given (newest first).
@@ -58,7 +60,7 @@ export function matchPalette<T extends PaletteEntry>(items: readonly T[], query:
   return items
     .map((x, i) => {
       const label = x.label.toLowerCase();
-      const hay = `${label} ${x.hint.toLowerCase()}`;
+      const hay = `${label} ${x.hint.toLowerCase()}${x.match ? ` ${x.match.toLowerCase()}` : ''}`;
       if (!w.every((word) => hay.includes(word))) return null;
       return { x, i, score: label.startsWith(first) ? 0 : label.includes(first) ? 1 : 2 };
     })

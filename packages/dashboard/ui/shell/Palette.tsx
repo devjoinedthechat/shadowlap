@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type RecordedHit } from '../api.js';
+import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { callName, shortId } from '../format.js';
 import { jobRunning } from '../jobs.js';
-import { highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts } from '../palette.js';
+import { highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
 import { onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
@@ -35,6 +36,8 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   // While the server's index is behind: how many runs it has yet to read.
   const [indexing, setIndexing] = useState<{ runs: number; of: number } | null>(null);
   const list = useRef<HTMLDivElement>(null);
+  // Each hint fitted to the rest of its row, once laid out: an about line at whole words, a command at its end.
+  useFitAbouts(list);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => input.current?.focus(), []);
@@ -216,15 +219,23 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
                       x.label
                     )}
                   </span>
-                  <span className="ph2">
-                    {x.hint}
-                    {x.snippet ? (
-                      <>
-                        {' · '}
-                        {snippetParts(x.snippet).map((p, k) => (p.match ? <mark key={k}>{p.text}</mark> : <span key={k}>{p.text}</span>))}
-                      </>
-                    ) : null}
-                  </span>
+                  {x.about ? (
+                    // A run's about line as its hint, fitted to the rest of the row, the search word marked where it still is.
+                    <AboutLine about={x.about as { text: string; from: 'user' }} className="ph2" mark={words(q).find((w) => x.about!.text.toLowerCase().includes(w)) ?? null} />
+                  ) : x.snippet || !x.hint ? (
+                    <span className="ph2">
+                      {x.hint}
+                      {x.snippet ? (
+                        <>
+                          {' · '}
+                          {snippetParts(x.snippet).map((p, k) => (p.match ? <mark key={k}>{p.text}</mark> : <span key={k}>{p.text}</span>))}
+                        </>
+                      ) : null}
+                    </span>
+                  ) : (
+                    // Any other hint (a command, a list) is cut only at its end after a whole word: an id in it is whole or left out.
+                    <FitHint text={x.hint} className="ph2" />
+                  )}
                   {n === at ? <span className="kbd">↵</span> : null}
                 </button>
               </Fragment>
@@ -254,13 +265,18 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   );
 }
 
-/** A run in the palette's Runs group: its short id, what it is and its command, and its labels. */
+/**
+ * A run in the palette's Runs group: its id, its about line as the hint (decision 10), fitted to the
+ * rest of the row. It matches its kind, command and labels too, which don't show. A server that sends
+ * no about line gets the old hint: what it is and its command, and its labels.
+ */
 function runCommand(r: RunLike & { runId: string; labels: readonly string[] }, go: (to: string) => void): PaletteCommand {
+  const unseen = `${kindWord(r)} · ${runSource(r)}${r.labels.length ? ` · ${r.labels.join(', ')}` : ''}`;
   return {
     group: 'Runs',
     label: shortId(r.runId),
     mono: true,
-    hint: `${kindWord(r)} · ${runSource(r)}${r.labels.length ? ` · ${r.labels.join(', ')}` : ''}`,
+    ...(r.about ? { hint: r.about.text, about: r.about, match: unseen } : { hint: unseen }),
     run: () => go(href.run(r.runId)),
   };
 }

@@ -115,19 +115,6 @@ export function orderForms(forms: readonly string[], measure: (text: string) => 
   return [{ t: whole, w: measure(whole) }, ...middle, { t: '', w: 0 }];
 }
 
-const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-/**
- * A line as the page writes it: an order such as A-1042 or a label such as refund-flow never breaks
- * at its hyphen where the text may wrap, and the "…" of a cut stays with the word before it.
- */
-export function aboutHtml(t: string): string {
-  return t
-    .split(' ')
-    .map((w) => (w.length > 1 && w.includes('-') ? `<span class="nw">${escape(w)}</span>` : escape(w)))
-    .join(' ');
-}
-
 /** One line to fit: its forms in the order to try them, and how to write, measure and read it. */
 export interface FitLine {
   forms: readonly Form[];
@@ -219,13 +206,16 @@ function markIn(el: HTMLElement, word: string): void {
  * word still is. Lines not laid out (a hidden column) are left as they are.
  */
 export function fitAbouts(scope: ParentNode): void {
+  // Only a page that lays itself out can be measured (a test's document without layout is left whole).
+  if (typeof getComputedStyle !== 'function' || typeof document === 'undefined' || typeof document.createRange !== 'function') return;
   const lines: Array<FitLine & { el: HTMLElement }> = [];
   for (const el of scope.querySelectorAll<HTMLElement>('[data-about], [data-fit]')) {
-    if (!el.getClientRects().length) continue;
+    if (!el.dataset || typeof el.getBoundingClientRect !== 'function' || !el.getClientRects().length) continue;
     const about = el.dataset.about;
     const forms = about !== undefined ? aboutForms({ text: about, from: (el.dataset.from ?? 'user') as RunAbout['from'] }) : hintForms(el.dataset.fit ?? '', el.dataset.short ?? null);
     const ordered = orderForms(forms, measureIn(getComputedStyle(el).font));
-    lines.push({ el, forms: ordered, write: (t) => (el.innerHTML = aboutHtml(t)), overflows: () => overflowing(el), room: () => boxWidth(el) });
+    // Its text only: React draws the line as one text, and leaves it to the fit until the line itself changes.
+    lines.push({ el, forms: ordered, write: (t) => (el.textContent = t), overflows: () => overflowing(el), room: () => boxWidth(el) });
   }
   fitLines(lines);
   for (const x of lines) if (x.el.dataset.mark) markIn(x.el, x.el.dataset.mark);

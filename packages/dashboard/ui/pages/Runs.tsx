@@ -307,7 +307,7 @@ function ServerRuns() {
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
         <label className="tin">
           <span className="sr">Filter runs</span>
-          <input type="search" placeholder="Filter by id, command, label or revision" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input type="search" placeholder="Filter by id, about or label" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
       </div>
       <section className="panel tscroll">
@@ -363,7 +363,7 @@ function ExportedRuns() {
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, count: counts[key] }))} value={chip} onChange={setChip} hideEmpty />
         <label className="tin">
           <span className="sr">Filter runs</span>
-          <input type="search" placeholder="Filter by id, command, label or revision" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input type="search" placeholder="Filter by id, about or label" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
       </div>
       <section className="panel tscroll">

@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useRef, type ReactNode } from 'react';
 import type { LineageNode } from '../api.js';
+import { AboutLine, useFitAbouts } from '../components/About.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
 import { shortId, stamp } from '../format.js';
 import { familyRefresh } from '../connection.js';
@@ -11,9 +12,11 @@ import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
 import { lineageRunLike } from './model.js';
 
 /**
- * Forks: the run's family, its recording and every replay and fork of it, each with a line that says
- * what happened ("fork @17 · 13 live · 1 blocked"). Attempts of one `--repeat` are bundled with how
- * many passed, and so are blame's probes and verify's attempts, leading to their fix (fixes/Bundles.tsx).
+ * Forks: the run's family as a tree, its recording and every replay and fork of it, each by its id and
+ * its about line (decision 10), which under a parent is what it changed, then a line that says what
+ * happened ("fork @17 · 13 live · 1 blocked"), leaving out the kind when the about line says it.
+ * Attempts of one `--repeat` are bundled with how many passed, and so are blame's probes and verify's
+ * attempts, leading to their fix (fixes/Bundles.tsx).
  */
 
 export function ForksView({ runId }: { runId: string }) {
@@ -25,6 +28,8 @@ export function ForksView({ runId }: { runId: string }) {
   const byId = useMemo(() => new Map((runs ?? []).map((r) => [r.runId, r])), [runs]);
   // Blame's and verify's attempts, bundled by the fixes read model under the run they replayed.
   const fixes = useFixBundles(runId);
+  const box = useRef<HTMLDivElement>(null);
+  useFitAbouts(box);
   if (lineage.error) return <div className="empty">Could not load this run’s family: {lineage.error.message}</div>;
   if (!lineage.data || fixes.loading) return <div className="empty">Loading the family…</div>;
   const nodes = lineage.data;
@@ -38,17 +43,20 @@ export function ForksView({ runId }: { runId: string }) {
     const r = lineageRunLike(n, byId.get(n.runId));
     const line = familyLineParts(r);
     const here = n.runId === runId || n.runId.startsWith(runId);
+    // The kind, unless the about line says it already ("clean replay").
+    const said = n.about && !line.err && line.text.startsWith(`${n.about.text} · `) ? n.about.text.length + 3 : 0;
     return (
       <a key={n.runId} className={`fnode${here ? ' here' : ''}`} href={href.run(n.runId, n.divergence?.callNo ?? null)}>
         <RunIcon run={r} className="" />
-        <span>
+        <span className="fmain">
           <span className="f1">
-            <code>{shortId(n.runId)}</code>
-            {here ? <span className="chip">this run</span> : null}
+            <code className="fid">{shortId(n.runId)}</code>
+            <AboutLine about={n.about} />
+            {here ? <span className="chip thisrun">this run</span> : null}
           </span>
           <span className="f2 block">
             {line.err ? <em>{line.err}</em> : null}
-            {line.text}
+            {line.text.slice(said)}
           </span>
           {n.checks ? (
             <span className="checks">
@@ -80,7 +88,11 @@ export function ForksView({ runId }: { runId: string }) {
     if (!items.length) return null;
     return parent === null ? <>{items}</> : <div className="fkids">{items}</div>;
   };
-  return <div className="fam">{family(null)}</div>;
+  return (
+    <div className="fam" ref={box}>
+      {family(null)}
+    </div>
+  );
 }
 
 function Bundle({ attempts, current }: { attempts: LineageNode[]; current: string }) {

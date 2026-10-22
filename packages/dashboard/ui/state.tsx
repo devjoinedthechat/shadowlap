@@ -22,6 +22,10 @@ export interface PaletteCommand {
   label: string;
   hint: string;
   mono?: boolean;
+  /** A run's about line, the hint fitted to the rest of the row (decision 10). */
+  about?: { text: string; from: string } | null;
+  /** Words it matches that don't show (a run's kind, command and labels). */
+  match?: string;
   run: () => void;
 }
 

@@ -1,11 +1,12 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import type { RunListItem } from '../api.js';
+import { AboutLine, useFitAbouts } from '../components/About.js';
 import { RunIcon } from '../components/RunIcon.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { paletteKeyLabel } from '../dom.js';
 import { num, shortId, whenShort } from '../format.js';
 import { href, navSection, type Route } from '../route.js';
-import { copyCompares, isAttempt, runTree, sideLine } from '../runs.js';
+import { copyCompares, isAttempt, runTree, sideLine, sideStatus } from '../runs.js';
 import { useApp } from '../state.js';
 import { ProjectBlock } from './ProjectBlock.js';
 
@@ -66,9 +67,16 @@ export function Sidebar({ route }: { route: Route }) {
   );
 }
 
-const RecentRuns = memo(function RecentRuns({ runs, current, loading }: { runs: RunListItem[]; current: string | null; loading: boolean }) {
+/**
+ * Recent runs, two lines a run: its id and when, then its about line (decision 10), fitted to the
+ * room it gets, followed only by what needs a look or how far a recording has got. Under a parent,
+ * a run's about line is what it changed. A server that sends no about line gets the old line.
+ */
+export const RecentRuns = memo(function RecentRuns({ runs, current, loading }: { runs: RunListItem[]; current: string | null; loading: boolean }) {
   const tree = useMemo(() => runTree(runs).slice(0, RECENT), [runs]);
   const now = Date.now();
+  const box = useRef<HTMLDivElement>(null);
+  useFitAbouts(box);
   if (loading) return <div className="runs" />;
   if (!runs.length)
     return (
@@ -77,10 +85,11 @@ const RecentRuns = memo(function RecentRuns({ runs, current, loading }: { runs: 
       </div>
     );
   return (
-    <div className="runs" tabIndex={-1}>
+    <div className="runs" tabIndex={-1} ref={box}>
       {tree.map(({ run: r, depth }) => {
-        const line = sideLine(r);
         const here = current !== null && (r.runId === current || (current.length >= 10 && r.runId.startsWith(current)));
+        const st = r.about ? sideStatus(r) : null;
+        const line = r.about ? null : sideLine(r);
         return (
           <a key={r.runId} className={`run${depth > 0 ? ' child' : ''}`} href={href.run(r.runId)} aria-current={here ? 'true' : 'false'} title={r.source ? `from ${r.source}` : r.command}>
             <RunIcon run={r} />
@@ -88,10 +97,22 @@ const RecentRuns = memo(function RecentRuns({ runs, current, loading }: { runs: 
               <span className="id">{shortId(r.runId)}</span>
               <span className="when">{whenShort(r.startedAt, now)}</span>
             </span>
-            <span className="r2">
-              {line.err ? <em>{line.err}</em> : null}
-              {line.text}
-            </span>
+            {line ? (
+              <span className="r2">
+                {line.err ? <em>{line.err}</em> : null}
+                {line.text}
+              </span>
+            ) : (
+              <span className="r2">
+                <AboutLine about={r.about} className="ra" />
+                {st ? (
+                  <span className="r2s">
+                    <span className="dot">·</span>
+                    {st.tone ? <em className={st.tone === 'warn' ? 'inc' : undefined}>{st.text}</em> : st.text}
+                  </span>
+                ) : null}
+              </span>
+            )}
           </a>
         );
       })}

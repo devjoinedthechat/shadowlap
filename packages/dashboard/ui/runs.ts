@@ -42,6 +42,8 @@ export interface RunLike {
   kind?: string | null;
   outcome?: { kind: string; callNo?: number; checks?: number; notApplicable?: number; check?: string | null } | null;
   failed?: boolean | null;
+  /** What the run was about (decision 10: the id names it), when the server says. */
+  about?: { text: string; from: string } | null;
 }
 
 export type RunType = 'recording' | 'capture' | 'fork' | 'clean' | 'replay' | 'test';
@@ -220,6 +222,21 @@ export function sideLine(r: RunLike): { text: string; err?: string } {
   return { text: `${runSource(r)} · ${calls}` };
 }
 
+/**
+ * What the sidebar says after a run's about line (decision 10: the id names the run, the about line
+ * says what it was): only what needs a look, or how far a recording has got: `9 calls` while it
+ * records, `diverged at #1`, `lost at #9`, `check failed`, `check inconclusive`, `interrupted`.
+ * Null for a run that needs nothing. `tone`: a failure in red, inconclusive in amber.
+ */
+export function sideStatus(r: RunLike & { lostAt?: number | null }): { text: string; tone: 'err' | 'warn' | null } | null {
+  if (isLive(r)) return { text: plural(r.calls, 'call'), tone: null };
+  const out = runOutcome(r);
+  if (out.tone === 'err') return { text: out.text, tone: 'err' };
+  if (out.tone === 'warn') return { text: out.text, tone: 'warn' };
+  if (isInterrupted(r)) return { text: 'interrupted', tone: null };
+  return null;
+}
+
 /** The Runs table's status: the outcome only, in a dot and a few words. */
 export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' | 'n'; text: string } {
   if (isLive(r)) return { tone: 'live', text: 'in progress' };
@@ -277,11 +294,11 @@ export function matchesChip(r: RunLike, chip: RunChip): boolean {
   return runType(r) === chip;
 }
 
-/** The filter field: every word must appear in the id, command, labels or revision. */
+/** The filter field: every word must appear in the id, about line, command, labels or revision, as the server matches it. */
 export function matchesText(r: RunLike, query: string): boolean {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
-  const hay = `${r.runId} ${runSource(r)} ${r.labels.join(' ')} ${r.codeVersion ?? ''} ${kindWord(r)}`.toLowerCase();
+  const hay = `${r.runId} ${r.about?.text ?? ''} ${runSource(r)} ${r.labels.join(' ')} ${r.codeVersion ?? ''} ${kindWord(r)}`.toLowerCase();
   return words.every((w) => hay.includes(w));
 }
 

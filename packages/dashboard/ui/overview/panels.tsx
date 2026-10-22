@@ -1,4 +1,5 @@
-import { memo, useState } from 'react';
+import { memo, useRef, useState } from 'react';
+import { AboutLine, useFitAbouts } from '../components/About.js';
 import { DeltaPill, Kpi, Legend, Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { EventIcon, Glyph } from '../components/RunIcon.js';
@@ -74,7 +75,8 @@ const GridFamilyRows = memo(function GridFamilyRows({ family, now }: { family: G
         const cut = r.status === 'crashed' && !r.failed ? ' · interrupted' : '';
         const counts = originCounts(r.origins);
         const rows = SHOW_ORIGINS.filter((o) => counts[o]).map((o) => ({ label: ORIGIN_NAME[o], value: num(counts[o]), color: ORIGIN_COLOR[o] }));
-        const tip = tipCard(`${shortId(r.runId)} · ${r.label}${cut}${r.context ? ' · before this week' : ''}`, rows.length ? rows : [{ label: 'calls', value: num(r.calls) }]);
+        // The hover card: the run's id and kind, what it was about under them, then its calls by origin.
+        const tip = tipCard(`${shortId(r.runId)} · ${r.label}${cut}${r.context ? ' · before this week' : ''}`, rows.length ? rows : [{ label: 'calls', value: num(r.calls) }], r.about?.text ?? null);
         return (
           <a key={r.runId} className={`grow${r.context ? ' ctx' : ''}`} href={href.run(r.runId)} data-tip={tip}>
             <span className="gid" style={{ paddingLeft: r.depth * 14 }}>
@@ -176,8 +178,11 @@ function outcomeWords(o: { kind: string; callNo?: number }): string {
 export function TodayCard({ today, live }: { today: Today; live: readonly LiveRun[] }) {
   const tests = today.tests;
   const blamed = today.blame.runs[0];
+  // A recording's about line takes the room its count leaves, fitted again as the count grows a digit.
+  const box = useRef<HTMLElement>(null);
+  useFitAbouts(box);
   return (
-    <section className="panel ovtoday">
+    <section className="panel ovtoday" ref={box}>
       <header>
         <h2>Today</h2>
         <span className="sub">{dayText(today.day)}</span>
@@ -200,9 +205,8 @@ export function TodayCard({ today, live }: { today: Today; live: readonly LiveRu
                 <span className="t">
                   Recording <code>{shortId(r.runId)}</code>
                 </span>
-                <span className="d cmd" title={r.command}>
-                  {r.command}
-                </span>
+                {/* What it is about, on one line fitted at whole words: its first user message, once it sent one. */}
+                <AboutLine about={r.about ?? { text: r.command, from: 'command' }} className="d" />
               </span>
               <span className="go">
                 <span className="now">{plural(calls, 'call')}…</span>
