@@ -82,6 +82,18 @@ export function aboutForms(about: Pick<RunAbout, 'text' | 'from'>): string[] {
 }
 
 /**
+ * The about line as a browser tab can hold it, which can't be measured: the longest of its forms
+ * that keeps to `max` characters, one that keeps the line's end first (the mock's docTitle: "Ticket
+ * T-8812 … damaged"), else null. The tab reads the id, then this: `01K5CQ6L0P · Ticket T-8812 …
+ * damaged — shadowlap`.
+ */
+export function tabAbout(about: Pick<RunAbout, 'text' | 'from'> | null | undefined, max = 26): string | null {
+  if (!about?.text) return null;
+  const fit = aboutForms(about).filter((f) => f && f.length <= max);
+  return fit.find((f) => !f.endsWith(CUT)) ?? fit[0] ?? null;
+}
+
+/**
  * A hint that holds a command or ids (the palette's) is cut only at its end, after a whole word, so
  * an id in it is whole or left out: "shadowlap replay …", never "shadowlap replay 01K5CQ…". A hint
  * with a short form of its own takes that instead ("against 01K5CQ4N7G" for a diff command).

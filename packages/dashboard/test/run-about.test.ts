@@ -117,6 +117,19 @@ describe('the about line in a copy that leaves the store', () => {
     expect(result.html).not.toContain('order A-1131');
   });
 
+  it('quotes a replay’s flag as the copy masks it: a --set value a rule matches is masked in the about line and the banner’s flags', () => {
+    const forked = open((s) => addRun(s, { parent: id.rec, startedAt: NOW - 10 * 60_000, divergence: 3, calls: 'rrl', meta: { interventions: [{ kind: 'set', at: 3, flag: '--set metadata.user=c-311@example.com', args: ['--set', 'metadata.user=c-311@example.com'] }] } }));
+    // As recorded, the line quotes the value it set.
+    expect(open((s) => listRuns(s)).find((r) => r.runId === forked)!.about).toMatchObject({ text: 'metadata.user=c-311@example.com #3', from: 'change' });
+    const result = open((s) => exportHtml({ store: s, runIds: [id.rec, forked], uiDir, now: NOW, redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+    const m = /<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(result.html)!;
+    const data = JSON.parse(m[1]!.split('<\\/').join('</')) as StaticPayload;
+    expect((data.responses['runs'] as { runs: RunRow[] }).runs.find((r) => r.runId === forked)!.about.text).toBe('metadata.user=<EMAIL> #3');
+    const detail = data.responses[`runs/${forked}`] as { about: { text: string }; interventions: Array<{ flag: string; value?: string }> };
+    expect(detail.about.text).toBe('metadata.user=<EMAIL> #3');
+    expect(result.html).not.toContain('c-311@example.com');
+  });
+
   it('without rules, quotes the run as recorded, as the rest of the copy does', () => {
     const result = open((s) => exportHtml({ store: s, runIds: [id.rec], uiDir, now: NOW }));
     expect(result.html).toContain('A customer asks for a refund of order A-1131');

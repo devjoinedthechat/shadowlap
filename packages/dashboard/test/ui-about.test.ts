@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { aboutForms, CUT, cutForms, fitLines, hintForms, orderForms, type FitLine } from '../ui/about.js';
+import { aboutForms, CUT, cutForms, fitLines, hintForms, orderForms, tabAbout, type FitLine } from '../ui/about.js';
 import { AboutLine, FitHint } from '../ui/components/About.js';
 
 /**
@@ -105,5 +105,20 @@ describe('the about line in the page', () => {
     expect(html).toContain('title="Hi, my order A-1042 arrived damaged"');
     expect(renderToStaticMarkup(createElement(AboutLine, { about: null }))).toBe('');
     expect(renderToStaticMarkup(createElement(FitHint, { text: 'shadowlap replay 01K5CQ4N7G' }))).toContain('data-fit="shadowlap replay 01K5CQ4N7G"');
+  });
+});
+
+describe('the about line in a browser tab', () => {
+  it('takes the longest form that keeps to 26 characters, one that keeps the line’s end first, as the mock’s docTitle does', () => {
+    // Whole when it fits.
+    expect(tabAbout({ text: 'override #16', from: 'change' })).toBe('override #16');
+    // Too long whole: the longest form that keeps the end, before one that stops at a number.
+    const t = tabAbout({ text: 'Ticket T-8812 from customer C-311: order A-1042 ($240) arrived damaged', from: 'user' })!;
+    expect(t.length).toBeLessThanOrEqual(26);
+    expect(t.endsWith(CUT)).toBe(false);
+    expect(t).toBe(`Ticket T-8812${CUT} damaged`);
+    // What a fork changed is never cut: too long, it is left out rather than cut.
+    expect(tabAbout({ text: 'metadata.customer_tier=platinum-plus #17', from: 'change' })).toBeNull();
+    expect(tabAbout(null)).toBeNull();
   });
 });
