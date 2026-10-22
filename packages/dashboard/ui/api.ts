@@ -304,7 +304,9 @@ export function createClient(token: string): Client {
     const res = await fetch(`/api/${path}`, {
       ...init,
       // The project the page shows: a change asked for while another is current is refused (projects-api.ts).
-      headers: { 'x-shadowlap-token': token, ...projectHeader(), ...(init.body ? { 'content-type': 'application/json' } : {}), ...(cached ? { 'if-none-match': cached.etag } : {}) },
+      // A read of something the store doesn't hold is answered as one (`notFound`, below), not as a
+      // failed load the browser would log: the page says what is missing itself.
+      headers: { 'x-shadowlap-token': token, ...projectHeader(), ...(method === 'GET' ? { 'x-shadowlap-not-found': 'answer' } : {}), ...(init.body ? { 'content-type': 'application/json' } : {}), ...(cached ? { 'if-none-match': cached.etag } : {}) },
     });
     // A 304 has no body, but it is read all the same: one left unread is cancelled once the page
     // drops it, and shows as (canceled) among the page's requests.
@@ -320,6 +322,9 @@ export function createClient(token: string): Client {
       noteRefusal(res.status, body);
       throw new ApiError(res.status, (body as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
     }
+    // Something the read named that the store doesn't hold, answered as the page asked: the 404 it is.
+    const missing = method === 'GET' ? (body as { notFound?: unknown; error?: unknown } | null) : null;
+    if (missing?.notFound === true) throw new ApiError(404, typeof missing.error === 'string' ? missing.error : 'not found');
     const etag = res.headers.get('etag');
     if (etag && method === 'GET') etags.set(path, etag, body, text.length);
     return body as T;

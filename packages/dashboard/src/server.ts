@@ -475,8 +475,13 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       const status = err instanceof HttpError || err instanceof ProjectError ? err.status : 500;
       if (status === 500) log(`error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
       if (res.headersSent) return res.destroy();
+      const error = err instanceof Error ? err.message : String(err);
+      // A read of something the store doesn't hold (a run or a fix a link names) from the page, which
+      // says so itself: asked that way (`x-shadowlap-not-found: answer`), it is answered 200 with
+      // `notFound`, so the browser logs no failed load for it. Any other client gets the 404.
+      if (status === 404 && req.method === 'GET' && req.headers['x-shadowlap-not-found'] === 'answer') return json(res, 200, { error, notFound: true });
       // A body refused part way is not read to its end: close the connection so the client stops sending it.
-      json(res, status, { error: err instanceof Error ? err.message : String(err) }, status === 413 ? { connection: 'close' } : {});
+      json(res, status, { error }, status === 413 ? { connection: 'close' } : {});
     });
   });
 

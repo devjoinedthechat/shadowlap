@@ -303,6 +303,20 @@ describe('dashboard server: data', () => {
     expect((await api('runs/01ZZZZZZZZ')).status).toBe(404);
     expect((await api('runs/01%25')).status).toBe(404);
   });
+
+  it('answers the page’s read of a run or fix it doesn’t hold as one, when the page asks so, and any other client with the 404', async () => {
+    const missing = '01ZZZZZZZZZZZZZZZZZZZZZZZZ';
+    const page = { 'x-shadowlap-not-found': 'answer' };
+    for (const path of [`runs/${missing}`, 'runs/01ZZZZZZZZ', `runs/${missing}/lineage`, `compare?a=${runId}&b=${missing}`, `compare?a=${missing}&b=${runId}`, 'fixes/fx-01ZZZZZZZZ']) {
+      // The page says what is missing itself: an answer, so the browser logs no failed load for it.
+      const asked = await api(path, { headers: page });
+      expect({ path, status: asked.status, body: (await asked.json()) as unknown }).toEqual({ path, status: 200, body: { error: expect.stringMatching(/^(no run|one of the runs|no fix)/), notFound: true } });
+      expect((await api(path)).status).toBe(404);
+    }
+    // What it holds is answered as ever; a write that names a run it doesn't hold is refused with the 404.
+    expect(((await (await api(`runs/${runId}`, { headers: page })).json()) as { run: { runId: string } }).run.runId).toBe(runId);
+    expect((await api(`runs/${missing}/notes`, { method: 'POST', body: JSON.stringify({ callNo: 1, text: 'x' }), headers: page })).status).toBe(404);
+  });
 });
 
 describe('dashboard server: actions', () => {

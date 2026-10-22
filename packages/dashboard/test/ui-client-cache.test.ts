@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createClient } from '../ui/api.js';
+import { ApiError, createClient } from '../ui/api.js';
 import { REVALIDATION_LIMITS } from '../ui/revalidate.js';
 
 /**
@@ -44,5 +44,34 @@ describe('the answers the page keeps to ask again', () => {
     // The latest is still kept.
     await client.showJson(`R${REVALIDATION_LIMITS.entries + 40}`);
     expect(s.asked.at(-1)!.tag).not.toBeNull();
+  });
+});
+
+describe('a read of something the store doesn’t hold', () => {
+  it('is asked for as an answer, which the page takes as the 404 it is, so the browser logs no failed load', async () => {
+    const asked: Array<{ path: string; method: string; notFound: string | null }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit = {}) => {
+        const path = String(url).replace(/^\/api\//, '');
+        asked.push({ path, method: init.method ?? 'GET', notFound: (init.headers as Record<string, string>)['x-shadowlap-not-found'] ?? null });
+        // As the server answers a page that asks so: 200, saying what is missing.
+        if (path === 'runs/01ZZZZZZZZ') return new Response(JSON.stringify({ error: 'no run 01ZZZZZZZZ', notFound: true }), { status: 200 });
+        if (path === 'runs/01ZZZZZZZZ/labels') return new Response(JSON.stringify({ error: 'no run 01ZZZZZZZZ' }), { status: 404 });
+        return new Response(JSON.stringify({ hits: [] }), { status: 200 });
+      }),
+    );
+    const client = createClient('token');
+    const gone = await client.run('01ZZZZZZZZ').catch((err: unknown) => err);
+    expect(gone).toBeInstanceOf(ApiError);
+    expect(gone).toMatchObject({ status: 404, message: 'no run 01ZZZZZZZZ' });
+    // A write asks nothing of the kind: its 404 is a failure the page reports.
+    await expect(client.labels('01ZZZZZZZZ', ['x'])).rejects.toMatchObject({ status: 404 });
+    expect(await client.search('refund')).toEqual({ hits: [] });
+    expect(asked.map((a) => [a.path.split('?')[0], a.method, a.notFound])).toEqual([
+      ['runs/01ZZZZZZZZ', 'GET', 'answer'],
+      ['runs/01ZZZZZZZZ/labels', 'POST', null],
+      ['search', 'GET', 'answer'],
+    ]);
   });
 });
