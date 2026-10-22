@@ -103,6 +103,10 @@ export type { CacheMiss, CacheUse, CacheUseMiss, CacheUseOptions, RunCache, RunC
 export { notWaited, recordedDurations } from './waits.js';
 export type { NotWaited, RunSelection } from './waits.js';
 export { inferInterventions, overrideSources, recordNotRecorded, redactRunFacts, runInterventions, toolResultLine, unrecordedTools } from './run-facts.js';
+// A run's about line: one quiet line that says what the run was, worked out from it and never edited.
+export { ABOUT_FROM, ABOUT_MAX, aboutOf, batchInput, changeWords, firstSentence, goldenWords, sourceWords } from './about.js';
+export type { AboutFacts, AboutFrom, AboutIntervention, RunAbout, RunAsk } from './about.js';
+export { runAsk, type RunAskOptions } from './about-ask.js';
 export type { InterventionFlag, OverrideSources } from './run-facts.js';
 export { showJson } from './show.js';
 export type { ShowJson } from './show.js';
