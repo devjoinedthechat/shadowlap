@@ -1,15 +1,16 @@
 import { Badge, CmdLine, EmptyState } from '../components/bits.js';
-import { approx, shortId } from '../format.js';
+import { shortId } from '../format.js';
 import type { FixDetail, RepairStep } from '../types.js';
-import { candidateTone, changeParts, fixStamp, footWarnings, nothingAcceptedWhy, repairBy, roleBadges } from './model.js';
+import { candidateTone, changeParts, fixStamp, footWarnings, nothingAcceptedWhy, repairBy, repairCostLine, roleBadges } from './model.js';
 import { Flagged, Markdown, StepHead } from './parts.js';
 
 /**
  * The Repair step: the change a repair proposed and what it held on, why it was needed, every
  * candidate it tried with why each was dropped, what it handed over, and the pull request body. A
  * repair that accepted nothing shows the candidates it tried; the fix stays open. Its header says
- * who proposed them, or why no repairer did, with what to do (`the repairer could not be asked:
- * claude was not found: install Claude Code, …`); the rest of its warnings are at the foot.
+ * when it ran and who proposed them, or why no repairer did, with what to do (`the repairer could
+ * not be asked: claude was not found: install Claude Code, …`); what every stage cost is a grey
+ * receipt above its command, and the rest of its warnings are at the foot.
  */
 export function RepairStepView({ fix }: { fix: FixDetail }) {
   const r = fix.repair;
@@ -47,7 +48,6 @@ function Accepted({ r }: { r: RepairStep }) {
         text={
           <>
             Accepted {fixStamp(r.at)} · {by(r)}
-            {r.verify ? ` · ${r.verify.attempts} attempts, ${approx(r.verify.spent)}` : ''}
             {r.verify && !r.verify.counts ? ' · verified under another check, so it doesn’t count for this fix' : ''}
           </>
         }
@@ -91,9 +91,7 @@ function Accepted({ r }: { r: RepairStep }) {
         <HandedOver r={r} />
         <Report r={r} />
       </div>
-      <div className="fxgap">
-        <CmdLine>{r.command}</CmdLine>
-      </div>
+      <Receipt r={r} />
       <Warnings r={r} />
     </>
   );
@@ -106,7 +104,7 @@ function NothingAccepted({ r }: { r: RepairStep }) {
   const why = nothingAcceptedWhy(r);
   const head = (
     <>
-      Repaired {fixStamp(r.at)}
+      Ran {fixStamp(r.at)}
       {who ? <> · {who}</> : null}
       {why ? (
         <>
@@ -132,10 +130,18 @@ function NothingAccepted({ r }: { r: RepairStep }) {
         <Why r={r} />
         <Report r={r} />
       </div>
-      <div className="fxgap">
-        <CmdLine>{r.command}</CmdLine>
-      </div>
+      <Receipt r={r} />
       <Warnings r={r} />
+    </>
+  );
+}
+
+/** What every stage of the repair cost, as a grey line, and the command that runs it again. */
+function Receipt({ r }: { r: RepairStep }) {
+  return (
+    <>
+      <p className="fxreceipt">{repairCostLine(r)}</p>
+      <CmdLine>{r.command}</CmdLine>
     </>
   );
 }

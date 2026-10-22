@@ -1,3 +1,4 @@
+import { approx } from '../format.js';
 import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyRow, VerifyStep } from '../types.js';
 
@@ -325,6 +326,20 @@ export function nothingAcceptedWhy(r: Pick<RepairStep, 'candidates' | 'why' | 'n
   }
   if (r.noRepairer && r.why === r.noRepairer.text) return null;
   return r.why ?? 'nothing was accepted';
+}
+
+/**
+ * What a repair cost, every stage of it, as the CLI's summary line says it: blame, the repairer (or
+ * that its model has no price), the verification of every candidate it tried, the accepted one's
+ * and the dropped ones', and judge checks apart: `cost: blame ≈$0.054 · repairer ≈$0.0085 · verify
+ * ≈$0.239`.
+ */
+export function repairCostLine(r: Pick<RepairStep, 'cost' | 'repairer' | 'served'>): string {
+  const parts = [`cost: blame ${approx(r.cost.blame)}`];
+  if (r.repairer) parts.push(`repairer ${r.cost.repairer === null ? `(no price for ${r.served ?? r.repairer})` : approx(r.cost.repairer)}`);
+  parts.push(`verify ${approx(r.cost.verify)}`);
+  if (r.cost.judge) parts.push(`judge checks ${approx(r.cost.judge)}`);
+  return parts.join(' · ');
 }
 
 /** The warnings the foot of the Repair step lists: all but the one its header says already (`repairBy`). */

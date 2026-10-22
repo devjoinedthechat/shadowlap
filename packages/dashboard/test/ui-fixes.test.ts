@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
+import { applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairCostLine, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -135,6 +135,14 @@ describe('the Repair step', () => {
     expect(repairBy(step({ accepted: true }))).toEqual({ text: 'no repairer needed' });
     // No failing run rescued, or stopped before: its why says it all.
     expect(repairBy(step({ why: 'resampling rescued no failing run' }))).toBeNull();
+  });
+
+  it('says what every stage of a repair cost, the verification of each candidate it tried included, as the CLI does', () => {
+    const cost = { blame: 0.0539172, repairer: 0.008466, verify: 0.238736 };
+    expect(repairCostLine(step({ repairer: 'anthropic:claude-opus-5-5', cost }))).toBe('cost: blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239');
+    expect(repairCostLine(step({ repairer: 'openai:gpt-6', served: 'gpt-6-2026-08-01', cost: { ...cost, repairer: null, judge: 0.0021 } }))).toBe('cost: blame ≈$0.054 · repairer (no price for gpt-6-2026-08-01) · verify ≈$0.239 · judge checks ≈$0.0021');
+    // No repairer was asked: nothing to say of it.
+    expect(repairCostLine(step({ cost: { blame: 0, repairer: null, verify: 0 } }))).toBe('cost: blame $0 · verify $0');
   });
 
   it('follows with what a repair that accepted nothing tried, unless that is only the repairer’s silence again', () => {
