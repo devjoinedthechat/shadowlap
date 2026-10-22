@@ -16,6 +16,7 @@ import {
 } from '@shadowlap/engine';
 import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
+import { liveKeys } from '../ci-workflows.js';
 import type { RouteContext } from '../context.js';
 import { folderGoneText } from '../folder-gone.js';
 import { HttpError } from '../http.js';
@@ -189,7 +190,8 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/settings/store', (r) => {
     const cwd = folder();
-    r.tagged(storeSettings(settings(), readTeamStoreInput({ cwd })));
+    // Copy CI step runs the goldens: the keys of those that run live go with it.
+    r.tagged(storeSettings(settings(), readTeamStoreInput({ cwd }), liveKeys(cwd, ctx.options.goldens?.() ?? [])));
   });
 
   // ---- edits ----

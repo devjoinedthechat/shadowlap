@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { judgeTarget, type Store } from '@shadowlap/engine';
-import { ciStep, parseStoreUrl, shortStoreName, type StoreLocation } from '@shadowlap/remote';
+import { ciStep, parseStoreUrl, shortStoreName, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
 import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, VERSION, WORKFLOW_FILE, type BucketCredentials, type LiveGoldens } from './ci-yaml.js';
 import { fixDetail, fixList } from './fixes.js';
 import type { TeamStoreInput } from './team-store.js';
@@ -370,6 +370,15 @@ export function liveGoldens(goldens: readonly GoldenProviders[]): LiveGoldens | 
   if (!live.length) return null;
   const why = (['fork', 'injection gate'] as const).filter((w) => live.some((g) => g.live.includes(w)));
   return { count: live.length, why, keys: [...new Set(live.flatMap((g) => g.keys))], unknown: live.filter((g) => !g.known).length };
+}
+
+/**
+ * The keys the store's CI step needs for the project's goldens that run live (`ciStep`'s `keys` and
+ * `keysUnknown`), as Settings → CI's Alerts step has them: the step runs the same goldens.
+ */
+export function liveKeys(project: string, goldens: ReadonlyArray<{ path: string; mode: 'replay' | 'fork'; injection?: boolean; judges?: readonly string[] }>): CiStepKeys {
+  const live = liveGoldens(goldenProviders(project, goldens));
+  return live ? { keys: live.keys, ...(live.unknown ? { keysUnknown: true } : {}) } : {};
 }
 
 /**

@@ -1185,7 +1185,11 @@ protected branches' (on GitHub, for pull requests from the repository itself: a 
 token, so its job skips them and runs the tests without pushing). Its tests run with `npx
 shadowlap@<version>`, this CLI's own release; on GitHub, Node 22 and a line for the agent's
 dependencies (`npm ci && npm run build`, to make your project's) come before them, and on GitLab
-that line opens each job's script. `push-from-ci off` writes
+that line opens each job's script. The goldens it tests that run live (marked `fork`, or with an
+injection gate) need the keys of the providers their recordings call: on GitHub the step's `env`
+takes them from the repository's secrets, by name, and on GitLab and any other CI a note names
+them; a comment says to add your agent's own where a key can't be named (a pack that can't be read,
+or Vertex AI, which signs in with a token). `push-from-ci off` writes
 `"ciPush": false` to the config: `test --push` in CI then runs the tests and keeps their runs in the
 job (outside CI, `--push` still pushes), and the GitHub Action keeps the fixes it opens there too;
 `on` turns it back on. Each takes `--json`.

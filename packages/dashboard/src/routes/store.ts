@@ -1,6 +1,7 @@
 import { resolveAuthor, type Store } from '@shadowlap/engine';
 import { CI_PROVIDERS, formatStoreUrl, parseStoreUrl, storeKey, type CiProvider } from '@shadowlap/remote';
 import { lookupRun } from '../api.js';
+import { liveKeys } from '../ci-workflows.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
@@ -79,7 +80,8 @@ export function register(router: Router, ctx: RouteContext): void {
   // machine; nothing is asked of a bucket.
   router.get('/store/setup', (r) => {
     if (!ctx.project) throw new HttpError(501, 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard');
-    r.tagged(storeSetupView(ctx.store, readTeamStoreInput({ cwd: ctx.project.path })));
+    // Its CI step runs the goldens: the keys of those that run live go with it.
+    r.tagged(storeSetupView(ctx.store, readTeamStoreInput({ cwd: ctx.project.path }), { keys: liveKeys(ctx.project.path, ctx.options.goldens?.() ?? []) }));
   });
 
   // A URL typed in Connect your bucket, checked against the provider picked as store set checks

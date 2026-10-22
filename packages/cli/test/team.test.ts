@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fixRecords, recordBlame, recordRepair, Store, unpackRun, type RunMeta } from '@shadowlap/engine';
 import { blameReport, EXPECT, repairReport } from '../../engine/test/fix-fixtures.js';
 import { startFakeS3, type FakeS3 } from '../../remote/test/fakes/s3.js';
-import { prepareTestPush, pushIfQueued, storeCheck, storePolicy, storePushFromCi, storeSet, storeSetChecked, storeShow, TeamError, teamPull, teamPush, teamShare, type TeamEnv } from '../src/team.js';
+import { prepareTestPush, pushIfQueued, storeCheck, storeCi, storePolicy, storePushFromCi, storeSet, storeSetChecked, storeShow, TeamError, teamPull, teamPush, teamShare, type TeamEnv } from '../src/team.js';
 import { loadConfig } from '../src/config.js';
 import { testReport } from '../src/test-report.js';
 
@@ -691,6 +691,29 @@ describe('store setup', () => {
     expect(pr!.Statement.filter((s) => s.Action.includes('s3:PutObject')).map((s) => s.Resource)).toEqual(['arn:aws:s3:::northwind-agent-runs/support-agent/pr/*']);
     expect(err).toContain('# 1. For people, and CI on protected branches: an IAM policy');
     expect(err).toContain("# 2. For pull requests' CI jobs: an IAM policy that reads the store and writes only under support-agent/pr/");
+  });
+
+  it('prints a CI step that gives the goldens that run live their providers’ keys', () => {
+    const m = machine('setup-ci', 'x@northwind.example');
+    storeSet(m, 's3://northwind-agent-runs/support-agent');
+    // One golden forks, so it runs live in CI; its recording called Anthropic. One replays offline, on OpenAI.
+    for (const [name, provider] of [['refund-over-limit', 'anthropic'], ['refund-in-limit', 'openai']] as const) {
+      mkdirSync(join(m.cwd, 'goldens', name), { recursive: true });
+      writeFileSync(join(m.cwd, 'goldens', name, 'run.json'), '{}');
+      writeFileSync(join(m.cwd, 'goldens', name, 'calls.jsonl'), `${JSON.stringify({ runId: 'R', callNo: 1, kind: 'api', meta: { provider } })}\n`);
+    }
+    const config = JSON.parse(readFileSync(join(m.cwd, 'shadowlap.config.json'), 'utf8')) as Record<string, unknown>;
+    writeFileSync(join(m.cwd, 'shadowlap.config.json'), JSON.stringify({ ...config, tests: { 'goldens/refund-over-limit': { fork: true, expect: { tools: { issue_refund: 0 } } } } }));
+    m.take();
+    expect(storeCi(m, { provider: 'github' })).toBe(0);
+    const { out, err } = m.take();
+    expect(out).toContain('test goldens/* --push\n    env:\n      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n');
+    // The replay golden runs offline: no key for it.
+    expect(out).not.toContain('OPENAI_API_KEY');
+    expect(err).toContain("# The goldens that run live (marked fork, or with an injection gate) call your agent's providers: add ANTHROPIC_API_KEY as a repository secret, which the step's env passes on.");
+    // Packs that name only the replay golden need none.
+    expect(storeCi(m, { provider: 'github', packs: 'goldens/refund-in-*' })).toBe(0);
+    expect(m.take().out).not.toContain('API_KEY');
   });
 });
 

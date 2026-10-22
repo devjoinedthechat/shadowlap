@@ -114,6 +114,30 @@ describe('reading the tabs', () => {
     expect(await get('settings/store')).toMatchObject({ configured: 'ftp://nope', status: null, error: expect.stringMatching(/names a store that can't be used/) });
   });
 
+  it('gives the CI step the keys of the providers its goldens that run live call, as Settings → CI does', async () => {
+    // A golden marked fork runs live in CI: the agent calls Anthropic, so the step that runs it needs that key.
+    const pack = join(project, 'goldens', 'refund-over-limit');
+    mkdirSync(pack, { recursive: true });
+    writeFileSync(join(pack, 'run.json'), '{}');
+    writeFileSync(join(pack, 'calls.jsonl'), `${JSON.stringify({ runId: 'R', callNo: 1, kind: 'api', meta: { provider: 'anthropic' } })}\n`);
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' }));
+    const goldens = () => [{ path: 'goldens/refund-over-limit', runId: null, packedAt: null, mode: 'fork' as const, repeat: 1, passes: 1, checks: [] }];
+    const withGoldens = await startDashboard({ store, dbPath, spawnCli: cliSpawner({ command: [process.execPath, FAKE], dbPath, cwd: project }), project: { path: project }, goldens });
+    try {
+      const read = async <T,>(path: string) => (await (await api(path, {}, withGoldens)).json()) as T;
+      const s = await read<{ ciStep: { text: string } }>('settings/store');
+      expect(s.ciStep.text).toContain(`  - run: npx shadowlap@${VERSION} test goldens/* --push\n    env:\n      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}`);
+      // The store's setup page hands over the same step, and each CI says where the key goes.
+      const setup = await read<{ ci: Array<{ ci: string; text: string; notes: string[] }> }>('store/setup');
+      expect(setup.ci[0]!.text).toBe(s.ciStep.text);
+      expect(setup.ci.find((c) => c.ci === 'gitlab')!.notes.at(-1)).toBe("The goldens that run live (marked fork, or with an injection gate) call your agent's providers: add ANTHROPIC_API_KEY as a masked CI/CD variable, which the job gets in its environment.");
+    } finally {
+      await withGoldens.close();
+    }
+    // Without goldens that run live, the step is the one it was.
+    expect((await get<{ ciStep: { text: string } }>('settings/store')).ciStep.text).not.toContain('ANTHROPIC_API_KEY');
+  });
+
   it('counts the redaction rules a share link applies, and says when they can’t be read', async () => {
     const store = 's3://northwind-agent-runs/support-agent';
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store }));

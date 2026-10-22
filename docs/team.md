@@ -242,7 +242,10 @@ identity federation or an Azure federated credential, so no key is stored in CI.
 step for pull requests, with credentials of their own; see [Pull requests](#pull-requests). On
 GitHub that step is only for pull requests from your own repository: a fork's gets no OIDC token,
 so its job skips the step and runs the tests without pushing. R2 has no OIDC, so its token's keys
-go in the CI's secrets, for protected branches only. A missing store or missing credentials is a
+go in the CI's secrets, for protected branches only. A golden that runs live (one marked `fork`, or
+with an injection gate) calls your agent's providers, so the step that runs the tests needs their
+keys: `store ci` names those its goldens' recordings call, in the step's `env` from the repository's
+secrets on GitHub, and in a note on GitLab and any other CI. A missing store or missing credentials is a
 warning: the tests still decide the job's result.
 `shadowlap store push-from-ci off` turns pushing from CI off for the whole team (it writes
 `"ciPush": false` to `shadowlap.config.json`) without touching the CI files; `on` turns it back on.

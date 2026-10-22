@@ -288,6 +288,34 @@ describe('the CI step', () => {
   });
 });
 
+describe('the keys the goldens that run live need', () => {
+  it('go in the env of every GitHub step that runs the tests, from the repository’s secrets, with a note on where to add them', () => {
+    const keys = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'];
+    const s3 = ciStep('github', parseStoreUrl('s3://northwind-agent-runs/support-agent'), { version: V, keys });
+    expect(s3.text.endsWith('  - run: npx shadowlap@9.9.9 test goldens/* --push\n    env:\n      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}')).toBe(true);
+    expect(s3.notes.at(-1)).toBe("The goldens that run live (marked fork, or with an injection gate) call your agent's providers: add ANTHROPIC_API_KEY and OPENAI_API_KEY as repository secrets, which the step's env passes on.");
+    // R2: beside the bucket's keys for your branches, and on their own for a pull request's tests.
+    const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'), { version: V, keys: ['ANTHROPIC_API_KEY'] });
+    const [writer, pr] = r2.text.split(/\n(?=  - if: startsWith)/);
+    expect(writer).toContain('      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}\n      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}');
+    expect(pr).toContain('    run: npx shadowlap@9.9.9 test goldens/*\n    env:\n      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}');
+    expect(pr).not.toContain('R2_');
+    expect(r2.notes.at(-1)).toContain('add ANTHROPIC_API_KEY as a repository secret,');
+    // Where a key can't be named (an unreadable pack, Vertex AI's token), a comment says to add the agent's own.
+    expect(ciStep('github', parseStoreUrl('gs://b-1/x'), { version: V, keysUnknown: true }).text).toContain("--push\n    env:\n      # your agent's own provider keys: the goldens that run live call them");
+    expect(ciStep('github', parseStoreUrl('gs://b-1/x'), { version: V, keys: ['GEMINI_API_KEY'], keysUnknown: true }).notes.at(-1)).toContain("add GEMINI_API_KEY, and your agent's other provider keys, as repository secrets");
+  });
+
+  it('are named in a note on GitLab and any other CI, which keep them in the job’s environment', () => {
+    const gitlab = ciStep('gitlab', parseStoreUrl('s3://northwind-agent-runs'), { version: V, keys: ['ANTHROPIC_API_KEY'] });
+    expect(gitlab.notes.at(-1)).toBe("The goldens that run live (marked fork, or with an injection gate) call your agent's providers: add ANTHROPIC_API_KEY as a masked CI/CD variable, which the job gets in its environment.");
+    expect(ciStep('gitlab', parseStoreUrl('r2://acct/agent-runs'), { version: V, keys: ['ANTHROPIC_API_KEY'] }).notes.at(-1)).toContain('as a masked CI/CD variable');
+    expect(ciStep('other', parseStoreUrl('gs://b-1'), { version: V, keys: ['ANTHROPIC_API_KEY'] }).notes.at(-1)).toContain("add ANTHROPIC_API_KEY to the job's environment.");
+    // None that run live: the step and its notes as they were.
+    for (const ci of ['github', 'gitlab', 'other'] as const) expect(ciStep(ci, parseStoreUrl('s3://northwind-agent-runs'), { version: V, keys: [] })).toEqual(ciStep(ci, parseStoreUrl('s3://northwind-agent-runs'), { version: V }));
+  });
+});
+
 describe('where Google or Azure credentials may go', () => {
   it("is the cloud's own addresses over https, or this machine", () => {
     expect(credentialsMayGoTo('https://storage.googleapis.com', 'gcs')).toBe(true);

@@ -28,7 +28,7 @@ import {
   type RunRecord,
   type Store,
 } from '@shadowlap/engine';
-import { ciStep, parseStoreUrl, type StoreLocation } from '@shadowlap/remote';
+import { ciStep, parseStoreUrl, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
 import { skillOffer, type SkillOffer } from './agent-skill.js';
 import { VERSION } from './ci-yaml.js';
 import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type PreviewLimitsConfig } from './redaction-preview.js';
@@ -1446,10 +1446,11 @@ export interface StoreSettings {
 }
 
 /**
- * Settings → Store, the team store: what `shadowlap store show` says, offline. Push and pull are
- * jobs; Push from CI is a config edit. Nothing here reaches the bucket.
+ * Settings → Store, the team store: what `shadowlap store show` says, offline, and the CI step to
+ * copy, with the keys the goldens that run live need (`keys`, as `liveKeys` gives them). Push and
+ * pull are jobs; Push from CI is a config edit. Nothing here reaches the bucket.
  */
-export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input: TeamStoreInput): StoreSettings {
+export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input: TeamStoreInput, keys: CiStepKeys = {}): StoreSettings {
   const { info, file } = loadConfigFile(ctx.cwd);
   const rules = file && !info.error && (file.data.redact === undefined || Array.isArray(file.data.redact)) ? readRules(file, 'redact') : null;
   const redactRules = rules && !rules.some((r) => r.error) ? rules.length : null;
@@ -1461,6 +1462,6 @@ export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input
   } catch (err) {
     return { config: info, configured, error: `${CONFIG_FILE} names a store that can't be used: ${err instanceof Error ? err.message : String(err)}`, status: null, ciStep: null, redactRules };
   }
-  const step = ciStep('github', loc, { version: VERSION });
+  const step = ciStep('github', loc, { version: VERSION, ...keys });
   return { config: info, configured, error: info.error, status: teamStoreStatus(ctx.store, input), ciStep: { file: step.file, text: step.text, oidc: step.oidc }, redactRules };
 }
