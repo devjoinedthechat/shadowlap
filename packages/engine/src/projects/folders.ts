@@ -596,10 +596,10 @@ function projectsInside(parents: readonly Ranked[], prefix: string, depth: numbe
 /**
  * Completes a typed path with the folders it could mean, one directory level at a time: `~/co`
  * lists the home folder's subfolders matching "co" (those that start with it first), `~/code/`
- * lists everything in `~/code`, and an empty query lists the home folder (and the configured roots
- * themselves). A folder without project files that holds projects one level down stands aside for
- * them: `~/code/invoice-bot` is listed rather than `~/code` (which still opens when typed), and
- * `~/inv` finds it too. Folders with project files come before those without; each says what it
+ * lists everything in `~/code`, and an empty query lists the home folder and the configured roots.
+ * A folder without project files that holds projects one level down stands aside for them, a
+ * configured root too: `~/code/invoice-bot` is listed rather than `~/code` (which still opens when
+ * typed), and `~/inv` finds it too. Folders with project files come before those without; each says what it
  * holds. See the limits at the top of this file.
  */
 export function suggestFolders(query: string, options: SuggestOptions = {}): FolderSuggestions {
@@ -708,17 +708,28 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
   listedHere.sort((a, b) => a.rank - b.rank || Number(!a.suggestion.folder.kind) - Number(!b.suggestion.folder.kind) || BY_NAME.compare(a.suggestion.display, b.suggestion.display));
   let folders = listedHere.map((d) => d.suggestion);
 
-  // With nothing typed, the configured roots themselves are offered too, so they can be opened.
+  // With nothing typed, the configured roots are offered too: a root with project files as itself,
+  // so it can be opened; one without them by the projects one level inside it, in its place, as a
+  // folder of the home folder is; one that holds neither as itself. Each folder once, and room is
+  // kept for them: a long home folder doesn't push the roots someone configured off the list.
+  const fromRoots: FolderSuggestion[] = [];
   if (query.trim() === '' || query.trim() === '~') {
     const realHome = realpathOrNull(home) ?? resolve(home);
+    const shown = new Set(folders.map((f) => f.path));
     for (const r of roots.filter((x) => x !== realHome)) {
-      const id = opened.get(r) ?? null;
-      folders.push({ path: r, display: display(r), name: basename(r), folder: describeFolder(r, { home, display }), added: id !== null, projectId: id });
+      const own = suggest({ name: basename(r), path: r });
+      // The root's own folders are at its top, as the home folder's are.
+      const found = own.folder.kind ? [] : (projectsInside([{ name: basename(r), path: r, rank: 0 }], '', 0, suggest).get(r) ?? []).map((x) => x.suggestion);
+      for (const f of found.length ? found : [own]) {
+        if (shown.has(f.path)) continue;
+        shown.add(f.path);
+        fromRoots.push(f);
+      }
     }
   }
-  if (folders.length > limit) {
+  if (folders.length + fromRoots.length > limit) {
     truncated = true;
-    folders = folders.slice(0, limit);
-  }
+    folders = [...folders.slice(0, Math.max(0, limit - fromRoots.length)), ...fromRoots].slice(0, limit);
+  } else folders.push(...fromRoots);
   return result(listed, folders, truncated, null);
 }

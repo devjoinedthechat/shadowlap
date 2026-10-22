@@ -284,11 +284,38 @@ describe('suggestFolders', () => {
   it('reaches configured roots, and offers them with nothing typed', () => {
     const work = files(tempDir('sl-work-'), { 'agent-one/pyproject.toml': '', 'agent-one/uv.lock': '' });
     const empty = suggestFolders('', { home, roots: [work] });
-    expect(empty.folders.at(-1)).toMatchObject({ path: work, display: work });
+    // A root without project files of its own stands aside for the projects in it, as a folder of the home folder does.
+    expect(empty.folders.at(-1)).toMatchObject({ path: join(work, 'agent-one'), name: 'agent-one', folder: { kind: 'Python · uv' } });
+    expect(empty.folders.map((f) => f.path)).not.toContain(work);
     const inside = suggestFolders(`${work}/`, { home, roots: [work] });
     expect(inside.folders.map((f) => [f.name, f.folder.kind])).toEqual([['agent-one', 'Python · uv']]);
     // Without the root, the same path lists nothing.
     expect(suggestFolders(`${work}/`, { home }).folders).toEqual([]);
+  });
+
+  it('lists the projects in a configured root in its place, and the root itself when it is a project or holds none', () => {
+    const roots = tempDir('sl-roots-many-');
+    const work = files(join(roots, 'work'), {
+      'agent-one/pyproject.toml': '',
+      'agent-two/package.json': '{}',
+      'notes/readme.md': '',
+      'Library/x/package.json': '{}',
+    });
+    const project = files(join(roots, 'project'), { 'package.json': '{}', 'package-lock.json': '{}' });
+    const empty = files(join(roots, 'empty'), { 'notes/readme.md': '' });
+    const s = suggestFolders('', { home, roots: [work, project, empty], opened: [{ id: 'agent-two', path: join(work, 'agent-two') }] });
+    const fromRoots = s.folders.filter((f) => f.path.startsWith(roots));
+    expect(fromRoots.map((f) => [f.path, f.folder.kind])).toEqual([
+      [join(work, 'agent-one'), 'Python · pip'],
+      [join(work, 'agent-two'), 'Node · npm'],
+      [project, 'Node · npm'],
+      [empty, null],
+    ]);
+    expect(fromRoots[1]).toMatchObject({ added: true, projectId: 'agent-two' });
+    // A long home folder leaves room for them.
+    const two = suggestFolders('', { home, roots: [work], limit: 2 });
+    expect(two.folders.map((f) => f.name)).toEqual(['agent-one', 'agent-two']);
+    expect(two.truncated).toBe(true);
   });
 });
 
