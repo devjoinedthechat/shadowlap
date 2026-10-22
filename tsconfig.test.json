@@ -43,7 +43,8 @@
     "packages/dashboard/test/ui-dialog-tab.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
-    // This renders the Tests page.
-    "packages/dashboard/test/ui-tests-chaos.test.ts"
+    // These render the Tests and Training pages.
+    "packages/dashboard/test/ui-tests-chaos.test.ts",
+    "packages/dashboard/test/ui-training-page.test.ts"
   ]
 }

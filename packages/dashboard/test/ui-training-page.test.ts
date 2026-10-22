@@ -7,7 +7,6 @@ import { commandText } from '../ui/goldens.js';
 import { TrainingPage } from '../ui/pages/Training.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { exportCommand, scoreCommand } from '../ui/training.js';
-import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -50,15 +49,16 @@ const LISTING: ModelListing = {
   tokens: null,
 };
 
+/**
+ * The page's answers, from the server's own read models over a store with no pairs yet, and Export
+ * pairs offered as it is once a blame made some (two of high confidence, one medium).
+ */
 function views() {
   const s = Store.open(':memory:');
-  const lost = recordRun(s, [LOOKUP, POLICY, REFUND, DONE], { status: 'failed', meta: { labels: ['refund-bug'] } }).run;
-  s.updateRunMeta(lost.runId, { blame: { at: 2, outcome: 'blamed', callNo: 5, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } });
-  for (const steps of [[LOOKUP, POLICY, ESCALATE, DONE], [LOOKUP, POLICY, ESCALATE_2, DONE]]) recordRun(s, steps, { parentRunId: lost.runId, meta: { probe: { of: lost.runId, callNo: 5, passed: true } } });
-  const training = trainingView(readTraining(s, { tasks: TASKS }));
-  const models = modelsView(TASKS, [], LISTING);
+  const read = trainingView(readTraining(s, { tasks: TASKS }));
   s.close();
-  return { training, models };
+  const training = { ...read, actions: { ...read.actions, exportPairs: true }, exportDialog: { ...read.exportDialog, high: 2, all: 3 } };
+  return { training, models: modelsView(TASKS, [], LISTING) };
 }
 
 function page(tab: 'pairs' | 'tasks', started: Array<{ kind: string; fields: Record<string, unknown> }> = []) {
