@@ -1,21 +1,20 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/lockup-dark.svg">
-    <img src=".github/assets/lockup-light.svg" alt="shadowlap" width="320">
+    <img src=".github/assets/lockup-light.svg" alt="Shadowlap" width="320">
   </picture>
 </p>
 
 <p align="center">
   <b>Change safety for agents.</b><br>
   Record, replay and fork AI agent runs: reproduce&nbsp;a&nbsp;failure&nbsp;exactly,<br>
-  find the call that lost the&nbsp;run, and&nbsp;prove&nbsp;your&nbsp;fix holds before&nbsp;it&nbsp;ships.
+  find the call that lost the&nbsp;run, and&nbsp;prove&nbsp;your&nbsp;fix&nbsp;holds&nbsp;before&nbsp;it&nbsp;ships.
 </p>
 
 <p align="center">
   <a href="https://github.com/devjoinedthechat/shadowlap/actions/workflows/ci.yml"><img src="https://github.com/devjoinedthechat/shadowlap/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/shadowlap"><img src="https://img.shields.io/npm/v/shadowlap?color=blue" alt="npm version"></a>
   <a href="https://pypi.org/project/shadowlap/"><img src="https://img.shields.io/pypi/v/shadowlap?color=blue" alt="PyPI version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
 </p>
 
 <p align="center">
@@ -25,8 +24,6 @@
   <a href="docs/ci.md">CI</a> ·
   <a href="docs/compare.md">Compare</a>
 </p>
-
----
 
 Your agent refunded $240 it should have escalated. Run it again and it behaves: you can't make it fail on demand, so you can't prove a fix&nbsp;worked.
 
@@ -41,9 +38,9 @@ Shadowlap records your agent's model calls and the tools you wrap, then replays 
     <source media="(prefers-reduced-motion: reduce)" srcset=".github/assets/readme/terminal-static.svg">
     <img src=".github/assets/readme/terminal.svg" alt="A terminal session: shadowlap run records a support agent that refunds a $240 order; shadowlap replay reproduces it with 0 upstream requests; shadowlap blame finds the run was lost at model call #5; after a prompt fix, the replay forks with the diff of the system prompt and the check passes." width="880">
   </picture>
+  <br>
+  <sub>The real CLI, with scripted models standing in for Claude: lines&nbsp;left&nbsp;out&nbsp;or&nbsp;wrapped,&nbsp;none&nbsp;changed&nbsp;(<a href="scripts/demo-svg.mjs">source</a>).</sub>
 </p>
-
-<p align="center"><sub>The real CLI against the demo's scripted models: lines&nbsp;left&nbsp;out&nbsp;or&nbsp;wrapped,&nbsp;none&nbsp;changed&nbsp;(<a href="scripts/demo-svg.mjs">source</a>).</sub></p>
 
 ## From failure to proof
 
@@ -94,9 +91,9 @@ $ shadowlap repair --fixes label:refund-bug --keeps label:good \
     <source media="(max-width: 1279px)" srcset=".github/assets/readme/dashboard-fix-medium.png" width="640">
     <img src=".github/assets/readme/dashboard-fix.png" alt="The Shadowlap Fixes page for 'issue_refund called with amount 240', applied: blame found the runs were lost at model call #5, repair proposed the prompt change, and verify's verdict is that every failing run is fixed and every good run kept." width="880">
   </picture>
+  <br>
+  <sub>The same fix in the dashboard. A&nbsp;scripted&nbsp;model&nbsp;stands&nbsp;in&nbsp;for&nbsp;Claude&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
-
-<p align="center"><sub>The same fix in the dashboard. A&nbsp;scripted&nbsp;model&nbsp;stands&nbsp;in&nbsp;for&nbsp;Claude&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub></p>
 
 `shadowlap verify` gives a fix you wrote yourself the same [proof](docs/verify.md), and exits 1 unless it accepts the&nbsp;fix.
 
@@ -203,9 +200,9 @@ shadowlap dashboard
     <source media="(max-width: 1279px)" srcset=".github/assets/readme/dashboard-fork-medium.png" width="640">
     <img src=".github/assets/readme/dashboard-fork.png" alt="The Shadowlap dashboard on a fork of the second agent's refund run: forked at call 17 after the lookup_policy result was overridden, the request as recorded and as sent, and a strip of calls replayed, overridden, live and blocked." width="880">
   </picture>
+  <br>
+  <sub>What if <code>lookup_policy</code> had returned the EU limit? The&nbsp;run&nbsp;forks&nbsp;at&nbsp;call&nbsp;17&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
-
-<p align="center"><sub>What if <code>lookup_policy</code> had returned the EU limit? It&nbsp;forks&nbsp;at&nbsp;call&nbsp;17.</sub></p>
 
 `shadowlap ui` shows your runs in the terminal, with conversation, request, response and meta tabs for each call. Press&nbsp;`:` for the what&#8209;ifs at the call in front of&nbsp;you:
 
