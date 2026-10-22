@@ -73,8 +73,8 @@ export function TopBar({ route }: { route: Route }) {
       }
     };
     fit();
-    addEventListener('resize', fit);
-    return () => removeEventListener('resize', fit);
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
   });
   const ancestors = crumbs.filter((c) => c.anc).map((c) => c.label);
   // A dashboard that changes nothing says read-only where an exported copy says it is one; one with a
