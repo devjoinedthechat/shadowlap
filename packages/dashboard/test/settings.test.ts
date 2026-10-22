@@ -146,7 +146,8 @@ describe('redactionSettings', () => {
     expect(r.where.map((e) => e.id)).toContain('pairs');
     expect(r.form.kinds).toEqual(['api', 'tool']);
     expect(r.runs.map((x) => x.runId)).toEqual([run.runId, old.runId]);
-    expect(r.runs[0]).toEqual({ runId: run.runId, label: `${run.runId.slice(0, 10)} · node agent.js` });
+    // A recording's about line quotes what its user asked, which the page takes from the run list: none read here.
+    expect(r.runs[0]).toEqual({ runId: run.runId, label: `${run.runId.slice(0, 10)} · node agent.js`, about: null });
     expect(r).toMatchObject({ previewRunId: run.runId, previewError: null });
     expect(r.rules.map((x) => x.remove)).toEqual([1, 2].map((n) => ['redact', 'rm', String(n), '--expect', r.config.version]));
 
@@ -161,7 +162,10 @@ describe('redactionSettings', () => {
   });
 
   it('reads no run\'s calls, however long the run: the preview is read apart', () => {
-    seeded();
+    const run = seeded();
+    // A replay of it, whose about line says what it did, worked out from the run's record alone.
+    const replay = store.createRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['node', 'agent.js'], cwd }, startedAt: 20 });
+    store.endRun(replay.runId, 'completed', 21);
     const guarded = new Proxy(store, {
       get(target, key) {
         if (key === 'getCalls' || key === 'getBlob' || key === 'getJson') throw new Error(`the Redaction tab read ${String(key)}`);
@@ -169,7 +173,9 @@ describe('redactionSettings', () => {
         return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
       },
     });
-    expect(redactionSettings({ store: guarded, cwd }).previewRunId).not.toBeNull();
+    const r = redactionSettings({ store: guarded, cwd });
+    expect(r.previewRunId).not.toBeNull();
+    expect(r.runs.find((x) => x.runId === replay.runId)!.about).not.toBeNull();
   });
 
   it('reads the preview here for a store in memory, within the same limits', async () => {

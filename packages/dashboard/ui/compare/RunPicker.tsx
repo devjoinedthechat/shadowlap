@@ -7,12 +7,15 @@ import { useLayer } from '../state.js';
 import type { RunListItem } from '../types.js';
 
 /**
- * A run picker (Compare's A and B): a button with the run's id, then its about line fitted to the rest
+ * A run picker (Compare's A and B, Redaction's preview): a button with the run's id, then its about line fitted to the rest
  * of it (decision 10), opening a list of runs in the same form, the one picked marked, under the button
  * or over it where there is more room. ↑ ↓ move, Enter picks, Esc closes. A native select can't set
  * the about line apart from the id, so this is a listbox.
  */
-export function RunPicker({ label, value, runs, onPick }: { label: string; value: string; runs: readonly RunListItem[]; onPick: (runId: string) => void }) {
+/** What a picker lists of a run: its id and its about line. */
+export type PickableRun = Pick<RunListItem, 'runId' | 'about'>;
+
+export function RunPicker({ label, value, runs, onPick }: { label: string; value: string; runs: readonly PickableRun[]; onPick: (runId: string) => void }) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const shown = runs.find((r) => r.runId === value || r.runId.startsWith(value)) ?? null;
@@ -47,7 +50,7 @@ export function RunPicker({ label, value, runs, onPick }: { label: string; value
   );
 }
 
-function PickList({ anchor, label, runs, current, onPick, onClose }: { anchor: HTMLElement; label: string; runs: readonly RunListItem[]; current: string; onPick: (runId: string) => void; onClose: () => void }) {
+function PickList({ anchor, label, runs, current, onPick, onClose }: { anchor: HTMLElement; label: string; runs: readonly PickableRun[]; current: string; onPick: (runId: string) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   useLayer('menu', true, onClose);

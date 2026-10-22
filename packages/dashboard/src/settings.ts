@@ -25,6 +25,7 @@ import {
   type RedactionExport,
   type RedactionPreview,
   type RuleList,
+  type RunAbout,
   type RunRecord,
   type Store,
 } from '@shadowlap/engine';
@@ -32,6 +33,9 @@ import { ciStep, parseStoreUrl, type CiStepKeys, type StoreLocation } from '@sha
 import { skillOffer, type SkillOffer } from './agent-skill.js';
 import { VERSION } from './ci-yaml.js';
 import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type PreviewLimitsConfig } from './redaction-preview.js';
+import { aboutsOf } from './run-about.js';
+import { loadRunIndex, type IndexedRun } from './run-index.js';
+import { asksFor } from './run-stats.js';
 import { countRuns } from './runs-list.js';
 import { teamStoreStatus, type TeamStoreInput, type TeamStoreStatus } from './team-store.js';
 
@@ -126,9 +130,11 @@ export interface RedactionSettings {
   /**
    * Runs a preview can be made for: every run but those still recording, newest first. The preview
    * itself is read apart (`GET /api/settings/redaction/preview`, redactionPreview), on a thread of its
-   * own, so reading a long run never holds up the server.
+   * own, so reading a long run never holds up the server. Each with its about line (decision 10)
+   * where that reads none of the run's calls (a replay's, a fork's, an attempt's, an import's); a
+   * recording's quotes what its user asked, which the page takes from the run list.
    */
-  runs: Array<{ runId: string; label: string }>;
+  runs: Array<{ runId: string; label: string; about: RunAbout | null }>;
   /** The run the tab previews first: the newest that has ended, or the one asked for. */
   previewRunId: string | null;
   /** Why there is no preview to run: no run yet, the run asked for is unknown or still recording, or rules that can't be read. */
@@ -423,7 +429,10 @@ export function redactionSettings(ctx: SettingsContext, options: { runId?: strin
   const recording = new Set(ctx.store.recordingRuns().live.map((r) => r.run.runId));
   const ended = ctx.store.listRuns(PREVIEW_RUNS * 2).filter((r) => !recording.has(r.runId));
   const listed = ended.slice(0, PREVIEW_RUNS);
-  const runs = listed.map((r) => ({ runId: r.runId, label: runLabel(r) }));
+  const index = loadRunIndex(ctx.store);
+  const known = listed.map((r) => index.byId.get(r.runId)).filter((r): r is IndexedRun => !!r && !asksFor(r));
+  const abouts = aboutsOf(ctx.store, index, known);
+  const runs = listed.map((r) => ({ runId: r.runId, label: runLabel(r), about: abouts.get(r.runId) ?? null }));
   let previewRunId: string | null = (listed.find(madeHere) ?? listed[0])?.runId ?? null;
   let previewError: string | null = null;
   if (options.runId) {

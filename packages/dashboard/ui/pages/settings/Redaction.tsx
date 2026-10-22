@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { ApiError } from '../../api.js';
 import { CopyButton } from '../../components/bits.js';
 import { tipCard, tipText } from '../../components/HoverCard.js';
-import { Icon } from '../../components/Icon.js';
+import { RunPicker } from '../../compare/RunPicker.js';
 import { num } from '../../format.js';
 import type { RedactionPreviewView, RedactionSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
@@ -144,6 +144,7 @@ function usePreview(runId: string | null, key: string): { view: RedactionPreview
 }
 
 function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string | null; onPick: (runId: string) => void }) {
+  const { runs } = useApp();
   const broken = data.rules.find((r) => r.error);
   const can = !!pick && !data.config.error && !broken && data.rules.length > 0;
   // Read again when the rules change (the file's version) or another run is picked.
@@ -163,17 +164,8 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
     <div className="pbody preview">
       <div className="pvhead">
         <b>Preview</b>
-        <label className="pick">
-          <span className="sr">Run to preview</span>
-          <select value={pick} onChange={(e) => onPick(e.target.value)}>
-            {data.runs.map((r) => (
-              <option key={r.runId} value={r.runId}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-          <Icon name="caret" className="caret" />
-        </label>
+        {/* The run picker Compare uses: each run by its id, with its about line beside it (decision 10); a recording's as the run list has it. */}
+        <RunPicker label="Run to preview" value={pick} runs={data.runs.map((r) => ({ runId: r.runId, about: r.about ?? runs?.find((x) => x.runId === r.runId)?.about ?? null }))} onPick={onPick} />
         <span className="muted">{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked, view.preview.returned) : ''}</span>
       </div>
       {data.config.error ? null : broken ? (
