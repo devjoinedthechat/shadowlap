@@ -7,7 +7,7 @@ import { num } from '../../format.js';
 import type { RedactionPreviewView, RedactionSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { useTeamStore } from '../../teamstore.js';
-import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
+import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { maskedLine, partialLine, previewChip, redactionNotes, returnedLine, unmaskedLine } from './logic.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
 
@@ -32,10 +32,12 @@ export function RedactionTab() {
   const [run, setRun] = useState<string | null>(kept.run);
   const editor = useEditor(data?.config.version ?? null, reload);
   const teamStore = !!useTeamStore();
+  const gone = useFolderGone();
   if (error && !data) return <LoadProblem error={error} />;
   if (!data) return <Loading title="Redaction" />;
-  const off = app.actionsOff ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
+  const off = app.actionsOff ?? gone ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
   const version = data.config.version ?? 'absent';
+  const unreadable = rulesUnreadable(data.config.error, gone);
   const pick = run && data.runs.some((r) => r.runId === run) ? run : data.previewRunId;
   return (
     <>
@@ -54,15 +56,18 @@ export function RedactionTab() {
             Applied to every export, pack and share link: <Where where={data.where} />. {redactionNotes(teamStore)}
           </p>
         </div>
-        <RuleTable list="redact" rows={data.rules} off={off} onRemove={(row) => void editor.run(() => client.settings.removeRule('redact', row.n, version), (r) => removedText('redact', r.n))} />
-        <Preview
-          data={data}
-          pick={pick}
-          onPick={(id) => {
-            kept.run = id;
-            setRun(id);
-          }}
-        />
+        <RuleTable list="redact" rows={data.rules} off={off} unreadable={unreadable} onRemove={(row) => void editor.run(() => client.settings.removeRule('redact', row.n, version), (r) => removedText('redact', r.n))} />
+        {/* No rules to preview while the file can't be read or the folder is gone: the table says so. */}
+        {unreadable ? null : (
+          <Preview
+            data={data}
+            pick={pick}
+            onPick={(id) => {
+              kept.run = id;
+              setRun(id);
+            }}
+          />
+        )}
       </section>
       {adding ? (
         <RuleDialog

@@ -52,6 +52,13 @@ export class FakeElement {
   get className(): string {
     return this.attributes.get('class') ?? '';
   }
+  /** No layout here: every box sits at 0, 0 with no size (`clientWidth` below too), and nothing scrolls. */
+  scrollLeft = 0;
+  scrollTop = 0;
+  readonly clientHeight = 0;
+  getBoundingClientRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number; x: number; y: number } {
+    return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 };
+  }
   /** The classes, as the shell marks the page's body with a state (`is-offline`, `is-expired`). */
   get classList(): { add(c: string): void; remove(c: string): void; toggle(c: string, on?: boolean): boolean; contains(c: string): boolean } {
     const list = () => this.className.split(/\s+/).filter(Boolean);

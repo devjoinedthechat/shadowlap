@@ -1,3 +1,4 @@
+import type { AgentOffer } from '../../../src/agent-skill.js';
 import { repeatsARepeat } from '../../../src/regex-shape.js';
 import type { CiWorkflowOptions, CiWorkflowsView } from '../../types.js';
 
@@ -55,6 +56,35 @@ export function shareLinksLine(rules: number | null): { text: string; warn: stri
   if (rules === null) return { text, warn: 'The redaction rules can’t be read, so a share link waits until shadowlap.config.json is fixed.' };
   if (rules === 0) return { text, warn: 'No redaction rules: the report holds the prompts and tool data as recorded. Add rules before you share a run.' };
   return { text, warn: null };
+}
+
+// ---- coding agents ----
+
+/** The job that puts the Cursor rule or the Claude Code plugin into the project: `shadowlap skill install <agent>`. */
+export const SKILL_INSTALL_KIND = 'skill-install';
+
+/**
+ * A row of Coding agents' installs, in words: what it is, what the project has where it goes, and
+ * the button, if any: Install where there is nothing, Update over another version's copy or one
+ * edited here (which `--force` replaces), none for this version's or a way that is blocked.
+ */
+export function agentInstallWords(
+  agent: 'claude-code' | 'cursor',
+  offer: Pick<AgentOffer, 'state' | 'blocked'>,
+  o: { version: string | null; installedVersion: string | null },
+): { name: string; state: string; tone: '' | 'ok' | 'warn'; button: 'Install' | 'Update' | null } {
+  const name = agent === 'cursor' ? 'Cursor rule' : 'Claude Code plugin';
+  if (offer.blocked) return { name, state: offer.blocked, tone: 'warn', button: null };
+  switch (offer.state) {
+    case 'missing':
+      return { name, state: 'not in this project', tone: '', button: 'Install' };
+    case 'current':
+      return { name, state: `this version’s${o.version ? ` (${o.version})` : ''}`, tone: 'ok', button: null };
+    case 'other-version':
+      return { name, state: `another version’s${o.installedVersion ? ` (${o.installedVersion})` : ''}`, tone: 'warn', button: 'Update' };
+    case 'changed':
+      return { name, state: 'another version’s, or edited here', tone: 'warn', button: 'Update' };
+  }
 }
 
 // ---- the Add dialog ----

@@ -50,6 +50,8 @@
     "packages/dashboard/test/ui-job-stop.test.ts",
     "packages/dashboard/test/ui-palette-modes.test.ts",
     "packages/dashboard/test/ui-token-card.test.ts",
-    "packages/dashboard/test/ui-exported-provenance.test.ts"
+    "packages/dashboard/test/ui-exported-provenance.test.ts",
+    // This renders Settings.
+    "packages/dashboard/test/ui-settings-states.test.ts"
   ]
 }

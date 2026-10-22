@@ -1,6 +1,6 @@
 # Coding agents
 
-Claude Code, Cursor, Codex and other coding agents can debug an agent with Shadowlap the way you would: record a failing run, read where it went wrong, change the code, and replay to check the fix, without paying for the model calls that didn't change. They need no plugin or MCP server: the CLI is the interface, and every command they need reads and writes JSON. What they need to know about it comes packaged, as a [Claude Code plugin](#claude-code) or a [Cursor rule](#cursor) that `shadowlap skill install` puts into the project, or as a [section to paste](#instructions-to-give-it) into any other agent's instructions.
+Claude Code, Cursor, Codex and other coding agents can debug an agent with Shadowlap the way you would: record a failing run, read where it went wrong, change the code, and replay to check the fix, without paying for the model calls that didn't change. The CLI is their interface, with no MCP server to run: every command they need reads and writes JSON. What they need to know about it comes packaged, as a [Claude Code plugin](#claude-code) or a [Cursor rule](#cursor) that `shadowlap skill install` puts into the project, or as a [section to paste](#instructions-to-give-it) into any other agent's instructions.
 
 ## What an agent uses
 

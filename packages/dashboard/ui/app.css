@@ -823,6 +823,10 @@ pre.report .no, pre.report .del { color: var(--err); } pre.report .add { color: 
 .setrow b { display: block; font-weight: 500; }
 .setrow span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
 .setrow span.fieldnote { margin-top: 6px; }
+/* what a project has of the Cursor rule or the Claude Code plugin, after where it goes */
+.setrow em.agst { font-style: normal; }
+.setrow em.agst.ok { color: var(--ok); }
+.setrow em.agst.warn { color: var(--warn); }
 .preview { border-top: 1px solid var(--line); }
 .pvhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .pick { position: relative; display: inline-flex; }

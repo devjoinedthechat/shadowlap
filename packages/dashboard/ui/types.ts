@@ -320,10 +320,10 @@ export interface Meta {
   uploadLimit?: number | null;
   /**
    * With several projects: its `id` in the list, its folder as the switcher shows it (`display`),
-   * whether its setup is finished, why its store can't be opened (`problem`), and what part of the
-   * dashboard couldn't start for it (`notice`).
+   * whether its setup is finished, why its store can't be opened (`problem`; `missing` when its
+   * folder is gone from disk), and what part of the dashboard couldn't start for it (`notice`).
    */
-  project?: { name: string; path: string; id?: string; display?: string; settingUp?: boolean; problem?: string; notice?: string } | null;
+  project?: { name: string; path: string; id?: string; display?: string; settingUp?: boolean; problem?: string; missing?: boolean; notice?: string } | null;
   /** How many redaction rules a copy made now applies. */
   redactRules?: number | null;
 }

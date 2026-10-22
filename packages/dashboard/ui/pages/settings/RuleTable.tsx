@@ -16,7 +16,11 @@ import { emptyRuleForm, redactRuleText, ruleCommand, ruleInput, ruleProblem, rul
 
 const NOUN: Record<RuleListName, string> = { normalize: 'normalizer', redact: 'redaction rule' };
 
-export function RuleTable({ list, rows, off, onRemove }: { list: RuleListName; rows: RuleRow[]; off: string | null; onRemove: (row: RuleRow) => void }) {
+/**
+ * `unreadable`: why there is no list to show, empty or not (`rulesUnreadable`: shadowlap.config.json
+ * can't be read, or the project's folder is gone), said where the rules would be.
+ */
+export function RuleTable({ list, rows, off, onRemove, unreadable = null }: { list: RuleListName; rows: RuleRow[]; off: string | null; onRemove: (row: RuleRow) => void; unreadable?: string | null }) {
   return (
     <div className="tscroll">
       <table className="t ruletable">
@@ -33,7 +37,7 @@ export function RuleTable({ list, rows, off, onRemove }: { list: RuleListName; r
           {rows.length === 0 ? (
             <tr>
               <td colSpan={5} className="none">
-                <span>{list === 'normalize' ? 'No normalizers yet. Calibrate finds the ones a recording needs.' : 'No redaction rules yet: exports, packs and share links hold what was recorded.'}</span>
+                <span>{unreadable ?? (list === 'normalize' ? 'No normalizers yet. Calibrate finds the ones a recording needs.' : 'No redaction rules yet: exports, packs and share links hold what was recorded.')}</span>
               </td>
             </tr>
           ) : null}

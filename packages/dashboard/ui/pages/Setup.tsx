@@ -290,10 +290,23 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
  * works, and once the folder is back the project's pages come back with it.
  */
 function ProjectProblem({ id, name, problem }: { id: string; name: string; problem: string }) {
+  return (
+    <Page>
+      <ProblemHeader id={id} name={name} problem={problem} />
+    </Page>
+  );
+}
+
+/**
+ * Why a project can't be opened (its folder is gone, its store is a newer Shadowlap's), as the
+ * page's header, with Remove from the dashboard: on its setup in place of every page, and on Settings
+ * above its tabs, which it can still show.
+ */
+export function ProblemHeader({ id, name, problem }: { id: string; name: string; problem: string }) {
   const { actionsOff } = useApp();
   const [removing, setRemoving] = useState(false);
   return (
-    <Page>
+    <>
       <PageHeader
         eyebrow={name}
         eyebrowTone="err"
@@ -306,7 +319,7 @@ function ProjectProblem({ id, name, problem }: { id: string; name: string; probl
         }
       />
       {removing ? <RemoveProjectDialog id={id} onClose={() => setRemoving(false)} /> : null}
-    </Page>
+    </>
   );
 }
 

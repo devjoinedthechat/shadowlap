@@ -355,6 +355,13 @@ describe('versions and concurrent writers', () => {
     expect(json()).toEqual({ normalize: [] });
     expect(readdirSync(cwd)).toEqual([CONFIG_FILE]);
   });
+
+  it('says the folder is gone when it was moved or deleted, rather than ENOENT', () => {
+    const gone = join(cwd, 'moved-away');
+    expect(() => addRule(gone, 'normalize', { path: '$.a' })).toThrow(ConfigFileError);
+    expect(() => setClock(gone, 'exact')).toThrow(`shadowlap.config.json can't be edited: its folder ${gone} is gone`);
+    expect(existsSync(gone)).toBe(false);
+  });
 });
 
 describe('setClock', () => {

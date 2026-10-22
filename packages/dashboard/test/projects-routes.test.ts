@@ -292,10 +292,17 @@ describe('the switcher', () => {
     w.registry.add(gone);
     rmSync(gone, { recursive: true, force: true });
     await w.api('projects/old-agent/select', { method: 'POST' });
-    const meta = await w.api<{ project: { id: string; problem: string }; counts: { runs: number } }>('meta');
+    const meta = await w.api<{ project: { id: string; problem: string; missing?: boolean }; counts: { runs: number } }>('meta');
     expect(meta.status).toBe(200);
-    expect(meta.body.project).toMatchObject({ id: 'old-agent', problem: '~/old-agent doesn’t exist any more. Remove the project, or put the folder back.' });
+    expect(meta.body.project).toMatchObject({ id: 'old-agent', problem: '~/old-agent doesn’t exist any more. Remove the project, or put the folder back.', missing: true });
     expect(meta.body.counts.runs).toBe(0);
+    // Settings changes nothing there, and says why in the page's words rather than with ENOENT.
+    const refused = { status: 409, body: { error: 'old-agent’s folder is gone: put it back or remove the project' } };
+    expect(await w.api('settings/rules/normalize', { method: 'POST', body: { rule: { path: '$.a' }, expect: 'absent' } })).toMatchObject(refused);
+    expect(await w.api('settings/clock', { method: 'PUT', body: { mode: 'exact', expect: 'absent' } })).toMatchObject(refused);
+    expect(await w.api('settings/store/ci-push', { method: 'PUT', body: { on: false, expect: 'absent' } })).toMatchObject(refused);
+    // Nothing was made where it was.
+    expect(existsSync(gone)).toBe(false);
     expect((await w.api<{ runs: unknown[] }>('runs')).body.runs).toEqual([]);
     const list = await w.api<{ items: Array<{ id: string; detail: string }> }>('projects');
     expect(list.body.items.find((i) => i.id === 'old-agent')?.detail).toBe('~/old-agent · folder not found');

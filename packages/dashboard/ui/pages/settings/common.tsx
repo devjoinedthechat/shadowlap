@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { folderGoneText } from '../../../src/folder-gone.js';
 import { ApiError } from '../../api.js';
 import { useLoad, type Loaded } from '../../hooks.js';
 import { useApp, type AppState } from '../../state.js';
@@ -71,6 +72,31 @@ export async function runEdit<T>(app: AppState, edit: () => Promise<T>, o: { ok:
 
 /** What an edit's controls say while the last edit is on its way. */
 export const SAVING = 'Saving the last change…';
+
+/**
+ * Why nothing in the project's folder can be changed from Settings now: the folder is gone from
+ * disk (moved or deleted), so its edits wait until it is back or the project is removed. Null when
+ * it is there. Every tab's edits read it after the dashboard's own reason (read-only, a copy).
+ */
+export function useFolderGone(): string | null {
+  const { meta } = useApp();
+  const p = meta?.project;
+  return p?.missing ? folderGoneText(p.name) : null;
+}
+
+/** What a tab says where its rules would be while shadowlap.config.json can't be read. */
+export const RULES_UNREADABLE = 'The rules can’t be read until the file is fixed.';
+
+/** The same while the project's folder is gone: the file went with it, so there is no list, empty or not. */
+export const RULES_GONE = 'The rules can’t be read while the folder is gone.';
+
+/**
+ * Where a tab's rules would be when it has none to show for a reason other than having none: the
+ * file can't be read, or the folder is gone. Null when the list is what the file says.
+ */
+export function rulesUnreadable(configError: string | null | undefined, gone: string | null): string | null {
+  return gone ? RULES_GONE : configError ? RULES_UNREADABLE : null;
+}
 
 /**
  * A tab's edits, one at a time: from the click until the tab shows the file the edit wrote, `busy`
