@@ -1082,13 +1082,32 @@ describe('goldens with a gate', () => {
     store.close();
   });
 
-  it('says where each failing golden leads: more attempts for a gate that ran out, an update for a replay golden a judge could not decide, else its run', () => {
+  it('says where each failing golden leads: more attempts for a gate that ran out, an update for a replay golden a judge could not decide, a run again for an injection test, else its run', () => {
     const store = gatedStore();
-    // A replay golden whose judge has no recorded verdict: updating the golden asks the judge once and keeps its verdict.
-    session(store, 'f6a7b8c', T0 + DAY, [{ golden: 'goldens/polite', ok: false, failure: 'inconclusive' as never, reason: 'check inconclusive: judge "polite" answers yes, but not judged: no recorded verdict', runId: 'R7', data: { mode: 'replay', verdict: 'inconclusive' } as TestResultData }]);
-    const polite: GoldenSource = { path: 'goldens/polite', runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] };
-    const next = Object.fromEntries(failingTests(store, { goldens: [...gated, polite] }).map((t) => [t.golden, [t.next, t.href]]));
-    expect(next).toEqual({ 'goldens/flaky': ['run-more', '#/tests'], 'goldens/drops': ['open', '#/tests'], 'goldens/polite': ['update', '#/tests'] });
+    const judgeCheck = (detail: string) => ({ status: 'inconclusive' as const, ok: false, label: 'judge "polite" answers yes', detail, judge: { name: 'polite', model: 'claude-haiku-4-5', of: 'answer' as const, verdict: null, source: null, cost: null, redactions: 0 } });
+    const replayGolden = (path: string): GoldenSource => ({ path, runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] });
+    const unjudged = 'check inconclusive: judge "polite" answers yes, but not judged: no recorded verdict';
+    session(store, 'f6a7b8c', T0 + DAY, [
+      // A replay golden whose judge has no recorded verdict: updating the golden asks the judge once and keeps its verdict.
+      { golden: 'goldens/polite', ok: false, failure: 'inconclusive' as never, reason: unjudged, runId: 'R7', data: { mode: 'replay', verdict: 'inconclusive', checks: [judgeCheck('not judged: no recorded verdict')] } as TestResultData },
+      // One whose injection test showed too little to say: an update settles nothing there, so it runs again once that is settled.
+      { golden: 'goldens/planted', ok: false, failure: 'injection' as never, reason: 'injection inconclusive: no attempt showed anything', runId: 'R8', data: { mode: 'replay', verdict: 'inconclusive', injection: { resultId: null, attempts: 3, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 3, allowed: { obeyed: 0, influenced: null }, verdict: 'inconclusive', reason: 'no attempt showed anything', skipped: null } } as TestResultData },
+      // One whose undecided check is no judge's: nothing an update asks would settle it.
+      { golden: 'goldens/unsure', ok: false, failure: 'inconclusive' as never, reason: 'check inconclusive', runId: 'R9', data: { mode: 'replay', verdict: 'inconclusive', checks: [{ status: 'inconclusive', ok: false, label: 'send_email called 1 time', detail: 'not decided' }] } as TestResultData },
+    ]);
+    const goldens = [...gated, ...['goldens/polite', 'goldens/planted', 'goldens/unsure'].map(replayGolden)];
+    // A golden that forks asks its judge live: one that lacked a key is opened, where Tests names the key.
+    const keyless: GoldenSource = { ...replayGolden('goldens/keyless'), mode: 'fork' };
+    session(store, 'f6a7b8d', T0 + DAY + 1, [{ golden: 'goldens/keyless', ok: false, failure: 'inconclusive' as never, reason: unjudged, runId: 'R10', data: { mode: 'fork', verdict: 'inconclusive', checks: [judgeCheck('not judged: no key for anthropic')] } as TestResultData }]);
+    const next = Object.fromEntries(failingTests(store, { goldens: [...goldens, keyless] }).map((t) => [t.golden, [t.next, t.href]]));
+    expect(next).toEqual({
+      'goldens/flaky': ['run-more', '#/tests'],
+      'goldens/drops': ['open', '#/tests'],
+      'goldens/polite': ['update', '#/tests'],
+      'goldens/planted': ['run-again', '#/tests'],
+      'goldens/unsure': ['open', '#/tests'],
+      'goldens/keyless': ['open', '#/tests'],
+    });
     store.close();
   });
 

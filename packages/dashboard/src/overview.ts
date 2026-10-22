@@ -212,8 +212,9 @@ export interface NeedsLookRow {
   detail: string;
   /**
    * The word before the arrow, saying where it leads: Fix (the fix that holds the failure), Fix it,
-   * Run blame, Run more and Update (an inconclusive test, on Tests), Apply, Push (the runs only here,
-   * on Runs), Continue, or Open. A read-only dashboard says Open for each, since nothing runs there.
+   * Run blame, Run more, Run again and Update (an inconclusive test, on Tests), Apply, Push (the runs
+   * only here, on Runs), Continue, or Open. A read-only dashboard says Open for each, since nothing
+   * runs there.
    */
   action: string;
   href: string;
@@ -278,7 +279,7 @@ const GRID_MIN_CALLS = 30;
 const NEEDS_LOOK_EACH = 10;
 
 /** The word before a failing test's arrow, by where it leads (`FailingTest['next']`). */
-const TEST_ACTIONS = { fix: 'Fix', open: 'Open', 'run-more': 'Run more', update: 'Update' } as const;
+const TEST_ACTIONS = { fix: 'Fix', open: 'Open', 'run-more': 'Run more', 'run-again': 'Run again', update: 'Update' } as const;
 
 function emptyWeek(): WeekSums {
   return { runs: 0, calls: 0, origins: emptyOriginCounts(), spent: 0, notRespent: 0, notWaitedMs: 0, attempts: 0, attemptsSpent: 0 };
@@ -540,8 +541,8 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
   const fixes = needsLookFixes(store);
   const of = (kind: string) => fixes.filter((f) => f.kind === kind);
   const fixRow = (f: (typeof fixes)[number]): NeedsLookRow => ({ kind: f.kind, icon: f.icon, title: f.title, detail: f.detail, action: f.action, href: f.href, runId: f.runId, fixId: f.fixId, at: f.at });
-  // Each word says where it leads: Fix only to the fix that holds the failure, Run more and Update to
-  // what settles an inconclusive golden on Tests, and Open to the run or the golden otherwise.
+  // Each word says where it leads: Fix only to the fix that holds the failure, Run more, Run again and
+  // Update to what settles an inconclusive golden on Tests, and Open to the run or the golden otherwise.
   const tests: NeedsLookRow[] = goldens.length
     ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: t.verdict === 'inconclusive' ? ('warn' as const) : ('fail' as const), title: t.title, detail: t.line, action: TEST_ACTIONS[t.next], href: t.href, runId: t.runId, fixId: t.fixId, at: t.at }))
     : [];

@@ -1216,7 +1216,7 @@ export interface FailingTest {
   /** Where its line goes: the fix its failing run belongs to, else the failing run, else the Tests screen. */
   href: string;
   /** What the line's word says it leads to (Needs a look's "Fix →", "Run more →"): see `failingNext`. */
-  next: 'fix' | 'open' | 'run-more' | 'update';
+  next: 'fix' | 'open' | 'run-more' | 'run-again' | 'update';
   /** The fix that holds the failing run, when one does. */
   fixId: string | null;
   at: number;
@@ -1224,14 +1224,30 @@ export interface FailingTest {
 
 /**
  * What a failing test leads to, so the word before its arrow says where it goes: the fix its failing
- * run belongs to (`fix`), else the run (`open`). An inconclusive golden settles with more attempts
- * when its gate ran out of them (`run-more`), or, a replay golden whose check could not be judged,
- * by updating the golden, which keeps the judge's verdict (`update`); otherwise it is opened.
+ * run belongs to (`fix`), else the run (`open`). An inconclusive golden goes to its report on Tests,
+ * named by what settles it, as the design's Needs a look names it: more attempts when its gate ran
+ * out of them (`run-more`); running it again when its injection test showed too little to say, once
+ * what kept it from saying is settled, as its report says (`run-again`); updating the golden when it
+ * replays offline and a judge check had no verdict to judge from, which asks the judge once and keeps
+ * its verdict (`update`, `unjudgedOffline`). Any other reason is opened (`open`): a judge that lacked
+ * a key on a golden that forks, a check that couldn't be decided for another reason.
  */
 function failingNext(r: TestResult, o: { fixId: string | null; mode: GoldenSource['mode'] | null }): FailingTest['next'] {
   if (verdictOfResult(r) !== 'inconclusive') return o.fixId ? 'fix' : 'open';
   if (gateResultView(r, r.golden)?.more) return 'run-more';
-  return o.mode === 'replay' && !r.data?.gate ? 'update' : 'open';
+  if (r.failure === 'injection') return 'run-again';
+  return o.mode === 'replay' && unjudgedOffline(r) ? 'update' : 'open';
+}
+
+/**
+ * A result inconclusive only because a judge check had no verdict on a replay that stayed clean: no
+ * gate decided it, and nothing diverged. Updating the golden (`test <golden> --update`) settles that:
+ * it asks the judge once, live, and keeps the verdict in the pack. Not an injection test that showed
+ * too little to say, which an update doesn't settle.
+ */
+function unjudgedOffline(r: TestResult): boolean {
+  if (r.failure !== 'inconclusive' || r.data?.gate || r.data?.divergence) return false;
+  return (r.data?.checks ?? []).some((c) => checkStatus(c) === 'inconclusive' && !!c.judge);
 }
 
 /** Goldens on disk failing now, newest failure first: Needs a look's failing tests. */
