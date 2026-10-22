@@ -9,7 +9,7 @@ import { exportedLine } from '../ui/projects.js';
 import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled, RM_ALL, rmCommand } from '../ui/runspage/bulk.js';
 import { TRACE_COPY } from '../ui/runspage/imports.js';
 import { copyCompares } from '../ui/runs.js';
-import { crumbParent, liveChip, topPill } from '../ui/shell/top.js';
+import { crumbLineage, crumbParent, liveChip, topPill } from '../ui/shell/top.js';
 import { errorText, sentence, TOAST_MS } from '../ui/toast.js';
 
 describe('a tab strip on a narrow screen', () => {
@@ -141,6 +141,26 @@ describe('the top bar', () => {
     expect(crumbParent({ listed: null, loaded: null, exported: false, holds })).toBeNull();
     expect(crumbParent({ listed: { parentRunId: '01M51X7H8Q' }, loaded: undefined, exported: true, holds })).toBeNull();
     expect(crumbParent({ listed: { parentRunId: '01M51X7EDD' }, loaded: undefined, exported: true, holds })).toBe('01M51X7EDD');
+  });
+
+  it('carries a run’s whole lineage in its crumbs, oldest first, each with its about line for the hover', () => {
+    // A fork of a fork of a recording: the crumbs read Runs / recording / fork / this run.
+    const runs = new Map([
+      ['REC', { parentRunId: null, about: { text: 'Ticket T-8812 arrived damaged' } }],
+      ['FORK', { parentRunId: 'REC', about: { text: 'lookup_policy live #16' } }],
+      ['THIS', { parentRunId: 'FORK', about: { text: 'HTTP 529 #19' } }],
+    ]);
+    const o = { listed: (id: string) => runs.get(id) ?? null, loaded: () => undefined, exported: false, holds: (id: string) => runs.has(id) };
+    expect(crumbLineage('THIS', o)).toEqual([
+      { runId: 'REC', about: 'Ticket T-8812 arrived damaged' },
+      { runId: 'FORK', about: 'lookup_policy live #16' },
+    ]);
+    expect(crumbLineage('REC', o)).toEqual([]);
+    // An attempt the list leaves out names its parent once its page loaded it; past a run nobody knows, the lineage stops.
+    expect(crumbLineage('ATTEMPT', { ...o, loaded: (id) => (id === 'ATTEMPT' ? 'THIS' : undefined) }).map((a) => a.runId)).toEqual(['REC', 'FORK', 'THIS']);
+    expect(crumbLineage('LOST', { ...o, listed: (id) => (id === 'LOST' ? { parentRunId: 'GONE' } : null) }).map((a) => a.runId)).toEqual(['GONE']);
+    // An exported copy links only to the runs it holds.
+    expect(crumbLineage('THIS', { ...o, exported: true, holds: (id) => id !== 'REC' }).map((a) => a.runId)).toEqual(['FORK']);
   });
 
   it('keeps the parents of the runs loaded, and says when it learns one', () => {

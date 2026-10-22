@@ -668,7 +668,7 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
   .side { position: fixed; z-index: 25; left: 0; top: 52px; bottom: 28px; width: 280px; transform: translateX(-100%); visibility: hidden; transition: transform .2s ease, visibility .2s; box-shadow: var(--shadow-pop); }
   .side.open { transform: none; visibility: visible; }
   .menu-toggle { display: inline-grid; }
-  .crumbs, .livechip { display: none; }
+  .livechip { display: none; }
   .grid2, .grid3, .stepper, .changes, .paths, .ans, .diffpanel { grid-template-columns: minmax(0, 1fr); }
   .rhead { flex-direction: column; }
   .rhead .actions { margin-left: 0; justify-content: flex-start; }
@@ -1961,3 +1961,48 @@ ol.setup.storesetup p.muted.cinote { margin: -4px 0 10px; font-size: 12px; line-
 ol.setup.storesetup dd .warnt { color: var(--warn); }
 ol.setup.storesetup dl.kvs dd { word-break: normal; overflow-wrap: anywhere; }
 ol.setup.storesetup .recline + .fieldnote { margin-top: 8px; }
+
+/* ============ how runs are named ============ */
+/* A run is named by its id, in mono, which never breaks (.rnm). One quiet line says what it was about (.rab): where a place
+   gives it one line, about.ts fits it to the room it gets, at whole words, keeping its first words and its last. The line
+   clips; it never adds an ellipsis of its own. */
+.rab { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: clip; color: var(--dim); }
+/* words that stay whole look like the text around them, whatever styles a span where they sit */
+:is(.rab, .meta, .kvs, .more, .attn .d) span.nw { white-space: nowrap; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; }
+code.rnm { white-space: nowrap; }
+/* a hover card can say what a run was about under its id */
+.tip .ts { display: block; max-width: 320px; margin: -2px 0 6px; color: var(--dim); font-weight: 400; white-space: normal; }
+/* the header: the id is the heading, in mono so it reads exactly (its zero is dotted, never an O), with its status chip and
+   Copy ID beside it. Under it the about line, muted, on one line, and the labels after it as chips: the line shrinks
+   before the labels move under it, and they move only when it would have less than 160px. On a phone a run's labels go
+   under it whenever it wouldn't fit whole beside them, so a narrower screen never shows less; + Label alone stays beside
+   it. A run with no about line of its own (a clean replay) keeps its labels on the id's row, after Copy ID. */
+.rtitle h1.rnm { flex: none; margin: 0; font: 500 24px/1.15 var(--mono); letter-spacing: 0; color: var(--ink); }
+.rtitle .tag { flex: none; }
+.rabout { display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 6px; margin-top: 6px; min-width: 0; font-size: 13.5px; }
+.rabout .rab { flex: 1 1 160px; max-width: max-content; }
+@media (max-width: 640px) { .rabout:has(.labelbar .chip) .rab { flex: 0 1 auto; max-width: none; } }
+.rabout .labelbar { flex: none; max-width: 100%; }
+.rtitle .labelbar { flex: 0 1 auto; max-width: 100%; }
+/* the eyebrow says what kind of run it is; the lineage is in the crumbs. A phone has no crumbs: there the eyebrow names
+   the parent too, by its id, as a link, on the same line */
+.eyebrow .ebk { flex: none; }
+.eyebrow .ebp { display: none; }
+@media (max-width: 640px) {
+  .eyebrow .ebp { display: inline-flex; align-items: baseline; gap: .6em; flex: none; }
+  .eyebrow .ebp a { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 55%, transparent); }
+  .eyebrow .ebp code { font: inherit; letter-spacing: .04em; text-transform: none; }
+}
+/* the crumbs carry the run's lineage by id, from 641px up; where the bar is short the oldest give way to "…" first */
+.crumbs > a, .crumbs > span, .crumbs > i { flex: none; }
+.crumbs .cg { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.crumbs .cg[hidden] { display: none; }
+.crumbs a b.rt { color: var(--dim); }
+.crumbs a:hover b.rt { color: var(--ink); }
+@media (max-width: 640px) { .crumbs { display: none; } }
+/* Provenance: the about line whole, where it comes from under it; the lineage, each run by its id and its about line */
+.kvs dd small.from { display: block; margin-top: 2px; font-family: var(--body); }
+.lineage li .lt { display: flex; align-items: baseline; gap: 8px; min-width: 0; color: var(--ink); text-decoration: none; }
+.lineage li .lt code { flex: none; }
+.lineage li .lt .rab { flex: 0 1 auto; }
+.lineage li .lt:hover code { text-decoration: underline; text-underline-offset: 3px; }

@@ -15,6 +15,8 @@ export interface TipRow {
 
 interface Tip {
   t: string;
+  /** A line under the title: what a run was about, under its id. */
+  s?: string;
   rows?: Array<[string, string, string?]>;
 }
 
@@ -23,9 +25,9 @@ export function tipText(t: string): string {
   return JSON.stringify({ t } satisfies Tip);
 }
 
-/** A card with a title and rows: what a strip cell, a bar or a chart group holds. */
-export function tipCard(t: string, rows: TipRow[]): string {
-  return JSON.stringify({ t, rows: rows.map((r) => [r.label, r.value, r.color ?? '']) } satisfies Tip);
+/** A card with a title and rows: what a strip cell, a bar or a chart group holds; `s`, a line under the title. */
+export function tipCard(t: string, rows: TipRow[], s?: string | null): string {
+  return JSON.stringify({ t, ...(s ? { s } : {}), rows: rows.map((r) => [r.label, r.value, r.color ?? '']) } satisfies Tip);
 }
 
 function read(el: Element): Tip | null {
@@ -74,6 +76,7 @@ export function HoverCardLayer() {
   return (
     <div className="tip" ref={ref} role="tooltip" style={pos ?? { left: tip.x + 14, top: tip.y + 14, visibility: 'hidden' }}>
       <b>{tip.d.t}</b>
+      {tip.d.s ? <span className="ts">{tip.d.s}</span> : null}
       {(tip.d.rows ?? []).map(([label, value, color], i) => (
         <div key={i}>
           <i style={color ? { background: color } : undefined} />

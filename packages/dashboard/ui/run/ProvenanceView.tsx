@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ABOUT_FROM } from '../../../engine/src/about.js';
 import type { LineageNode, ProvenanceView as ServerProvenance, RunDetail } from '../api.js';
+import { AboutLine, useFitAbouts } from '../components/About.js';
 import { CopyButton, Org } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { copyText } from '../dom.js';
@@ -129,9 +131,24 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   // Not counted, and why: a rule that takes too long on the run's text, a run read only in part.
   const uncounted = prov?.mask?.why ?? null;
   const ledger = run.calls.some((c) => c.fingerprint || c.requestRef || c.responseRef);
+  const box = useRef<HTMLDivElement>(null);
+  useFitAbouts(box);
   const win = useWindow(ledger ? run.calls : NO_CALLS, LEDGER_ROWS);
+  // What the run was about, whole, and on a line of its own where that comes from (decision 10).
+  const about = run.about ?? null;
   const rows: Array<[string, React.ReactNode]> = [
     ['Run', <code key="r">{r.runId}</code>],
+    ...(about?.text
+      ? ([
+          [
+            'About',
+            <span key="a">
+              {about.text}
+              <small className="from">{ABOUT_FROM[about.from] ?? about.from}</small>
+            </span>,
+          ],
+        ] as Array<[string, React.ReactNode]>)
+      : []),
     ['What it is', what],
     ['Command', run.source ? <span className="muted">none: imported from {run.source}</span> : <code key="c">{r.command.argv.join(' ')}</code>],
     ['Code version', r.codeVersion ? <code key="v">{r.codeVersion}</code> : '—'],
@@ -170,7 +187,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
     ['Origins', presentOrigins(origins).map((o) => `${num(origins[o])} ${ORIGIN_NAME[o]}`).join(' · ') || '—'],
   ];
   return (
-    <div className="prov">
+    <div className="prov" ref={box}>
       <div className="provgrid">
         <section>
           <h3>Record</h3>
@@ -192,8 +209,10 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                   return (
                     <li key={n.runId} className={here ? 'here' : undefined}>
                       <RunIcon run={nodeLike} className="" />
-                      <a href={href.run(n.runId)}>
+                      {/* Each run by its id and its about line, which under a parent is what it changed. */}
+                      <a className="lt" href={href.run(n.runId)}>
                         <code>{shortId(n.runId)}</code>
+                        <AboutLine about={n.about} />
                       </a>
                       <small>
                         {words.err ? <em>{words.err}</em> : null}
