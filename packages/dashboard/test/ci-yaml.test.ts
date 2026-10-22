@@ -22,15 +22,21 @@ const withKeys = (yaml: string) => {
   return keys;
 };
 
+describe('the version the steps pin', () => {
+  it('is the version of the CLI package, so a version bump moves every step with it', () => {
+    expect(VERSION).toBe((JSON.parse(readFileSync(join(ROOT, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }).version);
+  });
+});
+
 describe('the Fix on failure step', () => {
   it('runs the action with fix-on-failure, its budget and repairer, and says what the job needs', () => {
     expect(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code' })).toBe(
       [
         '# the job needs: permissions: { contents: write, pull-requests: write }',
         '- run: npm install -g @anthropic-ai/claude-code',
-        '- uses: devjoinedthechat/shadowlap@v0.1.0',
+        `- uses: devjoinedthechat/shadowlap@v${VERSION}`,
         '  with:',
-        '    version: 0.1.0',
+        `    version: ${VERSION}`,
         '    recordings: goldens/*',
         '    fix-on-failure: true',
         '    fix-budget: 2.00',
@@ -69,9 +75,9 @@ describe('the Fix on failure step', () => {
         '# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }',
         "# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints",
         '- run: npm install -g @anthropic-ai/claude-code',
-        '- uses: devjoinedthechat/shadowlap@v0.1.0',
+        `- uses: devjoinedthechat/shadowlap@v${VERSION}`,
         '  with:',
-        '    version: 0.1.0',
+        `    version: ${VERSION}`,
         '    recordings: goldens/*',
         '    fix-on-failure: true',
         '    fix-budget: 2.00',
@@ -94,9 +100,9 @@ describe('the Fix on failure step', () => {
         '# the job needs: permissions: { contents: write, pull-requests: write }',
         "# and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push",
         '- run: npm install -g @anthropic-ai/claude-code',
-        '- uses: devjoinedthechat/shadowlap@v0.1.0',
+        `- uses: devjoinedthechat/shadowlap@v${VERSION}`,
         '  with:',
-        '    version: 0.1.0',
+        `    version: ${VERSION}`,
         '    recordings: goldens/*',
         '    fix-on-failure: true',
         '    fix-budget: 2.00',
