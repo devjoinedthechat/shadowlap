@@ -152,7 +152,7 @@ export function lineageRunLike(n: LineageNode, listed: RunListItem | undefined):
     source: listed?.source ?? null,
     labels: listed?.labels ?? [],
     origins: n.origins ?? listed?.origins ?? null,
-    test: listed?.test ?? null,
+    test: n.test ?? listed?.test ?? null,
     checks: n.checks,
     ...(s ? { kind: s.kind, outcome: s.outcome, ...(typeof s.failed === 'boolean' ? { failed: s.failed } : {}) } : {}),
   };

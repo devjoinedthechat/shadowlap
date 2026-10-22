@@ -74,4 +74,23 @@ describe('a run’s page and lineage', () => {
       local.close();
     }
   });
+
+  it('gives each run of a family what its calls did and the test it belongs to, so Forks words a test from them', () => {
+    const local = Store.open(':memory:');
+    try {
+      const rec = addRun(local, { startedAt: NOW - DAY, calls: 'llllll' });
+      // Two attempts of one golden in a test session, forked live at #3; the same golden replayed once in another.
+      const first = addRun(local, { parent: rec, startedAt: NOW - 3 * HOUR, divergence: 3, calls: 'rrllfb', meta: { test: { golden: 'goldens/refund', session: 'S1', attempt: 1, of: 'LATER' } } });
+      const second = addRun(local, { parent: rec, startedAt: NOW - 2 * HOUR, divergence: 3, calls: 'rrllll', meta: { test: { golden: 'goldens/refund', session: 'S1', attempt: 2 } } });
+      const once = addRun(local, { parent: rec, startedAt: NOW - HOUR, calls: 'rrrrrr', meta: { test: { golden: 'goldens/refund', session: 'S2' } } });
+      expect(lineage(local, second)!.map((n) => [n.runId, n.origins, n.test])).toEqual([
+        [rec, 'llllll', null],
+        [first, 'rrllfb', { golden: 'goldens/refund', session: 'S1', attempt: 1 }],
+        [second, 'rrllll', { golden: 'goldens/refund', session: 'S1', attempt: 2 }],
+        [once, 'rrrrrr', { golden: 'goldens/refund', session: 'S2', attempt: null }],
+      ]);
+    } finally {
+      local.close();
+    }
+  });
 });

@@ -2,17 +2,19 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Client } from '../ui/api.js';
 import { attemptOutcome, bannerFor, type BannerInput } from '../ui/run/banner.js';
+import { ForksView } from '../ui/run/ForksView.js';
 import { attemptLinks, attemptOf } from '../ui/run/model.js';
 import { Banner, type BannerProps } from '../ui/run/parts.js';
-import { runTag, type RunLike } from '../ui/runs.js';
+import { familyLine, runTag, type RunLike } from '../ui/runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { RunDetail, RunOffers } from '../ui/types.js';
+import type { LineageNode, RunDetail, RunOffers } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
  * The run page states what happened: a fork that failed says FAILED and offers Run blame; an attempt
  * says what was asked again, which attempt it is and how it came out, and leads back to where it
- * counted.
+ * counted; the Forks view words a test from what its calls did and bundles a golden's attempts in
+ * one session.
  */
 
 const PLANTED = '01M5GRXJ8PT3W5BY6PKZQM6YA5';
@@ -205,5 +207,39 @@ describe('an attempt', () => {
       ['All 4 attempts →', '#/run/01M5GRW4YMYK6SK2VFC2XFKCDA/forks'],
     ]);
     expect(page.all('.banner button').some((b) => b.textContent === 'Run blame')).toBe(false);
+  });
+});
+
+describe('the Forks view', () => {
+  const node = (runId: string, over: Partial<LineageNode> = {}): LineageNode => ({ runId, parentRunId: TICKET, depth: 1, mode: 'replay', status: 'completed', label: 'test', divergence: null, calls: 32, spent: 0, saved: 0, startedAt: 2, repeat: null, checks: { passed: 1, total: 1 }, origins: 'r'.repeat(32), test: null, kind: 'test', outcome: { kind: 'passed', checks: 1 }, failed: false, ...over });
+  const forked = (runId: string, attempt: number | null, startedAt: number, session = 'S1') => node(runId, { divergence: { callNo: 3, type: 'request_changed' }, origins: `rr${'l'.repeat(25)}${'r'.repeat(3)}bb`, spent: 0.0176, startedAt, test: { golden: 'goldens/refund-over-limit', session, attempt } });
+  const like = (n: LineageNode): RunLike => ({ runId: n.runId, parentRunId: n.parentRunId, mode: n.mode, status: n.status, divergence: n.divergence, command: '', codeVersion: null, startedAt: n.startedAt, calls: n.calls, spent: n.spent, saved: 0, captured: 0, imported: false, covers: null, source: null, labels: [], origins: n.origins ?? null, test: n.test ?? null, kind: 'test', checks: n.checks, outcome: n.outcome ?? null });
+
+  it('words a test that forked live from what its calls did, not as replayed offline', () => {
+    expect(familyLine(like(forked('T1', null, 1)))).toBe('test · forked at #3 · 25 live · ≈$0.018');
+    expect(familyLine(like(node('T2')))).toBe('test · replayed offline · 32 calls');
+    // One that diverged where its golden may not fork failed there: it never forked.
+    const diverged = node('T3', { divergence: { callNo: 3, type: 'request_changed' }, calls: 6, origins: 'rrllfb', outcome: { kind: 'diverged', callNo: 3 }, failed: true });
+    expect(familyLine(like(diverged))).toBe('test · diverged at #3 · 6 calls');
+  });
+
+  it('bundles a golden’s attempts in one test session, as one test', async () => {
+    const lineage: LineageNode[] = [
+      { ...node(TICKET, { parentRunId: null, depth: 0, mode: 'record', kind: 'recording', test: null, origins: 'l'.repeat(30), calls: 30, checks: null, outcome: { kind: 'none' } }) },
+      ...[1, 2, 3, 4, 5].map((k) => forked(`0TEST${k}`.padEnd(26, '0'), k, 10 + k)),
+      // The same golden replayed once in a session is a test of its own.
+      forked('0OTHER'.padEnd(26, '0'), null, 30, 'S2'),
+    ];
+    const client = { lineage: () => Promise.resolve(lineage), fixBundles: () => Promise.resolve([]) };
+    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ForksView, { runId: '0TEST3'.padEnd(26, '0') })));
+    await page.until('the family to load', () => page!.all('.fnode').length > 0);
+    const titles = page.all('.fnode .f1 code').map((c) => c.textContent);
+    expect(titles).toContain('test · refund-over-limit');
+    expect(titles.filter((t) => t.startsWith('0TEST'))).toEqual([]);
+    const bundle = page.all('.fnode').find((n) => n.textContent.includes('test · refund-over-limit'))!;
+    expect(bundle.className).toContain('here');
+    expect(bundle.textContent).toContain('forked 5 attempts, 5 passed · ≈$0.088');
+    expect(page.all('.fnode .attempts span').map((s) => s.textContent)).toEqual([1, 2, 3, 4, 5].map((k) => `0TEST${k}0000 · checks 1 of 1`));
+    expect(titles.some((t) => t.startsWith('0OTHER'))).toBe(true);
   });
 });

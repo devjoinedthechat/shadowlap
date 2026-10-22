@@ -371,7 +371,12 @@ export function familyLine(r: RunLike): string {
     return `${forkAt(r.divergence)} · ${went} · ${approx(r.spent)}`;
   }
   if (t === 'clean') return n && n.rep === r.calls ? `clean replay · ${num(r.calls)}/${num(r.calls)} · 0 upstream` : `clean replay · ${plural(r.calls, 'call')}`;
-  if (t === 'test') return `test · replayed offline · ${plural(r.calls, 'call')}`;
+  // A test of a golden that may fork went live from where it left the recording: what it did there, as
+  // the sidebar says it. One that left it where its golden may not diverged there, and failed.
+  if (t === 'test') {
+    if (r.divergence && r.outcome?.kind === 'diverged') return `test · diverged at #${r.divergence.callNo} · ${plural(r.calls, 'call')}`;
+    return n && n.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(n.live)} live · ${approx(r.spent)}` : `test · replayed offline · ${plural(r.calls, 'call')}`;
+  }
   if (t === 'capture') return `capture · ${plural(r.calls, 'call')} · ${money(r.captured)} as captured`;
   if (t === 'replay') return `replay · ${plural(r.calls, 'call')} · ${r.status === 'completed' ? 'finished' : r.status}`;
   return `${isFailed(r) ? `${failedWord(r)} · ` : 'recording · '}${plural(r.calls, 'call')} · ${approx(r.spent)}`;
@@ -405,9 +410,10 @@ export interface RepeatAttempt {
  * checks did, or, without checks, when it exited cleanly (the first check of every outcome check is
  * the exit code). An attempt that left the path somewhere else than the others says where. One that
  * was stopped before it ended (Ctrl-C, its recorder killed) neither passed nor failed: it is counted
- * apart and marked `cut`, shown in grey as every list shows an interrupted run.
+ * apart and marked `cut`, shown in grey as every list shows an interrupted run. `title` names
+ * attempts made together otherwise: a golden's attempts in one test session (`test · refund-flow`).
  */
-export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: string; line: string; attempts: Array<{ runId: string; text: string; ok: boolean; cut?: true }> } {
+export function repeatBundle(attempts: readonly RepeatAttempt[], title?: string): { title: string; line: string; attempts: Array<{ runId: string; text: string; ok: boolean; cut?: true }> } {
   const sorted = [...attempts].sort((a, b) => (a.repeat?.attempt ?? 0) - (b.repeat?.attempt ?? 0) || a.startedAt - b.startedAt);
   // Passed: no check failed or could not be decided; one that did not apply is no failure.
   const ok = (n: RepeatAttempt) => (n.checks ? checksFailed(n.checks) === 0 && !n.checks.inconclusive : n.status === 'completed');
@@ -417,7 +423,7 @@ export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: strin
   const passed = sorted.filter(ok).length;
   const stopped = sorted.filter(cut).length;
   return {
-    title: `replay --repeat ${sorted[0]?.repeat?.of ?? sorted.length}`,
+    title: title ?? `replay --repeat ${sorted[0]?.repeat?.of ?? sorted.length}`,
     line: `${forkAt !== null ? 'forked ' : ''}${plural(sorted.length, 'attempt')}, ${num(passed)} passed${stopped ? `, ${num(stopped)} interrupted` : ''}${spent ? ` · ${approx(spent)}` : ''}`,
     attempts: sorted.map((n) => {
       const where = n.divergence && n.divergence.callNo !== forkAt ? ` · forked at #${n.divergence.callNo}` : '';

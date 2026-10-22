@@ -1,4 +1,4 @@
-import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, displayOrigin, ORIGIN_CODE, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
@@ -455,6 +455,13 @@ export interface LineageNode {
   startedAt: number;
   repeat: { group: string; attempt: number; of: number } | null;
   checks: { passed: number; total: number } | null;
+  /**
+   * One character per call, as the run list encodes them (r replayed, l live, o overridden, i
+   * injected, f failed, b blocked, s stubbed): an attempt the list leaves out says what it did too.
+   */
+  origins: string;
+  /** A replay made by `shadowlap test`: its golden and session, and which of the golden's attempts in the session it is. */
+  test: { golden: string; session: string; attempt: number | null } | null;
   /** How the run stands as the run list says it: its kind, how it came out, and whether that failed. */
   kind?: RunKind;
   outcome?: RunOutcome;
@@ -502,11 +509,22 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
       startedAt: r.startedAt,
       repeat: r.meta?.repeat ?? null,
       checks: checksOf(r),
+      origins: calls.map((c) => ORIGIN_CODE[displayOrigin(c.origin, c.end ? { outcome: c.end.outcome, injected: c.end.meta.injected } : null)]).join(''),
+      test: testOf(r),
     });
     for (const child of store.childRuns(r.runId).sort((a, b) => a.startedAt - b.startedAt)) walk(child, depth + 1);
   };
   walk(root, 0);
   return out;
+}
+
+/** A test replay's golden, session and attempt, as its record keeps them; checked, since a run can come from someone else's pack. */
+function testOf(r: RunRecord): LineageNode['test'] {
+  const t: unknown = r.meta?.test;
+  if (typeof t !== 'object' || t === null) return null;
+  const { golden, session, attempt } = t as Record<string, unknown>;
+  if (typeof golden !== 'string' || typeof session !== 'string') return null;
+  return { golden, session, attempt: Number.isInteger(attempt) ? (attempt as number) : null };
 }
 
 export function compare(store: Store, a: string, b: string): RunComparison | null {

@@ -276,7 +276,8 @@ export type CallDetail = Omit<ServerCallDetail, 'call' | 'actions'> & {
   forkTitle?: string;
 };
 
-export type LineageNode = ServerLineageNode & { probe?: unknown; verify?: unknown; origins?: string | string[] | null };
+/** A run of a family: what an older server or a copy leaves out (its origins, its test) is optional. */
+export type LineageNode = Omit<ServerLineageNode, 'origins' | 'test'> & { probe?: unknown; verify?: unknown; origins?: string | string[] | null; test?: ServerLineageNode['test'] | null };
 
 /**
  * What the run page offers for a run beyond its record (`/api/runs/:id/offers`): how many redaction

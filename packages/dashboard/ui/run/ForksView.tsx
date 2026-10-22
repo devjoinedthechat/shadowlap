@@ -9,12 +9,20 @@ import { familyLineParts, repeatBundle } from '../runs.js';
 import { useApp } from '../state.js';
 import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
 import { lineageRunLike } from './model.js';
+import { goldenName } from './offers.js';
 
 /**
  * Forks: the run's family, its recording and every replay and fork of it, each with a line that says
  * what happened ("fork @17 · 13 live · 1 blocked"). Attempts of one `--repeat` are bundled with how
- * many passed, and so are blame's probes and verify's attempts, leading to their fix (fixes/Bundles.tsx).
+ * many passed, and so are a golden's attempts in one test session, and blame's probes and verify's
+ * attempts, leading to their fix (fixes/Bundles.tsx).
  */
+
+/**
+ * The bundle a golden's attempt in a test session goes in: a golden replayed more than once in one
+ * session numbers its attempts (`test.attempt`), and they are one test. One replayed once is a test of its own.
+ */
+const sessionKey = (n: LineageNode): string | null => (n.test && n.test.attempt !== null ? `test:${n.test.session}\n${n.test.golden}` : null);
 
 export function ForksView({ runId }: { runId: string }) {
   const { client, runs, runsTick, live } = useApp();
@@ -66,9 +74,16 @@ export function ForksView({ runId }: { runId: string }) {
     const list = [...(kids.get(parent) ?? [])].filter((n) => !fixes.bundled.has(n.runId)).sort((a, b) => a.startedAt - b.startedAt);
     // The fork blame rescued a run with is one of its attempts, but it shows as a fork of its own.
     const repeated = (n: LineageNode) => !!n.repeat && !fixes.rescued.has(n.runId);
-    const plain = list.filter((n) => !repeated(n));
     const groups = new Map<string, LineageNode[]>();
     for (const n of list) if (n.repeat && repeated(n)) groups.set(n.repeat.group, [...(groups.get(n.repeat.group) ?? []), n]);
+    // A golden replayed several times in one test session: one test, bundled as --repeat's attempts are.
+    const sessions = new Map<string, LineageNode[]>();
+    for (const n of list) {
+      const key = repeated(n) ? null : sessionKey(n);
+      if (key) sessions.set(key, [...(sessions.get(key) ?? []), n]);
+    }
+    const tested = (n: LineageNode) => (sessions.get(sessionKey(n) ?? '')?.length ?? 0) > 1;
+    const plain = list.filter((n) => !repeated(n) && !tested(n));
     const items: ReactNode[] = [];
     for (const n of plain) {
       items.push(node(n));
@@ -76,6 +91,7 @@ export function ForksView({ runId }: { runId: string }) {
       if (sub) items.push(<Fragment key={`${n.runId}:kids`}>{sub}</Fragment>);
     }
     for (const [group, attempts] of groups) items.push(<Bundle key={group} attempts={attempts} current={runId} />);
+    for (const [key, attempts] of sessions) if (attempts.length > 1) items.push(<Bundle key={key} attempts={attempts} current={runId} title={`test · ${goldenName(attempts[0]!.test!.golden)}`} />);
     if (parent !== null) for (const b of fixes.bundles) if (b.parentRunId === parent) items.push(<FixBundleNode key={b.key} bundle={b} current={runId} />);
     if (!items.length) return null;
     return parent === null ? <>{items}</> : <div className="fkids">{items}</div>;
@@ -83,13 +99,18 @@ export function ForksView({ runId }: { runId: string }) {
   return <div className="fam">{family(null)}</div>;
 }
 
-function Bundle({ attempts, current }: { attempts: LineageNode[]; current: string }) {
-  const b = repeatBundle(attempts.map((n) => ({ runId: n.runId, status: n.status, divergence: n.divergence, spent: n.spent, startedAt: n.startedAt, repeat: n.repeat, checks: n.checks })));
+function Bundle({ attempts, current, title }: { attempts: LineageNode[]; current: string; title?: string }) {
+  // A test session's attempts are numbered by the golden's result, as --repeat's are by the replay.
+  const numbered = (n: LineageNode) => n.repeat ?? (n.test?.attempt ? { attempt: n.test.attempt, of: attempts.length } : null);
+  const b = repeatBundle(
+    attempts.map((n) => ({ runId: n.runId, status: n.status, divergence: n.divergence, spent: n.spent, startedAt: n.startedAt, repeat: numbered(n), checks: n.checks })),
+    title,
+  );
   const first = attempts.find((n) => n.runId === b.attempts[0]?.runId) ?? attempts[0]!;
   const has = attempts.some((n) => n.runId === current);
   return (
     <a className={`fnode${has ? ' here' : ''}`} href={href.run(first.runId)}>
-      <Glyph kind="fork" label="Repeated attempts" />
+      {title ? <Glyph kind="test" label="Test attempts" /> : <Glyph kind="fork" label="Repeated attempts" />}
       <span>
         <span className="f1">
           <code>{b.title}</code>
