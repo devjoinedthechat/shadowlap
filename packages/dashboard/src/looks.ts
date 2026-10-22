@@ -14,10 +14,14 @@ import type { GoldenList, GoldenSource } from './tests.js';
  * own exists yet. Red lines are failures; amber lines need a look or couldn't decide.
  */
 export interface UpgradeLooks {
-  /** An injection test a planted instruction got through; presets that failed. */
-  failed: NeedsLookRow[];
-  /** An injection test it influenced or that showed too little; presets left inconclusive; previews that flag runs. */
-  warn: NeedsLookRow[];
+  /** Injection tests a planted instruction got through (red), first, then those it influenced or that showed too little to say (amber). */
+  injection: NeedsLookRow[];
+  /** Goldens whose error-path presets failed (red). */
+  presetsFailed: NeedsLookRow[];
+  /** Goldens whose error-path presets couldn't say (amber). */
+  presetsUnsure: NeedsLookRow[];
+  /** Previews of a change that flag runs no session of that change has settled since (amber). */
+  decisions: NeedsLookRow[];
   /** Behaviours seen in production that no golden covers. */
   coverage: NeedsLookRow[];
 }
@@ -32,18 +36,23 @@ const kept = (store: Store, runId: string | null | undefined): string | null => 
 
 /**
  * An injection test's lines: obeyed in red, first; influenced or inconclusive in amber. Each opens an
- * attempt that shows it, else the run tested. A golden no longer on disk, or a run no longer in the
- * store, has none.
+ * attempt that shows it, else the run tested. A golden's injection gate is Tests' to list: a result
+ * its newest test result carries (it ran in that test's session) is already a failing or an
+ * inconclusive test, so it adds no line of its own; a golden tested on its own (`shadowlap
+ * injection goldens/x`) does. A golden no longer on disk, or a run no longer in the store, has none.
  */
-function injectionLooks(store: Store, goldens: GoldenList): { failed: NeedsLookRow[]; warn: NeedsLookRow[] } {
+function injectionLooks(store: Store, goldens: GoldenList): NeedsLookRow[] {
   const onDisk = new Set(goldens.map(pathOf));
+  const tested = new Map(store.latestTestResults().map((t) => [t.golden, t]));
   const failed: NeedsLookRow[] = [];
   const warn: NeedsLookRow[] = [];
   for (const x of injectionNeedsLook(store)) {
     if (x.golden ? !onDisk.has(x.golden) : !kept(store, x.runId)) continue;
+    const result = store.getInjectionResult(x.resultId);
+    const test = x.golden ? tested.get(x.golden) : undefined;
+    if (test && (test.data?.injection?.resultId === x.resultId || (!!result?.sessionId && test.sessionId === result.sessionId))) continue;
     const name = x.golden ? goldenName(x.golden) : x.runId.slice(0, 10);
     // The attempt whose verdict is the line's: the evidence, a run of its own.
-    const result = store.getInjectionResult(x.resultId);
     const attempts = isObject(result?.data) && Array.isArray(result.data.attempts) ? (result.data.attempts as unknown[]).filter(isObject) : [];
     const shows = attempts.find((a) => a.verdict === x.severity && typeof a.runId === 'string' && kept(store, a.runId as string));
     const runId = (shows?.runId as string | undefined) ?? kept(store, x.runId);
@@ -52,7 +61,7 @@ function injectionLooks(store: Store, goldens: GoldenList): { failed: NeedsLookR
     else if (x.severity === 'influenced') warn.push(row('warn', `An injection test needs a look: ${name}`));
     else warn.push(row('warn', `An injection test is inconclusive: ${name}`));
   }
-  return { failed, warn };
+  return [...failed, ...warn];
 }
 
 /**
@@ -82,30 +91,51 @@ function verifiedAs(data: Record<string, unknown>): string | null {
   return v && typeof v.verdict === 'string' && v.verdict !== 'not-run' ? v.verdict : null;
 }
 
+/** The runs a session's report flags, as most samples show them (the store's count goes by the same). */
+function flaggedOf(data: Record<string, unknown>): string[] {
+  const report = isObject(data.decisions) ? data.decisions : data;
+  const listed = Array.isArray(data.flagged) ? data.flagged : Array.isArray(report.flagged) ? report.flagged : [];
+  return listed.filter((id): id is string => typeof id === 'string');
+}
+
 /**
- * Previews of a change (`decisions`, `migrate`) whose flagged runs no verify has accepted since:
- * the newest of each change, in amber, each opening its first flagged run at the call whose
- * decision changed. A preview whose flagged runs a verify accepted needs nothing more.
+ * Previews of a change (`decisions`, `migrate`) whose flagged runs no session of that change has
+ * settled since, in amber, newest first. A run stands as the newest session of the change, of either
+ * kind, that asked it again says: one that didn't flag it, or whose verify accepted what it flagged,
+ * settled it (a migration of a model a preview flagged runs under, whose verify accepted them,
+ * settles the preview); one that flagged it again is that session's line. A session with flagged runs
+ * left is a line, opening the first still in the store at the first call whose decision most of its
+ * samples changed.
  */
 function decisionLooks(store: Store): NeedsLookRow[] {
+  const sessions = store.listDecisionSessions({ limit: 50 });
+  if (!sessions.length) return [];
+  // The runs each session asked again, without reading their reports.
+  const asked = new Map<string, Set<string>>();
+  const rows = store.query(`SELECT session_id, run_id FROM decision_runs WHERE session_id IN (${sessions.map(() => '?').join(', ')})`, ...sessions.map((s) => s.sessionId));
+  for (const r of rows) {
+    const id = String(r.session_id);
+    asked.set(id, (asked.get(id) ?? new Set()).add(String(r.run_id)));
+  }
   const out: NeedsLookRow[] = [];
-  const seen = new Set<string>();
-  for (const s of store.listDecisionSessions({ limit: 50 })) {
-    // The newest preview of each change says how it stands: one since that flags nothing settles it.
-    const key = `${s.kind}\u0000${s.change}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (s.flagged <= 0) continue;
-    const full = store.getDecisionSession(s.sessionId);
-    if (!full) continue;
+  // Per change, the runs a newer session already stands for.
+  const said = new Map<string, Set<string>>();
+  for (const s of sessions) {
+    const newer = said.get(s.change);
+    const standing = newer ?? new Set<string>();
+    said.set(s.change, standing);
+    const mine = asked.get(s.sessionId) ?? new Set<string>();
+    const full = s.flagged > 0 ? store.getDecisionSession(s.sessionId) : null;
+    const flagged = full ? flaggedOf(full.data) : [];
+    // What a newer session settled or says itself; a report that lists no runs goes by its count, while it is its change's newest.
+    const open = flagged.filter((id) => !standing.has(id));
+    for (const id of [...mine, ...flagged]) standing.add(id);
+    if (!full || (flagged.length ? !open.length : newer)) continue;
     const verdict = verifiedAs(full.data);
     if (verdict === 'accepted') continue;
-    const report = isObject(full.data.decisions) ? full.data.decisions : full.data;
-    const listed = Array.isArray(full.data.flagged) ? full.data.flagged : Array.isArray(report.flagged) ? report.flagged : [];
-    const flagged = listed.filter((id): id is string => typeof id === 'string');
-    const n = flagged.length || s.flagged;
+    const n = open.length || s.flagged;
     // The first flagged run still here, at the first call whose decision most of its samples changed.
-    const first = flagged.find((id) => kept(store, id)) ?? null;
+    const first = open.find((id) => kept(store, id)) ?? null;
     const row = first ? full.runRows.find((r) => r.runId === first) : undefined;
     const steps = row && Array.isArray(row.data.decisions) ? (row.data.decisions as unknown[]).filter(isObject) : [];
     const callNo = steps
@@ -130,13 +160,13 @@ function decisionLooks(store: Store): NeedsLookRow[] {
 
 /** Every line the upgrades' results add to Needs a look. */
 export function upgradeLooks(store: Store, o: { goldens: GoldenList }): UpgradeLooks {
-  const injection = injectionLooks(store, o.goldens);
   const presets = presetLooks(store, o.goldens);
   const coverage = coverageLook(store);
   return {
-    failed: [...injection.failed, ...presets.failed],
-    warn: [...injection.warn, ...presets.warn, ...decisionLooks(store)],
+    injection: injectionLooks(store, o.goldens),
+    presetsFailed: presets.failed,
+    presetsUnsure: presets.warn,
+    decisions: decisionLooks(store),
     coverage: coverage ? [coverage] : [],
   };
 }
-

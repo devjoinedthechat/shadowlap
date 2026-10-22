@@ -524,13 +524,13 @@ function weekCache(store: Store, index: RunIndex, since: number): CacheUse {
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
 /**
- * Needs a look, most urgent first: a team store's setup left unfinished, applied fixes that don't
- * hold, failing tests, an injection test a planted instruction got through and error-path presets
- * that failed, failures with no fix yet (open fixes, then failed runs never blamed), the upgrades'
- * results that need a look or couldn't decide (an injection test it influenced or that showed too
- * little, presets left inconclusive, a preview of a change that flags runs), verified fixes not yet
- * applied, behaviours seen in production that no golden covers, then runs only on this machine. A
- * recording in progress shows under Today instead.
+ * Needs a look, most urgent first, in the design's one order: a team store's setup left unfinished,
+ * applied fixes that don't hold, failing tests, injection tests a planted instruction got through
+ * then those it influenced or that showed too little to say, error-path presets that failed,
+ * inconclusive tests then presets left inconclusive, failures with no fix yet (open fixes, then
+ * failed runs never blamed), previews of a change that flag runs, verified fixes not yet applied,
+ * behaviours seen in production that no golden covers, then runs only on this machine. A recording in
+ * progress shows under Today instead.
  */
 function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null): NeedsLook {
   const fixes = needsLookFixes(store);
@@ -582,14 +582,19 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
     return [...rows.slice(0, NEEDS_LOOK_EACH), { kind: rows[0]!.kind, action: 'Open', runId: null, fixId: null, at: rows[NEEDS_LOOK_EACH]!.at, more: n, ...rest(n) }];
   };
   const looks = upgradeLooks(store, { goldens });
+  // An injection test's lines, obeyed first: the rest of them read in red when any of the rest obeyed.
+  const injectionRest = (n: number): Pick<NeedsLookRow, 'icon' | 'title' | 'detail' | 'href'> => ({ icon: looks.injection.slice(NEEDS_LOOK_EACH).some((x) => x.icon === 'fail') ? 'fail' : 'warn', title: `${plural(n, 'more injection test')} to look at`, detail: 'each on its run, under Runs', href: '#/runs' });
   const all = [
     ...setup,
     ...capped(of('broken').map(fixRow), (n) => ({ icon: 'fail', title: `${plural(n, 'more applied fix', 'more applied fixes')} ${n === 1 ? "doesn't" : "don't"} hold`, detail: 'each on Fixes', href: '#/fixes' })),
-    ...capped(tests, (n) => ({ icon: 'fail', title: `${plural(n, 'more test')} failed or inconclusive`, detail: 'each on Tests', href: '#/tests' })),
-    ...capped(looks.failed, (n) => ({ icon: 'fail', title: `${plural(n, 'more injection or error-path test')} failed`, detail: 'each on its run, under Runs', href: '#/runs' })),
+    ...capped(tests.filter((t) => t.icon === 'fail'), (n) => ({ icon: 'fail', title: `${plural(n, 'more test')} failed`, detail: 'each on Tests', href: '#/tests' })),
+    ...capped(looks.injection, injectionRest),
+    ...capped(looks.presetsFailed, (n) => ({ icon: 'fail', title: `${plural(n, 'more error-path test')} failed`, detail: 'each on its run, under Runs', href: '#/runs' })),
+    ...capped(tests.filter((t) => t.icon !== 'fail'), (n) => ({ icon: 'warn', title: `${plural(n, 'more test')} inconclusive`, detail: 'each on Tests', href: '#/tests' })),
+    ...capped(looks.presetsUnsure, (n) => ({ icon: 'warn', title: `${plural(n, 'more error-path test')} inconclusive`, detail: 'each on its run, under Runs', href: '#/runs' })),
     ...capped(of('open').map(fixRow), (n) => ({ icon: 'blame', title: `${plural(n, 'more failure')} with no fix yet`, detail: 'each on Fixes', href: '#/fixes' })),
     ...capped(unblamed, (n) => ({ icon: 'fail', title: `${plural(n, 'more failed run')} not blamed yet`, detail: 'the failed runs on Runs', href: '#/runs?type=failed' })),
-    ...capped(looks.warn, (n) => ({ icon: 'warn', title: `${plural(n, 'more result')} to look at`, detail: 'each on its run, under Runs', href: '#/runs' })),
+    ...capped(looks.decisions, (n) => ({ icon: 'warn', title: `${plural(n, 'more preview')} of a change to look at`, detail: 'each on its run, under Runs', href: '#/runs' })),
     ...capped(of('ready').map(fixRow), (n) => ({ icon: 'fixok', title: `${plural(n, 'more verified fix', 'more verified fixes')} ${n === 1 ? 'is' : 'are'} ready`, detail: 'each on Fixes', href: '#/fixes' })),
     ...looks.coverage,
     ...local,

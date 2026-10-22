@@ -106,6 +106,94 @@ describe('the upgrades’ results in Needs a look', () => {
     ]);
   });
 
+  it('settles a preview once a newer session of the same change, of either kind, accepted the runs it flags', () => {
+    const ticket = run();
+    const golden = run();
+    const third = run();
+    const step = (callNo: number, majority: number | null) => ({ callNo, step: callNo, rank: majority, majority, samples: { asked: 1, answered: 1, changed: majority ? 1 : 0, ranks: [majority ?? 0] }, changes: [] });
+    const session = (sessionId: string, kind: 'decisions' | 'migrate', at: number, data: Record<string, unknown>, runs: string[]) =>
+      store.putDecisionSession({ sessionId, kind, at, change: 'the model claude-haiku-4-5', actor: null, revision: null, data, runs: runs.map((runId) => ({ runId, golden: null, rank: 1, changed: 1, data: { runId, golden: null, rank: 1, decisions: [step(17, 1)] } })) });
+    // The demo's: a preview of the model on the ticket run, then a migration of the goldens to it,
+    // which flagged the same run and whose verify accepted it.
+    session('dc-01M5000000000000000000000A', 'decisions', NOW - 9_000, { flagged: [ticket], verify: null }, [ticket]);
+    session('mg-01M5000000000000000000000B', 'migrate', NOW - 5_000, { flagged: [ticket], decisions: { flagged: [ticket], verify: { verdict: 'accepted', runs: [{ runId: ticket, role: 'good', outcome: 'kept', passes: 2, attempts: 2 }] } }, passes: { verdict: 'accepted', runs: [] } }, [ticket, golden]);
+    const decisions = () => items().filter((i) => i.kind === 'decisions');
+    expect(decisions()).toEqual([]);
+    // An older preview that also flagged a run the migration never asked again: its line, for that run alone.
+    session('dc-01M5000000000000000000000C', 'decisions', NOW - 20_000, { flagged: [ticket, third], verify: null }, [ticket, third]);
+    expect(decisions()).toEqual([expect.objectContaining({ title: '1 run decides differently under the model claude-haiku-4-5', detail: 'a preview: a write, stop or judged change · not verified yet', href: `#/run/${third}/17`, runId: third, at: NOW - 20_000 })]);
+    // A newer migration flagged that run too, and its verify rejected it: the line is the migration's, once.
+    session('mg-01M5000000000000000000000D', 'migrate', NOW - 1_000, { flagged: [third], decisions: { flagged: [third] }, passes: { verdict: 'rejected', runs: [] } }, [third]);
+    expect(decisions()).toEqual([expect.objectContaining({ title: '1 run decides differently under the model claude-haiku-4-5', detail: 'a migration: a write, stop or judged change · verify rejected it', runId: third, at: NOW - 1_000 })]);
+  });
+
+  it('leaves a golden’s injection gate to Tests, so one failure is one line; a golden tested on its own keeps its line', () => {
+    const forecast = run();
+    const inbox = run();
+    const replay = run({ parent: forecast, meta: { test: { golden: 'goldens/forecast', session: 'S' } } });
+    const obeyed = run({ parent: forecast, meta: { injection: { result: 'inj-01A', role: 'attempt', read: 1, payload: 'notice', attempt: 1, of: 1, verdict: 'obeyed' } } });
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: NOW - 10_000 });
+    const gate = (resultId: string, runId: string, golden: string, o: { obeyed: number; inconclusive: number; verdict: 'failed' | 'inconclusive'; attempt: string }) =>
+      store.putInjectionResult({ resultId, runId, golden, sessionId: session.sessionId, mode: 'plant', at: NOW - 9_000, endedAt: NOW - 8_000, attempts: 1, obeyed: o.obeyed, influenced: 0, ignored: 0, inconclusive: o.inconclusive, verdict: o.obeyed ? 'obeyed' : 'inconclusive', actor: null, data: { mode: 'plant', attempts: [{ runId: o.attempt, verdict: o.obeyed ? 'obeyed' : 'inconclusive', evidence: [] }], gate: { verdict: o.verdict } } });
+    // forecast's gate let a planted instruction through, which failed its test; inbox's showed too little to say.
+    gate('inj-01A', forecast, 'goldens/forecast', { obeyed: 1, inconclusive: 0, verdict: 'failed', attempt: obeyed });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/forecast', ok: false, failure: 'injection', reason: 'injection: 1 obeyed, at most 0 allowed', runId: replay, at: NOW - 8_000, data: { injection: { resultId: 'inj-01A', attempts: 1, obeyed: 1, influenced: 0, ignored: 0, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, verdict: 'failed', reason: '1 obeyed, at most 0 allowed', skipped: null } } as never });
+    gate('inj-01B', inbox, 'goldens/inbox', { obeyed: 0, inconclusive: 1, verdict: 'inconclusive', attempt: run({ parent: inbox }) });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/inbox', ok: false, failure: 'inconclusive', reason: 'injection inconclusive: no attempt reached the read', runId: null, at: NOW - 7_500, data: { injection: { resultId: 'inj-01B', attempts: 1, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 1, allowed: { obeyed: 0, influenced: null }, verdict: 'inconclusive', reason: 'no attempt reached the read', skipped: null } } as never });
+    store.finishTestSession(session.sessionId, { passed: 0, failed: 2, upstreamRequests: 0, endedAt: NOW - 7_000 });
+    // One line each, its test's: red for the failure, amber for the one that couldn't say.
+    expect(items().map((r) => [r.kind, r.icon, r.title])).toEqual([
+      ['test', 'fail', 'A test failed: forecast'],
+      ['test', 'warn', 'A test is inconclusive: inbox'],
+    ]);
+    expect(overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.total).toBe(2);
+    // Tested on its own since (`shadowlap injection goldens/forecast`): a line of its own, after the failing tests.
+    const again = run({ parent: forecast, meta: { injection: { result: 'inj-01C', role: 'attempt', read: 1, payload: 'notice', attempt: 1, of: 1, verdict: 'obeyed' } } });
+    store.putInjectionResult({ resultId: 'inj-01C', runId: forecast, golden: 'goldens/forecast', sessionId: null, mode: 'plant', at: NOW - 2_000, endedAt: NOW - 1_000, attempts: 1, obeyed: 1, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'obeyed', actor: null, data: { mode: 'plant', attempts: [{ runId: again, verdict: 'obeyed', evidence: [] }], gate: { verdict: 'failed' } } });
+    expect(items().map((r) => [r.kind, r.title, r.runId])).toEqual([
+      ['test', 'A test failed: forecast', replay],
+      ['injection', 'An injection test failed: forecast', again],
+      ['test', 'A test is inconclusive: inbox', null],
+    ]);
+  });
+
+  it('lists the upgrades’ lines in the design’s one order, among the failures and the fixes', () => {
+    const forecast = run();
+    const inbox = run();
+    // A failing test and an inconclusive one.
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: NOW - 30_000 });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/forecast', ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: null, at: NOW - 29_000 });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/inbox', ok: false, failure: 'inconclusive', reason: 'a check could not be judged', runId: null, at: NOW - 28_000 });
+    store.finishTestSession(session.sessionId, { passed: 0, failed: 2, upstreamRequests: 0, endedAt: NOW - 27_000 });
+    // Injection tests of two recordings: one obeyed, the newer one influenced.
+    const tested = (resultId: string, at: number, o: { obeyed: number; influenced: number }) => {
+      const recording = run();
+      const attempt = run({ parent: recording });
+      store.putInjectionResult({ resultId, runId: recording, golden: null, sessionId: null, mode: 'plant', at, endedAt: at + 1, attempts: 1, obeyed: o.obeyed, influenced: o.influenced, ignored: 0, inconclusive: 0, verdict: o.obeyed ? 'obeyed' : 'influenced', actor: null, data: { mode: 'plant', attempts: [{ runId: attempt, verdict: o.obeyed ? 'obeyed' : 'influenced', evidence: [] }], gate: { verdict: o.obeyed ? 'failed' : 'passed' } } });
+    };
+    tested('inj-01A', NOW - 20_000, { obeyed: 1, influenced: 0 });
+    tested('inj-01B', NOW - 10_000, { obeyed: 0, influenced: 1 });
+    // Presets that failed on one golden and couldn't say on the other.
+    presets('goldens/forecast', forecast, [{ preset: 'timeout', verdict: 'failed', callNo: 2 }]);
+    presets('goldens/inbox', inbox, [{ preset: '500', verdict: 'inconclusive', callNo: 3 }]);
+    // A failed run nobody blamed, a preview of a change that flags a run, and a behaviour with no golden.
+    run({ status: 'failed' });
+    store.putDecisionSession({ sessionId: 'dc-01M5000000000000000000000A', kind: 'decisions', at: NOW - 5_000, change: 'temperature=1', actor: null, revision: null, data: { flagged: [forecast], verify: null }, runs: [{ runId: forecast, golden: null, rank: 1, changed: 1, data: { runId: forecast, rank: 1, decisions: [] } }] });
+    const capture = run({ meta: { covers: ['api'], imported: { at: NOW - 5_000, from: 'prod.har' } } });
+    store.saveCoverageScan({ scanId: 'S1', at: NOW - 1_000, runs: 1, groups: 1, uncovered: 1, goldens: 2, actor: null, data: null }, [{ key: 'aaaa000011112222', scanId: 'S1', behaviour: { path: ['lookup_order'], writes: [], unknown: [], outcome: 'answered' }, runs: 1, runIds: [capture], sources: ['prod.har'], firstSeen: NOW - 9_000, lastSeen: NOW - 5_000, coveredBy: [], nearest: null, command: null, packed: null }]);
+    expect(items().map((r) => [r.kind, r.icon])).toEqual([
+      ['test', 'fail'],
+      ['injection', 'fail'],
+      ['injection', 'warn'],
+      ['presets', 'fail'],
+      ['test', 'warn'],
+      ['presets', 'warn'],
+      ['unblamed', 'fail'],
+      ['decisions', 'warn'],
+      ['coverage', 'rec'],
+    ]);
+  });
+
   it('says how many behaviours seen in production have no golden, opening a run of the newest', () => {
     const capture = run({ runId: '01M5CAPTURE000000000000000', meta: { covers: ['api'], imported: { at: NOW - 5_000, from: 'prod.har' } } });
     const group = (o: Partial<StoredCoverageGroup>): StoredCoverageGroup => ({ key: 'aaaa000011112222', scanId: 'S1', behaviour: { path: ['lookup_order', 'issue_refund'], writes: ['issue_refund'], unknown: [], outcome: 'answered' }, runs: 1, runIds: ['GONE', capture], sources: ['prod.har'], firstSeen: NOW - 9_000, lastSeen: NOW - 5_000, coveredBy: [], nearest: null, command: null, packed: null, ...o });
