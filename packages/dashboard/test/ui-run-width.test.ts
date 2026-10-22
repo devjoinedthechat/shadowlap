@@ -132,3 +132,13 @@ describe('the status bar', () => {
     expect(bar).toMatch(/z-index:\s*[1-9]/);
   });
 });
+
+describe('Compare on a phone', () => {
+  it('wraps what made a fork inside the prefix line, a quoted tool result and all, rather than run past the window', () => {
+    const line = topRule('.prefix > span:last-child');
+    expect(line).toMatch(/min-width:\s*0/);
+    expect(line).toMatch(/overflow-wrap:\s*anywhere/);
+    // A run id named where no run is: it breaks too.
+    expect(topRule('.stepempty p code')).toMatch(/overflow-wrap:\s*anywhere/);
+  });
+});

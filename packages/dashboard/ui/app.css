@@ -541,6 +541,8 @@ table.ctab tr.miss td { color: var(--warn); }
 .changes small { display: block; margin-top: 2px; font: 11.5px var(--mono); color: var(--faint); }
 .prefix { margin-top: 16px; display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--lime) 7%, transparent); }
 .prefix .ms { width: 260px; height: 12px; }
+/* what made a fork can quote a tool's JSON: the line wraps inside it rather than run past a narrow window */
+.prefix > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .paths { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .paths h4 { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .pcall { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font: 12.5px var(--mono); }
