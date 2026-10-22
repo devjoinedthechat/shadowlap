@@ -43,6 +43,27 @@ function Whole({ text }: { text: string }) {
   );
 }
 
+/**
+ * A receipt's parts joined by " · ", as the mock's dotJoin() sets one: a part short enough to stay
+ * whole keeps its dot and stays on one line, so the line breaks only after a dot, never inside a
+ * figure ("cost: blame ≈$0.054").
+ */
+export function DotParts({ parts }: { parts: readonly string[] }) {
+  return (
+    <>
+      {parts.map((p, i) => {
+        const text = i < parts.length - 1 ? `${p} ·` : p;
+        return (
+          <Fragment key={i}>
+            {i ? ' ' : null}
+            {p.length <= 44 ? <span className="nw">{text}</span> : text}
+          </Fragment>
+        );
+      })}
+    </>
+  );
+}
+
 /** A step's header: its title, a line or two under it, and its actions on the right (`.sh`). */
 export function StepHead({ title, text, actions }: { title: ReactNode; text?: ReactNode; actions?: ReactNode }) {
   return (

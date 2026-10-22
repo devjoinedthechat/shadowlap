@@ -1,16 +1,16 @@
 import { Badge, CmdLine, EmptyState } from '../components/bits.js';
 import { shortId } from '../format.js';
 import type { FixDetail, RepairStep } from '../types.js';
-import { candidateTone, changeParts, fixStamp, footWarnings, nothingAcceptedWhy, repairBy, repairCostLine, roleBadges } from './model.js';
-import { Flagged, Markdown, StepHead } from './parts.js';
+import { candidateTone, changeParts, fixStamp, footWarnings, nothingAcceptedWhy, repairBy, repairReceipt, roleBadges } from './model.js';
+import { DotParts, Flagged, Markdown, StepHead } from './parts.js';
 
 /**
  * The Repair step: the change a repair proposed and what it held on, why it was needed, every
  * candidate it tried with why each was dropped, what it handed over, and the pull request body. A
  * repair that accepted nothing shows the candidates it tried; the fix stays open. Its header says
  * when it ran and who proposed them, or why no repairer did, with what to do (`the repairer could
- * not be asked: claude was not found: install Claude Code, …`); what every stage cost is a grey
- * receipt above its command, and the rest of its warnings are at the foot.
+ * not be asked: claude was not found: install Claude Code, …`); how many attempts it ran and what
+ * every stage cost are a grey receipt above its command, and the rest of its warnings are at the foot.
  */
 export function RepairStepView({ fix }: { fix: FixDetail }) {
   const r = fix.repair;
@@ -136,11 +136,13 @@ function NothingAccepted({ r }: { r: RepairStep }) {
   );
 }
 
-/** What every stage of the repair cost, as a grey line, and the command that runs it again. */
+/** How many attempts the repair ran and what every stage of it cost, as a grey line, and the command that runs it again. */
 function Receipt({ r }: { r: RepairStep }) {
   return (
     <>
-      <p className="fxreceipt">{repairCostLine(r)}</p>
+      <p className="fxreceipt">
+        <DotParts parts={repairReceipt(r)} />
+      </p>
       <CmdLine>{r.command}</CmdLine>
     </>
   );

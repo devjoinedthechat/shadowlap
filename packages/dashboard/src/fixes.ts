@@ -260,6 +260,12 @@ export interface RepairStep {
   command: string;
   /** `judge`: what judge checks' calls cost across blame and verify, when one was asked live. */
   cost: { blame: number; repairer: number | null; verify: number; judge?: number };
+  /**
+   * Every attempt the repair ran (`repairAttempts`): the probes of the blames it ran and the
+   * verification of every candidate it tried, the ones it dropped and the one it accepted. Its
+   * receipt leads with them.
+   */
+  attempts: number;
   output: { patch: string | null; applied: boolean; branch: string | null; pr: string | null; goldens: string[] };
   warnings: string[];
   /**
@@ -772,7 +778,24 @@ function patchNote(patch: string | null): string {
   return `${files} file${s(files)} · +${plus} −${minus}`;
 }
 
-function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = false): RepairStep {
+/**
+ * Every attempt a repair ran, as its receipt counts them: the verification of every candidate it
+ * tried (the ones it dropped and the one it accepted), and the probes of the blames it ran. A blame
+ * it reused, kept from before, ran nothing; one it ran is kept like any other blame, the latest of
+ * its run by the time the repair was kept.
+ */
+function repairAttempts(store: Store, r: StoredRepair): number {
+  const verify = r.report.candidates.reduce((n, c) => n + (c.verify?.attempts ?? 0), 0);
+  const blame = r.report.targets.reduce((n, t) => {
+    // A run that passed, or that blame couldn't run on, left no blame to count.
+    if (t.reused || (t.outcome !== 'blamed' && t.outcome !== 'unrescuable' && t.outcome !== 'stopped')) return n;
+    const kept = store.blamesOfRun(t.runId).filter((b) => b.at <= r.at).at(-1);
+    return n + (kept?.report.attempts ?? 0);
+  }, 0);
+  return verify + blame;
+}
+
+function repairStep(store: Store, rec: FixRecords, r: StoredRepair, fixId: string, pulled = false): RepairStep {
   const rep = r.report;
   const c = acceptedCandidate(r);
   const v = c?.verify ?? null;
@@ -823,6 +846,7 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
     prBody: repairMarkdown(rep),
     command: r.command,
     cost: rep.cost,
+    attempts: repairAttempts(store, r),
     output: { patch: rep.output.patch, applied: rep.output.applied, branch: rep.output.branch, pr: rep.output.pr, goldens: rep.output.goldens },
     warnings: rep.warnings,
     pulled,
@@ -1201,7 +1225,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
     },
     blame: b ? blameStep(store, b) : null,
     blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, confidence: x.report.confidence })),
-    repair: p ? repairStep(rec, p, fix.fixId, pulled(p)) : null,
+    repair: p ? repairStep(store, rec, p, fix.fixId, pulled(p)) : null,
     repairs: [...rec.repairs].reverse().map((x) => {
       const c = acceptedCandidate(x);
       return { repairId: x.repairId, at: x.at, outcome: x.outcome, accepted: x.accepted, title: c ? commitTitle(c) : 'No fix yet' };

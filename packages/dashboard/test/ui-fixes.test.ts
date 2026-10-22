@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appliedButton, applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairCostLine, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, applyText, attemptMark, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, markText, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeBadge, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -180,12 +180,12 @@ describe('the Repair step', () => {
     expect(repairBy(step({ why: 'resampling rescued no failing run' }))).toBeNull();
   });
 
-  it('says what every stage of a repair cost, the verification of each candidate it tried included, as the CLI does', () => {
+  it('leads its receipt with the attempts it ran, then what every stage cost, each candidate it tried included, as the CLI says it', () => {
     const cost = { blame: 0.0539172, repairer: 0.008466, verify: 0.238736 };
-    expect(repairCostLine(step({ repairer: 'anthropic:claude-opus-5-5', cost }))).toBe('cost: blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239');
-    expect(repairCostLine(step({ repairer: 'openai:gpt-6', served: 'gpt-6-2026-08-01', cost: { ...cost, repairer: null, judge: 0.0021 } }))).toBe('cost: blame ≈$0.054 · repairer (no price for gpt-6-2026-08-01) · verify ≈$0.239 · judge checks ≈$0.0021');
+    expect(repairReceipt(step({ repairer: 'anthropic:claude-opus-5-5', cost, attempts: 87 })).join(' · ')).toBe('87 attempts · cost: blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239');
+    expect(repairReceipt(step({ repairer: 'openai:gpt-6', served: 'gpt-6-2026-08-01', cost: { ...cost, repairer: null, judge: 0.0021 }, attempts: 1 }))).toEqual(['1 attempt', 'cost: blame ≈$0.054', 'repairer (no price for gpt-6-2026-08-01)', 'verify ≈$0.239', 'judge checks ≈$0.0021']);
     // No repairer was asked: nothing to say of it.
-    expect(repairCostLine(step({ cost: { blame: 0, repairer: null, verify: 0 } }))).toBe('cost: blame $0 · verify $0');
+    expect(repairReceipt(step({ cost: { blame: 0, repairer: null, verify: 0 }, attempts: 0 })).join(' · ')).toBe('0 attempts · cost: blame $0 · verify $0');
   });
 
   it('follows with what a repair that accepted nothing tried, unless that is only the repairer’s silence again', () => {

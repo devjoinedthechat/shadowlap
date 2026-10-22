@@ -385,17 +385,19 @@ export function nothingAcceptedWhy(r: Pick<RepairStep, 'candidates' | 'why' | 'n
 }
 
 /**
- * What a repair cost, every stage of it, as the CLI's summary line says it: blame, the repairer (or
- * that its model has no price), the verification of every candidate it tried, the accepted one's
- * and the dropped ones', and judge checks apart: `cost: blame ≈$0.054 · repairer ≈$0.0085 · verify
- * ≈$0.239`.
+ * A repair's receipt, as the mock's Repair step gives it: how many attempts it ran (its blames' and
+ * every candidate's verification), then what every stage cost, as the CLI's summary line says it:
+ * blame, the repairer (or that its model has no price), the verification of every candidate it
+ * tried, the accepted one's and the dropped ones', and judge checks apart: `87 attempts · cost:
+ * blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239`. The parts, for the line to break only
+ * between them.
  */
-export function repairCostLine(r: Pick<RepairStep, 'cost' | 'repairer' | 'served'>): string {
-  const parts = [`cost: blame ${approx(r.cost.blame)}`];
+export function repairReceipt(r: Pick<RepairStep, 'attempts' | 'cost' | 'repairer' | 'served'>): string[] {
+  const parts = [`${r.attempts} attempt${s(r.attempts)}`, `cost: blame ${approx(r.cost.blame)}`];
   if (r.repairer) parts.push(`repairer ${r.cost.repairer === null ? `(no price for ${r.served ?? r.repairer})` : approx(r.cost.repairer)}`);
   parts.push(`verify ${approx(r.cost.verify)}`);
   if (r.cost.judge) parts.push(`judge checks ${approx(r.cost.judge)}`);
-  return parts.join(' · ');
+  return parts;
 }
 
 /** The warnings the foot of the Repair step lists: all but the one its header says already (`repairBy`). */

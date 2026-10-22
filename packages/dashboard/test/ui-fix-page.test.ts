@@ -137,8 +137,29 @@ describe('the Repair step', () => {
     expect(head).toMatch(/^Accepted [A-Z][a-z]{2} \d+, \d\d:\d\d · proposed by claude-code \(answered by claude-opus-5-5\)$/);
     // The accepted candidate's verify alone is no cost of the repair's.
     expect(head).not.toMatch(/attempts|\$/);
-    // Both candidates it verified: the one it dropped and the one it accepted.
-    expect(text(r!.one('.fxreceipt'))).toBe('cost: blame ≈$0.100 · repairer ≈$0.0040 · verify ≈$0.072');
+    // The attempts it ran first, its blame's and both candidates' it verified (the one it dropped and
+    // the one it accepted), then what each stage cost; the line breaks only after a dot.
+    expect(text(r!.one('.fxreceipt'))).toBe('17 attempts · cost: blame ≈$0.100 · repairer ≈$0.0040 · verify ≈$0.072');
+    expect(r!.all('.fxreceipt .nw').map(text)).toEqual(['17 attempts ·', 'cost: blame ≈$0.100 ·', 'repairer ≈$0.0040 ·', 'verify ≈$0.072']);
+  });
+
+  it('counts the blame a repair ran, never one it reused or one made after it', async () => {
+    const run = newRun({ labels: ['refund-bug'] });
+    const { fix } = blame(run);
+    recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [run] }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
+    // A blame of the run made after the repair is none of its attempts.
+    recordBlame(store, { runId: run, report: blameReport(run, 'stopped'), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW + 2 });
+    await open(fix.fixId, 'repair');
+    expect(text(r!.one('.fxreceipt'))).toMatch(/^17 attempts · cost: /);
+    await r!.unmount();
+    const other = newRun({ labels: ['triage'] });
+    const reused = blame(other).fix.fixId;
+    const report = repairReport({ targets: [other] });
+    report.targets[0] = { ...report.targets[0]!, reused: true };
+    recordRepair(store, { repairId: 'repair-reused', dir: '.shadowlap/repairs/repair-reused', report, expect: EXPECT, command: 'shadowlap repair --fixes label:triage', at: NOW + 3 });
+    await open(reused, 'repair');
+    // Its candidates' verification alone: 2 attempts of the one it dropped, 4 of the one it accepted.
+    expect(text(r!.one('.fxreceipt'))).toMatch(/^6 attempts · cost: /);
   });
 
   it('heads a repair that accepted nothing with when it ran, never as repaired', async () => {
@@ -147,7 +168,7 @@ describe('the Repair step', () => {
     recordRepair(store, { repairId: 'repair-nothing', dir: '.shadowlap/repairs/repair-nothing', report: repairReport({ targets: [run], accepted: false }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
     await open(fix.fixId, 'repair');
     expect(text(r!.one('.sh p'))).toMatch(/^Ran [A-Z][a-z]{2} \d+, \d\d:\d\d · proposed by claude-code \(answered by claude-opus-5-5\) · 1 candidate tried, none accepted/);
-    expect(text(r!.one('.fxreceipt'))).toBe('cost: blame ≈$0.100 · repairer ≈$0.0040 · verify ≈$0.024');
+    expect(text(r!.one('.fxreceipt'))).toBe('13 attempts · cost: blame ≈$0.100 · repairer ≈$0.0040 · verify ≈$0.024');
   });
 });
 
