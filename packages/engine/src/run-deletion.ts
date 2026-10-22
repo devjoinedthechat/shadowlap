@@ -1,5 +1,6 @@
 import { attemptBundles, withAttempts } from './classify.js';
 import type { Store } from './store.js';
+import type { RunRecord } from './types.js';
 
 /**
  * What `shadowlap rm` and the terminal UI's `x` delete, as the dashboard's Delete does: each run with
@@ -21,8 +22,10 @@ export interface DeletionPlan {
  * in progress reads from (a replay, a fork or an attempt of it serves its answers from it), and one
  * with an attempt still running, or still replayed from. An attempt asked for along with the run it
  * is bundled under is one of that run's attempts; asked for alone, it is a run like any other.
+ * `live` is the runs in progress, as `recordingRuns` tells them, when the caller has asked already
+ * (`gc` asks once, as of its own now).
  */
-export function deletionPlan(store: Store, runIds: readonly string[], o: { forks?: boolean } = {}): DeletionPlan {
+export function deletionPlan(store: Store, runIds: readonly string[], o: { forks?: boolean; live?: readonly RunRecord[] } = {}): DeletionPlan {
   const all = store.allRuns();
   const bundles = attemptBundles(all);
   const children = new Map<string, string[]>();
@@ -46,7 +49,7 @@ export function deletionPlan(store: Store, runIds: readonly string[], o: { forks
   const under = new Set(asked.flatMap((id) => withAttempts(bundles, id)));
   // As the dashboard's Delete decides it, in the same words: the run itself in progress, then an
   // attempt of it, then a replay in progress reading from it or from one of its attempts.
-  const live = store.recordingRuns().live.map((r) => r.run);
+  const live = o.live ?? store.recordingRuns().live.map((r) => r.run);
   const liveIds = new Set(live.map((r) => r.runId));
   const readFrom = new Set(live.flatMap((r) => (r.parentRunId ? [r.parentRunId] : [])));
   const holdOf = (id: string): string | null => {

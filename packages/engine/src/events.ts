@@ -13,8 +13,8 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  *   which can hold what the rule hides
  * - `clock.set`: ref the mode (auto or exact); data { clock, was }. These and the rules above are
  *   edits to shadowlap.config.json, from the CLI or Settings
- * - `runs.cleaned`: data { runs, blobs, bytes, interrupted, olderThanDays, keep }: `shadowlap gc`
- *   deleted old runs or marked abandoned recordings interrupted
+ * - `runs.cleaned`: data { runs, attempts, blobs, bytes, interrupted, olderThanDays, keep }: `shadowlap gc`
+ *   deleted old runs (and `attempts`, those bundled under them) or marked abandoned recordings interrupted
  * - `golden.packed` (a pack in a goldens folder or named in the config's tests), `run.packed` (any
  *   other pack): runId, ref the folder relative to the project (its name alone when outside it,
  *   with `outside: true`); data { runs, calls, redacted }

@@ -18,6 +18,7 @@ import {
   entryEnvFor,
   emptyRuleForm,
   gcDeleteCommand,
+  gcDeleteWhat,
   gcDryRun,
   gcGivesBack,
   maskedLine,
@@ -278,7 +279,11 @@ describe('what the drawer offers', () => {
   it('offers to delete what a finished dry run found, by the command the server builds', () => {
     const report = { dryRun: true, count: 3, cutoff: 1_757_000_000_000, keep: null, olderThanDays: 30, bytes: 2048, expect: '3-0123456789abcdef' };
     const dry = gcDryRun({ done: true, code: 0, result: report });
-    expect(dry).toMatchObject({ count: 3, olderThanDays: 30 });
+    expect(dry).toMatchObject({ count: 3, attempts: 0, olderThanDays: 30 });
+    // The attempts bundled under the runs go with them, as rm takes them, and the dialog names them.
+    expect(gcDeleteWhat(dry!)).toBe('3\u00a0runs');
+    expect(gcDeleteWhat(gcDryRun({ done: true, code: 0, result: { ...report, attempts: 12 } })!)).toBe('3\u00a0runs and the 12\u00a0attempts bundled under them');
+    expect(gcDeleteWhat({ count: 1, attempts: 1 })).toBe('1\u00a0run and the attempt bundled under it');
     expect(gcDeleteCommand(dry!)).toBe('shadowlap gc --before 1757000000000 --expect 3-0123456789abcdef');
     expect(gcDeleteCommand({ ...dry!, cutoff: null, keep: 200 })).toBe('shadowlap gc --keep 200 --expect 3-0123456789abcdef');
     // No run old enough: what deleted runs left (blobs nothing uses, unused space past 1 MB) by a plain gc, unless a run records.

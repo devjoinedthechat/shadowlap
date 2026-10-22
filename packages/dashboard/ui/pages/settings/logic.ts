@@ -288,6 +288,8 @@ export function proposedCount(job: { done: boolean; result?: unknown }): number 
 export interface GcDryRun {
   dryRun: true;
   count: number;
+  /** The attempts bundled under those runs, which go with them, as `shadowlap rm` takes them; 0 from an older CLI. */
+  attempts: number;
   cutoff: number | null;
   keep: number | null;
   olderThanDays: number | null;
@@ -313,7 +315,7 @@ export function gcDryRun(job: { done: boolean; code: number | null; result?: unk
   const bytes = typeof r.bytes === 'number' ? r.bytes : 0;
   const free = typeof r.store?.free === 'number' ? r.store.free : 0;
   if (r.count === 0 && (Number(r.recordingCount) > 0 || (bytes <= 0 && free < UNUSED_WORTH))) return null;
-  return { dryRun: true, count: r.count, cutoff: typeof r.cutoff === 'number' ? r.cutoff : null, keep: typeof r.keep === 'number' ? r.keep : null, olderThanDays: typeof r.olderThanDays === 'number' ? r.olderThanDays : null, bytes, free, expect: r.expect };
+  return { dryRun: true, count: r.count, attempts: typeof r.attempts === 'number' && r.attempts > 0 ? r.attempts : 0, cutoff: typeof r.cutoff === 'number' ? r.cutoff : null, keep: typeof r.keep === 'number' ? r.keep : null, olderThanDays: typeof r.olderThanDays === 'number' ? r.olderThanDays : null, bytes, free, expect: r.expect };
 }
 
 /** What a dry run that found no runs would give back: the blobs nothing uses, and the unused space past 1 MB. */
@@ -329,6 +331,16 @@ export function sizeNote(free: number, recording: number): string {
 
 export function gcGivesBack(d: GcDryRun): number {
   return d.bytes + (d.free >= UNUSED_WORTH ? d.free : 0);
+}
+
+/**
+ * What a clean-up deletes, for its dialog's title, in the words of Runs' Delete: "3 runs and the 12
+ * attempts bundled under them", or the runs alone when none has attempts. A count keeps to its noun.
+ */
+export function gcDeleteWhat(d: Pick<GcDryRun, 'count' | 'attempts'>): string {
+  const runs = `${d.count.toLocaleString('en-US')}\u00a0${d.count === 1 ? 'run' : 'runs'}`;
+  if (!d.attempts) return runs;
+  return `${runs} and the ${d.attempts === 1 ? 'attempt' : `${d.attempts.toLocaleString('en-US')}\u00a0attempts`} bundled under ${d.count === 1 ? 'it' : 'them'}`;
 }
 
 /** The command the confirm runs, as the server builds it from the dry run: exactly the runs it listed, or for none, a plain `gc`. */

@@ -416,7 +416,7 @@ describe('shadowlap gc', () => {
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '3-0123456789abcdef']);
     expect(r).toMatchObject({ code: 1, err: expect.stringContaining('the runs gc would delete changed since the dry run (2 runs, not the 3 it listed). Nothing was deleted') });
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '2-0123456789abcdef']);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('(the same number of runs, but not the same ones)') });
+    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('(the same number of runs, but not the same ones or not the same attempts under them)') });
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '2']);
     expect(r).toMatchObject({ code: 1, err: expect.stringContaining('must be the "expect" value a dry run printed') });
     r = await shadowlap(['gc', '--older-than', '30', '--before', String(plan.cutoff)]);
@@ -581,6 +581,67 @@ describe('shadowlap gc', () => {
     expect(report.store.before - report.store.after).toBeGreaterThan(0.9 * 300 * 3000);
     expect(store.size().bytes).toBe(report.store.after);
     store.close();
+  });
+
+  it('cleans up an old run with the attempts bundled under it, as rm does, and counts runs for --keep as the lists count them', async () => {
+    const store = Store.open(dbPath());
+    const command = { argv: ['node', 'agent.js'], cwd };
+    const recorded = (startedAt: number, status: 'completed' | 'failed' = 'completed') => {
+      const r = store.createRun({ mode: 'record', command, startedAt });
+      store.endRun(r.runId, status);
+      return r.runId;
+    };
+    const attempt = (parent: string, meta: Parameters<Store['createRun']>[0]['meta'], end = true) => {
+      const r = store.createRun({ mode: 'replay', parentRunId: parent, command, startedAt: Date.now() - 86_400_000, ...(meta ? { meta } : {}) });
+      if (end) store.endRun(r.runId, 'completed');
+      return r.runId;
+    };
+    // A run recorded 40 days ago that blame probed yesterday: two probes and a --repeat of one, newer than any cutoff.
+    const old = recorded(Date.now() - 40 * 86_400_000, 'failed');
+    const probes = [1, 2].map((n) => attempt(old, { probe: { of: old, callNo: 1, passed: false }, repeat: { group: 'b1-1', attempt: n, of: 2 } }));
+    const again = attempt(probes[0]!, { repeat: { group: 'again', attempt: 1, of: 1 } });
+    // A run from yesterday that verify tried three times.
+    const recent = recorded(Date.now() - 86_400_000);
+    const verifies = [1, 2, 3].map(() => attempt(recent, { verify: { role: 'target', passed: true } }));
+    store.close();
+
+    // --keep 1 keeps the newest run as Runs lists it, with its attempts, not the newest attempt alone.
+    let r = await shadowlap(['gc', '--keep', '1', '--dry-run', '--json']);
+    expect(JSON.parse(r.out)).toMatchObject({ total: 2, count: 1, attempts: 3, runs: [{ runId: old }], held: [] });
+    r = await shadowlap(['gc', '--older-than', '30', '--dry-run']);
+    expect(r.out).toContain('▸ runs older than 30 days: 1 of 2, with the 3 attempts bundled under it · runs still recording are never touched');
+    expect(r.out).toMatch(/✓ dry run: would delete 1 run, with the 3 attempts bundled under it, and free .+\. To delete exactly these runs: shadowlap gc --before \d+ --expect 1-[0-9a-f]{16}/);
+    const dry = JSON.parse((await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json'])).out) as GcPlan & { attempts: number };
+
+    // An attempt filed under it since the dry run: what the dry run listed changed, so nothing is deleted.
+    const more = Store.open(dbPath());
+    const late = more.createRun({ mode: 'replay', parentRunId: old, command, meta: { verify: { role: 'target', passed: false } } });
+    more.endRun(late.runId, 'completed');
+    more.close();
+    r = await shadowlap(['gc', '--before', String(dry.cutoff), '--expect', dry.expect]);
+    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('(the same number of runs, but not the same ones or not the same attempts under them)') });
+    const fresh = JSON.parse((await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json'])).out) as GcPlan & { attempts: number };
+    expect(fresh).toMatchObject({ count: 1, attempts: 4 });
+    r = await shadowlap(['gc', '--before', String(fresh.cutoff), '--expect', fresh.expect]);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toMatch(/✓ deleted 1 run, with the 4 attempts bundled under it, and \d+ blobs? · store /);
+    const check = Store.open(dbPath());
+    // Nothing of it is left behind as a run of its own; the run kept keeps its attempts.
+    expect([old, ...probes, again, late.runId].map((id) => check.getRun(id))).toEqual([null, null, null, null, null]);
+    expect(verifies.map((id) => check.getRun(id)?.runId)).toEqual(verifies);
+    expect(check.listEvents()[0]).toMatchObject({ kind: 'runs.cleaned', data: { runs: 1, attempts: 4 } });
+
+    // A run blame is still probing stays, with its attempts, until the probe has ended, as rm leaves it.
+    const probing = check.createRun({ mode: 'record', command, startedAt: Date.now() - 40 * 86_400_000 });
+    check.endRun(probing.runId, 'failed');
+    const running = check.createRun({ mode: 'replay', parentRunId: probing.runId, command, meta: { probe: { of: probing.runId, callNo: 1, passed: false }, repeat: { group: 'b2-1', attempt: 1, of: 2 } } });
+    check.close();
+    r = await shadowlap(['gc', '--older-than', '30']);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain(`! left ${probing.runId.slice(0, 10)}: an attempt of it is still running; gc deletes it once that has ended`);
+    const after = Store.open(dbPath());
+    expect([probing.runId, running.runId].map((id) => after.getRun(id)?.runId)).toEqual([probing.runId, running.runId]);
+    after.close();
   });
 
   it('deletes the attempts bundled under a run with it, as the dashboard does, and leaves its forks as runs', async () => {

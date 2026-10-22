@@ -106,6 +106,9 @@ describe('what deleting a run takes with it', () => {
         { runId: other, why: 'a replay of it is still running' },
       ],
     });
+    // A caller that asked which runs are in progress already (gc, as of its own now) passes them.
+    expect(deletionPlan(store, [live, rec, other, done], { live: [] }).held).toEqual([]);
+    expect(deletionPlan(store, [rec, done], { live: store.recordingRuns().live.map((r) => r.run) }).held).toEqual([{ runId: rec, why: 'an attempt of it is still running' }]);
     store.close();
   });
 });
