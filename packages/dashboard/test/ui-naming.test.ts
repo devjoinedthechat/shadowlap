@@ -202,7 +202,7 @@ describe('the lists name a run by its id, with its about line', () => {
     const grid = renderToStaticMarkup(createElement(WeekGrid, { grid: { runs: 1, calls: 3, origins: row.origins, families: [{ size: 1, cols: 30, rows: [row] }], shown: 1, more: 0 } as never, now: 2 }));
     expect(grid).toContain('&quot;s&quot;:&quot;override #16&quot;');
     const today = { day: '2026-10-22', served: 0, notRespent: 0, recording: [{ runId: '01M5GRZNA5PJ6DHP9G395YMSJG', command: 'node refund_agent.mjs T-8813', calls: 9, startedAt: 1, about: { text: 'My blender arrived broken', from: 'user' } }], replays: 0, forks: { count: 0, live: 0, blocked: 0 }, tests: { count: 0, failed: 0, inconclusive: 0, latestFailure: null }, blame: { probes: 0, attempts: 0, runs: [] } };
-    const card = renderToStaticMarkup(createElement(TodayCard, { today: today as never, live: [] }));
+    const card = renderToStaticMarkup(createElement(TodayCard, { today: today as never, live: [], tests: null }));
     expect(card).toContain('Recording <code>01M5GRZNA5</code>');
     expect(card).toContain('<span class="rab d" data-about="My blender arrived broken"');
     expect(card).not.toContain('node refund_agent.mjs T-8813</span>');

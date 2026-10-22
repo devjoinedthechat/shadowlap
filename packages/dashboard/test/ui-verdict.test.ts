@@ -166,7 +166,7 @@ describe('Tests’ Last result', () => {
 describe('the Forks view’s bundles', () => {
   const REC = '01M3RZ00010000000000000000';
   const node = (runId: string, parentRunId: string | null): LineageNode => ({ runId, parentRunId, depth: parentRunId ? 1 : 0, mode: parentRunId ? 'replay' : 'record', status: 'failed', label: 'recording', divergence: null, calls: 7, spent: 0, saved: 0, startedAt: 1, repeat: null, checks: null, about: null });
-  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: REC, title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, passes: 2, attempts: [], spent: 0.02, at: 2, verdictLine: null, tone: null, rule: null, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
+  const bundle = (o: Partial<FixBundle>): FixBundle => ({ kind: 'blame', key: 'k', parentRunId: REC, title: 'blame · probe #5', callNo: 5, blamed: false, change: null, verdict: null, role: null, counts: null, passes: 2, attempts: [], spent: 0.02, at: 2, verdictLine: null, tone: null, rule: null, href: '#/fixes/fx-1/blame', fixId: 'fx-1', ...o });
   const BLAME = 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts';
   const VERIFY = 'gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts';
 
