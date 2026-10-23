@@ -169,7 +169,7 @@ describe('push and pull through the bucket', () => {
     expect(shown.stdout).not.toContain('captured');
     // Its command is still Dana's: a replay asks, naming where it came from, and runs nothing unasked.
     const replay = spawnSync(process.execPath, [CLI, 'replay', runId], { cwd: jonas.cwd, env, encoding: 'utf8' });
-    expect(replay.status).toBe(1);
+    expect(replay.status).toBe(2);
     expect(replay.stderr).toContain(`Run ${runId.slice(0, 10)} came from the team store, recorded by dana@northwind.example. Replaying it runs the command it was recorded with:`);
     expect(replay.stderr).toContain('Pass --yes to run it');
   });

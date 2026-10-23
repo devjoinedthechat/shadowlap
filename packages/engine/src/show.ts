@@ -2,6 +2,7 @@ import { untrustedReads, type ToolTrust, type TrustSource } from './injection.js
 import { storedModelResolver, summarizeRun, type SummaryOptions } from './report.js';
 import type { Store } from './store.js';
 import type { CallRecord, RunRecord, RunSummary } from './types.js';
+import { unrecordedTools, type UnrecordedTool } from './unrecorded-tools.js';
 
 /**
  * `shadowlap show <run> --json`: the run, its summary and every call as stored, and its untrusted
@@ -18,12 +19,22 @@ export interface ShowJson {
    * `openWorldHint`), where `shadowlap injection` plants. Each names where its mark came from.
    */
   untrusted: Array<{ callNo: number; name: string; from: TrustSource }>;
+  /**
+   * The tools the model called that the run recorded no call of (unrecordedTools): they ran in the
+   * agent unseen, and a replay runs them again for real. Each with how often and from which model
+   * call the model asked for it, and its effect as far as known.
+   */
+  unrecordedTools: UnrecordedTool[];
 }
 
-/** `tools`: the project's `tools` from its config, which mark a tool the other way over what its calls were recorded with. */
-export function showJson(store: Store, run: RunRecord, options: SummaryOptions & { calls?: CallRecord[]; tools?: ToolTrust } = {}): ShowJson {
+/**
+ * `tools`: the project's `tools` from its config, which mark a tool the other way over what its
+ * calls were recorded with; `unrecorded`: its `tools.unrecorded`, the effects it declares for tools
+ * Shadowlap doesn't record.
+ */
+export function showJson(store: Store, run: RunRecord, options: SummaryOptions & { calls?: CallRecord[]; tools?: ToolTrust; unrecorded?: Readonly<Record<string, 'read' | 'write'>> } = {}): ShowJson {
   const calls = options.calls ?? store.getCalls(run.runId);
   const summary = summarizeRun(run, calls, [], [], { ...(options.prices ? { prices: options.prices } : {}), modelOf: options.modelOf ?? storedModelResolver(store) });
   const untrusted = untrustedReads(calls, options.tools).reads.map((r) => ({ callNo: r.callNo, name: r.name, from: r.from }));
-  return { run, summary, calls, untrusted };
+  return { run, summary, calls, untrusted, unrecordedTools: unrecordedTools(store, run.runId, options.unrecorded ? { declared: options.unrecorded } : {}) };
 }

@@ -6,6 +6,39 @@ Install the CLI. It needs Node ≥ 22.16, not 23 (and Python ≥ 3.9 only for th
 npm install -g shadowlap
 ```
 
+## See the whole loop first
+
+```sh
+npx shadowlap demo
+```
+
+No key and nothing to clone. In a folder of its own, which it removes at the end (`--keep <dir>`
+keeps it), the demo writes a support agent that refunds $240 orders its refund policy sends to a
+manager, and runs Shadowlap's own commands on it, each printing what it prints in your terminal:
+`run` records the agent on three such orders and a $60 one, `replay` answers the first from its
+recording with 0 upstream requests, `blame` finds the model call that lost the run, `repair` asks
+for rewrites and keeps the one verify proves on the failing runs, one held out from the repairer and
+the good run, and `fix apply` puts it in the agent and turns the fixed runs into goldens whose test
+runs offline. The model is a scripted server on 127.0.0.1 that speaks Anthropic's Messages API, and
+the demo says so. It takes about half a minute, and needs git.
+
+```
+⑂ The run was lost at model call #5 (3 of 5)
+  …
+  At #5  the recording   "Issuing the refund.", issue_refund({"order_id":"A-1042","amount":240})
+         a rescued fork  "Above the limit.", escalate({"reason":"refund of $240 is above $100"})
+…
+✓ Fixed: Escalate refunds above the policy limit
+  agent.mjs · system prompt
+  - You are a support agent. Follow the refund policy.
+  + You are a support agent. Follow the refund policy: escalate every refund above the limit.
+
+  Verified: fixes 2 of 2 target runs, 1 of 1 held-out, keeps 1 of 1 good,
+            each by its gate, which tells 90%+ from 70%- at <= 5% risk
+…
+✓ Done in 30 s, 553 requests to the scripted model, none to a real one.
+```
+
 ## 1. Record and replay the reference agent
 
 The repository ships a 30-call streaming agent (parallel tool calls, a write tool) and a scripted fake of the Anthropic API, so this needs no API key. Clone and build it first:

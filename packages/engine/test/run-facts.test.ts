@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inferInterventions, overrideSources, recordNotRecorded, redactRun, redactRunFacts, runInterventions, showJson, Store, summarizeRun, toolResultLine, unrecordedTools, type CallRecord, type RunIntervention, type RunMeta } from '../src/index.js';
+import { inferInterventions, overrideSources, recordNotRecorded, redactRun, redactRunFacts, runInterventions, showJson, Store, summarizeRun, toolResultLine, unrecordedProjectTools, type CallRecord, type RunIntervention, type RunMeta } from '../src/index.js';
 import { RunBuilder, text, toolUse, user } from './run-fixtures.js';
 
 describe('a replay’s interventions', () => {
@@ -214,7 +214,7 @@ describe('what a run did unrecorded', () => {
     const b = RunBuilder.start(store);
     b.tool('search_web', { q: 'x' }, []);
     b.end();
-    const tools = unrecordedTools(
+    const tools = unrecordedProjectTools(
       [
         { name: 'search_web', effect: null },
         { name: 'send_slack', effect: null },
@@ -237,17 +237,18 @@ describe('what a run did unrecorded', () => {
 });
 
 describe('show --json', () => {
-  it('is the run, its summary and its calls as stored, and its untrusted reads', () => {
+  it('is the run, its summary and its calls as stored, its untrusted reads, and the tools it left unrecorded', () => {
     const store = Store.open(':memory:');
     const b = RunBuilder.start(store);
     b.model({ messages: [user('x')] }, [text('y')]);
     b.end();
     const run = store.getRun(b.runId)!;
     const out = showJson(store, run);
-    expect(Object.keys(out)).toEqual(['run', 'summary', 'calls', 'untrusted']);
+    expect(Object.keys(out)).toEqual(['run', 'summary', 'calls', 'untrusted', 'unrecordedTools']);
     expect(out.calls).toEqual(store.getCalls(b.runId));
     expect(out.summary).toEqual(summarizeRun(run, store.getCalls(b.runId), [], [], {}));
     expect(out.untrusted).toEqual([]);
+    expect(out.unrecordedTools).toEqual([]);
     store.close();
   });
 

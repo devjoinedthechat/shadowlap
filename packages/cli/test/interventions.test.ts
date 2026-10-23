@@ -115,7 +115,7 @@ describe('replay --inject-result', () => {
     const send = firstOf((c) => c.name === 'send_email');
     const search = firstOf((c) => c.name === 'search_web');
     const onModel = await shadowlap(['replay', runId, '--inject-result', `${model}=x`]);
-    expect(onModel.code).toBe(1);
+    expect(onModel.code).toBe(2);
     expect(onModel.out).toContain(`#${model} is a model call. It plants text in what a tool read; to add an instruction to a model call, use --inject ${model}`);
     const onWrite = await shadowlap(['replay', runId, '--inject-result', `${send}=x`]);
     expect(onWrite.out).toContain(`#${send} send_email is a write tool`);

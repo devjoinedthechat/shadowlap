@@ -136,7 +136,7 @@ describe('shadowlap check, named more than one way', () => {
     expect(report.counts).toEqual({ passed: 1, failed: 1, inconclusive: 0 });
     // A check on the output alone can't be settled from a recording: the line says why, once.
     const printed = await shadowlap(['check', runs.under!, '--expect', JSON.stringify({ output: { includes: 'Done' } })]);
-    expect(printed.code).toBe(1);
+    expect(printed.code).toBe(3);
     expect(printed.out.match(/a check reads what the agent printed/g)).toHaveLength(1);
   }, 60_000);
 
@@ -153,7 +153,7 @@ describe('shadowlap check, named more than one way', () => {
   it('notes a value the checks read that none of the calls judged has, and the key it most likely meant', async () => {
     const misspelt = JSON.stringify({ when: [{ if: { tool: 'lookup_order', result: { amout: { '>': 100 } } }, then: { tools: { escalate: '>= 1' } } }] });
     const r = await shadowlap(['check', runs.over!, runs.small!, '--expect', misspelt, '--json']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const report = JSON.parse(r.stdout) as { recordings: Array<{ outcome: string; checks: Array<{ status: string; detail: string }> }>; notes: string[] };
     expect(report.recordings.map((x) => x.outcome)).toEqual(['inconclusive', 'inconclusive']);
     expect(report.recordings[0]!.checks[0]!.detail).toMatch(/^could not tell whether the condition held: lookup_order #\d+: has no result\.amout$/);
@@ -199,7 +199,7 @@ describe('a when rule through shadowlap test', () => {
   it('says inconclusive for a judge check with no verdict, which never passes', async () => {
     config({ 'goldens/escalated': { expect: { judge: [{ name: 'explains-escalation', question: 'Does the reply say why the refund was escalated?', model: 'claude-haiku-4-5' }] } } });
     const r = await shadowlap(['test', 'goldens/escalated', '--json', 'judged.json', '--markdown', 'judged.md']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     // The test runs offline: the golden holds no verdict, and the judge can't be asked.
     expect(r.out).toContain('? escalated: check inconclusive: judge "explains-escalation" answers yes, but not judged: no recorded verdict and the test runs offline');
     expect(r.out).toMatch(/0 passed, 0 failed, 1 inconclusive \(failing the run: --inconclusive warn lets them through\) · /);

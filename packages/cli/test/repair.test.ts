@@ -430,7 +430,7 @@ process.stdin.on('end', () => {
     const failed = await record();
     mode = 'alternate';
     const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--budget', '0.01', '--writes', 'block', '--json']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const report = JSON.parse(r.stdout) as Report & { cost: { blame: number } };
     expect(report.targets).toEqual([expect.objectContaining({ runId: failed, outcome: 'stopped' })]);
     expect(report.cost.blame).toBeGreaterThan(0.01);
@@ -507,7 +507,7 @@ process.stdin.on('end', () => {
     expect((await shadowlap(['repair', '--fixes', failed[0]!, '--goldens', 'g'])).out).toContain('--goldens puts recordings into the project');
     // Recordings committed to a branch must be inside the repository: refused before any blame runs.
     const outside = await shadowlap(['repair', '--fixes', failed[0]!, '--branch', 'fix-refunds', '--goldens', '../elsewhere', '--json']);
-    expect(outside.code).toBe(1);
+    expect(outside.code).toBe(2);
     expect(JSON.parse(outside.stdout)).toEqual({ outcome: 'error', error: { message: "--goldens ../elsewhere is outside the repository, so its recordings can't be committed to a branch: give a folder inside it" } });
     expect(outside.out).not.toContain('blaming');
   });

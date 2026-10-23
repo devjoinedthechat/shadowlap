@@ -69,6 +69,29 @@ Tools declare what they do to the world outside their arguments:
 
 `effect` is required. The only safe default would be `write`, and making that implicit would hide a decision the developer must make.
 
+## Tools Shadowlap did not record
+
+A recording keeps every model answer, and each answer names the tools the model asked for: Anthropic's `tool_use`, OpenAI's `tool_calls`, the Responses API's `function_call`, Gemini's `functionCall`. A tool the agent wraps leaves a call of its own in the run. One it doesn't wrap (a framework's tool, a built-in such as the Claude Agent SDK's `Bash`, an MCP server reached without [`shadowlap mcp`](./mcp.md)) ran in the agent unseen, and a replay, which serves the answer that asked for it, runs it again for real. Shadowlap reads the run for these, so it finds tools a scan of the code misses:
+
+```
+! The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real
+    lookup_kb  3 calls from model call #2 · "lookup" only looks
+    Bash       14 calls from model call #3 · a built-in that writes
+  Bash writes, so shadowlap replay and test refuse to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.
+```
+
+`run` and `replay` name them at the end, `show` above the timeline, and `show --json` and `--summary-json` list them as `unrecordedTools`: each tool's `name`, how often the model asked for it (`count`), the model call that first did (`firstCallNo`), its `effect` (`write`, `read` or `unknown`) and `why`. An MCP tool the model calls by its server's prefix (`mcp__kb__search_kb`) counts as recorded when `shadowlap mcp` recorded it under its own name. A tool the provider runs itself (web search, code execution, its MCP connector) answers inside the response and runs nowhere in the agent, so it is never listed.
+
+A tool's effect is, in order: what `tools.unrecorded` in `shadowlap.config.json` declares; a built-in's (`Bash`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, computer use, Anthropic's bash and text editor and the Responses API's shell and `apply_patch` write; `Read`, `Glob`, `Grep`, `WebFetch` and `WebSearch` only read); the verb its name leads with, as [`shadowlap init`](./cli.md#init) suggests effects (`send_email` writes, `lookup_order` reads); else unknown.
+
+`replay` and `test` refuse a recording whose unrecorded tools include a write, before anything runs, naming each (exit status 2). Wrap the tool where the agent runs it, so it is recorded and replayed. If running it again is safe, declare it a read:
+
+```json
+{ "tools": { "unrecorded": { "Bash": "write", "lookup_kb": "read" } } }
+```
+
+Or let one replay run it anyway: `--allow-unrecorded Bash` (names separated by commas, repeatable). A read, and a tool of unknown effect, are only named. A partial recording, such as an [import](./cli.md#import), holds a trace's model calls and the tools it kept, and runs every other tool live by design, so it is never refused.
+
 ## The network guard
 
 Only calls that go through Shadowlap can be replayed; a tool that isn't wrapped (a direct database client, a raw `fetch`) would execute during a replay with nothing to say so. The guard closes that hole without code changes: `shadowlap run`, `replay` and `test` preload a small module into the agent process (Node through `NODE_OPTIONS --import`, which needs Node 18.18 or later; Python through a `sitecustomize` on `PYTHONPATH`; other runtimes ignore both) that intercepts every outbound socket connection. The sidecar is allowed. Anything else is a side effect Shadowlap cannot replay:

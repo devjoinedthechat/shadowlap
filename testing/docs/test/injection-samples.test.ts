@@ -94,7 +94,8 @@ describe('docs/injection.md', () => {
     await new Promise<void>((r) => refusing.listen(0, '127.0.0.1', () => r()));
     try {
       const r = await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '0'], `http://127.0.0.1:${(refusing.address() as AddressInfo).port}`);
-      expect(r.code).toBe(1);
+      // Inconclusive, not failed: 3.
+      expect(r.code).toBe(3);
       expect(within(r.stdout, sample('An inconclusive test fails the command')), r.stdout).toBe(true);
     } finally {
       await new Promise((r) => refusing.close(r));

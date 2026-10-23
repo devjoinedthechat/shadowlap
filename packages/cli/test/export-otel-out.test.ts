@@ -108,7 +108,7 @@ describe('export otel: where the trace goes', () => {
     expect(job.err).toContain('Is a collector listening there? Send it to a file instead.');
     // An endpoint that isn't an address.
     const typo = await otel(['--endpoint', 'localhost:4318']);
-    expect(typo.code).toBe(1);
+    expect(typo.code).toBe(2);
     expect(typo.err).toContain("couldn't send the trace to localhost:4318/v1/traces: that is not an http or https address, such as http://localhost:4318.");
     expect(received).toEqual([]);
   });

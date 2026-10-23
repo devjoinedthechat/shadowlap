@@ -221,7 +221,7 @@ describe('where the redaction rules apply', () => {
     try {
       for (const args of [['export', 'otel', runId], ['export', 'dataset', runId], ['export', 'html', runId, join(cwd, 'x.html')], ['share', runId]]) {
         const r = await cli(args, { AWS_ACCESS_KEY_ID: S3_KEY, AWS_SECRET_ACCESS_KEY: S3_SECRET });
-        expect(r.code, args.join(' ')).toBe(1);
+        expect(r.code, args.join(' ')).toBe(2);
         expect(r.err).toContain('shadowlap.config.json: redaction rule #7: unknown pattern "emial"');
       }
     } finally {

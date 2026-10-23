@@ -6,6 +6,7 @@ import { asTheyStand, attemptBundles, DATASET_FORMATS, datasetRows, deletionPlan
 import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent, inDashboardJob } from '../job-events.js';
+import { CliError, EXIT } from '../exit-codes.js';
 import { OtlpUnreachable, otlpHeaders, runToOtlp, sendOtlp } from '../otel.js';
 import { ancestorsOf, fileSize, formatBytes, openStoreIfExists, parseChoice, parseIntArg, readStore, recordEvents, requireEnded, requireRun, unredacted, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
@@ -176,7 +177,8 @@ export function register(program: Command): void {
           // dashboard's dialog sends it to a file; a terminal has --out).
           const listening = err.code === 'ECONNREFUSED' ? ' Is a collector listening there?' : '';
           const instead = flags.out ? ` The trace is in ${flags.out}.` : inDashboardJob() ? ' Send it to a file instead.' : ' --out <file> writes it to a file instead.';
-          throw new Error(`${err.message}.${listening}${instead}`);
+          // A collector that didn't answer, 1; an address that isn't one (no network code to go by), 2.
+          throw new CliError(err.code ? EXIT.failed : EXIT.usage, `${err.message}.${listening}${instead}`);
         }
         process.stderr.write(`${p.green('✓')} sent ${spans} spans for ${shortId(run.runId)} to ${endpoint}${masked}\n`);
       } else if (!flags.out) {

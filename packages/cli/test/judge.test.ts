@@ -157,7 +157,7 @@ describe('a golden with a judge check', () => {
     config({ 'goldens/judged': { expect: { judge: [judge({ name: 'polite', question: 'Is the final answer polite?' })] } } });
     const sent = mock.requests.length;
     const r = await test('goldens/judged');
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(3);
     // Amber, not red: no check of the agent's failed, yet it never passes, so the run fails.
     expect(r.out).toContain('? judged: check inconclusive: judge "polite" answers yes, but not judged: no recorded verdict and the test runs offline');
     expect(r.out).toContain('    ? judge "polite" answers yes: inconclusive · not judged: no recorded verdict and the test runs offline');
@@ -252,7 +252,7 @@ describe('a golden with a judge check', () => {
   it('refuses a judge check it cannot read before anything runs', async () => {
     config({ 'goldens/judged': { expect: { judge: [{ name: 'x', question: 'Q?', model: 'llama-3' }] } } });
     const r = await shadowlap(['test', 'goldens/judged']);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.out).toContain('tests["goldens/judged"].expect.judge[0].model must name a model a judge can be asked through');
   });
 });

@@ -169,9 +169,10 @@ export function recordNotRecorded(store: Store, runId: string, found: Partial<No
 
 /**
  * Tools found in the project with no declared effect that a run did not record: a call of one of
- * them ran in the agent unseen, and runs again on every replay.
+ * them ran in the agent unseen, and runs again on every replay. The tools the model called that the
+ * run did not record, read from the run itself, are unrecordedTools (unrecorded-tools.ts).
  */
-export function unrecordedTools(found: ReadonlyArray<{ name: string; effect: string | null }>, calls: readonly Pick<CallRecord, 'kind' | 'name'>[]): string[] {
+export function unrecordedProjectTools(found: ReadonlyArray<{ name: string; effect: string | null }>, calls: readonly Pick<CallRecord, 'kind' | 'name'>[]): string[] {
   const recorded = new Set(calls.filter((c) => c.kind === 'tool').map((c) => c.name));
   return [...new Set(found.filter((t) => !t.effect && !recorded.has(t.name)).map((t) => t.name))].sort();
 }

@@ -139,7 +139,7 @@ describe('shadowlap test with a gate', () => {
       // Every other attempt obeys: 2 of 4, a score of 0, between bounds of ±ln 4.
       const tests = { 'goldens/reference-agent': { fork: true, gate: { good: 0.6, bad: 0.4, risk: 0.2, max: 4 }, expect: CHECKS } };
       const failing = await shadowlapTest(tests, FIX);
-      expect(failing.code).toBe(1);
+      expect(failing.code).toBe(3);
       const unsure = 'inconclusive · 2 of 4 · rate 0.23 to 0.77 (80%) · gate: tells 60%+ from 40%- at <= 20% risk, up to 4 attempts';
       expect(failing.out).toContain(`? reference-agent: ${unsure}`);
       expect(failing.out).toContain('0 passed, 0 failed, 1 inconclusive (failing the run: --inconclusive warn lets them through)');

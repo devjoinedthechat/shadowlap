@@ -10,6 +10,8 @@ import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
 import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-format.js';
 import { blameCommand, recordRepairFix, recordVerifyFix, repairCommand, verifyCommand } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
+import { AGENT_NODE_TOO_OLD } from '../agent-node.js';
+import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { type GuardMode } from '../run-agent.js';
 import { confirmImportedCommand, missingStoreNote, parseChoice, parseIntArg, readStore, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { ago, clauses, folder, palette as p, quoteArgv, safe, shortId } from '../ui.js';
@@ -282,7 +284,7 @@ export function register(program: Command): void {
       const argv = command.length ? command : parent.command.argv;
       const commandFromImport = !command.length && commandIsImported(parent);
       if (commandFromImport && !flags.yes && !(await confirmImportedCommand(parent, argv))) {
-        process.exitCode = 1;
+        process.exitCode = EXIT.usage;
         return;
       }
 
@@ -312,12 +314,13 @@ export function register(program: Command): void {
         if (report.contrast) emitJobEvent({ type: 'run', runId: report.contrast.rescuedRunId, role: 'passing' });
         if (report.fix) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(report.fix.fixId, 'blame') });
         emitJobEvent({ type: 'result', data: blameJson(report) });
-        process.exitCode = report.outcome === 'stopped' ? 1 : 0;
+        // A verdict (a blamed call, or none that rescues the run), 0; stopped before one, by its reason.
+        process.exitCode = report.outcome === 'stopped' ? stoppedStatus(report.stopReason) : EXIT.ok;
       } catch (err) {
         if (!(err instanceof BlameError)) throw err;
         if (flags.json) process.stdout.write(JSON.stringify({ runId: parent.runId, outcome: 'error', error: { reason: err.reason, message: err.message }, judge: err.judge }, null, 2) + '\n');
         else process.stderr.write(`\n${p.red('✗')} ${err.message}\n`);
-        process.exitCode = 1;
+        process.exitCode = blameErrorStatus(err.reason);
       }
     });
 
@@ -377,7 +380,7 @@ export function register(program: Command): void {
 
       const resolved = await targetsOf([...chosen.values()].map((x) => x.run), command, flags.yes, 'verify');
       if (!resolved) {
-        process.exitCode = 1;
+        process.exitCode = EXIT.usage;
         return;
       }
       const runs: Parameters<typeof runVerify>[0]['runs'] = resolved.map((t) => ({ ...t, role: chosen.get(t.parent.runId)!.role }));
@@ -407,7 +410,8 @@ export function register(program: Command): void {
       else process.stdout.write('\n' + formatVerify(report, p) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, standingWords(report.verdict, standing, f.status))).join(''));
       for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(f.fixId, 'verify', kept!.verdict.verifyId) });
       emitJobEvent({ type: 'result', data: json });
-      process.exitCode = report.verdict === 'accepted' ? 0 : 1;
+      // Accepted, 0; rejected, 1; not finished (a run's gate undecided, the budget spent), 3.
+      process.exitCode = report.verdict === 'accepted' ? EXIT.ok : report.verdict === 'rejected' ? EXIT.failed : stoppedBy() ? interruptedStatus() : EXIT.inconclusive;
     });
 
   program
@@ -482,7 +486,7 @@ export function register(program: Command): void {
       const dedupe = (list: RunRecord[]) => [...new Map(list.map((r) => [r.runId, r])).values()];
       const all = await targetsOf(dedupe([...fixes, ...holdout, ...keeps]), command, flags.yes, 'repair');
       if (!all) {
-        process.exitCode = 1;
+        process.exitCode = EXIT.usage;
         return;
       }
       const pick = (list: RunRecord[]) => all.filter((t) => list.some((r) => r.runId === t.parent.runId));
@@ -549,16 +553,41 @@ export function register(program: Command): void {
         for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(f.fixId, 'repair') });
         if (report.output.patch) emitJobEvent({ type: 'file', path: report.output.patch, label: 'fix.patch' });
         emitJobEvent({ type: 'result', data: json });
-        process.exitCode = report.outcome === 'fixed' && !handOverFailed ? 0 : 1;
+        // Fixed and handed over, 0; stopped before a verdict, by its reason; no fix, or a hand-over that failed, 1.
+        process.exitCode = report.outcome === 'fixed' && !handOverFailed ? EXIT.ok : report.outcome === 'stopped' ? stoppedStatus(report.why) : EXIT.failed;
       } catch (err) {
         if (!(err instanceof RepairError)) throw err;
         if (flags.json) process.stdout.write(JSON.stringify({ outcome: 'error', error: { message: err.message } }, null, 2) + '\n');
         else process.stderr.write(`\n${p.red('✗')} ${err.message}\n`);
-        process.exitCode = 1;
+        // Refused before anything ran: not in a git repository, another repair running here, a branch it can't make.
+        process.exitCode = EXIT.usage;
       }
     });
 
   registerFixes(program);
+}
+
+/**
+ * The status of a blame, verify or repair that stopped before its verdict, by why: a stop signal's
+ * own; 3 for a budget spent; 2 for an agent whose Node is too old for the guard; 1 otherwise.
+ */
+function stoppedStatus(reason: string | null): number {
+  if (stoppedBy() || reason === 'interrupted') return interruptedStatus();
+  if (reason?.includes('budget')) return EXIT.inconclusive;
+  if (reason === AGENT_NODE_TOO_OLD) return EXIT.usage;
+  return EXIT.failed;
+}
+
+/**
+ * Why blame could not start or could not trust what it saw, as a status: the run has no model call
+ * to probe, or a budget was given for a model with no price, 2; what it saw could not be decided, 3;
+ * cut short by a signal, its status; the run passes, or does not replay as recorded, 1.
+ */
+function blameErrorStatus(reason: BlameError['reason']): number {
+  if (reason === 'interrupted' || stoppedBy()) return interruptedStatus();
+  if (reason === 'no-model-calls' || reason === 'unpriced') return EXIT.usage;
+  if (reason === 'inconclusive') return EXIT.inconclusive;
+  return EXIT.failed;
 }
 
 /** What `fix pr` was given that it can't record, or a fix with no pull request to read. */
@@ -588,7 +617,7 @@ function fixIdFailed(err: unknown, arg: string, json: boolean | undefined): void
   if (!(err instanceof FixIdError)) throw err;
   if (!json) throw err;
   process.stdout.write(JSON.stringify({ fixId: arg, status: 'error', error: { reason: err.reason, message: err.message } }, null, 2) + '\n');
-  process.exitCode = 1;
+  process.exitCode = EXIT.usage;
 }
 
 /** `shadowlap fix`: each failure, from the blame that reproduced it to a change that held. */
@@ -682,7 +711,7 @@ function registerFixes(program: Command): void {
         if (!(err instanceof FixPrError)) throw err;
         if (flags.json) process.stdout.write(JSON.stringify({ fixId: arg, status: 'error', error: { message: err.message } }, null, 2) + '\n');
         else process.stderr.write(`${p.red('✗')} ${err.message}\n`);
-        process.exitCode = 1;
+        process.exitCode = EXIT.usage;
       } finally {
         store.close();
       }
@@ -708,7 +737,7 @@ function registerFixes(program: Command): void {
           const other = detail?.verify.find((v) => v.verdict === 'accepted' && !v.counts);
           const why = other ? `a change was accepted, but under another check than this fix's (${detail!.check}), so it doesn't count.` : 'no change has been verified for it yet, so there is nothing to apply.';
           const fixFirst = other ? `Verify it under this fix's check:\n  ${quoteArgv(['shadowlap', 'verify', ...(next?.slice(1) ?? [])])}` : next ? `Repair it first:\n  ${repairLine(next, configuredRepairer())}` : '';
-          throw new ApplyError(`${shortFixId(found.fixId)} is open: ${why}${fixFirst ? ` ${fixFirst}` : ''}`);
+          throw new ApplyError(`${shortFixId(found.fixId)} is open: ${why}${fixFirst ? ` ${fixFirst}` : ''}`, EXIT.usage);
         }
         if (found.status !== 'applied') log(`${p.yellow('⑂')} Applying ${shortFixId(found.fixId)} · ${safe(found.title)}`);
         const result = await applyFix(store, found, { cwd: process.cwd(), goldens: flags.goldens, test: flags.test, build: flags.build ?? null, db: opts.db, log });
@@ -738,13 +767,13 @@ function registerFixes(program: Command): void {
         // Goldens to re-record are the next thing to do: the drawer offers Update goldens, and the fix beside it.
         emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(found.fixId), ...(result.update ? { secondary: true } : {}) });
         emitJobEvent({ type: 'result', data: result });
-        process.exitCode = result.tests === 'failed' ? 1 : 0;
+        process.exitCode = result.tests === 'failed' ? EXIT.failed : EXIT.ok;
       } catch (err) {
         if (err instanceof FixIdError) return fixIdFailed(err, arg, flags.json);
         if (!(err instanceof ApplyError)) throw err;
         if (flags.json) process.stdout.write(JSON.stringify({ fixId: arg, status: 'error', error: { message: err.message } }, null, 2) + '\n');
         else process.stderr.write(`${p.red('✗')} ${err.message}\n`);
-        process.exitCode = 1;
+        process.exitCode = err.exitCode;
       } finally {
         store.close();
       }

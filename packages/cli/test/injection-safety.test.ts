@@ -15,8 +15,8 @@ import { referenceScript, TURNS } from '@shadowlap-testing/reference-agent';
  * provider that refuses every call, as in a pull request from a fork with no key) is inconclusive,
  * never ignored, and so is a test that showed too little to say or was cut short; a normalizer can
  * hide neither the planted text from the model nor a canary from --clean; a write the model asked
- * for in the same turn as the read is never caused by it; and --clean exits 1 while a write is
- * undecided.
+ * for in the same turn as the read is never caused by it; and --clean exits 3, inconclusive, while a
+ * write is undecided.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
@@ -108,7 +108,7 @@ afterAll(async () => {
 describe('an attempt in which something failed', () => {
   it('is inconclusive, never ignored, and makes the test inconclusive, which fails unless --inconclusive warn', async () => {
     const r = await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '1', '--concurrency', '4', '--json'], refusing.url);
-    expect(r.code, r.stderr).toBe(1);
+    expect(r.code, r.stderr).toBe(3);
     const out = json<Plant>(r);
     const report = out.results[0]!;
     expect([out.verdict, out.passed, report.gate.verdict]).toEqual(['inconclusive', false, 'inconclusive']);
@@ -126,10 +126,10 @@ describe('an attempt in which something failed', () => {
     expect(warned.stdout).toContain('Inconclusive, let through by --inconclusive warn.');
   }, 120_000);
 
-  it('decides nothing under --clean: three in a row stop it, inconclusive, and it exits 1', async () => {
+  it('decides nothing under --clean: three in a row stop it, inconclusive, and it exits 3', async () => {
     const plainRun = await record(plain.url);
     const r = await shadowlap(['injection', plainRun, '--clean', '7', '--json'], refusing.url);
-    expect(r.code, r.stderr).toBe(1);
+    expect(r.code, r.stderr).toBe(3);
     const clean = json<Clean>(r).results[0]!;
     expect(clean.attempts).toHaveLength(3);
     expect(clean.attempts.every((a) => /^model call #\d+ failed with HTTP 401/.test(a.why ?? '') && a.gone.length === 0)).toBe(true);
@@ -145,7 +145,7 @@ describe('an attempt in which something failed', () => {
     config({ ...UNTRUSTED, tests: { 'goldens/refused': { injection: { obeyed: 0, templates: ['system-notice'], baselines: 0 } } } });
     try {
       const failed = await shadowlap(['test', 'goldens/refused', '--json', 'report.json'], refusing.url);
-      expect(failed.code, failed.out).toBe(1);
+      expect(failed.code, failed.out).toBe(3);
       const result = (JSON.parse(readFileSync(join(cwd, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> }).results[0]!;
       expect(result).toMatchObject({ ok: false, verdict: 'inconclusive', failure: 'injection', message: expect.stringMatching(/^injection inconclusive: 5 of 5 attempts could not be judged: model call #\d+ failed with HTTP 401/), injection: { verdict: 'inconclusive', inconclusive: 5 } });
       expect(failed.stdout).toContain('! injection: 5 attempts · 0 obeyed · 0 influenced · 0 ignored · 5 inconclusive');
@@ -160,7 +160,7 @@ describe('an attempt in which something failed', () => {
       // A gate with nothing to plant in tested nothing: inconclusive too, and it says how to mark a tool.
       config({ tools: { fetch_page: { trust: 'trusted' } }, tests: { 'goldens/refused': { injection: { obeyed: 0, templates: ['system-notice'], baselines: 0 } } } });
       const empty = await shadowlap(['test', 'goldens/refused', '--json', 'report.json'], obey.url);
-      expect(empty.code, empty.out).toBe(1);
+      expect(empty.code, empty.out).toBe(3);
       expect((JSON.parse(readFileSync(join(cwd, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> }).results[0]).toMatchObject({ ok: false, failure: 'injection', message: expect.stringMatching(/^injection inconclusive: no untrusted read to plant in: mark the tools that bring outside text in/), injection: { verdict: 'inconclusive', attempts: 0 } });
       expect(empty.stdout).toContain('! injection: inconclusive');
     } finally {
@@ -171,7 +171,7 @@ describe('an attempt in which something failed', () => {
   it('cut short by --budget reads inconclusive, not passed', async () => {
     const plainRun = await record(plain.url);
     const r = await shadowlap(['injection', plainRun, '--baselines', '0', '--budget', '0.02', '--json'], plain.url);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(3);
     const report = json<Plant>(r).results[0]!;
     expect(report.stopReason).toBe('the budget of $0.02 is spent');
     expect(report.gate).toMatchObject({ verdict: 'inconclusive', reason: expect.stringMatching(/^\d+ of the 60 planned attempts ran \(the budget of \$0\.02 is spent\)$/) });
@@ -235,11 +235,11 @@ describe('--clean', () => {
     expect(clean.attempts.every((x) => x.made.some((m) => m.callNo === early.callNo))).toBe(true);
   }, 120_000);
 
-  it('exits 1 while a write is undecided, whatever another write says', async () => {
+  it('exits 3, inconclusive, while a write is undecided, whatever another write says', async () => {
     const report = json<Plant>(await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '0', '--json'], obey.url)).results[0]!;
     const a = report.attempts.find((x) => x.read === report.reads[0]!.callNo)!;
     const r = await shadowlap(['injection', a.runId, '--clean', String(a.plantedAt), '--json'], toggling.url);
-    expect(r.code, r.stderr).toBe(1);
+    expect(r.code, r.stderr).toBe(3);
     const out = json<Clean>(r);
     const clean = out.results[0]!;
     expect(clean.writes.map((w) => w.verdict)).toEqual(['caused', 'inconclusive']);

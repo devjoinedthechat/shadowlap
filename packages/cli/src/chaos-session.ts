@@ -7,6 +7,7 @@ import { parseExpect, specFor, type TestSpec } from './checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests } from './config.js';
 import { importGolden } from './golden-test.js';
 import { expandRecordings, goldenName, readPackHead, testsKeyFor } from './goldens.js';
+import { EXIT, inconclusiveStatus, signalExit } from './exit-codes.js';
 import { emitJobEvent } from './job-events.js';
 import { junitXml } from './junit.js';
 import { type GuardMode } from './run-agent.js';
@@ -106,9 +107,10 @@ async function endSession(s: Session, results: ChaosRecordingResult[], flags: Ch
   process.stdout.write(`\n${chaosTotals(report, upstream, spent)}${interrupted ? ' · interrupted' : ''}\n`);
   if (report.inconclusive && flags.inconclusive === 'warn') process.stdout.write(p.dim(`${report.inconclusive} inconclusive: reported, not failed (--inconclusive warn)\n`));
   await telemetry().flush();
-  const failed = report.failed > 0 || results.some((r) => r.error) || (flags.inconclusive === 'fail' && report.inconclusive > 0);
+  // A signal, its status; a preset that failed or a golden that couldn't run, 1; an inconclusive preset not let through, 3.
+  const failed = report.failed > 0 || results.some((r) => r.error);
   const sig = s.signal();
-  process.exitCode = sig ? (sig === 'SIGINT' ? 130 : 143) : failed ? 1 : 0;
+  process.exitCode = sig ? signalExit(sig) : failed ? EXIT.failed : report.inconclusive > 0 ? inconclusiveStatus(flags.inconclusive) : EXIT.ok;
 }
 
 const ATTEMPT_LINE = (runId: string, what: string, preset: string, attempt: number) => p.dim(`[shadowlap] replaying run ${runId} for ${what}: ${preset}${attempt > 1 ? `, attempt ${attempt}` : ''}\n`);

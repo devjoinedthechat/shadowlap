@@ -405,10 +405,10 @@ describe('shadowlap mcp --url', () => {
         child.stderr.on('data', (d: Buffer) => (err += d.toString()));
         child.on('exit', (code) => resolve({ code, err }));
       });
-    expect(await run(['--url', server.url, '--', 'node', 'server.js'])).toMatchObject({ code: 1, err: expect.stringContaining('not both') });
-    expect(await run(['--header', 'X-Team: a', '--', 'node', 'server.js'])).toMatchObject({ code: 1, err: expect.stringContaining('--header is for a server reached with --url') });
-    expect(await run(['--allow-http', '--', 'node', 'server.js'])).toMatchObject({ code: 1, err: expect.stringContaining('--allow-http is for a server reached with --url') });
-    expect(await run([])).toMatchObject({ code: 1, err: expect.stringContaining('give the MCP server') });
+    expect(await run(['--url', server.url, '--', 'node', 'server.js'])).toMatchObject({ code: 2, err: expect.stringContaining('not both') });
+    expect(await run(['--header', 'X-Team: a', '--', 'node', 'server.js'])).toMatchObject({ code: 2, err: expect.stringContaining('--header is for a server reached with --url') });
+    expect(await run(['--allow-http', '--', 'node', 'server.js'])).toMatchObject({ code: 2, err: expect.stringContaining('--allow-http is for a server reached with --url') });
+    expect(await run([])).toMatchObject({ code: 2, err: expect.stringContaining('give the MCP server') });
   });
 });
 

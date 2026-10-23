@@ -4,6 +4,7 @@ import { DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDe
 import { verifySession } from '../decisions-verify.js';
 import { attemptRule, parseFields, readExpectJson } from './fix.js';
 import { gateFlags } from '../fixes.js';
+import { EXIT, inconclusiveStatus, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { formatMigrate, runMigrate, type MigrateReport } from '../migrate.js';
 import { type GuardMode } from '../run-agent.js';
@@ -50,12 +51,15 @@ async function consent(targets: DecisionTarget[], argv: string[] | null, yes: bo
   return true;
 }
 
-/** A refusal before anything ran, as `--json` prints it: `{ kind, outcome: "error", error: { message } }`. */
+/**
+ * A refusal before anything ran (no credentials, no such run or session, a command that can't run),
+ * as `--json` prints it: `{ kind, outcome: "error", error: { message } }`. Exit status 2.
+ */
 function failed(err: unknown, json: boolean | undefined, kind: 'decisions' | 'migrate'): void {
   if (!(err instanceof DecisionsError)) throw err;
   if (json) process.stdout.write(JSON.stringify({ kind, outcome: 'error', error: { message: err.message } }, null, 2) + '\n');
   else process.stderr.write(`${p.red('✗')} ${err.message}\n`);
-  process.exitCode = 1;
+  process.exitCode = EXIT.usage;
 }
 
 /** Where a job's drawer goes next: the runs with a write, stop or judged change, the first of them its primary action. */
@@ -64,14 +68,15 @@ function emitDecisions(report: DecisionsReport): void {
   flagged.forEach((runId, i) => emitJobEvent({ type: 'link', label: `Open ${runId.slice(0, 10)}`, href: `#/run/${runId}`, ...(i < flagged.length - 1 ? { secondary: true } : {}) }));
 }
 
-/** The exit status for an inconclusive verdict: 1 with `--inconclusive fail` (the default), 0 with `warn`, after a warning. */
+/**
+ * The exit status for an inconclusive verdict: 3 with `--inconclusive fail` (the default), 0 with
+ * `warn`, after a warning; a session a stop signal cut short ends with the signal's status.
+ */
 function inconclusiveExit(mode: 'fail' | 'warn', why: string | null): number {
-  if (!why) return 0;
-  if (mode === 'warn') {
-    process.stderr.write(`${p.yellow('!')} inconclusive, and --inconclusive warn lets it pass: ${why}\n`);
-    return 0;
-  }
-  return 1;
+  if (stoppedBy()) return interruptedStatus();
+  if (!why) return EXIT.ok;
+  if (mode === 'warn') process.stderr.write(`${p.yellow('!')} inconclusive, and --inconclusive warn lets it pass: ${why}\n`);
+  return inconclusiveStatus(mode);
 }
 
 /**
@@ -140,7 +145,7 @@ export function register(program: Command): void {
           emitJobEvent({ type: 'result', data: out as unknown as Record<string, unknown> });
           const v = out.verify;
           const why = v.verdict === 'incomplete' ? 'verify did not settle every run it took' : v.verdict === 'not-run' && v.reasons.length ? `verify did not run: ${v.reasons[0]}` : null;
-          process.exitCode = v.verdict === 'rejected' ? 1 : inconclusiveExit(flags.inconclusive, why);
+          process.exitCode = v.verdict === 'rejected' ? EXIT.failed : inconclusiveExit(flags.inconclusive, why);
         } catch (err) {
           failed(err, flags.json, 'decisions');
         }
@@ -166,7 +171,7 @@ export function register(program: Command): void {
       store.close();
       try {
         if (!(await consent(targets, argv, flags.yes, !!flags.fromCode || !!flags.thenVerify))) {
-          process.exitCode = 1;
+          process.exitCode = EXIT.usage;
           return;
         }
         const settings: DecisionsSettings = {
@@ -193,7 +198,7 @@ export function register(program: Command): void {
         emitDecisions(report);
         emitJobEvent({ type: 'result', data: report as unknown as Record<string, unknown> });
         const rejected = report.verify?.verdict === 'rejected';
-        process.exitCode = rejected || (flags.strict && report.flagged.length) ? 1 : inconclusiveExit(flags.inconclusive, decisionsInconclusive(report));
+        process.exitCode = rejected || (flags.strict && report.flagged.length) ? EXIT.failed : inconclusiveExit(flags.inconclusive, decisionsInconclusive(report));
       } catch (err) {
         failed(err, flags.json, 'decisions');
       }
@@ -242,7 +247,7 @@ export function register(program: Command): void {
       store.close();
       try {
         if (!(await consent(targets, split.argv, flags.yes, true))) {
-          process.exitCode = 1;
+          process.exitCode = EXIT.usage;
           return;
         }
         const timeoutMs = flags.timeout === undefined ? null : flags.timeout * 1000;
@@ -292,10 +297,10 @@ export function register(program: Command): void {
 /**
  * 1 when a run verify took breaks under the new model; when the report settles nothing (it stopped
  * early, a step got no answer, a flagged run went unverified, a text-only change a judge check reads
- * could not be judged), 1 with `--inconclusive fail` and 0 with `warn`; else 0.
+ * could not be judged), 3 with `--inconclusive fail` and 0 with `warn`; else 0.
  */
 export function migrateExit(r: MigrateReport, inconclusive: 'fail' | 'warn' = 'fail'): number {
-  if (r.passes.verdict === 'rejected' || r.passes.runs.some((x) => x.verified && x.verdict === 'failed')) return 1;
+  if (r.passes.verdict === 'rejected' || r.passes.runs.some((x) => x.verified && x.verdict === 'failed')) return EXIT.failed;
   const open = r.passes.runs.filter((x) => x.verdict === 'inconclusive').length;
   const unsettled = r.stopReason ? `it stopped before every step was asked: ${r.stopReason}` : r.passes.verdict === 'incomplete' ? 'verify did not settle every run it took' : open ? `${open} run${open === 1 ? ' is' : 's are'} inconclusive` : null;
   return inconclusiveExit(inconclusive, unsettled);

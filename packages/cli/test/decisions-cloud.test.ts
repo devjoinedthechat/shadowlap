@@ -180,7 +180,7 @@ describe('shadowlap decisions on the cloud platforms', () => {
     }
 
     const refused = await shadowlap(['decisions', runId, '--model', 'gpt-4o-mini', '--json']);
-    expect(refused.code).toBe(1);
+    expect(refused.code).toBe(2);
     expect(json<{ error: { message: string } }>(refused).error.message).toBe("nothing was sent: an Azure OpenAI deployment call needs the api-version it was sent with, which this recording doesn't keep (it was made before recordings kept a call's query): set OPENAI_API_VERSION to it, as the AzureOpenAI SDKs read it");
 
     const seen = cloud.stats.seen.length;

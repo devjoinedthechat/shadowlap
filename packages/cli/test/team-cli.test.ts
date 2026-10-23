@@ -155,7 +155,7 @@ describe('the CLI with a team store', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ store: storeUrl('nocreds') }));
     const r = await shadowlap(['pull'], { cwd: dir, env: { ...baseEnv(), SHADOWLAP_AUTHOR: 'x@northwind.example' } }).done;
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.stderr).toMatch(/^✗ No AWS credentials found/m);
     expect(r.stderr).not.toMatch(/\n\s+at /);
   });

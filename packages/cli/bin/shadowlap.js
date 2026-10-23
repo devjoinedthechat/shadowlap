@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Every store has a full-text index, which Node's built-in SQLite has from 22.16 on and in 24 and
 // later, never in 23. The Node is checked before the CLI loads, so an older one is named in one line
-// rather than failing at the first store it opens.
+// rather than failing at the first store it opens. A Node it can't run on is how this machine is set
+// up, so it ends with 2, as any configuration Shadowlap can't use does (docs/cli.md, Exit status).
 const [major, minor] = process.versions.node.split('.').map(Number);
 if (!((major === 22 && minor >= 16) || major >= 24)) {
   console.error(`shadowlap: needs Node.js 22.16 or later (not 23), whose built-in SQLite has full-text search; this is Node.js ${process.versions.node}`);
-  process.exit(1);
+  process.exit(2);
 }
 
 // `shadowlap show <run> | head` closes the pipe early: that is not an error.
@@ -16,11 +17,25 @@ for (const stream of [process.stdout, process.stderr]) {
   });
 }
 
-import('../dist/index.js')
-  .then(({ main }) => main(process.argv))
-  .catch((err) => {
-    const message = err instanceof Error ? err.message : String(err);
-    // The message is what a person needs; the stack is for bug reports.
-    console.error(process.env.SHADOWLAP_DEBUG && err instanceof Error && err.stack ? err.stack : `shadowlap: ${message}`);
-    process.exit(1);
-  });
+// What a command throws ends it with the status the contract gives it (exit-codes.ts): the message
+// is what a person needs, and SHADOWLAP_DEBUG=1 adds the stack for a bug report. A stop signal ends
+// it with 128 + the signal's number, however the command wound down.
+import('../dist/index.js').then(
+  (cli) => {
+    cli.watchStopSignals();
+    process.on('uncaughtException', (err) => process.exit(cli.reportError(err)));
+    cli.main(process.argv).then(
+      () => {
+        const signal = cli.stoppedBy();
+        if (signal) process.exitCode = cli.signalExit(signal);
+      },
+      (err) => process.exit(cli.reportError(err)),
+    );
+  },
+  (err) => {
+    // The CLI's own files did not load: an installation that is broken, never what it was asked.
+    console.error(process.env.SHADOWLAP_DEBUG && err instanceof Error && err.stack ? err.stack : `shadowlap: internal error: ${err instanceof Error ? err.message : String(err)}`);
+    console.error('This is a bug in Shadowlap or its installation: reinstall it, and if that does not help, report it at https://github.com/devjoinedthechat/shadowlap/issues');
+    process.exit(70);
+  },
+);

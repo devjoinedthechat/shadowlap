@@ -137,6 +137,8 @@ export interface ImportOptions {
   labels?: string[];
   /** Who imported it (resolveAuthor), stored as the run's author. */
   author?: string | null;
+  /** A trace's id in the store it came from (`meta.imported.key`), by which a later import of the trace skips it. */
+  key?: string;
 }
 
 /** A tool call a trace kept, with its arguments and what it returned. */
@@ -179,7 +181,7 @@ export class ImportWriter {
       mode: 'record',
       command: { argv: [NO_COMMAND], cwd: opts.cwd ?? process.cwd() },
       meta: {
-        imported: { at: Date.now(), from: opts.source },
+        imported: { at: Date.now(), from: opts.source, ...(opts.key ? { key: opts.key } : {}) },
         normalizersHash: normalizersHash([], 'exact', false),
         covers: opts.covers,
         labels,

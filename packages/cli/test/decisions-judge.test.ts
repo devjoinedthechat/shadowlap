@@ -255,7 +255,7 @@ describe('a judge check that cannot be asked', () => {
     const p = await project('no-key', [{ ...ANSWER, model: 'gpt-5-mini' }], { redact: [{ pattern: '/deterministically/', replace: '<masked>' }] });
     const asked = judgeRequests(mock.requests).length;
     const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--json']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const report = json<DecisionsReport>(r);
     const why = 'not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)';
     const step = report.runs[0]!.decisions[0]!;
@@ -275,7 +275,7 @@ describe('a judge check that cannot be asked', () => {
     expect(warned.stdout).toContain(`judge "fences" inconclusive · ${why}`);
     // migrate: the run is inconclusive, not unchanged, since the words it can't judge might read otherwise.
     const m = await shadowlap(p.dir, ['migrate', '--to', 'mock-terse', '-y', '--json']);
-    expect(m.code, m.out).toBe(1);
+    expect(m.code, m.out).toBe(3);
     expect(json<MigrateReport>(m).passes.runs).toMatchObject([{ verdict: 'inconclusive', outcome: 'not-judged', verified: false }]);
   }, 180_000);
 
@@ -299,7 +299,7 @@ describe('judging text-only changes, more ways', () => {
     const asked = judgeRequests(mock.requests).length;
     // Asking mock-wordy, which has no price, spends nothing; the first live judge call spends the budget, so the second is not made.
     const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-wordy', '--budget', '0.0001', '--json']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const report = json<DecisionsReport>(r);
     expect(judgeRequests(mock.requests).length - asked).toBe(1);
     const step = report.runs[0]!.decisions[0]!;
@@ -338,7 +338,7 @@ describe('judging text-only changes, more ways', () => {
     // mock-mixed words one sample tersely and the other as recorded in other words; the first judged spends the budget,
     // so the second is not judged. Whichever comes first, the step's flag waits on the words the judge never read.
     const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-mixed', '--samples', '2', '--budget', '0.0001', '--json']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const report = json<DecisionsReport>(r);
     const step = report.runs[0]!.decisions[0]!;
     expect(step.samples).toMatchObject({ asked: 2, answered: 2, changed: 2, unjudged: 1 });
@@ -420,7 +420,7 @@ describe('judging text-only changes, more ways', () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       release();
       const code = await exited;
-      expect(code, out).toBe(1);
+      expect(code, out).toBe(130);
       const report = json<DecisionsReport>({ stdout, out });
       // The judge's answer still counts: the run is flagged. Verify, which would run the agent, did not start.
       expect(report.flagged).toEqual([p.runId]);

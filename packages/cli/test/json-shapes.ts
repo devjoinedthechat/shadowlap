@@ -28,15 +28,17 @@ export interface Shape {
 }
 
 export const SHAPES = {
-  summaryJson: { section: 'run', fields: ['exitCode', 'summary'] },
+  summaryJson: { section: 'run', fields: ['exitCode', 'summary', 'unrecordedTools'] },
   summary: { section: 'run', fields: ['runId', 'mode', 'status', 'total', 'byOrigin', 'byKind', 'upstreamRequests', 'injected', 'refused', 'imported', 'tokensNotRespent', 'cost', 'durationMs', 'notReached', 'warnings', 'divergence'] },
   cost: { section: 'run', fields: ['spent', 'saved', 'captured', 'unknownModels'] },
   // A run with judge checks: what the judge's calls did and cost, apart from the agent's (summary.judge).
   summaryJudge: { section: 'run', fields: ['calls', 'replayed', 'live', 'notAsked', 'upstreamRequests', 'spent', 'saved', 'unknownModels'] },
-  replayChecks: { section: 'replay', fields: ['exitCode', 'summary', 'checks'] },
+  replayChecks: { section: 'replay', fields: ['exitCode', 'summary', 'checks', 'unrecordedTools'] },
   repeat: { section: 'replay', fields: ['attempts', 'report'] },
   repeatReport: { section: 'replay', fields: ['parentRunId', 'attempts', 'forkedAt', 'paths', 'tools', 'distinctFinalResponses', 'succeeded', 'spent', 'saved', 'tokensNotRespent'] },
-  show: { section: 'show', fields: ['run', 'summary', 'calls', 'untrusted'] },
+  show: { section: 'show', fields: ['run', 'summary', 'calls', 'untrusted', 'unrecordedTools'] },
+  // A tool the model called that the run never recorded (show --json, --summary-json).
+  unrecordedTool: { section: 'show', list: 'the tools its model called that the run never recorded, `unrecordedTools`', fields: ['name', 'count', 'firstCallNo', 'effect', 'why'] },
   showUntrusted: { section: 'show', list: 'as the dashboard\'s `GET /api/injection/runs/:id` lists them', fields: ['callNo', 'name', 'from'] },
   showRun: { section: 'show', list: 'the run as stored', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
   showCall: { section: 'show', list: 'every call as stored', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },
@@ -47,6 +49,10 @@ export const SHAPES = {
   diffChanges: { section: 'diff', fields: ['systemPrompt', 'systems', 'tools', 'models', 'code'] },
   importJson: { section: 'import', fields: ['format', 'entries', 'runs', 'skipped'] },
   importRun: { section: 'import', fields: ['runId', 'source', 'key', 'calls', 'labels', 'imported'] },
+  // A trace store's import of the traces in a window: the window it read, and each trace it found.
+  importBulk: { section: 'import', fields: ['format', 'entries', 'runs', 'skipped', 'kept', 'window', 'traces'] },
+  importWindow: { section: 'import', list: 'adds the window it read', fields: ['since', 'until', 'limit', 'traceName'] },
+  importTrace: { section: 'import', list: 'each trace it found, newest first', fields: ['id', 'name', 'startedAt', 'outcome', 'runId', 'reason'] },
   calibrate: { section: 'calibrate', fields: ['runId', 'source', 'clean', 'rounds', 'normalizers', 'written', 'added', 'stopped'] },
   rules: { section: 'normalize', fields: ['file', 'exists', 'version', 'error', 'rules'] },
   preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'returned', 'unmasked', 'rules', 'details'] },

@@ -116,7 +116,7 @@ Each probe replays everything before its call for free. The calls after it run l
 | `--timeout <seconds>` | Stop an attempt after this long and count it as failed, for an agent that can loop |
 | `--concurrency <n>` | Run up to *n* attempts of a probe at once, and at most *n* − 1 past the one that decides it. Probes still run one after another, since each depends on the last |
 
-Stopping early, by budget or by Ctrl-C, still prints what the search found so far, and exits 1.
+Stopping early still prints what the search found so far, and exits 3 when the budget stopped it, 130 for Ctrl-C.
 
 ## JSON
 

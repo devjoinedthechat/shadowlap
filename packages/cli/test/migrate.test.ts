@@ -163,7 +163,7 @@ describe('shadowlap migrate', () => {
     // passing half the time or one passing 90%.
     const flaky = ['--', process.execPath, FLAKY, join(cwd, 'flaky.count'), process.execPath, AGENT];
     const short = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--json', ...flaky]);
-    expect(short.code, short.out).toBe(1);
+    expect(short.code, short.out).toBe(3);
     const unsettled = json<MigrateReport>(short);
     expect(unsettled.passes).toEqual({ verdict: 'incomplete', runs: [{ runId, golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 5, attempts: 7, bound: 'rate 0.36 to 0.92 (95%)', rule: 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts', undecided: null } }] });
     expect(unsettled.decisions.verify?.rule).toBe('gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts');

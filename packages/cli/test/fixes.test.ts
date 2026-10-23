@@ -444,7 +444,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
 
     // Nothing verified, nothing to apply: it says how to get there.
     const refused = await shadowlap(['fix', 'apply', fixId]);
-    expect(refused.code).toBe(1);
+    expect(refused.code).toBe(2);
     expect(refused.out).toContain(`${fixId.slice(0, 13)} is open: no change has been verified for it yet, so there is nothing to apply. Repair it first:`);
     expect(refused.out).toContain(`shadowlap repair --fixes ${failed[0]}`);
 
@@ -532,7 +532,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect((await shadowlap(['fix', 'apply', 'NOPE'])).out).toContain('no fix matches "NOPE"');
     for (const args of [['fix', 'show', 'NOPE', '--json'], ['fix', 'apply', 'NOPE', '--json'], ['fix', 'show', 'fx-', '--json']]) {
       const r = await shadowlap(args);
-      expect(r.code).toBe(1);
+      expect(r.code).toBe(2);
       expect(json(r)).toEqual({ fixId: args[2], status: 'error', error: { reason: 'unknown', message: `no fix matches "${args[2]}" (see: shadowlap fix ls)` } });
     }
     expect((await shadowlap(['fix', 'ls'])).stdout).toContain("No fixes here. A fix starts from a blame: shadowlap blame <run> --expect '<check>'");
@@ -564,7 +564,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect((await shadowlap(['fix', 'show', fixId])).stdout).toMatch(/✓ accepted {2}\S+ {2}Doesn't count for this fix: its check leaves out issue_refund with \{"amount":240\} called 0 times\n/);
 
     const refused = await shadowlap(['fix', 'apply', fixId]);
-    expect(refused.code).toBe(1);
+    expect(refused.code).toBe(2);
     expect(refused.out).toContain(`${fixId.slice(0, 13)} is open: a change was accepted, but under another check than this fix's (issue_refund never called with {"amount":240}), so it doesn't count. Verify it under this fix's check:`);
     // The fix's own failing run: the other labelled run was verified only under another check, so it isn't one of the fix's.
     expect(refused.out).toContain(`shadowlap verify --fixes ${failed[0]} --keeps label:good --expect '${ORACLE}'`);

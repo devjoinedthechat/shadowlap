@@ -162,12 +162,28 @@ describe('shadowlap dashboard', () => {
     const empty = realpathSync(mkdtempSync(join(tmpdir(), 'sl-dash-ro-empty-')));
     try {
       const r = spawnSync(process.execPath, [CLI, 'dashboard', '--read-only', '--no-open'], { cwd: empty, env, encoding: 'utf8', timeout: 20_000 });
-      expect(r.status, r.stderr).toBe(1);
+      expect(r.status, r.stderr).toBe(2);
       expect(r.stderr).toMatch(/no store at .* never creates one/);
       expect(existsSync(join(empty, '.shadowlap'))).toBe(false);
     } finally {
       rmSync(empty, { recursive: true, force: true });
     }
+  });
+
+  it('takes --port 0 for any free port, and prints the one it got in its link', async () => {
+    const d = await dashboard(['--port', '0']);
+    try {
+      const port = Number(new URL(d.url).port);
+      expect(port).toBeGreaterThan(0);
+      // The link names the port the server listens on.
+      expect((await fetch(`${d.url}/`)).status).toBe(200);
+    } finally {
+      await stop(d);
+    }
+    // A port that isn't one is a usage error, before anything listens.
+    const r = spawnSync(process.execPath, [CLI, 'dashboard', '--no-open', '--port', '65536'], { cwd, env, encoding: 'utf8', timeout: 20_000 });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("option '--port <port>' argument '65536' is invalid. must be a port from 0 (any free one) to 65535");
   });
 
   it('lists the project\'s goldens on Tests, and runs them from there', async () => {
@@ -263,7 +279,7 @@ describe.skipIf(process.platform === 'win32')('stopping shadowlap dashboard', ()
     const { agent, runId } = await replaying(d);
     const exited = new Promise<number | null>((r) => d.child.once('exit', (code) => r(code)));
     d.child.kill('SIGHUP');
-    expect(await exited).toBe(0);
+    expect(await exited).toBe(129);
     expect(await gone(agent), 'the agent was stopped with the dashboard').toBe(true);
     agents.delete(agent);
     expect(statusOf(runId), 'the replay was interrupted').toBe('crashed');
@@ -279,7 +295,7 @@ describe.skipIf(process.platform === 'win32')('stopping shadowlap dashboard', ()
     expect(existsSync(join(cwd, 'got-term')), 'the agent got the stop, and ignored it').toBe(true);
     const again = Date.now();
     d.child.kill('SIGINT');
-    expect(await exited).toBe(0);
+    expect(await exited).toBe(130);
     // Five seconds of grace were left: a second Ctrl-C does not wait for them.
     expect(Date.now() - again).toBeLessThan(4000);
     expect(await gone(agent), 'the agent was killed with the dashboard').toBe(true);

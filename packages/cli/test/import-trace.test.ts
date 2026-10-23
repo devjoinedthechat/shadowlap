@@ -536,11 +536,34 @@ describe('reading a trace store', () => {
     expect(refusal('http://ops:hunter2@phoenix internal:6006', 'PHOENIX_ENDPOINT')).toBe('PHOENIX_ENDPOINT: Phoenix needs a URL such as http://localhost:6006 or https://app.phoenix.arize.com/s/your-space');
   });
 
-  it('fetches a Langfuse trace with the project keys, and its observations when the trace lists ids only', async () => {
+  it("fetches a Langfuse trace's observations from the Observations API v2 a page at a time, with input and output sent as JSON text", async () => {
+    const full = JSON.parse(fixture('langfuse-trace.json')) as { observations: Array<Record<string, unknown>> };
+    // As the v2 API sends them: newest first, the JSON fields as text.
+    const text = (v: unknown) => (v && typeof v === 'object' ? JSON.stringify(v) : v);
+    const rows = full.observations.map((o) => ({ ...o, input: JSON.stringify(o.input ?? null), output: JSON.stringify(o.output ?? null), modelParameters: text(o.modelParameters), metadata: text(o.metadata) })).reverse();
+    const seen: string[] = [];
+    const host = await listen((req) => {
+      seen.push(`${req.method} ${req.url}`);
+      const cursor = new URL(req.url!, 'http://x').searchParams.get('cursor');
+      return { status: 200, body: cursor ? { data: rows.slice(4), meta: { cursor: null } } : { data: rows.slice(0, 4), meta: { cursor: 'c-2' } } };
+    });
+    const trace = await fetchLangfuseTrace('7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07', { host, publicKey: 'pk-lf-1', secretKey: 'sk-lf-2' });
+    expect(seen).toEqual([
+      'GET /api/public/v2/observations?traceId=7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07&fields=core%2Cbasic%2Cio%2Cmodel%2Cusage%2Cmetadata&limit=1000',
+      'GET /api/public/v2/observations?traceId=7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07&fields=core%2Cbasic%2Cio%2Cmodel%2Cusage%2Cmetadata&limit=1000&cursor=c-2',
+    ]);
+    // In the order they started, each as the trace endpoint gives it.
+    expect(trace).toEqual({ id: '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07', observations: full.observations.map((o) => ({ ...o, input: o.input ?? null, output: o.output ?? null })) });
+    const read = readLangfuse(trace);
+    expect(read.calls.filter((c) => c.kind === 'model')).toHaveLength(3);
+  });
+
+  it('fetches a Langfuse trace with the project keys from a Langfuse without the v2 API, and its observations when the trace lists ids only', async () => {
     const full = JSON.parse(fixture('langfuse-trace.json')) as { observations: unknown[] };
     const seen: string[] = [];
     const host = await listen((req) => {
       seen.push(`${req.method} ${req.url} ${req.headers.authorization}`);
+      if (req.url!.startsWith('/api/public/v2/')) return { status: 404, body: { message: 'Not Found' } };
       if (req.url === '/api/public/traces/7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07') return { status: 200, body: { ...full, observations: ['obs-gen-1', 'obs-tool-1'] } };
       const page = Number(new URL(req.url!, 'http://x').searchParams.get('page'));
       return { status: 200, body: { data: full.observations.slice((page - 1) * 4, page * 4), meta: { page, limit: 100, totalItems: 7, totalPages: 2 } } };
@@ -549,6 +572,7 @@ describe('reading a trace store', () => {
     expect((trace.observations as unknown[]).length).toBe(7);
     const basic = `Basic ${Buffer.from('pk-lf-1:sk-lf-2').toString('base64')}`;
     expect(seen).toEqual([
+      `GET /api/public/v2/observations?traceId=7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07&fields=core%2Cbasic%2Cio%2Cmodel%2Cusage%2Cmetadata&limit=1000 ${basic}`,
       `GET /api/public/traces/7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07 ${basic}`,
       `GET /api/public/observations?traceId=7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07&page=1&limit=100 ${basic}`,
       `GET /api/public/observations?traceId=7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07&page=2&limit=100 ${basic}`,

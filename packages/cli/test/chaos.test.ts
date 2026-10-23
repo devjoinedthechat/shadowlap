@@ -173,7 +173,7 @@ describe('test --chaos', () => {
     // A mistake under chaos fails before anything runs, as any mistake under tests does.
     config({ 'goldens/forecast': { chaos: { presets: ['flood'] } } });
     const bad = await shadowlap(['test', 'goldens/forecast', '--chaos']);
-    expect(bad.code).toBe(1);
+    expect(bad.code).toBe(2);
     expect(bad.out).toContain('unknown preset "flood"');
     config({ 'goldens/forecast': { chaos: { gate: { baseline: 'history', drop: 0.1, risk: 0.05 } } } });
     expect((await shadowlap(['test', 'goldens/forecast', '--chaos'])).out).toContain("a baseline gate compares a golden with its own history, which an error-path preset doesn't have");
@@ -223,7 +223,7 @@ describe('test --chaos', () => {
     const judge = { name: 'calm', question: 'Does the final answer stay calm?', model: 'gemini-2.5-flash' };
     config({ 'goldens/forecast': { chaos: { presets: ['timeout'], expect: { judge: [judge] }, gate: { good: 0.9, bad: 0.5, risk: 0.1, max: 6 } } } });
     const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'undecided.json', '--junit', 'undecided.xml'], { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' });
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const out = report('undecided.json');
     const p = byPreset(out);
     expect(p.timeout).toMatchObject({ verdict: 'inconclusive', attempts: 1, passes: 0 });
@@ -343,7 +343,7 @@ describe('replay --chaos', () => {
       store.close();
     }
     const refused = await shadowlap(['replay', recording, '--chaos', '--fail-at', '3=timeout']);
-    expect(refused.code).toBe(1);
+    expect(refused.code).toBe(2);
     expect(refused.out).toContain("--chaos plays each preset in alone; it doesn't combine with --fail-at");
     // Without checks, it says what judged them.
     const plain = await shadowlap(['replay', recording, '--chaos', '--presets', 'empty']);
@@ -352,7 +352,7 @@ describe('replay --chaos', () => {
 
     // A command that never makes the call the preset hits plays nothing in: inconclusive, and so is its attempt, never failed.
     const never = await shadowlap(['replay', recording, '--chaos', '--presets', 'timeout', '--summary-json', 'never.json', '--', process.execPath, '-e', '']);
-    expect(never.code, never.out).toBe(1);
+    expect(never.code, never.out).toBe(3);
     const n = byPreset(report('never.json'));
     expect(n.timeout).toMatchObject({ verdict: 'inconclusive', attempts: 1, passes: 0, reason: expect.stringContaining('so the preset was never played in') });
     expect(n.timeout!.runs).toEqual([expect.objectContaining({ verdict: 'inconclusive', passed: false, reason: n.timeout!.reason })]);

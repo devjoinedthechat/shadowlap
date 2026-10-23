@@ -101,7 +101,7 @@ describe('the JSON the CLI prints', () => {
     // A rule that holds, one that doesn't apply, and a judge with no verdict: inconclusive, so exit 1.
     const expect_ = { calls: [{ tool: 'escalate', after: 'lookup_order' }], when: [{ if: { tool: 'issue_refund' }, then: { tools: { escalate: 0 } } }], judge: [{ name: 'polite', question: 'Is the reply polite?', model: 'claude-haiku-4-5' }] };
     const r = await shadowlap(['check', recording, '--expect', JSON.stringify(expect_), '--json']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const report = json<{ recordings: Array<{ checks: object[] }>; counts: object }>(r);
     expect(keys(report)).toEqual(fields('check'));
     expect(keys(report.recordings[0])).toEqual(fields('checkRecording'));
@@ -179,7 +179,7 @@ describe('the JSON the CLI prints', () => {
     expect(told.out).toContain('dry run: nothing to delete');
     expect(told.out).not.toContain('--expect');
     // A deletion the dry run didn't list is refused, deleting nothing: exit 1.
-    expect((await shadowlap(['gc', '--before', String(Date.now()), '--expect', '0-e3b0c44298fc1c14'])).code).toBe(1);
+    expect((await shadowlap(['gc', '--before', String(Date.now()), '--expect', '0-e3b0c44298fc1c14'])).code).toBe(2);
 
     const calibrated = await shadowlap(['calibrate', recording, '--json']);
     expect(calibrated.code, calibrated.out).toBe(0);

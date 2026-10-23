@@ -210,7 +210,7 @@ describe('shadowlap blame', () => {
     const runId = await record();
     const before = mock.requests.length;
     const r = await shadowlap(['blame', runId, '--expect', JSON.stringify({ cost: '<= 1.00' }), '--json']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(2);
     const err = JSON.parse(r.stdout) as { outcome: string; error: { reason: string; message: string } };
     expect(err).toMatchObject({ outcome: 'error', error: { reason: 'unpriced' } });
     expect(err.error.message).toContain('fails only because small-model has no price, so the cost check can\'t be judged whatever the model answers. Add it under "prices" in shadowlap.config.json');
@@ -235,7 +235,7 @@ describe('shadowlap blame', () => {
     const noKey = { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' };
     for (const args of [['blame', runId], ['verify', '--fixes', runId], ['repair', '--fixes', runId]]) {
       const r = await shadowlap([...args, '--expect', judged], noKey);
-      expect(r.code, r.out).toBe(1);
+      expect(r.code, r.out).toBe(2);
       expect(r.out).toContain('--expect has a check no attempt can decide: judge "explains" answers yes (an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY))');
       expect(r.out).toContain(`so ${args[0]} would spend attempts to say nothing`);
     }
@@ -249,7 +249,7 @@ describe('shadowlap blame', () => {
     // on the recording or on any probe, so no probe could pass.
     const unreadable = JSON.stringify({ tools: { issue_refund: 0 }, when: [{ if: { tool: 'lookup_order', result: { totl: { '>': 100 } } }, then: { tools: { escalate: 1 } } }] });
     const r = await shadowlap(['blame', runId, '--expect', unreadable, '--json']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const err = JSON.parse(r.stdout) as { outcome: string; error: { reason: string; message: string } };
     expect(err).toMatchObject({ outcome: 'error', error: { reason: 'inconclusive' } });
     expect(err.error.message).toMatch(/has a check that can't be decided as recorded, so no probe could pass whatever the model answers: when lookup_order has result\.totl > 100: escalate called 1 time \(could not tell whether the condition held: lookup_order #\d+: has no result\.totl\)/);
@@ -260,7 +260,7 @@ describe('shadowlap blame', () => {
     writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ prices: { 'small-model': { input: 20000, output: 20000 } } }));
     const runId = await record();
     const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--budget', '0.5']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     expect(r.stdout).toContain('Stopped before the search finished: the budget of $0.50 is spent');
     expect(r.stdout).toContain('So far no probe had settled.');
     expect(r.stdout).toContain('Confidence: low');
@@ -271,7 +271,7 @@ describe('shadowlap blame', () => {
   it('checks its flags before running anything', async () => {
     const runId = await record();
     const bad = await shadowlap(['blame', runId, '--expect', '{"tool":{}}']);
-    expect(bad.code).toBe(1);
+    expect(bad.code).toBe(2);
     expect(bad.out).toContain('--expect has an unknown key "tool"');
     const tooMany = await shadowlap(['blame', runId, '--attempts', '3', '--passes', '4']);
     expect(tooMany.out).toContain("--passes (4) can't be more than --attempts (3)");
@@ -370,7 +370,7 @@ describe('shadowlap blame', () => {
     const r = await shadowlap(['blame', runId, '--expect', ORACLE, '--concurrency', '2', '--json', '--verbose'], {}, { interrupt: waiting });
     expect(r.afterInterrupt, r.out).not.toBeNull();
     expect(r.afterInterrupt!, r.out).toBeLessThan(10_000);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(130);
     const report = JSON.parse(r.stdout) as { outcome: string; stopReason: string; probes: unknown[] };
     expect(report).toMatchObject({ outcome: 'stopped', stopReason: 'interrupted', probes: [] });
     // The held call's agent was stopped and its run has ended: closing the sidecar cuts the call off,

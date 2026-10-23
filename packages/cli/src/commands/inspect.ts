@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { kindFacts } from '@shadowlap/tui/data';
-import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatTokens, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, unrescuedWords, untrustedReads, wholeInput, withLabels, withNote, type RunRecord, type TrustSource } from '@shadowlap/engine';
+import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatTokens, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, unrecordedTools, unrescuedWords, untrustedReads, wholeInput, withLabels, withNote, type RunRecord, type TrustSource } from '@shadowlap/engine';
 import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
@@ -17,6 +17,13 @@ import { ago, palette as p, safe, shortId, table } from '../ui.js';
 /** Where a read's untrusted mark came from, as `show` names it. */
 const TRUST_FROM: Record<TrustSource, string> = { config: 'config', sdk: 'SDK', mcp: 'MCP openWorldHint' };
 
+/** A TCP port: 0 (any free one, which the link printed names) to 65535. */
+function parsePort(value: string): number {
+  const n = Number(value);
+  if (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(n) || n > 65535) throw new InvalidArgumentError('must be a port from 0 (any free one) to 65535');
+  return n;
+}
+
 /** How many untrusted reads `show` names above the timeline: a crawler reads hundreds, and each row is tagged anyway. */
 const UNTRUSTED_NAMED = 5;
 
@@ -28,7 +35,7 @@ export function register(program: Command): void {
     .description('Open the dashboard: a local web UI over your recordings (runs, timelines, conversations, diffs, replay and fork actions)')
     .argument('[run]', 'open this run directly')
     .option('--call <n>', 'with a run: open at this call', parseIntArg)
-    .option('--port <port>', 'port to listen on (a free one is used when it is taken)', parseIntArg, 4777)
+    .option('--port <port>', 'port to listen on: 0 for any free one; a taken one falls back to a free one, and the link printed has the port it got', parsePort, 4777)
     .option('--no-open', 'print the link instead of opening a browser')
     .option('--read-only', 'show every page but change nothing: no actions, labels, notes, uploads or deletes')
     .action(async (runArg: string | undefined, flags: { call?: number; port: number; open: boolean; readOnly?: boolean }) => {
@@ -153,7 +160,7 @@ export function register(program: Command): void {
       if (flags.json) {
         const config = loadConfig(process.cwd());
         // The same function the dashboard serves it from: one shape for scripts and coding agents.
-        process.stdout.write(JSON.stringify(showJson(store, run, { calls, ...(config.prices ? { prices: config.prices } : {}), ...(config.tools ? { tools: config.tools } : {}) }), null, 2) + '\n');
+        process.stdout.write(JSON.stringify(showJson(store, run, { calls, ...(config.prices ? { prices: config.prices } : {}), ...(config.tools ? { tools: config.tools } : {}), ...(config.unrecorded ? { unrecorded: config.unrecorded } : {}) }), null, 2) + '\n');
         store.close();
         return;
       }
@@ -221,6 +228,12 @@ export function register(program: Command): void {
         const named = [...untrusted.values()].map((r) => `#${r.callNo} ${safe(r.name)} (${TRUST_FROM[r.from]})`);
         const list = named.length > UNTRUSTED_NAMED ? `${named.slice(0, UNTRUSTED_NAMED).join(', ')} and ${named.length - UNTRUSTED_NAMED} more` : named.join(', ');
         head.push(p.dim(`  untrusted reads: ${list} · shadowlap injection plants in them`));
+      }
+      // The tools its model called that it left unrecorded: they ran in the agent unseen, and a replay runs them for real.
+      const unrecorded = unrecordedTools(store, run.runId, { declared: config.unrecorded ?? {} });
+      if (unrecorded.length) {
+        const writes = unrecorded.filter((t) => t.effect === 'write').length;
+        head.push(`  ${p.yellow('!')} not recorded: ${unrecorded.map((t) => `${safe(t.name)} (${t.count} call${t.count === 1 ? '' : 's'} from #${t.firstCallNo}${t.effect === 'write' ? ', writes' : ''})`).join(', ')}${p.dim(` · a replay runs ${unrecorded.length === 1 ? 'it' : 'them'} for real${writes ? ', and refuses to while one writes' : ''}`)}`);
       }
       process.stdout.write(head.join('\n') + '\n\n');
       // A column of its own, only when there is a read to tag, so the rest line up as they always have.

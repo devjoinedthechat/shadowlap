@@ -150,7 +150,7 @@ describe('shadowlap bisect', () => {
     const hits = mock.requests.length;
     const judged = JSON.stringify({ judge: [{ name: 'brief', question: 'Is the summary short?', model: 'gemini-2.5-flash' }] });
     const r = await shadowlap(['bisect', briefRun, '--good', rev['Start the ticket agent']!, '--bad', rev['Mention the prompt']!, '--expect', judged, '--fork'], { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' });
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(2);
     expect(r.out).toContain('with --fork, a replay that forks asks its judge checks live, and one can\'t be asked: judge "brief" answers yes (an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY))');
     expect(mock.requests.length).toBe(hits);
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
@@ -186,7 +186,7 @@ describe('shadowlap bisect', () => {
     ]);
     expect(none[0]!.data).toMatchObject({ why: expect.stringContaining(`it already fails at ${rev['Ask for brevity']}`), good: rev['Ask for brevity'], bad: rev['Mark summaries as drafts'] });
     const backwards = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Mention the prompt']!, '--bad', rev['Describe the agent']!]);
-    expect(backwards.code).toBe(1);
+    expect(backwards.code).toBe(2);
     expect(backwards.out).toContain(`--good ${rev['Mention the prompt']} comes after --bad ${rev['Describe the agent']}`);
     const unknown = await shadowlap(['bisect', 'goldens/nothing', '--good', 'HEAD~1']);
     expect(unknown.out).toContain('goldens/nothing is neither a golden');
@@ -222,13 +222,13 @@ describe('shadowlap bisect', () => {
 
       // No terminal: refused, as a replay of it is, and nothing ran.
       const refused = await shadowlap(['bisect', runId, ...range]);
-      expect(refused.code, refused.out).toBe(1);
+      expect(refused.code, refused.out).toBe(2);
       expect(refused.out).toContain('was imported from a pack. Replaying it runs the command it was recorded with');
       expect(refused.out).toContain(`Pass --yes to run it, or give your own command: shadowlap bisect ${runId.slice(0, 10)} --good ${rev['Start the ticket agent']} -- <command>`);
       expect(refused.out).not.toContain('replay at');
       expect(existsSync(marker), 'the imported command never ran').toBe(false);
       const json = await shadowlap(['bisect', runId, ...range, '--json']);
-      expect(json.code).toBe(1);
+      expect(json.code).toBe(2);
       expect(JSON.parse(json.stdout)).toMatchObject({ outcome: 'error', error: { message: expect.stringContaining('needs your consent (--yes)') } });
       expect(existsSync(marker)).toBe(false);
 
@@ -251,7 +251,7 @@ describe('shadowlap bisect', () => {
     const recording = store.createRun({ mode: 'record', command: { argv: [process.execPath, 'agent.mjs'], cwd: project } });
     store.close();
     const r = await shadowlap(['bisect', recording.runId, '--good', rev['Start the ticket agent']!, '--json']);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(JSON.parse(r.stdout)).toEqual({ outcome: 'error', error: { message: `${recording.runId.slice(0, 10)} is still recording: find the commit once it has ended` } });
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
   });
@@ -267,7 +267,7 @@ describe('shadowlap bisect', () => {
     raw.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid!, left.runId);
     raw.close();
     const r = await shadowlap(['bisect', left.runId, '--good', rev['Start the ticket agent']!, '--json']);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(JSON.parse(r.stdout)).toEqual({ outcome: 'error', error: { message: expect.stringContaining('was imported from a capture and has no command to run at each commit') } });
   });
 });
@@ -313,7 +313,7 @@ describe.skipIf(process.platform === 'win32')('an interrupted bisect', () => {
     child.stdout.on('data', (d: Buffer) => ((out += d.toString()), interrupt()));
     child.stderr.on('data', (d: Buffer) => ((out += d.toString()), interrupt()));
     const code = await new Promise<number | null>((resolve) => child.on('exit', resolve));
-    expect(code, out).toBe(1);
+    expect(code, out).toBe(130);
     expect(out).toContain('no first bad commit: interrupted');
     expect(out).not.toContain('first bad commit ' + rev['Ask for brevity']);
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
@@ -490,7 +490,7 @@ describe('a repository reached through a symbolic link', () => {
 
   it('refuses a revision that would reach git as an option', async () => {
     const r = await shadowlap(['bisect', 'goldens/summary', '--good=--output=x']);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.out).toContain('--good --output=x is not a commit in this repository');
     expect(existsSync(join(project, 'x'))).toBe(false);
   });

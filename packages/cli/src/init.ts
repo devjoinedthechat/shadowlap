@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Effect } from '@shadowlap/engine';
-import { AGENT_NODE_MIN, ProjectRegistry, describeFolder, modelServerFinding, nodePinTooOld, type FolderKind, type ModelServer, type RegistryOptions, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
+import { AGENT_NODE_MIN, ProjectRegistry, describeFolder, modelServerFinding, nodePinTooOld, toolNameEffect, type FolderKind, type ModelServer, type RegistryOptions, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
 import { CONFIG_FILE, CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
 import { providers as sidecarProviders } from '@shadowlap/sidecar';
 import { quoteArgv } from './ui.js';
@@ -220,23 +220,10 @@ const lineOf = (text: string, index: number) => text.slice(0, index).split('\n')
 /** A project-relative path with forward slashes on every platform, as people type and click them. */
 const rel = (cwd: string, file: string) => relative(cwd, file).split(sep).join('/');
 
-const WRITE_WORDS = new Set(['send', 'post', 'create', 'write', 'delete', 'remove', 'update', 'upsert', 'set', 'put', 'insert', 'save', 'submit', 'pay', 'charge', 'refund', 'transfer', 'book', 'order', 'publish', 'deploy', 'notify', 'execute', 'exec', 'run', 'commit', 'push', 'merge', 'approve', 'cancel', 'archive', 'move', 'rename', 'upload', 'add', 'email', 'reply', 'schedule', 'invite', 'assign', 'close', 'apply', 'install', 'kill', 'restart', 'trigger', 'tweet', 'comment']);
-const READ_WORDS = new Set(['get', 'read', 'fetch', 'search', 'list', 'find', 'lookup', 'query', 'load', 'browse', 'retrieve', 'check', 'describe', 'view', 'show', 'count', 'download', 'inspect', 'weather', 'scrape', 'crawl', 'grep', 'ls', 'cat', 'tail', 'head', 'watch', 'poll', 'price', 'quote']);
-const PURE_WORDS = new Set(['calc', 'calculate', 'compute', 'parse', 'format', 'convert', 'validate', 'math', 'add_numbers', 'sum', 'multiply', 'divide', 'round', 'hash', 'encode', 'decode', 'tokenize', 'sort', 'diff', 'render']);
-
-/** A first guess at a tool's effect from its name. Unknown names get `write`: it never re-runs after a fork. */
+/** A first guess at a tool's effect from its name (toolNameEffect). Unknown names get `write`: it never re-runs after a fork. */
 export function suggestEffect(name: string): { effect: Effect; why: string } {
-  const words = name
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-  // Tool names usually lead with their verb (read_file, send_email), so the first known word decides.
-  for (const w of words) {
-    if (WRITE_WORDS.has(w)) return { effect: 'write', why: `"${w}" changes something` };
-    if (READ_WORDS.has(w)) return { effect: 'read', why: `"${w}" only looks` };
-    if (PURE_WORDS.has(w)) return { effect: 'pure', why: `"${w}" depends only on its input` };
-  }
+  const said = toolNameEffect(name);
+  if (said) return { effect: said.effect, why: said.effect === 'write' ? `"${said.word}" changes something` : said.effect === 'read' ? `"${said.word}" only looks` : `"${said.word}" depends only on its input` };
   return { effect: 'write', why: 'no hint in the name; write is the safe guess, it never re-runs after a fork' };
 }
 

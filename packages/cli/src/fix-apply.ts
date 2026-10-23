@@ -5,6 +5,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyLeft, fixRecords, markFixApplied, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, safeLine, type Store, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 import { fieldChange } from '@shadowlap/dashboard';
+import { EXIT } from './exit-codes.js';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
 import { physicalPath } from './real-path.js';
 
@@ -34,7 +35,11 @@ import { physicalPath } from './real-path.js';
  */
 
 export class ApplyError extends Error {
-  constructor(message: string) {
+  /** The status `fix apply` ends with: 1 for a patch refused or failed, 2 where it was run (not the repair's repository or folder) or what it was given (an open fix) can't be applied. */
+  constructor(
+    message: string,
+    readonly exitCode: number = EXIT.failed,
+  ) {
     super(message);
     this.name = 'ApplyError';
   }
@@ -194,7 +199,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
   if (repair) {
     const paths = repairPaths(repair);
     const top = git(o.cwd, ['rev-parse', '--show-toplevel']);
-    if (top.status !== 0) throw new ApplyError('shadowlap fix apply changes the working tree with git apply, so it has to run inside the git repository the repair ran in');
+    if (top.status !== 0) throw new ApplyError('shadowlap fix apply changes the working tree with git apply, so it has to run inside the git repository the repair ran in', EXIT.usage);
     const root = top.stdout.trim();
     // The patch is the store's too: git apply would write whatever it names, so it goes in only as
     // the change the repair verified, one span of one file rewritten.
@@ -211,7 +216,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     // would show in neither git status nor git diff, so nobody would ever read it.
     if (git(root, ['check-ignore', '-q', '--', file]).status === 0) throw new ApplyError(`${file} is a path git ignores here, so a change to it would show in neither git status nor git diff: the patch was not applied. A repair only rewrites files git sees; read ${paths.dir}/fix.patch, and apply it by hand if you mean to`);
     const patch = resolve(o.cwd, paths.dir, 'fix.patch');
-    if (!existsSync(patch)) throw new ApplyError(`the repair's patch is not in this folder (${paths.dir}/fix.patch): run shadowlap fix apply in the folder ${repair.repairId} ran in`);
+    if (!existsSync(patch)) throw new ApplyError(`the repair's patch is not in this folder (${paths.dir}/fix.patch): run shadowlap fix apply in the folder ${repair.repairId} ran in`, EXIT.usage);
     if (readFileSync(patch, 'utf8') !== repair.report.patch) throw new ApplyError(`${paths.dir}/fix.patch is not the patch ${repair.repairId} verified: it changed since. Nothing was changed: apply it by hand if you changed it on purpose, or repair again`);
 
     // The patch goes in on the file's bytes as they are, so the file is the one the repair verified. A

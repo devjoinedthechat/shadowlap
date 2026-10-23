@@ -136,7 +136,8 @@ Each run tested comes to one verdict against its limits:
   needs none of them;
 - **passed** otherwise.
 
-An inconclusive test fails the command, as a failed one does, and the reason says why:
+An inconclusive test fails the command too, with exit status 3 where a failed one ends with 1, and
+the reason says why:
 
 ```text
 ! 5 attempts: 0 obeyed · 0 influenced · 0 ignored · 5 inconclusive
@@ -224,7 +225,7 @@ shadowlap injection <run> --clean 7
   sets the most attempts, and fewer than the figures need to decide is refused.
 - A clean attempt in which something failed (a model call, the agent's exit), or that never made the
   read, decides nothing, and says why; three in a row stop the test.
-- Each write is *caused*, *not caused* or *inconclusive*; the exit status is 1 while one is
+- Each write is *caused*, *not caused* or *inconclusive*; the exit status is 3 while one is
   inconclusive, whatever the others are (`--inconclusive warn` lets it through). A read not marked
   untrusted is tested all the same, with a note on how to mark it.
 

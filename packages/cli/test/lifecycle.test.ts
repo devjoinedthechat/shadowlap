@@ -27,14 +27,24 @@ let cwd: string;
 let db: string;
 let env: NodeJS.ProcessEnv;
 
-function shadowlap(args: string[], extra: NodeJS.ProcessEnv = {}, opts: { interruptAfterMs?: number } = {}): Promise<Outcome> {
+function shadowlap(args: string[], extra: NodeJS.ProcessEnv = {}, opts: { interruptWhen?: () => boolean } = {}): Promise<Outcome> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, '--db', db, ...args], { cwd, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (c: Buffer) => (out += c.toString()));
     child.stderr.on('data', (c: Buffer) => (out += c.toString()));
-    if (opts.interruptAfterMs) setTimeout(() => child.kill('SIGINT'), opts.interruptAfterMs);
-    child.on('exit', (code, signal) => resolve({ code, signal, out }));
+    // Ctrl-C once the run is under way, however long the machine takes to get it there.
+    const poll = opts.interruptWhen
+      ? setInterval(() => {
+          if (!opts.interruptWhen!()) return;
+          clearInterval(poll!);
+          child.kill('SIGINT');
+        }, 50)
+      : null;
+    child.on('exit', (code, signal) => {
+      if (poll) clearInterval(poll);
+      resolve({ code, signal, out });
+    });
   });
 }
 
@@ -140,8 +150,11 @@ describe('shadowlap run when the agent does not end well', () => {
 
   it.skipIf(process.platform === 'win32')('marks an interrupted run crashed and leaves no run "running"', async () => {
     const before = runCount();
-    const r = await shadowlap(['run', '--', process.execPath, AGENT], { AGENT_PAUSE_MS: '400' }, { interruptAfterMs: 1500 });
-    expect(r.code).toBe(128);
+    // Interrupted after its second model call, partway through the run's 30.
+    const asked = mock.requests.length;
+    const r = await shadowlap(['run', '--', process.execPath, AGENT], { AGENT_PAUSE_MS: '400' }, { interruptWhen: () => mock.requests.length >= asked + 2 });
+    // 128 + SIGINT's number, as a shell reports a command Ctrl-C stopped.
+    expect(r.code).toBe(130);
     expect(r.out).toMatch(/Recorded \S+: \d+ calls/);
     const store = Store.open(db);
     const runs = store.allRuns();
@@ -202,7 +215,7 @@ describe('shadowlap run when the agent does not end well', () => {
 
     // No terminal to ask: refuse, and say how to proceed.
     const refused = await shadowlap(['replay', runId]);
-    expect(refused.code).toBe(1);
+    expect(refused.code).toBe(2);
     expect(refused.out).toContain('was imported from a pack');
     expect(refused.out).toContain('--yes');
     expect(existsSync(marker)).toBe(false);
@@ -221,7 +234,7 @@ describe('shadowlap run when the agent does not end well', () => {
     store.close();
     expect(child).toBeDefined();
     const again = await shadowlap(['replay', child!.runId]);
-    expect(again.code).toBe(1);
+    expect(again.code).toBe(2);
     expect(again.out).toContain('was imported from a pack');
     rmSync(pack, { recursive: true, force: true });
   });

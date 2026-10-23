@@ -6,6 +6,7 @@ import { configPath, loadConfig } from '../config.js';
 import { formatDoctor, runDoctor } from '../doctor.js';
 import { formatInit, formatInitJob, initJson, inspectProject, noteInspected, writeInitialConfig } from '../init.js';
 import { installedGlobally } from '../installed.js';
+import { EXIT } from '../exit-codes.js';
 import { emitJobEvent, inDashboardJob } from '../job-events.js';
 import { openStoreIfExists, parseChoice, recordEvents, requireRun, VERSION, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId, table } from '../ui.js';
@@ -40,7 +41,7 @@ export function register(program: Command): void {
       const opts = program.opts<GlobalOpts>();
       const checks = runDoctor({ version: VERSION, ...(opts.db ? { dbPath: opts.db } : {}) });
       process.stdout.write((flags.json ? JSON.stringify(checks, null, 2) : formatDoctor(checks, p)) + '\n');
-      process.exitCode = checks.some((c) => c.verdict === 'fail') ? 1 : 0;
+      process.exitCode = checks.some((c) => c.verdict === 'fail') ? EXIT.failed : EXIT.ok;
     });
 
   for (const list of ['normalize', 'redact'] as const) registerRules(program, list);
@@ -120,7 +121,7 @@ function registerRules(program: Command, list: RuleList): void {
       // A list of rules that is not a list is a mistake every other command stops on: say so here too.
       const raw = file.data[list];
       const error = raw !== undefined && raw !== null && !Array.isArray(raw) ? `${CONFIG_FILE}: ${list} must be a list of rules` : null;
-      if (error) process.exitCode = 1;
+      if (error) process.exitCode = EXIT.usage;
       if (flags.json) {
         const out = rules.map((r, i) => (r.error === null ? { n: i + 1, ...r.rule } : { n: i + 1, error: r.error, rule: r.rule }));
         process.stdout.write(JSON.stringify({ file: file.path, exists: file.exists, version: file.version, error, rules: out }, null, 2) + '\n');

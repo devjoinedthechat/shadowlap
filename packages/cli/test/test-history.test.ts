@@ -185,7 +185,7 @@ describe('shadowlap test history', () => {
     expect(r.code, r.out).toBe(0);
     expect(existsSync(join(work, '.shadowlap'))).toBe(false);
     const none = await shadowlap(['test', 'missing/*', '--cwd', ROOT]);
-    expect(none.code).toBe(1);
+    expect(none.code).toBe(2);
     expect(none.out).toContain('no recordings match missing/*');
   });
 });

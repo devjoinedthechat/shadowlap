@@ -1,3 +1,4 @@
+import { CliError, EXIT } from './exit-codes.js';
 import { isLoopbackHost } from './loopback.js';
 
 /**
@@ -59,6 +60,26 @@ export function traceStoreHost(raw: string, what: string, o: HostCheck = {}): st
   return url.href.replace(/\/+$/, '');
 }
 
+/**
+ * A trace store that refused, failed or did not answer, with its HTTP status (null for none) and
+ * the exit status it ends the import with: what this machine is set up with (keys refused, no such
+ * project or trace, an address that isn't the API) is 2; a store that didn't answer, or failed, is 1.
+ * `ofTrace` marks a failure that is the one trace's (there is no trace of that id, or it is more than
+ * an import reads): an import of the traces in a window skips that trace and goes on, where any other
+ * failure stops it.
+ */
+export class TraceStoreError extends CliError {
+  readonly status: number | null;
+  readonly ofTrace: boolean;
+
+  constructor(message: string, status: number | null, o: { exitCode?: number; ofTrace?: boolean } = {}) {
+    super(o.exitCode ?? (status === null || status === 429 || status >= 500 ? EXIT.failed : EXIT.usage), message);
+    this.name = 'TraceStoreError';
+    this.status = status;
+    this.ofTrace = o.ofTrace === true;
+  }
+}
+
 /** GETs or POSTs JSON. A refusal is reported with the message given for its status, never with the request. */
 export async function fetchJson(o: TraceStoreOptions, path: string, init: RequestInit, refusals: Record<number, string> = {}): Promise<unknown> {
   const url = `${o.host}${path}`;
@@ -67,19 +88,19 @@ export async function fetchJson(o: TraceStoreOptions, path: string, init: Reques
     res = await (o.fetch ?? fetch)(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(o.timeoutMs ?? 30_000) });
   } catch (err) {
     const reason = err instanceof Error && err.name === 'TimeoutError' ? 'it did not answer in time' : err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : String(err);
-    throw new Error(`could not reach ${new URL(o.host).host}: ${reason}`);
+    throw new TraceStoreError(`could not reach ${new URL(o.host).host}: ${reason}`, null);
   }
   if (!res.ok) {
     await res.body?.cancel().catch(() => {});
-    throw new Error(refusals[res.status] ?? `${new URL(o.host).host} answered ${res.status} ${res.statusText}`.trim());
+    throw new TraceStoreError(refusals[res.status] ?? `${new URL(o.host).host} answered ${res.status} ${res.statusText}`.trim(), res.status);
   }
   const length = Number(res.headers.get('content-length') ?? 0);
-  if (length > MAX_BYTES) throw new Error(`${new URL(o.host).host} sent ${length} bytes, more than a trace should take`);
+  if (length > MAX_BYTES) throw new TraceStoreError(`${new URL(o.host).host} sent ${length} bytes, more than a trace should take`, null, { ofTrace: true });
   const text = await res.text();
-  if (text.length > MAX_BYTES) throw new Error(`${new URL(o.host).host} sent more than a trace should take`);
+  if (text.length > MAX_BYTES) throw new TraceStoreError(`${new URL(o.host).host} sent more than a trace should take`, null, { ofTrace: true });
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new Error(`${new URL(o.host).host} did not answer with JSON: is ${o.host} the API's address?`);
+    throw new TraceStoreError(`${new URL(o.host).host} did not answer with JSON: is ${o.host} the API's address?`, null, { exitCode: EXIT.usage });
   }
 }

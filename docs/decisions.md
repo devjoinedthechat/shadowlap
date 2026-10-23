@@ -90,7 +90,7 @@ The golden's check `fences` asks whether the final answer says that forks fence 
 
 Each verdict is kept with the session, with a digest of the request it answered. The recorded words' verdict comes from the golden's own judge call, which `pack` and `test --update` keep, for free; a request asked before in a session this store keeps of the run, such as the same new words in an earlier preview, is answered from what that session kept, for free; only the rest is asked, once however many samples send it. A fresh store, such as a CI job's, keeps no earlier session, so there the new words are asked again. What judging costs is reported apart from asking (`judging:` under the report, `judge` in its JSON) and counts against `--budget`; a judge model with no price is no free call, and the report names it.
 
-Where the judge can't be asked (no key for its provider and no upstream set for it, the budget spent, Ctrl-C), the check is *inconclusive* and says why: the step stays text only, and the warnings say what could not be judged. A preview that can't tell whether a run would be flagged settles nothing: when nothing else flags the run, it exits 1 unless `--inconclusive warn`. After a Ctrl-C, `--then-verify` starts no verify, and says so. The report's notes count the steps a check reads: those it came out otherwise for, those it came out as recorded for, and those it could not judge, never one for the other.
+Where the judge can't be asked (no key for its provider and no upstream set for it, the budget spent, Ctrl-C), the check is *inconclusive* and says why: the step stays text only, and the warnings say what could not be judged. A preview that can't tell whether a run would be flagged settles nothing: when nothing else flags the run, it exits 3 unless `--inconclusive warn`. After a Ctrl-C, `--then-verify` starts no verify, and says so. The report's notes count the steps a check reads: those it came out otherwise for, those it came out as recorded for, and those it could not judge, never one for the other.
 
 A run that did not complete (its agent exited with an error, or it was interrupted) is judged by none of its checks, as `pack` and `test` judge none: it fails its checks whatever a judge says, so its text-only changes are counted, and the report says so.
 
@@ -153,7 +153,7 @@ After asking, `--then-verify` runs [`verify`](./verify.md) on the runs with a ra
 
 A session kept earlier can be verified later, or one run of it: `shadowlap decisions --verify dc-01M58W8A0Z… [run]` verifies the runs it flagged the same way, without asking anything again, and keeps what verify finds in the session, over what an earlier verify found for the others. A run whose gate ran out of attempts between its bounds, or that an attempt it could not judge stopped, is *inconclusive*, and the session stays incomplete until a verify settles it. Each run keeps the rule that decided it, so a session verified again under another gate states each rule once, over the runs it decided. The dashboard runs it as its `decisions-verify` job.
 
-An inconclusive verify settles nothing: `decisions` and `migrate` then exit 1 unless `--inconclusive warn`, as `test` does with an inconclusive gate.
+An inconclusive verify settles nothing: `decisions` and `migrate` then exit 3 unless `--inconclusive warn`, as `test` does with an inconclusive gate.
 
 ## Migrate
 
@@ -203,7 +203,7 @@ git apply .shadowlap/migrations/mg-01M58W9A7S6YD9QC6C83ES8EP4/config.patch
 gh pr create --title "Switch claude-sonnet-4-5-20250929 to claude-haiku-4-5" --body-file .shadowlap/migrations/mg-01M58W9A7S6YD9QC6C83ES8EP4/pull-request.md
 ```
 
-The patch changes a model only where a string value names it whole, in code and config: a string literal, a JSON value, a YAML, TOML or `.env` value. Every other mention is left as it is and listed for review: in prose and changelogs (they say what was), in tests, as an object key (a price table's), inside a longer string, and in `shadowlap.config.json`, whose prices and judges name models of their own. When no string names the model (it comes from an environment variable or a deployment setting), the report says where to set it instead. The pull request body shows what the project's redaction rules leave of the values it quotes. It exits 1 when a verified run breaks; a report that settles nothing (a step got no answer, a flagged run went unverified, the budget ran out) exits 1 unless `--inconclusive warn`.
+The patch changes a model only where a string value names it whole, in code and config: a string literal, a JSON value, a YAML, TOML or `.env` value. Every other mention is left as it is and listed for review: in prose and changelogs (they say what was), in tests, as an object key (a price table's), inside a longer string, and in `shadowlap.config.json`, whose prices and judges name models of their own. When no string names the model (it comes from an environment variable or a deployment setting), the report says where to set it instead. The pull request body shows what the project's redaction rules leave of the values it quotes. It exits 1 when a verified run breaks; a report that settles nothing (a step got no answer, a flagged run went unverified, the budget ran out) exits 3 unless `--inconclusive warn`.
 
 ## Model retirements
 
