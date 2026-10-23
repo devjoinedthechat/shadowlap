@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -17,6 +17,7 @@ import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-t
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./trace-agent.mjs', import.meta.url));
 const OPENAI_AGENT = fileURLToPath(new URL('./trace-agent-openai.mjs', import.meta.url));
+const PYTHON_AGENT = fileURLToPath(new URL('./trace_agent.py', import.meta.url));
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/traces/${name}`, import.meta.url), 'utf8');
 
 let cwd: string;
@@ -44,11 +45,26 @@ const LANGFUSE_ID = '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07';
 const LANGSMITH_ID = '0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c';
 const KEYS = { LANGFUSE_PUBLIC_KEY: 'pk-lf-0e5c-public', LANGFUSE_SECRET_KEY: 'sk-lf-9d1f-do-not-store', LANGSMITH_API_KEY: 'lsv2_pt_7a1c_do_not_store' };
 const PHOENIX_ID = '4a2db41deabc4aec332fb9fbfa0fc3e2';
+const PHOENIX_SDK_OBJECTS_ID = '3e4096353fce83a482ccbf37d3f1291c';
 const LOGFIRE_ID = '01a16460e2f311342463057f62b79fa9';
 const PHOENIX_KEY = 'phx_6b1d_do_not_store';
 const LOGFIRE_TOKEN = 'pylf_v1_us_donotstore7a1c';
 /** Where Phoenix and Logfire would be found otherwise, cleared so a developer's own setup can't reach the tests. */
 const NO_STORE_ENV = { PHOENIX_ENDPOINT: '', PHOENIX_COLLECTOR_ENDPOINT: '', PHOENIX_BASE_URL: '', PHOENIX_API_KEY: '', PHOENIX_PROJECT: '', PHOENIX_PROJECT_NAME: '', LOGFIRE_BASE_URL: '', LOGFIRE_READ_TOKEN: '' };
+
+/** A Python ≥ 3.9 that can import `anthropic`, for trace_agent.py: SHADOWLAP_PYTHON, python3 or python. */
+function findPython(): string | null {
+  for (const cmd of [process.env.SHADOWLAP_PYTHON, 'python3', 'python'].filter((c): c is string => !!c)) {
+    try {
+      execFileSync(cmd, ['-c', 'import sys, anthropic; sys.exit(sys.version_info < (3, 9))'], { stdio: 'ignore' });
+      return cmd;
+    } catch {
+      // the next one
+    }
+  }
+  return null;
+}
+const PYTHON = findPython();
 
 beforeAll(async () => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-import-trace-')));
@@ -61,7 +77,11 @@ beforeAll(async () => {
 
   const langfuse = JSON.parse(fixture('langfuse-trace.json')) as unknown;
   const langsmith = (JSON.parse(fixture('langsmith-runs.json')) as { pages: unknown[] }).pages;
-  const phoenix = JSON.parse(fixture('phoenix-spans.json')) as { data: unknown[] };
+  // One agent's trace twice: handing the SDK's blocks back as plain dicts, and as the SDK's own objects.
+  const phoenix = new Map([
+    [PHOENIX_ID, (JSON.parse(fixture('phoenix-spans.json')) as { data: unknown[] }).data],
+    [PHOENIX_SDK_OBJECTS_ID, (JSON.parse(fixture('phoenix-spans-sdk-objects.json')) as { data: unknown[] }).data],
+  ]);
   const logfire = JSON.parse(fixture('logfire-records.json')) as { data: Array<{ trace_id: string }> };
   api = createServer((req, res) => {
     let body = '';
@@ -76,7 +96,7 @@ beforeAll(async () => {
       const url = new URL(req.url ?? '/', 'http://x');
       if (url.pathname === '/v1/projects/support-agent/spans') {
         if (req.headers.authorization !== `Bearer ${PHOENIX_KEY}`) return send(401, 'Unauthorized');
-        return send(200, { data: url.searchParams.get('trace_id') === PHOENIX_ID ? phoenix.data : [], next_cursor: null });
+        return send(200, { data: phoenix.get(url.searchParams.get('trace_id') ?? '') ?? [], next_cursor: null });
       }
       if (url.pathname.startsWith('/v1/projects/')) return send(404, 'Not Found');
       if (req.url === '/v2/query' && req.method === 'POST') {
@@ -311,5 +331,53 @@ describe('shadowlap import phoenix and logfire', () => {
     const keyed = await shadowlap(['import', 'phoenix', PHOENIX_ID], { PHOENIX_COLLECTOR_ENDPOINT: 'http://0.0.0.0:1/v1/traces', PHOENIX_API_KEY: PHOENIX_KEY });
     expect(keyed.code).toBe(1);
     expect(keyed.err).toBe('shadowlap: PHOENIX_COLLECTOR_ENDPOINT: use https for 0.0.0.0:1: PHOENIX_API_KEY would cross the network in the clear. http is accepted for this machine, or with --allow-http on a network you trust\n');
+  });
+});
+
+describe.skipIf(!PYTHON)("replaying a Python agent that hands the Anthropic SDK's blocks back as it got them (reply.content)", () => {
+  /** The run an import made, by its id. */
+  const imported = async (args: string[], env: NodeJS.ProcessEnv = {}) => {
+    const r = await shadowlap([...args, '--json'], env);
+    expect(r.code, r.err).toBe(0);
+    return (JSON.parse(r.out) as { runs: Array<{ runId: string }> }).runs[0]!.runId;
+  };
+  const phoenixRun = (id: string) => imported(['import', 'phoenix', id, '--host', host, '--project', 'support-agent'], { PHOENIX_API_KEY: PHOENIX_KEY });
+  /** trace_agent.py's `support` agent (otel-genai.json's) or `refund` agent (the Phoenix and Logfire fixtures'), replayed against a run. */
+  const replay = (runId: string, agent: 'support' | 'refund') => shadowlap(['replay', runId, '--', PYTHON!, PYTHON_AGENT, agent]);
+
+  it('replays from a trace that kept the blocks by the GenAI conventions, with nothing live', async () => {
+    const before = mock.requests.length;
+    const r = await replay(await imported(['import', 'otel', 'otel-traces.json']), 'support');
+    expect(r.err + r.out).toContain('Replay clean: 3/3 calls replayed (2 api, 1 tool), 0 upstream requests');
+    expect(r.out).toContain('answer: Order A-1042 was delivered; it cost $240.');
+    expect(mock.requests.length).toBe(before);
+  });
+
+  it('replays from a request OpenInference logged with the blocks as JSON, with nothing live', async () => {
+    const before = mock.requests.length;
+    const r = await replay(await phoenixRun(PHOENIX_ID), 'refund');
+    expect(r.err + r.out).toContain('Replay clean: 5/5 calls replayed (3 api, 2 tool), 0 upstream requests');
+    expect(r.out).toContain('answer: Refunded $240 for A-1042 and emailed the customer.');
+    expect(mock.requests.length).toBe(before);
+  });
+
+  it('replays from the blocks logfire.instrument_anthropic() logged as the text the SDK prints for them, with nothing live', async () => {
+    const before = mock.requests.length;
+    const r = await replay(await imported(['import', 'logfire', LOGFIRE_ID, '--host', host], { LOGFIRE_READ_TOKEN: LOGFIRE_TOKEN }), 'refund');
+    expect(r.err + r.out).toContain('Replay clean: 5/5 calls replayed (3 api, 2 tool), 0 upstream requests');
+    expect(r.out).toContain('answer: Refunded $240 for A-1042 and emailed the customer.');
+    expect(mock.requests.length).toBe(before);
+  });
+
+  it('forks at its second model call where OpenInference kept the response whole but the blocks as the text the SDK prints for them', async () => {
+    const before = mock.requests.length;
+    const r = await replay(await phoenixRun(PHOENIX_SDK_OBJECTS_ID), 'refund');
+    // The first model call and its tool replay. The second's request was rebuilt from llm.input_messages,
+    // which leaves out fields the SDK sends with the blocks and holds the tool result as the user's text.
+    const said = r.err + r.out;
+    expect(said).toContain('Diverged at call 3 (api POST /v1/messages): 2 calls replayed before divergence');
+    for (const line of ['+ $.messages[1].content[0].citations', '+ $.messages[1].content[1].caller', '+ $.messages[1].content[1].toolset_name', '~ $.messages[2].content']) expect(said).toContain(line);
+    expect(r.out).toContain('answer: answered live');
+    expect(mock.requests.length).toBe(before + 1);
   });
 });
