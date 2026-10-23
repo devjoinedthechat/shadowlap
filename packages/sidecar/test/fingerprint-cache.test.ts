@@ -153,6 +153,36 @@ describe('replay start', () => {
   });
 });
 
+describe('the cache in the store', () => {
+  it('keeps the entries of requests still recorded, and gc drops those of requests it deletes', async () => {
+    const path = join(dir, 'gc.db');
+    const store = Store.open(path);
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: url } });
+    const entries = () => {
+      const db = new DatabaseSync(path);
+      const n = Number(db.prepare('SELECT COUNT(*) AS n FROM fingerprint_cache').get()?.n);
+      db.close();
+      return n;
+    };
+    try {
+      const kept = sidecar.startRun({ mode: 'record', command });
+      await ask(sidecar, kept.runId, request(1, 'a day'));
+      sidecar.endRun(kept.runId, 'completed');
+      const gone = sidecar.startRun({ mode: 'record', command });
+      await ask(sidecar, gone.runId, request(2, 'another day'));
+      await ask(sidecar, gone.runId, request(3, 'another day'));
+      sidecar.endRun(gone.runId, 'completed');
+      expect(entries()).toBe(3);
+      store.deleteRun(gone.runId);
+      expect(store.gcBlobs().removed).toBeGreaterThan(0);
+      expect(entries()).toBe(1);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+});
+
 describe('a cached fingerprint', () => {
   it('is served only where the request would mask to the same fingerprint, on a grid of dates and starts', () => {
     // Values around a recording's start: dates, datetimes (36 h window) whose date (60 h window) is
