@@ -305,9 +305,9 @@ describe('what a fix is verified on', () => {
     const groups = groupFixes(planFixes({ results }));
     expect(groups.map((g) => g.members.map((m) => m.result.name))).toEqual([['a', 'b', 'c'], ['d']]);
     const plan = repairPlan(groups[0]!.members, results);
-    expect(plan).toMatchObject({ fixes: ['a-1', 'c-1'], holdout: ['b-1'], keeps: ['ok-1-1', 'ok-2-1', 'ok-3-1'], goldens: { shown: ['goldens/a', 'goldens/c'], heldOut: ['goldens/b'], kept: ['goldens/ok-1', 'goldens/ok-2', 'goldens/ok-3'] }, gate: null });
-    expect(KEEPS_AT_MOST).toBe(3);
-    expect(repairArgs(plan, { db: null, budget: 6, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'a-1', 'c-1', '--holdout', 'b-1', '--keeps', 'ok-1-1', 'ok-2-1', 'ok-3-1', '--expect', '@/tmp/expect.json', '--budget', '6', '--branch', expect.stringMatching(/^shadowlap\/fix-a-/), '--yes', '--json']);
+    expect(plan).toMatchObject({ fixes: ['a-1', 'c-1'], holdout: ['b-1'], keeps: ['ok-1-1', 'ok-2-1'], goldens: { shown: ['goldens/a', 'goldens/c'], heldOut: ['goldens/b'], kept: ['goldens/ok-1', 'goldens/ok-2'] }, gate: null });
+    expect(KEEPS_AT_MOST).toBe(2);
+    expect(repairArgs(plan, { db: null, budget: 6, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'a-1', 'c-1', '--holdout', 'b-1', '--keeps', 'ok-1-1', 'ok-2-1', '--expect', '@/tmp/expect.json', '--budget', '6', '--branch', expect.stringMatching(/^shadowlap\/fix-a-/), '--yes', '--json']);
     // A golden alone under its check has nothing to hold out; one that passed the check is still kept.
     expect(repairPlan(groups[1]!.members, results)).toMatchObject({ fixes: ['d-1'], holdout: [], keeps: ['other-1'], goldens: { shown: ['goldens/d'], heldOut: [], kept: ['goldens/other'] } });
     const lonely = [failing('e', { tools: { delete_thread: 0 } }), ...results];
@@ -331,6 +331,7 @@ describe('what a fix is verified on', () => {
     const alone = evidenceNote({ goldens: { shown: ['goldens/refund-flow'], heldOut: [], kept: [] }, gate: null });
     expect(alone).toContain('Only on `goldens/refund-flow`, whose failing replay was shown to the repairer: no other golden the session tested fails the same check to hold out from it, and none passed it to keep. That the fix holds for a case the repairer did not see is not tested here.');
     const wide = evidenceNote({ goldens: { shown: ['goldens/a'], heldOut: ['goldens/b', 'goldens/c'], kept: ['goldens/ok'] }, gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 } });
+    expect(evidenceNote({ goldens: { shown: ['goldens/a'], heldOut: [], kept: [] }, gate: { kind: 'sprt', good: 0.95, bad: 0.8, risk: 0.005, max: 200 } })).toContain("it tells 95%+ from 80%- at <= 0.5% risk, up to 200 attempts.");
     expect(wide).toContain('Shown to the repairer: `goldens/a`, its failing replay.');
     expect(wide).toContain('Held out from it: `goldens/b` and `goldens/c`, which fail the same check, and which the fix repairs too.');
     expect(wide).toContain('Kept: `goldens/ok`, which passed the same check, and still passes it under the fix.');

@@ -134,8 +134,12 @@ export function branchName(result) {
   return `shadowlap/fix-${slug}-${(result.runId ?? '').slice(-6).toLowerCase() || Date.now().toString(36)}`;
 }
 
-/** Goldens that passed under the same check that a repair keeps, at most: each runs live under every candidate. */
-export const KEEPS_AT_MOST = 3;
+/**
+ * Goldens that passed under the same check that a repair keeps, at most. Each runs live under every
+ * candidate, as many attempts as the gate asks (12 at the least for the default gate), within the
+ * failing goldens' budget, so two say a fix breaks no good run without trebling what verify costs.
+ */
+export const KEEPS_AT_MOST = 2;
 
 /**
  * A golden's own gate, as repair takes it: an SPRT gate's figures (`--gate`), a fixed count's attempts
@@ -227,7 +231,8 @@ export function evidenceNote({ goldens, gate }) {
     if (goldens.kept.length) parts.push(`Kept: ${code(goldens.kept)}, which passed the same check, and still pass${goldens.kept.length === 1 ? 'es' : ''} it under the fix.`);
     parts.push('');
   }
-  if (gate?.kind === 'sprt') parts.push(`Each was decided by the golden's own gate: it tells ${Math.round(gate.good * 100)}%+ from ${Math.round(gate.bad * 100)}%- at <= ${Math.round(gate.risk * 100)}% risk, up to ${gate.max} attempts.\n`);
+  const pct = (x) => `${+(x * 100).toFixed(2)}%`;
+  if (gate?.kind === 'sprt') parts.push(`Each was decided by the golden's own gate: it tells ${pct(gate.good)}+ from ${pct(gate.bad)}- at <= ${pct(gate.risk)} risk, up to ${gate.max} attempts.\n`);
   else if (gate?.kind === 'count') parts.push(`Each was decided by the golden's own count: ${gate.passes} of ${gate.attempts} attempts must pass.\n`);
   else if (gate?.kind === 'history') parts.push("The golden's gate is against its history, which verify doesn't take, so each was decided by verify's default gate.\n");
   return parts.join('\n');
