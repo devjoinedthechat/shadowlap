@@ -1,6 +1,8 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
@@ -18,6 +20,7 @@ let mock: MockServer;
 let overloaded = 0;
 let then = 200;
 const OVERLOADED = { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } };
+const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 
 beforeAll(async () => {
   mock = await startMockAnthropic({
@@ -68,12 +71,17 @@ describe('an attempt of blame or verify while the provider is unavailable', () =
       expect(a.unavailable).toBeUndefined();
       expect(r.attempts).toBe(1);
       expect(r.unavailable).toBe(2);
+      // The attempt says how many it was run in place of, so a run's or a probe's report can count them.
+      expect(a.unavailableBefore).toBe(2);
       // retry-after: 0, honoured.
       expect(waits).toEqual([0, 0]);
       expect(r.stopReason).toBeNull();
       // The two runs the provider was unavailable for say so, and never read as attempts that failed.
-      const unavailable = r.store.listRuns(10).filter((x) => (x.meta?.verify as { verdict?: string } | undefined)?.verdict === 'unavailable');
+      const unavailable = r.store.listRuns(10).filter((x) => x.meta?.verify?.verdict === 'unavailable');
       expect(unavailable).toHaveLength(2);
+      // And `show` says so of each, never that it failed.
+      const shown = execFileSync(process.execPath, [CLI, '--db', join(dir, 'retried.db'), 'show', unavailable[0]!.runId], { env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' } }).toString();
+      expect(shown).toContain('an attempt of shadowlap verify, replaying a failing run: not counted, the provider was unavailable');
     } finally {
       await r.close();
     }
@@ -90,6 +98,8 @@ describe('an attempt of blame or verify while the provider is unavailable', () =
       expect(a.failures[0]).toMatch(/^provider unavailable: 3 attempts in a row ended on HTTP 529 from anthropic at call #1, so none of them says anything about the agent/);
       expect(r.attempts).toBe(0);
       expect(r.unavailable).toBe(3);
+      // Two before it, and itself: three for the report to count.
+      expect(a.unavailableBefore).toBe(2);
       expect(waits).toHaveLength(2);
       expect(r.stopReason).toBe(a.failures[0]);
       expect(r.canStart()).toBe(false);
@@ -110,6 +120,7 @@ describe('an attempt of blame or verify while the provider is unavailable', () =
       then = 200;
       const own = await r.attempt({ parent: recorded, argv: [process.execPath, '-e', 'process.exit(3)'], commandFromImport: false });
       expect(own.verdict).toBe('failed');
+      expect(own.unavailableBefore).toBeUndefined();
       expect(r.attempts).toBe(2);
       expect(r.unavailable).toBe(0);
       expect(waits).toEqual([]);

@@ -1881,9 +1881,12 @@ function storedReports(store: Store): { verdicts: StoredVerdict[]; repairs: Stor
 
 type AttemptVerdict = 'passed' | 'failed' | 'inconclusive';
 
-/** An attempt's verdict as blame or verify kept it, or, for one kept before attempts had one, by whether it passed. */
+/**
+ * An attempt's verdict as blame or verify kept it, or, for one kept before attempts had one, by whether
+ * it passed. One its provider was unavailable for neither passed nor failed (attempts.ts in the CLI).
+ */
 function attemptVerdictOf(a: { passed: boolean; verdict?: string | undefined }): AttemptVerdict {
-  return a.verdict === 'inconclusive' ? 'inconclusive' : a.passed ? 'passed' : 'failed';
+  return a.verdict === 'inconclusive' || a.verdict === 'unavailable' ? 'inconclusive' : a.passed ? 'passed' : 'failed';
 }
 
 /**

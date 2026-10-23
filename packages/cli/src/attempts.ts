@@ -76,10 +76,18 @@ export interface Attempt {
    * The provider was unavailable (unavailable.ts in the engine): an attempt the agent failed while
    * one of its live model calls ended on 408, 409, 429, a 5xx or a failed connection. `attempt`
    * retries such an attempt after a pause and never tallies it, and returns one only once the
-   * provider was unavailable `retry.inARow` attempts in a row: inconclusive, with why first among
-   * its failures, and `stopReason` set, so the run or probe it was for ends inconclusive, never failed.
+   * provider was unavailable `retry.inARow` attempts in a row: with the verdict `inconclusive`, so
+   * that every caller leaves it out of a tally as it does an attempt no check could decide, why first
+   * among its failures, and `stopReason` set, so the run or probe it was for ends inconclusive, never
+   * failed. Its run is marked `verdict: 'unavailable'` where the caller's marks keep a verdict.
    */
   unavailable?: Unavailable;
+  /**
+   * Attempts the provider was unavailable for that ran before this one in its place, retried and
+   * never tallied: what a run's or a probe's report counts as `unavailable`, with this one when it
+   * is unavailable too. Absent when there were none.
+   */
+  unavailableBefore?: number;
   /**
    * The recording has model calls and the replay made none through Shadowlap: the agent reached its
    * model some other way, such as a local server Shadowlap was not told about. What it did is
@@ -209,21 +217,23 @@ export class AttemptRunner {
    * An attempt the agent failed while its provider was unavailable is no evidence about the agent: it
    * is kept as a run, never tallied, and run again after a pause (what the provider's `retry-after`
    * asked, at most a minute, else 5 s, then 15 s). After `retry.inARow` in a row, the last of them is
-   * returned with the verdict `unavailable`, and no more attempts start (`stopReason`).
+   * returned, `inconclusive` with `unavailable` set, and no more attempts start (`stopReason`). The
+   * attempt returned says how many unavailable ones it was run in place of (`unavailableBefore`).
    */
   async attempt(target: AttemptTarget, extra: AttemptExtra = {}, tally = true): Promise<Attempt> {
+    const before = (a: Attempt, n: number): Attempt => (n ? { ...a, unavailableBefore: n } : a);
     for (let inARow = 1; ; inARow++) {
       const a = await this.once(target, extra, tally);
-      if (!a.unavailable || this.interrupted) return a;
+      if (!a.unavailable || this.interrupted) return before(a, inARow - 1);
       if (inARow >= this.retry.inARow) {
         const why = unavailableReason(inARow, a.unavailable);
         this.stopReason ??= why;
-        return { ...a, failures: [why, ...a.failures.slice(1)] };
+        return before({ ...a, failures: [why, ...a.failures.slice(1)] }, inARow - 1);
       }
       const wait = retryDelay(inARow, a.unavailable.retryAfterMs, Math.random, this.retry);
       this.onUnavailable?.(a.unavailable, wait);
       await (this.sleep ?? ((ms: number) => pauseUnless(ms, () => this.interrupted)))(wait);
-      if (this.interrupted) return a;
+      if (this.interrupted) return before(a, inARow - 1);
     }
   }
 

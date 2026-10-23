@@ -131,6 +131,19 @@ describe('pairs from verify and --repeat', () => {
     store.close();
   });
 
+  it('never takes an attempt its provider was unavailable for as a failing one: the agent failed nothing there', () => {
+    const store = Store.open(':memory:');
+    const target = recordRun(store, LOST, { status: 'failed' }).run;
+    const attempt = (steps: Step[], verify: NonNullable<RunMeta['verify']>, n: number) => recordRun(store, steps, { parentRunId: target.runId, codeVersion: '370712a+dirty', meta: { verify, repeat: { group: `v1-${target.runId}`, attempt: n, of: 2 } } }).run;
+    attempt(SAVED, { role: 'target', passed: true, verdict: 'passed' }, 1);
+    // A 529 stopped it: as the run records it, it went the way a failing attempt goes.
+    attempt(LOST, { role: 'target', passed: false, verdict: 'unavailable' }, 2);
+    const { pairs, sources } = findPairs(store);
+    expect(pairs).toEqual([]);
+    expect(sources.find((s) => s.kind === 'verify')!.why).toBe('No run both passed and failed: each passed every attempt it was judged in or none, and 1 attempt could not be judged.');
+    store.close();
+  });
+
   it('finds the call a verify pair is about in the run it replayed, at the same point of the same path, and none when that run never got there', () => {
     const store = Store.open(':memory:');
     // Each recording is its own order, so no pair is another's; its verify's attempts are asked about that order too.

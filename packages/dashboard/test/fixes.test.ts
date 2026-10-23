@@ -411,6 +411,14 @@ describe('a fix', () => {
     expect(fixDetail(store, fix.fixId)!.steps[2]).toMatchObject({ state: 'warn', short: 'not settled', meta: 'a run it verified is inconclusive' });
   });
 
+  it('reads an attempt its provider was unavailable for as inconclusive, never failed', () => {
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    // Retried by verify and never counted (attempts.ts in the CLI): no report names it, its run's mark says why.
+    const retried = makeRun(store, { mode: 'replay', parent: good, status: 'completed', meta: { verify: { role: 'good', passed: false, verdict: 'unavailable' } } });
+    const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
+    expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: retried, passed: false, verdict: 'inconclusive' })]);
+  });
+
   it('gives no rate for a run an attempt it could not judge stopped under a gate, as verify gives none', () => {
     const failing = makeRun(store, { labels: ['refund-bug'] });
     const good = makeRun(store, { labels: ['good'], status: 'completed' });

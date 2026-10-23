@@ -10,7 +10,8 @@ import type { CallRecord } from './types.js';
  * What counts is what the call records hold, the final answer of each of the agent's live model calls
  * (a call its SDK retried and that then succeeded is fine): HTTP 408, 409, 429 or any 5xx from the
  * provider (529 "overloaded" included, and 504 or 524, a timeout on the provider's side), or the
- * connection failing (Shadowlap's 502 for an upstream it could not reach, or a stream cut short).
+ * connection failing (Shadowlap's 502 for an upstream it could not reach, or a stream cut short), or
+ * an answer from the provider that could not be passed on to the agent at all.
  * The agent's own timeout is not the provider's: an agent that hung up on a call (its client's
  * timeout, or an abort) or that a test's time limit stopped failed by its own clock. Failures
  * Shadowlap plays in on purpose (`--fail-at`, `test --chaos`) and calls it refused itself (offline, a
@@ -38,7 +39,8 @@ export interface Unavailable {
   reason: string;
 }
 
-const CONNECTION_ERRORS = new Set(['UpstreamConnectionError', 'UpstreamStreamError']);
+/** What the sidecar records for an upstream it could not reach, a stream cut short, and an answer it could not pass on. */
+const CONNECTION_ERRORS = new Set(['UpstreamConnectionError', 'UpstreamStreamError', 'UpstreamResponseError']);
 
 /**
  * How long a `retry-after-ms` or `retry-after` header asks to wait, in ms: a number of seconds, or an
@@ -73,7 +75,7 @@ export function providerUnavailable(calls: readonly CallRecord[]): Unavailable |
     const connection = error !== null && CONNECTION_ERRORS.has(error);
     if (!connection && !(status !== null && unavailableStatus(status))) continue;
     const provider = typeof meta.provider === 'string' ? meta.provider : typeof c.meta.provider === 'string' ? c.meta.provider : null;
-    const what = connection ? (error === 'UpstreamStreamError' ? 'a stream cut short' : 'a connection that failed') : `HTTP ${status}`;
+    const what = connection ? (error === 'UpstreamStreamError' ? 'a stream cut short' : error === 'UpstreamResponseError' ? 'an answer that could not be passed on' : 'a connection that failed') : `HTTP ${status}`;
     found = { callNo: c.callNo, provider, status, error: connection ? error : null, retryAfterMs: retryAfter(meta.headers, c.end.at), reason: `${what}${provider ? ` from ${provider}` : ''} at call #${c.callNo}` };
   }
   return found;

@@ -44,6 +44,8 @@ describe('providerUnavailable', () => {
   it('counts a connection that failed or a stream cut short', () => {
     expect(providerUnavailable([call({ status: 502, error: { name: 'UpstreamConnectionError', message: 'connect ECONNREFUSED' } })])).toMatchObject({ error: 'UpstreamConnectionError', reason: expect.stringMatching(/^a connection that failed from anthropic at call #/) });
     expect(providerUnavailable([call({ status: 200, error: { name: 'UpstreamStreamError', message: 'terminated' } })])).toMatchObject({ error: 'UpstreamStreamError', reason: expect.stringMatching(/^a stream cut short from anthropic/) });
+    // An answer the sidecar could not pass on (headers no response can carry): the provider's, not the agent's.
+    expect(providerUnavailable([call({ status: 200, error: { name: 'UpstreamResponseError', message: 'Invalid character in header content' } })])).toMatchObject({ error: 'UpstreamResponseError', reason: expect.stringMatching(/^an answer that could not be passed on from anthropic/) });
   });
 
   it("leaves out the agent's own timeout, what Shadowlap played in or refused, a judge's calls, and calls that ended well", () => {
