@@ -7,7 +7,7 @@ import { knownParent, noteParent, onParentNoted } from '../ui/parents.js';
 import { stripScroll } from '../ui/place.js';
 import { exportedLine } from '../ui/projects.js';
 import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled, RM_ALL, rmCommand } from '../ui/runspage/bulk.js';
-import { phoenixProjectOk, TRACE_COPY, traceIdOk } from '../ui/runspage/imports.js';
+import { phoenixProjectNote, phoenixProjectOk, TRACE_COPY, traceIdOk } from '../ui/runspage/imports.js';
 import { copyCompares } from '../ui/runs.js';
 import { crumbLineage, crumbParent, liveChip, topPill } from '../ui/shell/top.js';
 import { errorText, sentence, TOAST_MS } from '../ui/toast.js';
@@ -219,6 +219,13 @@ describe('importing a trace', () => {
     expect(traceIdOk('phoenix', '01a16460e2f3113424630')).toBe(false);
     expect(phoenixProjectOk('support-agent')).toBe(true);
     for (const bad of ['', 'a/b', 'a?b', 'a#b', 'x'.repeat(201)]) expect(phoenixProjectOk(bad), bad).toBe(false);
+  });
+
+  it('says why a Phoenix project typed is not one, and nothing while the field is empty', () => {
+    // Emptied, the field says nothing: Import waits for a project.
+    for (const quiet of ['', '  ', 'support-agent']) expect(phoenixProjectNote(quiet), quiet).toBeNull();
+    expect(phoenixProjectNote('support/agent')).toBe('That is not a project’s name or id: it holds no /, ? or #.');
+    expect(phoenixProjectNote('x'.repeat(201))).toBe('That is not a project’s name or id: it is 200 characters at most.');
   });
 });
 

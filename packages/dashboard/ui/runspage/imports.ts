@@ -107,6 +107,13 @@ export function phoenixProjectOk(project: string): boolean {
   return !!project && project.length <= 200 && !/[/?#]/.test(project);
 }
 
+/** Why the CLI won't take the Phoenix project typed; null while the field is empty, or it will. */
+export function phoenixProjectNote(project: string): string | null {
+  const p = project.trim();
+  if (!p || phoenixProjectOk(p)) return null;
+  return p.length > 200 ? 'That is not a project’s name or id: it is 200 characters at most.' : 'That is not a project’s name or id: it holds no /, ? or #.';
+}
+
 /** `LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY`. */
 export function keyList(names: readonly string[]): string {
   return names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;

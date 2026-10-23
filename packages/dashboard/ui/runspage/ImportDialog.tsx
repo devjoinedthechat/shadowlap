@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { FILE_FORMATS, fileHead, HEAD_BYTES, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, phoenixProjectOk, pickedFormat, sampleTrace, TRACE_COPY, traceIdOk, type ImportFileFormat, type TraceSource } from './imports.js';
+import { FILE_FORMATS, fileHead, HEAD_BYTES, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, phoenixProjectNote, phoenixProjectOk, pickedFormat, sampleTrace, TRACE_COPY, traceIdOk, type ImportFileFormat, type TraceSource } from './imports.js';
 
 /**
  * Import a capture or a trace: a file (dropped or picked; its format guessed from its name and its
@@ -190,7 +190,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
             </p>
           ) : null}
           {trace.id.trim() && !idOk ? <p className="fieldnote err">That is not a trace id: {TRACE_COPY[source].idRule}.</p> : null}
-          {!projectOk ? <p className="fieldnote err">That is not a project’s name or id: it holds no /, ? or #.</p> : null}
+          {phoenixProjectNote(project) ? <p className="fieldnote err">{phoenixProjectNote(project)}</p> : null}
         </div>
       )}
     </Dialog>
