@@ -1,4 +1,4 @@
-import { agentCallsOf, attemptsToPass, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, normalizeResponse, probeFinding, probeTally, searchBlame, unsettledFirst, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
+import { agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, normalizeResponse, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -206,9 +206,15 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     }
     log(`  ${p.green('✓')} replays as recorded and fails: ${baseline.failures.join('; ')}`);
 
-    // A probe is decided after each attempt: by the gate, rescued at `good` and lost at `bad`, or by the fixed count.
-    const limit = s.gate ? s.gate.max : s.attempts;
-    const settle = (passes: number, done: number): GateDecision => (s.gate ? decide(passes, done, s.gate) : decideCount(passes, done, s.attempts, s.needed));
+    // A probe is decided after each attempt: by the gate, rescued at `good` and lost at `bad`, or by the
+    // fixed count. The gate's risk is the whole search's, spent across the most probes it makes: each
+    // probe's gate runs at its share, so every claim of every probe holds together but for that risk.
+    const budget = maxProbes(steps.length, s.scan);
+    const each: SprtGate | null = s.gate ? probeGate(s.gate, budget) : null;
+    const limit = each ? each.max : s.attempts;
+    const settle = (passes: number, done: number): GateDecision => (each ? decide(passes, done, each) : decideCount(passes, done, s.attempts, s.needed));
+    // The most a probe's claim can be wrong, exactly, at the gate's two rates (the blame gate's for a count).
+    const risk = probeRisk(each ? { gate: each } : { attempts: s.attempts, needed: s.needed });
     const probe = async (callNo: number, step: number): Promise<BlameProbe | null> => {
       if (!runner.canStart()) return null;
       log(`  ${p.bold(`model call #${callNo}`)} ${p.dim(`(${step} of ${steps.length})`)}`);
@@ -257,14 +263,14 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       const stopper = attempts.find((a) => a.verdict === 'inconclusive');
       const undecided = decision === 'inconclusive' ? (stopper?.failures[0] ?? null) : null;
       // The gate's result rests on the attempts it decided on: the first to start, up to the one that settled it.
-      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(s.gate ? { decision, gate: gateResult(s.gate, tally.decidedOn(), { decision: undecided ? 'continue' : decision }) } : undecided ? { decision } : {}), ...(undecided ? { undecided } : {}) };
+      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(each ? { decision, gate: gateResult(each, tally.decidedOn(), { decision: undecided ? 'continue' : decision }) } : undecided ? { decision } : {}), ...(undecided ? { undecided } : {}), risk };
       // Under a gate, its verdict word, tally and Wilson bound; the rule was said once, above.
-      const words = s.gate || undecided ? probeFinding(found, s.gate) : `${rescued ? 'rescued' : 'lost'}: ${probeTally(found, ' passed')}`;
+      const words = each || undecided ? probeFinding(found, each) : `${rescued ? 'rescued' : 'lost'}: ${probeTally(found, ' passed')}`;
       log(`    ${rescued ? p.green(words) : decision === 'inconclusive' ? p.yellow(words) : p.red(words)}`);
       return found;
     };
 
-    const searched = await searchBlame({ steps, probe, scan: s.scan });
+    const searched = await searchBlame({ steps, probe, scan: s.scan, risk: s.gate?.risk ?? BLAME_DEFAULTS.risk });
 
     // The fork that rescued the run, and what the model answered there: an attempt that passed and
     // answered the blamed call otherwise than the recording, and that no stub carried past a write
@@ -297,7 +303,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
           ? `Every attempt that passed at #${at} answered it as the recording did. They passed because ${w.name} was stubbed after the fork, and the recording failed on ${w.name}'s error: ${w.message}.`
           : `Every attempt that passed at #${at} answered it as the recording did, so what made them pass came after that answer: a read that ran live, or a write that was stubbed.`;
         same = { callNo: at, runId: passing[0].runId, why };
-        result = { ...searched, outcome: 'unrescuable', blamed: null, lost: null };
+        result = { ...searched, outcome: 'unrescuable', blamed: null, lost: null, range: null };
       }
     } else if (searched.outcome === 'unrescuable' && failed.size) {
       // No probe rescued the run: when every attempt from the first model call made a write that
@@ -313,8 +319,9 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       runId: parent.runId,
       steps: steps.length,
       attemptsPerProbe: limit,
-      needed: s.gate ? attemptsToPass(s.gate) : s.needed,
+      needed: each ? attemptsToPass(each) : s.needed,
       gate: s.gate,
+      probeBudget: s.gate ? budget : null,
       rescue: { fields: s.fields },
       oracle,
       recordedFailures: baseline.failures,
@@ -338,6 +345,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
         ...(unsettledFirst(report) ? { unsettled: true } : {}),
         callNo: report.blamed?.callNo ?? null,
         confidence: report.confidence,
+        range: report.range ?? null,
+        errorBound: report.errorBound ?? null,
         rescuedRunId: contrast?.rescuedRunId ?? null,
         fields: s.fields,
         ...(s.scope ? { scope: s.scope } : {}),

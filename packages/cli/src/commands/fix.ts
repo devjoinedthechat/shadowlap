@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { applyLeft, BLAME_DEFAULTS, commandIsImported, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { applyLeft, BLAME_DEFAULTS, commandIsImported, percent, probeGate, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
@@ -134,12 +134,19 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
     fix: r.fix ? { fixId: r.fix.fixId, title: r.fix.title, status: r.fix.status, opened: r.fix.opened } : null,
     outcome: r.outcome,
     confidence: r.confidence,
+    // The calls the run was lost between (one when pinned), and the most that, or a finding that no call
+    // rescues it, may be wrong: the risks of the probes that decided, summed. Null when nothing bounds it.
+    range: r.range ? { from: r.range.from, to: r.range.to } : null,
+    errorBound: r.errorBound ?? null,
     blamed: r.blamed ? probe(r.blamed) : null,
     lost: r.lost ? probe(r.lost) : null,
     modelCalls: r.steps,
     attemptsPerProbe: r.attemptsPerProbe,
     passesNeeded: r.needed,
     gate: r.gate ?? null,
+    // The search's risk is spent across up to probeBudget probes: each ran under probeGate, at its share.
+    probeBudget: r.probeBudget ?? null,
+    probeGate: r.gate && r.probeBudget ? probeGate(r.gate, r.probeBudget) : null,
     rescue: r.rescue,
     oracle: r.oracle,
     recordedFailures: r.recordedFailures,
@@ -147,7 +154,9 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
     sameAnswer: r.sameAnswer ?? null,
     failedWrite: r.failedWrite ?? null,
     // A probe's sentence in blame's words, as its report says it: rescued or lost, the tally, the Wilson bound and the rule.
-    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: x.gate && !x.undecided ? { ...gateJson(x.gate)!, sentence: `${probeFinding(x, r.gate ?? null)} · ${rescueRule(r)}` } : null, undecided: x.undecided ?? null, runs: x.attempts })),
+    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: x.gate && !x.undecided ? { ...gateJson(x.gate)!, sentence: `${probeFinding(x, r.gate ?? null)} · ${rescueRule(r)}` } : null, undecided: x.undecided ?? null, risk: x.risk ?? null, runs: x.attempts })),
+    // The probes' rescue rates fitted non-increasing, in call order.
+    fit: r.fit ?? [],
     nonMonotone: r.nonMonotone,
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
     // Judge checks' calls, apart from the agent's: what they sent upstream and spent. Null when no judge was asked live.
@@ -292,9 +301,11 @@ export function register(program: Command): void {
       const most = maxProbes(steps, flags.scan);
       log(`${p.yellow('⑂')} Blaming ${shortId(parent.runId)} ${p.dim(`(${safe(quoteArgv(argv))})`)}: ${steps} model call${steps === 1 ? '' : 's'}${flags.scope ? ` in scope ${safe(flags.scope)}` : ''}`);
       const each = rule.gate ? rescueRule({ gate: rule.gate, needed: 0, attemptsPerProbe: rule.gate.max }) : `${rule.attempts} attempts, a rescue at ${rule.needed} passing`;
+      // Under a gate its risk is the whole search's, spent across the most probes it makes.
+      const spent = rule.gate ? `, the ${percent(rule.gate.risk)} risk spent across them` : '';
       log(
         p.dim(
-          `  each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}\n  at most ${most} probe${most === 1 ? '' : 's'} and ${most * rule.attempts} attempts; every call before a probe replays from the recording for free`,
+          `  each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}\n  at most ${most} probe${most === 1 ? '' : 's'}${spent} and ${most * rule.attempts} attempts; every call before a probe replays from the recording for free`,
         ),
       );
 

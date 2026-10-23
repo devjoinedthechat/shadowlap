@@ -385,6 +385,10 @@ export interface BlameRecord {
   /** The model call whose recorded answer lost the run, or null. */
   callNo: number | null;
   confidence: 'high' | 'medium' | 'low';
+  /** The calls the run was lost between (blame.ts `range`): one call when pinned. Absent from blames kept before ranges. */
+  range?: { from: number; to: number; fromStep?: number; toStep?: number } | null;
+  /** The most that range, or the finding that no call rescues the run, may be wrong; null when nothing bounds it. Absent from blames kept before it. */
+  errorBound?: number | null;
   /** A fork that passed from the blamed call on. */
   rescuedRunId: string | null;
   /** Request fields a probe changed from the probed call on; empty when it only resampled. */

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport } from '../src/blame.js';
+import { confidenceWhy, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeGate, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport } from '../src/blame.js';
 import { BLAME_DEFAULTS, decide, gateResult, type SprtGate } from '../src/stats.js';
 
-/** A probe that passes `rate(i)` of `n` attempts at model call `steps[i]`. */
-function probes(steps: number[], rate: (i: number) => number, n = 5, needed = 2) {
+/**
+ * A probe that passes `rate(i)` of `n` attempts at model call `steps[i]`. Its claim is wrong at most
+ * `risk` of the time: small by default, so these tests read the search's mechanics at high confidence.
+ */
+function probes(steps: number[], rate: (i: number) => number, n = 5, needed = 2, risk = 0.001) {
   const seen: number[] = [];
   const probe = async (callNo: number, step: number): Promise<BlameProbe> => {
     seen.push(callNo);
@@ -14,6 +17,7 @@ function probes(steps: number[], rate: (i: number) => number, n = 5, needed = 2)
       passes,
       rescued: passes >= needed,
       attempts: Array.from({ length: n }, (_, i) => ({ runId: `r${callNo}-${i}`, passed: i < passes, exitCode: 0, failures: i < passes ? [] : ['x'], spent: 0, upstreamRequests: 1 })),
+      risk,
     };
   };
   return { probe, seen };
@@ -59,6 +63,9 @@ describe('searchBlame', () => {
         expect(r.outcome).toBe('blamed');
         expect(r.blamed?.callNo, `n=${n} boundary=${boundary}`).toBe(steps[boundary]);
         expect(r.lost?.callNo ?? null).toBe(boundary + 1 < n ? steps[boundary + 1] : null);
+        // Pinned to the one call, with the risks of the probes that decided summed as its bound.
+        expect(r.range).toEqual({ from: steps[boundary], to: steps[boundary], fromStep: boundary + 1, toStep: boundary + 1 });
+        expect(r.errorBound).toBeCloseTo(0.001 * seen.length, 12);
         expect(r.confidence).toBe('high');
         expect(seen.length).toBeLessThanOrEqual(maxProbes(n, 0));
         expect(new Set(seen).size, 'no call probed twice').toBe(seen.length);
@@ -79,7 +86,7 @@ describe('searchBlame', () => {
     const steps = calls(8);
     const { probe, seen } = probes(steps, () => 0);
     const r = await searchBlame({ steps, probe, scan: 2 });
-    expect(r).toMatchObject({ outcome: 'unrescuable', blamed: null, confidence: 'high' });
+    expect(r).toMatchObject({ outcome: 'unrescuable', blamed: null, confidence: 'high', range: null, errorBound: 0.001 });
     expect(r.lost?.callNo).toBe(steps[0]);
     expect(seen).toEqual([steps[0]]);
   });
@@ -92,12 +99,21 @@ describe('searchBlame', () => {
     expect(r.blamed?.callNo).toBe(steps[5]);
   });
 
-  it('lowers the confidence when the call after the boundary still passes sometimes', async () => {
+  it("reads a fixed count's own error into the label: 2 of 5 is wrong up to 8.7% of the time a probe", async () => {
+    // 2 of 5 rescues a call the model gets right 10% of the time 8.15% of the time, and loses one at
+    // 60% 8.70%: four probes that decided can be wrong up to 34.8% of the time together.
+    const risk = probeRisk({ attempts: 5, needed: 2 });
+    expect(risk).toBeCloseTo(0.087, 4);
     const steps = calls(6);
-    const { probe } = probes(steps, (i) => (i <= 2 ? 3 : i === 3 ? 1 : 0));
+    const { probe } = probes(steps, (i) => (i <= 2 ? 3 : i === 3 ? 1 : 0), 5, 2, risk);
     const r = await searchBlame({ steps, probe, scan: 0 });
     expect(r.blamed?.step).toBe(3);
-    expect(r.confidence).toBe('medium');
+    expect(r.errorBound).toBeCloseTo(4 * risk, 10);
+    expect(r.confidence).toBe('low');
+    expect(confidenceWhy(r)).toBe('<= 34.8% risk that the call is wrong: 4 probes decided, at <= 8.7% risk each');
+    // One probe of it is within twice the risk, or 20%: medium.
+    const one = await searchBlame({ steps: [1], probe: probes([1], () => 4, 5, 2, risk).probe, scan: 0 });
+    expect(one).toMatchObject({ confidence: 'medium', errorBound: risk });
   });
 
   it('moves past a boundary that rescue crosses again, and says so', async () => {
@@ -108,8 +124,12 @@ describe('searchBlame', () => {
     const { probe } = probes(steps, (i) => (rescuable.has(i) ? 4 : 0));
     const scanned = await searchBlame({ steps, probe, scan: 2 });
     expect(scanned.blamed?.step).toBe(6);
-    expect(scanned.confidence).toBe('low');
+    // 4 of 5 after 0 of 5 is more of a rise than chance explains (Fisher, p = 5/210): no bound, low.
+    expect(scanned).toMatchObject({ confidence: 'low', errorBound: null });
     expect(scanned.nonMonotone).toEqual([{ lost: steps[3], rescued: steps[5] }]);
+    expect(confidenceWhy(scanned)).toBe(`rescue rose again at #${steps[5]} after #${steps[3]} was lost, more than chance explains: the boundary is not clean`);
+    // The fit reads the rise as one rate, falling: 4/5, 0/5 and 4/5 pool to 0.4 at steps 4 to 6.
+    expect(scanned.fit?.find((f) => f.callNo === steps[3])?.rate).toBeCloseTo(scanned.fit?.find((f) => f.callNo === steps[5])?.rate ?? -1, 12);
 
     // Without a scan the search stops at the first boundary and has no evidence against it.
     const { probe: probe2 } = probes(steps, (i) => (rescuable.has(i) ? 4 : 0));
@@ -202,7 +222,19 @@ describe('formatBlame', () => {
     expect(text).toContain('Not rescued from any model call');
     expect(text).toContain('passed 0 of 4 attempts, fewer than the 2 a rescue needs');
     expect(text).toContain('--model');
-    expect(text).not.toContain('Confidence');
+    // A report made before blame bounded its error keeps its label, and says so.
+    expect(text).toContain('Confidence: high (as blame read it before it bounded its error)');
+  });
+
+  it('says a run is not rescued from any model call only when the bound supports it', () => {
+    const first = { ...probe(3, 1, 0, 4, false), risk: 0.001 };
+    const supported = base({ outcome: 'unrescuable', probes: [first], lost: first, errorBound: 0.001, confidence: 'high' });
+    expect(unrescuedHead(supported)).toBe('✗ Not rescued from any model call');
+    expect(formatBlame(supported)).toContain('Confidence: high (<= 0.1% risk that this is wrong: 1 probe decided)');
+    // A fixed count's first probe can be wrong 8.7% of the time: it says only what it saw.
+    const weak = base({ outcome: 'unrescuable', probes: [{ ...first, risk: 0.087 }], lost: first, errorBound: 0.087, confidence: 'medium' });
+    expect(unrescuedHead(weak)).toBe('✗ Not rescued from the first model call');
+    expect(formatBlame(weak)).not.toContain('Not rescued from any model call');
   });
 
   it('says no answer lost a run whose attempts met its recorded write error again, or passed answering as it did', () => {
@@ -245,11 +277,11 @@ describe('describeBlocks', () => {
 
 describe('probes decided by a gate', () => {
   const GATE: SprtGate = { kind: 'sprt', ...BLAME_DEFAULTS };
-  /** A probe whose attempts came out as `outcomes`, decided by blame's gate. */
-  const gated = (callNo: number, step: number, outcomes: boolean[]): BlameProbe => {
+  /** A probe whose attempts came out as `outcomes`, decided by blame's gate, its claim wrong at most `risk` of the time. */
+  const gated = (callNo: number, step: number, outcomes: boolean[], risk = 0.001): BlameProbe => {
     const passes = outcomes.filter(Boolean).length;
     const decision = decide(passes, outcomes.length, GATE);
-    return { callNo, step, passes, rescued: decision === 'pass', decision, gate: gateResult(GATE, outcomes, { decision }), attempts: outcomes.map((passed, i) => ({ runId: `01K5CR${callNo}${i}`.padEnd(26, '0'), passed, exitCode: 0, failures: [], spent: 0, upstreamRequests: 1 })) };
+    return { callNo, step, passes, rescued: decision === 'pass', decision, gate: gateResult(GATE, outcomes, { decision }), attempts: outcomes.map((passed, i) => ({ runId: `01K5CR${callNo}${i}`.padEnd(26, '0'), passed, exitCode: 0, failures: [], spent: 0, upstreamRequests: 1 })), risk };
   };
   const report = (over: Partial<BlameReport>): BlameReport => ({ outcome: 'blamed', blamed: null, lost: null, probes: [], nonMonotone: [], confidence: 'high', runId: '01K5CQ4N7G8M2XWQH6V3T9RB1D', steps: 4, attemptsPerProbe: 20, needed: 2, gate: GATE, rescue: { fields: {} }, oracle: ['exit code 0'], recordedFailures: [], contrast: null, attempts: 10, spent: 0, upstreamRequests: 20, unknownModels: [], stopReason: null, warnings: [], ...over });
   /** Seven passes in twenty, never far enough either way: inconclusive at the default 20 attempts. */
@@ -303,13 +335,17 @@ describe('probes decided by a gate', () => {
     expect(probeFinding(late, GATE)).toBe('rescued · 2 of 2 (and 1 more that ended after it decided) · rate >= 0.15 (95%)');
   });
 
-  it('takes an inconclusive probe as not rescued, and lowers the confidence when it is the one after the boundary', async () => {
+  it('widens the range past an inconclusive probe, which claims nothing, to the first call found lost', async () => {
     const outcomes: Record<number, boolean[]> = { 1: [true, true], 2: [true, true], 3: UNSURE, 4: [false, false, false, false] };
-    const r = await searchBlame({ steps: [1, 2, 3, 4], probe: async (callNo, step) => gated(callNo, step, outcomes[step]!), scan: 0 });
-    expect(r).toMatchObject({ outcome: 'blamed', blamed: { callNo: 2 }, lost: { callNo: 3, decision: 'inconclusive' }, confidence: 'medium' });
+    // The scan past the boundary probes #4, and finds it lost: that closes the range.
+    const r = await searchBlame({ steps: [1, 2, 3, 4], probe: async (callNo, step) => gated(callNo, step, outcomes[step]!), scan: 2 });
+    expect(r).toMatchObject({ outcome: 'blamed', blamed: { callNo: 2 }, lost: { callNo: 3, decision: 'inconclusive' }, range: { from: 2, to: 3 }, confidence: 'high' });
+    expect(r.errorBound).toBeCloseTo(0.003, 12);
     const text = formatBlame(report({ ...r, probes: r.probes }));
-    expect(text).toContain('The re-asked call #2: rescued · 2 of 2 · rate >= 0.15 (95%); #3, the next model call: inconclusive · 7 of 20 · rate 0.10 to 0.64 (95%).');
-    expect(text).toContain('Confidence: medium (#3 was inconclusive: the run was not reliably lost there)');
+    expect(text).toContain('The run was lost between model calls #2 and #3 (2 to 3 of 4)');
+    expect(text).toContain('The re-asked call #2: rescued · 2 of 2 · rate >= 0.15 (95%); #4, the first call after it found lost: lost · 0 of 4 · rate <= 0.61 (95%).');
+    expect(text).toContain('#3 between them was inconclusive: the run may have been lost at any call from #2 to #3.');
+    expect(text).toContain('Confidence: high (<= 0.3% risk that the range is wrong: 3 probes decided, at <= 0.1% risk each)');
     // The rule, and under it what a probe changes: each line fits an 80-column terminal.
     expect(text).toContain('  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts;\n          resample the probed call)');
     expect(text).toMatch(/#3 +3 of 4 +7 of 20 passed · rate 0\.10 to 0\.64 \(95%\) +inconclusive/);
@@ -373,12 +409,15 @@ describe('probes decided by a gate', () => {
     expect(text).not.toMatch(/Not rescued from any model call|0 of 1|lost · /);
     // As the one after the boundary, under a fixed count: inconclusive there, not lost.
     const countedRescue = (callNo: number, step: number): BlameProbe => {
-      const { decision: _decision, ...p } = gated(callNo, step, [true, true]);
+      const { decision: _decision, ...p } = gated(callNo, step, [true, true], probeRisk({ attempts: 5, needed: 2 }));
       return { ...p, gate: null };
     };
     const counted = await searchBlame({ steps: [1, 2], probe: async (callNo, step) => (step === 1 ? countedRescue(callNo, step) : undecided(callNo, step, [false], null)), scan: 0 });
-    expect(counted).toMatchObject({ outcome: 'blamed', blamed: { callNo: 1 }, lost: { callNo: 2 }, confidence: 'medium' });
-    expect(formatBlame(report({ ...counted, gate: null, needed: 2, attemptsPerProbe: 5 }))).toContain('Resampling #1 rescued 2 of 2 attempts; #2, the next model call, was inconclusive: 0 of 1 passed, an attempt not judged.');
+    // The undecided call claims nothing, so the range runs to the run's last call; 2 of 5 alone bounds it at 8.7%.
+    expect(counted).toMatchObject({ outcome: 'blamed', blamed: { callNo: 1 }, lost: { callNo: 2 }, range: { from: 1, to: 2 }, confidence: 'medium' });
+    const countedText = formatBlame(report({ ...counted, gate: null, needed: 2, attemptsPerProbe: 5 }));
+    expect(countedText).toContain('Resampling #1 rescued 2 of 2 attempts; no call after it was found lost, and the recording, which kept every answer, fails.');
+    expect(countedText).toContain('#2 between them was inconclusive: the run may have been lost at any call from #1 to #2.');
   });
 
   it('counts an attempt that could not be judged after its probe decided apart, never as one that failed', () => {
