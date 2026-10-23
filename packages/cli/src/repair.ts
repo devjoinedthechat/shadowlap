@@ -509,7 +509,8 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
           answer = await askRepairer(repairer, request, config.prices, { timeoutMs: s.repairerTimeoutMs ?? DEFAULT_REPAIRER_TIMEOUT_MS, signal: asking.signal });
         } catch (err) {
           // Whatever kept it from answering, the blames and the fix they opened are kept, with why.
-          notAsked(err instanceof RepairerError ? err : new RepairerError(safeLine((err instanceof Error ? err.message : String(err)).split('\n')[0]!).slice(0, 200) || 'it failed'));
+          // Ctrl-C stopped it: the repair is stopped, which says so, not that the repairer could not be asked.
+          if (!interrupted) notAsked(err instanceof RepairerError ? err : new RepairerError(safeLine((err instanceof Error ? err.message : String(err)).split('\n')[0]!).slice(0, 200) || 'it failed'));
         }
         if (answer) {
           cost.repairer = answer.cost;
@@ -536,8 +537,16 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
       if (outOfBudget()) return stopped(`the budget of $${s.budget!.toFixed(2)} is spent`);
       report.outcome = 'not-fixed';
       const tried = candidates.filter((x) => x.c.state !== 'invalid' && x.c.state !== 'untried').length;
+      // Rejected for their growth before verify ran them: no gate decided any of them.
+      const grown = candidates.filter((x) => x.c.state === 'rejected' && !x.c.verify).length;
       // With nothing to try, the repairer's silence is why: "the repairer could not be asked: claude was not found".
-      report.why = !candidates.length ? (report.noRepairer ?? 'there was no candidate to try') : tried ? `the gate accepted none of the ${tried} candidate${tried === 1 ? '' : 's'} tried` : 'no candidate could be tried';
+      report.why = !candidates.length
+        ? (report.noRepairer ?? 'there was no candidate to try')
+        : tried && grown === tried
+          ? `${tried === 1 ? 'the one candidate' : `all ${tried} candidates`} that could be tried grew the input tokens per run past --max-growth ${+(s.maxGrowth * 100).toFixed(4)}% by ${tried === 1 ? 'its' : 'their'} rewrite alone, so verify ran none`
+          : tried
+            ? `the gate accepted none of the ${tried} candidate${tried === 1 ? '' : 's'} tried`
+            : 'no candidate could be tried';
       return report;
     }
 

@@ -625,6 +625,7 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
     expect(r.code, r.out).toBe(1);
     const report = JSON.parse(r.stdout) as Report & { cost: { verify: number }; candidates: Array<{ verify: unknown }> };
     expect(report.outcome).toBe('not-fixed');
+    expect(report.why).toBe('the one candidate that could be tried grew the input tokens per run past --max-growth 25% by its rewrite alone, so verify ran none');
     expect(report.candidates).toHaveLength(1);
     expect(report.candidates[0]).toMatchObject({ state: 'rejected', verify: null });
     expect(report.candidates[0]!.reason).toMatch(/^input tokens per run grow \d+% from the rewrite alone, at 5 characters a token, more than --max-growth 25%, so it was not verified$/);
@@ -650,6 +651,37 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
       expect(report.targets[0]).toMatchObject({ outcome: 'blamed' });
       expect(Date.now() - started).toBeLessThan(90_000);
       // It was stopped, not left running.
+      const pid = Number(readFileSync(join(bin, 'pid'), 'utf8'));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('stops a repairer still being asked on Ctrl-C, and reports the repair stopped', async () => {
+    const failed = await record();
+    mode = 'alternate';
+    const bin = mkdtempSync(join(tmpdir(), 'fp-claude-'));
+    try {
+      writeFileSync(join(bin, 'claude'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(join(bin, 'pid'))}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
+      chmodSync(join(bin, 'claude'), 0o755);
+      const child = spawn(process.execPath, [CLI, 'repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'claude-code', '--json'], {
+        cwd: project,
+        env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, ANTHROPIC_BASE_URL: mock.url, ANTHROPIC_API_KEY: 'test-key', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_CLAUDE: join(bin, 'claude') },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
+      const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
+      // Once the repairer is being asked, Ctrl-C.
+      for (let i = 0; i < 600 && !existsSync(join(bin, 'pid')); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(existsSync(join(bin, 'pid'))).toBe(true);
+      child.kill('SIGINT');
+      await exited;
+      const report = JSON.parse(stdout) as Report & { noRepairer: string | null };
+      expect(report).toMatchObject({ outcome: 'stopped', why: 'interrupted', noRepairer: null });
+      expect(report.warnings.some((w) => w.startsWith('the repairer could not be asked'))).toBe(false);
       const pid = Number(readFileSync(join(bin, 'pid'), 'utf8'));
       await new Promise((resolve) => setTimeout(resolve, 500));
       expect(() => process.kill(pid, 0)).toThrow();
