@@ -9,6 +9,7 @@ import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { refusedOffline } from './calls.js';
+import { EditAndFork } from './EditAndFork.js';
 import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
 
 /**
@@ -88,7 +89,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
         ))}
       </div>
       <div className="ibody" key={`${runId}:${call.callNo}:${tab}`} tabIndex={-1}>
-        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} />}
+        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab runId={runId} detail={detail} live={live} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} />}
       </div>
     </section>
   );
@@ -305,7 +306,7 @@ function blocksText(blocks: Block[]): { think: string; text: string } {
 
 const SPEEDS = [1, 2, 4, 0] as const;
 
-function ResponseTab({ detail }: { detail: CallDetail }) {
+function ResponseTab({ runId, detail, live }: { runId: string; detail: CallDetail; live: boolean }) {
   const c = detail.call;
   const [raw, setRaw] = useState(false);
   if (c.kind !== 'api') {
@@ -313,7 +314,12 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
     const head = c.origin === 'blocked' ? (c.effect === 'read' ? 'Fenced: a read the recording doesn\'t hold, after the fork. The agent got this instead of a live result:' : 'Blocked: a write tool after the fork. The agent got this instead of the real result:') : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:';
     return (
       <>
-        <div className="ibar">{head}</div>
+        <div className="ibar">
+          <span>{head}</span>
+          <span className="sp" />
+          {/* The fork menu's override, with the result edited here: a tool's, or what a person answered. */}
+          <EditAndFork runId={runId} detail={detail} live={live} />
+        </div>
         <div className="jbox">{result ? jsonText(result.error ?? result.result ?? null) : c.outcome === null ? 'no result yet' : 'no result'}</div>
       </>
     );

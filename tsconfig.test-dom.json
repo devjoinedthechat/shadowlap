@@ -40,7 +40,9 @@
     "packages/dashboard/test/ui-presets.test.ts",
     "packages/dashboard/test/ui-run-header.test.ts",
     "packages/dashboard/test/run-roles.test.ts",
-    "packages/dashboard/test/ui-focus.test.ts"
+    "packages/dashboard/test/ui-focus.test.ts",
+    "packages/dashboard/test/ui-fork-differences.test.ts",
+    "packages/dashboard/test/ui-edit-and-fork.test.ts"
   ],
   "exclude": []
 }

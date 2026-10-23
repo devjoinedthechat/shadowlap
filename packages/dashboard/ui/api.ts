@@ -14,6 +14,7 @@ import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { DecisionSessionDetail, DecisionsListView, RetirementsView, RunDecisionsView } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
+import type { ForkDifferences } from '../src/fork-differences.js';
 import { copyAmbiguous, copyRunId } from './runs.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -82,6 +83,8 @@ export const JOB_KINDS = {
   chaos: 'chaos',
   coverage: 'coverage',
   coveragePack: 'coverage-pack',
+  // A fork from a call's result as the inspector edited it: the fork menu's --override, the result uploaded.
+  override: 'override',
 } as const;
 
 export class ApiError extends Error {
@@ -246,6 +249,10 @@ export interface Client {
   chaos(): Promise<ChaosView | null>;
   /** One run's presets matrix, its recording's for a preset's attempt (`/api/chaos/runs/:id`); null when none ran. */
   runChaos(id: string): Promise<ChaosMatrix | null>;
+
+  // ---- What a fork did differently
+  /** What a fork did differently from its parent (`/api/runs/:id/differences`); null for a run that isn't a fork of a run in the store. */
+  forkDifferences(id: string): Promise<ForkDifferences | null>;
 }
 
 
@@ -473,6 +480,7 @@ export function createClient(token: string): Client {
     coverage: () => request<CoverageView>('coverage').catch((err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     chaos: () => request<ChaosView>('chaos').catch((err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, (err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
+    forkDifferences: (runId) => request<{ differences: ForkDifferences | null }>(`runs/${id(runId)}/differences`).then((r) => r.differences),
   };
 }
 
@@ -558,5 +566,7 @@ export function createExportedClient(data: StaticPayload): Client {
     coverage: () => Promise.resolve(null),
     chaos: () => Promise.resolve(null),
     runChaos: () => Promise.resolve(null),
+    // Worked out from the store, which a copy doesn't carry: its run page leaves the panel out.
+    forkDifferences: () => Promise.resolve(null),
   };
 }
