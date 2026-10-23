@@ -1,4 +1,4 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pulledRun } from './classify.js';
 import { sha256 } from './ids.js';
@@ -383,13 +383,46 @@ function mismatch(store: Store, held: RunRecord, packed: RunRecord, packedCalls:
   return sameCommand && !calls ? null : { runId: packed.runId, command: sameCommand ? null : { argv: packed.command.argv, cwd: packed.command.cwd }, calls };
 }
 
-/** A pack file, read only if it is a regular file (never a symlink) within the size limit. */
-function readPackFile(path: string, limit: number, what: string): Buffer {
-  const st = lstatSync(path);
-  if (st.isSymbolicLink()) throw new PackError(`${what} is a symbolic link; packs contain only regular files`);
-  if (!st.isFile()) throw new PackError(`${what} is not a regular file`);
-  if (st.size > limit) throw new PackError(`${what} is ${st.size} bytes, over the ${limit}-byte limit`);
-  return readFileSync(path);
+/**
+ * A pack file, read only if it is a regular file (never a symbolic link) within the size limit. It
+ * is opened without following a link (O_NOFOLLOW) and checked on the very descriptor it is read
+ * from (fstat), so a link or anything else swapped in after a check is never read; O_NONBLOCK keeps
+ * a FIFO put in its place from stalling the open. It is read up to the size it had then, and
+ * refused if it grew or shrank meanwhile. Where the system has no O_NOFOLLOW (Windows), the file is
+ * checked before it is opened, and refused when the file opened is not the one checked.
+ */
+export function readPackFile(path: string, limit: number, what: string): Buffer {
+  const link = () => new PackError(`${what} is a symbolic link; packs contain only regular files`);
+  const noFollow = constants.O_NOFOLLOW as number | undefined;
+  const checked = noFollow === undefined ? lstatSync(path) : null;
+  if (checked?.isSymbolicLink()) throw link();
+  let fd: number;
+  try {
+    fd = openSync(path, constants.O_RDONLY | (noFollow ?? 0) | ((constants.O_NONBLOCK as number | undefined) ?? 0));
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    // ELOOP on Linux and macOS, EMLINK on FreeBSD: the last part of the path is a link.
+    if (code === 'ELOOP' || code === 'EMLINK') throw link();
+    if (code === 'ENXIO') throw new PackError(`${what} is not a regular file`);
+    throw err;
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw new PackError(`${what} is not a regular file`);
+    if (checked && (checked.ino !== st.ino || checked.dev !== st.dev)) throw new PackError(`${what} was replaced while it was read`);
+    if (st.size > limit) throw new PackError(`${what} is ${st.size} bytes, over the ${limit}-byte limit`);
+    const bytes = Buffer.alloc(st.size);
+    let read = 0;
+    while (read < bytes.length) {
+      const n = readSync(fd, bytes, read, bytes.length - read, read);
+      if (n === 0) throw new PackError(`${what} changed while it was read`);
+      read += n;
+    }
+    if (readSync(fd, Buffer.alloc(1), 0, 1, read) !== 0) throw new PackError(`${what} changed while it was read`);
+    return bytes;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**
