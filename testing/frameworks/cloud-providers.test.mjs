@@ -51,6 +51,8 @@ const CASES = [
   { name: 'Vertex AI, Google GenAI in express mode', provider: 'vertex', argv: [process.execPath, agentPath('vertex-genai.mjs')], calls: 1 },
   { name: 'Azure OpenAI, AzureOpenAI with the endpoint in code', provider: 'azure', argv: [process.execPath, agentPath('azure-openai.mjs')], calls: 2 },
   { name: 'Bedrock, boto3 (Python)', provider: 'bedrock', argv: [PYTHON, agentPath('bedrock_boto3.py')], calls: 2, signed: true, python: true },
+  // Signs its Accept-Encoding, which the sidecar forwards as the client sent it.
+  { name: 'Bedrock, anthropic.AnthropicBedrock (Python, InvokeModel, streamed and not)', provider: 'bedrock', argv: [PYTHON, agentPath('bedrock_anthropic.py')], calls: 2, signed: true, python: true },
   { name: 'Azure OpenAI, openai.AzureOpenAI (Python)', provider: 'azure', argv: [PYTHON, agentPath('azure_openai.py')], calls: 2, python: true },
   { name: 'Vertex AI, anthropic.AnthropicVertex (Python)', provider: 'vertex', argv: [PYTHON, agentPath('vertex_anthropic.py')], calls: 1, python: true },
 ];
