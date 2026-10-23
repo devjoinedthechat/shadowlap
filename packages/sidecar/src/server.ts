@@ -211,6 +211,11 @@ class RunContext {
      * is matched by its name masked the same way (matchedAs).
      */
     readonly redactions: Normalizer[] = [],
+    /**
+     * The providers whose calls in the parent name no API version (`Provider.apiVersion`), as a
+     * trace's never do: a live call to one is matched without the version it names.
+     */
+    readonly unversioned: ReadonlySet<string> = new Set(),
   ) {}
 
   warnOnce(tool: string, message: string): void {
@@ -528,7 +533,7 @@ export class Sidecar {
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
-    this.runs.set(run.runId, new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions));
+    this.runs.set(run.runId, new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined));
     if (input.slot !== undefined) this.slots.set(input.slot, run.runId);
     this.activeRunId = run.runId;
     this.log(`run ${run.runId} started (${input.mode})`);
@@ -896,7 +901,12 @@ export class Sidecar {
       callNo = ctx.nextCallNo++;
       // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
       const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, headers: askedHeaders, ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+      // A parent that names no API version (a trace's never does) holds the call without one: it is
+      // matched without the version this request names, which the call keeps as its own.
+      const version = !judge && ctx.unversioned.has(provider.id) ? provider.apiVersion?.header : undefined;
+      const unpinned = version !== undefined && asked[version] !== undefined;
+      const matchFingerprint = unpinned ? fingerprintApi({ method, path, headers: withoutHeader(asked, version), body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath }).fingerprint : undefined;
+      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, ...(matchFingerprint ? { matchFingerprint } : {}), request: body, headers: unpinned ? withoutHeader(askedHeaders, version) : askedHeaders, ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
       const origin = storedOrigin('api', decision);
       tracked = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin, decision, ends: 0, retryable: false, done: false };
       ctx.calls.set(callNo, tracked);
@@ -1542,6 +1552,21 @@ export class Sidecar {
     return capturedHttp(rec) && req ? { ...req, args: withoutStoredCredentials(req.args) } : req;
   }
 
+  /**
+   * The providers whose model calls in a parent all name no API version (`Provider.apiVersion`), as
+   * a trace's never do: a replay matches its calls to them without the version it names.
+   */
+  private unversioned(calls: readonly CallRecord[]): Set<string> {
+    const named = new Map<string, boolean>();
+    for (const c of calls) {
+      const provider = c.kind === 'api' && !isJudgeCall(c) ? this.providers.get(String(c.meta.provider ?? '')) : undefined;
+      if (!provider?.apiVersion) continue;
+      const version = (c.meta.fingerprintHeaders as Record<string, string> | undefined)?.[provider.apiVersion.header];
+      named.set(provider.id, named.get(provider.id) === true || version !== undefined);
+    }
+    return new Set([...named].filter(([, some]) => !some).map(([id]) => id));
+  }
+
   /** A model call with its fingerprint headers as matching reads them (Provider.matchHeaders). */
   private asMatched(rec: CallRecord): CallRecord {
     const provider = rec.kind === 'api' ? this.providers.get(String(rec.meta.provider ?? '')) : undefined;
@@ -1735,6 +1760,12 @@ interface JudgeAccess {
 /** A request's headers as matching reads them (Provider.matchHeaders): as sent, for most providers. */
 function matchedHeaders(provider: Provider | undefined, headers: Readonly<Record<string, string>>): Record<string, string> {
   return provider?.matchHeaders?.(headers) ?? { ...headers };
+}
+
+/** Headers without one of them. */
+function withoutHeader(headers: Readonly<Record<string, string>>, name: string): Record<string, string> {
+  const { [name]: _left, ...rest } = headers;
+  return rest;
 }
 
 /**

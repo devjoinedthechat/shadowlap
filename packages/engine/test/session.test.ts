@@ -215,6 +215,26 @@ describe('Session in replay mode', () => {
     expect(new Session({ mode: 'record' }).end()).toBeNull();
   });
 
+  it('matches a call by the fingerprint the recording holds it under, counting that apart from its own', () => {
+    // A recording that names no API version holds two identical calls under one fingerprint; the
+    // replay's calls name a version, so their own fingerprint is another.
+    no = 0;
+    const calls = [rec('api', 'POST /v1/messages', 'BARE', 1), rec('api', 'POST /v1/messages', 'BARE', 2)];
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest });
+    const first = s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'VERSIONED', matchFingerprint: 'BARE', request: {} });
+    const second = s.resolve({ callNo: 2, kind: 'api', name: 'POST /v1/messages', fingerprint: 'VERSIONED', matchFingerprint: 'BARE', request: {} });
+    expect([first, second].map((d) => (d.origin === 'replayed' ? [d.record.callNo, d.occurrence] : d.origin))).toEqual([
+      [1, 1],
+      [2, 2],
+    ]);
+    expect(s.divergence).toBeNull();
+    // A call forced live names the recorded call it stands in for, found the same way.
+    no = 0;
+    const forced = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: [rec('api', 'POST /v1/messages', 'BARE')], loadRequest, replay: { divergeAt: 1 } });
+    forced.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'VERSIONED', matchFingerprint: 'BARE', request: {} });
+    expect(forced.divergence).toMatchObject({ type: 'forced', counterpart: { runId: 'PARENT', callNo: 1 } });
+  });
+
   it('reuses an occurrence for a retry attempt', () => {
     const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest });
     const first = s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} });

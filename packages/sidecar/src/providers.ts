@@ -34,6 +34,13 @@ export interface Provider {
   /** Lower-cased request headers that change model behavior and therefore fingerprint. */
   fingerprintHeaders: readonly string[];
   /**
+   * The fingerprint header every request to the API names its version in (`anthropic-version`), and
+   * the version Shadowlap names when it sends a recorded request that names none. A recording whose
+   * calls to this provider name none (one imported from a trace, which never keeps the version) is
+   * matched whatever version a replay's requests name; the replay keeps the version they name.
+   */
+  apiVersion?: { header: string; default: string };
+  /**
    * A request's headers as matching reads them, when part of a fingerprint header says how the call
    * signed in rather than what it asks: Anthropic's `oauth-…` betas, which a profile's sign-in
    * sends and a key doesn't. The headers are kept as sent; only matching leaves that part out.
@@ -155,6 +162,7 @@ export const anthropic: Provider = {
   // Every path of the API is under /v1: one that isn't comes from a client whose base URL held it.
   apiPath: (path) => (/^\/v1(\/|$)/.test(path) ? path : `/v1${path}`),
   fingerprintHeaders: ['anthropic-version', 'anthropic-beta'],
+  apiVersion: { header: 'anthropic-version', default: '2023-06-01' },
   // A golden recorded signed in with a profile replays with a key, in CI, and asks the same.
   matchHeaders: withoutSignInBetas,
   // The key travels as x-api-key, or as a bearer token (anthropic for Python 2.0 and later, a profile's sign-in).
