@@ -245,11 +245,25 @@ function entityValue(raw: unknown, key: 'inputs' | 'outputs'): unknown {
 }
 
 /**
- * A function `@logfire.instrument` wrapped: its arguments are attributes of their own, named in the
- * span's `logfire.json_schema`, and its return value is `return` (with `record_return=True`).
+ * A span Logfire's SDK opened in a function, as `@logfire.instrument` opens one around it: the
+ * function's arguments are attributes of their own, named in the span's `logfire.json_schema`, and
+ * its return value is `return` (with `record_return=True`).
  */
 function isLogfireFunction(s: Span): boolean {
   return typeof s.attrs['logfire.msg_template'] === 'string' && typeof s.attrs['code.function'] === 'string';
+}
+
+/**
+ * The function a span of `@logfire.instrument` stands for when it kept the decorator's default
+ * message, `Calling <module>.<function>` (`Calling tools.lookup_order` is `lookup_order`); null for
+ * any other span, a span opened inside the function among them, which goes by a message of its own.
+ */
+function logfireDefaultName(s: Span): string | null {
+  const fn = s.attrs['code.function'];
+  const message = s.attrs['logfire.msg_template'];
+  if (typeof fn !== 'string' || typeof message !== 'string' || s.name !== message) return null;
+  if (message !== `Calling ${fn}` && !(message.startsWith('Calling ') && message.endsWith(`.${fn}`))) return null;
+  return fn.split('.').pop() || null;
 }
 
 function logfireArguments(a: Record<string, unknown>): Record<string, unknown> {
@@ -258,9 +272,15 @@ function logfireArguments(a: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(named.filter((k) => k !== 'return' && !UNSAFE.has(k) && a[k] !== undefined).map((k) => [k, maybeJson(a[k])]));
 }
 
-function toolCall(s: Span): TraceToolCall {
+/** The tool a tool span ran, as its instrumentation names it. */
+function toolNameOf(s: Span): string {
   const a = s.attrs;
-  const name = clean(str(a['gen_ai.tool.name']) ?? str(a['tool.name']) ?? str(a['traceloop.entity.name']) ?? s.name.replace(/^execute_tool\s+/, ''), 200);
+  return clean(str(a['gen_ai.tool.name']) ?? str(a['tool.name']) ?? str(a['traceloop.entity.name']) ?? s.name.replace(/^execute_tool\s+/, ''), 200);
+}
+
+/** A tool call out of its span; `name` when the span goes by something else (a function's message). */
+function toolCall(s: Span, name = toolNameOf(s)): TraceToolCall {
+  const a = s.attrs;
   const logfire = a['gen_ai.tool.call.arguments'] === undefined && a['traceloop.entity.input'] === undefined && a['input.value'] === undefined && isLogfireFunction(s);
   const args = logfire ? logfireArguments(a) : (a['gen_ai.tool.call.arguments'] ?? (a['traceloop.entity.input'] !== undefined ? entityValue(a['traceloop.entity.input'], 'inputs') : a['input.value']));
   const out = logfire ? a.return : (a['gen_ai.tool.call.result'] ?? (a['traceloop.entity.output'] !== undefined ? entityValue(a['traceloop.entity.output'], 'outputs') : a['output.value']));
@@ -581,10 +601,17 @@ function tracesOf(spans: Span[]): Trace[] {
       else if (kind === 'model' && !wrappers.has(s.spanId) && !lent.has(s.spanId)) calls.push(onTheWire(modelCall(s), wire.get(s.spanId)));
       else if (kind === 'tool') calls.push(toolCall(s));
     }
-    // A span named after a tool the model asked for is that tool's call, whatever else it says.
+    // A span named after a tool the model asked for is that tool's call, whatever else it says, and so
+    // is a function `@logfire.instrument` wrapped under its default message, by the function's name;
+    // unless a tool span of that name above it holds the call already (Pydantic AI's runs the function).
     const asked = calledToolNames(calls);
     for (const s of list) {
-      if (kinds.get(s.spanId) === null && asked.has(s.name) && (s.attrs['gen_ai.tool.call.arguments'] !== undefined || s.attrs['traceloop.entity.input'] !== undefined || s.attrs['input.value'] !== undefined || isLogfireFunction(s))) calls.push(toolCall(s));
+      if (kinds.get(s.spanId) !== null) continue;
+      const fn = asked.has(s.name) ? null : logfireDefaultName(s);
+      const name = asked.has(s.name) ? s.name : fn !== null && asked.has(fn) ? fn : null;
+      if (name === null || !(s.attrs['gen_ai.tool.call.arguments'] !== undefined || s.attrs['traceloop.entity.input'] !== undefined || s.attrs['input.value'] !== undefined || isLogfireFunction(s))) continue;
+      if (above(s).some((p) => kinds.get(p.spanId) === 'tool' && toolNameOf(p) === name)) continue;
+      calls.push(fn === name ? toolCall(s, fn) : toolCall(s));
     }
     // `shadowlap export otel` leaves prompt text out, so its traces hold no messages to replay.
     if (!calls.some((c) => c.kind === 'model' && c.messages.length) && list.some((s) => s.attrs['shadowlap.run.id'] !== undefined || s.attrs['shadowlap.call_no'] !== undefined)) {

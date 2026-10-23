@@ -100,6 +100,41 @@ describe('import logfire: spans from its query API', () => {
     const rows = logfireRows(LOGFIRE_ANTHROPIC).map((r) => ({ ...r, attributes: JSON.stringify(r.attributes), otel_events: JSON.stringify(r.otel_events) }));
     expect(models(readLogfire(rows, LOGFIRE_ANTHROPIC).calls)).toHaveLength(3);
   });
+
+  it("reads a function @logfire.instrument wrapped under its default message as the tool of the function's name", () => {
+    // `@logfire.instrument()` with no message names the span `Calling <module>.<function>`.
+    const rows = logfireRows(LOGFIRE_ANTHROPIC).map((r) => {
+      const a = r.attributes as Record<string, unknown>;
+      if (a['code.function'] !== r.span_name) return r;
+      const message = `Calling agent_common.${String(a['code.function'])}`;
+      return { ...r, span_name: message, attributes: { ...a, 'logfire.msg_template': message } };
+    });
+    const kept = [
+      ['lookup_order', { order_id: 'A-1042' }, { order_id: 'A-1042', total: 240, status: 'delivered' }],
+      ['issue_refund', { order_id: 'A-1042', amount: 240 }, { refunded: 240, order_id: 'A-1042' }],
+    ];
+    expect(tools(readLogfire(rows, LOGFIRE_ANTHROPIC).calls).map((t) => [t.name, t.args, t.output])).toEqual(kept);
+    // A span opened inside the function goes by a message of its own: it is no call of the tool.
+    const fn = rows.find((r) => r.span_name === 'Calling agent_common.lookup_order')!;
+    const inner = { ...fn, span_id: 'f00df00df00df00d', parent_span_id: fn.span_id, span_name: 'reading the orders table', attributes: { 'code.function': 'lookup_order', 'logfire.msg_template': 'reading the orders table' } };
+    expect(tools(readLogfire([...rows, inner], LOGFIRE_ANTHROPIC).calls).map((t) => [t.name, t.args, t.output])).toEqual(kept);
+  });
+
+  it("takes Pydantic AI's tool call once when the function it runs is instrumented too", () => {
+    const rows = logfireRows(LOGFIRE_PYDANTIC_AI);
+    const tool = rows.find((r) => r.span_name === 'execute_tool lookup_order')!;
+    const fn = (message: string) => ({
+      ...tool,
+      span_id: 'f00df00df00df00e',
+      parent_span_id: tool.span_id,
+      span_name: message,
+      otel_scope_name: 'logfire',
+      attributes: { 'code.function': 'lookup_order', 'logfire.msg_template': message, 'logfire.json_schema': { type: 'object', properties: { order_id: {} } }, order_id: 'A-1042' },
+    });
+    for (const message of ['Calling tools.lookup_order', 'lookup_order']) {
+      expect(tools(readLogfire([...rows, fn(message)], LOGFIRE_PYDANTIC_AI).calls).map((t) => [t.name, t.callId]), message).toEqual([['lookup_order', 'toolu_lookup_order_11'], ['issue_refund', 'toolu_issue_refund_13']]);
+    }
+  });
 });
 
 describe('a request logged with its blocks as text is not the provider\'s', () => {
