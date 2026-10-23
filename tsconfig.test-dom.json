@@ -44,7 +44,8 @@
     "packages/dashboard/test/ui-fork-differences.test.ts",
     "packages/dashboard/test/ui-edit-and-fork.test.ts",
     "packages/dashboard/test/ui-fix-evidence.test.ts",
-    "packages/dashboard/test/ui-render-counts.test.ts"
+    "packages/dashboard/test/ui-render-counts.test.ts",
+    "packages/dashboard/test/ui-runs-paging.test.ts"
   ],
   "exclude": []
 }
