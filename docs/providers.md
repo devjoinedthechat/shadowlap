@@ -20,7 +20,7 @@ For Node and Python agents, `shadowlap run`, `replay` and `test` also preload a 
 | Runtime | What is captured |
 |---|---|
 | Node | `fetch`, `http.request` and `https.request` (and `get`), `http2.connect`, and WebSockets (Node's own `WebSocket` and the `ws` package). Covers the AWS SDK (`@aws-sdk/client-bedrock-runtime`, which speaks HTTP/2), `@anthropic-ai/bedrock-sdk`, `@anthropic-ai/vertex-sdk`, `@google/genai`, and `AzureOpenAI` and the Realtime clients from `openai`. |
-| Python | httpx and httpx2 (`anthropic`, `openai`, `google-genai`, including `AnthropicVertex`, `AnthropicBedrock` and `AzureOpenAI`), requests, botocore (`boto3`) and urllib3 for clients that drive it themselves (`pinecone`, `elasticsearch`, `opensearch-py`). A module is patched when the agent first imports it, so an agent that never imports one pays nothing. |
+| Python | httpx and httpx2 (`anthropic`, `openai`, `google-genai`, including `AnthropicVertex`, `AnthropicBedrock` and `AzureOpenAI`), requests, botocore (`boto3`), urllib3 for clients that drive it themselves (`pinecone`, `elasticsearch`, `opensearch-py`), aiohttp (LiteLLM's async calls, `aiobotocore`, and the `anthropic` and `openai` aiohttp backends), and websockets (the `openai` Realtime client). A module is patched when the agent first imports it, so an agent that never imports one pays nothing. |
 
 Other runtimes still record through the base-URL variables. The same capture records [HTTP services you declare](./sdk.md#http-services-without-wrapping), such as a vector database, as tool calls.
 
