@@ -96,7 +96,17 @@ export type ClockReference = number | readonly number[];
 
 const near = (t: number, reference: ClockReference, window: number) => Number.isFinite(t) && (typeof reference === 'number' ? Math.abs(t - reference) <= window : reference.some((r) => Math.abs(t - r) <= window));
 
-export function maskClockText(text: string, reference: ClockReference): string {
+/** Whether a time (ms) is within `window` of the reference, or of any of them for a list: what masking reads as "now". */
+export const nearClock = near;
+
+/**
+ * Told each date, time or epoch value masking reads, masked or not: its time in ms and how near a
+ * reference it has to be to be masked. A request that masks the same against two references is one
+ * whose every such value is near both or near neither (the sidecar's fingerprint cache).
+ */
+export type ClockSeen = (time: number, window: number) => void;
+
+export function maskClockText(text: string, reference: ClockReference, seen?: ClockSeen): string {
   // Every form above has a run of at least four digits; most strings in a request have none.
   if (!/\d{4}/.test(text)) return text;
   let out = text;
@@ -104,23 +114,26 @@ export function maskClockText(text: string, reference: ClockReference): string {
     rule.re.lastIndex = 0;
     out = out.replace(rule.re, (...args) => {
       const m = args.slice(0, -2) as unknown as RegExpExecArray;
-      return near(rule.time(m), reference, rule.window) ? rule.placeholder : m[0];
+      const time = rule.time(m);
+      seen?.(time, rule.window);
+      return near(time, reference, rule.window) ? rule.placeholder : m[0];
     });
   }
   return out;
 }
 
 /** A copy of a JSON-like value with dates, timestamps and epoch values near `reference` (any of them, for a list) masked. */
-export function maskClock(value: unknown, reference: ClockReference): unknown {
-  if (typeof value === 'string') return maskClockText(value, reference);
+export function maskClock(value: unknown, reference: ClockReference, seen?: ClockSeen): unknown {
+  if (typeof value === 'string') return maskClockText(value, reference, seen);
   if (typeof value === 'number') {
     const ms = Number.isInteger(value) && value >= 1e12 && value < 1e13 ? value : value >= 1e9 && value < 1e10 ? value * 1000 : NaN;
+    if (seen && Number.isFinite(ms)) seen(ms, CLOCK_WINDOW_MS);
     return near(ms, reference, CLOCK_WINDOW_MS) ? '<epoch>' : value;
   }
-  if (Array.isArray(value)) return value.map((v) => maskClock(v, reference));
+  if (Array.isArray(value)) return value.map((v) => maskClock(v, reference, seen));
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = maskClock(v, reference);
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = maskClock(v, reference, seen);
     return out;
   }
   return value;

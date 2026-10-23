@@ -12,7 +12,7 @@ export { CREDENTIAL_HEADERS, CREDENTIAL_PLACEHOLDER, STATE_HEADERS, capturedHttp
 export { calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
 export { isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';
 export { multipartView, parseMultipart, type MultipartPart, type MultipartView } from './multipart.js';
-export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, type ClockMode, type ClockReference } from './clock.js';
+export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, nearClock, type ClockMode, type ClockReference, type ClockSeen } from './clock.js';
 export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
 export { noFullTextSearch, SCHEMA_VERSION, Store } from './store.js';
