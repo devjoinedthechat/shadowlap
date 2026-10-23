@@ -64,7 +64,10 @@ project in the job, so a server switched since refuses it.
 connection, `actionsOff` (why actions cannot run here, for a disabled control's title: the server's
 `readOnlyReason` when it sends one), `hasKind` (whether the server runs a job kind), `guard` (runs an
 action, or says actions are paused while the server is unreachable), toasts, jobs and the palette's
-This run entries.
+This run entries. It is a store read through `useSyncExternalStore`: a component re-renders when a
+field it reads changes (while rendering, in an effect or in a handler), and for no other, so the
+shell's poll every two seconds redraws only what reads what moved. `useAppSelector(app => app.runs)`
+reads one field outright. A test renders a component with an app of its own through `AppContext`.
 
 `api.ts` is the one module that talks to the server. Its types live in `types.ts` (the server's,
 widened with optional fields other slices add), and every answer passes through `normalize.ts` as it

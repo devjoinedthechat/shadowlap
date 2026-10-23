@@ -82,6 +82,8 @@
     "packages/dashboard/test/ui-fork-differences.test.ts",
     "packages/dashboard/test/ui-edit-and-fork.test.ts",
     // This renders a fix's steps with what their verdicts say beyond their tallies.
-    "packages/dashboard/test/ui-fix-evidence.test.ts"
+    "packages/dashboard/test/ui-fix-evidence.test.ts",
+    // This counts what the shared state redraws as the shell polls.
+    "packages/dashboard/test/ui-render-counts.test.ts"
   ]
 }

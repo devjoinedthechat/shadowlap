@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react';
 import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
 import { isUnreachable } from './backoff.js';
 import { connStart, connStep, feedCursor, feedMoves, onTick, secondsLeft, withLiveCalls, type Conn } from './connection.js';
@@ -114,13 +114,106 @@ export interface AppState {
   setRunCommands: (items: PaletteCommand[]) => void;
 }
 
-/** The app's state as every component reads it (`useApp`): AppProvider gives it, or a test that renders a component with an app of its own. */
+/**
+ * The app's state as a store: AppProvider keeps it here, and each component reads it through
+ * `useSyncExternalStore`, so a change re-renders the components that read what changed and no
+ * other. The status bar's sync time moves on every poll; the pages that never read it don't redraw.
+ */
+export class AppStore {
+  private state: AppState;
+  private readonly listeners = new Set<() => void>();
+
+  constructor(state: AppState) {
+    this.state = state;
+  }
+
+  readonly get = (): AppState => this.state;
+
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  set(next: AppState): void {
+    if (next === this.state) return;
+    this.state = next;
+    for (const listener of [...this.listeners]) listener();
+  }
+}
+
+const AppStoreContext = createContext<AppStore | null>(null);
+
+/** The app's state as a plain value, for a test that renders a component with an app of its own. AppProvider gives a store instead. */
 export const AppContext = createContext<AppState | null>(null);
 
+/** The store a component reads: AppProvider's, or one holding a test's plain value. */
+function useAppStore(): AppStore {
+  const kept = useContext(AppStoreContext);
+  const plain = useContext(AppContext);
+  const store = useMemo(() => kept ?? (plain ? new AppStore(plain) : null), [kept, plain]);
+  if (!store) throw new Error('useApp outside AppProvider');
+  return store;
+}
+
+/**
+ * One field of the app's state, or what `select` makes of it: the component re-renders when that
+ * changes (compared with `Object.is`), and for nothing else. `select` must give the same value for
+ * the same state (pick a field; don't build an object).
+ */
+export function useAppSelector<T>(select: (app: AppState) => T): T {
+  const store = useAppStore();
+  const read = () => select(store.get());
+  // The same on a server's render (a test's static markup) as in the browser.
+  return useSyncExternalStore(store.subscribe, read, read);
+}
+
+/**
+ * The app's state as every component reads it. The component re-renders when a field it read
+ * changes, whenever it read it (while rendering, in an effect or a handler), and for no other:
+ * the object given notes each field read and reads the store's current value. It is a new object
+ * when such a field changed, so an effect or a callback that depends on it runs again then.
+ */
 export function useApp(): AppState {
-  const app = useContext(AppContext);
-  if (!app) throw new Error('useApp outside AppProvider');
-  return app;
+  const store = useAppStore();
+  const track = useRef<{ store: AppStore; used: Set<PropertyKey>; seen: AppState; version: number } | null>(null);
+  if (track.current?.store !== store) track.current = { store, used: new Set(), seen: store.get(), version: 0 };
+  const t = track.current;
+  const read = () => {
+    const now = store.get();
+    if (now !== t.seen) {
+      for (const k of t.used) {
+        if (Object.is(t.seen[k as keyof AppState], now[k as keyof AppState])) continue;
+        t.version++;
+        break;
+      }
+      t.seen = now;
+    }
+    return t.version;
+  };
+  // The same on a server's render (a test's static markup) as in the browser.
+  const version = useSyncExternalStore(store.subscribe, read, read);
+  return useMemo(
+    () =>
+      new Proxy({} as AppState, {
+        get: (_target, key) => {
+          t.used.add(key);
+          return store.get()[key as keyof AppState];
+        },
+        has: (_target, key) => key in store.get(),
+        // Spread whole, it reads every field.
+        ownKeys: () => {
+          const keys = Reflect.ownKeys(store.get());
+          for (const k of keys) t.used.add(k);
+          return keys;
+        },
+        getOwnPropertyDescriptor: (_target, key) => {
+          const d = Reflect.getOwnPropertyDescriptor(store.get(), key);
+          return d ? { ...d, configurable: true } : undefined;
+        },
+      }),
+    // A new object when a field read changed: what depends on it runs again.
+    [store, t, version],
+  );
 }
 
 /** Registers an open menu, dialog or panel, so Esc closes the topmost one. */
@@ -531,5 +624,10 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     }),
     [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, openJob, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
   );
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  // The state goes to the store, which tells the components that read what changed: the page
+  // below is given once, so the provider's own re-render redraws none of it.
+  const store = useRef<AppStore | null>(null);
+  store.current ??= new AppStore(value);
+  useLayoutEffect(() => store.current!.set(value), [value]);
+  return <AppStoreContext.Provider value={store.current}>{children}</AppStoreContext.Provider>;
 }
