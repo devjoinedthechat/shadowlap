@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, SUITE_RISK, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { STOP_SIGNALS } from '../agent-signals.js';
@@ -13,6 +13,7 @@ import { codeVersion, defaultDbPath, loadConfig, loadTests, loadTestSettings, up
 import { EXIT, interruptedStatus, signalExit, usageError } from '../exit-codes.js';
 import { allowedUnrecorded, unrecordedInGoldens } from '../unrecorded.js';
 import { sessionSource } from '../baseline-branch.js';
+import { planSession, suiteJson, suiteLines } from '../suite-plan.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
@@ -122,6 +123,13 @@ function isTestPack(dir: string): boolean {
   }
 }
 
+
+/** `--suite-risk`: a share above 0 and below 0.5. */
+function parseSuiteRisk(value: string): number {
+  const v = Number(value);
+  if (!Number.isFinite(v) || v <= 0 || v >= 0.5) throw new InvalidArgumentError('must be a number above 0 and below 0.5, such as 0.05: the most a healthy suite may go red for nothing');
+  return v;
+}
 
 /**
  * The store a test session keeps its history in: the one `--db` names (`:memory:` keeps nothing),
@@ -246,13 +254,14 @@ export function register(program: Command): void {
     .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
     .option('--inconclusive <mode>', "what an inconclusive verdict does, a gate's, a check's or, with --chaos, a preset's: fail the run, or warn and let it through", parseChoice<InconclusiveMode>(['fail', 'warn']), 'fail')
     .option('--max-attempts <n>', "raise each gate's limit for this session: its max, the most attempts it runs", parseIntArg)
+    .option('--suite-risk <r>', 'the most a healthy suite may go red for nothing, split across its gated goldens (default: tests.suiteRisk in the config, else 0.05)', parseSuiteRisk)
     .option('--continue', "carry an inconclusive gate's attempts over from the golden's last result, when its recording, checks and gate are unchanged, and run only the attempts still needed (with --max-attempts, the higher limit to run to)")
     // Error-path presets: each golden forked where a tool or the provider fails, instead of the session above.
     .option('--chaos', "run the error-path presets instead: each golden forked at one call with a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, live from the call it hits (writes stubbed unless --writes says otherwise), each judged by its tests entry's chaos.expect, else the upper bounds its expect sets on write tools")
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all, or the tests entry\'s "chaos.presets")')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
     .option('--allow-unrecorded <names>', 'run these tools again for real though a golden never recorded them and they write: names separated by commas (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
-    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; allowUnrecorded: string[] }) {
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; suiteRisk?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; allowUnrecorded: string[] }) {
       const opts = program.opts<GlobalOpts>();
       // A golden whose model called a tool its recording never recorded, which writes, would run it
       // again for real: refused before anything runs, every such golden named. Reads only warn.
@@ -263,7 +272,7 @@ export function register(program: Command): void {
         for (const w of looked.warnings) process.stderr.write(`${w}\n`);
       }
       if (flags.chaos) {
-        if (flags.update || flags.push || flags.annotations || flags.maxAttempts || flags.continue) throw new InvalidArgumentError('--chaos runs the error-path presets, not a test session: --update, --push, --annotations, --max-attempts and --continue are for a test session');
+        if (flags.update || flags.push || flags.annotations || flags.maxAttempts || flags.continue || flags.suiteRisk !== undefined) throw new InvalidArgumentError('--chaos runs the error-path presets, not a test session: --update, --push, --annotations, --max-attempts, --suite-risk and --continue are for a test session');
         const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.json ? { json: flags.json } : {}), ...(flags.junit ? { junit: flags.junit } : {}), ...(flags.markdown ? { markdown: flags.markdown } : {}), ...(flags.cwd ? { cwd: flags.cwd } : {}) };
         await testChaos(opts, packArgs, chaosFlags, givenCommand(process.argv, 'test'));
         return;
@@ -292,6 +301,10 @@ export function register(program: Command): void {
       const source = sessionSource({ cwd, configured: settings.baselineBranch ?? null });
       const ran = { branch: source.branch, revision, pullRequest: source.pullRequest, baselineBranch: source.baselineBranch };
       const session = store.startTestSession({ command: givenCommand(process.argv, 'test'), revision, actor });
+      // One risk for the session, split across its gated goldens before any runs (suite-plan.ts):
+      // each gate takes its share, and the forecast says what the session costs.
+      const planned = planSession(packs, { store, tests, projectDir, prices: config.prices, baselineBranch: source.baselineBranch, risk: flags.suiteRisk ?? settings.suiteRisk ?? SUITE_RISK, inconclusive: flags.inconclusive, maxAttempts: flags.maxAttempts });
+      if (planned) for (const line of suiteLines(planned.plan)) process.stdout.write(p.dim(`${safe(line)}\n`));
       const cases: JunitCase[] = [];
       const results: PackResult[] = [];
       let upstreamRequests = 0;
@@ -323,7 +336,10 @@ export function register(program: Command): void {
           if (signal) break;
           const golden = goldenName(packDir, projectDir);
           current = golden;
-          const spec = specFor(tests, packDir, projectDir);
+          const configured = specFor(tests, packDir, projectDir);
+          // Its gate with its share of the session's risk.
+          const share = planned?.gates.get(golden);
+          const spec = configured && share ? { ...configured, gate: share } : configured;
           const expect = rawExpectFor(tests, packDir, projectDir);
           const ctx: RecordingTestContext = {
             store,
@@ -549,7 +565,7 @@ export function register(program: Command): void {
       const notRun = packs.length - results.length;
       if (cut) process.stdout.write(`${p.yellow('⏹')} ${safe(cut)}: interrupted, so it has no result this time\n`);
       if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', cases));
-      const report = testReport(results, { id: session.sessionId, revision, interrupted: signal !== null });
+      const report = testReport(results, { id: session.sessionId, revision, interrupted: signal !== null }, planned ? suiteJson(planned.plan) : null);
       if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
       if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
       if (flags.annotations && (report.failed || report.inconclusive)) process.stdout.write(githubAnnotations(report) + '\n');

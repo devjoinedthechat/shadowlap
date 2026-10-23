@@ -1,4 +1,4 @@
-import { aboutUsd, checkStatus, formatPassK, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { aboutUsd, checkStatus, formatPassK, formatTokens, riskPercent, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
 import { judgeSource } from './checks.js';
 
 /**
@@ -87,12 +87,19 @@ export interface TestReport {
   /** A signal stopped the session: `results` has the goldens that finished before it. */
   interrupted: boolean;
   results: PackResult[];
+  /**
+   * With a gated golden: the session's one risk of going red for nothing, each gated golden's share
+   * of it (Bonferroni), how many shared it, what inconclusive verdicts did, the chance the session
+   * went red for nothing at most as planned, and the forecast made before it ran: attempts on
+   * average and at most, and their cost on average (null with no price; `unpriced` goldens had none).
+   */
+  suite?: { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: { attempts: number; most: number; cost: number | null; unpriced: number } };
 }
 
-export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null): TestReport {
+export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null, suite: TestReport['suite'] | null = null): TestReport {
   const failed = results.filter((r) => !r.ok).length;
   const inconclusive = results.filter((r) => r.verdict === 'inconclusive').length;
-  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, inconclusive, interrupted: !!session?.interrupted, results };
+  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, inconclusive, interrupted: !!session?.interrupted, results, ...(suite ? { suite } : {}) };
 }
 
 /** A pack's verdict, as CI's `ok` says for a result made before results had one. */
@@ -157,7 +164,10 @@ export function markdownReport(report: TestReport): string {
       : !failed
         ? `${inconclusive} of ${total} ${recordings} ${inconclusive === 1 ? 'is' : 'are'} inconclusive`
         : `${failed} of ${total} ${recordings} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
-  lines.push(`### Shadowlap: ${head}`, '', '| | Recording | Result | Replayed | Input tokens not re-spent |', '|---|---|---|---:|---:|');
+  lines.push(`### Shadowlap: ${head}`, '');
+  // The session's one risk, when gated goldens shared it.
+  if (report.suite && report.suite.goldens > 1) lines.push(`Suite risk ${riskPercent(report.suite.risk)}, split across ${report.suite.goldens} gated goldens (${riskPercent(report.suite.perGoldenRisk)} each), so a healthy suite goes red for nothing in ${riskPercent(report.suite.risk)} of runs or fewer.`, '');
+  lines.push('| | Recording | Result | Replayed | Input tokens not re-spent |', '|---|---|---|---:|---:|');
   for (const r of report.results) {
     // Out of the recording for one that stopped short of it, so it never reads as whole.
     const of = r.divergence?.type === 'ended_early' && r.divergence.recorded !== undefined ? r.divergence.recorded : r.calls?.total;

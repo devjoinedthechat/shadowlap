@@ -196,6 +196,8 @@ export interface TestSpec extends ExpectSpec {
    * `passes` (both 1 then): an SPRT gate or one against the golden's history (stats.ts).
    */
   gate?: Gate;
+  /** The gate's `max` was written in the config: a test session never sizes it (suite.ts). */
+  gateMaxGiven?: boolean;
   /** The injection gate (`"injection"` beside `expect`): `shadowlap test` runs the golden's injection test after its replay passes. */
   injection?: InjectionEntry;
 }
@@ -355,7 +357,7 @@ function parseSpec(raw: unknown, where: string): TestSpec {
   if (typeof repeat !== 'number' || !Number.isInteger(repeat) || repeat < 1 || repeat > 100) throw new Error(`${where}.repeat must be a whole number from 1 to 100`);
   const passes = raw.passes ?? repeat;
   if (typeof passes !== 'number' || !Number.isInteger(passes) || passes < 1 || passes > repeat) throw new Error(`${where}.passes must be a whole number from 1 to repeat (${repeat})`);
-  const spec: TestSpec = { fork: raw.fork === true, repeat, passes, tools: [], ...(gate ? { gate } : {}) };
+  const spec: TestSpec = { fork: raw.fork === true, repeat, passes, tools: [], ...(gate ? { gate } : {}), ...(gate && isObject(raw.gate) && raw.gate.max !== undefined ? { gateMaxGiven: true } : {}) };
   if (raw.expect !== undefined) parseExpectInto(spec, raw.expect, `${where}.expect`);
   // Injection tests (injection.ts in the engine): the gate `shadowlap test` and `shadowlap injection` read.
   if (raw.injection !== undefined) spec.injection = parseInjectionEntry(raw.injection, `${where}.injection`);

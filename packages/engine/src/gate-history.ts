@@ -88,6 +88,36 @@ export function notBaseline(r: Pick<TestResult, 'ok' | 'failure' | 'data' | 'rev
   return null;
 }
 
+/**
+ * What a golden's last results show of it, whatever branch they ran on, for a forecast: the attempts
+ * of its last `window` results under the same recording and checks, pooled, and what an attempt cost
+ * on average (USD, null with none priced). Null when it has no such result.
+ */
+export function recentAttempts(store: Store, golden: string, f: { window: number; goldenRunId?: string | null; checks?: readonly string[] | null }): (Tally & { costPerAttempt: number | null }) | null {
+  let passes = 0;
+  let attempts = 0;
+  let spent = 0;
+  let paid = 0;
+  let seen = 0;
+  for (const r of store.listTestResults({ golden, limit: READ_LIMIT })) {
+    if (seen >= f.window) break;
+    if (f.goldenRunId && r.goldenRunId && r.goldenRunId !== f.goldenRunId) continue;
+    if (f.checks && !judgedUnder(r, f.checks)) continue;
+    const t = attemptsOf(r);
+    if (!t) continue;
+    seen++;
+    passes += t.passes;
+    attempts += t.attempts;
+    // Every attempt run was paid for, those the provider was unavailable for included.
+    const ran = (r.data?.attempts?.runs?.length ?? 0) || t.attempts;
+    if (typeof r.data?.spent === 'number' && ran > 0) {
+      spent += r.data.spent;
+      paid += ran;
+    }
+  }
+  return attempts ? { passes, attempts, costPerAttempt: paid ? spent / paid : null } : null;
+}
+
 /** The checks a result was judged by, as their labels in order. */
 const labelsOf = (r: Pick<TestResult, 'data'>): string[] => (r.data?.checks ?? []).map((c) => c.label).sort();
 

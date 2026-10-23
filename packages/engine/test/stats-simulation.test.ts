@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { BASELINE_DEFAULTS, SPRT_DEFAULTS, countOdds, decide, decideCount, gateOdds, runsRed, type BaselineGate, type Gate, type GateDecision, type GateHistory, type GateOdds, type SprtGate } from '../src/stats.js';
+import { planSuite } from '../src/suite.js';
 
 /**
  * A healthy agent, one that passes 95% of the time, behind 100 forked goldens in CI: how often each
- * gate fails a CI run for nothing. A fixed 4 of 5 fails about 2 goldens a run, and at least one in
- * about 90% of runs; a gate that states its risk should fail almost none, and say what it costs in
- * attempts. Under `--inconclusive fail`, the default, an inconclusive golden turns the run red too,
- * so a run is red when any golden failed or is inconclusive. Seeded, so every run of this test sees
- * the same coin flips; the exact odds (gateOdds, runsRed) say what the simulation should come close to.
+ * way of gating fails a CI run for nothing, and what it costs in attempts. A fixed 4 of 5 fails about
+ * 2 goldens a run, and at least one in about 90% of runs. A gate per golden at 5% risk fails few, but
+ * 100 of them still turn about a sixth of runs red. `shadowlap test` gives the session one risk, 5%
+ * by default, split across its gated goldens (suite.ts): then a healthy suite goes red at most 5% of
+ * the time, proven exactly at every rate from each gate's `good` up, at a cost of a few attempts more.
+ * Under `--inconclusive fail`, the default, an inconclusive golden turns the run red too, so a run is
+ * red when any golden failed or is inconclusive. Seeded, so every run of this test sees the same coin
+ * flips; the exact odds (gateOdds, runsRed) say what the simulation should come close to.
  */
 
 /** mulberry32: a small, seeded generator with a period of 2^32. */
@@ -43,10 +47,10 @@ function oneGolden(rule: (passes: number, attempts: number) => GateDecision, fli
   }
 }
 
-/** CI_RUNS runs of GOLDENS goldens, each golden a fresh sample of the agent. */
-function simulate(rule: (passes: number, attempts: number, golden: number) => GateDecision, seed: number): { perRun: Outcome[]; total: Outcome } {
+/** CI_RUNS runs of GOLDENS goldens, each golden a fresh sample of an agent that passes `rate` of the time. */
+function simulate(rule: (passes: number, attempts: number, golden: number) => GateDecision, seed: number, rate = AGENT): { perRun: Outcome[]; total: Outcome } {
   const random = seeded(seed);
-  const flip = () => random() < AGENT;
+  const flip = () => random() < rate;
   const perRun: Outcome[] = [];
   for (let r = 0; r < CI_RUNS; r++) {
     const o: Outcome = { failed: 0, inconclusive: 0, attempts: 0 };
@@ -67,10 +71,10 @@ const runs = (n: number) => n / CI_RUNS;
 const perGolden = (n: number) => n / (CI_RUNS * GOLDENS);
 /** Runs red under `--inconclusive fail` (a golden failed or is inconclusive), and under `warn` (one failed). */
 const red = (s: Simulated, mode: 'fail' | 'warn') => s.perRun.filter((x) => x.failed > 0 || (mode === 'fail' && x.inconclusive > 0)).length / CI_RUNS;
-const pct = (x: number) => `${Math.round(100 * x)}%`;
+const pct = (x: number) => (x > 0 && x < 0.1 ? `${+(100 * x).toPrecision(2)}%` : `${Math.round(100 * x)}%`);
 const row = (name: string, s: Simulated, exact: GateOdds) =>
   [
-    name.padEnd(34),
+    name.padEnd(42),
     runs(s.total.failed).toFixed(2).padStart(7),
     runs(s.total.inconclusive).toFixed(2).padStart(13),
     pct(red(s, 'fail')).padStart(9),
@@ -82,12 +86,19 @@ const row = (name: string, s: Simulated, exact: GateOdds) =>
 
 describe('a simulated 95% agent across 100 goldens', () => {
   const fixed = simulate((s, n) => decideCount(s, n, 5, 4), 1);
-  const sprtDefault: SprtGate = { kind: 'sprt', ...SPRT_DEFAULTS };
-  const sprt40: SprtGate = { ...sprtDefault, max: 40 };
-  const sprt20: SprtGate = { ...sprtDefault, max: 20 };
-  const gated = simulate((s, n) => decide(s, n, sprtDefault), 2);
+  // One gate per golden at its own 5% risk: what each golden ran before a session split its risk.
+  const oneGate: SprtGate = { kind: 'sprt', ...SPRT_DEFAULTS };
+  const sprt40: SprtGate = { ...oneGate, max: 40 };
+  const sprt20: SprtGate = { ...oneGate, max: 20 };
+  const gated = simulate((s, n) => decide(s, n, oneGate), 2);
   const gated40 = simulate((s, n) => decide(s, n, sprt40), 3);
   const gated20 = simulate((s, n) => decide(s, n, sprt20), 4);
+  // The default: `gate: {}` on every golden, and the session's 5% split across the 100 of them.
+  const plan = planSuite(Array.from({ length: GOLDENS }, (_, i) => ({ golden: `goldens/g${i}`, gate: oneGate, maxGiven: false, rate: AGENT })))!;
+  const suiteGate = plan.planned[0]!.gate as SprtGate;
+  const suite = simulate((s, n) => decide(s, n, suiteGate), 7);
+  // The same agent at exactly its gates' good rate, 90%: where the suite's risk is spent.
+  const suiteAtGood = simulate((s, n) => decide(s, n, suiteGate), 8, suiteGate.good);
   // The history gate: each golden's baseline is its last 10 sessions of 5 attempts, from the same agent.
   const history: GateHistory[] = (() => {
     const random = seeded(5);
@@ -106,27 +117,36 @@ describe('a simulated 95% agent across 100 goldens', () => {
     return decided.get(key)!;
   }, 6);
 
-  const exact = (gate: Gate) => gateOdds(gate, AGENT);
+  const exact = (gate: Gate, rate = AGENT) => gateOdds(gate, rate);
   const fixedExact = countOdds(5, 4, AGENT);
   // The history gate's odds differ by golden, with its history: per golden, averaged; a run is red unless every golden is clean.
   const perHistory = history.map((h) => gateOdds(baselineGate, AGENT, h));
   const baselineExact: GateOdds = perHistory.reduce((acc, o) => ({ pass: acc.pass + o.pass / GOLDENS, fail: acc.fail + o.fail / GOLDENS, inconclusive: acc.inconclusive + o.inconclusive / GOLDENS, attempts: acc.attempts + o.attempts / GOLDENS }), { pass: 0, fail: 0, inconclusive: 0, attempts: 0 });
   const baselineRed = (mode: 'fail' | 'warn') => 1 - perHistory.reduce((p, o) => p * (1 - o.fail - (mode === 'fail' ? o.inconclusive : 0)), 1);
+  /** A run's chance of going red when every one of the 100 goldens passes `rate` of the time, exactly. */
+  const suiteRed = (rate: number) => runsRed(exact(suiteGate, rate), GOLDENS, 'fail');
 
-  it('prints what each gate costs and how often it turns a healthy agent\'s CI run red', () => {
+  it("prints what each gate costs and how often it turns a healthy agent's CI run red, and the power the default keeps", () => {
+    const power = [0.85, 0.8, 0.7, 0.6].map((rate) => {
+      const o = exact(suiteGate, rate);
+      return `  at ${rate * 100}%: a golden red ${pct(o.fail + o.inconclusive)} (fails ${pct(o.fail)}), ${o.attempts.toFixed(1)} attempts on average; a run of 100 such goldens red ${pct(runsRed(o, GOLDENS))}`;
+    });
     const lines = [
       `${CI_RUNS} CI runs of ${GOLDENS} forked goldens, the agent passing ${AGENT * 100}% of the time (seeded):`,
-      `${'gate'.padEnd(34)} ${'failed'.padStart(7)} ${'inconclusive'.padStart(13)} ${'red'.padStart(9)} ${'red warn'.padStart(9)} ${'attempts'.padStart(9)} ${'expected'.padStart(9)}   exact red / red warn`,
+      `${'gate'.padEnd(42)} ${'failed'.padStart(7)} ${'inconclusive'.padStart(13)} ${'red'.padStart(9)} ${'red warn'.padStart(9)} ${'attempts'.padStart(9)} ${'expected'.padStart(9)}   exact red / red warn`,
       row('4 of 5 (verify before gates)', fixed, fixedExact),
-      row('sprt 0.9 / 0.7 / 0.05, max 80', gated, exact(sprtDefault)),
-      row('sprt 0.9 / 0.7 / 0.05, max 40', gated40, exact(sprt40)),
-      row('sprt 0.9 / 0.7 / 0.05, max 20', gated20, exact(sprt20)),
-      `${row('history, 15-point drop, 5 to 40', baselined, baselineExact).replace(/ {3}\d+% \/ \d+%$/, '')}   ${pct(baselineRed('fail'))} / ${pct(baselineRed('warn'))}`,
+      row('sprt 0.9 / 0.7 / 0.05 each, max 80', gated, exact(oneGate)),
+      row('sprt 0.9 / 0.7 / 0.05 each, max 40', gated40, exact(sprt40)),
+      row('sprt 0.9 / 0.7 / 0.05 each, max 20', gated20, exact(sprt20)),
+      row(`default: 5% split, max ${suiteGate.max}`, suite, exact(suiteGate)),
+      `${row('history, 15-point drop, 5 to 40', baselined, baselineExact).replace(/ {3}[\d.]+% \/ [\d.]+%$/, '')}   ${pct(baselineRed('fail'))} / ${pct(baselineRed('warn'))}`,
       '(failed and inconclusive: goldens per CI run; red: runs with a golden that failed or, under --inconclusive fail, the default,',
       ' is inconclusive; red warn: under --inconclusive warn; attempts: per golden, simulated and expected)',
+      `The default at its gates' good rate, 90%: red ${pct(suiteRed(0.9))} exactly, ${pct(red(suiteAtGood, 'fail'))} of ${CI_RUNS} simulated runs. A real regression, every golden's agent at:`,
+      ...power,
     ];
     console.log(lines.join('\n'));
-    expect(lines).toHaveLength(9);
+    expect(lines).toHaveLength(15);
   });
 
   it('a fixed 4 of 5 fails about 2 goldens a run, and leaves about 90% of runs red', () => {
@@ -137,8 +157,8 @@ describe('a simulated 95% agent across 100 goldens', () => {
     expect(runsRed(fixedExact, GOLDENS)).toBeCloseTo(0.898, 3);
   });
 
-  it('the default gate fails far fewer, and turns about a sixth of runs red, inconclusive goldens counted', () => {
-    const odds = exact(sprtDefault);
+  it('a gate per golden at its own 5% fails far fewer, but 100 of them still turn about a sixth of runs red', () => {
+    const odds = exact(oneGate);
     // Under a fifth of 4 of 5's spurious failures; exactly, 0.17 per run against 2.26.
     expect(gated.total.failed * 5).toBeLessThan(fixed.total.failed);
     expect(odds.fail * GOLDENS).toBeLessThan(0.2);
@@ -147,7 +167,6 @@ describe('a simulated 95% agent across 100 goldens', () => {
     // Red runs as --inconclusive fail counts them: about 16%, where 4 of 5 is 90%.
     expect(runsRed(odds, GOLDENS, 'fail')).toBeCloseTo(0.156, 3);
     expect(Math.abs(red(gated, 'fail') - runsRed(odds, GOLDENS, 'fail'))).toBeLessThan(0.07);
-    expect(red(gated, 'fail')).toBeLessThan(red(fixed, 'fail') / 3);
     // About 16.6 attempts a golden, the price of telling 90% from 70% at 5% risk.
     expect(perGolden(gated.total.attempts)).toBeCloseTo(odds.attempts, 0);
     expect(odds.attempts).toBeCloseTo(16.61, 1);
@@ -156,7 +175,7 @@ describe('a simulated 95% agent across 100 goldens', () => {
   it('with less room, it fails as few but leaves goldens inconclusive, which turn runs red by default', () => {
     // max 40: 0.75% of goldens inconclusive, so 60% of runs red; under warn, the false failures alone.
     expect(gated40.total.failed * 5).toBeLessThan(fixed.total.failed);
-    expect(runsRed(exact(sprt40), GOLDENS, 'fail')).toBeCloseTo(0.60, 2);
+    expect(runsRed(exact(sprt40), GOLDENS, 'fail')).toBeCloseTo(0.6, 2);
     expect(Math.abs(red(gated40, 'fail') - runsRed(exact(sprt40), GOLDENS, 'fail'))).toBeLessThan(0.1);
     expect(red(gated40, 'warn')).toBeLessThan(0.3);
     // max 20: a fifth of the goldens inconclusive, every run red.
@@ -165,7 +184,49 @@ describe('a simulated 95% agent across 100 goldens', () => {
     expect(red(gated20, 'fail')).toBe(1);
   });
 
-  it('the history gate fails about as few as the default gate, at a third of its attempts', () => {
+  it('by default, the session splits its 5% across the 100 goldens: a healthy suite goes red at most 5% of the time, at every rate from good up', () => {
+    // Each gate keeps 5% risk for a pass and takes its 0.05% share for a failure, its max sized for it.
+    expect(plan).toMatchObject({ risk: 0.05, perGoldenRisk: 0.0005, goldens: GOLDENS, method: 'bonferroni' });
+    expect(suiteGate).toMatchObject({ good: 0.9, bad: 0.7, risk: 0.05 });
+    expect(suiteGate.failRisk).toBeLessThanOrEqual(0.0005);
+    expect(suiteGate.max).toBeGreaterThan(SPRT_DEFAULTS.max);
+    // Exactly: every golden at its good rate, the worst a healthy suite can be, red at most 5%;
+    // and at every rate above it on a grid, less (a gate passes no less often for a better agent).
+    expect(plan.red).toBeLessThanOrEqual(0.05);
+    expect(suiteRed(0.9)).toBeLessThanOrEqual(0.05);
+    let last = 1;
+    for (let k = 0; k <= 20; k++) {
+      const rate = 0.9 + k * 0.005;
+      const r = suiteRed(Math.min(1, rate));
+      expect(r, `at ${rate}`).toBeLessThanOrEqual(0.05);
+      expect(r).toBeLessThanOrEqual(last + 1e-12);
+      last = r;
+    }
+    // The healthy 95% agent: red for nothing about 1 run in 50,000, against 1 in 6 with a gate per golden.
+    expect(suiteRed(AGENT)).toBeLessThan(0.0001);
+    expect(red(suite, 'fail')).toBeLessThanOrEqual(0.05);
+    expect(suite.total.failed + suite.total.inconclusive).toBe(0);
+    // At 90%, the simulation lands where the exact figure says, within its sampling error.
+    const sigma = Math.sqrt((suiteRed(0.9) * (1 - suiteRed(0.9))) / CI_RUNS);
+    expect(Math.abs(red(suiteAtGood, 'fail') - suiteRed(0.9))).toBeLessThan(3 * sigma);
+  });
+
+  it('costs a healthy agent almost nothing more, and still catches a real regression', () => {
+    // 16.75 attempts a golden at 95% against 16.61 for a gate per golden: the pass bound is the same.
+    const cost = exact(suiteGate).attempts;
+    expect(cost).toBeLessThan(exact(oneGate).attempts + 0.5);
+    expect(perGolden(suite.total.attempts)).toBeCloseTo(cost, 0);
+    expect(plan.forecast.attempts).toBeCloseTo(GOLDENS * cost, 6);
+    expect(plan.forecast.most).toBe(GOLDENS * suiteGate.max);
+    // A golden whose agent is at its bad rate, 70%, goes red over 95% of the time, as each golden's gate promises.
+    const bad = exact(suiteGate, 0.7);
+    expect(bad.pass).toBeLessThanOrEqual(0.05 / (1 - 0.0005) + 1e-9);
+    expect(bad.fail + bad.inconclusive).toBeGreaterThan(0.95);
+    // An agent at 80% on every golden turns every run red.
+    expect(runsRed(exact(suiteGate, 0.8), GOLDENS)).toBeGreaterThan(0.999);
+  });
+
+  it('the history gate fails about as few as one gate per golden, at a third of its attempts', () => {
     // A tenth of 4 of 5's spurious failures: exactly 0.22 per run, against each golden's own history.
     expect(baselineExact.fail * GOLDENS).toBeLessThan(0.3);
     expect(baselined.total.failed * 8).toBeLessThan(fixed.total.failed);

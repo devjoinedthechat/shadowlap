@@ -337,8 +337,20 @@ function outcomesOf(g: GateResult): boolean[] | null {
   return e.scores.map((score, i) => score > (i ? e.scores[i - 1]! : 0));
 }
 
-/** Two gates with the same figures, whatever limit each ran under. */
-const sameGate = (a: Gate, b: Gate) => JSON.stringify({ ...gateOf(a), max: 0 }) === JSON.stringify({ ...gateOf(b), max: 0 });
+/**
+ * Two gates with the same figures, whatever limit each ran under and whatever share of a session's
+ * risk each failed at: an SPRT's `failRisk`, a gate against history's `risk` (suite.ts sets both).
+ */
+const sameGate = (a: Gate, b: Gate) => JSON.stringify(rule(a)) === JSON.stringify(rule(b));
+function rule(g: Gate): Gate {
+  const x = { ...gateOf(g), max: 0 };
+  if (x.kind === 'sprt') delete x.failRisk;
+  else x.risk = 0;
+  return x;
+}
+
+/** The risk a gate failed a golden at: an SPRT's for a failure, a gate against history's. */
+const failingRisk = (g: Gate): number => (g.kind === 'sprt' ? (g.failRisk ?? g.risk) : g.risk);
 
 /**
  * What `test --continue` carries over for a golden: the attempts of its last result, when that
@@ -347,7 +359,7 @@ const sameGate = (a: Gate, b: Gate) => JSON.stringify({ ...gateOf(a), max: 0 }) 
  * history gate continued to a higher limit decides exactly as one that had that limit from the
  * start). A settled verdict is never continued: asking again after it stopped would be peeking.
  */
-export function carryFor(store: Store, golden: string, o: { goldenRunId: string; checks: readonly string[]; gate: Gate; limit: number; session?: string | null; branch?: string | null }): { carry: Carry } | { why: string } {
+export function carryFor(store: Store, golden: string, o: { goldenRunId: string; checks: readonly string[]; gate: Gate; limit: number; session?: string | null; branch?: string | null }): { carry: Carry; gate: Gate } | { why: string } {
   const last: TestResult | undefined = store.listTestResults({ golden, limit: 2 }).find((r) => r.sessionId !== o.session);
   if (!last) return { why: 'it has no result to continue yet' };
   // Another branch's agent is another agent: its attempts are no part of this one's tally.
@@ -360,10 +372,22 @@ export function carryFor(store: Store, golden: string, o: { goldenRunId: string;
   if (last.goldenRunId !== o.goldenRunId) return { why: 'it was re-recorded since its last result' };
   if (!judgedUnder(last, o.checks)) return { why: 'its checks changed since its last result' };
   if (!sameGate(g, o.gate)) return { why: 'its gate changed since its last result' };
+  // A session splits its risk across its gated goldens, so the share a gate failed at can differ
+  // between sessions. It continues under the share it was decided at, never a larger one than this
+  // session gives it, which would spend more than its share.
+  if (failingRisk(g) > failingRisk(o.gate)) return { why: "its last result was decided at a larger share of the session's risk than this session gives it" };
   const outcomes = outcomesOf(g);
   if (!outcomes || !outcomes.length) return { why: 'its last result kept no attempts to continue' };
   if (outcomes.length >= o.limit) return { why: `its last result already ran the ${o.limit} attempts its gate allows: raise the limit with --max-attempts` };
-  return { carry: { sessions: [...(last.data?.continued?.sessions ?? []), last.sessionId], outcomes } };
+  return { carry: { sessions: [...(last.data?.continued?.sessions ?? []), last.sessionId], outcomes }, gate: decidedAt(o.gate, g) };
+}
+
+/** `now`'s gate, at the share of the risk `before` was decided at: its failRisk, or a gate against history's risk. */
+function decidedAt(now: Gate, before: Gate): Gate {
+  if (now.kind === 'baseline') return { ...now, risk: before.risk };
+  const { failRisk: _now, ...figures } = now;
+  const shared = before.kind === 'sprt' && before.failRisk !== undefined && before.failRisk !== before.risk ? before.failRisk : undefined;
+  return { ...figures, ...(shared !== undefined ? { failRisk: shared } : {}) };
 }
 
 /**
@@ -452,7 +476,7 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     const packed = 'error' in head || JSON.stringify(parent.meta?.redactions ?? []) === JSON.stringify(head.redactions) ? [] : head.redactions;
     // A replay of a redacted run applies the rules it carries as well.
     normalizers = [...ctx.config.normalize, ...packed, ...(parent.meta?.redactions ?? [])];
-    const gate = spec?.gate ? withLimit(spec.gate, ctx.maxAttempts) : null;
+    let gate = spec?.gate ? withLimit(spec.gate, ctx.maxAttempts) : null;
     const checks = oracleLabels(spec).slice(1);
     // --continue: an inconclusive gate's attempts carry over, when nothing it was judged by changed.
     let carry: Carry | null = null;
@@ -460,6 +484,9 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
       const found = carryFor(ctx.store, golden, { goldenRunId: parent.runId, checks, gate, limit: gate.max, session: ctx.test?.session ?? null, ...(ctx.branch !== undefined ? { branch: ctx.branch } : {}) });
       if ('carry' in found) {
         carry = found.carry;
+        // Under the share of the risk it was decided at.
+        gate = found.gate;
+        spec = { ...spec!, gate: found.gate };
         notes.push(`continues its last result: ${found.carry.outcomes.length} attempts carried over, ${found.carry.outcomes.filter(Boolean).length} passed, up to ${gate.max}`);
       } else notes.push(`nothing to continue (${found.why}): it ran afresh`);
     }
