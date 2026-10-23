@@ -93,6 +93,8 @@ export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, G
 // Bounds that hold however a gate stopped (rv-gates).
 export { boundOf, clopperPearson, confidenceSequence, countInterval, gateInterval, rateBound, riskPercent, stagewiseInterval, tallyInterval } from './stats.js';
 export type { BoundMethod, GateStop, RateBound, RateInterval, SprtFigures } from './stats.js';
+// A provider that can't answer says nothing about the agent: retried, never counted (rv-gates).
+export { UNAVAILABLE_RETRY, providerUnavailable, retryAfter, retryDelay, unavailableReason, unavailableStatus, type Unavailable } from './unavailable.js';
 // A golden's baseline for a gate against its history, pooled from the store's test history.
 export { attemptsOf, gateHistory, judgedUnder, notBaseline, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, unifiedDiff } from './repair.js';

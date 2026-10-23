@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { STOP_SIGNALS } from '../agent-signals.js';
@@ -178,7 +178,9 @@ export function passedLine(o: GoldenOutcome): string {
     ...(s.extraReads?.length ? [`${s.extraReads.length} extra read${s.extraReads.length === 1 ? '' : 's'} answered live`] : []),
     ...(r.shown.checks?.length ? [statusTally(r.shown.checks)] : []),
     // An attempt a check could not decide, after the count was met, is counted apart: it did not fail.
-    ...(r.attempts.length > 1 && !r.gate ? [`${r.passed}/${r.attempts.length} attempts passed${r.inconclusive ? ` (${r.inconclusive} inconclusive)` : ''}`] : []),
+    ...(r.attempts.length - r.unavailable > 1 && !r.gate ? [`${r.passed}/${r.attempts.length - r.unavailable} attempts passed${r.inconclusive ? ` (${r.inconclusive} inconclusive)` : ''}`] : []),
+    // Attempts the provider was unavailable for: run, and not counted.
+    ...(r.unavailable ? [`${r.unavailable} attempt${r.unavailable === 1 ? '' : 's'} not counted: the provider was unavailable`] : []),
   ].join(', ');
 }
 
@@ -335,6 +337,8 @@ export function register(program: Command): void {
             baselineBranch: source.baselineBranch,
             // The line a dashboard job reads a new run from, and a way to open each replay.
             onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${spec?.gate ? `up to ${of}` : of}` : ''}\n`)),
+            // An attempt the agent failed while its provider couldn't answer: not counted, and run again.
+            onUnavailable: (u, waitMs) => process.stderr.write(p.yellow(`[shadowlap] ${golden}: the provider was unavailable (${u.reason}), so that attempt isn't counted; running it again in ${formatDuration(waitMs)}\n`)),
             stopped,
             ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
             ...(flags.continue ? { continue: true } : {}),

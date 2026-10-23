@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
+import { UNAVAILABLE_RETRY, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type Unavailable } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
@@ -69,9 +69,17 @@ export interface Attempt {
   /**
    * How it came out: inconclusive when all it fell short on is a check that could not be decided (a
    * judge that could not answer, a condition it could not read): no failure of the agent's, and no
-   * pass either.
+   * pass either; or when the agent failed while its provider was unavailable (`unavailable`).
    */
   verdict: 'passed' | 'failed' | 'inconclusive';
+  /**
+   * The provider was unavailable (unavailable.ts in the engine): an attempt the agent failed while
+   * one of its live model calls ended on 408, 409, 429, a 5xx or a failed connection. `attempt`
+   * retries such an attempt after a pause and never tallies it, and returns one only once the
+   * provider was unavailable `retry.inARow` attempts in a row: inconclusive, with why first among
+   * its failures, and `stopReason` set, so the run or probe it was for ends inconclusive, never failed.
+   */
+  unavailable?: Unavailable;
   /**
    * The recording has model calls and the replay made none through Shadowlap: the agent reached its
    * model some other way, such as a local server Shadowlap was not told about. What it did is
@@ -97,6 +105,13 @@ const GROUP = GROUPS;
 export class AttemptRunner {
   /** Attempts run and tallied, and what they sent upstream and cost: the agent's, and apart, its judge checks'. */
   attempts = 0;
+  /** Attempts the provider was unavailable for: run and paid for, retried, never tallied. */
+  unavailable = 0;
+  /** How unavailable attempts are retried, and the pause itself: tests pass their own. */
+  retry: { inARow: number; firstDelayMs: number; maxDelayMs: number } = UNAVAILABLE_RETRY;
+  sleep: ((ms: number) => Promise<void>) | null = null;
+  /** Called before the pause that follows an unavailable attempt. */
+  onUnavailable: ((u: Unavailable, waitMs: number) => void) | null = null;
   spent = 0;
   upstreamRequests = 0;
   judgeSpent = 0;
@@ -190,8 +205,30 @@ export class AttemptRunner {
    * what the recording holds. `extra.meta` marks the run before its agent starts (`probe`, `verify`,
    * `repeat`), so run lists bundle it as an attempt while it runs, not only once it is done.
    * `extra.recordedWrites` answers a write the recording made with what it got then (see `ReplayOptions`).
+   *
+   * An attempt the agent failed while its provider was unavailable is no evidence about the agent: it
+   * is kept as a run, never tallied, and run again after a pause (what the provider's `retry-after`
+   * asked, at most a minute, else 5 s, then 15 s). After `retry.inARow` in a row, the last of them is
+   * returned with the verdict `unavailable`, and no more attempts start (`stopReason`).
    */
-  async attempt(target: AttemptTarget, extra: { divergeAt?: number; interventions?: Interventions; meta?: Partial<RunMeta>; recordedWrites?: boolean; plants?: ReadonlyMap<number, string>; overrides?: ReadonlyMap<number, unknown>; plantMarks?: ReplayOptions['plantMarks']; unrecordedReads?: ReplayOptions['unrecordedReads'] } = {}, tally = true): Promise<Attempt> {
+  async attempt(target: AttemptTarget, extra: AttemptExtra = {}, tally = true): Promise<Attempt> {
+    for (let inARow = 1; ; inARow++) {
+      const a = await this.once(target, extra, tally);
+      if (!a.unavailable || this.interrupted) return a;
+      if (inARow >= this.retry.inARow) {
+        const why = unavailableReason(inARow, a.unavailable);
+        this.stopReason ??= why;
+        return { ...a, failures: [why, ...a.failures.slice(1)] };
+      }
+      const wait = retryDelay(inARow, a.unavailable.retryAfterMs, Math.random, this.retry);
+      this.onUnavailable?.(a.unavailable, wait);
+      await (this.sleep ?? ((ms: number) => pauseUnless(ms, () => this.interrupted)))(wait);
+      if (this.interrupted) return a;
+    }
+  }
+
+  /** One replay of the recording, judged: `attempt` without the retries. */
+  private async once(target: AttemptTarget, extra: AttemptExtra, tally: boolean): Promise<Attempt> {
     const s = this.settings;
     const cwd = s.cwd ?? process.cwd();
     const { parent, argv } = target;
@@ -289,8 +326,13 @@ export class AttemptRunner {
     if (bypassed) this.warnings.add(BYPASSED);
     const checks = this.check(calls, output, s.spec, judged);
     const failures = [...(bypassed ? [BYPASSED] : []), ...(ended.preloads?.failed ? [ended.preloads.missing!] : []), ...(timedOut ? [`timed out after ${formatDuration(s.timeoutMs!)}`] : code !== 0 ? [`the agent exited with code ${code}`] : []), ...failed(checks)];
+    // Failed while its provider was unavailable, by no time limit of ours: no evidence about the
+    // agent, so never tallied, though what it spent counts. A replay no preload loaded in failed by
+    // itself (the guard), whatever its provider answered: that is never the provider's doing.
+    const down = failures.length && !timedOut && !this.interrupted && !bypassed && !ended.preloads?.failed ? providerUnavailable(calls) : null;
+    if (down) this.unavailable++;
     if (tally && !this.interrupted) {
-      this.attempts++;
+      if (!down) this.attempts++;
       this.spent += ended.summary.cost.spent;
       this.upstreamRequests += ended.summary.upstreamRequests;
       for (const m of ended.summary.cost.unknownModels) this.unknownModels.add(m);
@@ -304,8 +346,10 @@ export class AttemptRunner {
     for (const w of ended.summary.warnings) this.warnings.add(w);
     // The agent exited 0 in time, through Shadowlap, and failed no check: only an undecided check kept it from passing.
     const undecided = !bypassed && !ended.preloads?.failed && !timedOut && code === 0 && checks.some((c) => !c.ok) && checks.every((c) => c.ok || c.status === 'inconclusive');
-    const verdict = failures.length === 0 ? 'passed' : undecided ? 'inconclusive' : 'failed';
-    return { run, code, summary: ended.summary, calls, checks, failures, passed: failures.length === 0, verdict, bypassed, ms: Date.now() - started };
+    const verdict = failures.length === 0 ? 'passed' : down || undecided ? 'inconclusive' : 'failed';
+    // The run's own marks say so too, so a list of attempts never shows it as one that failed.
+    if (down) markUnavailable(this.store, run.runId, extra.meta);
+    return { run, code, summary: ended.summary, calls, checks, failures: down ? [unavailableReason(1, down), ...failures] : failures, passed: failures.length === 0, verdict, ...(down ? { unavailable: down } : {}), bypassed, ms: Date.now() - started };
   }
 
   private readonly modelCalls = new Map<string, number>();
@@ -346,6 +390,27 @@ export class AttemptRunner {
     if (!spec) return [];
     return evaluateChecks(spec, { ...storedCheckInput(this.store, calls, output, this.config.prices), costOf: this.costOf }, judgedOptions(judged));
   }
+}
+
+/** What `attempt` takes besides the target: see its comment. */
+export type AttemptExtra = { divergeAt?: number; interventions?: Interventions; meta?: Partial<RunMeta>; recordedWrites?: boolean; plants?: ReadonlyMap<number, string>; overrides?: ReadonlyMap<number, unknown>; plantMarks?: ReplayOptions['plantMarks']; unrecordedReads?: ReplayOptions['unrecordedReads'] };
+
+/** Waits `ms`, or less once `stop` says so: a pause before a retry never holds up Ctrl-C. */
+async function pauseUnless(ms: number, stop: () => boolean): Promise<void> {
+  const until = Date.now() + ms;
+  while (Date.now() < until && !stop()) await new Promise<void>((r) => setTimeout(r, Math.min(250, until - Date.now())));
+}
+
+/**
+ * Marks an unavailable attempt's run where its caller's marks say how it came out (`verify`,
+ * `probe`): `verdict: 'unavailable'`, so it is never read as an attempt that failed.
+ */
+function markUnavailable(store: Store, runId: string, meta: Partial<RunMeta> | undefined): void {
+  const patch: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(meta ?? {})) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && 'passed' in value) patch[key] = { ...value, passed: false, verdict: 'unavailable' };
+  }
+  if (Object.keys(patch).length) store.updateRunMeta(runId, patch as Partial<RunMeta>);
 }
 
 /** Why the checks fail a run: each failed check, and each that could not be decided (an inconclusive check never passes). */
