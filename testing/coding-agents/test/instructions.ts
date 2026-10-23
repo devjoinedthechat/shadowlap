@@ -1,16 +1,18 @@
-// What the coding agents' instructions are made of, read the way the tests need them: the skill, the
-// Cursor rule and the section docs/agents.md gives to paste, and the shadowlap commands each names.
+// What the coding agents' instructions are made of, read the way the tests need them: the skills and
+// the section docs/agents.md gives to paste, and the shadowlap commands each names.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CURSOR_RULE } from '../../../packages/dashboard/src/agent-skill.js';
+import { SKILLS as PLUGIN_SKILLS } from '../../../packages/dashboard/src/agent-skill.js';
 import { agentsSection } from '../../../packages/dashboard/src/settings.js';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 export const read = (path: string) => readFileSync(join(ROOT, path), 'utf8');
 
 export const PLUGIN_DIR = 'coding-agents/claude-code';
-export const SKILL_FILE = `${PLUGIN_DIR}/skills/debug-agent/SKILL.md`;
+/** The plugin's skills, by name: one sets Shadowlap up for an agent, one debugs it and checks each change. */
+export const SKILLS: readonly string[] = PLUGIN_SKILLS.map((s) => s.name);
+export const skillFile = (name: string) => `${PLUGIN_DIR}/skills/${name}/SKILL.md`;
 
 /**
  * The fields both a marketplace entry and plugin.json can set, which Claude Code shows in its plugin
@@ -27,23 +29,40 @@ export function shownDescription(): string {
 }
 
 /**
- * A Markdown file's frontmatter, kept to flat `key: value` lines (a YAML subset every reader parses
- * the same way: no lists, no nesting, no line breaks in a value), and its body.
+ * A Markdown file's frontmatter, kept to `key: value` lines (a YAML subset every reader parses the
+ * same way: no lists, no line breaks in a value), and its body. The one nesting is the Agent Skills
+ * format's `metadata`, a map of strings, whose lines come indented under it, each kept as
+ * `metadata.<key>`.
  */
 export function frontmatter(text: string): { fields: Map<string, string>; body: string } {
   const m = /^---\n([\s\S]*?)\n---\n/.exec(text);
   if (!m) throw new Error('no frontmatter: the file must start with a --- line');
   const fields = new Map<string, string>();
+  let map: string | null = null;
   for (const line of m[1]!.split('\n')) {
+    if (map !== null && line.startsWith('  ')) {
+      const kv = /^ {2}([a-z][a-z0-9-]*): (\S(?:.*\S)?)$/.exec(line);
+      if (!kv) throw new Error(`not a "  key: value" line under ${map}: ${JSON.stringify(line)}`);
+      set(fields, `${map}.${kv[1]}`, kv[2]!);
+      continue;
+    }
+    map = null;
+    if (line === 'metadata:') {
+      map = 'metadata';
+      continue;
+    }
     const kv = /^([a-z][a-zA-Z-]*): (\S(?:.*\S)?)$/.exec(line);
     if (!kv) throw new Error(`not a "key: value" line: ${JSON.stringify(line)}`);
-    const value = kv[2]!;
-    // A plain YAML scalar can't start with an indicator, or hold ": " or " #", which would end it early.
-    if (/^[-?:,[\]{}#&*!|>'"%@`]/.test(value) || value.includes(': ') || value.includes(' #')) throw new Error(`${kv[1]}: a value YAML would read otherwise: ${value}`);
-    if (fields.has(kv[1]!)) throw new Error(`${kv[1]} appears twice`);
-    fields.set(kv[1]!, value);
+    set(fields, kv[1]!, kv[2]!);
   }
   return { fields, body: text.slice(m[0].length) };
+}
+
+function set(fields: Map<string, string>, key: string, value: string): void {
+  // A plain YAML scalar can't start with an indicator, or hold ": " or " #", which would end it early.
+  if (/^[-?:,[\]{}#&*!|>'"%@`]/.test(value) || value.includes(': ') || value.includes(' #')) throw new Error(`${key}: a value YAML would read otherwise: ${value}`);
+  if (fields.has(key)) throw new Error(`${key} appears twice`);
+  fields.set(key, value);
 }
 
 /** The instructions a coding agent gets, where each comes from. */
@@ -51,8 +70,7 @@ export function instructions(): Array<{ where: string; text: string }> {
   const pasted = agentsSection(read('docs/agents.md'));
   if (pasted === null) throw new Error('docs/agents.md has no section to paste under "## Instructions to give it"');
   return [
-    { where: SKILL_FILE, text: frontmatter(read(SKILL_FILE)).body },
-    { where: CURSOR_RULE.source, text: frontmatter(read(CURSOR_RULE.source)).body },
+    ...SKILLS.map((name) => ({ where: skillFile(name), text: frontmatter(read(skillFile(name))).body })),
     { where: 'docs/agents.md, the section to paste', text: pasted },
   ];
 }

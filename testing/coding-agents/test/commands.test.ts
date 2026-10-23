@@ -1,15 +1,15 @@
-// The skill, the Cursor rule and the section docs/agents.md gives to paste tell a coding agent which
-// shadowlap commands to run, word for word, which JSON fields to read in what comes back, and which
-// checks to write. Nothing generates them from the CLI, so they drift: a flag renamed, a field moved,
-// a command that now wants another argument, a checks syntax that changed. This test runs every
-// command any of them names the way a coding agent would, against the reference agent and its
-// scripted fake of the Anthropic API, in each case the instructions describe (a search that finds
-// nothing, a blame no answer rescues and one an answer does). Then it holds each point of the text to
-// what came back: every field and value a point names is in the JSON of the commands that point
-// names, and every checks example parses as the CLI parses --expect. CI runs it in a job of its own
-// as well (.github/workflows/coding-agents.yml).
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+// The skills and the section docs/agents.md gives to paste tell a coding agent which shadowlap
+// commands to run, word for word, which JSON fields to read in what comes back, and which checks to
+// write. Nothing generates them from the CLI, so they drift: a flag renamed, a field moved, a command
+// that now wants another argument, a checks syntax that changed. This test runs every command any of
+// them names the way a coding agent would, against the reference agent and its scripted fake of the
+// Anthropic API, in each case the instructions describe (a search that finds nothing, a blame no
+// answer rescues and one an answer does, a fix still open; an agent's source for init, a git history
+// for bisect). Then it holds each point of the text to what came back: every field and value a point
+// names is in the JSON of the commands that point names, and every checks example parses as the CLI
+// parses --expect. CI runs it in a job of its own as well (.github/workflows/coding-agents.yml).
+import { execFileSync, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -35,7 +35,31 @@ let project: string;
 let good: string;
 /** The same agent crashing after its fifth model call: the run a fix must make pass. */
 let crashed: string;
+/** The project's first commit, where its golden passes. */
+let firstCommit: string;
 let files = 0;
+
+const VERSION = (JSON.parse(readFileSync(join(ROOT, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }).version;
+
+/** The project's source as `init` reads it: an AI SDK agent with a tool that only reads and one that writes, neither wrapped. */
+const AGENT_SOURCE = `import { generateText, tool } from 'ai';
+import { anthropic } from '@ai-sdk/anthropic';
+
+const tools = {
+  search_web: tool({ description: 'Search the web', inputSchema: {}, execute: async ({ query }) => search(query) }),
+  send_email: tool({ description: 'Email the summary', inputSchema: {}, execute: async (email) => mailer.send(email) }),
+};
+
+await generateText({ model: anthropic('claude-sonnet-4-5'), tools, prompt: process.argv[2] });
+`;
+
+/** The fix the blame above opened, as `fix ls` lists it. */
+async function openFix(): Promise<string> {
+  const listed = json<{ fixes: Array<{ fixId: string; status: string }> }>((await shadowlap(['fix', 'ls', '--json'])).stdout, 'fix ls --json');
+  const fix = listed.fixes.find((f) => f.status === 'open');
+  if (!fix) throw new Error('no open fix: the blame that opens one runs before this command');
+  return fix.fixId;
+}
 
 /** The scripted model's turn that emails the summary. */
 const EMAIL_TURN = TURNS.findIndex((t) => t.content.some((b) => b.type === 'tool_use' && b.name === 'send_email'));
@@ -102,8 +126,8 @@ function keep(name: string, r: Ran): void {
 interface Variant {
   /** The case this run of the command is, for the test's name. */
   as?: string;
-  /** What each placeholder stands for in this command. */
-  fill?: () => Record<string, string>;
+  /** What each placeholder stands for in this command, worked out when it runs. */
+  fill?: () => Record<string, string> | Promise<Record<string, string>>;
   /** The exit statuses the instructions and the CLI reference give it. */
   exits?: number[];
   env?: NodeJS.ProcessEnv;
@@ -238,6 +262,53 @@ const SCENARIOS: Record<string, Variant[]> = {
     { as: 'two runs that differ', exits: [1], check: (r) => expect(json<{ firstRequestDifference: unknown }>(r.stdout, 'diff --json').firstRequestDifference).not.toBeNull() },
     { as: 'a run and itself', fill: () => ({ '<b>': good }), check: (r) => expect(json<{ firstRequestDifference: unknown }>(r.stdout, 'diff --json').firstRequestDifference).toBeNull() },
   ],
+  init: [
+    {
+      check: (r) => {
+        const found = json<{ command: { argv: string[] } | null; tools: Array<{ name: string; effect: string | null; suggested: string; wrapped: boolean }>; unwrapped: string[]; wrap: Array<{ code: string }> }>(r.stdout, 'init --json');
+        expect(found.command?.argv).toEqual(['npm', 'run', 'agent']);
+        expect(found.tools.map((t) => [t.name, t.effect, t.suggested, t.wrapped])).toEqual([
+          ['search_web', null, 'read', false],
+          ['send_email', null, 'write', false],
+        ]);
+        expect(found.unwrapped).toEqual(['search_web', 'send_email']);
+        expect(found.wrap.map((w) => w.code).join('\n')).toMatch(/search_web: 'read', send_email: 'write'/);
+      },
+    },
+  ],
+  doctor: [{ check: (r) => expect(json<Array<{ name: string; verdict: string }>>(r.stdout, 'doctor --json').map((c) => c.name)).toContain('store') }],
+  pack: [
+    {
+      fill: () => ({ '<name>': 'kept' }),
+      check: () => {
+        const dir = join(project, 'goldens', 'kept');
+        expect(existsSync(join(dir, 'run.json'))).toBe(true);
+        expect(existsSync(join(dir, '.gitattributes'))).toBe(true);
+        // The commands that replay goldens/* replay the one golden made before them.
+        rmSync(dir, { recursive: true, force: true });
+      },
+    },
+  ],
+  bisect: [
+    {
+      // The golden passes at every commit, since nothing the agent runs is in the project's history.
+      fill: () => ({ '<golden>': 'goldens/research', '<rev>': firstCommit }),
+      exits: [1],
+      check: (r) => expect(json(r.stdout, 'bisect --json')).toMatchObject({ outcome: 'passes-at-bad', first: null }),
+    },
+  ],
+  'fix show': [{ fill: async () => ({ '<fix>': await openFix() }), check: (r) => expect(json(r.stdout, 'fix show --json')).toMatchObject({ status: 'open', actions: expect.anything() }) }],
+  'fix apply': [
+    {
+      // "It exits 1 while the fix is still open."
+      as: 'a fix still open',
+      fill: async () => ({ '<fix>': await openFix() }),
+      exits: [1],
+      check: (r) => expect(json(r.stdout, 'fix apply --json')).toBeTruthy(),
+    },
+  ],
+  migrate: [{ fill: () => ({ '<model>': 'claude-haiku-4-5' }), check: (r) => expect(json(r.stdout, 'migrate --json')).toMatchObject({ kind: 'migrate', to: 'claude-haiku-4-5' }) }],
+  '--version': [{ check: (r) => expect(r.stdout.trim()).toBe(VERSION) }],
 };
 
 /** The command's name, as SCENARIOS knows it: the words after `shadowlap` up to the first that isn't one. */
@@ -309,6 +380,19 @@ beforeAll(async () => {
   crashed = await record({ AGENT_FAIL_AFTER_CALL: '5' });
   for (const [run, label] of [[good, 'good'], [crashed, 'bug']] as const) expect((await shadowlap(['label', run, label])).code).toBe(0);
   expect((await shadowlap(['pack', good, join('goldens', 'research')])).code).toBe(0);
+
+  // The agent's own source, for init, in a git history of two commits, for bisect.
+  writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'research-agent', private: true, type: 'module', scripts: { agent: 'node agent.mjs' }, dependencies: { ai: '^5.0.0', '@ai-sdk/anthropic': '^2.0.0' } }, null, 2) + '\n');
+  writeFileSync(join(project, 'agent.mjs'), AGENT_SOURCE);
+  writeFileSync(join(project, '.gitignore'), '.shadowlap/\n.home/\nout/\n');
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=Shadowlap', '-c', 'user.email=ci@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: project, encoding: 'utf8' }).trim();
+  git('init', '-q', '-b', 'main');
+  git('add', '-A');
+  git('commit', '-qm', 'The research agent');
+  firstCommit = git('rev-parse', 'HEAD');
+  writeFileSync(join(project, 'NOTES.md'), 'What the agent is for.\n');
+  git('add', '-A');
+  git('commit', '-qm', 'Say what the agent is for');
 }, SLOW);
 
 afterAll(async () => {
@@ -328,7 +412,7 @@ describe('the commands the coding agents’ instructions name', () => {
     for (const variant of SCENARIOS[name] ?? [{}]) {
       it(`${line}${variant.as ? `, for ${variant.as}` : ''}  (${where.join('; ')})`, async () => {
         if (!SCENARIOS[name]) throw new Error(`no scenario for "shadowlap ${name}": add one to SCENARIOS, with what the instructions say it gives back`);
-        const fill = { '<run>': good, '<call>': '9', '<a>': good, '<b>': crashed, ...variant.fill?.() };
+        const fill = { '<run>': good, '<call>': '9', '<a>': good, '<b>': crashed, ...(await variant.fill?.()) };
         // A fresh file wherever the command writes one.
         const argv = argvOf(line, { ...fill, '<file>': join('out', `${++files}.json`) });
         answers = variant.answers ?? 'scripted';

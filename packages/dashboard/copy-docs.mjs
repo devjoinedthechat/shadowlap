@@ -3,7 +3,7 @@
 // dist/docs, so a dashboard installed from npm has them as well as a checkout of the repository.
 //
 // It also copies the coding agents' instructions, packaged (coding-agents/: the Claude Code plugin
-// and the Cursor rule), into dist/coding-agents, laid out as the repository lays them out.
+// with its skills), into dist/coding-agents, laid out as the repository lays them out.
 // `shadowlap skill install` installs from that copy (src/agent-skill.ts), so what it puts in a project
 // is the version of the CLI it came with, and it needs no network. The files a system leaves in a
 // folder someone opened (Finder's .DS_Store, Windows' Thumbs.db), which .gitignore keeps out of the

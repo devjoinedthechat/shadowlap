@@ -5,18 +5,20 @@ import { Icon } from '../../components/Icon.js';
 import type { CodingAgentsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CommandLine, FILES_GONE, LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
-import { agentFileWords, cursorRuleWords, orList, SKILL_INSTALL_KIND, skillWords, type AgentAction } from './logic.js';
+import { agentFileWords, orList, sharedSkillsWords, SKILL_INSTALL_KIND, skillWords, type AgentAction } from './logic.js';
 
 /**
  * Coding agents, as the design has it (codingAgentsPanel): coding agents need no MCP server, the CLI
- * is their interface; which instruction files the project has (CLAUDE.md, AGENTS.md, .cursor/rules,
- * Copilot's) and whether each mentions Shadowlap yet, the `.cursor/rules` row with the Cursor rule
- * `shadowlap skill install cursor` adds; and the section from docs/agents.md to paste. Once the
- * owner has published the Claude Code plugin (SKILL_PUBLISHED), The skill row above the files
- * installs it (skillPanelRows). The states the design doesn't show come from the read model
+ * is their interface; which instruction files the project has (CLAUDE.md, AGENTS.md, and Cursor's
+ * rules and Copilot's file where the project has them) and whether each mentions Shadowlap yet; the
+ * `.agents/skills` row with the skills `shadowlap skill install agents` adds for Codex, Cursor,
+ * Copilot and the other agents that read that folder; and the section from docs/agents.md to paste.
+ * Once the owner has published the Claude Code plugin (SKILL_PUBLISHED), The skills row above the
+ * files installs it (skillPanelRows). The states the design doesn't show come from the read model
  * (`skillOffer()`): another version's copy offers Update, one edited here Replace…, which asks
- * first, and a way that is blocked says why, with no button. With the project's folder gone, its
- * files can't be read, and the list says so.
+ * first, and a way that is blocked says why, with no button. A file whose agents read the installed
+ * skills needs no section, and says so. With the project's folder gone, its files can't be read,
+ * and the list says so.
  */
 export function AgentsTab() {
   const { client } = useApp();
@@ -29,17 +31,26 @@ export function AgentsTab() {
   const skill = data.skill;
   const found = data.files.filter((f) => f.found);
   const intro = <p className="muted">Coding agents need no MCP server: the CLI is their interface, and every command reads and writes JSON.</p>;
-  // Once the skill is in the project, Claude Code has the section through it: CLAUDE.md needs none.
-  const skillHere = !!skill?.published && skill.claudeCode.state === 'current' && !skill.claudeCode.blocked;
-  const act = (agent: 'claude-code' | 'cursor', a: AgentAction) => {
-    const offer = agent === 'cursor' ? skill?.cursor : skill?.claudeCode;
+  // Once the plugin is in the project, Claude Code has the section through its skills: CLAUDE.md
+  // needs none. Once the skills are in .agents/skills, neither do the files of the agents that read them.
+  const pluginHere = !!skill?.published && skill.claudeCode.state === 'current' && !skill.claudeCode.blocked;
+  const sharedHere = !!skill && skill.agents.state === 'current' && !skill.agents.blocked;
+  const shared = skill?.skills.map((s) => s.shared) ?? [];
+  const covered: Record<string, string | null> = {
+    'CLAUDE.md': pluginHere ? 'the skills give Claude Code the section' : null,
+    'AGENTS.md': sharedHere ? 'the skills give Codex and others the section' : null,
+    '.cursor/rules': sharedHere ? 'Cursor reads the skills in .agents/skills' : null,
+    '.github/copilot-instructions.md': sharedHere ? 'Copilot reads the skills in .agents/skills' : null,
+  };
+  const act = (agent: 'claude-code' | 'agents', a: AgentAction) => {
+    const offer = agent === 'agents' ? skill?.agents : skill?.claudeCode;
     if (!offer?.install) return;
     if (!a.ask) return start(offer.install);
     const v = skill?.version ?? 'this version';
     setAsking(
-      agent === 'cursor'
-        ? { install: offer.install, title: `Replace the Cursor rule with ${v}’s copy?`, text: `${offer.path} was edited here, or is another version’s: ${v}’s copy goes in its place, and what is there now is gone.` }
-        : { install: offer.install, title: `Replace the skill with ${v}’s copy?`, text: `${offer.path} was edited here: ${v}’s copy goes in its place, and the files it doesn’t have are removed.` },
+      agent === 'agents'
+        ? { install: offer.install, title: `Replace Shadowlap’s skills with ${v}’s copy?`, text: `${orList(shared, 'and')} in ${offer.path} were edited here: ${v}’s copy goes in their place, and the files it doesn’t have are removed. The other skills there are left as they are.` }
+        : { install: offer.install, title: `Replace the skills with ${v}’s copy?`, text: `${offer.path} was edited here: ${v}’s copy goes in its place, and the files it doesn’t have are removed.` },
     );
   };
   const files = (
@@ -49,17 +60,17 @@ export function AgentsTab() {
       ) : (
         <div className="agentfiles">
           {data.files
-            // Copilot's file is listed only when the project has it; the other three always, as the design does.
-            .filter((f) => f.found || f.path !== '.github/copilot-instructions.md')
+            // Cursor's rules and Copilot's file are listed only when the project has them; the others always.
+            .filter((f) => f.found || (f.path !== '.cursor/rules' && f.path !== '.github/copilot-instructions.md'))
             .map((f) => {
-              const rule = f.path === '.cursor/rules' && skill ? cursorRuleWords(f, skill.cursor, skill.version) : null;
-              const w = rule ?? agentFileWords(f, f.path === 'CLAUDE.md' && skillHere);
+              const skills = f.path === '.agents/skills' && skill ? sharedSkillsWords(f, skill.agents, skill.version, shared) : null;
+              const w = skills ?? agentFileWords(f, covered[f.path] ?? null);
               return (
                 <div key={f.path}>
                   <code>{f.path}</code>
                   <span className={w.tone}>{w.text}</span>
-                  {rule?.action && skill ? <InstallButton small action={rule.action} command={skill.cursor.install?.command ?? null} sub={`writes the rule to ${skill.cursor.path}, from the copy that comes with the CLI`} onClick={() => act('cursor', rule.action!)} /> : null}
-                  {rule?.why ? <span className="warn agwhy">{rule.why}</span> : null}
+                  {skills?.action && skill ? <InstallButton small action={skills.action} command={skill.agents.install?.command ?? null} sub={`writes ${orList(shared, 'and')} to ${skill.agents.path}, from the copy that comes with the CLI`} onClick={() => act('agents', skills.action!)} /> : null}
+                  {skills?.why ? <span className="warn agwhy">{skills.why}</span> : null}
                 </div>
               );
             })}
@@ -88,9 +99,9 @@ export function AgentsTab() {
     <section className="panel set">
       <header>
         <h2>Coding agents</h2>
-        <span className="sub">Claude Code, Cursor, Codex</span>
+        <span className="sub">Claude Code, Codex, Cursor and others</span>
       </header>
-      {/* The skill's row only once the owner has published the plugin: before that, no install it can't complete, and nothing said about one. */}
+      {/* The skills' row only once the owner has published the plugin: before that, no install it can't complete, and nothing said about one. */}
       {skill?.published ? (
         <>
           <div className="pbody">{intro}</div>
@@ -121,7 +132,7 @@ export function AgentsTab() {
   );
 }
 
-type Install = NonNullable<NonNullable<CodingAgentsSettings['skill']>['cursor']['install']>;
+type Install = NonNullable<NonNullable<CodingAgentsSettings['skill']>['agents']['install']>;
 
 /** Starts `skill-install` for an install the read model offers, and opens its drawer. */
 function useInstall(): (install: Install) => void {
@@ -150,8 +161,8 @@ function InstallButton({ action, command, sub, small = false, lime = false, onCl
 }
 
 /**
- * The skill, once the owner has published the Claude Code plugin (the design's skillPanelRows):
- * debug-agent packages the section below for Claude Code; its command and Install the skill in lime,
+ * The skills, once the owner has published the Claude Code plugin (the design's skillPanelRows):
+ * they package the section below for Claude Code; its command and Install the skills in lime,
  * or where it is installed, with Commit it; and the commands that install it in every project on
  * this machine, with Copy. Another version's copy offers Update to this one; one edited here,
  * Replace…, which asks first; a way that is blocked says why. With the folder gone, what the project
@@ -165,9 +176,22 @@ function SkillRow({ skill, gone, onAct }: { skill: NonNullable<CodingAgentsSetti
   return (
     <div className="setrow skrow">
       <div>
-        <b>The skill</b>
+        <b>The skills</b>
         <span>
-          debug-agent packages the section below for Claude Code: Claude uses it when a task calls for it, or on <code>{skill.command}</code>.
+          {skill.skills.map((s, i) => (
+            <Fragment key={s.name}>
+              {i ? ', and ' : ''}
+              {s.name} {s.does}
+            </Fragment>
+          ))}
+          : they package the section below for Claude Code, which uses each when a task calls for it, or on{' '}
+          {skill.skills.map((s, i) => (
+            <Fragment key={s.command}>
+              {i ? ' and ' : ''}
+              <code>{s.command}</code>
+            </Fragment>
+          ))}
+          .
         </span>
         {gone ? (
           <span>{FILES_GONE}</span>

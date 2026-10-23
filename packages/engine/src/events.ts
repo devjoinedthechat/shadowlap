@@ -53,9 +53,9 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  *   pack `notPacked` behaviours
  * - `chaos.session`: ref the session (runId the run, for `replay --chaos`); data { passed, failed,
  *   inconclusive, notApplicable, goldens, revision, interrupted? }: the error-path presets ran
- * - `skill.installed`: ref the coding agent (`claude-code` or `cursor`); data { path, version, outcome
- *   ('installed' or 'updated'), previous (the version replaced, or null) }: `shadowlap skill install`
- *   put the plugin or the rule into the project
+ * - `skill.installed`: ref where it installed (`claude-code`, `agents` or `kiro`); data { path,
+ *   version, outcome ('installed' or 'updated'), previous (the version replaced, or null) }:
+ *   `shadowlap skill install` put the plugin, or the skills alone, into the project
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

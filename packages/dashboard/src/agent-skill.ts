@@ -4,19 +4,22 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * The instructions docs/agents.md gives coding agents to paste, packaged: a Claude Code plugin with
- * one skill, `debug-agent`, and a Cursor rule holding the same text. They live in the repository's
- * coding-agents/ folder, versioned with the CLI, and a copy ships with it (in this package's
+ * The instructions docs/agents.md gives coding agents to paste, packaged as skills in the Agent
+ * Skills format: `setup-agent`, which sets Shadowlap up for an agent, and `debug-agent`, which debugs
+ * it and checks every change to it. They live in the repository's coding-agents/ folder as a Claude
+ * Code plugin, versioned with the CLI, and a copy ships with it (in this package's
  * dist/coding-agents, beside the docs Settings reads). `shadowlap skill install` puts that copy into
  * a project, with no network: the plugin as a folder under `.claude/skills/`, where Claude Code loads
- * it for everyone working on the project, and the rule under `.cursor/rules/`. Settings → Coding
- * agents reads what a project has there, and offers the install.
+ * it for everyone working on the project; or the skills alone, each in a folder of its own, under
+ * `.agents/skills/`, where Codex, Cursor, GitHub Copilot, Gemini CLI and most other coding agents
+ * read skills, or under `.kiro/skills/` for Kiro. Settings → Coding agents reads what a project has
+ * there, and offers the install.
  */
 
 /**
  * Whether the owner has published the Claude Code plugin. Until then, Settings → Coding agents
- * offers no Install the skill: `install` is null in its read model. The Cursor rule needs nothing
- * published, so its install is offered either way.
+ * offers no Install the skill: `install` is null in its read model. The skills in `.agents/skills`
+ * need nothing published, so their install is offered either way.
  *
  * The owner publishes the plugin by hand, and flips this to true once it is published.
  */
@@ -26,24 +29,50 @@ export const SKILL_PUBLISHED = false;
 export const SKILL_REPOSITORY = 'devjoinedthechat/shadowlap';
 /** The plugin as Claude Code installs it from that marketplace, `<plugin>@<marketplace>`: both are named shadowlap. */
 export const SKILL_PLUGIN = 'shadowlap@shadowlap';
-/** The skill's command in Claude Code: the plugin's name, then the skill's. */
-export const SKILL_COMMAND = '/shadowlap:debug-agent';
+/** The prefix the skills take in a folder every coding agent's skills share, so that ours can't collide with another tool's. */
+const SHARED_PREFIX = 'shadowlap-';
+/**
+ * The plugin's skills, the one that sets Shadowlap up first: each one's command in Claude Code (the
+ * plugin's name, then the skill's), and its name in a folder other agents share.
+ */
+export const SKILLS = [
+  { name: 'setup-agent', command: '/shadowlap:setup-agent', shared: `${SHARED_PREFIX}setup-agent`, does: 'sets Shadowlap up for an agent' },
+  { name: 'debug-agent', command: '/shadowlap:debug-agent', shared: `${SHARED_PREFIX}debug-agent`, does: 'debugs it and checks every change to it' },
+] as const;
 /** The Claude Code plugin: where it is in the repository, and where `shadowlap skill install` puts it in a project. */
 export const CLAUDE_CODE_PLUGIN = { source: 'coding-agents/claude-code', path: '.claude/skills/shadowlap' } as const;
-/** The Cursor rule: where it is in the repository, and where it goes in a project. */
-export const CURSOR_RULE = { source: 'coding-agents/cursor/shadowlap.mdc', path: '.cursor/rules/shadowlap.mdc' } as const;
+/** The folder of the plugin's skills, in the repository and in its copy. */
+const SKILLS_SOURCE = `${CLAUDE_CODE_PLUGIN.source}/skills`;
 
-/** The coding agents `shadowlap skill install` installs for. */
-export type CodingAgent = 'claude-code' | 'cursor';
-export const CODING_AGENTS: readonly CodingAgent[] = ['claude-code', 'cursor'];
-const TARGETS: Record<CodingAgent, { source: string; path: string }> = { 'claude-code': CLAUDE_CODE_PLUGIN, cursor: CURSOR_RULE };
+/**
+ * Where `shadowlap skill install` puts the skills for each coding agent: the Claude Code plugin, or
+ * the skills alone in a folder of skills, and who reads it. `.agents/skills` is the folder the Agent
+ * Skills format names for every client; Claude Code reads only its own, and Kiro only its own.
+ */
+export const TARGETS = {
+  'claude-code': { kind: 'plugin', path: CLAUDE_CODE_PLUGIN.path, readers: 'Claude Code' },
+  agents: { kind: 'skills', path: '.agents/skills', readers: 'Codex, Cursor, GitHub Copilot, Gemini CLI, Antigravity, Windsurf, OpenCode, Cline, Amp, goose, Zed and Junie' },
+  kiro: { kind: 'skills', path: '.kiro/skills', readers: 'Kiro' },
+} as const;
+
+/** The places `shadowlap skill install` installs to. */
+export type CodingAgent = keyof typeof TARGETS;
+export const CODING_AGENTS: readonly CodingAgent[] = ['claude-code', 'agents', 'kiro'];
+/** The coding agents that read `.agents/skills`, by the names `shadowlap skill install` also takes for it. */
+export const AGENTS_FOLDER_READERS = ['codex', 'cursor', 'copilot', 'gemini', 'antigravity', 'windsurf', 'devin', 'opencode', 'cline', 'amp', 'goose', 'zed', 'junie'] as const;
+
+/** Where the install for a coding agent goes, by any name `shadowlap skill install` takes; null for one it has nothing for. */
+export function codingAgent(name: string): CodingAgent | null {
+  if ((CODING_AGENTS as readonly string[]).includes(name)) return name as CodingAgent;
+  return (AGENTS_FOLDER_READERS as readonly string[]).includes(name) ? 'agents' : null;
+}
 
 /**
  * What a project has where the install goes, against this version's copy:
  * - `missing`: nothing there;
  * - `current`: this version's copy, file for file;
- * - `other-version`: (Claude Code) the plugin, as another version of Shadowlap wrote it;
- * - `changed`: something else, such as a copy edited here, or another version's Cursor rule.
+ * - `other-version`: the plugin or the skills, as another version of Shadowlap wrote them;
+ * - `changed`: something else, such as a copy edited here.
  */
 export type InstallState = 'missing' | 'current' | 'other-version' | 'changed';
 
@@ -52,7 +81,7 @@ export interface InstalledCopy {
   /** Where it goes, relative to the project. */
   path: string;
   state: InstallState;
-  /** The version the plugin there says it is, when it is the plugin (Claude Code only). */
+  /** The version the copy there says it is: the plugin's manifest's, or the skills' own (`metadata.version`). */
   installedVersion: string | null;
   /** Each file, relative to the project: the same as this version's, different, missing, or one this version doesn't have. */
   files: Array<{ path: string; is: 'same' | 'differs' | 'missing' | 'extra' }>;
@@ -109,16 +138,42 @@ export function shippedVersion(shipped: string | null = shippedCodingAgents()): 
 }
 
 /**
- * The files an install writes, each relative to where it goes in the project (`''` for the rule,
- * which is one file), with its bytes: the plugin's folder but its README, which is for readers of
- * the repository, and the rule.
+ * The files an install writes, each relative to where it goes in the project, with its bytes: for
+ * Claude Code, the plugin's folder but its README, which is for readers of the repository; for a
+ * folder of skills, each of the plugin's skills in a folder named as it is there (`sharedSkill`).
  */
 export function shippedFiles(agent: CodingAgent, shipped: string): Array<{ rel: string; bytes: Buffer }> {
-  const from = join(shipped, TARGETS[agent].source.slice('coding-agents/'.length));
-  if (agent === 'cursor') return [{ rel: '', bytes: readFileSync(from) }];
+  if (TARGETS[agent].kind === 'plugin') {
+    const from = join(shipped, CLAUDE_CODE_PLUGIN.source.slice('coding-agents/'.length));
+    return walk(from)
+      .filter((f) => f.kind === 'file' && f.rel !== 'README.md')
+      .map((f) => ({ rel: f.rel, bytes: readFileSync(join(from, ...f.rel.split('/'))) }));
+  }
+  const from = join(shipped, SKILLS_SOURCE.slice('coding-agents/'.length));
   return walk(from)
-    .filter((f) => f.kind === 'file' && f.rel !== 'README.md')
-    .map((f) => ({ rel: f.rel, bytes: readFileSync(join(from, ...f.rel.split('/'))) }));
+    .filter((f) => f.kind === 'file' && f.rel.includes('/'))
+    .map((f) => {
+      const bytes = readFileSync(join(from, ...f.rel.split('/')));
+      const skill = /^[^/]+\/SKILL\.md$/.test(f.rel);
+      return { rel: `${SHARED_PREFIX}${f.rel}`, bytes: skill ? Buffer.from(sharedSkill(bytes.toString('utf8'))) : bytes };
+    });
+}
+
+/**
+ * A skill as it goes into a folder other coding agents share: named `shadowlap-<name>` (its folder's
+ * name too), and without `allowed-tools`, whose rules are in Claude Code's own terms: other agents
+ * name their tools otherwise, and ask about them as their own settings say.
+ */
+export function sharedSkill(text: string): string {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
+  if (!m) return text;
+  const eol = m[0].includes('\r\n') ? '\r\n' : '\n';
+  const head = m[1]!
+    .split(/\r?\n/)
+    .filter((line) => !line.startsWith('allowed-tools:'))
+    .map((line) => (line.startsWith('name: ') ? `name: ${SHARED_PREFIX}${line.slice('name: '.length)}` : line))
+    .join(eol);
+  return `---${eol}${head}${eol}---${eol}${text.slice(m[0].length)}`;
 }
 
 /** Every entry under a folder, depth first, without following links: files, links and folders, relative with `/`. */
@@ -201,10 +256,39 @@ function pluginVersion(bytes: Buffer | null): string | null {
   }
 }
 
+/** The version a skill in a shared folder says it is (its frontmatter's `metadata.version`), when it is Shadowlap's. */
+function skillVersion(bytes: Buffer | null): string | null {
+  const head = bytes && /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(bytes.toString('utf8'))?.[1];
+  if (!head || !new RegExp(`^name: ${SHARED_PREFIX}`, 'm').test(head)) return null;
+  return /^metadata:[ \t]*\r?\n(?:[ \t]+.*\r?\n)*?[ \t]+version:[ \t]*["']?([^"'\s]+)["']?[ \t]*\r?$/m.exec(`${head}\n`)?.[1] ?? null;
+}
+
+/**
+ * Every entry of the install's own in the project, depth first and relative to where it goes: the
+ * whole of the plugin's folder; in a folder of skills, which other tools' skills share, only the
+ * folders named as ours are (`shadowlap-…`), so a skill an older version had and this one doesn't
+ * is found there too.
+ */
+function ownEntries(dir: string, agent: CodingAgent): ReturnType<typeof walk> {
+  if (TARGETS[agent].kind === 'plugin') return walk(dir);
+  const out: ReturnType<typeof walk> = [];
+  for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    if (!e.name.startsWith(SHARED_PREFIX)) continue;
+    if (e.isSymbolicLink()) out.push({ rel: e.name, kind: 'link' });
+    else if (e.isDirectory()) out.push({ rel: e.name, kind: 'folder' }, ...walk(join(dir, e.name)).map((x) => ({ ...x, rel: `${e.name}/${x.rel}` })));
+    else out.push({ rel: e.name, kind: e.isFile() ? 'file' : 'other' });
+    if (out.length > MAX_ENTRIES) throw new Error(`more than ${MAX_ENTRIES} entries`);
+  }
+  return out;
+}
+
+/** What an install puts in a place, in words: the Claude Code plugin, or Shadowlap's skills. */
+const what = (agent: CodingAgent) => (TARGETS[agent].kind === 'plugin' ? 'the plugin' : 'Shadowlap’s skills');
+
 /**
  * What the project at `cwd` has where `agent`'s install goes, against the copy in `shipped`. On the
  * way there, a link that stays inside the project is followed; at the install's own place (the
- * plugin's folder and everything in it, the rule's file) nothing is: a link there blocks the install,
+ * plugin's folder, or a skill's, and everything in it) nothing is: a link there blocks the install,
  * since writing through it, or replacing it, would change what someone set up on purpose.
  */
 export function installedCopy(cwd: string, agent: CodingAgent, shipped: string): InstalledCopy {
@@ -212,15 +296,16 @@ export function installedCopy(cwd: string, agent: CodingAgent, shipped: string):
   const files = shippedFiles(agent, shipped);
   const at = (rel: string) => (rel ? `${target.path}/${rel}` : target.path);
   const full = (rel: string) => join(cwd, ...at(rel).split('/'));
-  let blocked = blockedOnTheWay(cwd, agent === 'claude-code' ? target.path : target.path.slice(0, target.path.lastIndexOf('/')));
+  const onTheWay = blockedOnTheWay(cwd, target.path);
+  let blocked = onTheWay;
   const listed: InstalledCopy['files'] = [];
 
-  // In the plugin's folder, what this version doesn't have: an older version's skill would go on loading.
-  if (!blocked && agent === 'claude-code' && lstat(full(''))) {
+  // In what is ours there, what this version doesn't have: an older version's skill would go on loading.
+  if (!blocked && lstat(full(''))) {
     const ours = new Set(files.map((f) => f.rel));
     const folders = new Set(files.flatMap((f) => f.rel.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/'))));
     try {
-      for (const e of walk(full(''))) {
+      for (const e of ownEntries(full(''), agent)) {
         if (e.kind === 'link' || e.kind === 'other') blocked = `${at(e.rel)} is ${e.kind === 'link' ? 'a link' : 'not a file'}: remove it, then install again`;
         else if (e.kind === 'folder' && ours.has(e.rel)) blocked = `${at(e.rel)} is a folder, where a file goes`;
         else if (e.kind === 'file' && folders.has(e.rel)) blocked = `${at(e.rel)} is a file, where a folder goes`;
@@ -229,7 +314,7 @@ export function installedCopy(cwd: string, agent: CodingAgent, shipped: string):
         if (blocked) break;
       }
     } catch (err) {
-      blocked = `${target.path} holds ${err instanceof Error ? err.message : 'too many entries'}: it isn't a copy of the plugin`;
+      blocked = `${target.path} holds ${err instanceof Error ? err.message : 'too many entries'}: it isn't a copy of ${what(agent)}`;
     }
   }
   if (!blocked) {
@@ -244,9 +329,14 @@ export function installedCopy(cwd: string, agent: CodingAgent, shipped: string):
   }
   listed.sort((a, b) => (a.path < b.path ? -1 : 1));
 
-  const installedVersion = agent === 'claude-code' && !blocked ? pluginVersion(readOurs(full('.claude-plugin/plugin.json'))) : null;
+  const installedVersion = blocked
+    ? null
+    : target.kind === 'plugin'
+      ? pluginVersion(readOurs(full('.claude-plugin/plugin.json')))
+      : (files.filter((f) => f.rel.endsWith('/SKILL.md')).map((f) => skillVersion(readOurs(full(f.rel)))).find((v) => v !== null) ?? null);
   let state: InstallState;
-  if (blocked) state = lstat(full('')) ? 'changed' : 'missing';
+  // Blocked on the way, a folder of skills others share says nothing of ours: nothing is there yet.
+  if (blocked) state = lstat(full('')) && !(target.kind === 'skills' && onTheWay) ? 'changed' : 'missing';
   else if (listed.every((f) => f.is === 'missing')) state = 'missing';
   else if (listed.every((f) => f.is === 'same')) state = 'current';
   else if (installedVersion !== null && installedVersion !== shippedVersion(shipped)) state = 'other-version';
@@ -258,8 +348,9 @@ export function installedCopy(cwd: string, agent: CodingAgent, shipped: string):
  * Puts this version's copy of `agent`'s instructions into the project at `cwd`. Files that are
  * there already and differ from this version's (another version's, or edited here) are left as they
  * are and the install is refused, unless `replace`; with it, they are replaced, and, in the plugin's
- * folder, files this version doesn't have are removed, so an older version's skill stops loading.
- * Nothing is ever written through a link out of the project.
+ * folder or a skill folder of ours, files this version doesn't have are removed, so an older
+ * version's skill stops loading. Nothing is ever written through a link out of the project, and in a
+ * folder of skills nothing but ours is touched.
  */
 export function installCodingAgent(cwd: string, agent: CodingAgent, options: { replace?: boolean; shipped?: string | null } = {}): InstallResult {
   const shipped = options.shipped === undefined ? shippedCodingAgents() : options.shipped;
@@ -280,11 +371,14 @@ export function installCodingAgent(cwd: string, agent: CodingAgent, options: { r
   if (copy.state === 'current') return result('unchanged', copy.files.map((f) => ({ path: f.path, action: 'unchanged' })));
   if (copy.state !== 'missing' && !options.replace) {
     const left = copy.files.filter((f) => f.is === 'differs' || f.is === 'extra').map((f) => ({ path: f.path, action: f.is as 'differs' | 'extra' }));
-    const there =
+    const plugin = TARGETS[agent].kind === 'plugin';
+    const reason =
       copy.state === 'other-version'
-        ? `holds the Claude Code plugin ${copy.installedVersion}, not ${version}`
-        : `isn’t ${version}’s ${agent === 'claude-code' ? 'copy of the plugin' : 'rule'} (edited here, or ${agent === 'claude-code' ? 'from somewhere else' : 'another version’s'})`;
-    return result('refused', left, `${copy.path} ${there}: --force replaces it with ${version}’s`);
+        ? `${copy.path} holds ${plugin ? 'the Claude Code plugin' : 'Shadowlap’s skills'} ${copy.installedVersion}, not ${version}`
+        : plugin
+          ? `${copy.path} isn’t ${version}’s copy of the plugin (edited here, or from somewhere else)`
+          : `Shadowlap’s skills in ${copy.path} aren’t ${version}’s copy (edited here, or from somewhere else)`;
+    return result('refused', left, `${reason}: --force replaces ${plugin ? 'it' : 'them'} with ${version}’s`);
   }
 
   const byPath = new Map(copy.files.map((f) => [f.path, f.is]));
@@ -313,7 +407,19 @@ export function installCodingAgent(cwd: string, agent: CodingAgent, options: { r
     rmSync(join(cwd, ...f.path.split('/')), { force: true });
     done.push({ path: f.path, action: 'removed' });
   }
-  if (agent === 'claude-code') removeEmptyFolders(join(cwd, ...copy.path.split('/')));
+  const root = join(cwd, ...copy.path.split('/'));
+  if (TARGETS[agent].kind === 'plugin') removeEmptyFolders(root);
+  else {
+    // A skill folder of ours this version doesn't have goes once it is empty; the folder of skills, which others share, stays.
+    for (const name of new Set(copy.files.filter((f) => f.is === 'extra').map((f) => f.path.slice(copy.path.length + 1).split('/')[0]!))) {
+      removeEmptyFolders(join(root, name));
+      try {
+        rmdirSync(join(root, name));
+      } catch {
+        // not empty: something of the user's is in it
+      }
+    }
+  }
   return result(copy.state === 'missing' ? 'installed' : 'updated', done);
 }
 
@@ -386,21 +492,21 @@ export interface AgentOffer {
   blocked: string | null;
   /** What Install does here, or null when there is nothing it can do: the copy is current, the way is blocked, or (Claude Code) the plugin isn't published yet. */
   install: AgentInstall | null;
+  /** The version of what is there, when it is Shadowlap's (InstalledCopy.installedVersion). */
+  installedVersion: string | null;
 }
 
 /** What Settings → Coding agents offers to install. */
 export interface SkillOffer {
   /** Whether the owner has published the Claude Code plugin (SKILL_PUBLISHED). Until then, Install the skill isn't offered. */
   published: boolean;
-  /** The version of the plugin and the rule that came with this CLI, which an install puts in the project; null when none came with it. */
+  /** The version of the skills that came with this CLI, which an install puts in the project; null when none came with it. */
   version: string | null;
   /** `shadowlap@shadowlap`. */
   plugin: string;
-  /** `/shadowlap:debug-agent`. */
-  command: string;
+  /** The plugin's skills: each one's name, its command in Claude Code, its name in `.agents/skills`, and what it does. */
+  skills: ReadonlyArray<{ name: string; command: string; shared: string; does: string }>;
   claudeCode: AgentOffer & {
-    /** The version of the plugin in the project's `.claude/skills/shadowlap`, when it is there. */
-    installedVersion: string | null;
     /** The settings file that turns on the plugin installed from the marketplace (`shadowlap@shadowlap`) here, or null (marketplaceEnabled). */
     marketplace: 'user' | 'project' | 'local' | null;
     /**
@@ -410,7 +516,8 @@ export interface SkillOffer {
      */
     everywhere: string[] | null;
   };
-  cursor: AgentOffer;
+  /** The skills in `.agents/skills`, which Codex, Cursor, GitHub Copilot, Gemini CLI and most other coding agents read. */
+  agents: AgentOffer;
 }
 
 /** The offer for the project at `cwd`. */
@@ -418,8 +525,8 @@ export function skillOffer(options: { cwd: string; published?: boolean; shipped?
   const published = options.published ?? SKILL_PUBLISHED;
   const shipped = options.shipped === undefined ? shippedCodingAgents() : options.shipped;
   const version = shippedVersion(shipped);
-  const look = (agent: CodingAgent): { offer: AgentOffer; installedVersion: string | null } => {
-    const nothing = { offer: { path: TARGETS[agent].path, state: 'missing' as const, blocked: null, install: null }, installedVersion: null };
+  const look = (agent: CodingAgent): AgentOffer => {
+    const nothing: AgentOffer = { path: TARGETS[agent].path, state: 'missing', blocked: null, install: null, installedVersion: null };
     if (!shipped) return nothing;
     let copy: InstalledCopy;
     try {
@@ -429,24 +536,23 @@ export function skillOffer(options: { cwd: string; published?: boolean; shipped?
       return nothing;
     }
     const replace = copy.state !== 'missing';
-    const can = copy.state !== 'current' && !copy.blocked && (agent === 'cursor' || published);
+    // The skills in a shared folder need nothing published: they come with the CLI.
+    const can = copy.state !== 'current' && !copy.blocked && (TARGETS[agent].kind === 'skills' || published);
     const install: AgentInstall | null = can ? { job: { kind: 'skill-install', agent, replace }, command: `shadowlap skill install ${agent}${replace ? ' --force' : ''}` } : null;
-    return { offer: { path: copy.path, state: copy.state, blocked: copy.blocked, install }, installedVersion: copy.installedVersion };
+    return { path: copy.path, state: copy.state, blocked: copy.blocked, install, installedVersion: copy.installedVersion };
   };
   // A version that isn't a release's (unreadable, or not semver) has no tag to pin to.
   const release = version !== null && /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version);
-  const plugin = look('claude-code');
   return {
     published,
     version,
     plugin: SKILL_PLUGIN,
-    command: SKILL_COMMAND,
+    skills: SKILLS,
     claudeCode: {
-      ...plugin.offer,
-      installedVersion: plugin.installedVersion,
+      ...look('claude-code'),
       marketplace: marketplaceEnabled(options.cwd, options.claudeConfigDir ?? claudeConfigDir()),
       everywhere: published && release ? [`claude plugin marketplace add ${SKILL_REPOSITORY}@v${version}`, `claude plugin install ${SKILL_PLUGIN}`, `claude plugin update ${SKILL_PLUGIN}`] : null,
     },
-    cursor: look('cursor').offer,
+    agents: look('agents'),
   };
 }

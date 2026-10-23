@@ -147,7 +147,7 @@ export interface AgentFile {
   /** Who reads it. */
   agents: string;
   found: boolean;
-  /** `.cursor/rules` can be a folder of rule files or one file. Null when not found. */
+  /** `.agents/skills` is a folder of skills, `.cursor/rules` a folder of rule files or one file. Null when not found. */
   type: 'file' | 'folder' | null;
   /** It, or a file in the folder, already mentions Shadowlap. */
   mentions: boolean;
@@ -158,7 +158,7 @@ export interface CodingAgentsSettings {
   /** The section to paste, from docs/agents.md; null when the docs aren't installed with the dashboard. */
   section: string | null;
   source: string;
-  /** The same instructions as a Claude Code plugin and a Cursor rule: what the project has of each, and their install (agent-skill.ts). */
+  /** The same instructions as skills, in the Claude Code plugin and in `.agents/skills`: what the project has of each, and their install (agent-skill.ts). */
   skill: SkillOffer;
 }
 
@@ -461,6 +461,7 @@ export function redactionSettings(ctx: SettingsContext, options: { runId?: strin
 const AGENT_FILES: Array<{ path: string; agents: string }> = [
   { path: 'CLAUDE.md', agents: 'Claude Code' },
   { path: 'AGENTS.md', agents: 'Codex, Cursor and others' },
+  { path: '.agents/skills', agents: 'Codex, Cursor, GitHub Copilot, Gemini CLI and others' },
   { path: '.cursor/rules', agents: 'Cursor' },
   { path: '.github/copilot-instructions.md', agents: 'GitHub Copilot' },
 ];
@@ -515,9 +516,10 @@ const inside = (path: string, root: string) => {
 
 /**
  * The Coding agents tab: which instruction files the project has and whether each mentions
- * Shadowlap yet, the section to paste, and the plugin and rule that package it: what the project has
- * of each, and their install. Only a yes or no leaves each file, never its text. A
- * `.cursor/rules` folder that is a link to somewhere outside the project is not looked through.
+ * Shadowlap yet, the section to paste, and the plugin and the skills that package it: what the
+ * project has of each, and their install. Only a yes or no leaves each file, never its text. A
+ * folder (`.agents/skills`, `.cursor/rules`) that is a link to somewhere outside the project is not
+ * looked through.
  */
 export function codingAgentsSettings(ctx: Pick<SettingsContext, 'cwd'>, options: { agentsDoc?: string | null; skill?: SkillOffer } = {}): CodingAgentsSettings {
   const files = AGENT_FILES.map(({ path, agents }): AgentFile => {

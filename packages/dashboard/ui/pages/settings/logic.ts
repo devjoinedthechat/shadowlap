@@ -60,7 +60,7 @@ export function shareLinksLine(rules: number | null): { text: string; warn: stri
 
 // ---- coding agents ----
 
-/** The job that puts the Cursor rule or the Claude Code plugin into the project: `shadowlap skill install <agent>`. */
+/** The job that puts the Claude Code plugin or the skills into the project: `shadowlap skill install <agent>`. */
 export const SKILL_INSTALL_KIND = 'skill-install';
 
 /** What an install button says, and whether it asks first: it replaces a copy edited here. */
@@ -77,38 +77,45 @@ export interface AgentFileWords {
 
 /**
  * An instruction file's row, as the design words it: found and mentioning Shadowlap, found without
- * a Shadowlap section yet (amber), or not in this project. CLAUDE.md needs no section once the skill
- * is in the project (`skillHere`): Claude Code has it through the skill.
+ * a Shadowlap section yet (amber), or not in this project. A file whose agents read Shadowlap's
+ * skills from where they are installed needs no section (`covered`, the words that say so):
+ * CLAUDE.md once the plugin is in the project, AGENTS.md and the others once the skills are in
+ * `.agents/skills`.
  */
-export function agentFileWords(file: { found: boolean; mentions: boolean }, skillHere = false): AgentFileWords {
+export function agentFileWords(file: { found: boolean; mentions: boolean }, covered: string | null = null): AgentFileWords {
   if (!file.found) return { text: 'not in this project', tone: 'muted' };
   if (file.mentions) return { text: 'found · mentions Shadowlap', tone: 'ok' };
-  if (skillHere) return { text: 'found · the skill gives Claude Code the section', tone: 'ok' };
+  if (covered) return { text: `found · ${covered}`, tone: 'ok' };
   return { text: 'found · no Shadowlap section yet', tone: 'warn' };
 }
 
 /**
- * The `.cursor/rules` row with the Cursor rule (the design's codingAgentsPanel, and the states it
- * doesn't show from `skillOffer()`): this version's rule reads "found · shadowlap.mdc, 0.1.0" with
- * nothing to do; with none yet, the folder's own words and Add the Cursor rule; one edited here, or
- * another version's (a rule says no version), Replace with 0.1.0's copy…, which asks first; a way
- * that is blocked, the folder's words and why (`why`), with no button.
+ * The `.agents/skills` row with Shadowlap's skills (`skillOffer().agents`): this version's read
+ * "found · shadowlap-setup-agent, shadowlap-debug-agent, 0.1.0" with nothing to do; with none yet,
+ * the folder's own words and Add the skills; another version's, "found · Shadowlap’s skills 0.0.9"
+ * and Update to 0.1.0, asking nothing; ones edited here, Replace with 0.1.0's copy…, which asks
+ * first; a way that is blocked, the folder's words and why (`why`), with no button.
  */
-export function cursorRuleWords(
+export function sharedSkillsWords(
   file: { found: boolean; mentions: boolean },
-  offer: Pick<AgentOffer, 'state' | 'blocked' | 'install'>,
+  offer: Pick<AgentOffer, 'state' | 'blocked' | 'install' | 'installedVersion'>,
   version: string | null,
+  names: readonly string[],
 ): AgentFileWords & { action: AgentAction | null; why: string | null } {
-  const own = agentFileWords(file);
-  if (offer.blocked) return { ...own, action: null, why: offer.blocked };
-  if (offer.state === 'current') return { text: `found · shadowlap.mdc${version ? `, ${version}` : ''}`, tone: 'ok', action: null, why: null };
-  if (offer.state === 'missing') return { ...own, action: offer.install ? { label: 'Add the Cursor rule', ask: false } : null, why: null };
-  return { text: 'found · shadowlap.mdc, edited here or another version’s', tone: 'warn', action: offer.install ? { label: `Replace with ${version ?? 'this version'}’s copy…`, ask: true } : null, why: null };
+  if (offer.blocked) return { ...agentFileWords(file), action: null, why: offer.blocked };
+  if (offer.state === 'current') return { text: `found · ${names.join(', ')}${version ? `, ${version}` : ''}`, tone: 'ok', action: null, why: null };
+  if (offer.state === 'missing') {
+    const own: AgentFileWords = file.found ? { text: 'found · no Shadowlap skills yet', tone: 'warn' } : { text: 'not in this project', tone: 'muted' };
+    return { ...own, action: offer.install ? { label: 'Add the skills', ask: false } : null, why: null };
+  }
+  const to = version ?? 'this version';
+  if (offer.state === 'other-version') return { text: `found · Shadowlap’s skills ${offer.installedVersion ?? ''}`.trimEnd(), tone: 'warn', action: offer.install ? { label: `Update to ${to}`, ask: false } : null, why: null };
+  return { text: 'found · Shadowlap’s skills, edited here', tone: 'warn', action: offer.install ? { label: `Replace with ${to}’s copy…`, ask: true } : null, why: null };
 }
 
 /**
- * The skill's row once the owner has published the plugin (the design's skillPanelRows, and the
- * states MISSING.md words from `skillOffer()`): nothing there, its command and Install the skill;
+ * The skills' row once the owner has published the plugin (the design's skillPanelRows, and the
+ * states MISSING.md words from `skillOffer()`): nothing there, its command and Install the skills;
  * this version's copy, installed; another version's, "0.0.9 in the project" and Update to 0.1.0,
  * asking nothing; one edited here, "Edited here." and Replace with 0.1.0's copy…, which asks first;
  * a way that is blocked, why, with no command and no button.
@@ -123,7 +130,7 @@ export function skillWords(
     case 'current':
       return { installed: true, line: null, tone: '', command: null, action: null };
     case 'missing':
-      return { installed: false, line: null, tone: '', command: command ?? 'shadowlap skill install claude-code', action: command ? { label: 'Install the skill', ask: false } : null };
+      return { installed: false, line: null, tone: '', command: command ?? 'shadowlap skill install claude-code', action: command ? { label: 'Install the skills', ask: false } : null };
     case 'other-version':
       return { installed: false, line: `${offer.installedVersion ?? 'Another version'} in the project.`, tone: 'warn', command, action: command ? { label: `Update to ${version ?? 'this version'}`, ask: false } : null };
     case 'changed':
@@ -317,9 +324,9 @@ export function partialLine(p: { read: number; of: number; stopped?: 'calls' | '
 
 // ---- words ----
 
-/** `a`, `a or b`, `a, b or c`. */
-export function orList(items: readonly string[]): string {
-  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+/** `a`, `a or b`, `a, b or c`; with `and`, `a, b and c`. */
+export function orList(items: readonly string[], word: 'or' | 'and' = 'or'): string {
+  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]}`;
 }
 
 // ---- sizes and counts ----

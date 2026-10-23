@@ -207,15 +207,18 @@ describe('redactionSettings', () => {
 });
 
 describe('codingAgentsSettings', () => {
+  const fileRow = (s: ReturnType<typeof codingAgentsSettings>, path = '.cursor/rules') => s.files.find((f) => f.path === path);
   it('finds the agent files, whether each mentions Shadowlap, and the section to paste from docs/agents.md', () => {
     put('CLAUDE.md', '# Project\n\nUse shadowlap replay to check a fix.\n');
     put('AGENTS.md', '# Agents\n');
     put('.cursor/rules/general.mdc', 'Be brief.');
     put('.cursor/rules/nested/debug.mdc', 'Record runs with Shadowlap.');
+    put('.agents/skills/house-style/SKILL.md', '---\nname: house-style\ndescription: Our style.\n---\n');
     const s = codingAgentsSettings({ cwd });
     expect(s.files).toEqual([
       { path: 'CLAUDE.md', agents: 'Claude Code', found: true, type: 'file', mentions: true },
       { path: 'AGENTS.md', agents: 'Codex, Cursor and others', found: true, type: 'file', mentions: false },
+      { path: '.agents/skills', agents: 'Codex, Cursor, GitHub Copilot, Gemini CLI and others', found: true, type: 'folder', mentions: false },
       { path: '.cursor/rules', agents: 'Cursor', found: true, type: 'folder', mentions: true },
       { path: '.github/copilot-instructions.md', agents: 'GitHub Copilot', found: false, type: null, mentions: false },
     ]);
@@ -225,6 +228,9 @@ describe('codingAgentsSettings', () => {
     expect(s.section).toMatch(/shadowlap/i);
     expect(s.section).not.toContain('```');
     expect(codingAgentsSettings({ cwd }, { agentsDoc: null }).section).toBeNull();
+    // Shadowlap's own skills there mention it.
+    put('.agents/skills/shadowlap-debug-agent/SKILL.md', '---\nname: shadowlap-debug-agent\ndescription: Debug an AI agent whose runs Shadowlap records.\n---\n');
+    expect(fileRow(codingAgentsSettings({ cwd }), '.agents/skills')).toMatchObject({ found: true, type: 'folder', mentions: true });
   });
 
   it('does not look through a rules folder that links outside the project, and stops early in a huge one', () => {
@@ -233,28 +239,28 @@ describe('codingAgentsSettings', () => {
       writeFileSync(join(elsewhere, 'notes.mdc'), 'Record runs with Shadowlap.');
       mkdirSync(join(cwd, '.cursor'), { recursive: true });
       symlinkSync(elsewhere, join(cwd, '.cursor', 'rules'));
-      expect(codingAgentsSettings({ cwd }).files[2]).toEqual({ path: '.cursor/rules', agents: 'Cursor', found: true, type: 'folder', mentions: false });
+      expect(fileRow(codingAgentsSettings({ cwd }))).toEqual({ path: '.cursor/rules', agents: 'Cursor', found: true, type: 'folder', mentions: false });
     } finally {
       rmSync(elsewhere, { recursive: true, force: true });
     }
     rmSync(join(cwd, '.cursor', 'rules'));
     // Deeper than any rules folder goes: not looked at. A folder of hundreds of folders is looked through only in part.
     put('.cursor/rules/a/b/c/d/e/f/mention.mdc', 'shadowlap');
-    expect(codingAgentsSettings({ cwd }).files[2]).toMatchObject({ found: true, type: 'folder', mentions: false });
+    expect(fileRow(codingAgentsSettings({ cwd }))).toMatchObject({ found: true, type: 'folder', mentions: false });
     for (let i = 0; i < 300; i++) put(`.cursor/rules/many/d${String(i).padStart(3, '0')}/x.mdc`, 'nothing here');
     const started = Date.now();
-    expect(codingAgentsSettings({ cwd }).files[2]).toMatchObject({ found: true, type: 'folder', mentions: false });
+    expect(fileRow(codingAgentsSettings({ cwd }))).toMatchObject({ found: true, type: 'folder', mentions: false });
     expect(Date.now() - started).toBeLessThan(2000);
     // A link inside the project is followed.
     rmSync(join(cwd, '.cursor', 'rules'), { recursive: true });
     put('shared-rules/a.mdc', 'Use shadowlap replay.');
     symlinkSync(join(cwd, 'shared-rules'), join(cwd, '.cursor', 'rules'));
-    expect(codingAgentsSettings({ cwd }).files[2]).toMatchObject({ found: true, type: 'folder', mentions: true });
+    expect(fileRow(codingAgentsSettings({ cwd }))).toMatchObject({ found: true, type: 'folder', mentions: true });
   });
 
   it('reads .cursor/rules as one file too', () => {
     put('.cursor/rules', 'nothing about it');
-    expect(codingAgentsSettings({ cwd }).files[2]).toMatchObject({ found: true, type: 'file', mentions: false });
+    expect(fileRow(codingAgentsSettings({ cwd }))).toMatchObject({ found: true, type: 'file', mentions: false });
   });
 
   it('takes the fenced block under its heading', () => {

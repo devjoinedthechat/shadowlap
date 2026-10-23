@@ -8,15 +8,16 @@ import { Store } from '@shadowlap/engine';
 import { departures } from './json-shapes.js';
 
 /**
- * `shadowlap skill install`: the coding agents' plugin and rule, put into the project from the copy
- * that comes with the CLI, as a person runs it and as Settings → Coding agents runs it, through the
- * `skill-install` job. The real commands, so the result the job carries is the one the CLI prints.
+ * `shadowlap skill install`: the coding agents' skills, put into the project from the copy that
+ * comes with the CLI (the Claude Code plugin, or the skills alone in .agents/skills), as a person
+ * runs it and as Settings → Coding agents runs it, through the `skill-install` job. The real
+ * commands, so the result the job carries is the one the CLI prints.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const VERSION = (JSON.parse(readFileSync(join(ROOT, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }).version;
 const SKILL = '.claude/skills/shadowlap/skills/debug-agent/SKILL.md';
-const RULE = '.cursor/rules/shadowlap.mdc';
+const SHARED = '.agents/skills/shadowlap-debug-agent/SKILL.md';
 
 const dirs: string[] = [];
 const scratch = (name: string) => {
@@ -60,7 +61,7 @@ describe('shadowlap skill install', () => {
     const first = await shadowlap(cwd, ['skill', 'install']);
     expect(first.code, first.stderr).toBe(0);
     expect(first.stdout).toContain(`✓ Installed the Claude Code plugin, ${VERSION}, in .claude/skills/shadowlap`);
-    expect(first.stdout).toContain('/shadowlap:debug-agent');
+    expect(first.stdout).toContain('/shadowlap:setup-agent and /shadowlap:debug-agent');
     expect(readFileSync(join(cwd, SKILL), 'utf8')).toBe(readFileSync(join(ROOT, 'coding-agents/claude-code/skills/debug-agent/SKILL.md'), 'utf8'));
     // Installing makes no store where there was none.
     expect(existsSync(join(cwd, '.shadowlap'))).toBe(false);
@@ -89,20 +90,30 @@ describe('shadowlap skill install', () => {
     expect(forced.stdout).toContain(`✓ Updated the Claude Code plugin in .claude/skills/shadowlap to ${VERSION} (1 replaced)`);
   });
 
-  it('puts the Cursor rule into .cursor/rules, and records the install where the project has a store', async () => {
-    const cwd = scratch('cursor');
+  it('puts the skills into .agents/skills by any of its readers’ names, and records the install where the project has a store', async () => {
+    const cwd = scratch('agents');
     mkdirSync(join(cwd, '.shadowlap'));
     Store.open(join(cwd, '.shadowlap', 'shadowlap.db')).close();
     const added = await shadowlap(cwd, ['skill', 'install', 'cursor']);
     expect(added.code, added.stderr).toBe(0);
-    expect(added.stdout).toContain(`✓ Installed the Cursor rule, ${VERSION}, in ${RULE}`);
-    expect(readFileSync(join(cwd, RULE), 'utf8')).toBe(readFileSync(join(ROOT, 'coding-agents/cursor/shadowlap.mdc'), 'utf8'));
-    // Nothing done, nothing recorded.
-    expect((await shadowlap(cwd, ['skill', 'install', 'cursor'])).code).toBe(0);
+    expect(added.stdout).toContain(`✓ Installed Shadowlap’s skills, ${VERSION}, in .agents/skills`);
+    expect(added.stdout).toContain('use shadowlap-setup-agent and shadowlap-debug-agent when a task calls for them');
+    const text = readFileSync(join(cwd, SHARED), 'utf8');
+    expect(text).toMatch(/^---\nname: shadowlap-debug-agent\n/);
+    expect(text).not.toContain('allowed-tools:');
+    // Nothing done, nothing recorded: codex and agents are the same folder.
+    const again = await shadowlap(cwd, ['skill', 'install', 'codex', '--json']);
+    expect(again.code).toBe(0);
+    expect(JSON.parse(again.stdout)).toMatchObject({ agent: 'agents', path: '.agents/skills', before: 'current', outcome: 'unchanged' });
+    const kiro = await shadowlap(cwd, ['skill', 'install', 'kiro']);
+    expect(kiro.stdout).toContain(`✓ Installed Shadowlap’s skills, ${VERSION}, in .kiro/skills`);
+    expect(kiro.stdout).toContain('Kiro read skills from there');
     const store = Store.open(join(cwd, '.shadowlap', 'shadowlap.db'));
     try {
       expect(store.listEvents().map((e) => ({ kind: e.kind, ref: e.ref, actor: e.actor, data: e.data }))).toEqual([
-        { kind: 'skill.installed', ref: 'cursor', actor: 'dana@example.com', data: { path: RULE, version: VERSION, outcome: 'installed', previous: null } },
+        // Newest first.
+        { kind: 'skill.installed', ref: 'kiro', actor: 'dana@example.com', data: { path: '.kiro/skills', version: VERSION, outcome: 'installed', previous: null } },
+        { kind: 'skill.installed', ref: 'agents', actor: 'dana@example.com', data: { path: '.agents/skills', version: VERSION, outcome: 'installed', previous: null } },
       ]);
     } finally {
       store.close();
@@ -110,9 +121,9 @@ describe('shadowlap skill install', () => {
   });
 
   it('refuses an agent it has nothing for', async () => {
-    const r = await shadowlap(scratch('codex'), ['skill', 'install', 'codex']);
+    const r = await shadowlap(scratch('vim'), ['skill', 'install', 'vim']);
     expect(r.code).toBe(1);
-    expect(r.stderr).toMatch(/Allowed choices are claude-code, cursor/);
+    expect(r.stderr).toMatch(/Allowed choices are claude-code, agents, kiro, codex, cursor, copilot/);
   });
 });
 
@@ -138,7 +149,7 @@ describe('Settings → Coding agents, from shadowlap dashboard', () => {
     expect(job.done, job.lines.join('\n')).toBe(true);
     return job;
   }
-  const agents = async () => ((await (await api('settings/agents')).json()) as { skill: { claudeCode: Record<string, unknown>; cursor: Record<string, unknown> } }).skill;
+  const agents = async () => ((await (await api('settings/agents')).json()) as { skill: { claudeCode: Record<string, unknown>; agents: Record<string, unknown> } }).skill;
 
   beforeAll(async () => {
     cwd = scratch('dashboard');
@@ -165,29 +176,29 @@ describe('Settings → Coding agents, from shadowlap dashboard', () => {
   });
   it('runs the install the tab offers, and then reads it as current', async () => {
     const before = await agents();
-    expect(before.cursor).toMatchObject({ state: 'missing', install: { job: { kind: 'skill-install', agent: 'cursor', replace: false } } });
-    const job = await run((before.cursor.install as { job: unknown }).job);
+    expect(before.agents).toMatchObject({ state: 'missing', install: { job: { kind: 'skill-install', agent: 'agents', replace: false } } });
+    const job = await run((before.agents.install as { job: unknown }).job);
     expect(job.code, job.lines.join('\n')).toBe(0);
-    expect(job.result).toMatchObject({ agent: 'cursor', path: RULE, outcome: 'installed', version: VERSION });
-    expect(existsSync(join(cwd, RULE))).toBe(true);
-    expect((await agents()).cursor).toMatchObject({ state: 'current', install: null });
+    expect(job.result).toMatchObject({ agent: 'agents', path: '.agents/skills', outcome: 'installed', version: VERSION });
+    expect(existsSync(join(cwd, SHARED))).toBe(true);
+    expect((await agents()).agents).toMatchObject({ state: 'current', installedVersion: VERSION, install: null });
 
-    // The plugin, as the job a published Install the skill starts.
+    // The plugin, as the job a published Install the skills starts.
     const plugin = await run({ kind: 'skill-install', agent: 'claude-code' });
     expect(plugin.code).toBe(0);
     expect(plugin.result).toMatchObject({ agent: 'claude-code', outcome: 'installed' });
     expect((await agents()).claudeCode).toMatchObject({ state: 'current', installedVersion: VERSION, install: null, marketplace: null });
 
     // An edit, then Replace: the job with replace runs it with --force.
-    writeFileSync(join(cwd, RULE), 'edited');
-    const offered = (await agents()).cursor as { state: string; install: { job: Record<string, unknown> } };
+    writeFileSync(join(cwd, SHARED), 'edited');
+    const offered = (await agents()).agents as { state: string; install: { job: Record<string, unknown> } };
     expect(offered.state).toBe('changed');
     const replaced = await run(offered.install.job);
-    expect(replaced.result).toMatchObject({ before: 'changed', outcome: 'updated', files: [{ path: RULE, action: 'replaced' }] });
+    expect(replaced.result).toMatchObject({ before: 'changed', outcome: 'updated', files: [{ path: SHARED, action: 'replaced' }, { path: '.agents/skills/shadowlap-setup-agent/SKILL.md', action: 'unchanged' }] });
 
     // And the activity feed says so.
     const feed = JSON.stringify(await (await api('activity')).json());
-    expect(feed).toContain('Cursor rule added');
-    expect(feed).toContain('Claude Code skill installed');
+    expect(feed).toContain('Skills added to .agents/skills');
+    expect(feed).toContain('Claude Code skills installed');
   }, 60_000);
 });

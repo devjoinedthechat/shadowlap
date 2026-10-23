@@ -1,14 +1,15 @@
 name: Coding agents
 
-# The Claude Code plugin's skill, the Cursor rule and the section docs/agents.md gives to paste tell
+# The skills (in the Claude Code plugin, and as `shadowlap skill install agents` copies them into
+# .agents/skills for the other coding agents) and the section docs/agents.md gives to paste tell
 # coding agents which shadowlap commands to run. This job runs every command they name against the
 # reference agent, with the scripted fake of the Anthropic API (no key, no model), checks that the
 # JSON fields they say to read are there and that the checks they show parse, so the instructions
-# never drift from the CLI. The same tests hold the skill's frontmatter and the Cursor rule to their
-# formats (testing/coding-agents/test/formats.test.ts). Then Claude Code's own validator checks the
-# plugin's manifest, the repository's marketplace file and the copy `shadowlap skill install` puts in
-# a project; it reads a skill only for its description, which is why the format checks are in the
-# tests.
+# never drift from the CLI. The same tests hold the skills' frontmatter and their shared copies to
+# their formats (testing/coding-agents/test/formats.test.ts). Then Claude Code's own validator checks
+# the plugin's manifest, the repository's marketplace file and the copy `shadowlap skill install`
+# puts in a project; it reads a skill only for its description, so the Agent Skills format's
+# reference validator checks every skill and every copy in .agents/skills as well.
 on:
   push:
     branches: [main]
@@ -52,3 +53,13 @@ jobs:
           mkdir "$RUNNER_TEMP/project"
           (cd "$RUNNER_TEMP/project" && node "$GITHUB_WORKSPACE/packages/cli/bin/shadowlap.js" skill install)
           npx --yes @anthropic-ai/claude-code@2.1.292 plugin validate --strict "$RUNNER_TEMP/project/.claude/skills/shadowlap"
+      - name: Validate the skills, and the copies installed in .agents/skills, with the Agent Skills reference validator
+        # skills-ref is the format's own validator (agentskills.io); pinned, as the one above is.
+        env:
+          SHADOWLAP_TELEMETRY: '0'
+        run: |
+          mkdir "$RUNNER_TEMP/agents"
+          (cd "$RUNNER_TEMP/agents" && node "$GITHUB_WORKSPACE/packages/cli/bin/shadowlap.js" skill install agents)
+          for skill in coding-agents/claude-code/skills/* "$RUNNER_TEMP"/agents/.agents/skills/*; do
+            pipx run --spec skills-ref==0.1.1 agentskills validate "$skill"
+          done

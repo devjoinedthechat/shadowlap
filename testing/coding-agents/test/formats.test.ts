@@ -1,57 +1,77 @@
-// The Claude Code plugin, its skill and the Cursor rule in coding-agents/ are installed by tools with
-// formats of their own: a plugin manifest and a marketplace file Claude Code reads, a SKILL.md in the
-// Agent Skills format (whose frontmatter claude.ai and the Skills API also take), and a Cursor
-// project rule. These checks hold the files to those formats, to each other and to the CLI's
-// version; CI also runs Claude Code's own validator on them (.github/workflows/coding-agents.yml).
+// The Claude Code plugin and its skills in coding-agents/ are installed by tools with formats of their
+// own: a plugin manifest and a marketplace file Claude Code reads, and SKILL.md files in the Agent
+// Skills format, which claude.ai and the Skills API take too, and which `shadowlap skill install
+// agents` copies into the folder most other coding agents read skills from, under names of their own.
+// These checks hold the files to those formats, to each other and to the CLI's version; CI also runs
+// Claude Code's own validator and the format's reference validator on them
+// (.github/workflows/coding-agents.yml).
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CURSOR_RULE, SKILL_COMMAND, SKILL_PLUGIN, SKILL_REPOSITORY } from '../../../packages/dashboard/src/agent-skill.js';
+import { SKILLS as PLUGIN_SKILLS, SKILL_PLUGIN, SKILL_REPOSITORY, shippedFiles } from '../../../packages/dashboard/src/agent-skill.js';
 import { agentsSection } from '../../../packages/dashboard/src/settings.js';
-import { DISPLAY_FIELDS, PLUGIN_DIR, ROOT, SKILL_FILE, frontmatter, read } from './instructions.js';
+import { DISPLAY_FIELDS, PLUGIN_DIR, ROOT, SKILLS, frontmatter, read, skillFile } from './instructions.js';
 
 const plugin = JSON.parse(read(`${PLUGIN_DIR}/.claude-plugin/plugin.json`)) as Record<string, unknown> & { name: string; version: string; license: string; author?: { name?: string } };
 const marketplace = JSON.parse(read('.claude-plugin/marketplace.json')) as { name: string; owner?: { name?: string }; plugins: Array<Record<string, unknown> & { name: string; source: string }> };
-const skills = readdirSync(join(ROOT, PLUGIN_DIR, 'skills'));
 
-describe('the skill', () => {
-  it('is one skill, named as its folder, in the Agent Skills format', () => {
-    expect(skills).toEqual(['debug-agent']);
-    const { fields, body } = frontmatter(read(SKILL_FILE));
-    // The fields claude.ai uploads and the Skills API accept; Claude Code takes more, but a skill
-    // that keeps to these installs everywhere.
-    expect([...fields.keys()].filter((k) => !['name', 'description', 'license', 'compatibility', 'metadata', 'allowed-tools'].includes(k))).toEqual([]);
-    const name = fields.get('name')!;
-    expect(name).toBe('debug-agent');
-    expect(name).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
-    expect(name.length).toBeLessThanOrEqual(64);
-    const description = fields.get('description')!;
-    expect(description.length).toBeGreaterThan(0);
-    expect(description.length).toBeLessThanOrEqual(1024);
-    expect(fields.get('license')).toBe(plugin.license);
-    expect(fields.get('compatibility')!.length).toBeLessThanOrEqual(500);
-    expect(body.split('\n').length).toBeLessThan(500);
+/** What each skill may run without asking in Claude Code: commands that only read the store or check the setup. */
+const PRE_APPROVED: Record<string, string[]> = {
+  'debug-agent': ['ls', 'show', 'search', 'diff', 'fix ls', 'fix show'],
+  'setup-agent': ['ls', 'show', 'doctor'],
+};
+
+describe('the skills', () => {
+  it('are the plugin’s, each named as its folder, in the Agent Skills format, at the CLI’s version', () => {
+    expect(readdirSync(join(ROOT, PLUGIN_DIR, 'skills')).sort()).toEqual([...SKILLS].sort());
+    for (const name of SKILLS) {
+      const { fields, body } = frontmatter(read(skillFile(name)));
+      // The fields claude.ai uploads and the Skills API accept; Claude Code takes more, but a skill
+      // that keeps to these installs everywhere.
+      expect([...fields.keys()].filter((k) => !['name', 'description', 'license', 'compatibility', 'allowed-tools'].includes(k) && !k.startsWith('metadata.')), name).toEqual([]);
+      expect(fields.get('name')).toBe(name);
+      expect(name).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+      expect(name.length).toBeLessThanOrEqual(64);
+      const description = fields.get('description')!;
+      expect(description.length, name).toBeGreaterThan(0);
+      expect(description.length, name).toBeLessThanOrEqual(1024);
+      // Claude reads only the description to decide when to load a skill: it says when.
+      expect(description, name).toMatch(/\. Use it (when|whenever) /);
+      expect(fields.get('license')).toBe(plugin.license);
+      expect(fields.get('compatibility')!.length).toBeLessThanOrEqual(500);
+      // A copy outside the plugin has no manifest: it says its version here.
+      expect(fields.get('metadata.version'), name).toBe(plugin.version);
+      expect(body.split('\n').length).toBeLessThan(500);
+    }
   });
 
-  it('pre-approves read-only commands only', () => {
-    const allowed = frontmatter(read(SKILL_FILE)).fields.get('allowed-tools')!;
-    const rules = [...allowed.matchAll(/Bash\(shadowlap ([a-z ]+?) \*\)/g)].map((m) => m[1]);
-    expect(allowed.replace(/Bash\(shadowlap [a-z ]+? \*\)/g, '').trim(), 'only Bash(shadowlap <command> *) rules').toBe('');
-    // Each only reads the store (search keeps its index there); none runs the agent or changes a run.
-    expect(rules).toEqual(['ls', 'show', 'search', 'diff', 'fix ls']);
+  it('pre-approve read-only commands only', () => {
+    for (const name of SKILLS) {
+      const allowed = frontmatter(read(skillFile(name))).fields.get('allowed-tools')!;
+      const rules = [...allowed.matchAll(/Bash\(shadowlap ([a-z ]+?) \*\)/g)].map((m) => m[1]);
+      expect(allowed.replace(/Bash\(shadowlap [a-z ]+? \*\)/g, '').trim(), `${name}: only Bash(shadowlap <command> *) rules`).toBe('');
+      // Each only reads the store (search keeps its index there) or checks the setup; none runs the agent or changes a run.
+      expect(rules, name).toEqual(PRE_APPROVED[name]);
+    }
   });
 });
 
-describe('the Cursor rule', () => {
-  it('is a project rule Agent applies when it finds it relevant, holding the skill’s instructions', () => {
-    const skill = frontmatter(read(SKILL_FILE));
-    const rule = frontmatter(read(CURSOR_RULE.source));
-    expect(CURSOR_RULE.source.endsWith('.mdc'), 'Cursor reads rules only from .mdc files').toBe(true);
-    // No globs and alwaysApply false: Cursor's "Apply Intelligently", decided by the description.
-    expect([...rule.fields.keys()].sort()).toEqual(['alwaysApply', 'description']);
-    expect(rule.fields.get('alwaysApply')).toBe('false');
-    expect(rule.fields.get('description')).toBe(skill.fields.get('description'));
-    expect(rule.body, `${CURSOR_RULE.source} holds the text of the skill after its frontmatter, word for word`).toBe(skill.body);
+describe('the skills in .agents/skills', () => {
+  it('are the plugin’s, each named shadowlap-<name> as its folder is, without Claude Code’s pre-approvals', () => {
+    const files = shippedFiles('agents', join(ROOT, 'coding-agents'));
+    expect(files.map((f) => f.rel)).toEqual([...SKILLS].sort().map((name) => `shadowlap-${name}/SKILL.md`));
+    for (const f of files) {
+      const name = f.rel.slice('shadowlap-'.length, -'/SKILL.md'.length);
+      const original = frontmatter(read(skillFile(name)));
+      const shared = frontmatter(f.bytes.toString('utf8'));
+      // The format wants a skill's name to be its folder's; in a folder every tool's skills share, the prefix keeps ours apart.
+      expect(shared.fields.get('name')).toBe(`shadowlap-${name}`);
+      expect(PLUGIN_SKILLS.find((s) => s.name === name)?.shared).toBe(`shadowlap-${name}`);
+      // allowed-tools names Claude Code's tools: other agents name theirs otherwise.
+      expect(shared.fields.has('allowed-tools')).toBe(false);
+      for (const [key, value] of original.fields) if (key !== 'name' && key !== 'allowed-tools') expect(shared.fields.get(key), `${name}: ${key}`).toBe(value);
+      expect(shared.body, `${name}: the same instructions, word for word`).toBe(original.body);
+    }
   });
 });
 
@@ -88,9 +108,8 @@ describe('the plugin', () => {
 
   it('is what Settings → Coding agents will offer to install', () => {
     expect(SKILL_PLUGIN).toBe(`${plugin.name}@${marketplace.name}`);
-    expect(SKILL_COMMAND).toBe(`/${plugin.name}:${skills[0]}`);
+    for (const s of PLUGIN_SKILLS) expect(s.command).toBe(`/${plugin.name}:${s.name}`);
     expect(String(plugin.repository)).toBe(`https://github.com/${SKILL_REPOSITORY}`);
-    expect(existsSync(join(ROOT, CURSOR_RULE.source))).toBe(true);
   });
 });
 
@@ -98,13 +117,12 @@ describe('the section docs/agents.md gives to paste', () => {
   it('is there, as Settings shows it, and tells where the packaged instructions are and how each installs', () => {
     const doc = read('docs/agents.md');
     expect(agentsSection(doc)).toMatch(/shadowlap replay/);
-    expect(doc).toContain(CURSOR_RULE.source);
     // Into the project, from the copy that came with the CLI; or everywhere, pinned to the CLI's
     // version, with the update that moves an earlier install to it (installing again doesn't).
     const everywhere = [`claude plugin marketplace add ${SKILL_REPOSITORY}@v$(shadowlap --version)\n`, `claude plugin install ${SKILL_PLUGIN}\n`, `claude plugin update ${SKILL_PLUGIN}\n`];
-    for (const line of ['shadowlap skill install\n', 'shadowlap skill install cursor\n', ...everywhere]) expect(doc, line).toContain(line);
+    for (const line of ['shadowlap skill install\n', 'shadowlap skill install agents\n', 'shadowlap skill install kiro\n', ...everywhere]) expect(doc, line).toContain(line);
     // The plugin's README, which GitHub shows in its folder, gives the same.
     const readme = read(`${PLUGIN_DIR}/README.md`);
-    for (const line of ['shadowlap skill install\n', ...everywhere]) expect(readme, line).toContain(line);
+    for (const line of ['shadowlap skill install\n', 'shadowlap skill install agents\n', ...everywhere]) expect(readme, line).toContain(line);
   });
 });
