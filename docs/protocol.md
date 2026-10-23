@@ -220,8 +220,23 @@ Optional. Reports an outbound connection that bypassed Shadowlap, for the networ
 { "target": "api.example.com:443", "action": "blocked" | "warned" }
 ```
 
-Answers `202`. `target` is truncated to 300 characters. A client that does not intercept the
-network can ignore this endpoint entirely.
+Answers `202`. `target` is truncated to 300 characters; a UDP target is named `udp://host:port`. A
+client that does not intercept the network can ignore this endpoint entirely.
+
+### `POST /v1/hello`
+
+Optional. A preload says it loaded in one process of the agent, once, when it has set itself up:
+
+```json
+{ "runtime": "node", "runtimeVersion": "22.16.0", "pid": 4242, "ppid": 4241, "guard": "warn" | "block" | "off", "capture": true }
+```
+
+Answers `202`, or `409` when the run has ended. The sidecar counts processes by `pid`, so a second
+hello from one process (a worker thread's) changes nothing. A run the CLI started its agent for that
+made model or tool calls with no hello from any process was never watched by the network guard: its
+summary says so, and under `--guard block` it fails. A client that loads no preload sends none. The
+sidecar also reads `x-shadowlap-sdk` (`python/0.1.0`) on a hello, as on every `/v1/calls/*` request,
+and names an SDK whose major.minor differs from its own once per run.
 
 ## Errors
 

@@ -98,15 +98,36 @@ Or let one replay run it anyway: `--allow-unrecorded Bash` (names separated by c
 
 ## The network guard
 
-Only calls that go through Shadowlap can be replayed; a tool that isn't wrapped (a direct database client, a raw `fetch`) would execute during a replay with nothing to say so. The guard closes that hole without code changes: `shadowlap run`, `replay` and `test` preload a small module into the agent process (Node through `NODE_OPTIONS --import`, which needs Node 18.18 or later; Python through a `sitecustomize` on `PYTHONPATH`; other runtimes ignore both) that intercepts every outbound socket connection. The sidecar is allowed. Anything else is a side effect Shadowlap cannot replay:
+Only calls that go through Shadowlap can be replayed; a tool that isn't wrapped (a direct database client, a raw `fetch`) would execute during a replay with nothing to say so. The guard closes that hole without code changes: `shadowlap run`, `replay` and `test` preload a small module into the agent process (Node through `NODE_OPTIONS --import`, which needs Node 18.18 or later; Python through a `sitecustomize` on `PYTHONPATH`; other runtimes ignore both) that intercepts every outbound connection and every UDP datagram the process sends. The sidecar is allowed. Anything else is a side effect Shadowlap cannot replay:
 
 - `--guard warn` (default for `run` and `replay`): the connection proceeds, a one-line warning names the host on stderr, and the run summary lists every bypassing target with a count.
-- `--guard block` (default for `shadowlap test`): the connection is refused before any bytes leave, with an error the agent can catch (`ESHADOWLAP` in Node, `OSError` in Python).
+- `--guard block` (default for `shadowlap test`): the connection is refused before any bytes leave, with an error the agent can catch (`ESHADOWLAP` in Node, `OSError` with `EPERM` in Python).
 - `--guard off`: nothing is intercepted.
 
 `SHADOWLAP_GUARD_ALLOW=host:port,host:port` whitelists targets you accept (a local database in development, for example). Unix sockets and pipes are local IPC and always allowed. The guard also runs during recording, so a recording's summary already tells you which hosts your agent talks to outside Shadowlap, before you ever replay. The run keeps the list too, for its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from).
 
 Node names a target by the host the agent asked for. Python connects to the address a name resolved to, so its guard names a target by the names that resolved to that address (`api.stripe.com:443`, not the address); when several did, as behind a CDN or a shared load balancer, the address is shown with all of them (`104.18.7.1:443 (api.example.com, cdn.example.com)`). Since those hosts can't be told apart when the connection opens, an allowed host name lets a Python connection through only while every name that resolved to its address is allowed. Allow the address itself (`104.18.7.1:443`) to let them all through.
+
+### What it sees
+
+| Runtime | Connections | UDP |
+|---|---|---|
+| Node | every TCP connection, through `net.Socket`: `net`, `tls`, `http`, `https`, `http2`, `fetch` and `WebSocket` | `dgram` sends and connects |
+| Python | `socket.connect` and `connect_ex`; asyncio's selector loop, which connects through them, its proactor loop (Windows' default), which doesn't, and uvloop | `sendto`, `sendmsg` and `connect` on a datagram socket, asyncio's datagram endpoints and transports, and uvloop's |
+
+The proactor loop and uvloop are guarded when the agent first imports them, so an agent that never does pays nothing. A UDP target is listed once per process as `udp://host:port`, however many datagrams went to it; under block every one is refused, through the send's callback or `error` event in Node, as `OSError` from the send in Python, or through a datagram protocol's `error_received`, as a failed send reaches it. A name lookup through `getaddrinfo`, which Node's `dns.lookup` and Python's resolver both use, makes no connection the guard sees, and a DNS query a client sends itself (UDP to port 53) is left alone: a lookup reads nothing of yours and changes nothing.
+
+### Knowing it loaded
+
+A guard that never loaded can't say anything, so each Node and Python process says when its preload has: once, to the sidecar, with its runtime and process ids, the guard it set up and whether in-process capture is on. A run that made model or tool calls with no such word from any of its processes was never watched, and its summary says so, with the likely cause: the agent runs on a runtime with no preload (Go, Rust, Java, and Bun or Deno, which the summary names when the command shows them), a launcher reset its environment (`env -i`, `sudo`, `docker exec`), a script set `NODE_OPTIONS` or `PYTHONPATH` anew, Python ran with `-I`, `-E` or `-S`, or `opentelemetry-instrument` put its own `sitecustomize` first. Under `--guard block` such a run fails with that line, so `shadowlap test` fails its golden: replay it with `--guard warn` to accept a run the guard can't watch. `--guard off` expects nothing. The run keeps how many processes of each runtime loaded the preload, and `shadowlap doctor` explains the newest run whose agent had none.
+
+### What it can't see
+
+The guard sits in the runtime's own network layer, so what bypasses that layer bypasses the guard:
+
+- **Libraries that open sockets in C.** libpq (under `psycopg` and `psycopg2`), `mysqlclient`, `grpcio`, `confluent-kafka` and Node's native addons such as `pg-native` connect from their C code, out of its sight: a database write through one runs on every replay, under `--guard block` too, and no summary lists it. Wrap such calls as tools (`tool()` in the TypeScript SDK, `@shadowlap.tool` in Python) with a `write` effect, so they are recorded, replayed and fenced after a fork; or, in development, point them at a local instance you are happy to see written to. Pure-language clients (`asyncpg`, `pymongo`, `redis`, `pg`, `mysql2`) connect through the runtime and are seen.
+- **Processes without its environment.** A child started with a minimal environment (a stdio MCP server, `env -i`, `sudo`, a container) loads no preload; [`shadowlap mcp`](./mcp.md) records an MCP server's tool calls instead. A worker thread started from a string of code (`new Worker(code, { eval: true })`) loads none either; one started from a file does.
+- **What isn't the network.** File writes, a subprocess's own effects and anything else local are no connection: wrap them as tools too.
 
 ## Keys
 
