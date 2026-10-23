@@ -1,4 +1,5 @@
 import { basename } from 'node:path';
+import { links } from '@shadowlap/dashboard';
 import { recordEvent, type Store } from '@shadowlap/engine';
 import { append, IMPORTED_LABEL, type ImportedCall, type ImportResult, type Skip } from './import-capture.js';
 import { emitJobEvent } from './job-events.js';
@@ -98,13 +99,11 @@ const IMPORT_LINKS = 3;
 
 /**
  * The Runs page filtered to an import's runs: the label every imported run carries, and the source
- * they share (a dashboard import names it with --name). Every character a link's fragment can't
- * hold as it is, escaped.
+ * they share (a dashboard import names it with --name), escaped as the dashboard's links are.
  */
 export function importedRunsLink(runs: ReadonlyArray<Pick<ImportJsonRun, 'source'>>): string {
   const sources = new Set(runs.map((r) => sourceName(r.source)));
-  const q = sources.size === 1 ? `${IMPORTED_LABEL} ${[...sources][0]!}` : IMPORTED_LABEL;
-  return `#/runs?q=${encodeURIComponent(q).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`;
+  return links.runs({ q: sources.size === 1 ? `${IMPORTED_LABEL} ${[...sources][0]!}` : IMPORTED_LABEL });
 }
 
 /**
@@ -139,7 +138,7 @@ export function reportImportJob(json: ImportJson, env: NodeJS.ProcessEnv = proce
   // A dashboard job opens the run it made. One that made a few links each (a LiteLLM file holds a run
   // per correlation id); past that, the Runs page, filtered to them, lists them all.
   if (runs.length > IMPORT_LINKS) emitJobEvent({ type: 'link', label: `All ${runs.length} on Runs`, href: importedRunsLink(runs) }, env);
-  else if (runs.length > 1) for (const r of runs) emitJobEvent({ type: 'link', label: `Open ${r.runId.slice(0, 10)}`, href: `#/run/${r.runId}` }, env);
+  else if (runs.length > 1) for (const r of runs) emitJobEvent({ type: 'link', label: `Open ${r.runId.slice(0, 10)}`, href: links.run(r.runId) }, env);
   emitJobEvent({ type: 'result', data: json }, env);
 }
 

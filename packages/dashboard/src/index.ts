@@ -3,6 +3,8 @@ export type { Dashboard, DashboardOptions } from './server.js';
 export { cliSpawner, JobManager, KEEP_JOBS, MAX_RUNNING, STOP_GRACE_MS } from './jobs.js';
 export type { JobBuild, JobBuildContext, JobBuildResult, JobKind, JobRequest, ProjectInfo, SpawnCli, SpawnCliOptions, UploadSource } from './jobs.js';
 export { Router } from './router.js';
+// The page's links, #/…: one builder for the server, the page and the links a command reports to its job.
+export { isLink, links, type LinkView, type RunsLinkType } from './links.js';
 export type { Handler, Method, RouteOptions, RouteRequest } from './router.js';
 export type { ProjectConfig, RouteContext } from './context.js';
 export type { RouteModule } from './routes/index.js';
