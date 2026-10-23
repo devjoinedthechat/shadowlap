@@ -535,6 +535,9 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
     writeFileSync(join(project, 'agent.mjs'), `${readFileSync(join(project, 'agent.mjs'), 'utf8')}// changed, not committed\n`);
     writeFileSync(join(project, 'notes.txt'), 'untracked note');
     writeFileSync(join(project, '.env.local'), 'IGNORED=1');
+    // The project's own post-checkout hook, which a candidate's worktree is checked out without.
+    const hookLog = join(project, '.shadowlap', 'hook.log');
+    writeFileSync(join(project, '.git', 'hooks', 'post-checkout'), `#!/bin/sh\necho ran >> "${hookLog}"\n`, { mode: 0o755 });
     const live = join(project, 'agent.mjs');
     const before = { text: readFileSync(live, 'utf8'), mtime: statSync(live).mtimeMs };
     mode = 'alternate';
@@ -561,8 +564,9 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
     expect(verified.some((l) => l.self.includes(FIX))).toBe(true);
     expect(readFileSync(live, 'utf8')).toBe(before.text);
     expect(statSync(live).mtimeMs).toBe(before.mtime);
-    // Every worktree is gone, and git keeps nothing of them.
+    // Every worktree is gone, and git keeps nothing of them; none ran the project's hook.
     expect(sh(project, 'git', ['worktree', 'list', '--porcelain']).split('\n').filter((l) => l.startsWith('worktree '))).toHaveLength(1);
+    expect(existsSync(hookLog)).toBe(false);
     expect(sh(project, 'git', ['status', '--porcelain'])).toBe(' M agent.mjs\n?? notes.txt\n');
   });
 

@@ -25,8 +25,8 @@ import { physicalPath } from './real-path.js';
 /** What is copied of the files git ignores, at most, before the rest is linked instead. */
 export const COPY_LIMIT = 256 * 1024 * 1024;
 
-/** Caches a runtime or a tool makes again: neither copied nor linked. */
-const REMADE = new Set(['__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.nox', '.cache', '.turbo', '.parcel-cache', '.eslintcache']);
+/** Caches Python and its tools make again: neither copied nor linked. */
+const REMADE = new Set(['__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.nox']);
 
 /** The folder the worktrees of one repair go under, in the system's temporary folder: `shadowlap-repair-…`. */
 const PREFIX = 'shadowlap-repair-';
@@ -101,7 +101,10 @@ export function candidateTree(root: string, cwd: string): CandidateTree {
   try {
     const head = gitOk(realRoot, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
     if (head) {
-      git(realRoot, ['worktree', 'add', '--detach', '--force', tree, 'HEAD']);
+      // Without the repository's hooks: a post-checkout hook (an install, say) is the project's, not a candidate's.
+      const hooks = join(base, 'no-hooks');
+      mkdirSync(hooks);
+      git(realRoot, ['-c', `core.hooksPath=${hooks}`, 'worktree', 'add', '--detach', '--force', tree, 'HEAD']);
       made = true;
     } else mkdirSync(tree);
     // The working tree's own files: the ones changed since HEAD (or, with no commit yet, every one)
