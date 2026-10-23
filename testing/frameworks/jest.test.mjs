@@ -51,9 +51,9 @@ describe('@shadowlap/test with Jest', { skip: existsSync(JEST) ? false : 'jest i
   it('records each wrapped test beside its file, named after the test, the client made at import included', async () => {
     const r = await jest({ DIRECT_MODEL: model() });
     assert.equal(r.code, 0, r.out);
-    assert.ok(existsSync(recording('agent.test.cjs', 'the-triage-agent-triages-the-inbox')), r.out);
-    assert.ok(existsSync(recording('agent.test.cjs', 'answers-one-item')));
-    for (const n of [2, 3, 4]) assert.ok(existsSync(recording('second.test.cjs', `answers-item-${n}`)));
+    assert.ok(existsSync(recording('agent.spec.cjs', 'the-triage-agent-triages-the-inbox')), r.out);
+    assert.ok(existsSync(recording('agent.spec.cjs', 'answers-one-item')));
+    for (const n of [2, 3, 4]) assert.ok(existsSync(recording('second.spec.cjs', `answers-item-${n}`)));
     // Five recorded model calls, and the unrecorded test's own.
     assert.equal(hits, 6);
     assert.equal(toolRuns(), 3);
