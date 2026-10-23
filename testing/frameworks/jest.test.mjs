@@ -1,6 +1,7 @@
 // @shadowlap/test through real Jest (globalSetup, globalTeardown and its test environment), with a
-// CommonJS suite as Jest runs one by default: tests record on their first run, replay offline after
-// that in parallel workers, and fail with the divergence when a request changes.
+// CommonJS suite as Jest runs one by default, and an ES module file under its ES module support: tests
+// record on their first run, replay offline after that in parallel workers, and fail with the
+// divergence when a request changes.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -38,11 +39,11 @@ describe('@shadowlap/test with Jest', { skip: existsSync(JEST) ? false : 'jest i
   });
 
   const model = () => `http://127.0.0.1:${mock.address().port}`;
-  function jest(env = {}) {
+  function jest(env = {}, config = 'jest.config.cjs') {
     return new Promise((resolve) => {
       const full = { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', TOOL_LOG: join(project, 'tools.log'), SHADOWLAP_UPSTREAM_ANTHROPIC: model(), ...env };
       for (const k of ['CI', 'SHADOWLAP_RECORD', 'SHADOWLAP_URL', 'SHADOWLAP_RUN_ID', 'ANTHROPIC_BASE_URL', 'SHADOWLAP_TEST_HOST', 'NODE_OPTIONS', 'JEST_WORKER_ID']) if (!(k in env)) delete full[k];
-      execFile(process.execPath, [JEST, '--config', 'jest.config.cjs', '--maxWorkers=2', '--ci=false'], { cwd: project, env: full, encoding: 'utf8', timeout: 180_000 }, (err, stdout, stderr) => resolve({ code: err ? (err.code ?? 1) : 0, out: stdout + stderr }));
+      execFile(process.execPath, [JEST, '--config', config, '--maxWorkers=2', '--ci=false'], { cwd: project, env: full, encoding: 'utf8', timeout: 180_000 }, (err, stdout, stderr) => resolve({ code: err ? (err.code ?? 1) : 0, out: stdout + stderr }));
     });
   }
   const recording = (...parts) => join(project, '__recordings__', ...parts, 'run.json');
@@ -66,6 +67,18 @@ describe('@shadowlap/test with Jest', { skip: existsSync(JEST) ? false : 'jest i
     assert.match(r.out, /Tests:\s+6 passed/);
     assert.equal(hits, hitsBefore);
     assert.equal(toolRuns(), toolsBefore);
+  });
+
+  it('records and replays an ES module test file, under Jest\'s ES module support', async () => {
+    const esm = (env) => jest({ NODE_OPTIONS: '--experimental-vm-modules', ...env }, 'jest.esm.config.cjs');
+    const hitsBefore = hits;
+    const first = await esm({});
+    assert.equal(first.code, 0, first.out);
+    assert.ok(existsSync(recording('esm.spec.mjs', 'answers-as-an-ES-module')), first.out);
+    assert.equal(hits - hitsBefore, 1);
+    const again = await esm({ SHADOWLAP_UPSTREAM_ANTHROPIC: 'http://127.0.0.1:9', CI: 'true' });
+    assert.equal(again.code, 0, again.out);
+    assert.equal(hits - hitsBefore, 1);
   });
 
   it('fails a test whose request changed, with the diff', async () => {
