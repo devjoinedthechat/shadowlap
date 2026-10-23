@@ -1428,7 +1428,39 @@ export function closestName(name: string, known: Iterable<string>): string | nul
 export function parseTests(raw: unknown): TestEntry[] {
   if (raw === undefined) return [];
   if (!isObject(raw)) throw new Error(`${CONFIG}: "tests" must map recording directories to their checks`);
-  return Object.entries(raw).map(([recording, spec]) => ({ recording, spec: parseSpec(spec, `${CONFIG}: tests["${recording}"]`) }));
+  parseTestSettings(raw);
+  return Object.entries(raw)
+    .filter(([key]) => !(TEST_SETTINGS as readonly string[]).includes(key))
+    .map(([recording, spec]) => ({ recording, spec: parseSpec(spec, `${CONFIG}: tests["${recording}"]`) }));
+}
+
+// ---- A test session's own settings under `tests` (gating.md): beside the recordings, never one ----
+
+/** Keys under `tests` that set the session, not a recording's checks. */
+export const TEST_SETTINGS = ['suiteRisk', 'baselineBranch'] as const;
+
+export interface TestSettings {
+  /** The most a healthy suite may go red for nothing, split across its gated goldens (suite.ts). */
+  suiteRisk?: number;
+  /** The branch a gate against history takes its baseline from, instead of the default branch. */
+  baselineBranch?: string;
+}
+
+/** `suiteRisk` and `baselineBranch` under `tests`, checked. */
+export function parseTestSettings(raw: unknown): TestSettings {
+  if (!isObject(raw)) return {};
+  const out: TestSettings = {};
+  if (raw.suiteRisk !== undefined) {
+    const v = raw.suiteRisk;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v >= 0.5) throw new Error(`${CONFIG}: tests.suiteRisk must be a number above 0 and below 0.5, such as 0.05: the most a healthy suite may go red for nothing`);
+    out.suiteRisk = v;
+  }
+  if (raw.baselineBranch !== undefined) {
+    const v = raw.baselineBranch;
+    if (typeof v !== 'string' || !v.trim() || /\s/.test(v.trim())) throw new Error(`${CONFIG}: tests.baselineBranch must be a branch name, such as "main": the branch a gate against history takes its baseline from`);
+    out.baselineBranch = v.trim();
+  }
+  return out;
 }
 
 /**

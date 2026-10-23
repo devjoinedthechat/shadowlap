@@ -9,6 +9,7 @@ import { placeholdersFor } from './placeholder-keys.js';
 import { providerIds, testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { withoutCommand } from './shared.js';
 import { type PackResult } from './test-report.js';
+import { NO_BASELINE_BRANCH } from './baseline-branch.js';
 
 /**
  * One golden under `shadowlap test` (and each commit of `shadowlap bisect`): its recording replayed
@@ -41,6 +42,13 @@ export interface RecordingTestContext {
   stopped?: () => boolean;
   /** A golden whose gate compares with its history: the attempts of its last sessions, pooled (testGolden reads them). */
   history?: GateHistory | null;
+  /**
+   * Where the session runs (baseline-branch.ts): the branch it tests, and the branch a gate against
+   * history takes its baseline from (null: none known, so no session is a baseline). Undefined: each
+   * result's own, as the session that kept it saw it.
+   */
+  branch?: string | null;
+  baselineBranch?: string | null;
   /** Raises the gate's limit for this session only: its `max`, the most attempts it runs. */
   maxAttempts?: number | null;
   /**
@@ -262,9 +270,12 @@ const sameGate = (a: Gate, b: Gate) => JSON.stringify({ ...gateOf(a), max: 0 }) 
  * history gate continued to a higher limit decides exactly as one that had that limit from the
  * start). A settled verdict is never continued: asking again after it stopped would be peeking.
  */
-export function carryFor(store: Store, golden: string, o: { goldenRunId: string; checks: readonly string[]; gate: Gate; limit: number; session?: string | null }): { carry: Carry } | { why: string } {
+export function carryFor(store: Store, golden: string, o: { goldenRunId: string; checks: readonly string[]; gate: Gate; limit: number; session?: string | null; branch?: string | null }): { carry: Carry } | { why: string } {
   const last: TestResult | undefined = store.listTestResults({ golden, limit: 2 }).find((r) => r.sessionId !== o.session);
   if (!last) return { why: 'it has no result to continue yet' };
+  // Another branch's agent is another agent: its attempts are no part of this one's tally.
+  const was = last.data?.branch;
+  if (o.branch && was && was !== o.branch) return { why: `its last result ran on ${was}, not ${o.branch}` };
   const g = last.data?.gate;
   // An attempt a check could not decide stopped it before its gate decided anything: there is no gate to continue.
   if (!g) return { why: last.data?.attempts?.inconclusive ? 'a check could not be decided in its last result, which stopped it before its gate decided' : 'its last result had no gate' };
@@ -369,7 +380,7 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     // --continue: an inconclusive gate's attempts carry over, when nothing it was judged by changed.
     let carry: Carry | null = null;
     if (ctx.continue && gate) {
-      const found = carryFor(ctx.store, golden, { goldenRunId: parent.runId, checks, gate, limit: gate.max, session: ctx.test?.session ?? null });
+      const found = carryFor(ctx.store, golden, { goldenRunId: parent.runId, checks, gate, limit: gate.max, session: ctx.test?.session ?? null, ...(ctx.branch !== undefined ? { branch: ctx.branch } : {}) });
       if ('carry' in found) {
         carry = found.carry;
         notes.push(`continues its last result: ${found.carry.outcomes.length} attempts carried over, ${found.carry.outcomes.filter(Boolean).length} passed, up to ${gate.max}`);
@@ -377,8 +388,9 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     }
     // A gate against history compares with this golden's last sessions: under the same recording
     // and checks, this session's own result left out, and those whose attempts carry over.
-    const history = gate?.kind === 'baseline' ? gateHistory(ctx.store, golden, { window: gate.window, goldenRunId: parent.runId, checks, mode: 'fork', excludeSession: [...(ctx.test?.session ? [ctx.test.session] : []), ...(carry?.sessions ?? [])] }) : null;
-    if (gate?.kind === 'baseline' && !history?.attempts) notes.push(NO_HISTORY);
+    // Only sessions that passed on the baseline branch, for no pull request, are a baseline (gate-history.ts).
+    const history = gate?.kind === 'baseline' ? gateHistory(ctx.store, golden, { window: gate.window, goldenRunId: parent.runId, checks, mode: 'fork', excludeSession: [...(ctx.test?.session ? [ctx.test.session] : []), ...(carry?.sessions ?? [])], ...(ctx.baselineBranch !== undefined ? { branch: ctx.baselineBranch } : {}) }) : null;
+    if (gate?.kind === 'baseline' && !history?.attempts) notes.push(ctx.baselineBranch === null ? `${NO_HISTORY_YET}: ${NO_BASELINE_BRANCH}` : NO_HISTORY);
     const tested: RecordingTestContext = { ...ctx, ...(packed.length ? { config: { ...ctx.config, normalize: [...ctx.config.normalize, ...packed] } } : {}), ...(history ? { history } : {}), carry };
     const result = await testRecording(parent, spec, tested);
     return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000, normalizers, interrupted: result.interrupted, notes };
@@ -390,7 +402,9 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
 
 /** Said when a gate against history has none to compare with. */
 export const NO_HISTORY =
-  'no test history for it yet, so its gate compared with its recording, the one attempt it was packed from: the next session compares with this one. In CI, keep the store between jobs (the GitHub Action keeps it for a gate against history)';
+  'no session that passed on the baseline branch for it yet, so its gate compared with its recording, the one attempt it was packed from: a session that passes on the baseline branch, outside a pull request, becomes its baseline. In CI, keep the store between jobs (the GitHub Action keeps it for a gate against history)';
+/** The start of what is said when no baseline branch is known. */
+const NO_HISTORY_YET = 'its gate compared with its recording, the one attempt it was packed from';
 
 /**
  * Tokens of a run's model calls: input, cache reads and writes included, and with `output` the

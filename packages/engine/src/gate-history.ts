@@ -6,11 +6,23 @@ import type { Store, TestResult } from './store.js';
  * store's test history, pooled. Only results that say something about the agent as it is tested now
  * count: the same recording (one re-recorded by `test --update` starts a new baseline), the same
  * checks, the same mode, and a replay that ran at all.
+ *
+ * And only results that are a standard to keep: the golden passed, in a session on the baseline
+ * branch (the default branch, unless the config names another) that ran for no pull request, on a
+ * committed revision. A session that failed, a branch's and a pull request's never join it, so a
+ * regression is judged against the agent as it was before it, on every run until it is fixed,
+ * instead of becoming the baseline it is judged by. A result kept before sessions recorded their
+ * branch can't show it was the baseline branch's, and doesn't count.
  */
 
 export interface HistoryFilter {
   /** How many of the golden's sessions, newest first. */
   window: number;
+  /**
+   * The branch baselines come from. Absent: each result's own (`data.baselineBranch`, as the session
+   * that kept it saw it). Null: none is known, and no result is part of a baseline.
+   */
+  branch?: string | null;
   /** The recording the golden replays now; results of another recording of it are left out. */
   goldenRunId?: string | null;
   /** The checks it is judged by now, as their labels; results judged by others are left out. */
@@ -59,6 +71,23 @@ export function attemptsOf(r: Pick<TestResult, 'ok' | 'failure' | 'data'>): Tall
   return { passes: r.ok ? 1 : 0, attempts: 1 };
 }
 
+/**
+ * Whether a result may be part of a baseline taken from `branch` (absent: the branch the result's
+ * session took baselines from): its golden passed, in a session on that branch that ran for no pull
+ * request, on a committed revision (none with `+dirty`). Null when it may, else why not.
+ */
+export function notBaseline(r: Pick<TestResult, 'ok' | 'failure' | 'data' | 'revision'>, branch?: string | null): string | null {
+  if (testResultVerdict(r) !== 'passed') return 'its golden did not pass';
+  const d = r.data;
+  if (!d || typeof d.branch !== 'string' || !d.branch) return 'its session recorded no branch';
+  if (d.pullRequest !== false) return d.pullRequest === true ? 'its session ran for a pull request' : 'its session recorded no pull request either way';
+  const from = branch === undefined ? (d.baselineBranch ?? null) : branch;
+  if (!from) return 'no baseline branch is known';
+  if (d.branch !== from) return `its session ran on ${d.branch}, not ${from}`;
+  if (/\+dirty$/.test(r.revision ?? d.revision ?? '')) return 'its session tested uncommitted changes';
+  return null;
+}
+
 /** The checks a result was judged by, as their labels in order. */
 const labelsOf = (r: Pick<TestResult, 'data'>): string[] => (r.data?.checks ?? []).map((c) => c.label).sort();
 
@@ -83,6 +112,7 @@ export function gateHistory(store: Store, golden: string, f: HistoryFilter): Poo
     if (f.goldenRunId && r.goldenRunId && r.goldenRunId !== f.goldenRunId) continue;
     if (f.mode && r.data?.mode && r.data.mode !== f.mode) continue;
     if (f.checks && !judgedUnder(r, f.checks)) continue;
+    if (notBaseline(r, f.branch) !== null) continue;
     const t = attemptsOf(r);
     if (!t) continue;
     pooled.push({ sessionId: r.sessionId, at: r.at, revision: r.revision, ...t });

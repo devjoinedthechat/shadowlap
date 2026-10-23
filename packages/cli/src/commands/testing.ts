@@ -9,9 +9,10 @@ import { STOP_SIGNALS } from '../agent-signals.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
 import { testChaos } from '../chaos-session.js';
 import { checkLine, judgeResults, specFor, type JudgeCheck, type TestSpec } from '../checks.js';
-import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { codeVersion, defaultDbPath, loadConfig, loadTests, loadTestSettings, upstreamOverrides } from '../config.js';
 import { EXIT, interruptedStatus, signalExit, usageError } from '../exit-codes.js';
 import { allowedUnrecorded, unrecordedInGoldens } from '../unrecorded.js';
+import { sessionSource } from '../baseline-branch.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
@@ -283,6 +284,11 @@ export function register(program: Command): void {
       const store = openTestStore(opts, projectDir);
       const actor = resolveAuthor({ cwd: projectDir });
       const revision = codeVersion(cwd);
+      // Where the session runs, kept with every result: only a session that passed on the baseline
+      // branch, for no pull request, is part of a gate's baseline against history (gate-history.ts).
+      const settings = loadTestSettings(projectDir);
+      const source = sessionSource({ cwd, configured: settings.baselineBranch ?? null });
+      const ran = { branch: source.branch, revision, pullRequest: source.pullRequest, baselineBranch: source.baselineBranch };
       const session = store.startTestSession({ command: givenCommand(process.argv, 'test'), revision, actor });
       const cases: JunitCase[] = [];
       const results: PackResult[] = [];
@@ -325,6 +331,8 @@ export function register(program: Command): void {
             guard: flags.guard,
             online: !!flags.online,
             test: { golden, session: session.sessionId },
+            branch: source.branch,
+            baselineBranch: source.baselineBranch,
             // The line a dashboard job reads a new run from, and a way to open each replay.
             onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${spec?.gate ? `up to ${of}` : of}` : ''}\n`)),
             stopped,
@@ -491,7 +499,7 @@ export function register(program: Command): void {
             runId: outcome.result?.shown.ended.summary.runId ?? null,
             goldenRunId: outcome.parent?.runId ?? null,
             revision,
-            data: { ...resultData(store, outcome), ...(updated ? { updated } : {}), ...(injection ? { injection } : {}) },
+            data: { ...resultData(store, outcome), ...(updated ? { updated } : {}), ...(injection ? { injection } : {}), ...ran },
           });
           cases.push(junitCase(outcome, flags.inconclusive));
           results.push(packResult(outcome, { expect, updated, inconclusive: flags.inconclusive, injection }));

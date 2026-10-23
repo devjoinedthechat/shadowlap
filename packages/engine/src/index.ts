@@ -94,7 +94,7 @@ export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, G
 export { boundOf, clopperPearson, confidenceSequence, countInterval, gateInterval, rateBound, riskPercent, stagewiseInterval, tallyInterval } from './stats.js';
 export type { BoundMethod, GateStop, RateBound, RateInterval, SprtFigures } from './stats.js';
 // A golden's baseline for a gate against its history, pooled from the store's test history.
-export { attemptsOf, gateHistory, judgedUnder, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
+export { attemptsOf, gateHistory, judgedUnder, notBaseline, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, unifiedDiff } from './repair.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
 // Placeholders a rewrite keeps, and its growth before anything runs (repair).
