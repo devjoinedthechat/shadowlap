@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
-import type { Price, Store } from '@shadowlap/engine';
-import { callDetail, lineage, listRuns, lookupRun, noSuchRun, runCallsPage, runDetail, type ReadOptions } from './api.js';
+import type { Normalizer, Price, Store, ToolTrust } from '@shadowlap/engine';
+import { activity } from './activity.js';
+import { callDetail, lineage, listRuns, lookupRun, noSuchRun, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
+import { fixAttemptGroups } from './attempt-groups.js';
 import { codeChangeCache, compareView } from './compare.js';
 import { patchesToCheck } from './fixes.js';
+import { forkDifferences } from './fork-differences.js';
 import { overviewKnown, overviewSummary } from './overview.js';
 import { patchesInTree } from './patch-in-tree.js';
 import { localRunIds } from './routes/store.js';
@@ -18,9 +21,9 @@ import type { GoldenSource } from './tests.js';
 
 /**
  * The read models that read every call of a run, or of every run: the Overview, a run's page and
- * its calls, a call's details, a run's family, Compare, the run list (its filter and its sort by
- * spent among them), the calendar and the sidebar's runs, and the warm-up that works run totals out
- * ahead. Each is a job: plain data in, the answer out as JSON text, so it runs as well on a worker
+ * its calls, a call's details, a run's family, Compare, what a fork did differently, a fix's
+ * attempts grouped, the activity feed, a run as JSON, the run list (its filter and its sort by spent among them),
+ * the calendar and the sidebar's runs, and the warm-up that works run totals out ahead. Each is a job: plain data in, the answer out as JSON text, so it runs as well on a worker
  * thread of its own (read-worker.ts, for a store with a file) as here (a store in memory). What the
  * server needs to answer it (who asks, the project's config) is read before, on its own thread.
  */
@@ -49,6 +52,14 @@ export type ReadJob =
   | { kind: 'runs-page'; options: Omit<RunsPageOptions, 'localRuns'>; team: TeamStoreInput | null }
   | { kind: 'runs-days'; options: Omit<RunsByDayOptions, 'localRuns'>; team: TeamStoreInput | null }
   | { kind: 'recent'; read: ReadOptions }
+  /** What a fork did differently from its parent (fork-differences.ts), masked by the project's normalizers. */
+  | { kind: 'differences'; runId: string; normalizers: Normalizer[] }
+  /** A fix's attempts grouped by what each did (attempt-groups.ts). */
+  | { kind: 'groups'; fixId: string }
+  /** A page of the activity feed (activity.ts). */
+  | { kind: 'activity'; limit?: number; before: string | null }
+  /** A run as `shadowlap show --json` prints it, every call in it (Copy JSON). */
+  | { kind: 'show'; runId: string; read: ReadOptions; tools?: ToolTrust }
   /** The whole analysis of a long run whose first page was answered from its first calls. */
   | { kind: 'analyse'; runId: string }
   /** A slice of the warm-up (run-stats.ts `warmRunStats`), about `budgetMs` long. */
@@ -173,6 +184,21 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
       }
       case 'recent':
         return answer({ runs: listRuns(store, job.read) }, { tagged: true });
+      case 'differences': {
+        const run = lookupRun(store, job.runId);
+        if (!run) return noRun(store, job.runId);
+        return answer({ differences: forkDifferences(store, run.runId, { normalizers: job.normalizers }) }, { tagged: true });
+      }
+      case 'groups': {
+        const groups = fixAttemptGroups(store, job.fixId);
+        return groups ? answer(groups, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
+      }
+      case 'activity':
+        return answer(activity(store, { ...(job.limit !== undefined ? { limit: job.limit } : {}), before: job.before }), { tagged: true });
+      case 'show': {
+        const out = showRunJson(store, job.runId, { ...job.read, ...(job.tools ? { tools: job.tools } : {}) });
+        return out ? answer(out, { tagged: true }) : failed(404, `no run ${job.runId}`);
+      }
       case 'analyse': {
         const run = lookupRun(store, job.runId);
         if (run) {

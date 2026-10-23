@@ -4,8 +4,8 @@ import { buildActions, actionContext } from '@shadowlap/tui/actions';
 import type { Normalizer } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { forkDifferences } from '../fork-differences.js';
 import { HttpError } from '../http.js';
+import { sendAnswer } from '../read-pool.js';
 import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
 
@@ -37,14 +37,15 @@ export function register(router: Router, ctx: RouteContext): void {
     }
   };
 
-  router.get('/runs/:id/differences', (r) => {
+  // It reads every call of the fork and of its parent: worked out beside the server (read-pool.ts).
+  router.get('/runs/:id/differences', async (r) => {
     const store = ctx.store;
     const run = lookupRun(store, r.params.id!);
     if (!run) {
       const no = noSuchRun(store, r.params.id!);
       throw new HttpError(no.status, no.message);
     }
-    r.tagged({ differences: forkDifferences(store, run.runId, { normalizers: normalizers() }) });
+    sendAnswer(r, await ctx.reads.run({ kind: 'differences', runId: run.runId, normalizers: [...normalizers()] }, { affinity: run.runId }));
   });
 
   ctx.jobs.registerJobKind('override', {
@@ -56,7 +57,7 @@ export function register(router: Router, ctx: RouteContext): void {
       if (recordingNow(store, run)) return { error: `${run.runId.slice(0, 10)} is still recording: fork it once it has ended`, status: 409 };
       const callNo = req.callNo;
       if (typeof callNo !== 'number' || !Number.isInteger(callNo) || callNo < 1) return { error: 'callNo: the call whose result to change, a whole number' };
-      const call = store.getCalls(run.runId).find((c) => c.callNo === callNo);
+      const call = store.getCalls(run.runId, { only: [callNo] })[0];
       if (!call) return { error: `no call #${callNo} in run ${run.runId}` };
       // The fork menu's own override at this call: a tool's result, or what a person answered.
       const action = buildActions(run, call, actionContext(store, call)).find((a) => a.key === 'o' || a.key === 'u');

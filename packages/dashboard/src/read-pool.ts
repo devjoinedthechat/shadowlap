@@ -91,6 +91,8 @@ export class ReadPool implements ReadModels {
       keep: Keeper;
       size?: number;
       log?: (line: string) => void;
+      /** The threads' script: read-worker.ts built, unless a test gives one of its own. */
+      script?: URL;
     },
   ) {
     const size = Math.max(1, o.size ?? READ_LIMITS.size);
@@ -194,7 +196,7 @@ export class ReadPool implements ReadModels {
   }
 
   private spawn(slot: Slot): void {
-    const worker = new Worker(workerScript(), { workerData: { dbPath: this.o.dbPath } });
+    const worker = new Worker(this.o.script ?? workerScript(), { workerData: { dbPath: this.o.dbPath } });
     slot.worker = worker;
     slot.ready = false;
     worker.on('message', (m: FromReadWorker) => this.heard(slot, worker, m));
@@ -226,7 +228,11 @@ export class ReadPool implements ReadModels {
         const p = slot.busy;
         if (!p || p.id !== m.id) return;
         slot.busy = null;
-        if (m.type === 'answer') {
+        // A thread built before a kind of job it is given answers nothing for it: that fails, rather than waits for good.
+        if (m.type === 'answer' && !m.answer) {
+          this.o.log?.(`a read-model thread answered nothing for a ${p.job.kind} job: is the dashboard built?`);
+          p.reject(new Error(`no answer for a ${p.job.kind} job`));
+        } else if (m.type === 'answer') {
           // A long run answered from its first calls is analysed whole when the thread is free.
           const then = m.answer.then;
           if (then && !slot.later.some((x) => x.job.kind === then.kind && 'runId' in x.job && 'runId' in then && x.job.runId === then.runId)) {

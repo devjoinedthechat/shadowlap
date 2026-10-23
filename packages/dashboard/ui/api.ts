@@ -570,8 +570,8 @@ export function createExportedClient(data: StaticPayload): Client {
     coverage: () => Promise.resolve(null),
     chaos: () => Promise.resolve(null),
     runChaos: () => Promise.resolve(null),
-    // Worked out from the store, which a copy doesn't carry: its run page leaves the panel out.
-    forkDifferences: () => Promise.resolve(null),
+    // Held for a fork whose parent the file holds too; otherwise its run page leaves the panel out.
+    forkDifferences: (runId) => Promise.resolve((data.responses[`runs/${full(runId)}/differences`] as { differences: ForkDifferences | null } | undefined)?.differences ?? null),
     attemptGroups: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
   };
 }

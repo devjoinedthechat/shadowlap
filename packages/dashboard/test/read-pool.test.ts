@@ -1,6 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type RunRecord } from '@shadowlap/engine';
 import { runJob, type ReadJob } from '../src/read-jobs.js';
@@ -67,6 +68,10 @@ describe('read models on threads beside the server', () => {
       { kind: 'runs-days', options: { tz: 'UTC', now: NOW }, team: null },
       { kind: 'recent', read: {} },
       { kind: 'calls', runId: long.runId, read: {}, from: 201, limit: 100 },
+      { kind: 'differences', runId: id.fork!, normalizers: [] },
+      { kind: 'groups', fixId: 'fix_nothing' },
+      { kind: 'activity', before: null },
+      { kind: 'show', runId: id.rec!, read: {} },
     ] satisfies ReadJob[]) {
       const [there, here] = await both(job);
       expect(there, job.kind).toEqual(here);
@@ -107,6 +112,19 @@ describe('read models on threads beside the server', () => {
     }
     expect(again.warming).toBeUndefined();
     expect(JSON.parse(again.body)).toMatchObject({ callsTotal: 1201, callsNext: 501 });
+  });
+
+  it('fails a job a thread answers nothing for (one built before that kind of job), rather than wait for good', async () => {
+    const script = join(dir, 'stale-worker.mjs');
+    writeFileSync(script, "import { parentPort } from 'node:worker_threads';\nparentPort.postMessage({ type: 'ready' });\nparentPort.on('message', (m) => m.type === 'close' ? parentPort.postMessage({ type: 'closed' }) : parentPort.postMessage({ type: 'answer', id: m.id }));\n");
+    const lines: string[] = [];
+    const stale = new ReadPool({ dbPath, keep: { stats: () => undefined, asks: () => undefined }, size: 1, script: pathToFileURL(script), log: (l) => lines.push(l) });
+    try {
+      await expect(stale.run({ kind: 'recent', read: {} })).rejects.toThrow(/no answer for a recent job/);
+      expect(lines.join('\n')).toMatch(/is the dashboard built/);
+    } finally {
+      await stale.close();
+    }
   });
 
   it('ends its threads when closed, and refuses work after', async () => {

@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { readConfigFile, type Normalizer, type ToolTrust } from '@shadowlap/engine';
-import { showRunJson } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
+import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { EXPORT_KINDS, exportDatasetJob, exportHarJob, exportHtmlJob, exportOtelJob, packJob } from '../run-exports.js';
 import { choicesInCheckout } from '../commits-here.js';
@@ -76,7 +76,8 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged(offers.bisect ? { ...offers, bisect: await choicesInCheckout(ctx.project?.path, offers.bisect) } : offers);
   });
 
-  router.get('/runs/:id/show', (r) => {
+  // Every call of the run: worked out beside the server (read-pool.ts).
+  router.get('/runs/:id/show', async (r) => {
     // The config's trust marks, as the CLI reads them; a config mid-edit leaves them out rather than failing the copy.
     let tools: ToolTrust | undefined;
     try {
@@ -84,9 +85,7 @@ export function register(router: Router, ctx: RouteContext): void {
     } catch {
       tools = undefined;
     }
-    const out = showRunJson(store, r.params.id!, { ...ctx.read, ...(tools ? { tools } : {}) });
-    if (!out) throw new HttpError(404, `no run ${r.params.id}`);
-    r.tagged(out);
+    sendAnswer(r, await ctx.reads.run({ kind: 'show', runId: r.params.id!, read: ctx.read, ...(tools ? { tools } : {}) }));
   });
 
   const { jobs, project } = ctx;

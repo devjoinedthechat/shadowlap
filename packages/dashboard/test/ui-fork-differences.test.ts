@@ -2,6 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ForkDifferences } from '../src/fork-differences.js';
+import type { StaticPayload } from '../src/static.js';
+import { createExportedClient } from '../ui/api.js';
 import { DifferencesPanel, ForkDifferences as Panel, SHOWN } from '../ui/run/ForkDifferences.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -86,6 +88,17 @@ describe('what a fork did differently, on its page', () => {
     expect(asked).toEqual([FORK]);
     await r.unmount();
     r = await render(createElement(AppContext.Provider, { value: app(null) }, createElement(Panel, { runId: REC })));
+    await r.wait(20);
+    expect(r.all('.fdiff')).toEqual([]);
+  });
+
+  it('shows them in an exported copy that holds them: one that holds the fork’s parent too', async () => {
+    const copy = { runIds: [FORK, REC], responses: { [`runs/${FORK}/differences`]: { differences: differences() } } } as unknown as StaticPayload;
+    const app = { exported: true, client: createExportedClient(copy) } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(Panel, { runId: FORK })));
+    await r.until('the panel', () => r!.all('.fdiff').length === 1);
+    await r.unmount();
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(Panel, { runId: REC })));
     await r.wait(20);
     expect(r.all('.fdiff')).toEqual([]);
   });

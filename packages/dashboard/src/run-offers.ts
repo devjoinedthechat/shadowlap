@@ -141,13 +141,16 @@ export function goldenExpect(tests: unknown, golden: string): unknown {
 
 const modelCalls = new WeakMap<Store, Map<string, boolean>>();
 
+/** Whether a run made a model call, from the index of its calls by kind: none of its calls read. */
+const MADE_MODEL_CALL_SQL = `SELECT EXISTS (SELECT 1 FROM call_events WHERE run_id = ? AND kind = 'api' AND phase = 'start') AS made`;
+
 /** Whether a run that has ended made a model call: blame asks model calls again, so it needs one. */
 function madeModelCall(store: Store, run: RunRecord): boolean {
   let seen = modelCalls.get(store);
   if (!seen) modelCalls.set(store, (seen = new Map()));
   const known = seen.get(run.runId);
   if (known !== undefined) return known;
-  const made = store.getCalls(run.runId).some((c) => c.kind === 'api');
+  const made = Number(store.query(MADE_MODEL_CALL_SQL, run.runId)[0]?.made ?? 0) === 1;
   if (seen.size > 2000) seen.clear();
   seen.set(run.runId, made);
   return made;

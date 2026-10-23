@@ -620,7 +620,7 @@ export function actionsFor(run: RunRecord, call: CallRecord | undefined, context
 export function actionArgs(store: Store, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined): { args: string[]; opensRun: boolean } | { error: string } {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `unknown run ${idOrPrefix}` };
-  const call = callNo === null ? undefined : store.getCalls(run.runId).find((c) => c.callNo === callNo);
+  const call = callNo === null ? undefined : store.getCalls(run.runId, { only: [callNo] })[0];
   if (callNo !== null && !call) return { error: `no call #${callNo} in run ${run.runId}` };
   const action = buildActions(run, call, actionContext(store, call)).find((a) => a.key === key);
   if (!action) return { error: actionMissing(run, key) };
@@ -660,7 +660,7 @@ export function addNote(store: Store, idOrPrefix: string, callNo: unknown, text:
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `no run ${idOrPrefix}`, status: 404 };
   const n = typeof callNo === 'number' && Number.isInteger(callNo) ? callNo : null;
-  if (n !== null && !store.getCalls(run.runId).some((c) => c.callNo === n)) return { error: `no call #${n} in run ${run.runId}`, status: 404 };
+  if (n !== null && !store.getCalls(run.runId, { only: [n] }).length) return { error: `no call #${n} in run ${run.runId}`, status: 404 };
   if (typeof text !== 'string') return { error: 'text is required', status: 400 };
   try {
     const notes = withNote(run.meta?.notes, { callNo: n, text, at: Date.now() });

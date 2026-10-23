@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
 import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
+import { forkDifferences } from './fork-differences.js';
 import { runCalls } from './run-calls.js';
 import { analyseRun } from './run-page.js';
 import { countAttempts } from './run-cache.js';
@@ -124,6 +125,8 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     // Only runs in the file are linked from it: a Compare or parent link to a run left out would dead-end.
     responses[`runs/${runId}`] = { ...detail, run: withoutFolder(keep ? detail.run : withoutAuthor(detail.run)), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
     responses[`runs/${runId}/lineage`] = { nodes: (lineage(store, runId, read) ?? []).filter((n) => runIds.includes(n.runId)).map((n) => (keep ? n : anonymous(n))) };
+    // What a fork did differently, when the file holds its parent too: it quotes the parent's calls.
+    if (record.parentRunId && runIds.includes(record.parentRunId)) responses[`runs/${runId}/differences`] = { differences: forkDifferences(store, runId) };
     // Every call's details from one read of the run and one analysis of it: asking for each call on
     // its own read the whole run again, so a run's export took time with the square of its length.
     const all = runCalls(store, runId);
