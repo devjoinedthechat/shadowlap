@@ -248,6 +248,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                       {step.workflow.credentials}
                     </pre>
                   ) : null}
+                  {step.workflow.printed ? <p className="muted cinote">{step.workflow.printed}</p> : null}
                   {step.notes.map((n) => (
                     <p key={n} className="muted cinote">
                       {n}

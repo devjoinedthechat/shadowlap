@@ -65,13 +65,19 @@ export interface SetupCiStep {
   text: string;
   oidc: boolean;
   notes: string[];
-  command: string;
+  /**
+   * The command that prints `text`, for the step's terminal line. Null for GitHub Actions with R2:
+   * nothing it prints goes in your workflow, whose own step pushes, with the keys as secrets.
+   */
+  command: string | null;
   /**
    * GitHub Actions': your workflow on Settings → CI runs the goldens once and pushes them, so the
    * setup points at it rather than add a job that runs them again; `credentials` are the steps that
-   * give its job the bucket's credentials (null for R2, whose keys come from the repository's secrets).
+   * give its job the bucket's credentials (null for R2, whose keys come from the repository's
+   * secrets), and `printed` says how the command prints them: in a job of its own, which runs the
+   * goldens again, so only they are copied from it.
    */
-  workflow: { href: string; credentials: string | null } | null;
+  workflow: { href: string; credentials: string | null; printed: string | null } | null;
 }
 
 /** What the dashboard's setup of a store recorded. */
@@ -192,7 +198,13 @@ export function storeSetupView(store: Store, input: TeamStoreInput, options: { e
     ci: loc
       ? CI_PROVIDERS.map((ci) => {
           const step = ciStep(ci, loc, { version: VERSION, ...(options.keys ?? {}) });
-          return { ci, name: CI_NAMES[ci], file: step.file, text: step.text, oidc: step.oidc, notes: step.notes, command: `shadowlap store ci --provider ${ci}`, workflow: ci === 'github' ? { href: '#/settings/alerts', credentials: step.credentials ?? null } : null };
+          const command = `shadowlap store ci --provider ${ci}`;
+          const shown = { ci, name: CI_NAMES[ci], file: step.file, text: step.text, oidc: step.oidc, notes: step.notes };
+          if (ci !== 'github') return { ...shown, command, workflow: null };
+          // The setup gives your workflow's job the credentials steps alone; store ci prints them in a job of its own.
+          const credentials = step.credentials ?? null;
+          const printed = credentials ? `${command} prints these two steps in a job of its own, which would run your goldens a second time: copy only the two steps.` : null;
+          return { ...shown, command: credentials ? command : null, workflow: { href: '#/settings/alerts', credentials, printed } };
         })
       : null,
     commit: loc ? { file: CONFIG_FILE, line: `"store": ${JSON.stringify(input.store)}`, command: COMMIT } : null,

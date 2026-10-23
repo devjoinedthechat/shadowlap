@@ -121,9 +121,22 @@ describe('the setup read model', () => {
     // Pinned as Settings → CI pins the action's step, and complete: Node 22 and the agent's dependencies first.
     expect(view.ci![0]!.text).toContain(`npx shadowlap@${VERSION} test goldens/* --push`);
     expect(view.ci![0]!.text).toContain('  - run: npm ci && npm run build   # whatever your agent needs to run\n');
-    // On GitHub Actions, your workflow on Settings → CI runs the goldens and pushes: the setup gives its job the credentials alone.
-    expect(view.ci![0]!.workflow).toEqual({ href: '#/settings/alerts', credentials: expect.stringMatching(/^- if: .*\n {2}uses: aws-actions\/configure-aws-credentials/) });
+    // On GitHub Actions, your workflow on Settings → CI runs the goldens and pushes: the setup gives its job the credentials alone,
+    // and says that store ci prints them in a job of its own, which would run the goldens again.
+    expect(view.ci![0]!.workflow).toEqual({
+      href: '#/settings/alerts',
+      credentials: expect.stringMatching(/^- if: .*\n {2}uses: aws-actions\/configure-aws-credentials/),
+      printed: 'shadowlap store ci --provider github prints these two steps in a job of its own, which would run your goldens a second time: copy only the two steps.',
+    });
+    expect(view.ci![0]!.text).toContain(view.ci![0]!.workflow!.credentials!.split('\n')[0]!);
     expect(view.ci!.slice(1).map((c) => c.workflow)).toEqual([null, null]);
+    // With R2 the keys are secrets and your workflow's step is the rest: nothing store ci prints goes in, so no command is offered.
+    const r2 = storeSetupView(s, { store: 'r2://0123456789abcdef0123456789abcdef/northwind-agent-runs/support-agent' });
+    expect(r2.ci!.map((c) => [c.ci, c.command, c.workflow])).toEqual([
+      ['github', null, { href: '#/settings/alerts', credentials: null, printed: null }],
+      ['gitlab', 'shadowlap store ci --provider gitlab', null],
+      ['other', 'shadowlap store ci --provider other', null],
+    ]);
     expect(view.commit).toEqual({ file: 'shadowlap.config.json', line: `"store": "${URL_}"`, command: 'git add shadowlap.config.json && git commit -m "Use the team store"' });
 
     await push({ store: s, remote: new MemoryStore(parseStoreUrl(URL_)), actor: 'dana@northwind.example', now: () => NOW }, { all: true });

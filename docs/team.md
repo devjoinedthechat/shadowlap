@@ -39,13 +39,15 @@ CI or any other CI, written for your cloud: on GitHub Actions, the job that runs
 [your workflow](./ci.md#one-job-for-all-of-it) on Settings → CI, whose step pushes while Push from CI
 is on, so the setup gives only the steps that give it the bucket's credentials (for R2, the keys to
 add as secrets) and **Open your workflow**, rather than a second job that runs the goldens again.
-Then **I added it**, or **Skip for now** (Settings → Store's **Copy CI step** keeps it, for the CI
-you picked). **Bring your team** shows the line to
-commit, and **Finish** ends the setup. Until then the store works already, and the dashboard leads
-back to the setup: it is first in the Overview's Needs a look, Settings → Store names the step
-that is next with **Continue the setup**, the palette offers **Continue setting up the store**, and
-the status bar says *setting up*. A store set in a terminal has no setup under way: it shows as
-the store straight away, and the setup page shows the steps left.
+`store ci --provider github` prints those steps in a job of its own, so the page says to copy only
+the two; for R2 there are none to copy, and the step shows no command. Then **I added it**, or
+**Skip for now** (Settings → Store's **Copy CI step** keeps it, for the CI you picked). **Bring
+your team** shows the line to commit, and **Finish** ends the setup. Until then the store works
+already, and the dashboard leads back to the setup: it is first in the Overview's Needs a look,
+Settings → Store names the step that is next with **Continue the setup**, the palette offers
+**Continue setting up the store**, and the status bar says *setting up*. A store set in a terminal
+has no setup under way: it shows as the store straight away, and the setup page shows the steps
+left.
 
 ## The store
 
