@@ -58,6 +58,7 @@ import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, r
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { identityQuery } from './query.js';
+import { isResponsesCreate, ResponsesState } from './responses-state.js';
 import { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, placeholderRefusal } from './placeholders.js';
 import { activeProviders, formatHostProvider, hostedProviders, providers as defaultProviders, sdkBasesFromEnvironment, type FormatHost, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
@@ -223,6 +224,8 @@ class RunContext {
    * closing it leaves the run's status and end as they were. The first call number it gave out.
    */
   judgeOnly: { from: number } | null = null;
+  /** What the recording kept on OpenAI's side, for a live Responses call that continues it (responses-state.ts); null without one. */
+  responses: ResponsesState | null = null;
 
   constructor(
     readonly run: RunRecord,
@@ -689,7 +692,16 @@ export class Sidecar {
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
-    this.runs.set(run.runId, new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined, parentCalls ? this.unqueried(parentCalls) : undefined));
+    const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined, parentCalls ? this.unqueried(parentCalls) : undefined);
+    // A fork's live Responses call may continue a response or a conversation the recording made: read when one does.
+    if (parentCalls?.some((c) => c.kind === 'api' && /\/(responses|conversations)$/.test(c.name))) {
+      const recorded = parentCalls;
+      ctx.responses = new ResponsesState(recorded, {
+        request: (rec) => this.loadRequest(rec),
+        response: (rec) => ({ bytes: rec.end?.responseRef ? this.store.getBlob(rec.end.responseRef) : null, contentType: rec.end?.meta.headers?.['content-type'] }),
+      });
+    }
+    this.runs.set(run.runId, ctx);
     if (input.slot !== undefined) this.slots.set(input.slot, run.runId);
     this.activeRunId = run.runId;
     this.log(`run ${run.runId} started (${input.mode})`);
@@ -1266,6 +1278,40 @@ export class Sidecar {
       this.serveReplayed(ctx, res, callNo, tracked);
       return true;
     }
+    return this.continueRecordedState(call, placed);
+  }
+
+  /**
+   * Serve recorded, for a live Responses API call: one that continues a response the recording made
+   * (responses-state.ts), which OpenAI keeps only for the key that made it and only while it keeps
+   * it, is sent with the whole conversation it continues instead, signed again where AWS signs it;
+   * one that names a conversation the recording used is refused, since the conversation holds the
+   * recorded run's later turns too. True when it was answered here.
+   */
+  private continueRecordedState(call: ModelCall, placed: PlacedCall): boolean {
+    const { ctx, res, provider, judge } = call;
+    const { callNo, tracked } = placed;
+    const continued = !judge && !ctx.offline && ctx.responses && isResponsesCreate(call.method, call.path, recordedId(provider)) ? ctx.responses.continuation(call.body) : null;
+    if (!continued) return false;
+    if ('refuse' in continued) {
+      this.serveStateRefusal(ctx, res, provider, callNo, tracked, continued.refuse, continued.param);
+      return true;
+    }
+    if (continued.send === 'as-is') return false;
+    // The call's recording keeps the request as the agent sent it; only what goes upstream changes.
+    call.rawBody = Buffer.from(JSON.stringify(continued.body), 'utf8');
+    const keyId = signingKeyId(call.headers.authorization);
+    if (keyId && keyId !== PLACEHOLDER_AWS_ACCESS_KEY_ID) {
+      const signed = this.resign(call.req, call.headers, call.method, call.path, call.search, call.rawBody);
+      if ('error' in signed) {
+        this.serveRefusal(ctx, res, provider, callNo, tracked, `the whole conversation in place of previous_response_id ${continued.previous}: ${signed.error}`);
+        return true;
+      }
+      call.headers = signed.headers;
+    }
+    const from = continued.from.map((n) => `#${n}`).join(', ');
+    ctx.warnOnce(`responses:${continued.previous}`, `call ${callNo} continued ${continued.previous}, a response the recording made, which OpenAI keeps only for the key that made it and only while it keeps it: it was sent with the whole conversation it continues instead, rebuilt from the recorded call${continued.from.length === 1 ? '' : 's'} ${from}.`);
+    this.log(`run ${ctx.run.runId} call ${callNo}: sent whole in place of previous_response_id ${continued.previous}`);
     return false;
   }
 
@@ -1304,6 +1350,23 @@ export class Sidecar {
     this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status: 400, retryable: false, refused: true, error, latencyMs: 0 } }, false);
     ctx.warnOnce(`refused:${reason}`, `Not applied: ${reason}. Call ${callNo} was answered with that reason instead of being sent.`);
     this.log(`run ${ctx.run.runId} call ${callNo}: refused ${reason}`);
+  }
+
+  /**
+   * Answers a live call that would read state the recording left on the provider's side (a recorded
+   * Responses conversation) instead of sending it: in OpenAI's error shape, naming the request's
+   * field, so its client raises a BadRequestError with the reason; the run's summary says so too.
+   */
+  private serveStateRefusal(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, why: string, param: string): void {
+    const message = `shadowlap did not send this call: ${why}`;
+    const bytes = Buffer.from(JSON.stringify({ error: { message, type: 'invalid_request_error', param, code: 'shadowlap_recorded_state' } }), 'utf8');
+    const attempt = this.beginAttempt(tracked);
+    res.writeHead(400, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused' });
+    res.end(bytes);
+    const error: SerializedError = { name: 'ShadowlapRecordedState', message };
+    this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status: 400, retryable: false, refused: true, error, latencyMs: 0 } }, false);
+    ctx.warnOnce(`state:${why}`, `Call ${callNo} was not sent: ${why}`);
+    this.log(`run ${ctx.run.runId} call ${callNo}: refused, it would read state the recording left on ${provider.id}'s side`);
   }
 
   /**

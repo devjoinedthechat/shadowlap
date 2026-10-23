@@ -2,7 +2,7 @@
   "name": "@shadowlap-testing/mock-openai",
   "version": "0.1.0",
   "private": true,
-  "description": "A scripted fake of the OpenAI Chat Completions API (JSON and SSE), the Responses API and embeddings, for Shadowlap tests.",
+  "description": "A scripted fake of the OpenAI Chat Completions API (JSON and SSE), the Responses API (JSON and SSE, with the state it keeps on its side) and embeddings, for Shadowlap tests.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

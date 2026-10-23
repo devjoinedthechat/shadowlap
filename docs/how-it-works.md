@@ -151,6 +151,8 @@ A replay forks at the first **request** that changes, not where the bug is. That
 
 Class 3 is why [interventions](./interventions.md) exist, and why the [decision diff](./decisions.md) does: it asks each recorded model call again with only the changed prompt or model, so the change's effect on every step shows before a live run of anything.
 
+**State kept on the provider's side.** OpenAI's Responses API can keep a conversation for the agent: a request continues one by naming the response it follows (`previous_response_id`) or a conversation (`conversation`). A replay serves the recorded responses, so a fork's first live call names a response the recording made, which OpenAI holds only for the key and organization that made it, only for as long as it keeps responses, and never for one made with `store: false`. Such a call is sent with the whole conversation it continues instead, rebuilt from the recorded requests and their answers: each turn's input, then its output, as the stateless Responses pattern sends them (a reasoning item goes along when it carries its encrypted content, and is left out when only OpenAI's side can read it), and the run's summary says which call was sent so. Its recording keeps the request as the agent sent it, so a replay of the fork matches it. A call that names a conversation the recording used is refused instead, with OpenAI's error shape and a line in the summary: the conversation holds every turn of the recorded run, those after the fork too, so the model would read what the agent hasn't done yet. Fork from the call that made the conversation (`--diverge-at`), and the fork makes its own.
+
 ## Partial recordings
 
 A recording made by `shadowlap run` contains every call the agent made: model calls, tool calls,
