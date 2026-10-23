@@ -137,7 +137,7 @@ orders = create_sdk_mcp_server(name="orders", version="1.0.0", tools=with_effect
 
 ## Python
 
-Parameters a framework injects are never recorded, in any Python framework: a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper` or `ToolContext`, a LangChain `RunnableConfig`, callback manager or `Injected…` argument. The SDK recognizes them by the types in their annotation: the class, a generic's arguments (`Optional[...]`, `RunContext[Deps]`) and `Annotated`'s markers (`Annotated[str, InjectedToolArg]`), never by its descriptions or values, so `Annotated[str, "Injected document text"]` and `Literal["InjectedFile", "Upload"]` are still recorded. Name any other with `exclude=(...)`. Typed arguments, as Pydantic AI documents them (a Pydantic model, a dataclass, a `datetime.date`, a UUID, an `Enum`), are the tool's real input and are recorded in their JSON form, as results are; an argument that can't be recorded fails before the tool runs, with a message naming it.
+Parameters a framework injects are never recorded, in any Python framework: a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper` or `ToolContext`, a LangChain `RunnableConfig`, callback manager or `Injected…` argument, Google ADK's `ToolContext`, a LlamaIndex workflow's `Context`. The SDK recognizes them by the types in their annotation: the class, a generic's arguments (`Optional[...]`, `RunContext[Deps]`) and `Annotated`'s markers (`Annotated[str, InjectedToolArg]`), never by its descriptions or values, so `Annotated[str, "Injected document text"]` and `Literal["InjectedFile", "Upload"]` are still recorded. Name any other with `exclude=(...)`. Typed arguments, as Pydantic AI documents them (a Pydantic model, a dataclass, a `datetime.date`, a UUID, an `Enum`), are the tool's real input and are recorded in their JSON form, as results are; an argument that can't be recorded fails before the tool runs, with a message naming it.
 
 ### Pydantic AI
 
@@ -188,6 +188,38 @@ def search_web(query: str, state: Annotated[dict, InjectedState]) -> str:
 tools = ToolNode([with_effect(search_web, "read"), with_effect(SendEmail(), "write")])
 ```
 
+### Google ADK
+
+Give ADK plain functions wrapped with `shadowlap.tool`; its `ToolContext` is left out of the recording. ADK fails a run when a tool raises, so give the agent `report_to_model` as its tool-error callback (or the runner `shadowlap_plugin()`): a write refused after a fork then reaches the model as the tool's answer, and the run carries on. Its Gemini calls are recorded through `GOOGLE_GEMINI_BASE_URL`.
+
+```python
+from google.adk.agents import LlmAgent
+from shadowlap import tool
+from shadowlap.adapters.google_adk import report_to_model
+
+@tool(effect="read")
+async def search_web(query: str, tool_context: ToolContext) -> dict: ...
+
+@tool(effect="write")
+def send_email(to: str, body: str) -> dict: ...
+
+agent = LlmAgent(name="support", model="gemini-2.5-flash", tools=[search_web, send_email], on_tool_error_callback=report_to_model)
+```
+
+### LlamaIndex
+
+Make `FunctionTool`s from functions wrapped with `shadowlap.tool`. A workflow `Context` parameter is left out of the recording, and an agent such as `FunctionAgent` hands a blocked write to the model as the tool's error. The model calls are recorded through the provider's base URL, as LlamaIndex's Anthropic LLM reads `ANTHROPIC_BASE_URL`.
+
+```python
+from llama_index.core.tools import FunctionTool
+from shadowlap import tool
+
+@tool(effect="read")
+async def search_web(ctx: Context, query: str) -> str: ...
+
+agent = FunctionAgent(tools=[FunctionTool.from_defaults(async_fn=search_web), FunctionTool.from_defaults(fn=send_email)], llm=llm)
+```
+
 ### CrewAI
 
 Wrap tool instances before giving them to an agent: `@tool` functions and `BaseTool` subclasses both work.
@@ -208,7 +240,7 @@ Results are recorded as JSON. A tool that returns a Pydantic model, a dataclass 
 
 ## Tested against
 
-Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a stand-in: record, a replay that executes nothing, and a fork that blocks the write, through the framework's own tool path (`generateText` with the AI SDK's mock model, the Agents SDK's `FunctionTool.invoke`, Mastra's `createTool`, LangGraph's `ToolNode`, the Anthropic tool runner end to end through the sidecar, a Pydantic AI `Agent` with `FunctionModel`, the Python Agents SDK's `Runner` with a scripted model, a compiled LangGraph graph in Python, CrewAI's `BaseTool.run`). An agent on the AI SDK's Anthropic provider runs under `shadowlap run` as written, with no base URL in its code: `@ai-sdk/anthropic` reads `ANTHROPIC_BASE_URL` as a root that ends in `/v1` and sends `/messages` under it, and the sidecar takes that as the API's `/v1/messages`. Versions are pinned in `testing/frameworks/package.json` and the Frameworks workflow, and re-tested weekly against the latest releases, on Linux, macOS and Windows.
+Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a stand-in: record, a replay that executes nothing, and a fork that blocks the write, through the framework's own tool path (`generateText` with the AI SDK's mock model, the Agents SDK's `FunctionTool.invoke`, Mastra's `createTool`, LangGraph's `ToolNode`, the Anthropic tool runner end to end through the sidecar, a Pydantic AI `Agent` with `FunctionModel`, the Python Agents SDK's `Runner` with a scripted model, a compiled LangGraph graph in Python, CrewAI's `BaseTool.run`, and Google ADK's `Runner` and a LlamaIndex `FunctionAgent` with their model calls recorded through the sidecar in front of a scripted Gemini and Anthropic API). An agent on the AI SDK's Anthropic provider runs under `shadowlap run` as written, with no base URL in its code: `@ai-sdk/anthropic` reads `ANTHROPIC_BASE_URL` as a root that ends in `/v1` and sends `/messages` under it, and the sidecar takes that as the API's `/v1/messages`. Versions are pinned in `testing/frameworks/package.json` and the Frameworks workflow, and re-tested weekly against the latest releases, on Linux, macOS and Windows.
 
 | Framework | Pinned version |
 |---|---|
@@ -222,6 +254,8 @@ Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real fr
 | OpenAI Agents SDK for Python (`openai-agents`) | 0.20.0 |
 | LangGraph for Python (`langgraph`, `langchain-core`) | 1.2.11 / 1.6.3 |
 | CrewAI (`crewai`) | 1.15.22 |
+| Google ADK (`google-adk`) | 2.12.0 |
+| LlamaIndex (`llama-index-core`, `llama-index-llms-anthropic`) | 0.14.25 / 0.12.3 |
 
 ## Anything else
 

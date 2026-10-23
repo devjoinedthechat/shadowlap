@@ -541,6 +541,39 @@ def _type_names(annotation: Any, depth: int = 0) -> Iterator[str]:
         yield from _type_names(arg, depth + 1)
 
 
+#: Framework context classes recognised by their module, for frameworks whose class name says
+#: nothing on its own: Google ADK's ToolContext is ``google.adk.agents.context.Context``, and a
+#: LlamaIndex workflow's ``Context`` lives in ``workflows.context``.
+_CONTEXT_MODULES = ("google.adk.", "workflows.context", "llama_index.core.workflow")
+
+
+def _types_in(annotation: Any, depth: int = 0) -> Iterator[type]:
+    """The classes an annotation is made of, as ``_type_names`` reads it: the class, a generic's
+    origin and arguments, Annotated's first argument, never a Literal's values or a string."""
+    import typing
+
+    if depth > 10 or isinstance(annotation, (str, typing.ForwardRef)):
+        return
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin is typing.Annotated:
+        yield from _types_in(args[0], depth + 1)
+        return
+    if _is_literal(origin):
+        return
+    if isinstance(annotation, type):
+        yield annotation
+    elif origin is not None:
+        yield from _types_in(origin, depth + 1)
+    for arg in args:
+        yield from _types_in(arg, depth + 1)
+
+
+def _framework_context(cls: type) -> bool:
+    module = getattr(cls, "__module__", "") or ""
+    return cls.__name__.endswith("Context") and module.startswith(_CONTEXT_MODULES)
+
+
 def _is_literal(origin: Any) -> bool:
     """typing.Literal, or typing_extensions' own where it is another object."""
     import typing
@@ -551,7 +584,8 @@ def _is_literal(origin: Any) -> bool:
 def context_params(fn: Callable[..., Any]) -> Tuple[str, ...]:
     """The parameters of `fn` that a framework injects: annotated with a Pydantic AI `RunContext`,
     an OpenAI Agents `RunContextWrapper` or `ToolContext`, a LangChain `RunnableConfig`, callback
-    manager or `Injected…` marker, or a LangChain `ToolRuntime`."""
+    manager or `Injected…` marker, a LangChain `ToolRuntime`, Google ADK's `ToolContext`, or a
+    LlamaIndex workflow's `Context`."""
     try:
         params = inspect.signature(fn).parameters.values()
     except (TypeError, ValueError):
@@ -561,7 +595,7 @@ def context_params(fn: Callable[..., Any]) -> Tuple[str, ...]:
         if p.annotation is inspect.Parameter.empty:
             continue
         try:
-            if any(_CONTEXT_TYPE.match(name) for name in _type_names(p.annotation)):
+            if any(_CONTEXT_TYPE.match(name) for name in _type_names(p.annotation)) or any(_framework_context(t) for t in _types_in(p.annotation)):
                 out.append(p.name)
         except Exception:  # an annotation no typing helper understands is no framework's context
             continue

@@ -91,6 +91,20 @@ class RecordingRules(unittest.TestCase):
 
         self.assertEqual(context_params(pick_quoted), ())
 
+    def test_a_framework_context_known_by_its_module_is_detected_whatever_its_class_is_named(self):
+        # Google ADK's ToolContext is google.adk.agents.context.Context; a LlamaIndex workflow's
+        # Context lives in workflows.context. A class of the user's own named Context is input.
+        from typing import Optional
+
+        Adk = type("Context", (), {"__module__": "google.adk.agents.context"})
+        Workflow = type("Context", (), {"__module__": "workflows.context.context"})
+        Mine = type("Context", (), {"__module__": "myapp.models"})
+
+        def fn(tool_context: Adk, ctx: Optional[Workflow], context: Mine, query: str):  # type: ignore[valid-type]
+            pass
+
+        self.assertEqual(context_params(fn), ("tool_context", "ctx"))
+
     def test_context_is_left_out_of_the_recording(self):
         sidecar = Sidecar({"origin": "live", "callNo": 1})
         shadowlap._post = sidecar
