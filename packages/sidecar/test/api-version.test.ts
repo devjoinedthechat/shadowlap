@@ -18,7 +18,7 @@ beforeAll(async () => {
 afterAll(() => mock.close());
 
 const command = { argv: ['agent'], cwd: '/' };
-const REQUEST = { model: 'claude-opus-5', max_tokens: 16, messages: [{ role: 'user', content: 'hello' }] };
+const REQUEST = { model: 'claude-opus-5', max_tokens: 16, messages: [{ role: 'user' as const, content: 'hello' }] };
 
 /** The SDK, naming the API version its release names: 2023-06-01 for this one, or `version` as a later release does. */
 const sdk = (baseURL: string, version?: string) => new Anthropic({ apiKey: 'sk-ant-test', baseURL, maxRetries: 0, ...(version ? { defaultHeaders: { 'anthropic-version': version } } : {}) });
