@@ -105,7 +105,7 @@ shadowlap normalize add --kind api --path '$.metadata.user_id' --replace '<sessi
 |---|---|---|---|---|
 | Read, Glob, Grep | read | runs, and its output is recorded | runs as it is, and the model gets the recorded output | runs live, recorded |
 | WebFetch, WebSearch | read | runs; the model call it makes to read the page or search is recorded too | runs as it is: its model call is answered from the recording while the page reads as it did; the model gets the recorded output | runs live |
-| Write, Edit, MultiEdit | write | runs, recorded | a stand-in writes a new file in a temporary folder instead; the model gets the recorded output | refused (`--writes block`), or the stand-in runs and the model reads it as done (`--writes stub`) |
+| Write, Edit, MultiEdit | write | runs, recorded | a stand-in writes a file of its own in a temporary folder instead; the model gets the recorded output | refused (`--writes block`), or the stand-in runs and the model reads it as done (`--writes stub`) |
 | Bash | write | runs, recorded with the folder it left the shell in | `true` runs instead, or `cd` to that folder; a recorded failure is reproduced by a command that prints its output and exits with its code | refused, or stubbed |
 | NotebookEdit | write | runs, recorded | refused, since Claude Code takes no stand-in for it: the replay forks there | refused |
 
