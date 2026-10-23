@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startCollector, validateBatch, type Collector } from '../src/index.js';
+import { CollectorStore, startCollector, validateBatch, type Collector, type ValidEvent } from '../src/index.js';
 import { PROVIDERS, SDKS } from '../src/schema.js';
 import { KNOWN_PROVIDERS, KNOWN_SDKS } from '../../cli/src/telemetry.js';
 
@@ -47,6 +50,37 @@ describe('validateBatch', () => {
     expect(() => validateBatch(batch([event()], 'acme/repo'))).toThrow(/installId/);
     expect(() => validateBatch(batch([]))).toThrow(/events must hold/);
     expect(() => validateBatch(batch(Array(51).fill(event())))).toThrow(/events must hold/);
+  });
+
+  it('refuses a time more than a day ahead of the collector\'s clock, or before 2025', () => {
+    const DAY = 86_400_000;
+    // A client's clock may run a little fast.
+    expect(validateBatch(batch([event({ at: NOW + DAY - 60_000 })]), NOW).events).toHaveLength(1);
+    for (const at of [NOW + DAY + 60_000, NOW + 365 * DAY, Date.UTC(2099, 11, 31)]) expect(() => validateBatch(batch([event({ at })]), NOW), String(at)).toThrow(/at must not be more than a day ahead/);
+    for (const at of [Date.UTC(2023, 11, 31), Date.UTC(2024, 5, 1), 0]) expect(() => validateBatch(batch([event({ at })]), NOW), String(at)).toThrow(/at must not be before 2025/);
+    expect(() => validateBatch({ ...batch([event()]), sentAt: NOW + 2 * DAY }, NOW)).toThrow(/sentAt must not be more than a day ahead/);
+    expect(() => validateBatch(batch([event({ at: NOW + 0.5 })]), NOW)).toThrow(/at must be a millisecond timestamp/);
+  });
+});
+
+describe('the store', () => {
+  it('drops events an unchecked collector took with a time it refuses, so they count for nothing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-collector-'));
+    try {
+      const db = join(dir, 'collector.db');
+      const before = new CollectorStore(db);
+      // As a collector that took any time up to 2100 stored them.
+      before.ingest({ v: 1, installId: '123e4567-e89b-12d3-a456-426614174000', sentAt: NOW, events: [event(), event({ at: Date.UTC(2099, 0, 1), tokensNotRespent: 10 ** 12 }), event({ at: Date.UTC(2024, 0, 2) })] as ValidEvent[] });
+      before.close();
+      const after = new CollectorStore(db);
+      const stats = after.stats(NOW);
+      expect(stats.events.total).toBe(1);
+      expect(stats.events.last7d).toBe(1);
+      expect(stats.tokensNotRespent).toBe(12000);
+      after.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -109,6 +143,10 @@ describe('collector server', () => {
     expect((await post('{not json')).status).toBe(400);
     expect((await post(batch([event()]), { 'content-type': 'text/plain' })).status).toBe(415);
     expect((await post('x'.repeat(70_000))).status).toBe(413);
+    // A time from years ahead is refused with the reason, and counts for nothing.
+    const ahead = await post(batch([event({ at: Date.UTC(2099, 0, 1) })]));
+    expect(ahead.status).toBe(400);
+    expect(((await ahead.json()) as { error: string }).error).toMatch(/at must not be more than a day ahead/);
   });
 
   it('serves aggregate stats and a dashboard without any raw data', async () => {
