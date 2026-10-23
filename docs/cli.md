@@ -746,12 +746,16 @@ Two kinds of agent fork early, because what they send isn't what their traces ke
 agent forks at its first model call, whatever the store: Pydantic AI logs the conversation, not the
 request it sends, which writes text as content blocks and sets `tool_choice`. An agent that hands
 the Anthropic SDK's own response objects back as messages (`"content": reply.content`) forks at its
-second: the SDK sends those blocks with fields their logged form leaves out. Traced by
-`logfire.instrument_anthropic()`, which logs each block as the text the SDK prints for it, it
-replays from the trace alone, as an agent that builds its messages as plain dicts does: that text is
-read back as the block. Both kinds still import, and replay runs live from the fork with writes
-fenced. A trace from [`export otel`](#export-otel) carries no prompt text, so it has nothing to
-replay: share the run as a [pack](#pack-unpack) instead. `--json` adds what the source kept:
+second model call where the trace kept the response whole but those blocks only as the text the SDK
+prints for them, as OpenInference's Anthropic instrumentation logs them: the request is then rebuilt
+from `llm.input_messages`, which leaves out fields the SDK sends with those blocks (`citations`,
+`caller`, `toolset_name`) and holds a tool result as the user's text. Where the trace logged the
+blocks as JSON, or by the GenAI conventions, such an agent replays from the trace alone, as one that
+builds its messages as plain dicts does. Traced by `logfire.instrument_anthropic()`, which logs each
+block as the text the SDK prints for it, it replays from the trace alone too: that text is read back
+as the block. Both kinds still import, and replay runs live from the fork with writes fenced. A
+trace from [`export otel`](#export-otel) carries no prompt text, so it has nothing to replay: share
+the run as a [pack](#pack-unpack) instead. `--json` adds what the source kept:
 
 ```json
 "kept": { "traces": 1, "spans": 14, "modelCalls": 9, "modelCallsImported": 9, "withSettings": 9, "withToolDefinitions": 0, "toolCalls": 5, "toolCallsKept": 3 }
