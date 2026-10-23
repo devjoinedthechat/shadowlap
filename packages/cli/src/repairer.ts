@@ -353,7 +353,7 @@ export async function cannotAsk(r: Repairer): Promise<RepairerError | null> {
 }
 
 async function askAnthropic(r: Repairer, prompt: { system: string; user: string }, prices: Record<string, Price> | undefined, signal: AbortSignal, timeoutMs: number): Promise<RepairerAnswer> {
-  // An optional peer: installed by those who ask Claude for fixes, and by nobody else.
+  // Neither a dependency nor a peer of the CLI: installed by those who ask Claude for fixes, and by nobody else.
   let sdk: typeof import('@anthropic-ai/sdk');
   let helpers: typeof import('@anthropic-ai/sdk/helpers/beta/json-schema');
   try {
