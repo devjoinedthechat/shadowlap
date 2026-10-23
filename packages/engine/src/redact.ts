@@ -1306,7 +1306,8 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
  */
 function leftWords(u: { numbers: number; keys: number; strings: number; signed: number }): string {
   const parts = [u.numbers ? (u.numbers === 1 ? 'a number' : 'numbers') : '', u.keys ? (u.keys === 1 ? 'a key' : 'keys') : '', u.strings ? 'what a clock or random read returned' : '', u.signed ? 'signed reasoning (a thinking block, its signature)' : ''].filter(Boolean);
-  return `${parts.join(' and ') || 'values'} here, which a copy leaves as ${u.numbers + u.keys + u.strings + u.signed === 1 ? 'it is' : 'they are'}`;
+  // Signed reasoning is left as it is by a pack, and masked by a copy that is only read.
+  return `${parts.join(' and ') || 'values'} here, which ${u.signed ? 'a pack' : 'a copy'} leaves as ${u.numbers + u.keys + u.strings + u.signed === 1 ? 'it is' : 'they are'}`;
 }
 
 /**
@@ -1402,12 +1403,13 @@ export interface RedactionExport {
  * it (packages/cli/test/redaction-exports.test.ts holds each one this build has to its entry). The
  * local store is never modified, and a push copies runs to the team store as recorded, so teammates
  * can replay them. A model call's key and authorization headers, and a captured HTTP call's
- * credentials, are never stored at all; a key the agent puts anywhere else is stored like any other
- * value.
+ * credentials, are never stored at all, and every copy (a push too) masks those a recording made
+ * before they were known to be ones kept (http.ts); a key the agent puts anywhere else is stored
+ * like any other value.
  */
 export const REDACTION_EXPORTS: readonly RedactionExport[] = [
-  { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule on the requests it copies, and the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise, but for a clock or random read, which stays as recorded; the command line, labels and notes are copied as recorded, since a replay runs the command' },
-  { id: 'html', command: 'shadowlap export html', applies: 'all', details: 'masked', note: 'every rule, as pack applies them, the rules with a path on what calls got back too, and the rules without a path on the command line, labels and notes' },
+  { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule on the requests it copies, a model call\u2019s query string included, and the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise, but for a clock or random read and a model call\u2019s signed reasoning (a thinking block, its signature), which stay as recorded; the command line, labels and notes are copied as recorded, since a replay runs the command' },
+  { id: 'html', command: 'shadowlap export html', applies: 'all', details: 'masked', note: 'every rule, as pack applies them, the rules with a path on what calls got back too, signed reasoning like any text, and the rules without a path on the command line, labels and notes' },
   { id: 'har', command: 'shadowlap export har', applies: 'all', details: 'absent', note: 'every rule on the model calls it holds, as export html applies them to their requests and responses, and the rules without a path on URLs and headers; it holds no tool calls and no command line' },
   { id: 'dataset', command: 'shadowlap export dataset', applies: 'messages', details: 'masked', note: 'every rule on the conversations and answers it keeps, as export html applies them, and the rules without a path on the rest of each row: command line, labels and notes' },
   { id: 'pairs', command: 'shadowlap export pairs', applies: 'messages', details: 'absent', note: 'the rules on the conversations and answers it keeps: path rules on the request and on tool arguments and results, and the rules without a path on every string' },

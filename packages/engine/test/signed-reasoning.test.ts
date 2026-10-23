@@ -125,6 +125,8 @@ describe('a pack of a run with signed reasoning', () => {
     // The streamed thinking counts once, whole; the block sent back and the second thinking are other texts.
     expect(rule.unmasked.samples.map((s) => s.value)).toEqual([THINKING, 'Refund approved for alice@example.com.']);
     expect(rule.unmasked.count).toBe(2);
+    // A rule that matches only there says so, and that a pack is what leaves it.
+    expect(previewRedaction(store, run.runId, [TOKENS]).rules[0]!.note).toBe('it matches only signed reasoning (a thinking block, its signature) here, which a pack leaves as they are');
     store.close();
   });
 });
