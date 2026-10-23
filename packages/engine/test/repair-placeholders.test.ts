@@ -132,6 +132,15 @@ describe('findAnchors with values filled in', () => {
     expect(findAnchors(sent('Refunds above 100 need a manager: escalate them.'), [{ path: 'a.ts', content: 'const s = `Refunds above ${policy.get("limit")} need a manager: escalate them.`;\n' }])).toEqual([]);
   });
 
+  it("reads an escaped brace as its file renders it, one in Python's f-string, two in JavaScript, and never anchors part of one", () => {
+    const py = findAnchors(sent('Write { to open a section, for Bob today.'), [{ path: 'agent.py', content: 'S = f"Write {{ to open a section, for {name} today."\n' }]);
+    expect(py.map((a) => a.text)).toEqual(['Write {{ to open a section, for {name} today.']);
+    const js = findAnchors(sent('Write {{ to open a section, for Bob today.'), [{ path: 'agent.mjs', content: 'const s = `Write {{ to open a section, for ${name} today.`;\n' }]);
+    expect(js.map((a) => a.text)).toEqual(['Write {{ to open a section, for ${name} today.']);
+    // A span that would end between the two braces of an escape stands for half of it.
+    expect(findAnchors(sent('For Bob: escalate refunds{'), [{ path: 'agent.mjs', content: 'const s = `For ${who}: escalate refunds{{ always`;\n' }])).toEqual([]);
+  });
+
   it('keeps anchoring a span the files hold verbatim exactly as before', () => {
     const content = "const system = 'You are a support agent. Follow the refund policy.';\n";
     expect(findAnchors(sent('You are a support agent. Follow the refund policy.'), [{ path: 'agent.mjs', content }])).toEqual([{ id: 1, surface: 'system prompt', text: 'You are a support agent. Follow the refund policy.', file: 'agent.mjs', offset: 16, prev: "'", next: "'" }]);

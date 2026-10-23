@@ -96,7 +96,7 @@ export interface Placeholder {
   text: string;
   start: number;
   end: number;
-  /** For an escape, the one character it stands for (`{{` → `{`, `%%` → `%`); absent for a placeholder that is filled in. */
+  /** For an escape, the text it renders as (`{{` → `{` in Python, `{{` in JavaScript, `%%` → `%`); absent for a placeholder that is filled in. */
   literal?: string;
   /**
    * It only names a value (`{limit}`, `${policy.limit}`, `{{ limit | upper }}`, `%(limit)s`), with
@@ -154,9 +154,9 @@ export function placeholders(text: string, syntax: TemplateSyntax): Placeholder[
           take(end + close.length, text.slice(from, end));
           continue;
         }
-        // `{{` with no `}}` after it: an f-string's or format's escape for a brace.
+        // `{{` with no `}}` after it: an f-string's or format's escape for a brace (in JavaScript, two braces).
         if (d === '{') {
-          take(i + 2, '', '{');
+          take(i + 2, '', syntax === 'js' ? '{{' : '{');
           continue;
         }
       }
@@ -166,7 +166,7 @@ export function placeholders(text: string, syntax: TemplateSyntax): Placeholder[
         continue;
       }
     } else if (c === '}' && d === '}') {
-      take(i + 2, '', '}');
+      take(i + 2, '', syntax === 'js' ? '}}' : '}');
       continue;
     } else if (c === '$') {
       if (d === '{') {
@@ -257,6 +257,8 @@ interface TemplateLine {
   units: Unit[];
   /** Each unit's offset in the line, and the line's length after the last. */
   at: number[];
+  /** Which unit each is part of: the characters an escape stands for share its number, so a span never splits one. */
+  part: number[];
   /** The words of its text outside placeholders, lower-cased, to pass over lines a span can't be. */
   words: Set<string>;
 }
@@ -277,22 +279,26 @@ function templateLines(files: readonly SourceFile[]): TemplateLine[] {
       if (!found.some((p) => p.simple && p.literal === undefined)) continue;
       const units: Unit[] = [];
       const at: number[] = [];
+      const part: number[] = [];
       let i = 0;
+      const one = (unit: Unit, offset: number, of = part.length) => {
+        units.push(unit);
+        at.push(offset);
+        part.push(of);
+      };
       for (const p of found) {
-        for (; i < p.start; i++) {
-          units.push({ char: text[i]! });
-          at.push(i);
-        }
-        units.push(p.literal !== undefined ? { char: p.literal } : p.simple ? { value: true } : { barrier: true });
-        at.push(p.start);
+        for (; i < p.start; i++) one({ char: text[i]! }, i);
+        // An escape stands for its own text, a character at a time, all at the escape's place.
+        if (p.literal !== undefined) {
+          const of = part.length;
+          for (const char of p.literal) one({ char }, p.start, of);
+        } else one(p.simple ? { value: true } : { barrier: true }, p.start);
         i = p.end;
       }
-      for (; i < text.length; i++) {
-        units.push({ char: text[i]! });
-        at.push(i);
-      }
+      for (; i < text.length; i++) one({ char: text[i]! }, i);
       at.push(text.length);
-      out.push({ file, start: lineStart, text, units, at, words: wordsOf(outsidePlaceholders(text, found)) });
+      part.push(-1);
+      out.push({ file, start: lineStart, text, units, at, part, words: wordsOf(outsidePlaceholders(text, found)) });
     }
   }
   return out;
@@ -361,7 +367,9 @@ function templatedMatches(span: string, lines: readonly TemplateLine[]): Array<{
   const out: Array<{ file: SourceFile; offset: number; text: string; literal: number }> = [];
   for (const line of lines) {
     if (words.length && words.filter((w) => line.words.has(w)).length * 2 < words.length) continue;
-    const runs = templateRuns(line, span).filter((r) => r.literal >= Math.max(8, span.length / 2));
+    // A run that starts or ends inside an escape stands for part of it, which no span of the file is.
+    const whole = (r: { from: number; to: number }) => (r.from === 0 || line.part[r.from] !== line.part[r.from - 1]) && line.part[r.to] !== line.part[r.to - 1];
+    const runs = templateRuns(line, span).filter((r) => r.literal >= Math.max(8, span.length / 2) && whole(r));
     const kept = runs.filter((r) => !runs.some((o) => o !== r && o.from < r.to && r.from < o.to && o.literal > r.literal));
     for (const r of kept) out.push({ file: line.file, offset: line.start + line.at[r.from]!, text: line.text.slice(line.at[r.from]!, line.at[r.to]!), literal: r.literal });
   }
