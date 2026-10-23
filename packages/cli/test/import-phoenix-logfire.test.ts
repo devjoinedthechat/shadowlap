@@ -177,7 +177,7 @@ describe('reading Phoenix and Logfire', () => {
     expect(logfireHost('donotstore7a1c')).toBe('https://logfire-us.pydantic.dev');
   });
 
-  it("fetches a trace's spans from Phoenix a page at a time, in the order they started, with the API key", async () => {
+  it("fetches a trace's spans from Phoenix a page at a time, with the API key, and asks for no order the API doesn't take", async () => {
     const spans = fixture('phoenix-spans.json').data;
     const seen: string[] = [];
     const host = await listen((req) => {
@@ -188,9 +188,25 @@ describe('reading Phoenix and Logfire', () => {
     const got = await fetchPhoenixSpans(PHOENIX_TRACE, { host, apiKey: 'phx-key', project: 'support-agent' });
     expect(got).toHaveLength(6);
     expect(seen).toEqual([
-      `/v1/projects/support-agent/spans?trace_id=${PHOENIX_TRACE}&sort=start_time&order=asc&limit=1000 Bearer phx-key`,
-      `/v1/projects/support-agent/spans?trace_id=${PHOENIX_TRACE}&sort=start_time&order=asc&limit=1000&cursor=U3Bhbjo0 Bearer phx-key`,
+      `/v1/projects/support-agent/spans?trace_id=${PHOENIX_TRACE}&limit=1000 Bearer phx-key`,
+      `/v1/projects/support-agent/spans?trace_id=${PHOENIX_TRACE}&limit=1000&cursor=U3Bhbjo0 Bearer phx-key`,
     ]);
+    // Phoenix lists the spans as it keeps them (newest first, here); the run is in the order they started.
+    const store = Store.open(':memory:');
+    const { result } = importTrace(store, readPhoenix(got, PHOENIX_TRACE), { source: 'phoenix:4a2db41d', labels: ['phoenix'], author: null });
+    expect(store.getCalls(result.run.runId).map((c) => (c.kind === 'api' ? 'model' : c.name))).toEqual(['model', 'lookup_order', 'model', 'issue_refund', 'model']);
+    store.close();
+  });
+
+  it('refuses a trace of more spans than it reads, rather than import part of one', async () => {
+    let pages = 0;
+    const host = await listen(() => {
+      pages++;
+      const data = Array.from({ length: 1000 }, (_, i) => ({ context: { trace_id: PHOENIX_TRACE, span_id: `${pages}-${i}` }, name: 'step', span_kind: 'CHAIN' }));
+      return { status: 200, body: { data, next_cursor: `page-${pages + 1}` } };
+    });
+    await expect(fetchPhoenixSpans(PHOENIX_TRACE, { host, apiKey: null, project: 'default' })).rejects.toThrow('the trace has more than 20000 spans, more than an import reads from Phoenix: export it as OTLP JSON and use shadowlap import otel');
+    expect(pages).toBe(20);
   });
 
   it('says why Phoenix refused, or why it has nothing to give', async () => {

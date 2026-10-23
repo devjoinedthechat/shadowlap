@@ -5,10 +5,11 @@ import { readStoredSpans, type StoredSpan } from './import-otel.js';
 /**
  * A trace from Arize Phoenix, read from its REST API (`GET /v1/projects/{project}/spans`, filtered
  * by the trace's id, a page at a time) with the API key on this machine when Phoenix asks for one.
- * Phoenix keeps OpenInference's conventions, so its spans are read as an OpenInference trace in a
- * file is (import-otel.ts). The API moves two things out of a span's attributes, and this puts them
- * back: the span's kind, and which instrumentation logged it, which says when `input.value` is the
- * provider's own request.
+ * The API takes no order for spans, so they come as Phoenix keeps them, and are put in the order
+ * they started once read (importTrace). Phoenix keeps OpenInference's conventions, so its spans are
+ * read as an OpenInference trace in a file is (import-otel.ts). The API moves two things out of a
+ * span's attributes, and this puts them back: the span's kind, and which instrumentation logged it,
+ * which says when `input.value` is the provider's own request.
  */
 
 /** Phoenix on this machine, as `phoenix serve` starts it. */
@@ -23,7 +24,7 @@ export interface PhoenixOptions extends TraceStoreOptions {
   project: string;
 }
 
-/** Spans per page, the most the API gives, and the most read for one trace. */
+/** Spans per page, the most the API gives, and the most read for one trace: a larger trace is refused, not cut. */
 const PAGE = 1000;
 const MAX_SPANS = 20_000;
 
@@ -58,7 +59,7 @@ export async function fetchPhoenixSpans(traceId: string, o: PhoenixOptions): Pro
   let others = 0;
   let cursor: string | null = null;
   do {
-    const query = new URLSearchParams({ trace_id: traceId, sort: 'start_time', order: 'asc', limit: String(PAGE) });
+    const query = new URLSearchParams({ trace_id: traceId, limit: String(PAGE) });
     if (cursor) query.set('cursor', cursor);
     const res = await fetchJson(o, `/v1/projects/${encodeURIComponent(o.project)}/spans?${query}`, { headers }, refusals);
     if (!isObject(res) || !Array.isArray(res.data)) throw new Error(`${where} answered with something that is not a list of spans: is ${o.host} Phoenix's address?`);
@@ -70,6 +71,8 @@ export async function fetchPhoenixSpans(traceId: string, o: PhoenixOptions): Pro
   } while (cursor && spans.length + others < MAX_SPANS);
   if (others && (cursor || !spans.length)) throw new Error(`Phoenix on ${where} lists every span instead of the trace's: it is older than 13.9, which reads spans by trace. Update Phoenix, or export the trace as OTLP JSON and use shadowlap import otel`);
   if (!spans.length) throw new Error(`Phoenix on ${where} has no trace ${traceId} in project ${o.project}`);
+  // Cut short, a trace would miss the spans listed last: in Phoenix 20, its oldest, where a replay starts.
+  if (cursor) throw new Error(`the trace has more than ${MAX_SPANS} spans, more than an import reads from Phoenix: export it as OTLP JSON and use shadowlap import otel`);
   return spans;
 }
 
