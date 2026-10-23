@@ -17,6 +17,13 @@ import { ago, palette as p, safe, shortId, table } from '../ui.js';
 /** Where a read's untrusted mark came from, as `show` names it. */
 const TRUST_FROM: Record<TrustSource, string> = { config: 'config', sdk: 'SDK', mcp: 'MCP openWorldHint' };
 
+/** A TCP port: 0 (any free one, which the link printed names) to 65535. */
+function parsePort(value: string): number {
+  const n = Number(value);
+  if (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(n) || n > 65535) throw new InvalidArgumentError('must be a port from 0 (any free one) to 65535');
+  return n;
+}
+
 /** How many untrusted reads `show` names above the timeline: a crawler reads hundreds, and each row is tagged anyway. */
 const UNTRUSTED_NAMED = 5;
 
@@ -28,7 +35,7 @@ export function register(program: Command): void {
     .description('Open the dashboard: a local web UI over your recordings (runs, timelines, conversations, diffs, replay and fork actions)')
     .argument('[run]', 'open this run directly')
     .option('--call <n>', 'with a run: open at this call', parseIntArg)
-    .option('--port <port>', 'port to listen on (a free one is used when it is taken)', parseIntArg, 4777)
+    .option('--port <port>', 'port to listen on: 0 for any free one; a taken one falls back to a free one, and the link printed has the port it got', parsePort, 4777)
     .option('--no-open', 'print the link instead of opening a browser')
     .option('--read-only', 'show every page but change nothing: no actions, labels, notes, uploads or deletes')
     .action(async (runArg: string | undefined, flags: { call?: number; port: number; open: boolean; readOnly?: boolean }) => {

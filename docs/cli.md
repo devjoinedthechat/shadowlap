@@ -996,7 +996,7 @@ Two runs call by call, aligned by position. First, what differs about the runs a
 shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open] [--read-only]
 ```
 
-A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork actions. Listens on 127.0.0.1 with a session token in the link it prints; a port that is taken, or that the system keeps for itself (a range Windows reserves), falls back to a free one. `--read-only` shows every page and changes nothing: actions, labels, notes, uploads and deletes are refused, and the dashboard says why. It needs a store to show and never creates one. See [Dashboard](./dashboard.md).
+A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork actions. Listens on 127.0.0.1 with a session token in the link it prints; a port that is taken, or that the system keeps for itself (a range Windows reserves), falls back to a free one, and `--port 0` asks for any free one: either way the link names the port it got. `--read-only` shows every page and changes nothing: actions, labels, notes, uploads and deletes are refused, and the dashboard says why. It needs a store to show and never creates one. See [Dashboard](./dashboard.md).
 
 ## doctor
 
