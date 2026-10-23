@@ -832,7 +832,8 @@ export class Sidecar {
 
     if (head === 'v1') return this.handleApi(req, res, rest, url, pinned);
     if (head === 'http') return this.proxyHttp(req, res, rest.slice(head.length) || '/', url.search, pinned);
-    const route = head ? this.providers.get(head) : undefined;
+    // A declared host's route (`*.example.com`) as a client may have percent-encoded it.
+    const route = head ? (this.providers.get(head) ?? this.providers.get(decodedSegment(head))) : undefined;
     if (!route) throw new HttpError(404, `unknown route ${rest}`);
     const sent = rest.slice(head.length) || '/';
     // A host that serves another wire format under part of its paths (Claude on Foundry, under Azure's).
@@ -2363,6 +2364,15 @@ function storedOrigin(kind: CallKind, decision: Decision): Origin {
   // Overrides apply to tool results; a model call matched under one is a plain replay.
   if (decision.origin === 'overridden' && kind === 'api') return 'replayed';
   return decision.origin;
+}
+
+/** A path segment decoded, or as it is when it doesn't decode. */
+function decodedSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 /** The variable that sends a provider's calls elsewhere: SHADOWLAP_UPSTREAM_BEDROCK_MANTLE for bedrock-mantle. */

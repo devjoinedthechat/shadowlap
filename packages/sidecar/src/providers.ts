@@ -564,8 +564,8 @@ export interface FormatHost {
 
 const FORMATS: Readonly<Record<FormatHost['format'], Provider>> = { openai, anthropic, gemini };
 const FORMAT_HOST = /^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/;
-/** Route names the sidecar keeps for itself or a built-in provider: no declared host may take one. */
-const RESERVED = new Set(['v1', 'http', ...providers.map((p) => p.id), ...hostedProviders.map((p) => p.id)]);
+/** Route names the sidecar keeps for itself (its API, captured HTTP, a run's and a slot's prefixes) or a provider: no declared host may take one. */
+const RESERVED = new Set(['v1', 'http', 'r', 's', 't', ...providers.map((p) => p.id), ...hostedProviders.map((p) => p.id)]);
 
 /** Why `raw` is no host to declare, or null when it is one. `where` names it in the message. */
 export function formatHostProblem(raw: unknown, where: string): string | null {

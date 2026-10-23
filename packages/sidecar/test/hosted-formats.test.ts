@@ -201,6 +201,22 @@ describe('a host the config declares (an OpenRouter-style gateway)', () => {
     }
   });
 
+  it('answers a wildcard host\'s route however a client encodes it', async () => {
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, formats: [{ host: '*.gateway.test', format: 'openai' }], upstreams: { '*.gateway.test': mock.url } });
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      for (const route of ['*.gateway.test', '%2A.gateway.test']) {
+        const res = await fetch(`${sidecar.url}/r/${rec.runId}/${route}/api/v1/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }] }) });
+        expect(res.status, route).toBe(200);
+      }
+      sidecar.endRun(rec.runId, 'completed');
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
   it('forwards a captured call only to the host it declares', async () => {
     const store = Store.open(':memory:');
     const sidecar = await Sidecar.start({ store, formats });

@@ -203,7 +203,7 @@ describe('hosts of another provider\'s wire format', () => {
     expect(formatHostProblem({ host: 'https://openrouter.ai', format: 'openai' }, 'p')).toMatch(/p\.host must be a host/);
     expect(formatHostProblem({ host: 'openrouter.ai', format: 'bedrock' }, 'p')).toMatch(/p\.format must be openai, anthropic or gemini/);
     expect(formatHostProblem({ host: 'openrouter.ai', format: 'openai', root: 'api/v1' }, 'p')).toMatch(/p\.root must be a path/);
-    expect(formatHostProblem({ host: 'openai', format: 'openai' }, 'p')).toMatch(/a name Shadowlap uses itself/);
+    for (const taken of ['openai', 'foundry', 'v1', 'http', 'r', 's']) expect(formatHostProblem({ host: taken, format: 'openai' }, 'p'), taken).toMatch(/a name Shadowlap uses itself/);
     expect(formatHostProblem({ host: '*.example.com:8443', format: 'openai' }, 'p')).toMatch(/takes no \*\./);
     expect(formatHostProblem({ host: 'example.com', format: 'openai', key: 'sk-x' }, 'p')).toMatch(/"key", which a provider doesn't take/);
   });
