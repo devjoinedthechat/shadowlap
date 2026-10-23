@@ -184,7 +184,7 @@ describe('import --json', () => {
     }
     const refused = await shadowlap(['import', 'har', 'traffic.har', '--name', '../elsewhere/traffic.har']);
     expect(refused.code).not.toBe(0);
-    expect(refused.err).toMatch(/--name: a file name, without folders/);
+    expect(refused.err).toBe('shadowlap: --name: a file name, without folders, such as traffic.har: "../elsewhere/traffic.har"\n');
   });
 
   it('keeps a name that reads like a flag as the name: --json stays the source, and the output stays words', async () => {

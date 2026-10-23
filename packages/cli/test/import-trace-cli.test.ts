@@ -235,9 +235,10 @@ describe('shadowlap import langfuse and langsmith', () => {
     // --allow-http lets the keys go over plain http to a host on a network the person trusts.
     const allowed = await shadowlap(['import', 'langfuse', LANGFUSE_ID, '--host', 'http://0.0.0.0:1', '--allow-http'], KEYS);
     expect(allowed.err).toContain('could not reach 0.0.0.0:1');
+    // A trace id is checked before it goes into a URL, and refused in one line like every other import error.
     const badId = await shadowlap(['import', 'langsmith', '../../etc/passwd', '--host', host], KEYS);
     expect(badId.code).toBe(1);
-    expect(badId.err).toContain('not a trace id');
+    expect(badId.err).toBe('shadowlap: not a trace id: "../../etc/passwd"\n');
   });
 });
 
@@ -271,11 +272,14 @@ describe('shadowlap import phoenix and logfire', () => {
     const noProject = await shadowlap(['import', 'phoenix', PHOENIX_ID, '--host', host, '--project', 'refunds'], { PHOENIX_API_KEY: PHOENIX_KEY });
     expect(noProject.code).toBe(1);
     expect(noProject.err).toContain('has no project refunds');
+    // Each in one line, as every other import error is, without the command's help.
     const badId = await shadowlap(['import', 'phoenix', 'not-a-trace', '--host', host]);
     expect(badId.code).toBe(1);
-    expect(badId.err).toContain('not a trace id: "not-a-trace" (it is 32 hex characters');
+    expect(badId.err).toBe('shadowlap: not a trace id: "not-a-trace" (it is 32 hex characters, as the trace\'s page shows it)\n');
     const future = await shadowlap(['import', 'logfire', LOGFIRE_ID, '--host', host, '--since', '2999-01-01'], { LOGFIRE_READ_TOKEN: LOGFIRE_TOKEN });
     expect(future.code).toBe(1);
-    expect(future.err).toContain('is not a moment in the past');
+    expect(future.err).toBe('shadowlap: --since: "2999-01-01" is not a moment in the past\n');
+    const notWhen = await shadowlap(['import', 'logfire', LOGFIRE_ID, '--host', host, '--since', 'yesterday'], { LOGFIRE_READ_TOKEN: LOGFIRE_TOKEN });
+    expect(notWhen.err).toBe('shadowlap: --since: a date (2026-09-30), a time (2026-09-30T14:00Z), or how long ago (30d, 12h), not "yesterday"\n');
   });
 });
