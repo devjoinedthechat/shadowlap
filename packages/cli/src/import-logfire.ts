@@ -1,5 +1,6 @@
 import { epochMs, epochNs, isObject, maybeJson, str, type Trace } from './import-trace.js';
-import { fetchJson, type TraceStoreOptions } from './import-fetch.js';
+import { EXIT } from './exit-codes.js';
+import { fetchJson, TraceStoreError, type TraceStoreOptions } from './import-fetch.js';
 import { readStoredSpans, type StoredSpan } from './import-otel.js';
 
 /**
@@ -50,9 +51,9 @@ export async function fetchLogfireRecords(traceId: string, o: LogfireOptions): P
     },
   );
   const rows = rowsOf(res);
-  if (!rows) throw new Error(`${where} answered with something that is not query results: is ${o.host} Logfire's API?`);
-  if (!rows.length) throw new Error(`Logfire has no trace ${traceId} that started since ${o.since.toISOString().slice(0, 10)}: for an older one, give --since`);
-  if (rows.length >= LIMIT) throw new Error(`the trace has ${LIMIT} spans or more, more than one query returns`);
+  if (!rows) throw new TraceStoreError(`${where} answered with something that is not query results: is ${o.host} Logfire's API?`, null, { exitCode: EXIT.usage });
+  if (!rows.length) throw new TraceStoreError(`Logfire has no trace ${traceId} that started since ${o.since.toISOString().slice(0, 10)}: for an older one, give --since`, null, { exitCode: EXIT.usage });
+  if (rows.length >= LIMIT) throw new TraceStoreError(`the trace has ${LIMIT} spans or more, more than one query returns`, null);
   return rows;
 }
 

@@ -1,5 +1,6 @@
 import { epochMs, epochNs, isObject, maybeJson, providerRequest, str, type Trace } from './import-trace.js';
-import { fetchJson, type TraceStoreOptions } from './import-fetch.js';
+import { EXIT } from './exit-codes.js';
+import { fetchJson, TraceStoreError, type TraceStoreOptions } from './import-fetch.js';
 import { readStoredSpans, type StoredSpan } from './import-otel.js';
 
 /**
@@ -62,17 +63,17 @@ export async function fetchPhoenixSpans(traceId: string, o: PhoenixOptions): Pro
     const query = new URLSearchParams({ trace_id: traceId, limit: String(PAGE) });
     if (cursor) query.set('cursor', cursor);
     const res = await fetchJson(o, `/v1/projects/${encodeURIComponent(o.project)}/spans?${query}`, { headers }, refusals);
-    if (!isObject(res) || !Array.isArray(res.data)) throw new Error(`${where} answered with something that is not a list of spans: is ${o.host} Phoenix's address?`);
+    if (!isObject(res) || !Array.isArray(res.data)) throw new TraceStoreError(`${where} answered with something that is not a list of spans: is ${o.host} Phoenix's address?`, null, { exitCode: EXIT.usage });
     for (const s of res.data) {
       if (isObject(s) && isObject(s.context) && s.context.trace_id === traceId) spans.push(s);
       else others++;
     }
     cursor = str(res.next_cursor);
   } while (cursor && spans.length + others < MAX_SPANS);
-  if (others && (cursor || !spans.length)) throw new Error(`Phoenix on ${where} lists every span instead of the trace's: it is older than 13.9, which reads spans by trace. Update Phoenix, or export the trace as OTLP JSON and use shadowlap import otel`);
-  if (!spans.length) throw new Error(`Phoenix on ${where} has no trace ${traceId} in project ${o.project}`);
+  if (others && (cursor || !spans.length)) throw new TraceStoreError(`Phoenix on ${where} lists every span instead of the trace's: it is older than 13.9, which reads spans by trace. Update Phoenix, or export the trace as OTLP JSON and use shadowlap import otel`, null, { exitCode: EXIT.usage });
+  if (!spans.length) throw new TraceStoreError(`Phoenix on ${where} has no trace ${traceId} in project ${o.project}`, null, { exitCode: EXIT.usage });
   // Cut short, a trace would miss the spans listed last: in Phoenix 20, its oldest, where a replay starts.
-  if (cursor) throw new Error(`the trace has more than ${MAX_SPANS} spans, more than an import reads from Phoenix: export it as OTLP JSON and use shadowlap import otel`);
+  if (cursor) throw new TraceStoreError(`the trace has more than ${MAX_SPANS} spans, more than an import reads from Phoenix: export it as OTLP JSON and use shadowlap import otel`, null);
   return spans;
 }
 
