@@ -289,6 +289,62 @@ describe('Session in replay mode', () => {
   });
 });
 
+describe('explaining a divergence', () => {
+  /** A recording of `n` model calls of one name, each request its call number, with a loader that counts what it loads. */
+  function long(n: number) {
+    no = 0;
+    const calls = Array.from({ length: n }, (_, i) => rec('api', 'POST /v1/messages', `A${i + 1}`, 1, null, { messages: Array.from({ length: i + 1 }, (_, j) => j) }));
+    const loaded: number[] = [];
+    return { calls, loaded, loadRequest: (r: CallRecord) => (loaded.push(r.callNo), JSON.parse(r.requestRef!)) };
+  }
+
+  it('compares a changed request with a few recorded calls near its place, the earliest always among them', () => {
+    const { calls, loaded, loadRequest } = long(1000);
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest });
+    for (let i = 1; i <= 499; i++) expect(s.resolve({ callNo: i, kind: 'api', name: 'POST /v1/messages', fingerprint: `A${i}`, request: {} }).origin).toBe('replayed');
+    const changed = Array.from({ length: 500 }, (_, j) => j);
+    changed[499] = -1;
+    s.resolve({ callNo: 500, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A500-changed', request: { messages: changed } });
+    expect(loaded.length).toBeLessThanOrEqual(8);
+    expect(loaded).toContain(500);
+    expect(s.divergence).toMatchObject({ type: 'request_changed', counterpart: { callNo: 500 }, diff: [{ path: '$.messages[499]', op: 'changed', before: 499, after: -1 }] });
+  });
+
+  it('prefers recorded calls of its own scope, then the nearest, and keeps the earliest unconsumed one in view', () => {
+    no = 0;
+    const calls = [
+      ...Array.from({ length: 20 }, (_, i) => ({ ...rec('api', 'POST /v1/messages', `B${i}`, 1, null, { branch: 'b', i }), meta: { scope: 'b' } })),
+      ...Array.from({ length: 20 }, (_, i) => ({ ...rec('api', 'POST /v1/messages', `A${i}`, 1, null, { branch: 'a', i }), meta: { scope: 'a' } })),
+    ];
+    const loaded: number[] = [];
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest: (r) => (loaded.push(r.callNo), JSON.parse(r.requestRef!)) });
+    // Call 40 of the replay, in scope a, whose recorded calls are #21 to #40.
+    s.resolve({ callNo: 40, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A-new', request: { branch: 'a', i: 19, extra: true }, scope: 'a' });
+    expect(loaded.every((n) => n >= 21)).toBe(true);
+    expect(loaded).toContain(21);
+    expect(loaded).toContain(40);
+    expect(s.divergence?.counterpart?.callNo).toBe(40);
+  });
+
+  it('can be left for after the call is answered: no recorded request is loaded until explainPending', () => {
+    const { calls, loaded, loadRequest } = long(1000);
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest, deferExplain: true });
+    s.resolve({ callNo: 1, kind: 'random', name: 'uuid', fingerprint: 'U1' });
+    expect(s.resolve({ callNo: 2, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1-changed', request: { messages: [7] } }).origin).toBe('live');
+    // At once: the divergence, compared with the nearest recorded call, and nothing loaded.
+    expect(loaded).toEqual([]);
+    expect(s.explaining).toBe(true);
+    expect(s.divergence).toEqual({ type: 'request_changed', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, counterpart: { runId: 'PARENT', callNo: 2 }, extraReads: [{ callNo: 1, kind: 'random', name: 'uuid' }] });
+    // Later: its diff, against the closest of a few.
+    const d = s.explainPending();
+    expect(loaded.length).toBeLessThanOrEqual(8);
+    expect(d).toMatchObject({ type: 'request_changed', counterpart: { callNo: 1 }, diff: [{ path: '$.messages[0]', op: 'changed', before: 0, after: 7 }], extraReads: [{ callNo: 1, kind: 'random', name: 'uuid' }] });
+    expect(s.divergence).toBe(d);
+    expect(s.explaining).toBe(false);
+    expect(s.explainPending()).toBeNull();
+  });
+});
+
 describe('scopes', () => {
   const scoped = (callNo: number, scope: string | undefined, occurrence: number): CallRecord => ({ ...rec('api', 'POST /v1/messages', 'PLAN', occurrence), callNo, meta: scope ? { scope } : {} });
 

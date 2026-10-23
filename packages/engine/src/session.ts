@@ -186,6 +186,12 @@ export interface SessionOptions {
   /** Start times of the parent run and this one, when dates near either are masked for matching, on both sides (clock.ts). */
   clock?: { parent: number; run: number };
   /**
+   * Leave a changed request's diff for later: `divergence` holds the divergence at once, compared
+   * with no recorded call yet, and `explainPending` works the diff out, as the sidecar does once the
+   * call is answered, so loading recorded requests never holds the proxy up.
+   */
+  deferExplain?: boolean;
+  /**
    * The parent run was made with what a person types recorded (`RunMeta.inputs`). One that wasn't
    * and holds no input call either predates recorded input: it never saw the agent's reads, so they
    * run live, as calls a partial recording doesn't cover do, instead of forking at the first one.
@@ -194,6 +200,9 @@ export interface SessionOptions {
 }
 
 const key = (kind: CallKind, fingerprint: string, occurrence: number, scope = '') => `${kind}\n${scope}\n${fingerprint}\n${occurrence}`;
+
+/** How many recorded calls a changed request is compared with (`Session.nearby`). */
+export const EXPLAIN_CANDIDATES = 8;
 
 export class Session {
   readonly mode: RunMode;
@@ -225,6 +234,9 @@ export class Session {
   private readonly injected = new Map<number, { status: number; target: number }>();
   /** What forced the call being resolved live, for its divergence report. */
   private forcing: { by: string; counterpart?: number } | null = null;
+  /** Explain divergences after the call is answered (`deferExplain`), and the one waiting now. */
+  private readonly deferExplain: boolean;
+  private pending: { input: ResolveInput; candidates: CallRecord[]; base: Pick<DivergenceReport, 'callNo' | 'kind' | 'name' | 'replayedBefore'> } | null = null;
   private readonly loadRequest: (record: CallRecord) => unknown;
   private readonly matchName: (record: CallRecord) => string;
   private readonly matchQuery: (record: CallRecord) => string | undefined;
@@ -245,6 +257,7 @@ export class Session {
     this.loadRequest = opts.loadRequest ?? (() => undefined);
     this.matchName = opts.matchName ?? ((record) => record.name);
     this.matchQuery = opts.matchQuery ?? (() => undefined);
+    this.deferExplain = opts.deferExplain === true;
     this.clock = opts.clock;
     this.state = this.mode === 'replay' ? 'replaying' : 'diverged';
     // The judge's scope is Shadowlap's, not the agent's: a recording whose only scope is the judge's has none of its own.
@@ -589,15 +602,59 @@ export class Session {
     if (remaining.length === 0) {
       return { ...base, type: 'beyond_recording', reason: 'the agent made more calls than the recording contains' };
     }
-    const name = input.matchName ?? input.name;
-    const sameName = remaining.filter((c) => c.kind === input.kind && (this.matchName(c) === name || (input.recordedName !== undefined && c.name === input.recordedName)));
-    // Within the same scope first: the closest call is most likely the same branch's.
-    const sameScope = sameName.filter((c) => this.scopeOf(c.meta.scope) === this.scopeOf(input.scope));
-    const candidates = sameScope.length ? sameScope : sameName;
+    const candidates = this.nearby(input, remaining);
     if (candidates.length === 0) {
       return { ...base, type: 'new_call', reason: `${changedBy ? `${changedBy}; ` : ''}no recorded ${input.kind} call named "${input.name}" remains unconsumed` };
     }
+    if (this.deferExplain) {
+      // Compared later (explainPending), once the call is answered: for now, the nearest of them.
+      this.pending = { input, candidates, base };
+      const nearest = candidates[0]!;
+      return { ...base, type: 'request_changed', counterpart: { runId: this.parentRunId ?? nearest.runId, callNo: nearest.callNo }, ...(changedBy ? { reason: changedBy } : {}) };
+    }
+    return this.compare(input, candidates, base);
+  }
 
+  /**
+   * The recorded calls a changed request is compared with, at most EXPLAIN_CANDIDATES of them: of its
+   * kind and name, within its scope when any are (the closest call is most likely the same branch's),
+   * nearest its place in the run first, and the earliest of them always among them, as a replay
+   * consumes a recording in order. Loading and diffing every remaining call of a long run would stall
+   * the proxy for seconds; the counterpart is one of these.
+   */
+  private nearby(input: ResolveInput, remaining: CallRecord[]): CallRecord[] {
+    const name = input.matchName ?? input.name;
+    const sameName = remaining.filter((c) => c.kind === input.kind && (this.matchName(c) === name || (input.recordedName !== undefined && c.name === input.recordedName)));
+    const sameScope = sameName.filter((c) => this.scopeOf(c.meta.scope) === this.scopeOf(input.scope));
+    const pool = sameScope.length ? sameScope : sameName;
+    const distance = (c: CallRecord) => Math.abs(c.callNo - input.callNo);
+    const chosen = [...pool].sort((a, b) => distance(a) - distance(b) || a.callNo - b.callNo).slice(0, EXPLAIN_CANDIDATES);
+    const earliest = pool.reduce<CallRecord | undefined>((a, c) => (!a || c.callNo < a.callNo ? c : a), undefined);
+    if (earliest && !chosen.includes(earliest)) chosen[chosen.length - 1] = earliest;
+    return chosen;
+  }
+
+  /**
+   * The divergence's report with its diff, when it was left for later (`SessionOptions.deferExplain`):
+   * worked out now, against the candidates chosen when it happened, and kept as `divergence`. Null
+   * when none waits.
+   */
+  explainPending(): DivergenceReport | null {
+    const p = this.pending;
+    if (!p) return null;
+    this.pending = null;
+    this.divergence = this.withExtras(this.compare(p.input, p.candidates, p.base));
+    return this.divergence;
+  }
+
+  /** Whether a divergence waits for its diff (`explainPending`). */
+  get explaining(): boolean {
+    return this.pending !== null;
+  }
+
+  /** The divergence's report: the diff against the closest of `candidates`, with hints for what changed. */
+  private compare(input: ResolveInput, candidates: readonly CallRecord[], base: Pick<DivergenceReport, 'callNo' | 'kind' | 'name' | 'replayedBefore'>): DivergenceReport {
+    const changedBy = input.changedBy ? `changed by ${input.changedBy}` : null;
     // Among the unconsumed calls of the same kind and name, the one with the smallest structural diff.
     let best: { record: CallRecord; diff: ReturnType<typeof structuralDiff> } | null = null;
     for (const record of candidates) {

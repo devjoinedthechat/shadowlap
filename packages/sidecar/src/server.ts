@@ -492,17 +492,21 @@ export class Sidecar {
     // The HTTP/2 compatibility API gives request and response objects the HTTP/1 handler understands.
     http2Server.on('request', (req, res) => server.emit('request', req as unknown as IncomingMessage, res as unknown as ServerResponse));
     server.on('request', (req, res) => {
-      sidecar.handle(req, res).catch((err: unknown) => {
-        const status = err instanceof HttpError ? err.status : 500;
-        const message = err instanceof Error ? err.message : String(err);
-        if (!res.headersSent) {
-          res.writeHead(status, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_error', message } }));
-        } else {
-          res.destroy();
-        }
-        sidecar.log(`error: ${message}`);
-      });
+      sidecar
+        .handle(req, res)
+        .catch((err: unknown) => {
+          const status = err instanceof HttpError ? err.status : 500;
+          const message = err instanceof Error ? err.message : String(err);
+          if (!res.headersSent) {
+            res.writeHead(status, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_error', message } }));
+          } else {
+            res.destroy();
+          }
+          sidecar.log(`error: ${message}`);
+        })
+        // The call is answered: a divergence it made is compared with the recording now, off its path.
+        .finally(() => sidecar.explainWaiting());
     });
     // A WebSocket under a provider (OpenAI Realtime), tunnelled to it.
     server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => sidecar.upgrade(req, socket, head));
@@ -667,6 +671,8 @@ export class Sidecar {
       mode: input.mode,
       parentRunId: input.parentRunId ?? null,
       ...(parentCalls ? { parentCalls } : {}),
+      // A divergence's diff is worked out once its call is answered (explainWaiting), never on its path.
+      deferExplain: true,
       ...(input.replay ? { replay: input.replay } : {}),
       loadRequest: (rec) => this.loadRequest(rec),
       matchName: (rec) => this.matchName(rec),
@@ -724,6 +730,8 @@ export class Sidecar {
     const ctx = this.runs.get(runId);
     if (!ctx) throw new HttpError(404, `unknown run ${runId}`);
     if (ctx.judgeOnly) throw new HttpError(409, `run ${runId} has ended; it is open for its judge's calls only`);
+    // A divergence still waiting for its diff gets it before the run ends.
+    this.explainWaiting(ctx);
     // A replay that never diverged but stopped before its recording did leaves it there: kept on
     // the run, so everything that reads the store tells it from a clean replay.
     if (ctx.session.end()) this.noteDivergence(ctx);
@@ -1972,17 +1980,42 @@ export class Sidecar {
   private noteDivergence(ctx: RunContext): void {
     const found = ctx.session.divergence;
     if (found && !ctx.run.divergence) {
-      // A hint for a change the run's rules mask would ask for a rule the config has: the report
-      // still lists the change, as the request carried it, but it didn't make the replay diverge.
-      const hints = found.hints?.length ? unmaskedHints(found, ctx.normalizers) : null;
-      const d = hints && hints.length !== found.hints!.length ? Sidecar.withHints(found, hints) : found;
-      ctx.run.divergence = d;
-      this.writer.write({
-        what: `run ${ctx.run.runId}'s divergence`,
-        run: () => this.store.setDivergence(ctx.run.runId, d),
-        failed: (reason) => ctx.warnOnce('store:divergence', `Where the run diverged (call ${d.callNo}) could not be written to the store (${reason}).`),
-      });
+      const d = this.keepDivergence(ctx, found);
       this.log(`run ${ctx.run.runId} diverged at call ${d.callNo} (${d.type})`);
+    }
+  }
+
+  /** Keeps a run's divergence on it, in memory and in the store, through the store writer. */
+  private keepDivergence(ctx: RunContext, found: DivergenceReport): DivergenceReport {
+    // A hint for a change the run's rules mask would ask for a rule the config has: the report
+    // still lists the change, as the request carried it, but it didn't make the replay diverge.
+    const hints = found.hints?.length ? unmaskedHints(found, ctx.normalizers) : null;
+    const d = hints && hints.length !== found.hints!.length ? Sidecar.withHints(found, hints) : found;
+    ctx.run.divergence = d;
+    this.writer.write({
+      what: `run ${ctx.run.runId}'s divergence`,
+      run: () => this.store.setDivergence(ctx.run.runId, d),
+      failed: (reason) => ctx.warnOnce('store:divergence', `Where the run diverged (call ${d.callNo}) could not be written to the store (${reason}).`),
+    });
+    return d;
+  }
+
+  /**
+   * Works out the diff of a divergence that waits for one (Session.explainPending), for `only` or for
+   * every run: called once each request has been answered, so no agent waits on recorded requests
+   * being loaded and compared, and by endRun before a run ends. A failure leaves the divergence as it
+   * was first kept, compared with its nearest recorded call.
+   */
+  private explainWaiting(only?: RunContext): void {
+    if (this.closed) return;
+    for (const ctx of only ? [only] : this.runs.values()) {
+      if (!ctx.session.explaining) continue;
+      try {
+        const d = ctx.session.explainPending();
+        if (d) this.keepDivergence(ctx, d);
+      } catch (err) {
+        this.log(`run ${ctx.run.runId}: its divergence was kept without a diff: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
