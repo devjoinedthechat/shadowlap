@@ -32,7 +32,7 @@ const lookupOrder = tool('lookup_order', { effect: 'read' }, async ({ id }: { id
 /** The agent: one streamed turn that asks for a tool, the tool, and one that continues the first by its id. */
 async function agent(client: OpenAI): Promise<string> {
   const first = await client.responses.stream({ model: MODEL, instructions: 'You look orders up.', input: 'What did order A-17 cost?', tools }).finalResponse();
-  const call = first.output.find((i): i is OpenAI.Responses.ResponseFunctionToolCall => i.type === 'function_call')!;
+  const call = first.output.find((i) => i.type === 'function_call') as OpenAI.Responses.ResponseFunctionToolCall;
   const result = await lookupOrder(JSON.parse(call.arguments) as { id: string });
   const second = await client.responses.stream({ model: MODEL, instructions: 'You look orders up.', previous_response_id: first.id, input: [{ type: 'function_call_output', call_id: call.call_id, output: JSON.stringify(result) }], tools }).finalResponse();
   return second.output_text;
