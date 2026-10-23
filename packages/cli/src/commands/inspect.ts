@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { kindFacts } from '@shadowlap/tui/data';
-import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatTokens, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, unrescuedWords, untrustedReads, wholeInput, withLabels, withNote, type RunRecord, type TrustSource } from '@shadowlap/engine';
+import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatTokens, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, unrecordedTools, unrescuedWords, untrustedReads, wholeInput, withLabels, withNote, type RunRecord, type TrustSource } from '@shadowlap/engine';
 import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
@@ -160,7 +160,7 @@ export function register(program: Command): void {
       if (flags.json) {
         const config = loadConfig(process.cwd());
         // The same function the dashboard serves it from: one shape for scripts and coding agents.
-        process.stdout.write(JSON.stringify(showJson(store, run, { calls, ...(config.prices ? { prices: config.prices } : {}), ...(config.tools ? { tools: config.tools } : {}) }), null, 2) + '\n');
+        process.stdout.write(JSON.stringify(showJson(store, run, { calls, ...(config.prices ? { prices: config.prices } : {}), ...(config.tools ? { tools: config.tools } : {}), ...(config.unrecorded ? { unrecorded: config.unrecorded } : {}) }), null, 2) + '\n');
         store.close();
         return;
       }
@@ -228,6 +228,12 @@ export function register(program: Command): void {
         const named = [...untrusted.values()].map((r) => `#${r.callNo} ${safe(r.name)} (${TRUST_FROM[r.from]})`);
         const list = named.length > UNTRUSTED_NAMED ? `${named.slice(0, UNTRUSTED_NAMED).join(', ')} and ${named.length - UNTRUSTED_NAMED} more` : named.join(', ');
         head.push(p.dim(`  untrusted reads: ${list} · shadowlap injection plants in them`));
+      }
+      // The tools its model called that it left unrecorded: they ran in the agent unseen, and a replay runs them for real.
+      const unrecorded = unrecordedTools(store, run.runId, { declared: config.unrecorded ?? {} });
+      if (unrecorded.length) {
+        const writes = unrecorded.filter((t) => t.effect === 'write').length;
+        head.push(`  ${p.yellow('!')} not recorded: ${unrecorded.map((t) => `${safe(t.name)} (${t.count} call${t.count === 1 ? '' : 's'} from #${t.firstCallNo}${t.effect === 'write' ? ', writes' : ''})`).join(', ')}${p.dim(` · a replay runs ${unrecorded.length === 1 ? 'it' : 'them'} for real${writes ? ', and refuses to while one writes' : ''}`)}`);
       }
       process.stdout.write(head.join('\n') + '\n\n');
       // A column of its own, only when there is a read to tag, so the rest line up as they always have.

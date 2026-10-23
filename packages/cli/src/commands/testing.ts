@@ -9,7 +9,8 @@ import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.
 import { testChaos } from '../chaos-session.js';
 import { checkLine, judgeResults, specFor, type JudgeCheck, type TestSpec } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
-import { EXIT, interruptedStatus, signalExit } from '../exit-codes.js';
+import { EXIT, interruptedStatus, signalExit, usageError } from '../exit-codes.js';
+import { allowedUnrecorded, unrecordedInGoldens } from '../unrecorded.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
@@ -244,8 +245,17 @@ export function register(program: Command): void {
     .option('--chaos', "run the error-path presets instead: each golden forked at one call with a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, live from the call it hits (writes stubbed unless --writes says otherwise), each judged by its tests entry's chaos.expect, else the upper bounds its expect sets on write tools")
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all, or the tests entry\'s "chaos.presets")')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
-    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string }) {
+    .option('--allow-unrecorded <names>', 'run these tools again for real though a golden never recorded them and they write: names separated by commas (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; allowUnrecorded: string[] }) {
       const opts = program.opts<GlobalOpts>();
+      // A golden whose model called a tool its recording never recorded, which writes, would run it
+      // again for real: refused before anything runs, every such golden named. Reads only warn.
+      {
+        const found = expandRecordings(packArgs, process.cwd()).dirs;
+        const looked = unrecordedInGoldens(found.map((dir) => ({ dir, name: goldenName(dir, process.cwd()) })), loadConfig(process.cwd()).unrecorded ?? {}, allowedUnrecorded(flags.allowUnrecorded));
+        if (looked.refused) throw usageError(looked.refused);
+        for (const w of looked.warnings) process.stderr.write(`${w}\n`);
+      }
       if (flags.chaos) {
         if (flags.update || flags.push || flags.annotations || flags.maxAttempts || flags.continue) throw new InvalidArgumentError('--chaos runs the error-path presets, not a test session: --update, --push, --annotations, --max-attempts and --continue are for a test session');
         const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.json ? { json: flags.json } : {}), ...(flags.junit ? { junit: flags.junit } : {}), ...(flags.markdown ? { markdown: flags.markdown } : {}), ...(flags.cwd ? { cwd: flags.cwd } : {}) };

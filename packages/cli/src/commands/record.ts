@@ -3,7 +3,9 @@ import { Command, InvalidArgumentError } from 'commander';
 import { addRules, calibrationTarget, checkOutcome, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, statusTally, summarizeRepeats, type CheckStatus, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { replayChaos } from '../chaos-session.js';
 import { CHECK_MARKS, checkWords, type CheckResult, type TestSpec } from '../checks.js';
-import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
+import { EXIT, interruptedStatus, stoppedBy, usageError } from '../exit-codes.js';
+import { allowedUnrecorded, declaredUnrecorded, formatUnrecorded, unrecordedOf, unrecordedRefusal } from '../unrecorded.js';
+import type { UnrecordedTool } from '@shadowlap/engine';
 import { codeVersion, configPath, loadConfig, upstreamOverrides } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
 import { judgesOf, type Judged } from '../judge.js';
@@ -52,6 +54,21 @@ function formatCheckTally(judged: CheckResult[][], source: string): string {
   return [`  Checks ${p.dim(`(${checksFrom(source)})`)}`, ...lines].join('\n');
 }
 
+/** The tools each run's model called that it left unrecorded, read once the runs have ended; none when the store can't be read. */
+function unrecordedAfter(opts: GlobalOpts, runIds: readonly string[]): UnrecordedTool[][] {
+  try {
+    const store = openStore(opts);
+    try {
+      const declared = declaredUnrecorded(process.cwd());
+      return runIds.map((runId) => unrecordedOf(store, runId, declared));
+    } finally {
+      store.close();
+    }
+  } catch {
+    return runIds.map(() => []);
+  }
+}
+
 /** How a replay's checks came out as a whole: failed when one failed, else inconclusive when one could not be decided, else passed. */
 function judgedOutcome(checks: readonly CheckResult[]): 'passed' | 'failed' | 'inconclusive' {
   return checks.some((c) => c.status === 'failed') ? 'failed' : checks.some((c) => !c.ok) ? 'inconclusive' : 'passed';
@@ -77,7 +94,10 @@ export function register(program: Command): void {
       );
       // A command that never started has said so, and left no run to show.
       if (started) printOutcome(summary);
-      if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary }, null, 2) + '\n');
+      // The tools the model called that the run left unrecorded: a replay would run them for real.
+      const unrecorded = started ? unrecordedAfter(opts, [summary.runId])[0]! : [];
+      if (unrecorded.length) process.stderr.write(formatUnrecorded(unrecorded, 'recording'));
+      if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary, unrecordedTools: unrecorded }, null, 2) + '\n');
       process.exitCode = code;
     });
 
@@ -103,6 +123,7 @@ export function register(program: Command): void {
     .option('--set <call:key=value>', 'set a request field from model call <call> on, where the provider keeps it: 15:max_tokens=2048, 15:temperature=0 (repeatable; value is JSON or a string; a dotted key is a path)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--model <call:model>', 'switch the model from model call <call> on, in the body or, on Gemini, Vertex, Bedrock and Azure, the path: 15:claude-opus-5')
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('--allow-unrecorded <names>', 'run these tools again for real though the recording never recorded them and they write: names separated by commas (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--repeat <n>', 'run the replay n times and report how the attempts differ after the fork', parseIntArg)
     .option('--concurrency <n>', 'with --repeat: attempts running at once', parseIntArg, 1)
@@ -112,7 +133,7 @@ export function register(program: Command): void {
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all)')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
     .option('--inconclusive <policy>', 'with --chaos: what an inconclusive preset does to the exit status, one whose gate ran out between its bounds, whose replay never reached the call, or that only a check no attempt can decide kept from passing: fail or warn', parseChoice<'fail' | 'warn'>(['fail', 'warn']), 'fail')
-    .action(async function (this: Command, runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; inconclusive: 'fail' | 'warn' }) {
+    .action(async function (this: Command, runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; allowUnrecorded: string[]; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; inconclusive: 'fail' | 'warn' }) {
       const opts = program.opts<GlobalOpts>();
       if (flags.chaos) {
         // The presets play their own failures in, one at a time: anything else that changes the replay would be judged with them.
@@ -138,6 +159,9 @@ export function register(program: Command): void {
         // A change the recorded request can't take is refused now, not by the agent part way through.
         checkRequestInterventions(store, parentCalls, interventions);
         checks = flags.expect ? { spec: readExpect(flags.expect), source: '--expect' } : checksOfRun(store, parent, process.cwd());
+        // A tool the model called that the recording never recorded runs again for real: one that writes is refused.
+        const refusal = unrecordedRefusal(parent, unrecordedOf(store, parent.runId, loadConfig(process.cwd()).unrecorded ?? {}), allowedUnrecorded(flags.allowUnrecorded), ['shadowlap', ...process.argv.slice(2)]);
+        if (refusal) throw usageError(refusal);
       } catch (err) {
         store.close();
         throw err;
@@ -245,9 +269,12 @@ export function register(program: Command): void {
         reader.close();
         const first = attempts.find((a) => a.summary.divergence)?.summary.divergence;
         process.stderr.write('\n' + (first ? formatDivergence(first, p) + '\n\n' : '') + formatRepeats(report, p) + '\n');
+        // Each attempt ran what the recording left unrecorded: named once, from the first attempt.
+        const unrecorded = unrecordedAfter(opts, attempts.map((a) => a.run.runId));
+        if (unrecorded[0]?.length) process.stderr.write('\n' + formatUnrecorded(unrecorded[0], 'replay'));
         if (checks) process.stderr.write('\n' + formatCheckTally(judged, checks.source) + '\n');
         if (unjudged) process.stderr.write('\n' + p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
-        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report }, null, 2) + '\n');
+        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}), unrecordedTools: unrecorded[i] ?? [] })), report }, null, 2) + '\n');
         emitJobEvent({ type: 'result', data: { attempts: attempts.map((a, i) => ({ runId: a.run.runId, exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report } });
         emitJobEvent({ type: 'link', label: 'Open the attempts', href: `#/run/${parent.runId}/${first?.callNo ?? 1}/forks` });
         // One that stopped before its recording did is among them: its divergence says so.
@@ -276,7 +303,10 @@ export function register(program: Command): void {
         const judged = checks ? judge(run.runId, output) : null;
         if (judged) process.stderr.write(formatChecks(judged, checks!.source) + '\n');
         if (unjudged) process.stderr.write(p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
-        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary, ...(judged ? { checks: judged } : {}) }, null, 2) + '\n');
+        // What this replay ran for real without recording it: tools the model called that no wrapper saw.
+        const unrecorded = unrecordedAfter(opts, [run.runId])[0]!;
+        if (unrecorded.length) process.stderr.write(formatUnrecorded(unrecorded, 'replay'));
+        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary, ...(judged ? { checks: judged } : {}), unrecordedTools: unrecorded }, null, 2) + '\n');
         // A replay that stopped before its recording did is no clean one either: its divergence says so.
         // A check that failed ends it with 1; then an agent that failed, with its own status; then a
         // check that could not be decided, with 3.

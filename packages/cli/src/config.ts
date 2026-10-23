@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { CONFIG_FILE, configFilePath, editConfigFile, parseRules, parseToolTrust, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
+import { CONFIG_FILE, configFilePath, editConfigFile, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
 import { validHttpHost, type HttpRule } from '@shadowlap/sidecar';
 import { parseTests, type TestEntry } from './checks.js';
 
@@ -31,6 +31,8 @@ export interface ShadowlapConfig {
   repair?: { repairer?: string; baseUrl?: string };
   /** Tools by name (or a captured HTTP call's host): `trust` marks the reads `shadowlap injection` plants in, over what the SDK or an MCP server declared. */
   tools?: ToolTrust;
+  /** `tools.unrecorded`: the effect of tools the agent runs without Shadowlap recording them, which decides whether `replay` and `test` may run them again. */
+  unrecorded?: Record<string, 'read' | 'write'>;
   // ---- Team store ----
   /** The team store, a bucket URL (`shadowlap store set`). Parsed in full by the commands that use it. */
   store?: string;
@@ -93,7 +95,11 @@ export function loadConfig(cwd: string): ShadowlapConfig {
   const prices = parsePrices(parsed.prices, file);
   if (prices) config.prices = prices;
   // Injection tests: which reads bring outside text in. A mistake here is named, as for http.
-  if (parsed.tools !== undefined) config.tools = parseToolTrust(parsed.tools, file);
+  if (parsed.tools !== undefined) {
+    config.tools = parseToolTrust(parsed.tools, file);
+    const unrecorded = parseUnrecordedConfig(parsed.tools, file);
+    if (unrecorded) config.unrecorded = unrecorded;
+  }
   const mcp = parsed.mcp as { effects?: unknown } | undefined;
   if (mcp && typeof mcp === 'object' && mcp.effects && typeof mcp.effects === 'object') {
     const effects: Record<string, Effect> = {};

@@ -28,15 +28,17 @@ export interface Shape {
 }
 
 export const SHAPES = {
-  summaryJson: { section: 'run', fields: ['exitCode', 'summary'] },
+  summaryJson: { section: 'run', fields: ['exitCode', 'summary', 'unrecordedTools'] },
   summary: { section: 'run', fields: ['runId', 'mode', 'status', 'total', 'byOrigin', 'byKind', 'upstreamRequests', 'injected', 'refused', 'imported', 'tokensNotRespent', 'cost', 'durationMs', 'notReached', 'warnings', 'divergence'] },
   cost: { section: 'run', fields: ['spent', 'saved', 'captured', 'unknownModels'] },
   // A run with judge checks: what the judge's calls did and cost, apart from the agent's (summary.judge).
   summaryJudge: { section: 'run', fields: ['calls', 'replayed', 'live', 'notAsked', 'upstreamRequests', 'spent', 'saved', 'unknownModels'] },
-  replayChecks: { section: 'replay', fields: ['exitCode', 'summary', 'checks'] },
+  replayChecks: { section: 'replay', fields: ['exitCode', 'summary', 'checks', 'unrecordedTools'] },
   repeat: { section: 'replay', fields: ['attempts', 'report'] },
   repeatReport: { section: 'replay', fields: ['parentRunId', 'attempts', 'forkedAt', 'paths', 'tools', 'distinctFinalResponses', 'succeeded', 'spent', 'saved', 'tokensNotRespent'] },
-  show: { section: 'show', fields: ['run', 'summary', 'calls', 'untrusted'] },
+  show: { section: 'show', fields: ['run', 'summary', 'calls', 'untrusted', 'unrecordedTools'] },
+  // A tool the model called that the run never recorded (show --json, --summary-json).
+  unrecordedTool: { section: 'show', list: 'the tools its model called that the run never recorded, `unrecordedTools`', fields: ['name', 'count', 'firstCallNo', 'effect', 'why'] },
   showUntrusted: { section: 'show', list: 'as the dashboard\'s `GET /api/injection/runs/:id` lists them', fields: ['callNo', 'name', 'from'] },
   showRun: { section: 'show', list: 'the run as stored', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
   showCall: { section: 'show', list: 'every call as stored', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },

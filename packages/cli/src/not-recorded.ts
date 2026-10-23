@@ -1,4 +1,4 @@
-import { recordNotRecorded, unrecordedTools, type Store } from '@shadowlap/engine';
+import { recordNotRecorded, unrecordedProjectTools, type Store } from '@shadowlap/engine';
 import { inspectProject } from './init.js';
 
 /**
@@ -11,7 +11,7 @@ export function noteUnrecordedTools(store: Store, runId: string, cwd: string): v
     const calls = store.getCalls(runId);
     // A run that reached no model is no agent run to speak of.
     if (!calls.some((c) => c.kind === 'api')) return;
-    const tools = unrecordedTools(inspectProject(cwd).tools, calls);
+    const tools = unrecordedProjectTools(inspectProject(cwd).tools, calls);
     if (tools.length) recordNotRecorded(store, runId, { tools });
   } catch {
     // an unreadable project leaves the run as it was

@@ -89,6 +89,19 @@
     "tools": {
       "description": "Tools by name (or, for a host under `http`, the host): `trust` marks a read that brings outside text in (a web page, an email, a ticket) as untrusted, so `shadowlap injection` plants payloads in its results. Recorded on each call of the tool as it is made, so a run keeps it wherever it is opened; read when a run is tested, it wins over what the SDK's `trust` option, an MCP server's openWorldHint or an earlier config recorded.",
       "type": "object",
+      "properties": {
+        "unrecorded": {
+          "$comment": "Unrecorded tools: the effect of tools the agent runs without Shadowlap recording them (replay and test refuse to run an unrecorded write again).",
+          "description": "The effect of each tool the model calls that Shadowlap does not record (a built-in such as Bash, a framework's tool, an MCP server reached without shadowlap mcp). A replay runs such a tool again for real, so `replay` and `test` refuse while one of them writes: a declared `write` is refused, a declared `read` only warned about. `--allow-unrecorded <names>` lets a replay run them anyway.",
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "read",
+              "write"
+            ]
+          }
+        }
+      },
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
