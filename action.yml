@@ -58,13 +58,16 @@ inputs:
     description: Push every test run and the session's report to the team store set in shadowlap.config.json (shadowlap test --push), and each fix that fix-on-failure opens, so teammates see it on their Fixes page. The job needs credentials for the bucket (shadowlap store ci prints the steps that give them, and with R2 keeps its keys and the push to jobs that aren't a pull request's); a pull request's job writes only to its own folder. A push that can't happen, such as one without credentials or from a fork's pull request, is a warning that says why; it never fails the job or keeps a fix's pull request from opening.
     default: 'false'
   fix-on-failure:
-    description: When a golden fails an outcome check, run blame, repair and verify, and open a pull request with the fix verify accepted. Never for a divergence; never merges. Needs contents and pull-requests write permission, GH_TOKEN, the repairer's key, and the agent's own provider keys (blame and verify run it live).
+    description: When a golden fails an outcome check, run blame, repair and verify, and open a pull request with the fix verify accepted. Never for a divergence, nor from a fix's own branch; never merges. Needs contents and pull-requests write permission, the repairer's key, and the agent's own provider keys (blame and verify run it live); github-token says how the pull request's checks start.
     default: 'false'
   fix-budget:
     description: Dollars fix-on-failure may spend per failing golden, on blame, the repairer and verify together.
     default: '2.00'
   repairer:
     description: The model that proposes fixes, as for shadowlap repair --repairer (claude-code, anthropic, anthropic:<model>, openai:<model>). Empty uses repair.repairer in shadowlap.config.json.
+    default: ''
+  github-token:
+    description: The token fix-on-failure pushes a fix's branch and opens its pull request with. A GitHub App's token or a personal access token makes GitHub start the fix pull request's workflows. Empty uses the job's GITHUB_TOKEN, for which GitHub starts none, so the action then starts the workflow it runs in on the fix's branch, which needs a workflow_dispatch trigger and actions write permission; the pull request says which happened. The CLI and the agent never get this token.
     default: ''
 
 outputs:
@@ -191,6 +194,9 @@ runs:
         INPUT_REPAIRER: ${{ inputs.repairer }}
         INPUT_INCONCLUSIVE: ${{ inputs.inconclusive }}
         INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        # For git, gh and GitHub's API alone: run.mjs takes both out of what the CLI and the agent get.
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        SHADOWLAP_JOB_TOKEN: ${{ github.token }}
       run: node "${{ github.action_path }}/action/run.mjs"
 
     # Saved whether the tests passed or not: a run that failed is history too, and the next one's baseline.

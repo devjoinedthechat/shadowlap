@@ -17,10 +17,17 @@
 // whose pull request opened goes to the team store too, for teammates' Fixes page. That comes after
 // the pull request, so it never keeps one from opening, and a push that can't happen warns in the
 // log and the job summary, with why, and never fails the job.
+//
+// The fix is verified on more than the golden that failed: every other golden failing the same check
+// is held out from the repairer, and goldens that passed under it are kept, each decided by the gate
+// of the golden that failed. The pull request says what it was verified on, and how its checks start:
+// GitHub starts none for a pull request the job's GITHUB_TOKEN opened, so without a github-token the
+// action starts this workflow on the fix's branch itself, and the pull request says whether it could.
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dispatchWorkflow, githubToken, tokenEnv } from './github.mjs';
 
 /** Why a failed golden gets no fix attempt, by the kind of failure `shadowlap test --json` reports. */
 const NOT_FIXED = {
@@ -127,19 +134,71 @@ export function branchName(result) {
   return `shadowlap/fix-${slug}-${(result.runId ?? '').slice(-6).toLowerCase() || Date.now().toString(36)}`;
 }
 
+/** Goldens that passed under the same check that a repair keeps, at most: each runs live under every candidate. */
+export const KEEPS_AT_MOST = 3;
+
 /**
- * The arguments for `shadowlap repair` on one failed golden. It commits the fix it keeps to a new
- * branch; the branch is pushed and the pull request opened here, once the golden is re-recorded on it.
+ * A golden's own gate, as repair takes it: an SPRT gate's figures (`--gate`), a fixed count's attempts
+ * and passes (`--attempts`, `--passes`), `history` for a gate against history, which verify doesn't
+ * take, or null for a golden one replay decides, whose candidates verify's default gate decides.
  */
-export function repairArgs(plan, { db, budget, repairer, expectFile }) {
+export function goldenGate(r) {
+  const g = r?.gate;
+  if (g && g.kind === 'sprt' && [g.good, g.bad, g.risk, g.max].every((x) => typeof x === 'number' && Number.isFinite(x))) return { kind: 'sprt', good: g.good, bad: g.bad, risk: g.risk, max: g.max };
+  if (g && g.kind === 'baseline') return { kind: 'history' };
+  const a = r?.attempts;
+  if (!g && a && typeof a.required === 'number' && a.total > 1) return { kind: 'count', attempts: a.total, passes: a.required };
+  return null;
+}
+
+/** A passing replay of a golden the session passed: one its result names as passed. */
+const passingRun = (r) => (r.runs ?? []).find((x) => verdictOf(x) === 'passed')?.runId ?? (r.ok && r.runId ? r.runId : null);
+
+/**
+ * What one repair of goldens that fail the same check is given (`members`, in the report's order),
+ * from the session's `results`: one failing replay of each golden, since verify replays it under a
+ * candidate as many times as the gate asks and every replay of a golden is the same case; every
+ * other golden held out from the repairer (the first, third, … shown to it, the second, fourth, …
+ * held out), so the fix must hold for goldens it was not written against; and up to KEEPS_AT_MOST
+ * goldens the session passed under the same check, which must keep passing. Each run is decided by
+ * the gate of the first golden. A golden alone has nothing held out, which the pull request says.
+ */
+export function repairPlan(members, results = []) {
+  const first = members[0].result;
+  const failing = (m) => (m.fixes ?? [])[0];
+  const shown = members.filter((m, i) => i % 2 === 0 && failing(m));
+  const held = members.filter((m, i) => i % 2 === 1 && failing(m));
+  const key = canonical(first.expect);
+  const own = new Set(members.map((m) => dirOf(m.result)));
+  const kept = results.filter((r) => r && verdictOf(r) === 'passed' && r.expect && canonical(r.expect) === key && !own.has(dirOf(r)) && passingRun(r)).slice(0, KEEPS_AT_MOST);
+  return {
+    result: first,
+    fixes: shown.map(failing),
+    holdout: held.map(failing),
+    keeps: kept.map(passingRun),
+    gate: goldenGate(first),
+    goldens: { shown: shown.map((m) => dirOf(m.result)), heldOut: held.map((m) => dirOf(m.result)), kept: kept.map(dirOf) },
+  };
+}
+
+/**
+ * The arguments for `shadowlap repair` on a plan: its failing runs, those held out, those kept, the
+ * check, and the golden's gate (`gateFile` holds an SPRT gate's figures). It commits the fix it keeps
+ * to a new branch; the branch is pushed and the pull request opened here, once the golden is
+ * re-recorded on it.
+ */
+export function repairArgs(plan, { db, budget, repairer, expectFile, gateFile = null }) {
+  const gate = plan.gate ?? null;
   return [
     ...(db ? ['--db', db] : []),
     'repair',
     '--fixes',
     ...plan.fixes,
+    ...(plan.holdout?.length ? ['--holdout', ...plan.holdout] : []),
     ...(plan.keeps.length ? ['--keeps', ...plan.keeps] : []),
     '--expect',
     `@${expectFile}`,
+    ...(gate?.kind === 'sprt' && gateFile ? ['--gate', `@${gateFile}`] : gate?.kind === 'count' ? ['--attempts', String(gate.attempts), '--passes', String(gate.passes)] : []),
     '--budget',
     String(budget),
     ...(repairer ? ['--repairer', repairer] : []),
@@ -148,6 +207,42 @@ export function repairArgs(plan, { db, budget, repairer, expectFile }) {
     '--yes',
     '--json',
   ];
+}
+
+/**
+ * What the pull request says the fix was verified on: the goldens shown to the repairer, those held
+ * out from it, those kept, and the gate each was decided by; or, verified on the failing golden
+ * alone, exactly that.
+ */
+export function evidenceNote({ goldens, gate }) {
+  const code = (dirs) => listed(dirs.map((d) => `\`${d}\``));
+  const parts = ['### What the fix was verified on\n'];
+  const one = goldens.shown.length === 1;
+  if (!goldens.heldOut.length && !goldens.kept.length) {
+    parts.push(`Only on ${code(goldens.shown)}, whose failing replay${one ? ' was' : 's were'} shown to the repairer: no other golden the session tested fails the same check to hold out from it, and none passed it to keep. That the fix holds for a case the repairer did not see is not tested here.\n`);
+  } else {
+    parts.push(`Shown to the repairer: ${code(goldens.shown)}, ${one ? 'its' : 'their'} failing replay${one ? '' : 's'}.`);
+    if (goldens.heldOut.length) parts.push(`Held out from it: ${code(goldens.heldOut)}, which fail${goldens.heldOut.length === 1 ? 's' : ''} the same check, and which the fix repairs too.`);
+    else parts.push('Held out from it: nothing, as no other golden the session tested fails the same check.');
+    if (goldens.kept.length) parts.push(`Kept: ${code(goldens.kept)}, which passed the same check, and still pass${goldens.kept.length === 1 ? 'es' : ''} it under the fix.`);
+    parts.push('');
+  }
+  if (gate?.kind === 'sprt') parts.push(`Each was decided by the golden's own gate: it tells ${Math.round(gate.good * 100)}%+ from ${Math.round(gate.bad * 100)}%- at <= ${Math.round(gate.risk * 100)}% risk, up to ${gate.max} attempts.\n`);
+  else if (gate?.kind === 'count') parts.push(`Each was decided by the golden's own count: ${gate.passes} of ${gate.attempts} attempts must pass.\n`);
+  else if (gate?.kind === 'history') parts.push("The golden's gate is against its history, which verify doesn't take, so each was decided by verify's default gate.\n");
+  return parts.join('\n');
+}
+
+/**
+ * What the pull request says about its own checks, never that they pass: GitHub starts them for a
+ * pull request the action opened with a github-token; for one the job's GITHUB_TOKEN opened it starts
+ * none, so the action started this workflow on the branch, or says it could not and what to do.
+ */
+export function checksNote({ auth, dispatch = null }) {
+  if (auth?.startsWorkflows) return `### Its checks\n\nThis pull request was opened with the token the action was given${auth.source === 'input' ? ' (`github-token`)' : ' (`GH_TOKEN`)'}, so GitHub starts its workflows as for any pull request.\n`;
+  const start = 'give the action a `github-token` (a GitHub App\'s token or a personal access token), and the next fix pull request starts them itself';
+  if (dispatch?.dispatched) return `### Its checks\n\nThis pull request was opened with the job's \`GITHUB_TOKEN\`, for which GitHub starts no workflow, so the job started \`${dispatch.workflow}\` on its branch (\`workflow_dispatch\`); that run checks this branch. Other workflows that run on pull requests have not started: ${start}.\n`;
+  return `### Its checks\n\nThis pull request was opened with the job's \`GITHUB_TOKEN\`, for which GitHub starts no workflow, and the job could not start ${dispatch?.workflow ? `\`${dispatch.workflow}\`` : 'its workflow'} on its branch: ${dispatch?.why ?? 'it was not asked to'}. No check has run on this branch: push a commit to it, or close and reopen this pull request, to start them; or ${start}.\n`;
 }
 
 const run = (cmd, args, cwd, env, input) => spawnSync(cmd, args, { cwd, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, ...(input !== undefined ? { input } : {}) });
@@ -166,7 +261,11 @@ function git(cwd, args, env, input) {
 export function cannotFix(workdir, env) {
   const head = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], workdir, env);
   if (head.status !== 0) return 'the working directory is not a git repository';
-  if (head.stdout.trim() === 'HEAD') return 'HEAD is detached, so there is no branch to open a fix against: check out the branch itself (on pull requests, actions/checkout with ref: ${{ github.head_ref }})';
+  const branch = head.stdout.trim();
+  if (branch === 'HEAD') return 'HEAD is detached, so there is no branch to open a fix against: check out the branch itself (on pull requests, actions/checkout with ref: ${{ github.head_ref }})';
+  // The workflow this action started on a fix's branch, or a fix's own pull request: its checks say
+  // whether the fix holds, and a fix of the fix would stack one pull request on another.
+  if (branch.startsWith('shadowlap/fix-')) return `${branch} is the branch of a fix this action opened: its checks say whether the fix holds, and no fix is opened from it`;
   return null;
 }
 
@@ -433,16 +532,21 @@ export function branchNote({ goldens, others = { diverging: [], failing: [], inc
   const replayed = goldens.filter((g) => g.state === 'recorded').length + (checked ? others.replayed : 0);
   const clean = checked && !goldens.some((g) => g.state === 'stale' || g.state === 'unfixed') && !d.length && !others.failing.length && !unsettled.length && !inconclusive.length && !unchecked.length;
   const forks = others.unreplayed.length || goldens.some((g) => g.state === 'fork');
-  if (clean && replayed) parts.push(forks ? 'Every golden this job replayed exactly replays clean on this branch.\n' : "Every golden this job tested replays clean on this branch, so this pull request's own checks pass.\n");
+  // What this job saw, never what the pull request's own checks will say: they run elsewhere, later.
+  if (clean && replayed) parts.push(forks ? 'Every golden this job replayed exactly replays clean on this branch.\n' : 'Every golden this job tested replays clean on this branch: `shadowlap test` passed on it here.\n');
   return parts.join('\n');
 }
 
-/** Pushes the branch and opens its pull request into the branch checked out, titled by the fix commit. */
-function openPullRequest(root, branch, bodyFile, env) {
+/** Pushes a fix's branch to origin: `{ ok, why }`. */
+function pushBranch(root, branch, env) {
+  const push = run('git', ['push', 'origin', `refs/heads/${branch}:refs/heads/${branch}`], root, env);
+  return push.status === 0 ? { ok: true, why: null } : { ok: false, why: `git push origin ${branch} failed: ${(push.stderr || push.error?.message || '').trim()}` };
+}
+
+/** Opens the pushed branch's pull request into the branch checked out, titled by the fix commit. */
+function createPullRequest(root, branch, bodyFile, env) {
   const base = git(root, ['rev-parse', '--abbrev-ref', 'HEAD'], env).trim();
   const title = git(root, ['log', '-1', '--format=%s', `refs/heads/${branch}`], env).trim();
-  const push = run('git', ['push', 'origin', `refs/heads/${branch}:refs/heads/${branch}`], root, env);
-  if (push.status !== 0) return { pr: null, why: `git push origin ${branch} failed: ${(push.stderr || push.error?.message || '').trim()}` };
   const gh = run('gh', ['pr', 'create', '--head', branch, '--base', base, '--title', title, '--body-file', bodyFile], root, env);
   if (gh.error || gh.status !== 0) return { pr: null, why: `gh pr create failed: ${(gh.stderr || gh.error?.message || '').trim()}; the branch ${branch} is pushed, so it can be opened by hand` };
   return { pr: gh.stdout.trim().split('\n').at(-1) ?? '', why: null };
@@ -574,9 +678,11 @@ const worthSplitting = (repair) => !!repair && (repair.outcome === 'not-fixed' |
  * within their budgets added up), and says how each went. When no patch fixes all the goldens of a
  * group, each is repaired on its own, in the report's order, within what the group has left, until
  * one fix is accepted: that fix gets the group's one pull request, which names the goldens it was
- * not verified for, and no other.
+ * not verified for, and no other. `auth` is the token the branch is pushed and the pull request
+ * opened with (githubToken); with the job's own GITHUB_TOKEN, the workflow is started on the branch
+ * between the two, through `fetch`.
  */
-export function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', push = false, env, log = () => {} }) {
+export async function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', push = false, env, auth = githubToken(env), fetch: fetchFn = globalThis.fetch, log = () => {} }) {
   const plans = planFixes(report);
   const blocked = plans.some((x) => !x.skip) ? cannotFix(workdir, env) : null;
   const groups = groupFixes(plans);
@@ -600,12 +706,16 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
       const goldenOf = (m) => m.result.golden ?? m.result.name;
       const goldens = group.members.map(goldenOf);
       const allowed = Number(budget) * group.members.length;
-      /** One repair, of the group or one of its goldens, within `within` dollars: what it reported and spent. */
+      /** One repair, of the group or one of its goldens, within `within` dollars: what it was given, reported and spent. */
       const attempt = (target, within, line) => {
-        const expectFile = join(scratch, `${repairs++}-expect.json`);
+        const plan = repairPlan(target.members ?? [target], report.results);
+        const n = repairs++;
+        const expectFile = join(scratch, `${n}-expect.json`);
         writeFileSync(expectFile, JSON.stringify(r.expect));
+        const gateFile = plan.gate?.kind === 'sprt' ? join(scratch, `${n}-gate.json`) : null;
+        if (gateFile) writeFileSync(gateFile, JSON.stringify({ good: plan.gate.good, bad: plan.gate.bad, risk: plan.gate.risk, max: plan.gate.max }));
         log(line);
-        const res = run(process.execPath, [cli, ...repairArgs(target, { db, budget: within, repairer, expectFile })], workdir, fixEnv);
+        const res = run(process.execPath, [cli, ...repairArgs(plan, { db, budget: within, repairer, expectFile, gateFile })], workdir, fixEnv);
         if (res.stderr) process.stderr.write(res.stderr);
         let repair = null;
         try {
@@ -615,7 +725,7 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
         }
         const spent = repair?.cost ? (repair.cost.blame ?? 0) + (repair.cost.repairer ?? 0) + (repair.cost.verify ?? 0) : 0;
         const why = repair?.why ?? repair?.error?.message ?? (`${res.stderr ?? ''}`.trim().split('\n').at(-1) || `repair exited ${res.status}`);
-        return { repair, spent, why, fixed: repair?.outcome === 'fixed' && !!repair.output?.branch };
+        return { repair, spent, why, fixed: repair?.outcome === 'fixed' && !!repair.output?.branch, plan };
       };
       const together = attempt(group, allowed, `shadowlap repair for ${listed(goldens)}${goldens.length > 1 ? ', which fail the same check' : ''}: blame, repair and verify, within $${allowed.toFixed(2)}`);
       let spent = together.spent;
@@ -665,8 +775,21 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
         // The body is kept beside repair's report, to be read after the job.
         const reportFile = resolve(workdir, repair.output.report ?? join(repair.output.dir ?? '.', 'report.md'));
         const bodyFile = join(dirname(reportFile), 'pull-request.md');
-        writeFileSync(bodyFile, `${existsSync(reportFile) ? readFileSync(reportFile, 'utf8').replace(/\s+$/, '') : ''}\n\n${branchNote(branchState)}`);
-        const opened = openPullRequest(realpathSync(git(workdir, ['rev-parse', '--show-toplevel'], fixEnv).trim()), branch, bodyFile, fixEnv);
+        // Pushed with the token the pull request is opened with. With the job's own GITHUB_TOKEN,
+        // GitHub starts no workflow for either, so this one is started on the branch in between,
+        // and the body says which happened.
+        const root = realpathSync(git(workdir, ['rev-parse', '--show-toplevel'], fixEnv).trim());
+        const ghEnv = tokenEnv(fixEnv, auth);
+        const onOrigin = pushBranch(root, branch, ghEnv);
+        let opened = { pr: null, why: onOrigin.why };
+        let checks = null;
+        if (onOrigin.ok) {
+          const dispatch = auth.startsWorkflows ? null : await dispatchWorkflow({ env, auth, branch, fetch: fetchFn });
+          checks = auth.startsWorkflows ? { state: 'token', workflow: null, why: null } : dispatch.dispatched ? { state: 'dispatched', workflow: dispatch.workflow, why: null } : { state: 'not-started', workflow: dispatch.workflow, why: dispatch.why };
+          if (dispatch && !dispatch.dispatched) log(`::warning title=Shadowlap::${commandText(`${names}: the fix's pull request has no check started: ${dispatch.why}. Give the action a github-token, or let the workflow be started on a branch (workflow_dispatch, and actions: write)`)}`);
+          writeFileSync(bodyFile, `${existsSync(reportFile) ? readFileSync(reportFile, 'utf8').replace(/\s+$/, '') : ''}\n\n${branchNote(branchState)}\n${evidenceNote(chosen.attempt.plan)}\n${checksNote({ auth, dispatch })}`);
+          opened = createPullRequest(root, branch, bodyFile, ghEnv);
+        }
         // The fix records where it went, so the dashboard shows "from CI · PR #138" and follows its state.
         if (opened.pr) for (const f of repair.fixes ?? []) if (typeof f?.fixId === 'string') run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'fix', 'pr', f.fixId, opened.pr], workdir, fixEnv);
         // With push, the fix goes to the team store, so it reaches teammates rather than ending with the job.
@@ -681,8 +804,8 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
           }
           log(pushLine(names, pushed));
         }
-        const onBranch = { goldenState: branchState.goldens.length === 1 ? branchState.goldens[0] : null, goldenStates: branchState.goldens, others: branchState.others };
-        if (opened.pr) out.push({ ...base, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, ...onBranch, pushed });
+        const onBranch = { goldenState: branchState.goldens.length === 1 ? branchState.goldens[0] : null, goldenStates: branchState.goldens, others: branchState.others, verifiedOn: chosen.attempt.plan.goldens };
+        if (opened.pr) out.push({ ...base, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, ...onBranch, pushed, checks });
         else out.push({ ...base, outcome: 'not-opened', why: opened.why, pr: null, branch, title: null, spent, verify, ...onBranch });
       } else {
         // Once the budget is spent, that is why there is no fix, whatever was learned by then.
@@ -741,6 +864,14 @@ function pushCell(p) {
   return ' · ⚠️ not in the team store';
 }
 
+/** What the summary says about a fix pull request's checks: started by its token, started on its branch, or not started (a warning). */
+function checksCell(c) {
+  if (!c) return '';
+  if (c.state === 'token') return ' · its workflows start as for any pull request';
+  if (c.state === 'dispatched') return ` · \`${cell(c.workflow)}\` started on its branch`;
+  return ' · ⚠️ no check started on its branch';
+}
+
 /** The fixes for the job summary. */
 export function fixSummary(fixes, budget) {
   if (!fixes.length) return '';
@@ -754,7 +885,7 @@ export function fixSummary(fixes, budget) {
   for (const f of fixes) {
     const what =
       f.outcome === 'opened'
-        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f)}${pushCell(f.pushed)}`
+        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f)}${checksCell(f.checks)}${pushCell(f.pushed)}`
         : f.outcome === 'skipped'
           ? cell(f.why)
           : `no fix: ${cell(f.why)}${goldenCell(f)}`;
@@ -767,6 +898,12 @@ export function fixSummary(fixes, budget) {
     const one = unsent.length === 1;
     lines.push('', `⚠️ ${one ? 'A fix' : `${unsent.length} fixes`} couldn't go to the team store, so teammates won't see ${one ? 'it' : 'them'} on their Fixes page. ${one ? 'Its pull request is' : 'Their pull requests are'} open all the same.`, '');
     for (const f of unsent) lines.push(`- \`${String(f.name).replace(/`/g, "'")}\`: ${String(f.pushed.why ?? '').replace(/\s*\r?\n\s*/g, ' ')}`);
+  }
+  // A pull request whose checks never started: why, and what starts them.
+  const unchecked = fixes.filter((f) => f.outcome === 'opened' && f.checks?.state === 'not-started');
+  if (unchecked.length) {
+    lines.push('', `⚠️ No check started on ${unchecked.length === 1 ? 'a fix pull request' : `${unchecked.length} fix pull requests`}: GitHub starts no workflow for one the job's \`GITHUB_TOKEN\` opens, and the job couldn't start it on the branch. Give the action a \`github-token\` (a GitHub App's token or a personal access token), or let the workflow be started on a branch: a \`workflow_dispatch:\` trigger, and \`actions: write\` in the job's permissions.`, '');
+    for (const f of unchecked) lines.push(`- \`${String(f.name).replace(/`/g, "'")}\`: ${String(f.checks.why ?? '').replace(/\s*\r?\n\s*/g, ' ')}`);
   }
   lines.push('', 'Each pull request carries the patch verify accepted, its report and, for a golden that must replay exactly, the golden re-recorded under the fix. Nothing is merged: review each one like any other change.');
   return lines.join('\n') + '\n';

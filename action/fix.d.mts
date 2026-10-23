@@ -1,4 +1,5 @@
 // Types for fix.mjs, which the action runs as plain JavaScript.
+import type { Dispatch, Fetch, GitHubAuth } from './github.mjs';
 
 export interface ReportResult {
   name: string;
@@ -18,6 +19,13 @@ export interface ReportResult {
   expect?: Record<string, unknown> | null;
   /** The checks of the attempt shown, each with why it failed, its `status` (absent from reports made before checks had one), and a judge check's judge. */
   checks?: Array<{ ok: boolean; label: string; detail: string | null; status?: 'passed' | 'failed' | 'inconclusive' | 'not-applicable'; judge?: { name: string } }> | null;
+  /** A golden with a gate: its figures, its verdict line (`sentence`) and its evidence. */
+  gate?: { kind: string; sentence?: string; good?: number; bad?: number; risk?: number; max?: number; decision?: string } | null;
+  /** How many attempts ran and passed, and how many had to (null with a gate). */
+  attempts?: { total: number; passed: number; inconclusive?: number; required: number | null } | null;
+  divergence?: { type: string; callNo: number; kind?: string; name?: string } | null;
+  /** `--update` re-recorded it. */
+  updated?: unknown;
 }
 
 export interface FixPlan {
@@ -26,6 +34,20 @@ export interface FixPlan {
   skip: string | null;
   fixes?: string[];
   keeps?: string[];
+}
+
+/** A golden's own gate as repair takes it: an SPRT gate's figures, a fixed count, or one against history (which verify doesn't take). */
+export type GoldenGate = { kind: 'sprt'; good: number; bad: number; risk: number; max: number } | { kind: 'count'; attempts: number; passes: number } | { kind: 'history' };
+
+/** What one repair is given: a failing replay of each golden shown to the repairer, those held out, those kept, and the gate. */
+export interface RepairPlan {
+  result: ReportResult;
+  fixes: string[];
+  holdout: string[];
+  keeps: string[];
+  gate: GoldenGate | null;
+  /** The goldens behind each: shown to the repairer, held out from it, kept. */
+  goldens: { shown: string[]; heldOut: string[]; kept: string[] };
 }
 
 /** Goldens that fail the same check, repaired together: their failing replays all targets, their passing ones all kept. */
@@ -108,12 +130,21 @@ export interface FixOutcome {
   budget?: number;
   /** With push: how the fix's push to the team store went (null when it wasn't asked to). */
   pushed?: FixPush | null;
+  /** How the pull request's checks start: by the token it was opened with, the workflow started on its branch, or not at all, and why. */
+  checks?: { state: 'token' | 'dispatched' | 'not-started'; workflow: string | null; why: string | null } | null;
+  /** What the fix was verified on. */
+  verifiedOn?: RepairPlan['goldens'];
 }
 
 export function planFixes(report: { results: ReportResult[] }): FixPlan[];
 export function groupFixes(plans: FixPlan[]): FixGroup[];
 export function branchName(result: ReportResult): string;
-export function repairArgs(plan: FixPlan, options: { db: string | null; budget: number | string; repairer: string; expectFile: string }): string[];
+export const KEEPS_AT_MOST: number;
+export function goldenGate(result: ReportResult & { gate?: unknown; attempts?: unknown }): GoldenGate | null;
+export function repairPlan(members: FixPlan[], results?: ReportResult[]): RepairPlan;
+export function repairArgs(plan: Pick<RepairPlan, 'result' | 'fixes' | 'keeps'> & Partial<Pick<RepairPlan, 'holdout' | 'gate'>>, options: { db: string | null; budget: number | string; repairer: string; expectFile: string; gateFile?: string | null }): string[];
+export function evidenceNote(plan: Pick<RepairPlan, 'goldens' | 'gate'>): string;
+export function checksNote(o: { auth: GitHubAuth; dispatch?: Dispatch | null }): string;
 export function cannotFix(workdir: string, env: NodeJS.ProcessEnv): string | null;
 export function repairEnv(workdir: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 export function refreshGoldens(options: { cli: string; workdir: string; members: FixPlan[]; unfixed?: FixPlan[]; unfixedWhy?: string | null; results?: ReportResult[]; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; env: NodeJS.ProcessEnv; scratch: string }): BranchState;
@@ -124,5 +155,5 @@ export function cannotPush(workdir: string): string | null;
 export function forkPullRequest(env: NodeJS.ProcessEnv, read?: (path: string) => string): boolean;
 export function pushFix(options: { cli: string; db: string | null; workdir: string; env: NodeJS.ProcessEnv; fixIds?: string[]; sentInJob?: Set<string>; read?: (path: string) => string }): FixPush;
 export function pushLine(name: string, pushed: FixPush): string;
-export function runFixes(options: { cli: string; db: string | null; workdir: string; report: { results: ReportResult[] }; budget: number; repairer: string; guard?: string; push?: boolean; env: NodeJS.ProcessEnv; log?: (line: string) => void }): FixOutcome[];
+export function runFixes(options: { cli: string; db: string | null; workdir: string; report: { results: ReportResult[] }; budget: number; repairer: string; guard?: string; push?: boolean; env: NodeJS.ProcessEnv; auth?: GitHubAuth; fetch?: Fetch; log?: (line: string) => void }): Promise<FixOutcome[]>;
 export function fixSummary(fixes: FixOutcome[], budget: number | string): string;
