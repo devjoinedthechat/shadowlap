@@ -440,6 +440,17 @@ export interface DecisionStep {
    * reads but could not judge (judgeOpen), absent from sessions kept before judges read them.
    */
   samples: { asked: number; answered: number; changed: number; ranks: number[]; unjudged?: number };
+  /**
+   * The control arm: the request asked as recorded, as many times as the change's (control-arm.ts),
+   * and how often it decided otherwise than the recording, each sample's rank (0: the same). With it,
+   * `rank` and `majority` are the rank the change earns beyond that variation, or null. Absent when the
+   * control wasn't asked (fewer than 3 samples), and from sessions kept before it was.
+   */
+  control?: { asked: number; answered: number; changed: number; ranks: number[]; error?: string | null } | null;
+  /** With `control`: the exact one-sided p-value that the change's decisions run more consequential than the control's. */
+  noise?: { p: number } | null;
+  /** With `control`: the most consequential change any sample of the change showed, ranked or not. */
+  sampled?: DecisionRank | null;
   model: { recorded: string | null; asked: string | null };
   /**
    * As recorded, and the new answer's in a run like the recorded one (estimatedTokens): its input
@@ -584,9 +595,12 @@ export function judgedOutcome(step: Pick<DecisionStep, 'judge' | 'majority' | 's
  * leaves the request as it was, as a prompt the working tree sends unchanged, so it isn't asked);
  * `notAsked` (skipped, or no answer came).
  */
-export type DecisionCounts = Record<'1' | '2' | '3' | '4' | '5' | 'same' | 'untouched' | 'notAsked', number>;
+export type DecisionCounts = Record<'1' | '2' | '3' | '4' | '5' | 'same' | 'untouched' | 'notAsked', number> & {
+  /** Steps whose samples decided otherwise, but no more than the control's did: within the model's own variation. Absent from sessions kept before the control. */
+  noise?: number;
+};
 
-export const emptyCounts = (): DecisionCounts => ({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0 });
+export const emptyCounts = (): DecisionCounts => ({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0, noise: 0 });
 
 /** One run's model calls asked again. */
 export interface DecisionRun {
@@ -647,9 +661,10 @@ export interface DecisionsVerify {
    * `undecided` says why its last attempt could not be judged (a judge that could not answer, a
    * condition it could not read), which stopped it, inconclusive: that attempt, among `attempts`,
    * neither passed nor failed, and there is no bound. Null otherwise, absent from sessions kept
-   * before it was.
+   * before it was. A good run kept against its own baseline has the baseline's tally (`baseline`),
+   * its bound is the drop's (`drop <= 0.07 (95%)`), and its rule the baseline test's.
    */
-  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; bound?: string | null; undecided?: string | null; rule?: string | null }>;
+  runs: Array<{ runId: string; role: string; outcome: string; passes: number; attempts: number; bound?: string | null; undecided?: string | null; rule?: string | null; baseline?: { passes: number; attempts: number } }>;
   /**
    * The rule its runs were decided by, said once: `gate: tells 90%+ from 70%- at <= 5% risk, up to
    * 80 attempts`, or a fixed count's `4 of 5 attempts must pass`. Null when a session's runs were
@@ -811,7 +826,11 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
   const why = !refused ? '' : asked ? `; ${unasked} (why below)` : ' (why below)';
   lines.push(`${head}, under ${safeLine(r.change.text)}${why}`);
   const ranks = ([1, 2, 3, 4, 5] as const).filter((k) => r.counts[k]).map((k) => `${r.counts[k]} rank ${k}`);
-  lines.push(p.dim(`  ${asked} step${asked === 1 ? '' : 's'} asked${r.samples > 1 ? `, ${r.samples} samples each` : ''}: ${ranks.length ? `${ranks.join(', ')}, ` : ''}${r.counts.same} the same${r.counts.untouched ? `, ${r.counts.untouched} the change leaves as recorded` : ''}${r.counts.notAsked ? `, ${r.counts.notAsked} not asked` : ''} · no tool ran`));
+  // With the control arm, each step was also asked as recorded, as often: what it decided otherwise is the model's own variation.
+  const controlled = r.runs.some((x) => x.decisions.some((d) => d.control));
+  const noise = r.counts.noise ?? 0;
+  const each = r.samples > 1 ? `, ${r.samples} samples each${controlled ? ' and as many as recorded' : ''}` : '';
+  lines.push(p.dim(`  ${asked + noise} step${asked + noise === 1 ? '' : 's'} asked${each}: ${ranks.length ? `${ranks.join(', ')}, ` : ''}${noise ? `${noise} within the model's own variation, ` : ''}${r.counts.same} the same${r.counts.untouched ? `, ${r.counts.untouched} the change leaves as recorded` : ''}${r.counts.notAsked ? `, ${r.counts.notAsked} not asked` : ''} · no tool ran`));
   for (const run of r.runs) {
     lines.push('');
     const name = run.golden ? `${safeLine(run.golden)} ${p.dim(run.runId.slice(0, 10))}` : run.runId.slice(0, 10);
@@ -822,6 +841,11 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
     }
     lines.push(`${p.bold(name)}  ${p.dim(`${run.asked} of ${run.steps} model call${run.steps === 1 ? '' : 's'} asked`)} · ${run.majority !== null && run.majority <= 2 ? p.red(summary) : run.rank !== null ? p.yellow(summary) : summary}`);
     for (const s of run.decisions) {
+      // A change no more frequent than the control's: listed with both arms' counts, not ranked.
+      if (s.rank === null && s.control && s.sampled) {
+        lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.dim('within the model\'s own variation')}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled])}${p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples, ${s.control.changed} of ${s.control.answered} as recorded`)}`);
+        continue;
+      }
       if (s.rank === null && !s.error) continue;
       if (s.rank === null) {
         lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.yellow('not asked')}  ${p.dim(safeLine(s.error ?? ''))}`);
@@ -833,7 +857,8 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
       // With samples, how many of them a judge could not judge: the sample shown need not be one.
       const unjudged = s.samples.unjudged ?? 0;
       const notJudged = r.samples > 1 && unjudged ? `, ${unjudged} of them not judged` : '';
-      const often = r.samples > 1 ? p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples${minority ? ', fewer than half: not flagged' : ''}${notJudged}`) : '';
+      const control = s.control ? `, ${s.control.changed} of ${s.control.answered} as recorded` : '';
+      const often = r.samples > 1 ? p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples${control}${minority ? ', fewer than half: not flagged' : ''}${notJudged}`) : '';
       lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${colour(`rank ${s.rank}`)}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.rank])}${often}`);
       lines.push(`         ${p.dim('recorded')} ${decisionLine(s.recorded)}`);
       lines.push(`         ${p.dim('now     ')} ${decisionLine(s.now)}${stepDelta(s) ? p.dim(`  ${stepDelta(s)}`) : ''}`);

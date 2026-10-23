@@ -17,8 +17,8 @@ import { BaseCheckout, resolveBase, type BaseSpec } from './verify-base.js';
  * A target or held-out run is fixed when it passes its gate. A good run that forks is kept when it is
  * not worse than its own baseline by the margin or more (engine noninferiority.ts): by default the
  * same run under the code before the change, each attempt of the change paired with one of the
- * baseline's, the two run side by side so whatever drifts meanwhile (the provider, its load) moves
- * both; or, with `--baseline history`, its golden's test history.
+ * baseline's run straight after it, so whatever drifts over the run (the provider, its load) moves
+ * both arms alike; or, with `--baseline history`, its golden's test history.
  */
 
 /**
@@ -97,7 +97,10 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
   // How good runs are kept: against their own baseline, with the gate's risk. A fixed count judges
   // every run on its own, as it did before baselines.
   const config = runner.config.verify ?? {};
-  const rule: BaselineRule = { margin: s.margin ?? config.margin ?? KEPT_DEFAULTS.margin, risk: s.gate?.risk ?? SPRT_DEFAULTS.risk, max: s.keptMax ?? config.max ?? KEPT_DEFAULTS.max };
+  // A gate's max other than its default caps a good run's pairs too: --gate '{"max":20}' means no run
+  // takes more than 20 attempts an arm. Left at its default, the baseline test has its own.
+  const capped = s.gate && s.gate.max !== SPRT_DEFAULTS.max ? s.gate.max : null;
+  const rule: BaselineRule = { margin: s.margin ?? config.margin ?? KEPT_DEFAULTS.margin, risk: s.gate?.risk ?? SPRT_DEFAULTS.risk, max: s.keptMax ?? config.max ?? capped ?? KEPT_DEFAULTS.max };
   const anyGood = input.runs.some((r) => r.role === 'good');
   const baseline: VerifyBaseline = !s.gate
     ? { source: 'none', why: 'a fixed count (--attempts, --passes) judges every run on its own' }
@@ -212,8 +215,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
 
       /**
        * A good run that forked, against the same run at the base revision: from the change's first
-       * attempt on, each paired with an attempt of the baseline forked at the same call, the pair's
-       * two run side by side, until the paired test decides.
+       * attempt on, each paired with an attempt of the baseline forced live at the same call, run
+       * straight after it, until the paired test decides.
        */
       const againstPaired = async (first: Attempt): Promise<boolean> => {
         const opened = await openArm();
@@ -240,12 +243,13 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         let pairs: PairCounts = NO_PAIRS;
         let changedNow: Attempt | null = first;
         for (let n = 1; ; n++) {
-          let b: Attempt | null;
-          if (n === 1) b = await baseAttempt(1);
-          else {
+          // A pair: the change's attempt, then the baseline's, one after the other, as a run's attempts go.
+          if (n > 1) {
             if (!canStart() || (s.failFast && failed)) break;
-            [changedNow, b] = await Promise.all([changed(n), baseAttempt(n)]);
+            changedNow = await changed(n);
+            if (!changedNow) break;
           }
+          const b = await baseAttempt(n);
           if (!changedNow || !b) break;
           if (n > 1) log(`  ${label}  ${p.dim(`attempt ${n}`)}  ${describeAttempt(changedNow)}`);
           log(`  ${label}  ${p.dim(`baseline ${n}`)}  ${describeAttempt(b)}`);
