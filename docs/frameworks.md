@@ -109,15 +109,15 @@ shadowlap normalize add --kind api --path '$.metadata.user_id' --replace '<sessi
 | Bash | write | runs, recorded with the folder it left the shell in | `true` runs instead, or `cd` to that folder; a recorded failure is reproduced by a command that prints its output and exits with its code | refused, or stubbed |
 | NotebookEdit | write | runs, recorded | refused, since Claude Code takes no stand-in for it: the replay forks there | refused |
 
-A refusal reaches the model as Claude Code words a hook's: `PreToolUse:Bash hook error: write tool Bash blocked after divergence`. A write is never run unrecorded: when the sidecar can't be asked, the fence refuses it, since this could be a replay, and a read runs unrecorded.
+A refusal reaches the model as Claude Code words a hook's: `PreToolUse:Bash hook error: write tool Bash blocked after divergence (use --writes stub|allow to change this)`. A write is never run unrecorded: when the sidecar can't be asked, the fence refuses it, since this could be a replay, and a read runs unrecorded.
 
 What hooks can't do, and what that means for a replay:
 
 - **Claude Code checks a call against the files on disk before any hook runs.** A replay forks, safely, at a call that depends on what an earlier, fenced write would have changed: an Edit of a file the run created, or of text an earlier edit wrote. Claude Code refuses that call itself, the model reads the refusal, and the run goes on live from there with writes refused. Nothing reaches the files.
 - **Some of what the model reads comes from the real call, not its output.** A Read's note about a file that isn't UTF-8, a background Bash command (`run_in_background`) and the output it sends later, and a recorded failure of a tool other than Bash replay as a fork at the next model call.
 - **Tools not in the table run as they would.** Add another by the name Claude Code calls it: `withFence(options, { effects: { mcp__issues__search: 'read' } })`. A read runs and the model gets the recorded output; a write is refused on replay. To replay a remote MCP server's tools exactly, connect Claude Code to it through [`shadowlap mcp`](./mcp.md).
-- **Permissions decide as they did.** A call that `canUseTool` or a permission rule refused while recording is recorded as not run, and refused on replay with Shadowlap's own words, so the run forks at the next model call.
-- **Only the SDK's hooks are fenced.** Claude Code run on its own (`claude -p`) and Codex run their built-in tools where no SDK hook reaches: their model calls are recorded, their tools aren't, and a replay runs them again. `shadowlap replay` names such unrecorded tools.
+- **Permissions decide as they did.** A call that `canUseTool` or a permission rule refused while recording is recorded as not run. On replay a read is left to them to refuse again; a write is refused with Shadowlap's own words, so the run forks at the next model call.
+- **Only the SDK's hooks are fenced.** Claude Code run on its own (`claude -p`) and Codex run their built-in tools where no SDK hook reaches: their model calls are recorded, their tools aren't, and a replay runs them again.
 
 Tools of an in-process MCP server (`createSdkMcpServer`, `create_sdk_mcp_server`) run in the agent's own process: wrap them, and they are recorded and fenced like any SDK tool, under the name the model calls them by (`mcp__orders__issue_refund`). A write refused after a fork answers as a tool that failed, so the model reads the refusal and carries on.
 
