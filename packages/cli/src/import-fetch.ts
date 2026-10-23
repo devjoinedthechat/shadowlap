@@ -26,22 +26,31 @@ const EXAMPLES: Record<string, string> = {
   Logfire: 'https://logfire-eu.pydantic.dev',
 };
 
+export interface HostCheck {
+  /** What named the address, for a refusal to name: `--host` (the default), or the variable that held it. */
+  from?: string;
+  /** Accept plain http to any host (`--allow-http`). */
+  allowHttp?: boolean;
+}
+
 /**
  * A trace store's base URL, checked: http or https, no user name or password in it, and https
  * unless it is this machine, because the keys travel with every request. `allowHttp` accepts plain
- * http anywhere, for a self-hosted instance on a network the person trusts.
+ * http anywhere, for a self-hosted instance on a network the person trusts. A refusal starts with
+ * what named the address; one the environment named is never repeated, since it may hold a password.
  */
-export function traceStoreHost(raw: string, what: string, allowHttp = false): string {
+export function traceStoreHost(raw: string, what: string, o: HostCheck = {}): string {
+  const from = o.from ?? '--host';
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    throw new Error(`--host: ${what} needs a URL such as ${EXAMPLES[what] ?? 'https://api.example.com'}, not "${raw}"`);
+    throw new Error(`${from}: ${what} needs a URL such as ${EXAMPLES[what] ?? 'https://api.example.com'}${from === '--host' ? `, not "${raw}"` : ''}`);
   }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`--host: ${what} is reached over https, not ${url.protocol}`);
-  if (url.username || url.password) throw new Error('--host: leave credentials out of the URL; the keys come from the environment');
-  if (url.protocol === 'http:' && !allowHttp && !isLoopbackHost(url.hostname)) {
-    throw new Error(`--host: use https for ${url.host}: the keys would cross the network in the clear. http is accepted for this machine, or with --allow-http on a network you trust`);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`${from}: ${what} is reached over https, not ${url.protocol}`);
+  if (url.username || url.password) throw new Error(`${from}: leave credentials out of the URL; the keys come from the environment`);
+  if (url.protocol === 'http:' && !o.allowHttp && !isLoopbackHost(url.hostname)) {
+    throw new Error(`${from}: use https for ${url.host}: the keys would cross the network in the clear. http is accepted for this machine, or with --allow-http on a network you trust`);
   }
   url.hash = '';
   url.search = '';

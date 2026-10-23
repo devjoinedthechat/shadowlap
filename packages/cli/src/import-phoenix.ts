@@ -28,13 +28,13 @@ const PAGE = 1000;
 const MAX_SPANS = 20_000;
 
 /**
- * Phoenix's address as its own client finds it: PHOENIX_ENDPOINT, then the address traces are sent
- * to (which may end in the OTLP path), then PHOENIX_BASE_URL.
+ * Phoenix's address as its own client finds it, and the variable that held it: PHOENIX_ENDPOINT,
+ * then the address traces are sent to (which may end in the OTLP path), then PHOENIX_BASE_URL.
  */
-export function phoenixHostFromEnv(env: NodeJS.ProcessEnv): string | undefined {
+export function phoenixHostFromEnv(env: NodeJS.ProcessEnv): { host: string; from: string } | undefined {
   for (const name of ['PHOENIX_ENDPOINT', 'PHOENIX_COLLECTOR_ENDPOINT', 'PHOENIX_BASE_URL']) {
     const v = env[name]?.trim();
-    if (v) return v.replace(/\/v1\/traces\/?$/, '');
+    if (v) return { host: v.replace(/\/v1\/traces\/?$/, ''), from: name };
   }
   return undefined;
 }

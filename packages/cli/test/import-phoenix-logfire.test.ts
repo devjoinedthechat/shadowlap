@@ -168,8 +168,8 @@ describe('reading Phoenix and Logfire', () => {
   };
 
   it("finds Phoenix where its own client does, and Logfire's region in the read token", () => {
-    expect(phoenixHostFromEnv({ PHOENIX_COLLECTOR_ENDPOINT: 'http://phoenix.internal:6006/v1/traces' })).toBe('http://phoenix.internal:6006');
-    expect(phoenixHostFromEnv({ PHOENIX_ENDPOINT: 'https://app.phoenix.arize.com/s/acme', PHOENIX_BASE_URL: 'http://ignored' })).toBe('https://app.phoenix.arize.com/s/acme');
+    expect(phoenixHostFromEnv({ PHOENIX_COLLECTOR_ENDPOINT: 'http://phoenix.internal:6006/v1/traces' })).toEqual({ host: 'http://phoenix.internal:6006', from: 'PHOENIX_COLLECTOR_ENDPOINT' });
+    expect(phoenixHostFromEnv({ PHOENIX_ENDPOINT: 'https://app.phoenix.arize.com/s/acme', PHOENIX_BASE_URL: 'http://ignored' })).toEqual({ host: 'https://app.phoenix.arize.com/s/acme', from: 'PHOENIX_ENDPOINT' });
     expect(phoenixHostFromEnv({})).toBeUndefined();
     expect(logfireHost('pylf_v1_eu_donotstore7a1c')).toBe('https://logfire-eu.pydantic.dev');
     expect(logfireHost('pylf_v1_us_donotstore7a1c')).toBe('https://logfire-us.pydantic.dev');

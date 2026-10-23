@@ -149,11 +149,26 @@ function sinceOf(raw: string | undefined): Date {
   return when;
 }
 
-/** The trace store's address: --host, else the variable its own SDK reads, else its public API. */
-function hostFor(flag: string | undefined, envNames: string[], fallback: string, what: string, allowHttp = false): string {
-  const fromEnv = envNames.map((n) => process.env[n]?.trim()).find(Boolean);
+/** A trace store's address as given, and what gave it: `--host`, or the variable that held it. */
+interface Address {
+  raw: string;
+  from: string;
+}
+
+/** Where the trace store is: --host, else the first variable its own SDK reads that is set, else its public API. */
+function addressOf(flag: string | undefined, envNames: string[], fallback: string): Address {
+  if (flag !== undefined) return { raw: flag, from: '--host' };
+  for (const name of envNames) {
+    const value = process.env[name]?.trim();
+    if (value) return { raw: value, from: name };
+  }
+  return { raw: fallback, from: '--host' };
+}
+
+/** The trace store's address, checked; a refusal names what gave it, so one from the environment isn't blamed on --host. */
+function hostFor(address: Address, what: string, allowHttp: boolean): string {
   try {
-    return traceStoreHost(flag ?? fromEnv ?? fallback, what, allowHttp);
+    return traceStoreHost(address.raw, what, { from: address.from, allowHttp });
   } catch (err) {
     throw new InvalidArgumentError((err as Error).message);
   }
@@ -341,7 +356,7 @@ export function register(program: Command): void {
       const publicKey = process.env.LANGFUSE_PUBLIC_KEY?.trim();
       const secretKey = process.env.LANGFUSE_SECRET_KEY?.trim();
       if (!publicKey || !secretKey) throw new InvalidArgumentError("import langfuse reads the project's keys from LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY; set both (they are on the project's settings page in Langfuse)");
-      const host = hostFor(flags.host, ['LANGFUSE_HOST', 'LANGFUSE_BASE_URL'], LANGFUSE_HOST, 'Langfuse', flags.allowHttp === true);
+      const host = hostFor(addressOf(flags.host, ['LANGFUSE_HOST', 'LANGFUSE_BASE_URL'], LANGFUSE_HOST), 'Langfuse', flags.allowHttp === true);
       const trace = readLangfuse(await fetchLangfuseTrace(traceId, { host, publicKey, secretKey }));
       const source = `langfuse:${traceId.slice(0, 8)}`;
       const store = openStore(program.opts<GlobalOpts>());
@@ -365,7 +380,7 @@ export function register(program: Command): void {
       const traceId = traceIdOf(rawId);
       const apiKey = (process.env.LANGSMITH_API_KEY ?? process.env.LANGCHAIN_API_KEY)?.trim();
       if (!apiKey) throw new InvalidArgumentError('import langsmith reads the API key from LANGSMITH_API_KEY; set it (Settings → API Keys in LangSmith)');
-      const host = hostFor(flags.host, ['LANGSMITH_ENDPOINT', 'LANGCHAIN_ENDPOINT'], LANGSMITH_HOST, 'LangSmith', flags.allowHttp === true);
+      const host = hostFor(addressOf(flags.host, ['LANGSMITH_ENDPOINT', 'LANGCHAIN_ENDPOINT'], LANGSMITH_HOST), 'LangSmith', flags.allowHttp === true);
       const runs = await fetchLangsmithRuns(traceId, { host, apiKey });
       const trace = readLangsmith(runs, traceId);
       const source = `langsmith:${traceId.slice(0, 8)}`;
@@ -392,7 +407,8 @@ export function register(program: Command): void {
       const apiKey = process.env.PHOENIX_API_KEY?.trim() || null;
       const project = flags.project?.trim() || process.env.PHOENIX_PROJECT_NAME?.trim() || PHOENIX_PROJECT;
       if (/[/?#]/.test(project) || project.length > 200) throw new InvalidArgumentError(`--project: a project's name or id, not "${project}"`);
-      const host = hostFor(flags.host ?? phoenixHostFromEnv(process.env), [], PHOENIX_HOST, 'Phoenix', flags.allowHttp === true);
+      const named = flags.host === undefined ? phoenixHostFromEnv(process.env) : undefined;
+      const host = hostFor(named ? { raw: named.host, from: named.from } : addressOf(flags.host, [], PHOENIX_HOST), 'Phoenix', flags.allowHttp === true);
       const trace = readPhoenix(await fetchPhoenixSpans(traceId, { host, apiKey, project }), traceId);
       const source = `phoenix:${traceId.slice(0, 8)}`;
       const store = openStore(program.opts<GlobalOpts>());
@@ -418,7 +434,7 @@ export function register(program: Command): void {
       const since = sinceOf(flags.since);
       const token = process.env.LOGFIRE_READ_TOKEN?.trim();
       if (!token) throw new InvalidArgumentError("import logfire reads a read token from LOGFIRE_READ_TOKEN; set it (create one in the project's settings in Logfire, or with logfire read-tokens create)");
-      const host = hostFor(flags.host, ['LOGFIRE_BASE_URL'], logfireHost(token), 'Logfire', flags.allowHttp === true);
+      const host = hostFor(addressOf(flags.host, ['LOGFIRE_BASE_URL'], logfireHost(token)), 'Logfire', flags.allowHttp === true);
       const trace = readLogfire(await fetchLogfireRecords(traceId, { host, token, since }), traceId);
       const source = `logfire:${traceId.slice(0, 8)}`;
       const store = openStore(program.opts<GlobalOpts>());

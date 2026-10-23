@@ -282,4 +282,16 @@ describe('shadowlap import phoenix and logfire', () => {
     const notWhen = await shadowlap(['import', 'logfire', LOGFIRE_ID, '--host', host, '--since', 'yesterday'], { LOGFIRE_READ_TOKEN: LOGFIRE_TOKEN });
     expect(notWhen.err).toBe('shadowlap: --since: a date (2026-09-30), a time (2026-09-30T14:00Z), or how long ago (30d, 12h), not "yesterday"\n');
   });
+
+  it('names the variable that gave an address it refuses, never --host when none was given', async () => {
+    const withPassword = await shadowlap(['import', 'phoenix', PHOENIX_ID], { PHOENIX_COLLECTOR_ENDPOINT: 'https://ops:hunter2@phoenix.northwind.example/v1/traces' });
+    expect(withPassword.code).toBe(1);
+    expect(withPassword.err).toBe('shadowlap: PHOENIX_COLLECTOR_ENDPOINT: leave credentials out of the URL; the keys come from the environment\n');
+    const cleartext = await shadowlap(['import', 'logfire', LOGFIRE_ID], { LOGFIRE_READ_TOKEN: LOGFIRE_TOKEN, LOGFIRE_BASE_URL: 'http://logfire.northwind.example' });
+    expect(cleartext.code).toBe(1);
+    expect(cleartext.err).toMatch(/^shadowlap: LOGFIRE_BASE_URL: use https for logfire\.northwind\.example: /);
+    // Given with --host, the refusal says so.
+    const flag = await shadowlap(['import', 'logfire', LOGFIRE_ID, '--host', 'http://logfire.northwind.example'], { LOGFIRE_READ_TOKEN: LOGFIRE_TOKEN, LOGFIRE_BASE_URL: 'https://logfire-eu.pydantic.dev' });
+    expect(flag.err).toMatch(/^shadowlap: --host: use https for logfire\.northwind\.example: /);
+  });
 });

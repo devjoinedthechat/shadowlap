@@ -495,12 +495,28 @@ describe('reading a trace store', () => {
     expect(traceStoreHost('http://127.0.0.1:3000', 'Langfuse')).toBe('http://127.0.0.1:3000');
     expect(traceStoreHost('https://ls.example.com/api/v1?x=1', 'LangSmith')).toBe('https://ls.example.com/api/v1');
     expect(() => traceStoreHost('http://langfuse.internal:3000', 'Langfuse')).toThrow(/use https.*--allow-http/);
-    expect(traceStoreHost('http://langfuse.internal:3000', 'Langfuse', true)).toBe('http://langfuse.internal:3000');
+    expect(traceStoreHost('http://langfuse.internal:3000', 'Langfuse', { allowHttp: true })).toBe('http://langfuse.internal:3000');
     expect(traceStoreHost('http://127.0.0.2:3000', 'Langfuse')).toBe('http://127.0.0.2:3000');
     expect(traceStoreHost('http://[::1]:3000', 'Langfuse')).toBe('http://[::1]:3000');
     expect(() => traceStoreHost('https://pk:sk@cloud.langfuse.com', 'Langfuse')).toThrow(/credentials/);
     expect(() => traceStoreHost('ftp://x', 'Langfuse')).toThrow(/https/);
     expect(() => traceStoreHost('cloud.langfuse.com', 'Langfuse')).toThrow(/needs a URL/);
+  });
+
+  it('names what gave a refused address: --host, or the variable that held it, whose value it never repeats', () => {
+    const refusal = (raw: string, from?: string) => {
+      try {
+        traceStoreHost(raw, 'Phoenix', from ? { from } : {});
+      } catch (err) {
+        return (err as Error).message;
+      }
+      return null;
+    };
+    expect(refusal('https://ops:hunter2@phoenix.example.com')).toBe('--host: leave credentials out of the URL; the keys come from the environment');
+    expect(refusal('https://ops:hunter2@phoenix.example.com', 'PHOENIX_COLLECTOR_ENDPOINT')).toBe('PHOENIX_COLLECTOR_ENDPOINT: leave credentials out of the URL; the keys come from the environment');
+    expect(refusal('http://phoenix.internal:6006', 'PHOENIX_BASE_URL')).toMatch(/^PHOENIX_BASE_URL: use https for phoenix\.internal:6006: /);
+    expect(refusal('phoenix internal', '--host')).toBe('--host: Phoenix needs a URL such as http://localhost:6006 or https://app.phoenix.arize.com/s/your-space, not "phoenix internal"');
+    expect(refusal('http://ops:hunter2@phoenix internal:6006', 'PHOENIX_ENDPOINT')).toBe('PHOENIX_ENDPOINT: Phoenix needs a URL such as http://localhost:6006 or https://app.phoenix.arize.com/s/your-space');
   });
 
   it('fetches a Langfuse trace with the project keys, and its observations when the trace lists ids only', async () => {
