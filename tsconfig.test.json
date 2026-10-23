@@ -85,7 +85,8 @@
     "packages/dashboard/test/ui-fix-evidence.test.ts",
     // This counts what the shared state redraws as the shell polls.
     "packages/dashboard/test/ui-render-counts.test.ts",
-    // This renders the Runs page, a page of its table at a time.
-    "packages/dashboard/test/ui-runs-paging.test.ts"
+    // These render the Runs page, a page of its table at a time, and a run's page, a page of its calls at a time.
+    "packages/dashboard/test/ui-runs-paging.test.ts",
+    "packages/dashboard/test/ui-run-paging.test.ts"
   ]
 }

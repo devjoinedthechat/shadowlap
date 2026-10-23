@@ -1,4 +1,4 @@
-import type { ActionItem as ServerAction, CallDetail as ServerCallDetail, CallRow as ServerCallRow, LineageNode as ServerLineageNode, RunDetail as ServerRunDetail, RunListItem as ServerRunListItem } from '../src/api.js';
+import type { ActionItem as ServerAction, CallDetail as ServerCallDetail, CallRow as ServerCallRow, CallsPage as ServerCallsPage, LineageNode as ServerLineageNode, RunDetail as ServerRunDetail, RunListItem as ServerRunListItem } from '../src/api.js';
 import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
 import type { RunAbout } from '../../engine/src/about.js';
 export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
@@ -262,6 +262,9 @@ export interface FixView {
  * replace the server's rather than adding to them.
  */
 export type RunDetail = Omit<ServerRunDetail, 'calls' | 'actions' | keyof RunDetailExtras> & { calls: CallRow[]; actions: ActionItem[] } & RunDetailExtras;
+
+/** A page of a run's calls after the first (`GET /api/runs/:id/calls?from=`, contract 8). */
+export type CallsPage = Omit<ServerCallsPage, 'calls'> & { calls: CallRow[] };
 
 /**
  * An answer a prompt offers in its list. One with `text` needs a few words more: the dialog shows a
