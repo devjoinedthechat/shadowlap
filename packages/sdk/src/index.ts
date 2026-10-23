@@ -273,6 +273,51 @@ async function post<T>(cfg: Config, path: string, body: unknown): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+/** What the sidecar answers about a tool call: replay it, run it, refuse it (a write after a fork) or stub it. */
+export type Resolution = ResolveResponse;
+
+/** How a tool call ended, as an integration records it. */
+export type CallEnd = { outcome: 'ok'; result: unknown; latencyMs?: number } | { outcome: 'error'; error: SerializedError; latencyMs?: number };
+
+/** A tool call an integration asks the sidecar about. */
+export interface ToolCallRequest {
+  name: string;
+  effect: Effect;
+  /** The call's input, as JSON: what a replay matches it by. */
+  args: unknown;
+  /** The implementation's hash, for the warning that a tool changed since the recording. */
+  implHash?: string;
+  trust?: Trust;
+}
+
+/**
+ * For an integration whose tools run where `tool()` can't wrap them, such as an agent runtime's
+ * built-in tools run between two hooks: asks the sidecar what to do about one call, before it runs.
+ * Null outside Shadowlap. A `live` or `stubbed` answer is ended with `completeToolCall` once the
+ * call has run, or been stubbed; a `replayed` answer carries the recorded result or error, and a
+ * `blocked` one the refusal's message.
+ */
+export async function resolveToolCall(call: ToolCallRequest): Promise<Resolution | null> {
+  const cfg = config();
+  if (!cfg) return null;
+  if (call.effect !== 'pure' && call.effect !== 'read' && call.effect !== 'write') throw new TypeError(`tool ${call.name}: effect must be "pure", "read" or "write"`);
+  return post<ResolveResponse>(cfg, '/v1/calls/resolve', {
+    kind: 'tool',
+    name: call.name,
+    effect: call.effect,
+    args: call.args ?? null,
+    ...(call.implHash ? { implHash: call.implHash } : {}),
+    ...(call.trust === 'untrusted' ? { trust: 'untrusted' } : {}),
+  });
+}
+
+/** Records how a call `resolveToolCall` answered `live` or `stubbed` ended. Does nothing outside Shadowlap. */
+export async function completeToolCall(callNo: number, end: CallEnd): Promise<void> {
+  const cfg = config();
+  if (!cfg) return;
+  await post(cfg, `/v1/calls/${callNo}/complete`, end.outcome === 'ok' ? { outcome: 'ok', result: end.result ?? null, latencyMs: end.latencyMs ?? 0 } : { outcome: 'error', error: end.error, latencyMs: end.latencyMs ?? 0 });
+}
+
 export function serializeError(err: unknown): SerializedError {
   if (err instanceof Error) {
     const out: SerializedError = { name: err.name, message: err.message };

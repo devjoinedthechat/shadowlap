@@ -74,6 +74,67 @@ const runner = client.beta.messages.toolRunner({ model: 'claude-opus-5', max_tok
 
 The runner's API calls are recorded through `ANTHROPIC_BASE_URL`; nothing else is needed.
 
+## Claude Agent SDK
+
+Its built-in tools (Bash, Write, Edit, Read, WebFetch and the rest) run inside Claude Code, where no wrapper reaches them, so they are recorded and fenced through the SDK's hooks. Add the hooks to the query's options, in TypeScript or Python:
+
+```ts
+import { query } from '@anthropic-ai/claude-agent-sdk';
+import { withFence } from '@shadowlap/adapters/claude-agent-sdk';
+
+for await (const message of query({ prompt, options: withFence({ cwd: project, permissionMode: 'acceptEdits' }) })) {
+  // …
+}
+```
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, query
+from shadowlap.adapters.claude_agent_sdk import with_fence
+
+async for message in query(prompt=prompt, options=with_fence(ClaudeAgentOptions(cwd=project))):
+    ...
+```
+
+`withFence` keeps the options' own hooks and adds its own after them. Outside Shadowlap every hook answers at once with nothing to change, so the same options serve production. Claude Code's model calls are recorded through `ANTHROPIC_BASE_URL`, like any Anthropic client's. It names its session in every request's `metadata.user_id`, which changes from one run to the next, so add one normalizer, once:
+
+```sh
+shadowlap normalize add --kind api --path '$.metadata.user_id' --replace '<session>'
+```
+
+| Tool | Effect | Recording | Replay | After a fork |
+|---|---|---|---|---|
+| Read, Glob, Grep | read | runs, and its output is recorded | runs as it is, and the model gets the recorded output | runs live, recorded |
+| WebFetch, WebSearch | read | runs; the model call it makes to read the page or search is recorded too | runs as it is: its model call is answered from the recording while the page reads as it did; the model gets the recorded output | runs live |
+| Write, Edit, MultiEdit | write | runs, recorded | a stand-in writes a new file in a temporary folder instead; the model gets the recorded output | refused (`--writes block`), or the stand-in runs and the model reads it as done (`--writes stub`) |
+| Bash | write | runs, recorded with the folder it left the shell in | `true` runs instead, or `cd` to that folder; a recorded failure is reproduced by a command that prints its output and exits with its code | refused, or stubbed |
+| NotebookEdit | write | runs, recorded | refused, since Claude Code takes no stand-in for it: the replay forks there | refused |
+
+A refusal reaches the model as Claude Code words a hook's: `PreToolUse:Bash hook error: write tool Bash blocked after divergence`. A write is never run unrecorded: when the sidecar can't be asked, the fence refuses it, since this could be a replay, and a read runs unrecorded.
+
+What hooks can't do, and what that means for a replay:
+
+- **Claude Code checks a call against the files on disk before any hook runs.** A replay forks, safely, at a call that depends on what an earlier, fenced write would have changed: an Edit of a file the run created, or of text an earlier edit wrote. Claude Code refuses that call itself, the model reads the refusal, and the run goes on live from there with writes refused. Nothing reaches the files.
+- **Some of what the model reads comes from the real call, not its output.** A Read's note about a file that isn't UTF-8, a background Bash command (`run_in_background`) and the output it sends later, and a recorded failure of a tool other than Bash replay as a fork at the next model call.
+- **Tools not in the table run as they would.** Add another by the name Claude Code calls it: `withFence(options, { effects: { mcp__issues__search: 'read' } })`. A read runs and the model gets the recorded output; a write is refused on replay. To replay a remote MCP server's tools exactly, connect Claude Code to it through [`shadowlap mcp`](./mcp.md).
+- **Permissions decide as they did.** A call that `canUseTool` or a permission rule refused while recording is recorded as not run, and refused on replay with Shadowlap's own words, so the run forks at the next model call.
+- **Only the SDK's hooks are fenced.** Claude Code run on its own (`claude -p`) and Codex run their built-in tools where no SDK hook reaches: their model calls are recorded, their tools aren't, and a replay runs them again. `shadowlap replay` names such unrecorded tools.
+
+Tools of an in-process MCP server (`createSdkMcpServer`, `create_sdk_mcp_server`) run in the agent's own process: wrap them, and they are recorded and fenced like any SDK tool, under the name the model calls them by (`mcp__orders__issue_refund`). A write refused after a fork answers as a tool that failed, so the model reads the refusal and carries on.
+
+```ts
+import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
+import { withEffects } from '@shadowlap/adapters/claude-agent-sdk';
+
+const orders = createSdkMcpServer({ name: 'orders', version: '1.0.0', tools: withEffects('orders', [lookupOrder, issueRefund], { lookup_order: 'read', issue_refund: 'write' }) });
+```
+
+```python
+from claude_agent_sdk import create_sdk_mcp_server
+from shadowlap.adapters.claude_agent_sdk import with_effects
+
+orders = create_sdk_mcp_server(name="orders", version="1.0.0", tools=with_effects("orders", [lookup_order, issue_refund], {"lookup_order": "read", "issue_refund": "write"}))
+```
+
 ## Python
 
 Parameters a framework injects are never recorded, in any Python framework: a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper` or `ToolContext`, a LangChain `RunnableConfig`, callback manager or `Injected…` argument. The SDK recognizes them by the types in their annotation: the class, a generic's arguments (`Optional[...]`, `RunContext[Deps]`) and `Annotated`'s markers (`Annotated[str, InjectedToolArg]`), never by its descriptions or values, so `Annotated[str, "Injected document text"]` and `Literal["InjectedFile", "Upload"]` are still recorded. Name any other with `exclude=(...)`. Typed arguments, as Pydantic AI documents them (a Pydantic model, a dataclass, a `datetime.date`, a UUID, an `Enum`), are the tool's real input and are recorded in their JSON form, as results are; an argument that can't be recorded fails before the tool runs, with a message naming it.

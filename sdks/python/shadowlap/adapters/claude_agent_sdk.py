@@ -1,0 +1,441 @@
+"""Claude Agent SDK (``claude-agent-sdk``), and Claude Code headless underneath it.
+
+Its built-in tools (Bash, Write, Edit, Read, WebFetch, …) run inside the Claude Code process, where
+no wrapper reaches them, so they are recorded and fenced through the SDK's hooks instead::
+
+    from claude_agent_sdk import ClaudeAgentOptions, query
+    from shadowlap.adapters.claude_agent_sdk import with_fence
+
+    async for message in query(prompt=prompt, options=with_fence(ClaudeAgentOptions(cwd=project))):
+        ...
+
+- While recording, PostToolUse records each built-in tool's input and output through the sidecar,
+  and PostToolUseFailure its failure.
+- On replay, a recorded write never runs again: PreToolUse turns its input into a stand-in Claude
+  Code accepts and that changes nothing outside a temporary folder (Bash runs ``true``, or ``cd`` to
+  the folder the command left; Write and Edit write a new file there), and PostToolUse hands the
+  model the recorded output in its place (``updatedToolOutput``). A recorded Bash failure is
+  reproduced by a command that prints its output and exits with its code. A read runs as it is,
+  since reading changes nothing and keeps Claude Code's own file tracking as it was recorded, and
+  the model gets the recorded output too.
+- After a fork, a write is refused per ``--writes``: ``block`` denies it with the refusal the model
+  reads, ``stub`` runs the stand-in and answers with ``on_fork``'s output.
+
+Without Shadowlap (no SHADOWLAP_URL) every hook answers ``{}``. Claude Code checks a call's input
+against the files on disk before any hook runs, so a replay forks, safely, at a call that depends on
+a file an earlier, fenced write would have changed: docs/frameworks.md has this and the other limits.
+
+Tools of an in-process MCP server (``create_sdk_mcp_server``) run in the agent's own process: wrap
+them with ``with_effects``, which records and fences them like any SDK tool.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import os
+import re
+import sys
+import tempfile
+import time
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar
+
+from shadowlap import (
+    ReplayedError,
+    ShadowlapInjectedFailure,
+    ShadowlapWriteBlocked,
+    _cancelled_error,
+    _check_args,
+    _complete_call,
+    _finish,
+    _injected,
+    _is_cancellation,
+    _recordable,
+    _replay_cancellation,
+    _resolve_tool,
+    _to_thread,
+    serialize_error,
+)
+
+__all__ = ["BUILT_IN_EFFECTS", "fence_hooks", "with_fence", "with_effects"]
+
+#: Claude Code's built-in tools that are recorded, with their effects.
+BUILT_IN_EFFECTS: Mapping[str, str] = {
+    "Read": "read",
+    "Glob": "read",
+    "Grep": "read",
+    "WebFetch": "read",
+    "WebSearch": "read",
+    "Write": "write",
+    "Edit": "write",
+    "MultiEdit": "write",
+    "NotebookEdit": "write",
+    "Bash": "write",
+}
+
+#: A recorded Bash call that moved the shell's working folder keeps where it left it here, beside its output.
+_CWD = "shadowlapCwd"
+
+Hook = Callable[[Dict[str, Any], Optional[str], Any], Any]
+Opts = TypeVar("Opts")
+ToolT = TypeVar("ToolT")
+
+
+@dataclasses.dataclass
+class _Matcher:
+    """A hook matcher, shaped as the SDK's HookMatcher, for when the SDK isn't importable here."""
+
+    matcher: Optional[str] = None
+    hooks: List[Hook] = dataclasses.field(default_factory=list)
+    timeout: Optional[float] = None
+
+
+def _matcher(matcher: Optional[str], hook: Hook) -> Any:
+    try:
+        from claude_agent_sdk import HookMatcher
+    except ImportError:
+        return _Matcher(matcher=matcher, hooks=[hook])
+    return HookMatcher(matcher=matcher, hooks=[hook])
+
+
+def _quote(s: str) -> str:
+    """A shell word the shell takes as it is."""
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def _bash_failure(error: str) -> Optional[Tuple[int, str]]:
+    """The exit code and the rest of a recorded Bash failure, as Claude Code writes one: ``Exit code N``, then the output."""
+    m = re.match(r"^Exit code (\d{1,3})(?:\n([\s\S]*))?$", error)
+    if not m or not 0 < int(m.group(1)) < 256:
+        return None
+    return int(m.group(1)), m.group(2) or ""
+
+
+class _Scratch:
+    """Where stand-ins write: a new folder in the system's temporary folder, made when first needed."""
+
+    def __init__(self, base: Optional[str]):
+        self._base = base
+        self._dir: Optional[str] = None
+        self._n = 0
+
+    @property
+    def dir(self) -> str:
+        if self._dir is None:
+            if self._base:
+                os.makedirs(self._base, exist_ok=True)
+                self._dir = self._base
+            else:
+                self._dir = tempfile.mkdtemp(prefix="shadowlap-fence-")
+        return self._dir
+
+    def fresh(self, name: str) -> str:
+        """A path that doesn't exist yet. Plain names: Claude Code refuses writes to files such as
+        .bashrc or folders such as .git, even when a hook allows them."""
+        self._n += 1
+        return os.path.join(self.dir, "%d-%s.txt" % (self._n, re.sub(r"[^\w-]", "_", name)[:60] or "call"))
+
+    def write(self, name: str, content: str) -> str:
+        path = self.fresh(name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return path
+
+
+def _text(value: Any) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def fence_hooks(
+    effects: Optional[Mapping[str, str]] = None,
+    *,
+    on_fork: Optional[Callable[[str, Dict[str, Any], Any], Any]] = None,
+    scratch: Optional[str] = None,
+    log: Optional[Callable[[str], None]] = None,
+) -> Dict[str, List[Any]]:
+    """The hooks that record and fence Claude Code's built-in tools: PreToolUse, PostToolUse,
+    PostToolUseFailure, and Stop and SubagentStop, which end a call Claude Code never ran (a
+    permission refused it after PreToolUse). Merge them into ``ClaudeAgentOptions.hooks``, or use
+    ``with_fence``.
+
+    ``effects`` adds tools, or other effects for the built-ins, by the name Claude Code calls them
+    (``mcp__issues__search`` for a tool of an MCP server it connects to): a read runs as it is and the
+    model gets the recorded output; a write of a tool with no stand-in is refused on replay.
+    ``on_fork(tool, input, stand_in_output)`` is what the model gets for a write stubbed after a fork,
+    in the tool's own output shape (Claude Code ignores one that isn't); by default the stand-in's
+    output, naming the original path where it names the temporary one."""
+    table: Dict[str, str] = {**BUILT_IN_EFFECTS, **(effects or {})}
+    for name, effect in table.items():
+        if effect not in ("pure", "read", "write"):
+            raise TypeError(f'effect for {name} must be "pure", "read" or "write", not {effect!r}')
+    say = log or (lambda line: print("[shadowlap] " + line, file=sys.stderr))
+    pending: Dict[str, Dict[str, Any]] = {}
+    files = _Scratch(scratch)
+
+    def allow(updated: Dict[str, Any], why: str) -> Dict[str, Any]:
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "permissionDecisionReason": why, "updatedInput": updated}}
+
+    def deny(reason: str) -> Dict[str, Any]:
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}
+
+    def replaced(output: Any) -> Dict[str, Any]:
+        return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": output}}
+
+    def stand_in(name: str, args: Dict[str, Any], recorded: Any) -> Optional[Dict[str, Any]]:
+        """The harmless call that runs in place of a recorded write, as Claude Code accepts it; None where there is none."""
+        if name == "Bash":
+            cwd = _text(recorded.get(_CWD)) if isinstance(recorded, dict) else ""
+            # Only what Claude Code tracks of a command: where it left the shell.
+            return {**args, "command": "cd -- %s 2>/dev/null || true" % _quote(cwd) if cwd else "true", "run_in_background": False}
+        if name == "Write":
+            return {"file_path": files.fresh("write"), "content": ""}
+        if name == "Edit":
+            # An edit with nothing to find creates a new file: the only edit Claude Code takes on a file nobody read.
+            return {"file_path": files.fresh("edit"), "old_string": "", "new_string": "."}
+        if name == "MultiEdit":
+            return {"file_path": files.fresh("edit"), "edits": [{"old_string": "", "new_string": "."}]}
+        return None
+
+    def failing_bash(args: Dict[str, Any], code: int, rest: str) -> Dict[str, Any]:
+        """A recorded Bash failure, reproduced: the same output, the same exit code."""
+        printed = "cat -- %s" % _quote(files.write("output", rest)) if len(rest) > 16000 or "\0" in rest else "printf '%%s' %s" % _quote(rest)
+        return {**args, "command": "%s; exit %d" % (printed, code), "run_in_background": False}
+
+    def stub_output(name: str, args: Dict[str, Any], output: Any) -> Any:
+        if on_fork is not None:
+            return on_fork(name, args, output)
+        if isinstance(output, dict) and isinstance(output.get("filePath"), str) and isinstance(args.get("file_path"), str):
+            return {**output, "filePath": args["file_path"]}
+        return output
+
+    async def pre(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+        name = _text(input_data.get("tool_name"))
+        effect = table.get(name)
+        if effect is None:
+            return {}
+        key = tool_use_id or _text(input_data.get("tool_use_id"))
+        given = input_data.get("tool_input")
+        args: Dict[str, Any] = given if isinstance(given, dict) else {}
+        agent = _text(input_data.get("agent_id"))
+        try:
+            r = await _to_thread(_resolve_tool, name, effect, args)
+            if r is None:
+                return {}
+            origin = r.get("origin")
+            if origin == "live":
+                pending[key] = {"kind": "live", "call_no": r["callNo"], "name": name, "started": time.time(), "agent": agent, "cwd": input_data.get("cwd")}
+                return {}
+            if origin == "blocked":
+                return deny(str(r["error"]["message"]))
+            if origin == "stubbed":
+                stand = stand_in(name, args, None)
+                if stand is None:
+                    await _to_thread(_complete_call, r["callNo"], {"outcome": "error", "error": {"name": "ShadowlapWriteBlocked", "message": f"{name} has no stand-in Claude Code takes, so it was refused instead of stubbed"}})
+                    return deny(f"{name} was not run: write tools are stubbed after the fork (shadowlap replay --writes stub), and {name} can't be.")
+                pending[key] = {"kind": "stubbed", "call_no": r["callNo"], "name": name, "started": time.time(), "agent": agent, "input": args}
+                return allow(stand, "shadowlap: a write stubbed after the fork")
+            if origin == "replayed":
+                if r.get("outcome") == "ok":
+                    result = r.get("result")
+                    output = {k: v for k, v in result.items() if k != _CWD} if isinstance(result, dict) and _CWD in result else result
+                    if effect != "write":
+                        # A read runs as it is; the model gets the recorded output.
+                        pending[key] = {"kind": "replayed", "name": name, "agent": agent, "output": output}
+                        return {}
+                    stand = stand_in(name, args, result)
+                    if stand is None:
+                        return deny(f"shadowlap: {name} was not run again on replay: it is a write, and it has no stand-in Claude Code takes. The replay forks here.")
+                    pending[key] = {"kind": "replayed", "name": name, "agent": agent, "output": output}
+                    return allow(stand, "shadowlap: a recorded call, replayed")
+                error = r.get("error") or {}
+                if r.get("injected"):
+                    return deny(str(error.get("message", "injected failure")))
+                if effect != "write":
+                    return {}  # a read that failed: it runs, and fails as it did
+                failure = _bash_failure(str(error.get("message", ""))) if name == "Bash" else None
+                if failure is not None:
+                    pending[key] = {"kind": "failure", "name": name, "agent": agent}
+                    return allow(failing_bash(args, failure[0], failure[1]), "shadowlap: a recorded failure, replayed")
+                return deny(str(error.get("message", "recorded failure")))
+            return deny(f"shadowlap: the sidecar answered {name} with an unknown origin; it was not run")
+        except Exception as err:
+            # A hook that raises lets the tool run unchanged, so nothing may escape: a write that
+            # can't be recorded is refused (this could be a replay), and a read runs unrecorded.
+            say(f"could not record {name}: {err}")
+            if effect == "write":
+                return deny(f"shadowlap: {name} was not run: it is a write, and it could not be recorded ({err}). A write never runs unrecorded under Shadowlap, since this may be a replay.")
+            return {}
+
+    async def post(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+        p = pending.pop(tool_use_id or _text(input_data.get("tool_use_id")), None)
+        if p is None:
+            return {}
+        try:
+            if p["kind"] == "replayed":
+                return replaced(p["output"])
+            if p["kind"] == "failure":
+                say(f"the replayed failure of {p['name']} ran without failing; the replay forks here")
+                return {}
+            if p["kind"] == "live":
+                output = input_data.get("tool_response")
+                cwd = input_data.get("cwd")
+                # Where a command left the shell is part of what the model sees next: kept for the replay's stand-in.
+                moved = p["name"] == "Bash" and isinstance(cwd, str) and isinstance(p["cwd"], str) and cwd != p["cwd"]
+                result = {**output, _CWD: cwd} if moved and isinstance(output, dict) else output
+                await _to_thread(_complete_call, p["call_no"], {"outcome": "ok", "result": result, "latencyMs": int((time.time() - p["started"]) * 1000)})
+                return {}
+            output = stub_output(p["name"], p["input"], input_data.get("tool_response"))
+            await _to_thread(_complete_call, p["call_no"], {"outcome": "ok", "result": output, "latencyMs": 0})
+            return replaced(output)
+        except Exception as err:
+            say(f"could not record the result of {p['name']}: {err}")
+            return {}
+
+    async def failed(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+        p = pending.pop(tool_use_id or _text(input_data.get("tool_use_id")), None)
+        if p is None:
+            return {}
+        try:
+            if p["kind"] in ("live", "stubbed"):
+                error = _text(input_data.get("error")) or "the tool failed"
+                serialized: Dict[str, Any] = {"name": "ToolError", "message": error}
+                code = re.match(r"^Exit code (\d+)", error)
+                if code:
+                    serialized["code"] = code.group(1)
+                if input_data.get("is_interrupt") is True:
+                    serialized["data"] = {"interrupted": True}
+                await _to_thread(_complete_call, p["call_no"], {"outcome": "error", "error": serialized, "latencyMs": int((time.time() - p["started"]) * 1000)})
+            elif p["kind"] == "replayed":
+                say(f"the stand-in for {p['name']} failed; the replay forks here")
+        except Exception as err:
+            say(f"could not record the failure of {p['name']}: {err}")
+        return {}
+
+    async def settle(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+        """Calls PreToolUse saw that never ran (a permission refused them): ended, so the recording has no hole."""
+        agent = _text(input_data.get("agent_id"))
+        for key, p in list(pending.items()):
+            if p["agent"] != agent:
+                continue
+            del pending[key]
+            if p["kind"] not in ("live", "stubbed"):
+                continue
+            try:
+                await _to_thread(_complete_call, p["call_no"], {"outcome": "error", "error": {"name": "NotRun", "message": f"Claude Code did not run {p['name']}: a permission rule, can_use_tool or a person refused it"}})
+            except Exception as err:
+                say(f"could not record that {p['name']} did not run: {err}")
+        return {}
+
+    names = list(table)
+    # An exact list (letters, digits, _ and -), which Claude Code compares name by name; the hooks check the name again.
+    matcher = "|".join(names) if all(re.match(r"^[A-Za-z0-9_-]+$", n) for n in names) else None
+    return {
+        "PreToolUse": [_matcher(matcher, pre)],
+        "PostToolUse": [_matcher(matcher, post)],
+        "PostToolUseFailure": [_matcher(matcher, failed)],
+        "Stop": [_matcher(None, settle)],
+        "SubagentStop": [_matcher(None, settle)],
+    }
+
+
+def with_fence(options: Opts, effects: Optional[Mapping[str, str]] = None, **fence: Any) -> Opts:
+    """``options`` (a ``ClaudeAgentOptions``) with the fence's hooks added after its own:
+    ``query(prompt=..., options=with_fence(options))``. Without Shadowlap the hooks answer ``{}`` at
+    once, so the same options serve production."""
+    own: Mapping[str, Sequence[Any]] = getattr(options, "hooks", None) or {}
+    hooks: Dict[str, List[Any]] = {event: list(matchers) for event, matchers in own.items()}
+    for event, matchers in fence_hooks(effects, **fence).items():
+        hooks[event] = hooks.get(event, []) + matchers
+    if dataclasses.is_dataclass(options) and not isinstance(options, type):
+        return dataclasses.replace(options, hooks=hooks)
+    raise TypeError("with_fence: options must be a ClaudeAgentOptions")
+
+
+def with_effects(server: str, tools: Sequence[ToolT], effects: Mapping[str, Any]) -> List[ToolT]:
+    """The tools of an in-process MCP server (``create_sdk_mcp_server``), recorded and fenced like any
+    SDK tool under the name the model calls them by, ``mcp__<server>__<tool>``, with the tool's input
+    as the call's arguments::
+
+        tools = with_effects("orders", [lookup_order, issue_refund], {"lookup_order": "read", "issue_refund": "write"})
+        orders = create_sdk_mcp_server(name="orders", version="1.0.0", tools=tools)
+
+    An effect is ``"read"``, ``"write"`` or ``"pure"``, or a dict ``{"effect": ..., "on_fork": ...,
+    "trust": ...}``. A write after a fork answers as an MCP tool that failed (``is_error``), with the
+    refusal as its text, so the model reads it and carries on; under ``--writes stub`` it answers
+    ``on_fork(args)``, or a text saying the tool was not run."""
+    missing = [str(getattr(t, "name", "?")) for t in tools if getattr(t, "name", None) not in effects]
+    if missing:
+        raise TypeError("with_effects: every tool needs an effect; missing for " + ", ".join(missing))
+    out: List[ToolT] = []
+    for t in tools:
+        name = str(getattr(t, "name"))
+        spec = effects[name]
+        options: Dict[str, Any] = dict(spec) if isinstance(spec, Mapping) else {"effect": spec}
+        effect = options.pop("effect", None)
+        on_fork = options.pop("on_fork", None)
+        trust = options.pop("trust", None)
+        if options:
+            raise TypeError(f"with_effects: {name}: unknown option {sorted(options)[0]}")
+        if effect not in ("pure", "read", "write"):
+            raise TypeError(f'with_effects: {name}: effect must be "pure", "read" or "write", not {effect!r}')
+        if trust is not None and trust not in ("trusted", "untrusted"):
+            raise TypeError(f'with_effects: {name}: trust must be "trusted" or "untrusted", not {trust!r}')
+        handler = _recorded_handler(f"mcp__{server}__{name}", name, str(effect), getattr(t, "handler"), on_fork, trust)
+        if dataclasses.is_dataclass(t) and not isinstance(t, type):
+            out.append(dataclasses.replace(t, handler=handler))
+        else:
+            copy: Any = type(t).__new__(type(t))
+            copy.__dict__.update(vars(t))
+            copy.handler = handler
+            out.append(copy)
+    return out
+
+
+def _recorded_handler(recorded: str, name: str, effect: str, handler: Callable[[Any], Any], on_fork: Optional[Callable[[Any], Any]], trust: Optional[str]) -> Callable[[Any], Any]:
+    """An MCP tool's handler, its calls recorded and fenced through the sidecar."""
+
+    async def run(args: Any) -> Any:
+        try:
+            return await _call(recorded, name, effect, args, handler, on_fork, trust)
+        except (ShadowlapWriteBlocked, ShadowlapInjectedFailure) as err:
+            # As an MCP server answers a tool whose handler failed: a result the model reads.
+            return {"content": [{"type": "text", "text": str(err)}], "is_error": True}
+
+    return run
+
+
+async def _call(recorded: str, name: str, effect: str, args: Any, handler: Callable[[Any], Any], on_fork: Optional[Callable[[Any], Any]], trust: Optional[str]) -> Any:
+    r = await _to_thread(_resolve_tool, recorded, effect, _check_args(recorded, args), trust)
+    if r is None:
+        return await handler(args)
+    origin = r.get("origin")
+    if origin == "replayed":
+        if r.get("outcome") == "ok":
+            return r.get("result")
+        error = r.get("error") or {}
+        if r.get("injected"):
+            raise _injected(recorded, args, r["injected"], error)
+        await _replay_cancellation(error)
+        raise ReplayedError(error)
+    if origin == "blocked":
+        raise ShadowlapWriteBlocked(recorded, args, str((r.get("error") or {}).get("message", "")))
+    if origin == "stubbed":
+        value: Any = {"content": [{"type": "text", "text": f"{name} was not executed: write tools are stubbed after the fork (shadowlap replay --writes stub)."}]}
+        if on_fork is not None:
+            value = on_fork(args)
+            if hasattr(value, "__await__"):
+                value = await value
+        await _to_thread(_complete_call, r["callNo"], {"outcome": "ok", "result": _recordable(recorded, value)})
+        return value
+    if origin != "live":
+        raise RuntimeError(f"shadowlap sidecar answered {recorded} with an unknown origin {origin!r}; update the shadowlap package")
+    started = time.time()
+    try:
+        result = await handler(args)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as err:
+        error_body = _cancelled_error(err) if _is_cancellation(err) else serialize_error(err)
+        await _finish(_complete_call, r["callNo"], {"outcome": "error", "error": error_body, "latencyMs": int((time.time() - started) * 1000)})
+        raise
+    await _to_thread(_complete_call, r["callNo"], {"outcome": "ok", "result": _recordable(recorded, result), "latencyMs": int((time.time() - started) * 1000)})
+    return result

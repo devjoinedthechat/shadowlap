@@ -1054,6 +1054,29 @@ def tool(
     return decorate
 
 
+def _resolve_tool(name: str, effect: str, args: Any, trust: Optional[str] = None) -> Optional[Resolution]:
+    """For an integration whose tools run where ``tool()`` can't wrap them (an agent runtime's built-in
+    tools, run between two hooks): what the sidecar says to do about one call, before it runs. None
+    outside Shadowlap. A ``live`` or ``stubbed`` answer is ended with ``_complete_call``."""
+    cfg = _config()
+    if cfg is None:
+        return None
+    if effect not in _EFFECTS:
+        raise TypeError(f'effect must be "pure", "read" or "write", not {effect!r}')
+    body: Dict[str, Any] = {"kind": "tool", "name": name, "effect": effect, "args": args}
+    if trust == "untrusted":
+        body["trust"] = "untrusted"
+    return _post(cfg, "/v1/calls/resolve", body)
+
+
+def _complete_call(call_no: int, body: Dict[str, Any]) -> None:
+    """Records how a call ``_resolve_tool`` answered ``live`` or ``stubbed`` ended: ``{"outcome": "ok",
+    "result": ...}`` or ``{"outcome": "error", "error": {...}}``, with ``latencyMs``."""
+    cfg = _config()
+    if cfg is not None:
+        _post(cfg, f"/v1/calls/{call_no}/complete", {"latencyMs": 0, **body})
+
+
 def _misc(kind: str, name: str, label: Optional[str], fallback: Callable[[], Any]) -> Any:
     cfg = _config()
     if cfg is None:

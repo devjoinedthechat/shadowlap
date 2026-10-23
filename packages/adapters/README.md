@@ -25,6 +25,7 @@ await generateText({ model, tools, prompt: 'Order A-1042: the customer asks for 
 | Mastra | `withEffect` from `@shadowlap/adapters/mastra`, or `withEffectV0` for Mastra 0.x |
 | LangChain and LangGraph | `withEffect` from `@shadowlap/adapters/langchain` |
 | Anthropic tool runner | `withEffect` from `@shadowlap/adapters/anthropic` |
+| Claude Agent SDK | `withFence` from `@shadowlap/adapters/claude-agent-sdk`: its built-in tools, through hooks; `withEffects` for an in-process MCP server's tools |
 
 Only the framework's input is recorded, never its context objects. The adapters carry no framework dependencies, and each one but `withEffectV0` (Mastra 0.x) is tested in CI against the framework itself. Node 18.18 or later, like the SDK.
 

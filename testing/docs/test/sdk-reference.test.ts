@@ -20,6 +20,7 @@ const TS_MODULES: Record<string, string> = {
   '@shadowlap/adapters/mastra': 'packages/adapters/src/mastra.ts',
   '@shadowlap/adapters/anthropic': 'packages/adapters/src/anthropic.ts',
   '@shadowlap/adapters/langchain': 'packages/adapters/src/langchain.ts',
+  '@shadowlap/adapters/claude-agent-sdk': 'packages/adapters/src/claude-agent-sdk.ts',
   '@shadowlap/test': 'packages/test/src/index.ts',
   '@shadowlap/engine': 'packages/engine/src/index.ts',
 };
