@@ -612,19 +612,24 @@ export function credentialFreeCall(call: CallRecord): CallRecord {
  * them; a run without any is copied as it is when no rule applies.
  */
 export function carriesCredentials(store: Store, runId: string): boolean {
-  for (const call of store.getCalls(runId)) {
-    if (typeof call.meta.query === 'string' && credentialFreeQuery(call.meta.query) !== call.meta.query) return true;
-    const captured = capturedHttp(call);
-    const request = captured && call.requestRef ? store.getBlob(call.requestRef) : null;
-    if (request && credentialFreeRequest(request)) return true;
-    for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
-      if (end.meta.headers && credentialFreeHeaders(end.meta.headers) !== end.meta.headers) return true;
-      const result = captured && end.responseRef ? store.getBlob(end.responseRef) : null;
-      if (result && credentialFreeResult(result)) return true;
-    }
+  // Read from the rows that can hold one, without loading the run's calls: an export reads those once.
+  for (const row of store.query(CALL_METAS_SQL, runId)) {
+    const meta = JSON.parse(String(row.meta)) as CallMeta;
+    if (typeof meta.query === 'string' && credentialFreeQuery(meta.query) !== meta.query) return true;
+    if (isObject(meta.headers) && credentialFreeHeaders(meta.headers as Record<string, string>) !== meta.headers) return true;
+  }
+  for (const row of store.query(CAPTURED_SQL, runId, runId)) {
+    const ref = row.phase === 'start' ? row.requestRef : row.responseRef;
+    const bytes = typeof ref === 'string' ? store.getBlob(ref) : null;
+    if (bytes && (row.phase === 'start' ? credentialFreeRequest(bytes) : credentialFreeResult(bytes))) return true;
   }
   return false;
 }
+
+/** A run's call rows whose metadata has a query string or response headers. */
+const CALL_METAS_SQL = `SELECT meta FROM call_events WHERE run_id = ? AND meta IS NOT NULL AND (json_extract(meta, '$.query') IS NOT NULL OR json_extract(meta, '$.headers') IS NOT NULL)`;
+/** The rows of a run's captured HTTP calls (a start's request, each attempt's result). */
+const CAPTURED_SQL = `SELECT phase, request_ref AS requestRef, response_ref AS responseRef FROM call_events WHERE run_id = ? AND call_no IN (SELECT call_no FROM call_events WHERE run_id = ? AND phase = 'start' AND kind = 'tool' AND json_extract(meta, '$.http') IS NOT NULL)`;
 
 export interface RedactRunOptions {
   /**
