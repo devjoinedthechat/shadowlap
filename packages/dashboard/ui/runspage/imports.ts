@@ -46,20 +46,66 @@ export function tooLargeNote(bytes: number, limit: number | null, format: Import
   return `This file is ${mb(bytes)}, more than the dashboard takes (${mb(limit)}): import it in a terminal with shadowlap import ${format ?? '<format>'} <file>.`;
 }
 
-export type TraceSource = 'langfuse' | 'langsmith';
+export type TraceSource = 'langfuse' | 'langsmith' | 'phoenix' | 'logfire';
 
 /**
- * What each trace store keeps, its name, and what its trace ids look like: the field's placeholder
- * names the format rather than showing a made-up id. Langfuse's SDKs write a UUID, or 32 hex
- * characters since they moved onto OpenTelemetry; LangSmith's trace is its root run's UUID.
+ * What each trace store keeps, its name, what its trace ids look like, and the keys it is read with:
+ * the field's placeholder names the format rather than showing a made-up id. Langfuse's SDKs write
+ * a UUID, or 32 hex characters since they moved onto OpenTelemetry; LangSmith's trace is its root
+ * run's UUID; Phoenix and Logfire show OpenTelemetry's. `keys` names them until the dashboard says
+ * which it reads; `key` says where they come from (a Phoenix without authentication needs none).
+ * `note` is what the dialog can't do that the CLI can.
  */
-export const TRACE_COPY: Readonly<Record<TraceSource, { name: string; id: string; keeps: string }>> = {
-  langfuse: { name: 'Langfuse', id: 'a UUID or 32 hex characters, from the trace’s page', keeps: 'Generations keep the messages and model settings. Tool definitions often aren’t stored, so tools run live on replay unless their outputs are in the trace.' },
-  langsmith: { name: 'LangSmith', id: 'a UUID, from the trace’s page in LangSmith', keeps: 'LLM runs keep the messages and model settings. Tool runs keep their outputs when you logged them; anything else runs live on replay.' },
+export const TRACE_COPY: Readonly<Record<TraceSource, { name: string; id: string; idRule: string; keeps: string; keys: string; key: string; note?: string }>> = {
+  langfuse: {
+    name: 'Langfuse',
+    id: 'a UUID or 32 hex characters, from the trace’s page',
+    idRule: 'letters, digits, dashes, dots and colons',
+    keeps: 'Generations keep the messages and model settings. Tool definitions often aren’t stored, so tools run live on replay unless their outputs are in the trace.',
+    keys: 'LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY',
+    key: 'The key comes from',
+  },
+  langsmith: {
+    name: 'LangSmith',
+    id: 'a UUID, from the trace’s page in LangSmith',
+    idRule: 'letters, digits, dashes, dots and colons',
+    keeps: 'LLM runs keep the messages and model settings. Tool runs keep their outputs when you logged them; anything else runs live on replay.',
+    keys: 'LANGSMITH_API_KEY',
+    key: 'The key comes from',
+  },
+  phoenix: {
+    name: 'Phoenix',
+    id: '32 hex characters, from the trace’s page in Phoenix',
+    idRule: '32 hex characters',
+    keeps: 'LLM spans keep the messages, model settings and tool definitions; tool spans keep their outputs. Anything else runs live on replay.',
+    keys: 'PHOENIX_API_KEY',
+    key: 'The key, if your Phoenix asks for one, comes from',
+  },
+  logfire: {
+    name: 'Logfire',
+    id: '32 hex characters, from the trace’s details in Logfire',
+    idRule: '32 hex characters',
+    keeps: 'Model spans keep the messages, model settings and tool definitions; a function traced with logfire.instrument keeps its result when record_return is on. Anything else runs live on replay.',
+    keys: 'LOGFIRE_READ_TOKEN',
+    key: 'The read token comes from',
+    note: 'Logfire is searched back 30 days: for an older trace, run shadowlap import logfire <id> --since <date> in a terminal.',
+  },
 };
 
 /** A trace id as Langfuse and LangSmith write them, as the CLI checks it. */
 export const TRACE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/;
+/** A trace id as OpenTelemetry writes it, which is how Phoenix and Logfire show theirs. */
+export const OTEL_TRACE_ID = /^[0-9a-f]{32}$/i;
+
+/** Whether `id` is a trace id of the store's, as the CLI checks it. */
+export function traceIdOk(source: TraceSource, id: string): boolean {
+  return (source === 'phoenix' || source === 'logfire' ? OTEL_TRACE_ID : TRACE_ID).test(id);
+}
+
+/** A Phoenix project's name or id, as the CLI takes it. */
+export function phoenixProjectOk(project: string): boolean {
+  return !!project && project.length <= 200 && !/[/?#]/.test(project);
+}
 
 /** `LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY`. */
 export function keyList(names: readonly string[]): string {

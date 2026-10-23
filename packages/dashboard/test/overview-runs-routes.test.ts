@@ -387,8 +387,10 @@ describe('the team store', () => {
 
 describe('imports', () => {
   const env = { ...process.env };
+  /** What the trace stores are read with, and where: the developer's own are out of the way. */
+  const KEYS = ['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGSMITH_API_KEY', 'LANGCHAIN_API_KEY', 'PHOENIX_API_KEY', 'PHOENIX_ENDPOINT', 'PHOENIX_COLLECTOR_ENDPOINT', 'PHOENIX_BASE_URL', 'PHOENIX_PROJECT_NAME', 'LOGFIRE_READ_TOKEN', 'LOGFIRE_BASE_URL'];
   afterEach(() => {
-    for (const k of ['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGFUSE_HOST', 'LANGSMITH_API_KEY', 'LANGCHAIN_API_KEY']) {
+    for (const k of [...KEYS, 'LANGFUSE_HOST']) {
       if (env[k] === undefined) delete process.env[k];
       else process.env[k] = env[k];
     }
@@ -419,7 +421,7 @@ describe('imports', () => {
     const again = await post(dash, 'jobs', { kind: 'import', format: 'har', uploadId });
     expect(again.status).toBe(400);
     const yaml = await post(dash, 'jobs', { kind: 'import', format: 'yaml', uploadId });
-    expect(await errorOf(yaml)).toMatch(/format: one of har, nock, vcr, litellm, otel, langfuse, langsmith/);
+    expect(await errorOf(yaml)).toMatch(/format: one of har, nock, vcr, litellm, otel, langfuse, langsmith, phoenix, logfire/);
   });
 
   it('fetches a trace with the keys already on this machine, which the browser never sends', async () => {
@@ -451,11 +453,48 @@ describe('imports', () => {
     }
   });
 
+  it('fetches a Phoenix trace with a key only where Phoenix asks for one, from the project named, and a Logfire trace with the read token', async () => {
+    const id = '4a2db41deabc4aec332fb9fbfa0fc3e2';
+    for (const k of KEYS) delete process.env[k];
+    // A Phoenix on this machine, as `phoenix serve` starts it, asks for no key.
+    const sources = await get<{ traces: ReturnType<typeof traceSources> }>(dash, 'imports');
+    expect(sources.traces.phoenix).toEqual({ keys: true, keyNames: ['PHOENIX_API_KEY'], optional: true, host: 'http://localhost:6006', project: 'default' });
+    expect(await built({ kind: 'import', format: 'phoenix', traceId: id, host: 'http://localhost:6006', project: 'default' })).toEqual(['import', 'phoenix', id]);
+    // Another project goes on the command line, as one argument whatever it looks like.
+    expect(await built({ kind: 'import', format: 'phoenix', traceId: id, project: 'support-agent' })).toEqual(['import', 'phoenix', id, '--project=support-agent']);
+    expect(await built({ kind: 'import', format: 'phoenix', traceId: id, project: '--host=evil' })).toEqual(['import', 'phoenix', id, '--project=--host=evil']);
+    // The project the CLI would look in is its own variable's.
+    process.env.PHOENIX_PROJECT_NAME = 'support-agent';
+    expect(await built({ kind: 'import', format: 'phoenix', traceId: id, project: 'support-agent' })).toEqual(['import', 'phoenix', id]);
+    expect(await built({ kind: 'import', format: 'phoenix', traceId: id, project: 'default' })).toEqual(['import', 'phoenix', id, '--project=default']);
+    const missing = await post(dash, 'jobs', { kind: 'import', format: 'logfire', traceId: id });
+    expect(missing.status).toBe(409);
+    expect(await errorOf(missing)).toMatch(/^Logfire needs LOGFIRE_READ_TOKEN in the environment/);
+    process.env.LOGFIRE_READ_TOKEN = 'pylf_v1_eu_test';
+    expect(await built({ kind: 'import', format: 'logfire', traceId: id, host: 'https://logfire-eu.pydantic.dev' })).toEqual(['import', 'logfire', id]);
+    for (const body of [
+      { kind: 'import', format: 'phoenix', traceId: '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07' },
+      { kind: 'import', format: 'logfire', traceId: 'abc' },
+      { kind: 'import', format: 'phoenix', traceId: id, project: 'a/b' },
+      { kind: 'import', format: 'phoenix', traceId: id, project: 42 },
+    ]) {
+      const res = await post(dash, 'jobs', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+  });
+
   it('reads the trace stores’ keys and hosts from the environment, never their values', () => {
     expect(traceSources({ LANGSMITH_API_KEY: 'lsv2_x', LANGSMITH_ENDPOINT: 'https://eu.api.smith.langchain.com' }).langsmith).toEqual({ keys: true, keyNames: ['LANGSMITH_API_KEY'], host: 'https://eu.api.smith.langchain.com' });
     expect(traceSources({ LANGCHAIN_API_KEY: 'x' }).langsmith.keys).toBe(true);
     expect(traceSources({ LANGFUSE_PUBLIC_KEY: 'x' }).langfuse.keys).toBe(false);
     expect(JSON.stringify(traceSources({ LANGFUSE_PUBLIC_KEY: 'pk-secret', LANGFUSE_SECRET_KEY: 'sk-secret' }))).not.toMatch(/secret/);
+    // Where Phoenix traces are sent names Phoenix itself, less the OTLP path; a Logfire read token names its region.
+    expect(traceSources({ PHOENIX_COLLECTOR_ENDPOINT: 'https://app.phoenix.arize.com/s/northwind/v1/traces' }).phoenix.host).toBe('https://app.phoenix.arize.com/s/northwind');
+    expect(traceSources({ PHOENIX_ENDPOINT: 'https://phoenix.northwind.example', PHOENIX_COLLECTOR_ENDPOINT: 'http://localhost:6006/v1/traces' }).phoenix.host).toBe('https://phoenix.northwind.example');
+    expect(traceSources({ LOGFIRE_READ_TOKEN: 'pylf_v1_eu_secret' }).logfire).toEqual({ keys: true, keyNames: ['LOGFIRE_READ_TOKEN'], host: 'https://logfire-eu.pydantic.dev' });
+    expect(traceSources({ LOGFIRE_READ_TOKEN: 'pylf_v1_eu_secret', LOGFIRE_BASE_URL: 'https://logfire.northwind.example' }).logfire.host).toBe('https://logfire.northwind.example');
+    expect(traceSources({}).logfire).toEqual({ keys: false, keyNames: ['LOGFIRE_READ_TOKEN'], host: 'https://logfire-us.pydantic.dev' });
+    expect(JSON.stringify(traceSources({ PHOENIX_API_KEY: 'px-secret', LOGFIRE_READ_TOKEN: 'pylf_v1_us_secret' }))).not.toMatch(/secret/);
     expect(traceHost('http://localhost:3000/')).toBe('http://localhost:3000');
     expect(traceHost('ftp://x')).toBeNull();
     expect(traceHost('')).toBeNull();

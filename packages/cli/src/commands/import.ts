@@ -10,6 +10,8 @@ import { readLitellmGroups, type LitellmGroup } from '../import-litellm.js';
 import { traceStoreHost } from '../import-fetch.js';
 import { fetchLangfuseTrace, LANGFUSE_HOST, readLangfuse } from '../import-langfuse.js';
 import { fetchLangsmithRuns, LANGSMITH_HOST, readLangsmith } from '../import-langsmith.js';
+import { fetchLogfireRecords, LOGFIRE_REGIONS, logfireHost, readLogfire, TRACE_ID } from '../import-logfire.js';
+import { fetchPhoenixSpans, PHOENIX_HOST, PHOENIX_PROJECT, phoenixHostFromEnv, readPhoenix } from '../import-phoenix.js';
 import { parseOtlpFile, readOtel } from '../import-otel.js';
 import { fileSource, settleImport, type ImportJson, type TraceKept } from '../import-report.js';
 import { importTrace, type Trace, type TraceImport } from '../import-trace.js';
@@ -61,7 +63,7 @@ function author(): string | null {
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Writes each trace as a run and settles the import. */
-function importTraces(store: Store, format: 'otel' | 'langfuse' | 'langsmith', traces: Trace[], o: { source: string; spans: number; author: string | null }): { json: ImportJson; results: Array<{ trace: Trace; imported: TraceImport }> } {
+function importTraces(store: Store, format: 'otel' | 'langfuse' | 'langsmith' | 'phoenix' | 'logfire', traces: Trace[], o: { source: string; spans: number; author: string | null }): { json: ImportJson; results: Array<{ trace: Trace; imported: TraceImport }> } {
   const results = traces.map((trace) => ({ trace, imported: importTrace(store, trace, { source: o.source, labels: [format], author: o.author }) }));
   const kept: TraceKept = { traces: traces.length, spans: o.spans, modelCalls: 0, modelCallsImported: 0, withSettings: 0, withToolDefinitions: 0, toolCalls: 0, toolCallsKept: 0 };
   for (const { imported } of results) for (const k of Object.keys(imported.counts) as Array<keyof TraceImport['counts']>) kept[k] += imported.counts[k];
@@ -69,8 +71,11 @@ function importTraces(store: Store, format: 'otel' | 'langfuse' | 'langsmith', t
   return { json, results };
 }
 
-/** What a trace import prints without --json: the runs, what the source kept, and how to replay. */
-function reportTraces(json: ImportJson, results: Array<{ trace: Trace; imported: TraceImport }>, o: { source: string; unit: string; host?: string }): void {
+/**
+ * What a trace import prints without --json: the runs, what the source kept, and how to replay.
+ * `host` is where the keys went; `secret` names the one variable that holds them, where there is one.
+ */
+function reportTraces(json: ImportJson, results: Array<{ trace: Trace; imported: TraceImport }>, o: { source: string; unit: string; host?: string; secret?: string }): void {
   const kept = json.kept!;
   if (!json.runs.length) {
     console.error(`No model calls to import from ${o.source}: ${plural(kept.spans, o.unit)} read, ${plural(kept.modelCalls, 'model call')} found.`);
@@ -100,7 +105,7 @@ function reportTraces(json: ImportJson, results: Array<{ trace: Trace; imported:
   if (kept.withToolDefinitions < kept.modelCallsImported) {
     console.log(p.dim('Replay matches each model call on its whole request. Where the trace kept no tool definitions, a replay of an agent that sends tools forks at its first model call and runs live from there.'));
   }
-  if (o.host) console.log(p.dim(`The keys were read from the environment and sent to ${o.host} only; nothing of them is stored.`));
+  if (o.host) console.log(p.dim(o.secret ? `${o.secret} was read from the environment and sent to ${o.host} only; nothing of it is stored.` : `The keys were read from the environment and sent to ${o.host} only; nothing of them is stored.`));
   console.log(`\nA trace says what was sent, not what sent it. Give your own command:\n  ${p.bold(`shadowlap replay ${shortId(done[0]!.imported.result.run.runId)} -- <your agent command>`)}`);
 }
 
@@ -118,6 +123,23 @@ function traceIdArg(raw: string): string {
   const id = raw.trim();
   if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/.test(id)) throw new InvalidArgumentError(`not a trace id: "${raw}"`);
   return id;
+}
+
+/** A trace id as OpenTelemetry writes it (32 hex characters), as Phoenix and Logfire show it. */
+function otelTraceIdArg(raw: string): string {
+  const id = raw.trim().toLowerCase();
+  if (!TRACE_ID.test(id)) throw new InvalidArgumentError(`not a trace id: "${raw}" (it is 32 hex characters, as the trace's page shows it)`);
+  return id;
+}
+
+/** How far back a trace may have started: a date, a time, or how long ago (`30d`, `12h`). */
+function sinceArg(raw: string): Date {
+  const v = raw.trim();
+  const ago = /^(\d{1,4})([dh])$/.exec(v);
+  const when = ago ? new Date(Date.now() - Number(ago[1]) * (ago[2] === 'd' ? 86_400_000 : 3_600_000)) : new Date(v);
+  if (!/^\d{4}-\d{2}-\d{2}/.test(v) && !ago) throw new InvalidArgumentError(`--since: a date (2026-09-30), a time (2026-09-30T14:00Z), or how long ago (30d, 12h), not "${raw}"`);
+  if (Number.isNaN(when.getTime()) || when.getTime() > Date.now()) throw new InvalidArgumentError(`--since: "${raw}" is not a moment in the past`);
+  return when;
 }
 
 /** The trace store's address: --host, else the variable its own SDK reads, else its public API. */
@@ -340,6 +362,56 @@ export function register(program: Command): void {
         const { json, results } = importTraces(store, 'langsmith', [trace], { source, spans: trace.spans, author: author() });
         if (flags.json === true) printJson(json);
         else reportTraces(json, results, { source, unit: 'run', host: new URL(host).host });
+      } finally {
+        store.close();
+      }
+    });
+
+  importCmd
+    .command('phoenix')
+    .description("An Arize Phoenix trace as a partial recording: LLM spans become model calls, rebuilt exactly where OpenInference's OpenAI or Anthropic instrumentation logged the request, and TOOL spans that kept their input and output become tool calls. Reads PHOENIX_API_KEY where Phoenix asks for one")
+    .argument('<trace-id>', "the trace's id on its page in Phoenix: 32 hex characters", otelTraceIdArg)
+    .option('--project <name>', `the project the trace is in (default: PHOENIX_PROJECT_NAME, else ${PHOENIX_PROJECT})`)
+    .option('--host <url>', `Phoenix's address, as its client finds it (default: PHOENIX_ENDPOINT, PHOENIX_COLLECTOR_ENDPOINT or PHOENIX_BASE_URL, else ${PHOENIX_HOST})`)
+    .option('--allow-http', 'send the key over plain http to a --host on a network you trust (http is always accepted for this machine)')
+    .option('--json', 'machine-readable output: the run made, with its full id, source and call counts, and what the trace kept')
+    .action(async (traceId: string, flags: { project?: string; host?: string; allowHttp?: boolean; json?: boolean }) => {
+      const apiKey = process.env.PHOENIX_API_KEY?.trim() || null;
+      const project = flags.project?.trim() || process.env.PHOENIX_PROJECT_NAME?.trim() || PHOENIX_PROJECT;
+      if (/[/?#]/.test(project) || project.length > 200) throw new InvalidArgumentError(`--project: a project's name or id, not "${project}"`);
+      const host = hostFor(flags.host ?? phoenixHostFromEnv(process.env), [], PHOENIX_HOST, 'Phoenix', flags.allowHttp === true);
+      const trace = readPhoenix(await fetchPhoenixSpans(traceId, { host, apiKey, project }), traceId);
+      const source = `phoenix:${traceId.slice(0, 8)}`;
+      const store = openStore(program.opts<GlobalOpts>());
+      try {
+        const { json, results } = importTraces(store, 'phoenix', [trace], { source, spans: trace.spans, author: author() });
+        if (flags.json === true) printJson(json);
+        else reportTraces(json, results, { source, unit: 'span', ...(apiKey ? { host: new URL(host).host, secret: 'PHOENIX_API_KEY' } : {}) });
+      } finally {
+        store.close();
+      }
+    });
+
+  importCmd
+    .command('logfire')
+    .description('A Pydantic Logfire trace as a partial recording: the model calls its LLM instrumentations and Pydantic AI logged become model calls, and tool calls that kept their arguments and results become tool calls. Reads LOGFIRE_READ_TOKEN')
+    .argument('<trace-id>', "the trace's id on its page in Logfire: 32 hex characters", otelTraceIdArg)
+    .option('--since <when>', 'how far back the trace may have started: a date, a time, or how long ago (default: 30d)', sinceArg)
+    .option('--host <url>', `Logfire's API (default: LOGFIRE_BASE_URL, else the region the read token names: ${LOGFIRE_REGIONS.us} or ${LOGFIRE_REGIONS.eu})`)
+    .option('--allow-http', 'send the token over plain http to a --host on a network you trust (http is always accepted for this machine)')
+    .option('--json', 'machine-readable output: the run made, with its full id, source and call counts, and what the trace kept')
+    .action(async (traceId: string, flags: { since?: Date; host?: string; allowHttp?: boolean; json?: boolean }) => {
+      const token = process.env.LOGFIRE_READ_TOKEN?.trim();
+      if (!token) throw new InvalidArgumentError("import logfire reads a read token from LOGFIRE_READ_TOKEN; set it (create one in the project's settings in Logfire, or with logfire read-tokens create)");
+      const host = hostFor(flags.host, ['LOGFIRE_BASE_URL'], logfireHost(token), 'Logfire', flags.allowHttp === true);
+      const since = flags.since ?? new Date(Date.now() - 30 * 86_400_000);
+      const trace = readLogfire(await fetchLogfireRecords(traceId, { host, token, since }), traceId);
+      const source = `logfire:${traceId.slice(0, 8)}`;
+      const store = openStore(program.opts<GlobalOpts>());
+      try {
+        const { json, results } = importTraces(store, 'logfire', [trace], { source, spans: trace.spans, author: author() });
+        if (flags.json === true) printJson(json);
+        else reportTraces(json, results, { source, unit: 'span', host: new URL(host).host, secret: 'LOGFIRE_READ_TOKEN' });
       } finally {
         store.close();
       }

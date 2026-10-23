@@ -1786,7 +1786,7 @@ a.attn-more { text-decoration: none; }
 table.daytable tbody tr { cursor: default; }
 table.daytable tbody tr:hover td { background: none; }
 .feed .empty { text-align: left; padding: 16px 18px; }
-.impdlg .seg { margin-bottom: 14px; }
+.impdlg .seg { flex-wrap: wrap; max-width: 100%; margin-bottom: 14px; }
 .impdlg .impnote { margin: 12px 0 4px; }
 .impdlg .capfile .pick { flex: none; }
 .calgrid button.cd:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }

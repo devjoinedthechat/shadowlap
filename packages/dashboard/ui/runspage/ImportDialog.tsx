@@ -6,14 +6,14 @@ import { Icon } from '../components/Icon.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { FILE_FORMATS, fileHead, HEAD_BYTES, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, pickedFormat, sampleTrace, TRACE_COPY, TRACE_ID, type ImportFileFormat, type TraceSource } from './imports.js';
+import { FILE_FORMATS, fileHead, HEAD_BYTES, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, phoenixProjectOk, pickedFormat, sampleTrace, TRACE_COPY, traceIdOk, type ImportFileFormat, type TraceSource } from './imports.js';
 
 /**
  * Import a capture or a trace: a file (dropped or picked; its format guessed from its name and its
  * first bytes, and changeable; YAML refused with the reason; or the sample trace the dashboard
- * ships), or a Langfuse or LangSmith trace by its host and id, read with the keys already on this
- * machine. The file goes up first (`POST /api/uploads`), then the import job runs the CLI; the
- * drawer ends with a link to each run it made.
+ * ships), or a trace by its host and id from Langfuse, LangSmith, Phoenix (in a project) or Logfire,
+ * read with the keys already on this machine. The file goes up first (`POST /api/uploads`), then
+ * the import job runs the CLI; the drawer ends with a link to each run it made.
  */
 
 type Source = 'file' | TraceSource;
@@ -30,7 +30,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   const [picked, setPicked] = useState<Picked | null>(null);
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [trace, setTrace] = useState<{ host: string | null; id: string }>({ host: null, id: '' });
+  const [trace, setTrace] = useState<{ host: string | null; id: string; project: string | null }>({ host: null, id: '', project: null });
   const input = useRef<HTMLInputElement>(null);
   const sources = useLoad(() => client.importSources(), 'import-sources');
   const limit = sources.data?.uploadLimit ?? meta?.uploadLimit ?? null;
@@ -60,7 +60,11 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
 
   const t = source === 'file' ? null : sources.data?.traces[source];
   const host = source === 'file' ? '' : (trace.host ?? t?.host ?? '');
-  const traceOk = source !== 'file' && TRACE_ID.test(trace.id.trim()) && !!t?.keys;
+  // Phoenix looks in a project: the one the CLI would pick unless another is typed.
+  const project = source === 'phoenix' ? (trace.project ?? t?.project ?? 'default') : '';
+  const idOk = source !== 'file' && traceIdOk(source, trace.id.trim());
+  const projectOk = source !== 'phoenix' || phoenixProjectOk(project.trim());
+  const traceOk = idOk && projectOk && !!t?.keys;
   const ready = !busy && (source === 'file' ? !!picked && !picked.error && !!picked.format : traceOk);
 
   const run = async () => {
@@ -71,7 +75,8 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
         const up = await client.upload(picked.file, picked.file.name);
         watchJob(client.startJob(JOB_KINDS.importCapture, { format: picked.format, uploadId: up.uploadId }));
       } else if (source !== 'file') {
-        watchJob(client.startJob(JOB_KINDS.importCapture, { format: source, traceId: trace.id.trim(), ...(host && host !== t?.host ? { host } : {}) }));
+        const named = source === 'phoenix' && project.trim() !== t?.project ? { project: project.trim() } : {};
+        watchJob(client.startJob(JOB_KINDS.importCapture, { format: source, traceId: trace.id.trim(), ...(host && host !== t?.host ? { host } : {}), ...named }));
       }
       onClose();
     } catch (err) {
@@ -96,11 +101,13 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
           { key: 'file', label: 'File' },
           { key: 'langfuse', label: 'Langfuse' },
           { key: 'langsmith', label: 'LangSmith' },
+          { key: 'phoenix', label: 'Phoenix' },
+          { key: 'logfire', label: 'Logfire' },
         ]}
         value={source}
         onChange={(s) => {
           // Each trace store has its own host and ids: what was typed for one isn't the other's.
-          if (s !== source) setTrace({ host: null, id: '' });
+          if (s !== source) setTrace({ host: null, id: '', project: null });
           setSource(s);
         }}
       />
@@ -162,20 +169,28 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
               Host
               <input spellCheck={false} value={host} onChange={(e) => setTrace({ ...trace, host: e.target.value })} />
             </label>
+            {source === 'phoenix' ? (
+              <label>
+                Project
+                <input spellCheck={false} autoComplete="off" value={project} onChange={(e) => setTrace({ ...trace, project: e.target.value })} />
+              </label>
+            ) : null}
             <label>
               Trace id
               <input spellCheck={false} autoComplete="off" placeholder={TRACE_COPY[source].id} value={trace.id} onChange={(e) => setTrace({ ...trace, id: e.target.value })} />
             </label>
           </div>
           <p className="muted impnote">
-            {TRACE_COPY[source].keeps} The key comes from {t ? keyList(t.keyNames) : source === 'langfuse' ? 'LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY' : 'LANGSMITH_API_KEY'} on this machine; nothing passes through Shadowlap.
+            {TRACE_COPY[source].keeps} {TRACE_COPY[source].key} {t ? keyList(t.keyNames) : TRACE_COPY[source].keys} on this machine; nothing passes through Shadowlap.
           </p>
+          {TRACE_COPY[source].note ? <p className="muted impnote">{TRACE_COPY[source].note}</p> : null}
           {t && !t.keys ? (
             <p className="fieldnote warn">
               {keyList(t.keyNames)} {t.keyNames.length === 1 ? 'is' : 'are'} not set where this dashboard runs: set {t.keyNames.length === 1 ? 'it' : 'them'}, then start shadowlap dashboard again.
             </p>
           ) : null}
-          {trace.id.trim() && !TRACE_ID.test(trace.id.trim()) ? <p className="fieldnote err">That is not a trace id: letters, digits, dashes, dots and colons.</p> : null}
+          {trace.id.trim() && !idOk ? <p className="fieldnote err">That is not a trace id: {TRACE_COPY[source].idRule}.</p> : null}
+          {!projectOk ? <p className="fieldnote err">That is not a project’s name or id: it holds no /, ? or #.</p> : null}
         </div>
       )}
     </Dialog>

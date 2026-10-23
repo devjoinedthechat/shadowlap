@@ -6,7 +6,7 @@ covers, and turns one run of each into a golden.
 A golden suite is only as good as what it holds. The runs you packed as goldens were the ones
 someone noticed; production does more than that. Once traffic comes into the store
 ([`shadowlap import`](./cli.md#import) of a [LiteLLM capture](./gateways.md), a HAR, an
-OpenTelemetry, Langfuse or LangSmith trace), `shadowlap coverage` groups those runs by what they
+OpenTelemetry, Langfuse, LangSmith, Phoenix or Logfire trace), `shadowlap coverage` groups those runs by what they
 did and checks each group against the goldens:
 
 ```sh

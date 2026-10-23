@@ -10,8 +10,8 @@ import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 
 /**
- * The trace importers through the CLI: OpenTelemetry from a file, Langfuse and LangSmith from a
- * local server standing in for their APIs. Then the point of it: replaying your own agent against a
+ * The trace importers through the CLI: OpenTelemetry from a file, Langfuse, LangSmith, Phoenix and
+ * Logfire from a local server standing in for their APIs. Then the point of it: replaying your own agent against a
  * trace that kept everything it sends serves every call from the trace, with nothing live.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
@@ -29,7 +29,7 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code:
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, '--db', db, ...args], {
       cwd,
-      env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: 'off', SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, LANGFUSE_HOST: '', LANGSMITH_ENDPOINT: '', ...env },
+      env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: 'off', SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, LANGFUSE_HOST: '', LANGSMITH_ENDPOINT: '', ...NO_STORE_ENV, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
@@ -43,6 +43,12 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code:
 const LANGFUSE_ID = '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07';
 const LANGSMITH_ID = '0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c';
 const KEYS = { LANGFUSE_PUBLIC_KEY: 'pk-lf-0e5c-public', LANGFUSE_SECRET_KEY: 'sk-lf-9d1f-do-not-store', LANGSMITH_API_KEY: 'lsv2_pt_7a1c_do_not_store' };
+const PHOENIX_ID = '4a2db41deabc4aec332fb9fbfa0fc3e2';
+const LOGFIRE_ID = '01a16460e2f311342463057f62b79fa9';
+const PHOENIX_KEY = 'phx_6b1d_do_not_store';
+const LOGFIRE_TOKEN = 'pylf_v1_us_donotstore7a1c';
+/** Where Phoenix and Logfire would be found otherwise, cleared so a developer's own setup can't reach the tests. */
+const NO_STORE_ENV = { PHOENIX_ENDPOINT: '', PHOENIX_COLLECTOR_ENDPOINT: '', PHOENIX_BASE_URL: '', PHOENIX_API_KEY: '', PHOENIX_PROJECT_NAME: '', LOGFIRE_BASE_URL: '', LOGFIRE_READ_TOKEN: '' };
 
 beforeAll(async () => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-import-trace-')));
@@ -55,6 +61,8 @@ beforeAll(async () => {
 
   const langfuse = JSON.parse(fixture('langfuse-trace.json')) as unknown;
   const langsmith = (JSON.parse(fixture('langsmith-runs.json')) as { pages: unknown[] }).pages;
+  const phoenix = JSON.parse(fixture('phoenix-spans.json')) as { data: unknown[] };
+  const logfire = JSON.parse(fixture('logfire-records.json')) as { data: Array<{ trace_id: string }> };
   api = createServer((req, res) => {
     let body = '';
     req.on('data', (c: Buffer) => (body += c.toString()));
@@ -65,6 +73,17 @@ beforeAll(async () => {
       };
       const basic = `Basic ${Buffer.from(`${KEYS.LANGFUSE_PUBLIC_KEY}:${KEYS.LANGFUSE_SECRET_KEY}`).toString('base64')}`;
       if (req.url === `/api/public/traces/${LANGFUSE_ID}`) return req.headers.authorization === basic ? send(200, langfuse) : send(401, { message: 'Invalid credentials' });
+      const url = new URL(req.url ?? '/', 'http://x');
+      if (url.pathname === '/v1/projects/support-agent/spans') {
+        if (req.headers.authorization !== `Bearer ${PHOENIX_KEY}`) return send(401, 'Unauthorized');
+        return send(200, { data: url.searchParams.get('trace_id') === PHOENIX_ID ? phoenix.data : [], next_cursor: null });
+      }
+      if (url.pathname.startsWith('/v1/projects/')) return send(404, 'Not Found');
+      if (req.url === '/v2/query' && req.method === 'POST') {
+        if (req.headers.authorization !== `Bearer ${LOGFIRE_TOKEN}`) return send(401, { detail: 'Invalid read token' });
+        const id = /trace_id = '([0-9a-f]{32})'/.exec((JSON.parse(body) as { sql: string }).sql)?.[1];
+        return send(200, { schema: { fields: [] }, data: logfire.data.filter((r) => r.trace_id === id) });
+      }
       if (req.url === '/runs/query' && req.method === 'POST') {
         if (req.headers['x-api-key'] !== KEYS.LANGSMITH_API_KEY) return send(401, { detail: 'Invalid token' });
         const q = JSON.parse(body) as { trace: string; cursor?: string };
@@ -210,5 +229,44 @@ describe('shadowlap import langfuse and langsmith', () => {
     const badId = await shadowlap(['import', 'langsmith', '../../etc/passwd', '--host', host], KEYS);
     expect(badId.code).toBe(1);
     expect(badId.err).toContain('not a trace id');
+  });
+});
+
+describe('shadowlap import phoenix and logfire', () => {
+  it('imports a Phoenix trace from where its own client finds it, and never stores the key', async () => {
+    const r = await shadowlap(['import', 'phoenix', PHOENIX_ID, '--json'], { PHOENIX_COLLECTOR_ENDPOINT: `${host}/v1/traces`, PHOENIX_PROJECT_NAME: 'support-agent', PHOENIX_API_KEY: PHOENIX_KEY });
+    expect(r.code).toBe(0);
+    const json = JSON.parse(r.out);
+    expect(json).toMatchObject({ format: 'phoenix', entries: 6 });
+    expect(json.kept).toMatchObject({ modelCalls: 3, modelCallsImported: 3, withToolDefinitions: 3, toolCalls: 2, toolCallsKept: 2 });
+    expect(json.runs[0]).toMatchObject({ source: 'phoenix:4a2db41d', key: PHOENIX_ID, calls: { model: 3, tool: 2 }, labels: ['imported', 'phoenix'] });
+    expect(readFileSync(db).includes(Buffer.from(PHOENIX_KEY))).toBe(false);
+  });
+
+  it('imports a Logfire trace with the read token, says where it went, and never stores it', async () => {
+    const r = await shadowlap(['import', 'logfire', LOGFIRE_ID.toUpperCase(), '--host', host], { LOGFIRE_READ_TOKEN: LOGFIRE_TOKEN });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/^Imported \S+ from logfire:01a16460: 3 model calls and 2 tool results \(3 anthropic\)\./);
+    expect(r.out).toContain('Read 6 spans. It kept the messages of 3 of 3 model calls, settings for 3, tool definitions for 3, and the output of 2 of 2 tool calls.');
+    expect(r.out).toContain(`LOGFIRE_READ_TOKEN was read from the environment and sent to ${new URL(host).host} only; nothing of it is stored.`);
+    expect(readFileSync(db).includes(Buffer.from(LOGFIRE_TOKEN))).toBe(false);
+  });
+
+  it('refuses without a read token, with one Logfire rejects, a project Phoenix lacks, an id that is no trace id, or --since in the future', async () => {
+    const noToken = await shadowlap(['import', 'logfire', LOGFIRE_ID, '--host', host]);
+    expect(noToken.code).toBe(1);
+    expect(noToken.err).toContain('LOGFIRE_READ_TOKEN');
+    const wrong = await shadowlap(['import', 'logfire', LOGFIRE_ID, '--host', host], { LOGFIRE_READ_TOKEN: 'pylf_v1_us_wrong' });
+    expect(wrong.code).toBe(1);
+    expect(wrong.err).toContain('Logfire refused the read token (401)');
+    const noProject = await shadowlap(['import', 'phoenix', PHOENIX_ID, '--host', host, '--project', 'refunds'], { PHOENIX_API_KEY: PHOENIX_KEY });
+    expect(noProject.code).toBe(1);
+    expect(noProject.err).toContain('has no project refunds');
+    const badId = await shadowlap(['import', 'phoenix', 'not-a-trace', '--host', host]);
+    expect(badId.code).toBe(1);
+    expect(badId.err).toContain('not a trace id: "not-a-trace" (it is 32 hex characters');
+    const future = await shadowlap(['import', 'logfire', LOGFIRE_ID, '--host', host, '--since', '2999-01-01'], { LOGFIRE_READ_TOKEN: LOGFIRE_TOKEN });
+    expect(future.code).toBe(1);
+    expect(future.err).toContain('is not a moment in the past');
   });
 });

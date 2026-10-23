@@ -55,6 +55,7 @@ The first release: record, replay and fork AI agent runs, find the call that los
 #### Imports, exports and data
 
 - **`shadowlap import har`, `nock`, `vcr` and `litellm`** turn a capture into a recording you replay your own code against; a LiteLLM gateway's production traffic becomes one run per correlation id.
+- **Traces you already keep** become recordings: `shadowlap import otel` reads OTLP JSON with the OpenTelemetry GenAI or OpenInference conventions, and `langfuse`, `langsmith`, `phoenix` and `logfire` fetch a trace from Langfuse, LangSmith, Arize Phoenix or Pydantic Logfire with the keys in the environment, never storing them. What the trace kept replays; the rest runs live, with writes fenced. The dashboard's Import dialog fetches from all four.
 - **Exports:** `pack` (redaction rules applied), `export html` (a run as one file with the dashboard's views), `export har`, `export otel` (GenAI semantic conventions) and `export dataset` (JSONL, OpenAI chat, Braintrust, Langfuse).
 - **Recordings as data:** labels and notes that travel in packs, full-text search across prompts, responses and tool calls, and `shadowlap diff`, which starts with what changed between two runs.
 - **`shadowlap rm` and `gc`** delete runs, old ones by age or count, and remove the recorded data nothing references any more.

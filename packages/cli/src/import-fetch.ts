@@ -1,8 +1,9 @@
 import { isLoopbackHost } from './loopback.js';
 
 /**
- * Reading a trace store's API (Langfuse, LangSmith) with the keys on this machine. The keys go to
- * the host named and nowhere else; they are never stored, logged or put in an error message.
+ * Reading a trace store's API (Langfuse, LangSmith, Phoenix, Logfire) with the keys on this
+ * machine. The keys go to the host named and nowhere else; they are never stored, logged or put in
+ * an error message.
  */
 
 export interface TraceStoreOptions {
@@ -17,6 +18,14 @@ export interface TraceStoreOptions {
 /** The most one response may hold: a trace of thousands of observations fits many times over. */
 const MAX_BYTES = 64 * 1024 * 1024;
 
+/** An address each trace store's --host takes, for the message about one that isn't a URL. */
+const EXAMPLES: Record<string, string> = {
+  Langfuse: 'https://cloud.langfuse.com',
+  LangSmith: 'https://api.smith.langchain.com',
+  Phoenix: 'http://localhost:6006 or https://app.phoenix.arize.com/s/your-space',
+  Logfire: 'https://logfire-eu.pydantic.dev',
+};
+
 /**
  * A trace store's base URL, checked: http or https, no user name or password in it, and https
  * unless it is this machine, because the keys travel with every request. `allowHttp` accepts plain
@@ -27,7 +36,7 @@ export function traceStoreHost(raw: string, what: string, allowHttp = false): st
   try {
     url = new URL(raw);
   } catch {
-    throw new Error(`--host: ${what} needs a URL such as https://${what === 'Langfuse' ? 'cloud.langfuse.com' : 'api.smith.langchain.com'}, not "${raw}"`);
+    throw new Error(`--host: ${what} needs a URL such as ${EXAMPLES[what] ?? 'https://api.example.com'}, not "${raw}"`);
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`--host: ${what} is reached over https, not ${url.protocol}`);
   if (url.username || url.password) throw new Error('--host: leave credentials out of the URL; the keys come from the environment');

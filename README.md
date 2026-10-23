@@ -268,7 +268,7 @@ shadowlap run -- node agent.mjs
 | [MCP](docs/mcp.md) | Servers over stdio or Streamable&nbsp;HTTP, recorded through the <code>shadowlap&nbsp;mcp</code>&nbsp;proxy |
 | [CI](docs/ci.md) | The GitHub Action; JUnit, JSON and Markdown reports for any&nbsp;other&nbsp;CI |
 | [Coding&nbsp;agents](docs/agents.md) | Claude Code, Cursor and Codex drive the CLI through its JSON&nbsp;output; <code>skill&nbsp;install</code> adds a Claude&nbsp;Code plugin or a&nbsp;Cursor&nbsp;rule |
-| [Imports](docs/cli.md#import) | HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse,&nbsp;LangSmith |
+| [Imports](docs/cli.md#import) | HAR, nock, VCR, LiteLLM, OpenTelemetry, Langfuse, LangSmith, Arize&nbsp;Phoenix, Logfire |
 | [Exports](docs/cli.md#export-html) | Packs (a run as a folder), one&#8209;file HTML reports, HAR, OpenTelemetry, eval&nbsp;datasets and&nbsp;preference&nbsp;pairs |
 
 ## Security
