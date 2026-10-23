@@ -8,6 +8,11 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "require": {
+        "types": "./dist/cjs/index.d.cts",
+        "node": "./dist/cjs/node.cjs",
+        "default": "./dist/cjs/index.cjs"
+      },
       "types": "./dist/index.d.ts",
       "node": "./dist/node.js",
       "default": "./dist/index.js"

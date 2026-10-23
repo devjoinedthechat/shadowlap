@@ -55,6 +55,32 @@ test('triages the inbox', recorded(async () => {
 
 The recording is named after the test, including its `describe` blocks, and lives in `__recordings__/<file>/` beside the test file. As with pytest, a name longer than 120 characters, or one that would land on another test's recording, ends in a short hash of the test's full name. `recorded(fn, { recording: 'path' })` overrides that. Test files that run in parallel workers each get their own slot. A test not wrapped with `recorded()` is left alone: it calls its model and tools directly, whatever ran before it.
 
+## Jest
+
+Install `@shadowlap/test` as a dev dependency, and give Jest its global setup and teardown and its test environment:
+
+```js
+// jest.config.js
+module.exports = {
+  globalSetup: '@shadowlap/test/jest/global-setup',
+  globalTeardown: '@shadowlap/test/jest/global-teardown',
+  testEnvironment: '@shadowlap/test/jest/environment',
+};
+```
+
+```js
+const { recorded } = require('@shadowlap/test');
+
+test('triages the inbox', recorded(async () => {
+  const result = await runAgent('triage the inbox');
+  expect(result.tickets).toHaveLength(3);
+}));
+```
+
+It works as with Vitest: one recording per test, beside the test file and named after the test and its `describe` blocks, the same modes, `currentRecording()`, and a slot for each of Jest's workers. Jest runs every test file in a sandbox with globals of its own and a copy of the environment, so the test environment, Jest's Node environment, makes the worker ready in its place: it points the worker at its slot, loads in-process capture there, and hands the sandbox capture's switch, the store scopes travel in and the `fetch` capture wraps. A client a module made when it was imported is recorded too.
+
+Test files written as CommonJS, Jest's default, load the CommonJS copies `@shadowlap/test`, `@shadowlap/sdk` and `@shadowlap/adapters` ship beside their ES modules, since Jest can't require an ES module on Node 22; with Jest's ES module support (`--experimental-vm-modules`) they load the ES modules. A file that needs another test environment (`jsdom`) names it in its docblock, and runs without recordings.
+
 ## node:test
 
 ```sh
@@ -140,7 +166,7 @@ If the change is intended, record the test again with SHADOWLAP_RECORD=all. To i
 
 ## How it works
 
-The plugin starts `shadowlap serve --recordings` once per test process (per Vitest run), in the project directory. Model calls reach it the same way they do under `shadowlap run`: base-URL variables for clients created during a recorded test, and [in-process capture](./providers.md#in-process-capture) for everything else, including clients created when a module is imported (capture also takes calls to the base URLs the suite had, so a client made from them is recorded too). Each test worker has a slot in those URLs, and each test's run takes over its worker's slot while the test runs.
+The plugin starts `shadowlap serve --recordings` once per test process (per Vitest or Jest run), in the project directory. Model calls reach it the same way they do under `shadowlap run`: base-URL variables for clients created during a recorded test, and [in-process capture](./providers.md#in-process-capture) for everything else, including clients created when a module is imported (capture also takes calls to the base URLs the suite had, so a client made from them is recorded too). Each test worker has a slot in those URLs, and each test's run takes over its worker's slot while the test runs.
 
 A replay needs no key. While a recorded test replays, each key variable of a provider its recording called that the environment leaves empty holds a [placeholder](./how-it-works.md#keys), `shadowlap-offline-replay-placeholder`, so a client the test builds the default way (`new Anthropic()`, `openai.OpenAI()`, `genai.Client()`) sends what the recording answers, in CI with no secrets too; the variable is back as it was once the test ends. A client built when a module is imported reads its key before any test runs: build it in the test or a fixture, or give the job any value for its key.
 
@@ -150,7 +176,7 @@ All of that holds only while a recorded test runs, in both plugins: the base-URL
 - `shadowlap.config.json` applies: normalizers when matching, and redaction rules when a recording is saved.
 - Recordings are packs, the same format as `shadowlap pack`, so `shadowlap test` and `shadowlap unpack` read them. A test replays its own recording: a recording folder copied to another test and changed by hand, whose run id the store already holds with other calls, is refused, saying where the store's copy came from. They still belong to their test runner, which replays them with the test's own assertions: the [test history](./ci.md#test-history) that `shadowlap test` keeps covers the project's goldens, the packs in `goldens/` and those named under `tests` in the config.
 - Running the whole test suite under `shadowlap run` or `shadowlap replay` turns the plugin off; that run records everything.
-- The plugins need the `shadowlap` CLI. The Vitest and node:test plugin runs the one `@shadowlap/test` depends on; pytest runs `shadowlap` from your `PATH`, which `pip install shadowlap` provides: the [command](./sdk.md#install) that runs the npm CLI at the Python package's version. `SHADOWLAP_CLI` names another for either.
+- The plugins need the `shadowlap` CLI. The Vitest, Jest and node:test plugin runs the one `@shadowlap/test` depends on; pytest runs `shadowlap` from your `PATH`, which `pip install shadowlap` provides: the [command](./sdk.md#install) that runs the npm CLI at the Python package's version. `SHADOWLAP_CLI` names another for either.
 - Tests that run concurrently inside one worker (`test.concurrent`, `pytest-asyncio` tasks sharing a loop) share its slot, so their calls can't be told apart. Run recorded tests one at a time per worker.
 
 ## Another test runner

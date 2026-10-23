@@ -1,6 +1,6 @@
 # @shadowlap/test
 
-Recorded tests for Vitest and node:test: a test records its agent's model and tool calls on its first run, then replays them offline, with the same answers every time.
+Recorded tests for Vitest, Jest and node:test: a test records its agent's model and tool calls on its first run, then replays them offline, with the same answers every time.
 
 ```sh
 npm install -D @shadowlap/test
@@ -32,7 +32,7 @@ test('escalates a refund above the limit', recorded(async () => {
 
 When a change makes the test send a request its recording doesn't have, the test fails with the diff. `currentRecording()` tells what the agent did: `called(name, args?)`, `toolCalls(name?)`, `calls()` and `answer()`.
 
-With node:test, run `node --import @shadowlap/test/register --test` and wrap the test's body in `withRecording({ recording: '__recordings__/refund' }, fn)`.
+With Jest, set `globalSetup: '@shadowlap/test/jest/global-setup'`, `globalTeardown: '@shadowlap/test/jest/global-teardown'` and `testEnvironment: '@shadowlap/test/jest/environment'`, and wrap tests in `recorded()` as above. With node:test, run `node --import @shadowlap/test/register --test` and wrap the test's body in `withRecording({ recording: '__recordings__/refund' }, fn)`.
 
 Recordings go to `__recordings__/` beside the test file; commit them. `SHADOWLAP_RECORD=all` records again, and `none`, the default when `CI` is set, only replays. The package brings the [`shadowlap` CLI](https://www.npmjs.com/package/shadowlap) it runs, and needs Node 22.16 or later, not 23.
 

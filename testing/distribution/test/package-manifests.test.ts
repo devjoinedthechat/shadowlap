@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, posix } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 
@@ -102,6 +103,29 @@ describe('subpath exports under moduleResolution node', () => {
       }
     }
   });
+});
+
+describe('the CommonJS copies', () => {
+  // A test runner with a module loader of its own (Jest on Node 22) requires the packages an agent
+  // loads: each `require` condition names a copy that exports what the ES module does.
+  const require = createRequire(join(ROOT, 'package.json'));
+  const names = (m: object) => Object.keys(m).filter((k) => k !== 'default' && k !== '__esModule').sort();
+
+  for (const name of ['sdk', 'adapters', 'test']) {
+    it(`@shadowlap/${name}: every subpath, as the ES module has it`, async () => {
+      const pkg = manifest(`packages/${name}`);
+      for (const [sub, conditions] of Object.entries(pkg.exports ?? {})) {
+        const required = (conditions as { require?: { default: string } }).require;
+        if (!required) continue;
+        const spec = `@shadowlap/${name}${sub === '.' ? '' : sub.slice(1)}`;
+        expect(require.resolve(spec), spec).toMatch(/\.cjs$/);
+        const cjs = require(spec) as object;
+        // The test API alone for @shadowlap/test: starting a host is the global setup's, an ES module.
+        const esm = (await import(pathToFileURL(join(ROOT, 'packages', name, 'dist', name === 'test' && sub === '.' ? 'recording.js' : (conditions as { default: string }).default.replace('./dist/', ''))).href)) as object;
+        expect(names(cjs), spec).toEqual(names(esm));
+      }
+    });
+  }
 });
 
 describe('source maps in the packed packages', () => {

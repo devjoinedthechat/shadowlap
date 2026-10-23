@@ -3,21 +3,9 @@ import { createRequire } from 'node:module';
 import type { Socket } from 'node:net';
 import { pathToFileURL } from 'node:url';
 
-/** What `shadowlap serve --recordings` prints when it is ready. */
-export interface HostInfo {
-  shadowlap: string;
-  /** The sidecar, including its session token. */
-  url: string;
-  /** The project directory recordings must live in. */
-  root: string;
-  /** Environment for a worker, with `__SLOT__` where the worker's slot goes. */
-  env: Record<string, string>;
-  capture: { node: string; python: string };
-}
+import { HOST_ENV, LASTING, pointAtSlot, SLOT_ENV, type HostInfo } from './slot.js';
 
-/** Set by the global setup for workers, as JSON. */
-export const HOST_ENV = 'SHADOWLAP_TEST_HOST';
-export const SLOT_ENV = 'SHADOWLAP_TEST_SLOT';
+export { HOST_ENV, SLOT_ENV, pointAtSlot, workerSlot, type HostInfo } from './slot.js';
 
 export interface RunningHost {
   info: HostInfo;
@@ -76,40 +64,6 @@ export function startHost(root: string = process.cwd(), opts: { keepProcessAlive
   });
 }
 
-/** In-process capture's switch, shared with the preload, which reads it on every call. */
-function captureState(): { active: boolean } {
-  const g = globalThis as { [CAPTURE]?: { active: boolean } };
-  return (g[CAPTURE] ??= { active: true });
-}
-const CAPTURE = Symbol.for('shadowlap.capture');
-
-/** Kept for good: the loopback stays out of any proxy whether or not a recorded test runs. */
-const LASTING = new Set(['NO_PROXY', 'no_proxy']);
-
-/**
- * Points this process's model clients and the Shadowlap SDK at the host, under `slot`, and turns
- * in-process capture on, until the returned function puts back the variables as they were and turns
- * capture off. A recorded test runs between the two; a test without a recording sees the process as
- * it was, and calls its model and tools directly.
- */
-export function pointAtSlot(info: HostInfo, slot: string): () => void {
-  const before = new Map<string, string | undefined>();
-  for (const [key, value] of Object.entries(info.env)) {
-    if (LASTING.has(key)) continue;
-    before.set(key, process.env[key]);
-    process.env[key] = value.replace('__SLOT__', slot);
-  }
-  const capture = captureState();
-  capture.active = true;
-  return () => {
-    for (const [key, value] of before) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    capture.active = false;
-  };
-}
-
 /**
  * Makes this process ready for recorded tests under `slot`: names the host for them, keeps the
  * loopback out of any proxy, and loads in-process capture, which reads its configuration as it loads
@@ -125,10 +79,4 @@ export async function useHost(info: HostInfo, slot: string): Promise<void> {
   } finally {
     restore();
   }
-}
-
-/** The worker's slot: one per test worker that can run at the same time. */
-export function workerSlot(): string {
-  const id = process.env.VITEST_POOL_ID ?? process.env.JEST_WORKER_ID;
-  return id ? `worker-${id}` : 'main';
 }

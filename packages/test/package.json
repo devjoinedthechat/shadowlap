@@ -1,13 +1,17 @@
 {
   "name": "@shadowlap/test",
   "version": "0.1.0",
-  "description": "Shadowlap for test suites: a test records its agent's model and tool calls on its first run and replays them offline after that. Vitest and node:test.",
+  "description": "Shadowlap for test suites: a test records its agent's model and tool calls on its first run and replays them offline after that. Vitest, Jest and node:test.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "require": {
+        "types": "./dist/cjs/recording.d.cts",
+        "default": "./dist/cjs/recording.cjs"
+      },
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
@@ -22,6 +26,18 @@
     "./register": {
       "types": "./dist/register.d.ts",
       "default": "./dist/register.js"
+    },
+    "./jest/global-setup": {
+      "types": "./dist/jest/global-setup.d.ts",
+      "default": "./dist/jest/global-setup.js"
+    },
+    "./jest/global-teardown": {
+      "types": "./dist/jest/global-teardown.d.ts",
+      "default": "./dist/jest/global-teardown.js"
+    },
+    "./jest/environment": {
+      "types": "./dist/jest/environment.d.ts",
+      "default": "./dist/jest/environment.js"
     }
   },
   "typesVersions": {
@@ -34,6 +50,15 @@
       ],
       "register": [
         "./dist/register.d.ts"
+      ],
+      "jest/global-setup": [
+        "./dist/jest/global-setup.d.ts"
+      ],
+      "jest/global-teardown": [
+        "./dist/jest/global-teardown.d.ts"
+      ],
+      "jest/environment": [
+        "./dist/jest/environment.d.ts"
       ]
     }
   },
@@ -67,6 +92,7 @@
     "record-replay",
     "testing",
     "vitest",
-    "vcr"
+    "vcr",
+    "jest"
   ]
 }

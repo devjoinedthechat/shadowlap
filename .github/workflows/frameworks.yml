@@ -57,13 +57,13 @@ jobs:
         shell: bash
         run: |
           if [ -n "$LATEST" ]; then
-            npm install --no-save ai@latest @ai-sdk/anthropic@latest @openai/agents@latest @mastra/core@latest @langchain/core@latest @langchain/langgraph@latest @anthropic-ai/sdk@latest zod@latest @aws-sdk/client-bedrock-runtime@latest @anthropic-ai/bedrock-sdk@latest @anthropic-ai/vertex-sdk@latest @google/genai@latest openai@latest
+            npm install --no-save ai@latest @ai-sdk/anthropic@latest @openai/agents@latest @mastra/core@latest @langchain/core@latest @langchain/langgraph@latest @anthropic-ai/sdk@latest zod@latest @aws-sdk/client-bedrock-runtime@latest @anthropic-ai/bedrock-sdk@latest @anthropic-ai/vertex-sdk@latest @google/genai@latest openai@latest jest@latest
             python -m pip install --quiet pydantic-ai-slim openai-agents langgraph langchain-core crewai boto3 "anthropic[vertex]" pytest pytest-xdist
           else
             npm ci
             python -m pip install --quiet pydantic-ai-slim==2.43.0 openai-agents==0.20.0 langgraph==1.2.11 langchain-core==1.6.3 crewai==1.15.22 boto3==1.43.96 "anthropic[vertex]==1.6.0" pytest==8.4.2 pytest-xdist==3.8.0
           fi
-          npm ls ai @ai-sdk/anthropic @openai/agents @mastra/core @langchain/core @langchain/langgraph @anthropic-ai/sdk zod --depth=0 || true
+          npm ls ai @ai-sdk/anthropic @openai/agents @mastra/core @langchain/core @langchain/langgraph @anthropic-ai/sdk zod jest --depth=0 || true
           python -m pip list 2>/dev/null | grep -iE '^(pydantic-ai-slim|openai-agents|langgraph|langchain-core|crewai|boto3|anthropic|pytest|pytest-xdist) '
       - name: Test
         working-directory: testing/frameworks
