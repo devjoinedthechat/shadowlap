@@ -388,7 +388,7 @@ describe('the team store', () => {
 describe('imports', () => {
   const env = { ...process.env };
   /** What the trace stores are read with, and where: the developer's own are out of the way. */
-  const KEYS = ['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGSMITH_API_KEY', 'LANGCHAIN_API_KEY', 'PHOENIX_API_KEY', 'PHOENIX_ENDPOINT', 'PHOENIX_COLLECTOR_ENDPOINT', 'PHOENIX_BASE_URL', 'PHOENIX_PROJECT_NAME', 'LOGFIRE_READ_TOKEN', 'LOGFIRE_BASE_URL'];
+  const KEYS = ['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGSMITH_API_KEY', 'LANGCHAIN_API_KEY', 'PHOENIX_API_KEY', 'PHOENIX_ENDPOINT', 'PHOENIX_COLLECTOR_ENDPOINT', 'PHOENIX_BASE_URL', 'PHOENIX_PROJECT', 'PHOENIX_PROJECT_NAME', 'LOGFIRE_READ_TOKEN', 'LOGFIRE_BASE_URL'];
   afterEach(() => {
     for (const k of [...KEYS, 'LANGFUSE_HOST']) {
       if (env[k] === undefined) delete process.env[k];
@@ -463,10 +463,15 @@ describe('imports', () => {
     // Another project goes on the command line, as one argument whatever it looks like.
     expect(await built({ kind: 'import', format: 'phoenix', traceId: id, project: 'support-agent' })).toEqual(['import', 'phoenix', id, '--project=support-agent']);
     expect(await built({ kind: 'import', format: 'phoenix', traceId: id, project: '--host=evil' })).toEqual(['import', 'phoenix', id, '--project=--host=evil']);
-    // The project the CLI would look in is its own variable's.
+    // The project the CLI would look in is its own variable's: PHOENIX_PROJECT, else PHOENIX_PROJECT_NAME, as Phoenix's client reads them.
     process.env.PHOENIX_PROJECT_NAME = 'support-agent';
     expect(await built({ kind: 'import', format: 'phoenix', traceId: id, project: 'support-agent' })).toEqual(['import', 'phoenix', id]);
     expect(await built({ kind: 'import', format: 'phoenix', traceId: id, project: 'default' })).toEqual(['import', 'phoenix', id, '--project=default']);
+    process.env.PHOENIX_PROJECT = 'refunds';
+    expect((await get<{ traces: ReturnType<typeof traceSources> }>(dash, 'imports')).traces.phoenix.project).toBe('refunds');
+    expect(await built({ kind: 'import', format: 'phoenix', traceId: id, project: 'refunds' })).toEqual(['import', 'phoenix', id]);
+    expect(await built({ kind: 'import', format: 'phoenix', traceId: id, project: 'support-agent' })).toEqual(['import', 'phoenix', id, '--project=support-agent']);
+    delete process.env.PHOENIX_PROJECT;
     const missing = await post(dash, 'jobs', { kind: 'import', format: 'logfire', traceId: id });
     expect(missing.status).toBe(409);
     expect(await errorOf(missing)).toMatch(/^Logfire needs LOGFIRE_READ_TOKEN in the environment/);

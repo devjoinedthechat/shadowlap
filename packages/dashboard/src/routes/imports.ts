@@ -60,7 +60,7 @@ export interface TraceSourceView {
   optional?: true;
   /** Where it is reached: the variable its SDK reads, else its public API (Phoenix: this machine); never with a user name or password. */
   host: string;
-  /** Phoenix: the project the CLI looks for the trace in unless told another (PHOENIX_PROJECT_NAME, else default). */
+  /** Phoenix: the project the CLI looks for the trace in unless told another (PHOENIX_PROJECT, then PHOENIX_PROJECT_NAME, as Phoenix's client reads them, else default). */
   project?: string;
 }
 
@@ -92,7 +92,7 @@ export function traceSources(env: NodeJS.ProcessEnv): Record<TraceSource, TraceS
       keyNames: t.optional ? [t.optional] : t.keys.map((alts) => alts[0]!),
       ...(t.optional ? { optional: true as const } : {}),
       host: shownHost(named ? (t.path ? named.replace(t.path, '') : named) : t.fallback(env)),
-      ...(s === 'phoenix' ? { project: env.PHOENIX_PROJECT_NAME?.trim() || PHOENIX_PROJECT } : {}),
+      ...(s === 'phoenix' ? { project: env.PHOENIX_PROJECT?.trim() || env.PHOENIX_PROJECT_NAME?.trim() || PHOENIX_PROJECT } : {}),
     };
   };
   return { langfuse: view('langfuse'), langsmith: view('langsmith'), phoenix: view('phoenix'), logfire: view('logfire') };

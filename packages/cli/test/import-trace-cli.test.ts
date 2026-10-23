@@ -48,7 +48,7 @@ const LOGFIRE_ID = '01a16460e2f311342463057f62b79fa9';
 const PHOENIX_KEY = 'phx_6b1d_do_not_store';
 const LOGFIRE_TOKEN = 'pylf_v1_us_donotstore7a1c';
 /** Where Phoenix and Logfire would be found otherwise, cleared so a developer's own setup can't reach the tests. */
-const NO_STORE_ENV = { PHOENIX_ENDPOINT: '', PHOENIX_COLLECTOR_ENDPOINT: '', PHOENIX_BASE_URL: '', PHOENIX_API_KEY: '', PHOENIX_PROJECT_NAME: '', LOGFIRE_BASE_URL: '', LOGFIRE_READ_TOKEN: '' };
+const NO_STORE_ENV = { PHOENIX_ENDPOINT: '', PHOENIX_COLLECTOR_ENDPOINT: '', PHOENIX_BASE_URL: '', PHOENIX_API_KEY: '', PHOENIX_PROJECT: '', PHOENIX_PROJECT_NAME: '', LOGFIRE_BASE_URL: '', LOGFIRE_READ_TOKEN: '' };
 
 beforeAll(async () => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-import-trace-')));
@@ -244,8 +244,10 @@ describe('shadowlap import langfuse and langsmith', () => {
 
 describe('shadowlap import phoenix and logfire', () => {
   it('imports a Phoenix trace from where its own client finds it, and never stores the key', async () => {
-    const r = await shadowlap(['import', 'phoenix', PHOENIX_ID, '--json'], { PHOENIX_COLLECTOR_ENDPOINT: `${host}/v1/traces`, PHOENIX_PROJECT_NAME: 'support-agent', PHOENIX_API_KEY: PHOENIX_KEY });
+    const r = await shadowlap(['import', 'phoenix', PHOENIX_ID, '--json'], { PHOENIX_COLLECTOR_ENDPOINT: `${host}/v1/traces`, PHOENIX_PROJECT: 'support-agent', PHOENIX_PROJECT_NAME: 'refunds', PHOENIX_API_KEY: PHOENIX_KEY });
     expect(r.code).toBe(0);
+    // PHOENIX_PROJECT_NAME, the variable's older name, is read when PHOENIX_PROJECT isn't set.
+    expect((await shadowlap(['import', 'phoenix', PHOENIX_ID, '--json'], { PHOENIX_COLLECTOR_ENDPOINT: `${host}/v1/traces`, PHOENIX_PROJECT_NAME: 'support-agent', PHOENIX_API_KEY: PHOENIX_KEY })).code).toBe(0);
     const json = JSON.parse(r.out);
     expect(json).toMatchObject({ format: 'phoenix', entries: 6 });
     expect(json.kept).toMatchObject({ modelCalls: 3, modelCallsImported: 3, withToolDefinitions: 3, toolCalls: 2, toolCallsKept: 2 });

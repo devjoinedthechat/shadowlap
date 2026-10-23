@@ -39,6 +39,11 @@ export function phoenixHostFromEnv(env: NodeJS.ProcessEnv): { host: string; from
   return undefined;
 }
 
+/** The project as Phoenix's own client reads it: PHOENIX_PROJECT, then PHOENIX_PROJECT_NAME, its older name. */
+export function phoenixProjectFromEnv(env: NodeJS.ProcessEnv): string | undefined {
+  return env.PHOENIX_PROJECT?.trim() || env.PHOENIX_PROJECT_NAME?.trim() || undefined;
+}
+
 /** Fetches a trace's spans. Throws with the reason when Phoenix refuses, or holds no such trace. */
 export async function fetchPhoenixSpans(traceId: string, o: PhoenixOptions): Promise<Array<Record<string, unknown>>> {
   const where = new URL(o.host).host;

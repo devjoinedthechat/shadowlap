@@ -11,7 +11,7 @@ import { traceStoreHost } from '../import-fetch.js';
 import { fetchLangfuseTrace, LANGFUSE_HOST, readLangfuse } from '../import-langfuse.js';
 import { fetchLangsmithRuns, LANGSMITH_HOST, readLangsmith } from '../import-langsmith.js';
 import { fetchLogfireRecords, LOGFIRE_REGIONS, logfireHost, readLogfire, TRACE_ID } from '../import-logfire.js';
-import { fetchPhoenixSpans, PHOENIX_HOST, PHOENIX_PROJECT, phoenixHostFromEnv, readPhoenix } from '../import-phoenix.js';
+import { fetchPhoenixSpans, PHOENIX_HOST, PHOENIX_PROJECT, phoenixHostFromEnv, phoenixProjectFromEnv, readPhoenix } from '../import-phoenix.js';
 import { parseOtlpFile, readOtel } from '../import-otel.js';
 import { fileSource, settleImport, type ImportJson, type TraceKept } from '../import-report.js';
 import { importTrace, type Trace, type TraceImport } from '../import-trace.js';
@@ -398,14 +398,14 @@ export function register(program: Command): void {
     .command('phoenix')
     .description("An Arize Phoenix trace as a partial recording: LLM spans become model calls, rebuilt exactly where OpenInference's OpenAI or Anthropic instrumentation logged the request, and TOOL spans that kept their input and output become tool calls. Reads PHOENIX_API_KEY where Phoenix asks for one")
     .argument('<trace-id>', "the trace's id on its page in Phoenix: 32 hex characters")
-    .option('--project <name>', `the project the trace is in (default: PHOENIX_PROJECT_NAME, else ${PHOENIX_PROJECT})`)
+    .option('--project <name>', `the project the trace is in (default: PHOENIX_PROJECT or PHOENIX_PROJECT_NAME, else ${PHOENIX_PROJECT})`)
     .option('--host <url>', `Phoenix's address, as its client finds it (default: PHOENIX_ENDPOINT, PHOENIX_COLLECTOR_ENDPOINT or PHOENIX_BASE_URL, else ${PHOENIX_HOST})`)
     .option('--allow-http', 'send PHOENIX_API_KEY over plain http to a --host on a network you trust (http is always accepted for this machine, and anywhere without a key)')
     .option('--json', 'machine-readable output: the run made, with its full id, source and call counts, and what the trace kept')
     .action(async (rawId: string, flags: { project?: string; host?: string; allowHttp?: boolean; json?: boolean }) => {
       const traceId = otelTraceIdOf(rawId);
       const apiKey = process.env.PHOENIX_API_KEY?.trim() || null;
-      const project = flags.project?.trim() || process.env.PHOENIX_PROJECT_NAME?.trim() || PHOENIX_PROJECT;
+      const project = flags.project?.trim() || phoenixProjectFromEnv(process.env) || PHOENIX_PROJECT;
       if (/[/?#]/.test(project) || project.length > 200) throw new InvalidArgumentError(`--project: a project's name or id, not "${project}"`);
       const named = flags.host === undefined ? phoenixHostFromEnv(process.env) : undefined;
       // A Phoenix that asks for no key is read over plain http anywhere: nothing secret travels.
