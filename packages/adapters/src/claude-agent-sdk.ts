@@ -327,12 +327,12 @@ export function fenceHooks(o: FenceOptions = {}): Record<'PreToolUse' | 'PostToo
  * The query's options with the fence's hooks added to its own: `query({ prompt, options: withFence(options) })`.
  * Without Shadowlap the hooks answer `{}` at once, so the same options serve production.
  */
-export function withFence<T extends object>(options: T, fence: FenceOptions = {}): T {
+export function withFence<T extends object>(options: T, fence: FenceOptions = {}): T & { hooks: Record<string, unknown[]> } {
   const own = (options as { hooks?: Record<string, unknown[] | undefined> }).hooks ?? {};
   const hooks: Record<string, unknown[]> = {};
   for (const [event, matchers] of Object.entries(own)) if (matchers) hooks[event] = [...matchers];
   for (const [event, matchers] of Object.entries(fenceHooks(fence))) hooks[event] = [...(hooks[event] ?? []), ...matchers];
-  return { ...options, hooks } as T;
+  return { ...options, hooks };
 }
 
 /** A tool of an in-process MCP server, as the SDK's `tool()` makes it. */
