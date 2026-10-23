@@ -214,6 +214,7 @@ const REASON_WORDS: Record<RedactionUnmasked['reasons'][number], string> = {
   stream: "in a streamed response's events it stays as recorded: no path reaches into a stream",
   whole: "no path names it apart from the whole request or response: only a rule on all of it would mask it",
   key: "it is under a key a path can't name (one with a ]): no path rule reaches it",
+  signed: "in a model call's signed reasoning (a thinking block, its signature) a pack keeps it as recorded: a fork of the pack sends it back, and the provider refuses a signed block that has been changed",
 };
 
 /**

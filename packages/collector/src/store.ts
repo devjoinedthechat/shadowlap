@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import type { ValidBatch, ValidEvent } from './schema.js';
+import { EARLIEST_MS, FUTURE_ALLOWANCE_MS, type ValidBatch, type ValidEvent } from './schema.js';
 
 // Same loader as the engine's store: filter node:sqlite's experimental warning, nothing else.
 const originalEmitWarning = process.emitWarning;
@@ -78,10 +78,14 @@ export class CollectorStore {
   private readonly db: Db;
   private readonly insert: Stmt;
 
-  constructor(path: string) {
+  constructor(path: string, now = Date.now()) {
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec(SCHEMA);
+    // Events a collector took before it checked their time, which validateBatch refuses: one dated
+    // more than a day ahead would count as recent until that day comes, and one before 2025 is no
+    // Shadowlap's. Both go, so they inflate no count.
+    this.db.prepare('DELETE FROM events WHERE at > ? OR at < ?').run(now + FUTURE_ALLOWANCE_MS, EARLIEST_MS);
     this.insert = this.db.prepare(
       `INSERT INTO events (received_at, install_id, type, at, version, os, arch, node, ci, providers, sdks, calls, replayed, live, blocked, stubbed, overridden, divergence, tokens_not_respent, duration_ms, exit_code)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

@@ -167,6 +167,12 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   its first push and comes down with its first pull, and nothing changes it after that. Anyone your
   admin lets write to the bucket could edit a run there; such an edit can't change how a run on your
   machine replays, or whom it names as its author.
+- **No credential goes up.** A push copies runs as recorded, with no redaction rules applied, but a
+  credential a recording made by an earlier version kept in a call's record stays behind: a model
+  call's query string goes without its credentials (an Azure `subscription-key`, a `key`, a
+  signature) and a credential response header (`authorization`, `x-subject-token`) with
+  `<CREDENTIAL>` for its value, as the sidecar records them. See
+  [Redaction](./normalizers-and-redaction.md#redaction) for the names read as credentials.
 - **Fixes** go with the runs they are about: a push sends a [fix](./cli.md#fix) (its blames,
   repairs and verdicts) once one of its failing or good runs is in the store, and a pull brings the
   team's, so a teammate's Fixes page shows its three steps. A fix only grows, so two machines'
@@ -202,8 +208,10 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   and `≈$0.0030 spent by maya` in `shadowlap show`. That spend is the team's, so the Overview's
   spent live counts it; a capture a teammate pushed stays *as captured*, and a pack you unpack
   still says *from a pack* and isn't counted. A pulled run is checked as strictly as a
-  [pack](./cli.md#pack-unpack): every record validated, every blob checked against its hash, and
-  nothing in it that could rewrite a terminal. A command line may hold tabs and line breaks
+  [pack](./cli.md#pack-unpack): every record validated, every blob checked against its hash, its
+  redaction rules' patterns read as the config's are, so none that could stall a replay comes in
+  ([Patterns that could take too long](./normalizers-and-redaction.md#patterns-that-could-take-too-long)),
+  and nothing in it that could rewrite a terminal. A command line may hold tabs and line breaks
   (`python -c '…'`), shown escaped. One the store marks as still running comes in as interrupted,
   since nothing here records it. Its replay asks before running the command it was recorded
   with, as an unpacked run's does, saying it came from the team store and who recorded it.
@@ -220,6 +228,12 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
 - **Blobs pushed before** aren't sent again, but each is checked with the bucket before a new run
   relies on it, and sent again when the bucket no longer has it. A run whose copy here lacks a blob
   stays here, saying so.
+- **Only the store's folder is reached.** Anyone who can write to the folder names the objects
+  in it, and a URL resolves `.` and `..`, so a pull reads only objects named as a push names them
+  (an index segment is `index/<id>.json`, a run's id and a blob's hash are checked before they make
+  a name) and says once which other name under `index/` it left unread. No request is ever made
+  for a key with a `.` or `..` part, so `index/../../other/x.json` reaches nothing outside the
+  folder, read or written with your credentials.
 
 Blobs are shared between runs, so don't put an expiry rule on the store's folder: a rule that
 removes an old blob takes it from every newer run that uses it. `shares/` and `pr/` are the
@@ -314,9 +328,14 @@ writes the run's [HTML report](./cli.md#export-html), with every redaction rule 
 `shadowlap.config.json` applied, to `shares/` in the bucket and prints a presigned link that
 expires after 7 days. Anyone with the link can open it, without an account; each share is a new
 object, so an older link keeps working until it expires. Without redaction rules the report holds
-the prompts and tool data as recorded, and the command says so.
+the prompts and tool data as recorded, and the command says so. Either way it holds no credential
+a recording kept (a model call's query string, a response header, a captured call's query, form
+body or response headers), and a report is only read, so a model's signed reasoning is masked in
+it like any other text. The recording goes into the file as data, never as markup: the page draws
+it without HTML from the recording, and its content policy lets it load nothing from anywhere else.
 
-A link is signed with your credentials. On S3, temporary ones (an SSO sign-in, an assumed role)
+A link is signed with your credentials, for at most 7 days, and the cloud refuses it after that:
+the expiry is part of what is signed. On S3, temporary ones (an SSO sign-in, an assumed role)
 sign links that stop working when they expire, and the command says when. On Cloud Storage a link
 needs a key to sign with (a service-account key, or HMAC keys with `?auth=hmac`). On Azure, the
 account key or an Entra sign-in can sign one and a SAS token can't; an Entra sign-in needs the

@@ -1,3 +1,4 @@
+import { patternProblem } from './safe-regex.js';
 import type { CallKind, Normalizer } from './types.js';
 
 /**
@@ -20,11 +21,18 @@ export function namedPatterns(): string[] {
   return Object.keys(NAMED_PATTERNS);
 }
 
+/**
+ * A rule's pattern as a global regular expression: a named pattern, or a `/regex/flags` literal. A
+ * literal is read before it is compiled, wherever it came from (the config, the dashboard, a pack,
+ * the team store), and refused with the reason when it isn't one, is too long, or could take time
+ * that grows exponentially with the text it reads (safe-regex.ts).
+ */
 export function compilePattern(pattern: string): RegExp {
   const named = NAMED_PATTERNS[pattern];
   if (named) return new RegExp(named.source, named.flags);
-  const m = /^\/(.*)\/([a-z]*)$/s.exec(pattern);
-  if (!m) throw new Error(`unknown pattern "${pattern}": use one of ${namedPatterns().join(', ')} or a /regex/ literal`);
+  const problem = patternProblem(pattern, namedPatterns());
+  if (problem) throw new Error(problem);
+  const m = /^\/(.*)\/([a-z]*)$/s.exec(pattern)!;
   const flags = m[2]!.includes('g') ? m[2]! : m[2]! + 'g';
   return new RegExp(m[1]!, flags);
 }
@@ -89,6 +97,13 @@ export interface RewriteObserver {
    * matches it holds.
    */
   unmasked?(rule: number, text: string, at: UnmaskedAt, count: number): void;
+  /**
+   * A rule's pattern (or a path rule's path) reaches into signed reasoning that a copy which can be
+   * replayed keeps as recorded (signed.ts): a thinking block, its signature, encrypted reasoning.
+   * Told with the text there and how many matches it holds (1 for a path rule that would have
+   * replaced it whole).
+   */
+  signed?(rule: number, text: string, at: UnmaskedAt, count: number): void;
 }
 
 /** Where a value the rules leave as it is sits, and what it is. */
@@ -99,6 +114,8 @@ export interface UnmaskedAt {
   what: 'number' | 'key' | 'string';
   /** In a streamed response, the event it is in, from 1. */
   event?: number;
+  /** In signed reasoning, which a copy that can be replayed keeps as recorded (RewriteObserver.signed). */
+  signed?: true;
 }
 
 /** Returns a deep copy of `value` with every applicable normalizer applied. */

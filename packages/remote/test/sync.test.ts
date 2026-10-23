@@ -78,6 +78,27 @@ describe('push', () => {
     expect(remote.log.filter((l) => l.op === 'put')).toEqual([]);
   });
 
+  it('sends no credential an earlier version kept in a call\'s query or a response header', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const run = a.store.createRun({ mode: 'record', command: cmd });
+    const call = { kind: 'api' as const, name: 'POST /openai/deployments/gpt/chat/completions', fingerprint: 'd'.repeat(64), occurrence: 1 };
+    const req = storeApiRequest(a.store, { messages: [{ role: 'user', content: 'refund order 4417' }] });
+    a.store.appendCallStart({ runId: run.runId, callNo: 1, ...call, origin: 'live', effect: null, requestRef: req, meta: { provider: 'azure', query: 'subscription-key=SECRET-APIM-123&api-version=2024-10-21' }, at: 1 });
+    a.store.appendCallEnd(call, { runId: run.runId, callNo: 1, attempt: 0, responseRef: a.store.putBlob(Buffer.from('{}')), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json', 'x-subject-token': 'TOKEN-ECHOED' } }, at: 2 });
+    a.store.endRun(run.runId, 'completed');
+    await push(a, { runIds: [run.runId] });
+    const calls = gunzipSync(remote.objects.get(keys.calls(run.runId))!.body).toString('utf8');
+    expect(calls).not.toContain('SECRET-APIM-123');
+    expect(calls).not.toContain('TOKEN-ECHOED');
+    // A teammate's pull brings the call as a recording made today holds it.
+    const b = machine(remote, 'sam@northwind.example');
+    await pull(b);
+    const [pulled] = b.store.getCalls(run.runId);
+    expect(pulled!.meta.query).toBe('api-version=2024-10-21');
+    expect(pulled!.end!.meta.headers).toEqual({ 'content-type': 'application/json', 'x-subject-token': '<CREDENTIAL>' });
+  });
+
   it('names the CI provider with ci as the author, in the run and the index', async () => {
     const remote = new MemoryStore(loc);
     const ci = { ...machine(remote, 'ci'), ci: 'github' };

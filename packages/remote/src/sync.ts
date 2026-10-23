@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { asImportedRun, callRefs, classifyRun, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { asImportedRun, callRefs, classifyRun, credentialFreeCall, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
 import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
 import { asTheStoreHolds, keptHere, madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
@@ -117,6 +117,8 @@ export interface PullResult {
 
 const BLOB_HEAD_OVER = 64 * 1024;
 const HEX64 = /^[0-9a-f]{64}$/;
+/** The name a push gives an index segment: index/ and its id (newSegmentId), a ULID. */
+const SEGMENT_KEY = /^index\/[0-9A-HJKMNP-TV-Z]{26}\.json$/;
 const CALLS_MAX_GZ = 256 * 1024 * 1024;
 
 function now(ctx: SyncContext): number {
@@ -244,8 +246,13 @@ type PushOutcome =
   | { kind: 'pushed' | 'updated' | 'unchanged'; entry: IndexEntry; index: boolean; repaired: boolean }
   | { kind: 'refused'; reason: string };
 
+/**
+ * A run's calls as the store holds them, as `shadowlap pack` writes them, gzipped: as recorded, but
+ * for a credential a recording made before it was known to be one kept in a call's metadata (a model
+ * call's query, a response header), which never goes up (credentialFreeCall).
+ */
 function callsFile(calls: readonly CallRecord[]): { lines: Buffer; gz: Buffer } {
-  const lines = Buffer.from(calls.map((c) => JSON.stringify(c)).join('\n') + (calls.length ? '\n' : ''), 'utf8');
+  const lines = Buffer.from(calls.map((c) => JSON.stringify(credentialFreeCall(c))).join('\n') + (calls.length ? '\n' : ''), 'utf8');
   return { lines, gz: gzipSync(lines) };
 }
 
@@ -588,11 +595,20 @@ async function readIndex(ctx: SyncContext): Promise<{ segments: number; skipped:
   const rid = remoteId(ctx);
   const seen = ctx.store.seenTeamSegments(rid);
   const fresh: string[] = [];
-  for await (const o of ctx.remote.list(keys.segments)) if (o.key.endsWith('.json') && !seen.has(o.key)) fresh.push(o.key);
-  fresh.sort();
-  const segments: Array<IndexSegment | null> = new Array(fresh.length).fill(null);
   const done: string[] = [];
   const skipped: PullResult['skippedSegments'] = [];
+  for await (const o of ctx.remote.list(keys.segments)) {
+    if (!o.key.endsWith('.json') || seen.has(o.key)) continue;
+    // Only a name a push writes is read: anyone who can write to the bucket names its objects, and
+    // one named index/../../x.json would reach outside the store's folder. Said once.
+    if (SEGMENT_KEY.test(o.key)) fresh.push(o.key);
+    else {
+      done.push(o.key);
+      skipped.push({ key: o.key, reason: `isn't the name a push gives an index segment (index/<id>.json), so it isn't read` });
+    }
+  }
+  fresh.sort();
+  const segments: Array<IndexSegment | null> = new Array(fresh.length).fill(null);
   await eachLimit(fresh, ctx.concurrency ?? 8, async (key, i) => {
     const got = await ctx.remote.get(key, { maxBytes: 64 * 1024 * 1024 });
     if (!got) {

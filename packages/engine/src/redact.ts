@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from './eventstream.js';
+import { capturedHttp, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, decodedParam, withoutStoredCredentials } from './http.js';
 import { reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
-import { loadApiRequest, storeApiRequest, type RequestManifest } from './manifest.js';
+import { loadApiRequest, manifestRefs, storeApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern, countMatches, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
 import { inEvent, maskJsonChunks, maskSseStream, maskStreamed } from './redact-stream.js';
 import { isJudgeCall, reachesJudgeRequest } from './judge-scope.js';
+import { cutSigned, isSignedMark, SIGNED_MARK, signedTexts, type Place } from './signed.js';
 import { redactRunFacts } from './run-facts.js';
 import type { Store } from './store.js';
 import { quoteArgv } from './text.js';
@@ -34,17 +36,35 @@ type RunCheck = NonNullable<RunMeta['checks']>[number];
  *
  * What the run record itself repeats of that content is masked too: the flags that made a fork
  * (an `--override` carries a whole tool result), the divergence report's diff and reason, the
- * checks' labels, details and judges' reasons, and each call's error, injected failure and response
- * headers. A judge's own request takes only the rules without a path (requestRules). The run's command
- * line, labels and notes are copied as they are: a replay of the copy runs that command. A copy that
- * is only ever read (`export html`) masks them too: redactRunWithDetails.
+ * checks' labels, details and judges' reasons, and each call's error, injected failure, response
+ * headers and query string (redactQuery). A judge's own request takes only the rules without a path
+ * (requestRules). The run's command line, labels and notes are copied as they are: a replay of the
+ * copy runs that command. A copy that is only ever read (`export html`) masks them too:
+ * redactRunWithDetails.
+ *
+ * Every copy also masks the credentials a recording made before they were known to be ones could
+ * hold, rules or none (http.ts): those in a model call's query, a credential response header, and a
+ * captured HTTP call's query, form body and response headers. A call no rule reaches is copied as
+ * its stored bytes, but for those.
+ *
+ * A pack keeps a model call's signed reasoning as recorded, in its requests and in what it got back
+ * (signed.ts): a thinking block, its signature, encrypted reasoning. A fork of the pack sends it back
+ * live, and the provider refuses a signed block that has been changed. What a rule would have masked
+ * there is told instead (RedactRunOptions.signed, the preview's `signed` reason). A copy that is only
+ * read masks it like any other text.
  */
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** A call's request as it is stored: a model request is rebuilt from its manifest, a tool's is JSON. */
+/**
+ * A call's request as it is stored: a model request is rebuilt from its manifest, a tool's is JSON;
+ * a captured HTTP call's with the credentials in its query and form body masked, as a recording
+ * stores them now (an earlier version stored them as sent).
+ */
 function storedRequest(src: Store, call: CallRecord): unknown {
-  return call.kind === 'api' ? loadApiRequest(src, call.requestRef!) : src.getJson(call.requestRef!);
+  if (call.kind === 'api') return loadApiRequest(src, call.requestRef!);
+  const request = src.getJson(call.requestRef!);
+  return capturedHttp(call) && isObject(request) && 'args' in request ? { ...request, args: withoutStoredCredentials(request.args) } : request;
 }
 
 /**
@@ -64,10 +84,74 @@ function readingOnce(store: Store): Store {
   }) as Store;
 }
 
-/** What `pack` writes for a call's request: the rules applied to a copy of it. `export dataset` reads requests through this too. */
-export function redactedRequest(src: Store, call: CallRecord, rules: Normalizer[], observer?: RewriteObserver): unknown {
+/**
+ * What `pack` writes for a call's request: the rules applied to a copy of it, a model call's signed
+ * reasoning kept as recorded with `keepSigned` (a copy that can be replayed). `export dataset`, which
+ * is only read, reads requests through this too.
+ */
+export function redactedRequest(src: Store, call: CallRecord, rules: Normalizer[], observer?: RewriteObserver, keepSigned = false): unknown {
   const r = requestRules(call, rules, observer);
-  return applyNormalizers(storedRequest(src, call), r.rules, call.kind, call.name, r.observer);
+  const request = storedRequest(src, call);
+  return keepSigned && call.kind === 'api' ? keepingSigned(request, r.rules, call, r.observer) : applyNormalizers(request, r.rules, call.kind, call.name, r.observer);
+}
+
+/**
+ * A model call's request with the rules applied but to its signed reasoning, which stays as
+ * recorded wherever the request still holds its place. The observer hears what each rule changes
+ * elsewhere, and, as `signed`, what it would have masked there.
+ */
+function keepingSigned(request: unknown, rules: Normalizer[], call: Pick<CallRecord, 'kind' | 'name'>, observer?: RewriteObserver): unknown {
+  const { cut, parts, paste } = cutSigned(request);
+  if (!parts.length) return applyNormalizers(request, rules, call.kind, call.name, observer);
+  if (observer?.signed) for (const part of parts) tellSigned(part.place, part.value, rules, call, observer.signed.bind(observer));
+  // The marks the pieces were cut out as are put back as they were: what a rule did to one is no change of the copy.
+  const heard: RewriteObserver | undefined = observer && {
+    ...(observer.reached ? { reached: (i: number, value: unknown) => void (isSignedMark(value) || observer.reached!(i, value)) } : {}),
+    ...(observer.changed ? { changed: (i: number, before: unknown, after: unknown, count: number) => void (isSignedMark(before) || observer.changed!(i, before, after, count)) } : {}),
+    ...(observer.unmasked ? { unmasked: (i: number, text: string, at: UnmaskedAt, count: number) => void (at.path.includes(SIGNED_MARK) || observer.unmasked!(i, text, at, count)) } : {}),
+  };
+  return paste(applyNormalizers(cut, rules, call.kind, call.name, heard));
+}
+
+/**
+ * What the rules that apply to a request would have masked in a piece of its signed reasoning at
+ * `place`: a pattern without a path, in each of its texts; a rule whose path reaches it, around it
+ * or into it, its pattern in a text there, or with no pattern the whole of it.
+ */
+function tellSigned(place: Place, value: unknown, rules: readonly Normalizer[], call: Pick<CallRecord, 'kind' | 'name'>, tell: NonNullable<RewriteObserver['signed']>): void {
+  const texts = signedTexts(value, place);
+  rules.forEach((rule, i) => {
+    if (!normalizerApplies(rule, call.kind, call.name)) return;
+    if (rule.path !== undefined) {
+      const segs = parsePath(rule.path);
+      if (!touches(segs, place)) return;
+      if (rule.pattern === undefined) return tell(i, texts.map((t) => t.text).join(' '), { what: 'string', path: [...place], signed: true }, 1);
+      const regex = compilePattern(rule.pattern);
+      for (const t of texts) if (segs.length === t.place.length && touches(segs, t.place)) {
+        const count = countMatches(t.text, regex);
+        if (count) tell(i, t.text, { what: 'string', path: [...t.place], signed: true }, count);
+      }
+      return;
+    }
+    if (rule.pattern === undefined) return;
+    const regex = compilePattern(rule.pattern);
+    for (const t of texts) {
+      const count = countMatches(t.text, regex);
+      if (count) tell(i, t.text, { what: 'string', path: [...t.place], signed: true }, count);
+    }
+  });
+}
+
+/** Whether a path's segments name `place`, a value around it or one inside it: they agree as far as both go. */
+function touches(segs: Segment[], place: Place): boolean {
+  const n = Math.min(segs.length, place.length);
+  for (let k = 0; k < n; k++) {
+    const seg = segs[k]!;
+    const at = place[k]!;
+    if (seg.type === 'wild') continue;
+    if (seg.type === 'key' ? typeof at !== 'string' || at !== seg.key : typeof at !== 'number' || seg.index < 0 || at !== seg.index) return false;
+  }
+  return true;
 }
 
 /**
@@ -87,6 +171,7 @@ function requestRules(call: Pick<CallRecord, 'meta'>, rules: Normalizer[], obser
       ...(observer.reached ? { reached: (i: number, value: unknown) => observer.reached!(at(i), value) } : {}),
       ...(observer.changed ? { changed: (i: number, before: unknown, after: unknown, count: number) => observer.changed!(at(i), before, after, count) } : {}),
       ...(observer.unmasked ? { unmasked: (i: number, text: string, where: UnmaskedAt, count: number) => observer.unmasked!(at(i), text, where, count) } : {}),
+      ...(observer.signed ? { signed: (i: number, text: string, where: UnmaskedAt, count: number) => observer.signed!(at(i), text, where, count) } : {}),
     },
   };
 }
@@ -131,9 +216,23 @@ function redactedError(error: SerializedError, rules: Normalizer[], observer?: R
   return out as SerializedError;
 }
 
-function redactRequest(src: Store, call: CallRecord, rules: Normalizer[], dst: Store): string | null {
+/**
+ * A call's request as a copy writes it. One no rule reaches is copied as its stored bytes (a model
+ * request with the parts its manifest names), but for a captured call's credentials; any other has
+ * the rules applied (redactedRequest).
+ */
+function redactRequest(src: Store, call: CallRecord, rules: Normalizer[], dst: Store, keepSigned: boolean, observer?: RewriteObserver): string | null {
   if (!call.requestRef) return null;
-  const body = redactedRequest(src, call, rules);
+  if (!requestRules(call, rules).rules.some((r) => normalizerApplies(r, call.kind, call.name))) {
+    const bytes = src.getBlob(call.requestRef);
+    if (bytes !== null && call.kind !== 'api') return dst.putBlob((capturedHttp(call) ? credentialFreeRequest(bytes) : null) ?? bytes);
+    const parts = bytes === null ? [] : manifestRefs(src, call.requestRef).map((h) => src.getBlob(h));
+    if (bytes !== null && parts.every((b): b is Buffer => b !== null)) {
+      for (const part of parts) dst.putBlob(part);
+      return dst.putBlob(bytes);
+    }
+  }
+  const body = redactedRequest(src, call, rules, observer, keepSigned);
   return call.kind === 'api' ? storeApiRequest(dst, body) : dst.putJson(body);
 }
 
@@ -185,12 +284,18 @@ export function matchedAs(call: Pick<CallRecord, 'kind' | 'name' | 'meta'>, norm
   return { name: masked(call.name), normalizers: normalizers.map((n) => (n.name === undefined ? n : { ...n, name: masked(n.name) })) };
 }
 
-/** What a call got back as a copy writes it: `read` for a copy that is only read (redactBytes' `call`). */
-function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallScope, read: boolean): string | null {
+/**
+ * What a call got back as a copy writes it: `read` for a copy that is only read (redactBytes'
+ * `call`). A captured HTTP call's result keeps its headers as a recording keeps them now
+ * (credentialFreeResult).
+ */
+function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallRecord, read: boolean, observer?: RewriteObserver): string | null {
   if (!ref) return null;
-  const bytes = src.getBlob(ref);
-  if (!bytes) return null;
-  return dst.putBlob(keptAsRecorded(call) ? bytes : redactBytes(bytes, rules, read ? call : undefined));
+  const stored = src.getBlob(ref);
+  if (!stored) return null;
+  const bytes = capturedHttp(call) ? (credentialFreeResult(stored) ?? stored) : stored;
+  // A pack keeps a model call's signed reasoning as recorded; a copy that is only read masks it too.
+  return dst.putBlob(keptAsRecorded(call) ? bytes : redactBytes(bytes, rules, read ? call : undefined, observer, !read && call.kind === 'api'));
 }
 
 /** The bytes as a string when they are text (UTF-8 that round-trips), else null. */
@@ -215,10 +320,10 @@ function rewriteDeep(value: unknown, rules: Normalizer[], observer?: RewriteObse
  * token count or a latency a pattern matches stays a number), any other text as text. `event` is
  * the frame's place in the stream, from 1, for the observer.
  */
-function redactEventPayload(payload: Buffer, rules: Normalizer[], observer: RewriteObserver | undefined, event: number): Buffer | null {
+function redactEventPayload(payload: Buffer, rules: Normalizer[], observer: RewriteObserver | undefined, event: number, keepSigned: boolean): Buffer | null {
   const text = asText(payload);
   if (text === null) return null;
-  const masked = (t: string) => rewriteJsonDocument(t, rules, null, inEvent(observer, event)) ?? rewriteText(t, rules, observer);
+  const masked = (t: string) => rewriteJsonDocument(t, rules, null, inEvent(observer, event), keepSigned ? { stream: true } : undefined) ?? rewriteText(t, rules, observer);
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -278,17 +383,18 @@ function frameEvent(payload: Buffer): { event: unknown; encode: () => Buffer } |
  * pieces, across frames, then each payload as redactEventPayload masks it. A frame nothing matched
  * stays byte for byte.
  */
-function redactEventStream(frames: EventStreamFrame[], rules: Normalizer[], observer?: RewriteObserver): Buffer {
+function redactEventStream(frames: EventStreamFrame[], rules: Normalizer[], observer: RewriteObserver | undefined, keepSigned: boolean): Buffer {
   const events = frames.map((f) => frameEvent(f.payload));
   const across = maskStreamed(
     events.map((e) => e?.event),
     rules,
     observer,
+    keepSigned,
   );
   return Buffer.concat(
     frames.map((f, i) => {
       const payload = across.has(i) ? events[i]!.encode() : f.payload;
-      const masked = redactEventPayload(payload, rules, observer, i + 1) ?? payload;
+      const masked = redactEventPayload(payload, rules, observer, i + 1, keepSigned) ?? payload;
       return masked.equals(f.payload) ? f.raw : encodeEventStreamFrame(f.headers, masked);
     }),
   );
@@ -309,27 +415,31 @@ function redactEventStream(frames: EventStreamFrame[], rules: Normalizer[], obse
  * JSON document. A pack passes none: its replay hands what calls got back to the agent. A clock or
  * random read is never passed here (keptAsRecorded); one that is given comes back as it is.
  *
+ * `keepSigned`, for a model call's response in a copy that can be replayed (a pack): its signed
+ * reasoning stays as recorded (signed.ts), and the observer hears, as `signed`, what the rules
+ * without a path match in it.
+ *
  * The preview passes an observer and reads this to count exactly what a copy changes, and what the
  * rules match that it leaves as it is (previewRedaction); a copy passes none.
  */
-export function redactBytes(bytes: Buffer, rules: Normalizer[], call?: CallScope, observer?: RewriteObserver): Buffer {
+export function redactBytes(bytes: Buffer, rules: Normalizer[], call?: CallScope, observer?: RewriteObserver, keepSigned = false): Buffer {
   if (call && keptAsRecorded(call)) return bytes;
   const pathless = rules.some((n) => n.path === undefined && n.pattern !== undefined);
   const reaching = !!call && rules.some((n) => reachesResultsOf(n, call));
   if (!pathless && !reaching) return bytes;
   const frames = eventStreamFrames(bytes);
-  if (frames) return pathless ? redactEventStream(frames, rules, observer) : bytes;
+  if (frames) return pathless ? redactEventStream(frames, rules, observer, keepSigned) : bytes;
   const text = asText(bytes);
   if (text === null) return bytes;
   if (pathless) {
-    const sse = maskSseStream(text, rules, observer);
+    const sse = maskSseStream(text, rules, observer, keepSigned);
     if (sse !== null) return sse === text ? bytes : Buffer.from(sse, 'utf8');
   }
-  const chunks = pathless ? maskJsonChunks(text, rules, observer) : null;
+  const chunks = pathless ? maskJsonChunks(text, rules, observer, keepSigned) : null;
   const streamed = chunks ?? text;
   if (untouched(streamed, rules, call ?? null)) return chunks === null ? bytes : Buffer.from(streamed, 'utf8');
   // A JSON document gets the rules on its values; other text as text.
-  const doc = rewriteJsonDocument(streamed, rules, call ?? null, observer);
+  const doc = rewriteJsonDocument(streamed, rules, call ?? null, observer, keepSigned ? { stream: false } : undefined);
   if (doc !== null) return doc === text ? bytes : Buffer.from(doc, 'utf8');
   return pathless ? Buffer.from(rewriteText(streamed, rules, observer), 'utf8') : bytes;
 }
@@ -401,7 +511,8 @@ function redactDivergence(d: DivergenceReport, rules: Normalizer[], observer?: R
  */
 function redactMeta(meta: RunMeta | undefined, rules: Normalizer[], observer?: RewriteObserver): RunMeta {
   const { expect: _expect, ...rest } = meta ?? {};
-  const out: RunMeta = { ...rest, redactions: [...(meta?.redactions ?? []), ...rules] };
+  // A copy made with no rules (to mask credentials alone) records none.
+  const out: RunMeta = { ...rest, ...(meta?.redactions !== undefined || rules.length ? { redactions: [...(meta?.redactions ?? []), ...rules] } : {}) };
   const text = (v: unknown): string => (typeof v === 'string' ? rewriteText(v, rules, observer) : '');
   if (Array.isArray(meta?.interventions)) out.interventions = meta.interventions.filter(isObject).map((i) => ({ kind: i.kind, at: i.at, flag: text(i.flag) }));
   // A judge's reason is a model's words about what it read, and its check's name is the label's:
@@ -416,24 +527,122 @@ function redactMeta(meta: RunMeta | undefined, rules: Normalizer[], observer?: R
 
 /**
  * A call's metadata with what it repeats of the content masked: its error, an injected failure's
- * message, the response headers. `call` for a copy that is only read: the error gets the path rules
- * that reach what that call got back too. `observer` hears each change, for the preview.
+ * message, the response headers (a credential header's value masked, a cookie left out:
+ * credentialFreeHeaders). `call` for a copy that is only read: the error gets the path rules that
+ * reach what that call got back too. `observer` hears each change, for the preview.
  */
 function redactCallMeta(meta: CallMeta, rules: Normalizer[], call: CallScope | undefined, observer?: RewriteObserver): CallMeta {
   const out: CallMeta = { ...meta };
   if (meta.error) out.error = redactedError(meta.error, rules, observer, call);
   if (isObject(meta.failure) && typeof meta.failure.message === 'string') out.failure = { ...meta.failure, message: rewriteText(meta.failure.message, rules, observer) };
-  if (meta.headers) out.headers = Object.fromEntries(Object.entries(meta.headers).map(([k, v]) => [k, rewriteText(v, rules, observer)]));
+  if (meta.headers) out.headers = Object.fromEntries(Object.entries(credentialFreeHeaders(meta.headers)).map(([k, v]) => [k, rewriteText(v, rules, observer)]));
   return out;
 }
+
+/**
+ * A model call's query string (`meta.query`, without its `?`) as every copy keeps it: its
+ * credentials left out, whatever their value (credentialFreeQuery), then the rules without a path
+ * that apply to the call, by its kind and name as on its request. Each parameter is read as the
+ * text `name=value`, both decoded, so a pattern finds an address the query wrote `alice%40…` and a
+ * lookbehind for the name (`(?<=customer=)\w+`) finds its value. A parameter a rule changed is
+ * written again, encoded; every other byte stays. Undefined when nothing is left. A replay of the
+ * copy reads a live call's query through it too, so both sides match alike.
+ */
+export function redactQuery(query: string, rules: readonly Normalizer[], call: Pick<CallRecord, 'kind' | 'name'>, observer?: RewriteObserver): string | undefined {
+  const free = credentialFreeQuery(query);
+  if (free === undefined) return undefined;
+  const applying = rules.flatMap((rule, i) => (rule.path === undefined && rule.pattern !== undefined && normalizerApplies(rule, call.kind, call.name) ? [{ rule, i, regex: compilePattern(rule.pattern) }] : []));
+  if (!applying.length) return free;
+  return free
+    .split('&')
+    .map((part) => {
+      const eq = part.indexOf('=');
+      const text = eq < 0 ? decodedParam(part) : `${decodedParam(part.slice(0, eq))}=${decodedParam(part.slice(eq + 1))}`;
+      let out = text;
+      for (const { rule, i, regex } of applying) {
+        regex.lastIndex = 0;
+        const next = out.replace(regex, rule.replace);
+        if (next !== out) observer?.changed?.(i, out, next, countMatches(out, regex));
+        out = next;
+      }
+      if (out === text) return part;
+      const at = out.indexOf('=');
+      return at < 0 ? encodeURIComponent(out) : `${encodeURIComponent(out.slice(0, at))}=${encodeURIComponent(out.slice(at + 1))}`;
+    })
+    .join('&');
+}
+
+/** A call's own metadata as a copy keeps it: a model call's query masked (redactQuery), the rest as it is. */
+function redactStartMeta(call: CallRecord, rules: readonly Normalizer[], observer?: RewriteObserver): CallMeta {
+  if (typeof call.meta.query !== 'string') return call.meta;
+  const { query: recorded, ...rest } = call.meta;
+  const query = redactQuery(recorded as string, rules, call, observer);
+  return query === undefined ? rest : { ...rest, query };
+}
+
+/**
+ * A call as a push copies it to the team store, as recorded but for the credentials a recording
+ * made before they were known to be ones kept in its metadata: a model call's query
+ * (credentialFreeQuery) and a credential response header (credentialFreeHeaders). Its stored
+ * requests and responses go as they are. The same object when there is nothing to mask.
+ */
+export function credentialFreeCall(call: CallRecord): CallRecord {
+  let meta = call.meta;
+  if (typeof call.meta.query === 'string') {
+    const query = credentialFreeQuery(call.meta.query);
+    if (query !== call.meta.query) {
+      const { query: _recorded, ...rest } = call.meta;
+      meta = query === undefined ? rest : { ...rest, query };
+    }
+  }
+  const end = (e: CallEndRow): CallEndRow => {
+    const headers = e.meta.headers && credentialFreeHeaders(e.meta.headers);
+    return headers && headers !== e.meta.headers ? { ...e, meta: { ...e.meta, headers } } : e;
+  };
+  const attempts = call.attempts.map(end);
+  const last = call.end ? end(call.end) : null;
+  if (meta === call.meta && last === call.end && attempts.every((a, i) => a === call.attempts[i])) return call;
+  return { ...call, meta, end: last, attempts };
+}
+
+/**
+ * Whether a run holds a credential that a recording made before it was known to be one kept: in a
+ * model call's query, a credential response header, or a captured HTTP call's query, form body or
+ * response headers. Every copy of such a run goes through redactRun, rules or none, which masks
+ * them; a run without any is copied as it is when no rule applies.
+ */
+export function carriesCredentials(store: Store, runId: string): boolean {
+  // Read from the rows that can hold one, without loading the run's calls: an export reads those once.
+  for (const row of store.query(CALL_METAS_SQL, runId)) {
+    const meta = JSON.parse(String(row.meta)) as CallMeta;
+    if (typeof meta.query === 'string' && credentialFreeQuery(meta.query) !== meta.query) return true;
+    if (isObject(meta.headers) && credentialFreeHeaders(meta.headers as Record<string, string>) !== meta.headers) return true;
+  }
+  for (const row of store.query(CAPTURED_SQL, runId, runId)) {
+    const ref = row.phase === 'start' ? row.requestRef : row.responseRef;
+    const bytes = typeof ref === 'string' ? store.getBlob(ref) : null;
+    if (bytes && (row.phase === 'start' ? credentialFreeRequest(bytes) : credentialFreeResult(bytes))) return true;
+  }
+  return false;
+}
+
+/** A run's call rows whose metadata has a query string or response headers. */
+const CALL_METAS_SQL = `SELECT meta FROM call_events WHERE run_id = ? AND meta IS NOT NULL AND (json_extract(meta, '$.query') IS NOT NULL OR json_extract(meta, '$.headers') IS NOT NULL)`;
+/** The rows of a run's captured HTTP calls (a start's request, each attempt's result). */
+const CAPTURED_SQL = `SELECT phase, request_ref AS requestRef, response_ref AS responseRef FROM call_events WHERE run_id = ? AND call_no IN (SELECT call_no FROM call_events WHERE run_id = ? AND phase = 'start' AND kind = 'tool' AND json_extract(meta, '$.http') IS NOT NULL)`;
 
 export interface RedactRunOptions {
   /**
    * A copy that is only ever read, never replayed (`export html`): the path rules also reach what
-   * calls got back (reachesResultsOf). A pack leaves this out, since its replay hands those values
-   * back to the agent.
+   * calls got back (reachesResultsOf), and a model call's signed reasoning is masked like any text.
+   * A pack leaves this out, since its replay hands those values back to the agent.
    */
   read?: boolean;
+  /**
+   * Hears each rule (by its place in the rules) that matches inside a call's signed reasoning,
+   * which a copy that can be replayed keeps as recorded: once per rule, call and match.
+   */
+  signed?: (rule: number, call: CallRecord) => void;
 }
 
 /** Copies `runId` from `src` into `dst` with `rules` applied. The copy keeps the run id. */
@@ -455,10 +664,12 @@ export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: S
     for (const call of calls) {
       const { end, attempts, ...start } = call;
       const name = redactedCallName(call, rules);
-      dst.appendCallStart({ ...start, name, requestRef: redactRequest(src, call, rules, dst) });
+      // What a rule would have masked in signed reasoning the copy keeps, told to `options.signed`.
+      const hear: RewriteObserver | undefined = options.signed && !options.read && call.kind === 'api' ? { signed: (i) => options.signed!(i, call) } : undefined;
+      dst.appendCallStart({ ...start, name, meta: redactStartMeta(call, rules), requestRef: redactRequest(src, call, rules, dst, options.read !== true, hear) });
       const identity = { kind: call.kind, name, fingerprint: call.fingerprint, occurrence: call.occurrence };
       const results = options.read ? call : undefined;
-      const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, meta: redactCallMeta(e.meta, rules, results), responseRef: redactResponse(src, e.responseRef, rules, dst, call, options.read === true) });
+      const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, meta: redactCallMeta(e.meta, rules, results), responseRef: redactResponse(src, e.responseRef, rules, dst, call, options.read === true, hear) });
       for (const a of attempts) dst.appendCallEnd(identity, redactEnd(a));
       if (end) dst.appendCallEnd(identity, redactEnd(end));
     }
@@ -617,7 +828,7 @@ export interface RedactionRulePreview {
 }
 
 /** Why a value a rule leaves as it is gets no path rule. */
-export type UnmaskedReason = 'replay' | 'stream' | 'whole' | 'key';
+export type UnmaskedReason = 'replay' | 'stream' | 'whole' | 'key' | 'signed';
 
 /**
  * What a rule's pattern matches that a pack carries as recorded: a number (a copy rewrites strings,
@@ -648,7 +859,9 @@ export interface RedactionUnmasked {
    * Why some of them get no path rule: `replay`, a clock or random read, the run's time and
    * randomness, which a replay needs as recorded; `stream`, in an event of a streamed response,
    * where no path reaches; `whole`, the whole request or response, or a key at its top, which no
-   * path names apart from all of it; `key`, under a key no path can name (one holding `]`).
+   * path names apart from all of it; `key`, under a key no path can name (one holding `]`);
+   * `signed`, in a model call's signed reasoning (a thinking block, its signature), which a pack
+   * keeps as recorded, since a provider refuses a signed block that has been changed.
    */
   reasons: UnmaskedReason[];
 }
@@ -716,7 +929,7 @@ const CONTEXT = 32;
 const SAMPLE_MAX = 160;
 /** Path rules a preview lists for one rule's values left as they are, at most; `places` counts them all. */
 export const REMEDIES = 20;
-const REASONS: readonly UnmaskedReason[] = ['replay', 'stream', 'whole', 'key'];
+const REASONS: readonly UnmaskedReason[] = ['replay', 'stream', 'whole', 'key', 'signed'];
 
 /** The two versions of a value cut to where they differ, with a little context around the change. */
 export function clipChange(before: string, after: string, context = CONTEXT, max = SAMPLE_MAX): { before: string; after: string } {
@@ -800,6 +1013,7 @@ type Outcome = { fix: { rule: Normalizer; command: string; copies: 'all' | 'read
  * or under a key no path can name.
  */
 function outcomeFor(rule: Normalizer, rules: readonly Normalizer[], call: Pick<CallRecord, 'kind' | 'name'>, part: UnmaskedSample['in'], at: UnmaskedAt): Outcome {
+  if (at.signed) return { reason: 'signed' };
   if (call.kind === 'clock' || call.kind === 'random') return { reason: 'replay' };
   if (at.event !== undefined) return { reason: 'stream' };
   const place = at.what === 'key' ? at.path.slice(0, -1) : at.path;
@@ -902,6 +1116,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       numbers: 0,
       keys: 0,
       strings: 0,
+      signed: 0,
       seen: new Set<string>(),
       samples: [] as UnmaskedSample[],
       // Each place found, by where it is, and what masks it there.
@@ -951,12 +1166,15 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       if (u.seen.has(key)) return;
       u.seen.add(key);
       u.count += count;
-      if (at.what === 'key') u.keys++;
+      if (at.signed) u.signed++;
+      else if (at.what === 'key') u.keys++;
       else if (at.what === 'string') u.strings++;
       else u.numbers++;
       if (u.samples.length < SAMPLES) u.samples.push({ value: text.length > SAMPLE_MAX ? `${text.slice(0, SAMPLE_MAX - 1)}…` : text, key: at.what === 'key', callNo: here.call.callNo, kind: here.call.kind, name: here.call.name, in: here.in, path: jsonPath(at.path), event: at.event ?? null });
     },
   };
+  // What the rules would have masked in signed reasoning, which a pack keeps: left as it is, for its own reason.
+  observer.signed = (i, text, at, count) => observer.unmasked!(i, text, { ...at, signed: true }, count);
   // What calls got back, read again as the copies that are read apply the path rules there: what
   // they mask there, and what their pattern leaves at their path.
   const reading: RewriteObserver = {
@@ -1014,14 +1232,18 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
         const request = call.kind === 'api' && skipSeen ? unseenParts(reader, call, seen) : storedRequest(reader, call);
         // A judge's request takes the rules a copy applies to it (requestRules), and no other.
         const r = requestRules(call, rules, observer);
-        applyNormalizers(request, r.rules, call.kind, call.name, r.observer);
+        // As a pack applies them: a model call's signed reasoning kept as recorded.
+        if (call.kind === 'api') keepingSigned(request, r.rules, call, r.observer);
+        else applyNormalizers(request, r.rules, call.kind, call.name, r.observer);
       }
+      // A model call's query string, as every copy masks it.
+      if (typeof call.meta.query === 'string') redactQuery(call.meta.query, rules, call, observer);
       for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
         const response = end.responseRef ? counting.getBlob(end.responseRef) : null;
         here = { call, in: 'response' };
         if (response && keptAsRecorded(call)) reportKept(response, rules, observer);
         else if (response) {
-          redactBytes(response, rules, undefined, observer);
+          redactBytes(response, rules, undefined, observer, call.kind === 'api');
           if (reaches) redactBytes(response, rules, call, reading);
         }
         // The error and what else an attempt's record repeats: an injected failure's message, the response headers.
@@ -1087,9 +1309,10 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
  * leaves as it is`, `numbers and keys here, which …`. Such a rule leaves a string only in a clock or
  * random read (reportKept).
  */
-function leftWords(u: { numbers: number; keys: number; strings: number }): string {
-  const parts = [u.numbers ? (u.numbers === 1 ? 'a number' : 'numbers') : '', u.keys ? (u.keys === 1 ? 'a key' : 'keys') : '', u.strings ? 'what a clock or random read returned' : ''].filter(Boolean);
-  return `${parts.join(' and ') || 'values'} here, which a copy leaves as ${u.numbers + u.keys + u.strings === 1 ? 'it is' : 'they are'}`;
+function leftWords(u: { numbers: number; keys: number; strings: number; signed: number }): string {
+  const parts = [u.numbers ? (u.numbers === 1 ? 'a number' : 'numbers') : '', u.keys ? (u.keys === 1 ? 'a key' : 'keys') : '', u.strings ? 'what a clock or random read returned' : '', u.signed ? 'signed reasoning (a thinking block, its signature)' : ''].filter(Boolean);
+  // Signed reasoning is left as it is by a pack, and masked by a copy that is only read.
+  return `${parts.join(' and ') || 'values'} here, which ${u.signed ? 'a pack' : 'a copy'} leaves as ${u.numbers + u.keys + u.strings + u.signed === 1 ? 'it is' : 'they are'}`;
 }
 
 /**
@@ -1141,7 +1364,7 @@ function lookedIn(rule: Normalizer): string {
   return 'request or response';
 }
 
-function zeroNote(rule: Normalizer, scoped: number, reached: { requests: number; results: number }, unmasked: { count: number; numbers: number; keys: number; strings: number }, returned: number): string {
+function zeroNote(rule: Normalizer, scoped: number, reached: { requests: number; results: number }, unmasked: { count: number; numbers: number; keys: number; strings: number; signed: number }, returned: number): string {
   if (rule.path === undefined && rule.pattern === undefined) return 'it has neither a path nor a pattern, so it changes nothing';
   // A response is matched by every rule without a path, whatever its scope, so a scope only rules out requests.
   if (rule.path === undefined) return unmasked.count ? `it matches only ${leftWords(unmasked)}` : 'no matches in this run';
@@ -1185,12 +1408,13 @@ export interface RedactionExport {
  * it (packages/cli/test/redaction-exports.test.ts holds each one this build has to its entry). The
  * local store is never modified, and a push copies runs to the team store as recorded, so teammates
  * can replay them. A model call's key and authorization headers, and a captured HTTP call's
- * credentials, are never stored at all; a key the agent puts anywhere else is stored like any other
- * value.
+ * credentials, are never stored at all, and every copy (a push too) masks those a recording made
+ * before they were known to be ones kept (http.ts); a key the agent puts anywhere else is stored
+ * like any other value.
  */
 export const REDACTION_EXPORTS: readonly RedactionExport[] = [
-  { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule on the requests it copies, and the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise, but for a clock or random read, which stays as recorded; the command line, labels and notes are copied as recorded, since a replay runs the command' },
-  { id: 'html', command: 'shadowlap export html', applies: 'all', details: 'masked', note: 'every rule, as pack applies them, the rules with a path on what calls got back too, and the rules without a path on the command line, labels and notes' },
+  { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule on the requests it copies, a model call\u2019s query string included, and the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise, but for a clock or random read and a model call\u2019s signed reasoning (a thinking block, its signature), which stay as recorded; the command line, labels and notes are copied as recorded, since a replay runs the command' },
+  { id: 'html', command: 'shadowlap export html', applies: 'all', details: 'masked', note: 'every rule, as pack applies them, the rules with a path on what calls got back too, signed reasoning like any text, and the rules without a path on the command line, labels and notes' },
   { id: 'har', command: 'shadowlap export har', applies: 'all', details: 'absent', note: 'every rule on the model calls it holds, as export html applies them to their requests and responses, and the rules without a path on URLs and headers; it holds no tool calls and no command line' },
   { id: 'dataset', command: 'shadowlap export dataset', applies: 'messages', details: 'masked', note: 'every rule on the conversations and answers it keeps, as export html applies them, and the rules without a path on the rest of each row: command line, labels and notes' },
   { id: 'pairs', command: 'shadowlap export pairs', applies: 'messages', details: 'absent', note: 'the rules on the conversations and answers it keeps: path rules on the request and on tool arguments and results, and the rules without a path on every string' },

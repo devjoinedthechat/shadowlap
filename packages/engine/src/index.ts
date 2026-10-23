@@ -2,8 +2,13 @@ export * from './types.js';
 export { canonicalize } from './canonical.js';
 export { ulid, sha256 } from './ids.js';
 export { applyNormalizers, compilePattern, namedPatterns, normalizerApplies, parsePath, rewriteStringsDeep, rewriteText, stripKeysDeep, type RewriteObserver, type UnmaskedAt } from './normalize.js';
+// The check every rule's pattern passes before it is compiled.
+export { PATTERN_MAX, patternProblem, regexProblem } from './safe-regex.js';
 export { contextFree, isJsonText, pathReachesResults, reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
-export { REDACTION_EXPORTS, REMEDIES, clipChange, jsonPath, matchedAs, previewRedaction, redactArgv, redactBytes, redactRun, redactRunDetails, redactRunWithDetails, type PreviewLimits, type RedactRunOptions, type RedactionExport, type RedactionPreview, type RedactionRulePreview, type RedactionUnmasked, type UnmaskedReason, type UnmaskedSample } from './redact.js';
+export { REDACTION_EXPORTS, REMEDIES, carriesCredentials, clipChange, credentialFreeCall, jsonPath, matchedAs, previewRedaction, redactArgv, redactBytes, redactQuery, redactRun, redactRunDetails, redactRunWithDetails, type PreviewLimits, type RedactRunOptions, type RedactionExport, type RedactionPreview, type RedactionRulePreview, type RedactionUnmasked, type UnmaskedReason, type UnmaskedSample } from './redact.js';
+// Credentials in recorded traffic: the one list of credential parameters (credentialParam), the
+// headers that carry one, and the stored shapes with them masked, for the sidecar and every copy.
+export { CREDENTIAL_HEADERS, CREDENTIAL_PLACEHOLDER, STATE_HEADERS, capturedHttp, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialParam, credentialValue, decodedParam, formShaped, rawJsonMember, resultBlob, withoutCredentials, withoutStoredCredentials } from './http.js';
 export { calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
 export { isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';
 export { multipartView, parseMultipart, type MultipartPart, type MultipartView } from './multipart.js';

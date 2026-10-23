@@ -74,13 +74,24 @@ function listOf<T extends string>(v: unknown, set: readonly T[], name: string): 
   return v.map((x) => oneOf(x, set, name));
 }
 
-function timestamp(v: unknown, name: string): number {
-  // Milliseconds between 2025-01-01 and 2100-01-01.
-  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1_735_689_600_000 || v > 4_102_444_800_000) fail(`${name} must be a millisecond timestamp`);
+/** The earliest time an event or a batch may carry, 2025-01-01: no Shadowlap sent one before. */
+export const EARLIEST_MS = Date.UTC(2025, 0, 1);
+/**
+ * How far ahead of the collector's clock a time may be: a client's clock may run fast, but never by
+ * a day. A time further ahead would count as recent for as long as it is ahead, years for one in 2099.
+ */
+export const FUTURE_ALLOWANCE_MS = 24 * 60 * 60 * 1000;
+
+/** A time a client sent, in milliseconds: not before EARLIEST_MS, nor more than a day ahead of `now`. */
+function timestamp(v: unknown, name: string, now: number): number {
+  if (typeof v !== 'number' || !Number.isInteger(v)) fail(`${name} must be a millisecond timestamp`);
+  if (v < EARLIEST_MS) fail(`${name} must not be before 2025`);
+  if (v > now + FUTURE_ALLOWANCE_MS) fail(`${name} must not be more than a day ahead of the collector's clock`);
   return v;
 }
 
-export function validateEvent(raw: unknown): ValidEvent {
+/** One event, checked as validateBatch describes; `now` is the collector's clock. */
+export function validateEvent(raw: unknown, now = Date.now()): ValidEvent {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) fail('event must be an object');
   const e = raw as Record<string, unknown>;
   onlyKeys(e, EVENT_KEYS, 'event');
@@ -89,7 +100,7 @@ export function validateEvent(raw: unknown): ValidEvent {
   const exitCode = e.exitCode === null || e.exitCode === undefined ? null : count(e.exitCode, 'exitCode', 255);
   return {
     type: oneOf(e.type, EVENT_TYPES, 'type'),
-    at: timestamp(e.at, 'at'),
+    at: timestamp(e.at, 'at', now),
     version: e.version,
     os: oneOf(e.os, OSES, 'os'),
     arch: oneOf(e.arch, ARCHES, 'arch'),
@@ -110,12 +121,17 @@ export function validateEvent(raw: unknown): ValidEvent {
   };
 }
 
-export function validateBatch(raw: unknown): ValidBatch {
+/**
+ * A batch as a client sends it, checked strictly: every field allowlisted and typed, and every time
+ * in it between 2025 and a day after `now`, the collector's clock, so no client can count its events
+ * as recent for years.
+ */
+export function validateBatch(raw: unknown, now = Date.now()): ValidBatch {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) fail('batch must be an object');
   const b = raw as Record<string, unknown>;
   onlyKeys(b, BATCH_KEYS, 'batch');
   if (b.v !== 1) fail('unsupported batch version');
   if (typeof b.installId !== 'string' || !INSTALL_ID.test(b.installId)) fail('installId must be a UUID or a ci- hash');
   if (!Array.isArray(b.events) || b.events.length === 0 || b.events.length > MAX_EVENTS_PER_BATCH) fail(`events must hold 1–${MAX_EVENTS_PER_BATCH} items`);
-  return { v: 1, installId: b.installId, sentAt: timestamp(b.sentAt, 'sentAt'), events: b.events.map(validateEvent) };
+  return { v: 1, installId: b.installId, sentAt: timestamp(b.sentAt, 'sentAt', now), events: b.events.map((e) => validateEvent(e, now)) };
 }

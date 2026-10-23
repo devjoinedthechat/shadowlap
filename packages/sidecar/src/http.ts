@@ -1,4 +1,4 @@
-import type { Effect } from '@shadowlap/engine';
+import { credentialFreeHeaders, formShaped, rawJsonMember, resultBlob, withoutCredentials, type Effect } from '@shadowlap/engine';
 
 /**
  * HTTP hosts recorded as tools. Retrieval, vector databases and internal APIs are usually called
@@ -38,89 +38,11 @@ export function matchHttpRule(rules: readonly HttpRule[], url: URL): HttpRule | 
 }
 
 /**
- * What a credential in a captured call's query string or form body is stored as. The call is
- * forwarded with the real value; the store, every copy made from it and matching on replay see this.
+ * The one list of credentials (credentialParam) and the masking built on it live in the engine
+ * (engine/src/http.ts), which every copy of a recording reads too; they are named here as well, for
+ * the sidecar's own callers.
  */
-export const CREDENTIAL_PLACEHOLDER = '<CREDENTIAL>';
-
-/** Last words of a parameter name that make it a credential whatever comes before: `client_secret`, `X-Amz-Signature`. */
-const SECRET_LAST = new Set(['secret', 'signature', 'password', 'passwd', 'pwd', 'credential', 'credentials']);
-/** Whole names (their words run together) that are credentials: `api_key`, `apiKey`, `sig`, `appid`. */
-const SECRET_NAME = new Set(['apikey', 'appid', 'appkey', 'sig', 'hmac', 'auth', 'authorization', 'pass', 'passphrase', 'sessionid', 'jsessionid', 'phpsessid']);
-/**
- * Whole names that carry a credential as often as a lookup (`?key=AIzaSy…` beside `?key=checkout_v2`
- * for a feature flag or a cache entry): one is a credential only when its value reads as one
- * (credentialValue).
- */
-const EITHER_NAME = new Set(['key', 'token']);
-/** Words before `key` that make it a credential (`x-api-key`, `Subscription-Key`), unlike a `sort_key` or an `idempotency_key`. */
-const KEY_OWNER = new Set(['api', 'access', 'app', 'secret', 'private', 'subscription', 'auth', 'client', 'consumer', 'developer', 'dev', 'master', 'admin', 'service', 'account', 'signing']);
-/** Words before `token` that make it a pagination cursor, not a credential: `page_token`, `nextPageToken`. */
-const CURSOR = new Set(['page', 'next', 'prev', 'previous', 'continuation', 'sync', 'cursor', 'resume', 'start', 'pagination']);
-
-/**
- * Whether a query or form parameter carries a credential: an API key, a token, a signature, a
- * password. Read by its words (`api_key`, `apiKey`, `X-Amz-Security-Token`), and narrowly: a value
- * masked here is left out of matching too, so two calls that differ only in it would match the same
- * recorded call. A sort key, a page token or an author stays a value like any other. A bare `key` or
- * `token` is a credential when its `value` (decoded) reads as one (credentialValue); with no value
- * given, it is taken for one.
- */
-export function credentialParam(name: string, value?: string): boolean {
-  const words = name
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-  if (!words.length) return false;
-  const last = words[words.length - 1]!;
-  const before = words.slice(0, -1);
-  if (EITHER_NAME.has(words.join(''))) return value === undefined || credentialValue(value);
-  if (SECRET_NAME.has(words.join('')) || SECRET_LAST.has(last)) return true;
-  if (last === 'key') return before.some((w) => KEY_OWNER.has(w));
-  if (last === 'token') return !before.some((w) => CURSOR.has(w));
-  return false;
-}
-
-/** A part of a value that reads as written by a person: a word (`checkout`, `Refund`, `EU`), a number, or a short tag (`v2`). */
-const WORDLIKE = /^(?:[a-z]{1,20}|[A-Z][a-z]{0,19}|[A-Z]{1,20}|\d{1,20}|[A-Za-z]{1,2}\d{1,3})$/;
-
-/**
- * Whether a value reads as a credential rather than a name looked up: 16 characters or more, with a
- * part between its punctuation that is no word or number (WORDLIKE), as in an API key (`AIzaSy…`,
- * `sk_live_51H…`), a hex or base64 token or a JWT. `checkout_v2`, `checkout_redesign_2026` and
- * `user:12345:settings` read as names.
- */
-export function credentialValue(value: string): boolean {
-  if (value.length < 16) return false;
-  return value.split(/[^A-Za-z0-9]+/).some((part) => part !== '' && !WORDLIKE.test(part));
-}
-
-/** A URL-encoded name or value as text: `+` a space, `%xx` its character; as it is when it doesn't decode. */
-function decoded(raw: string): string {
-  try {
-    return decodeURIComponent(raw.replace(/\+/g, ' '));
-  } catch {
-    return raw;
-  }
-}
-
-/**
- * URL-encoded parameters (a query string with or without its `?`, or a form body) with the value of
- * each credential (credentialParam) replaced by CREDENTIAL_PLACEHOLDER; everything else stays byte
- * for byte, in its order. Applied again, it changes nothing.
- */
-export function withoutCredentials(encoded: string): string {
-  return encoded.replace(/(^\??|&)([^&=]*)=([^&]*)/g, (whole, lead: string, raw: string, value: string) => {
-    if (!value) return whole;
-    return credentialParam(decoded(raw), decoded(value)) ? `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}` : whole;
-  });
-}
-
-/** A text body written as URL-encoded parameters, as a form body is (`a=1&b=2`): a `=`, and no space, quote or brace. */
-function formShaped(text: string): boolean {
-  return text.includes('=') && /^[^\s"{}<>\\^`|]+$/.test(text);
-}
+export { CREDENTIAL_PLACEHOLDER, credentialParam, credentialValue, rawJsonMember, withoutCredentials, withoutStoredCredentials } from '@shadowlap/engine';
 
 /**
  * A request body as stored: decodeBody's, with the credentials of a form body
@@ -134,29 +56,6 @@ export function storedRequestBody(bytes: Buffer, contentType: string | undefined
   const text = body.body as string;
   if (!/^\s*application\/x-www-form-urlencoded\b/i.test(contentType ?? '') && !formShaped(text)) return body;
   return { ...body, body: withoutCredentials(text) };
-}
-
-/**
- * A captured call's stored arguments (`{ method, url, body?, encoding? }`) as they are matched on
- * replay: with the credentials in the URL's query and in a text body written as URL-encoded
- * parameters masked (withoutCredentials), as a call is stored now. A recording made by an earlier
- * version holds them as sent, and so still matches a live call with the same key or a rotated one;
- * a stored call that already reads so comes back as it is.
- */
-export function withoutStoredCredentials(args: unknown): unknown {
-  if (typeof args !== 'object' || args === null || Array.isArray(args)) return args;
-  const stored = args as Record<string, unknown>;
-  let out = stored;
-  if (typeof stored.url === 'string' && stored.url.includes('?')) {
-    const at = stored.url.indexOf('?');
-    const url = stored.url.slice(0, at) + withoutCredentials(stored.url.slice(at));
-    if (url !== stored.url) out = { ...out, url };
-  }
-  if (stored.encoding === 'text' && typeof stored.body === 'string' && formShaped(stored.body)) {
-    const body = withoutCredentials(stored.body);
-    if (body !== stored.body) out = { ...out, body };
-  }
-  return out;
 }
 
 /** A body as stored: parsed JSON, text, or base64 for anything else. */
@@ -198,13 +97,16 @@ export interface HttpResult extends StoredBody {
  * arrived as, inside the document: its layout, escapes and numbers (a 64-bit id, `20.0`) stay as the
  * service sent them, so a replay can serve those exact bytes (`storedResponseBytes`), while whatever
  * reads the blob as JSON gets the parsed body as before. A copy's rules mask it as they mask any
- * JSON document there, its strings only.
+ * JSON document there, its strings only. The headers are stored as a recording keeps them
+ * (credentialFreeHeaders): a token the service hands back in one (`authorization`,
+ * `x-subject-token`) is stored as `<CREDENTIAL>`, and a cookie it sets not at all. The agent gets
+ * the response as it came, `result.headers`, live.
  */
 export function storedResult(result: HttpResult, received: Buffer): Buffer {
-  const { body: _body, ...rest } = result;
-  if (result.encoding !== 'json' || result.body === undefined) return Buffer.from(JSON.stringify({ result }), 'utf8');
-  const head = JSON.stringify({ result: rest });
-  return Buffer.concat([Buffer.from(`${head.slice(0, -2)}${Object.keys(rest).length ? ',' : ''}"body":`, 'utf8'), received, Buffer.from('}}', 'utf8')]);
+  const kept: HttpResult = { ...result, headers: credentialFreeHeaders(result.headers) };
+  const { body: _body, ...rest } = kept;
+  if (kept.encoding !== 'json' || kept.body === undefined) return Buffer.from(JSON.stringify({ result: kept }), 'utf8');
+  return resultBlob(rest, received);
 }
 
 /**
@@ -217,94 +119,6 @@ export function storedResponseBytes(result: HttpResult, blob: Buffer | null): Bu
     if (raw !== null) return Buffer.from(raw, 'utf8');
   }
   return encodeBody(result);
-}
-
-const WS = new Set([' ', '\t', '\n', '\r']);
-
-/**
- * The text of the value at `path` in a JSON document, with the whitespace around it, as written; null
- * when the document doesn't read as JSON there or has no such member.
- */
-export function rawJsonMember(text: string, path: readonly string[]): string | null {
-  let i = 0;
-  const ws = () => {
-    while (i < text.length && WS.has(text[i]!)) i++;
-  };
-  /** Moves past one string, from its opening quote; returns its text with the quotes. */
-  const string = (): string | null => {
-    const start = i;
-    if (text[i] !== '"') return null;
-    for (i++; i < text.length; i++) {
-      if (text[i] === '\\') i++;
-      else if (text[i] === '"') return text.slice(start, ++i);
-    }
-    return null;
-  };
-  /** Moves past one value; false when it isn't JSON. */
-  const value = (): boolean => {
-    ws();
-    const c = text[i];
-    if (c === '"') return string() !== null;
-    if (c === '{' || c === '[') {
-      const close = c === '{' ? '}' : ']';
-      i++;
-      ws();
-      if (text[i] === close) return ++i > 0;
-      for (;;) {
-        if (c === '{') {
-          ws();
-          if (string() === null) return false;
-          ws();
-          if (text[i++] !== ':') return false;
-        }
-        if (!value()) return false;
-        ws();
-        if (text[i] === ',') i++;
-        else if (text[i] === close) return ++i > 0;
-        else return false;
-      }
-    }
-    const m = /^(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)/.exec(text.slice(i, i + 400));
-    if (!m) return false;
-    i += m[0].length;
-    return true;
-  };
-  for (let depth = 0; depth < path.length; depth++) {
-    ws();
-    if (text[i] !== '{') return null;
-    i++;
-    let found = false;
-    for (;;) {
-      ws();
-      if (text[i] === '}') return null;
-      const key = string();
-      if (key === null) return null;
-      ws();
-      if (text[i++] !== ':') return null;
-      let name: unknown;
-      try {
-        name = JSON.parse(key);
-      } catch {
-        return null;
-      }
-      if (name === path[depth]) {
-        found = true;
-        break;
-      }
-      if (!value()) return null;
-      ws();
-      if (text[i] === ',') i++;
-      else return null;
-    }
-    if (!found) return null;
-    if (depth === path.length - 1) {
-      const start = i;
-      if (!value()) return null;
-      ws();
-      return text[i] === ',' || text[i] === '}' ? text.slice(start, i) : null;
-    }
-  }
-  return null;
 }
 
 /** Response headers worth keeping: nothing that sets state in the client or describes the transfer. */

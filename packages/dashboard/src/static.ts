@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { asTheyStand, redactRunWithDetails, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
+import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
 import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
 import { runCalls } from './run-calls.js';
 import { analyseRun } from './run-page.js';
@@ -173,7 +173,9 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
   // each run's command line, labels and notes as well: unlike a pack, this file is never replayed.
   let store = opts.store;
   let scratch: Store | null = null;
-  if (rules.length) {
+  // A run whose recording kept a credential (one made before it was known to be one) is copied so
+  // too, with no rules, which masks it: no HTML file or share link carries one.
+  if (rules.length || asked.some((id) => carriesCredentials(opts.store, id))) {
     scratch = Store.open(':memory:');
     // Ancestors first: a copied run keeps its parent only when the parent is already there.
     const ordered = [...asked].sort((a, b) => depth(opts.store, a) - depth(opts.store, b));

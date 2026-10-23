@@ -4,6 +4,7 @@ import { basename, dirname, join } from 'node:path';
 import type { ClockMode } from './clock.js';
 import { releaseLock, takeLock, type HeldLock } from './lock-file.js';
 import { compilePattern, namedPatterns, parsePath } from './normalize.js';
+import { PATTERN_MAX } from './safe-regex.js';
 import type { CallKind, Normalizer } from './types.js';
 
 /**
@@ -106,7 +107,7 @@ export const DEFAULT_REPLACE: Record<RuleList, string> = { normalize: '<MASKED>'
 
 const ALL_KINDS: readonly CallKind[] = ['api', 'tool', 'clock', 'random'];
 /** For a rule typed into a form or a command line: room for any real rule, a bound on what a request can send. */
-const LIMITS = { name: 200, path: 500, pattern: 10_000, replace: 500 };
+const LIMITS = { name: 200, path: 500, pattern: PATTERN_MAX, replace: 500 };
 const NOUN: Record<RuleList, [string, string]> = { normalize: ['normalizer', 'normalizers'], redact: ['redaction rule', 'redaction rules'] };
 
 /** `normalizer` or `redaction rule`, as messages and listings name them. */

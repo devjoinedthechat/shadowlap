@@ -22,7 +22,7 @@ One event per `run`, `replay`, `test` pack, `ui` open and `pack`:
 
 ## What is never sent
 
-Prompts, messages, tool names, tool arguments or results, file paths, hostnames, run ids, model names, repository names, or anything the agent saw. The collector rejects any event carrying a field outside its allowlist or a value outside its closed sets, so a client bug cannot leak content.
+Prompts, messages, tool names, tool arguments or results, file paths, hostnames, run ids, model names, repository names, or anything the agent saw. The collector rejects any event carrying a field outside its allowlist or a value outside its closed sets, so a client bug cannot leak content, and any time before 2025 or more than a day ahead of its own clock, so no client can keep its events counted as recent.
 
 ## Opt out
 

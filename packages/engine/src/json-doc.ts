@@ -1,4 +1,5 @@
 import { compilePattern, countMatches, normalizerApplies, parsePath, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
+import { mayHoldSigned, placeKey, signedParts, signedTexts } from './signed.js';
 import type { CallKind, Normalizer } from './types.js';
 
 /**
@@ -230,6 +231,8 @@ interface Frame {
   obj: boolean;
   /** The member being read: its key as the copy writes it, or its position. */
   at: string | number;
+  /** The member's key as the document writes it, before any rule masked it. */
+  raw: string;
   /** For a member of an object: its key as each path rule reads it (`keyFor`); null when no path rule leads here. */
   keys: string[] | null;
   /** The path rules that lead into this container's members. */
@@ -301,12 +304,17 @@ export function untouched(text: string, rules: readonly Normalizer[], call: Call
  * and what a pattern matches that is left as it is (`unmasked`), once every rule has applied there:
  * a number, for a rule without a path; for a rule with a path and a pattern, a number at its path,
  * or a string, number or key inside an object or list at its path.
+ *
+ * `signed`, for a copy that can be replayed: signed reasoning in the document (signed.ts) keeps its
+ * bytes, keys and all, whatever the rules, and the observer hears what the rules without a path
+ * match in its texts (`signed`); with `stream`, the document is one event of a stream, whose
+ * thinking text is told where the stream's pieces add up (redact-stream.ts).
  */
-export function rewriteJsonDocument(text: string, rules: readonly Normalizer[], call: CallScope | null, observer?: RewriteObserver): string | null {
+export function rewriteJsonDocument(text: string, rules: readonly Normalizer[], call: CallScope | null, observer?: RewriteObserver, signed?: { stream: boolean }): string | null {
   if (!isJsonText(text)) return null;
   const { pathless, pathed, free } = prepare(rules, call, text);
   if (!pathed.length && (!pathless.length || (free && !text.includes('\\') && !pathless.some((r) => r.hits)))) return text;
-  return scan(text, pathless, pathed, observer);
+  return scan(text, pathless, pathed, observer, signed && mayHoldSigned(text) ? { stream: signed.stream, places: new Set(signedParts(JSON.parse(text)).map((p) => placeKey(p.place))) } : null);
 }
 
 /** Whether a segment of a path names this member: its key as the rule reads it, or its position in a list of `length`. */
@@ -317,8 +325,14 @@ function names(seg: Segment, key: string | number, length: number): boolean {
   return seg.index < 0 ? key === length + seg.index : key === seg.index;
 }
 
+/** The places of signed reasoning in a document (placeKey), kept as recorded; `stream` as rewriteJsonDocument says. */
+interface SignedPlaces {
+  stream: boolean;
+  places: Set<string>;
+}
+
 /** The document read once, as rewriteJsonDocument describes. `text` is JSON. */
-function scan(text: string, pathless: Rule[], pathed: Rule[], observer: RewriteObserver | undefined): string {
+function scan(text: string, pathless: Rule[], pathed: Rule[], observer: RewriteObserver | undefined, signed: SignedPlaces | null): string {
   const all = [...pathless, ...pathed].sort((a, b) => a.i - b.i);
   const counting = pathed.some((r) => r.segs!.some((s) => s.type === 'index' && s.index < 0));
   const changed = observer?.changed;
@@ -389,6 +403,21 @@ function scan(text: string, pathless: Rule[], pathed: Rule[], observer: RewriteO
     return { exact, leads };
   };
 
+  /** Where the value being read sits, by the keys the document writes. */
+  const here = (): Array<string | number> => stack.map((f) => (f.obj ? f.raw : f.at));
+  /** Signed reasoning at `i`, ending at `end`: kept as written, and what the rules match in it told. */
+  const keepSigned = (i: number, end: number) => {
+    const tell = observer?.signed;
+    if (!tell) return;
+    const place = here();
+    for (const { place: inner, text: t } of signedTexts(JSON.parse(text.slice(i, end)) as unknown, place, signed!.stream)) {
+      for (const r of pathless) {
+        const count = countMatches(t, r.regex!);
+        if (count) tell(r.i, t, { what: 'string', path: [...inner], signed: true }, count);
+      }
+    }
+  };
+
   let i = skipWs(text, 0);
   for (;;) {
     // A value starts at i.
@@ -398,7 +427,11 @@ function scan(text: string, pathless: Rule[], pathed: Rule[], observer: RewriteO
     const within = top ? top.within : null;
     const { exact, leads } = pathed.length ? placed() : { exact: null, leads: null };
     const c = text.charCodeAt(i);
-    if (c === 0x7b || c === 0x5b) {
+    if (signed && signed.places.has(placeKey(here()))) {
+      const end = valueEnd(text, i);
+      keepSigned(i, end);
+      i = end;
+    } else if (c === 0x7b || c === 0x5b) {
       const whole = exact?.find((r) => !r.regex) ?? null;
       if (whole && !observer) {
         // A copy needs nothing from inside a value it replaces whole.
@@ -410,6 +443,7 @@ function scan(text: string, pathless: Rule[], pathed: Rule[], observer: RewriteO
         const frame: Frame = {
           obj: c === 0x7b,
           at: c === 0x7b ? '' : 0,
+          raw: '',
           keys: null,
           leads,
           // A list's length is read ahead only when a path rule counts its positions from the end.
@@ -508,6 +542,7 @@ function scan(text: string, pathless: Rule[], pathed: Rule[], observer: RewriteO
     const v = applyTo(key, null, f.ceiling, !escaped);
     if (v !== key) put(i, end, JSON.stringify(v));
     f.at = v;
+    f.raw = key;
     if (unmasked && f.keep && f.within) for (const r of f.within) report(r, v, 'key');
     return skipWs(text, skipWs(text, end) + 1);
   }

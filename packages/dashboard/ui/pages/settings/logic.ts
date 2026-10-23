@@ -271,6 +271,7 @@ const REASONS: Record<string, string> = {
   stream: 'a stream’s events, which no path reaches',
   whole: 'the top of a request or response, which no path names alone',
   key: 'a key no path can name',
+  signed: 'signed reasoning, which a pack keeps as recorded',
 };
 
 /**

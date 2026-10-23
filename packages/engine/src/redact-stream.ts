@@ -1,5 +1,5 @@
 import { rewriteJsonDocument } from './json-doc.js';
-import { rewriteText, type RewriteObserver } from './normalize.js';
+import { compilePattern, countMatches, rewriteText, type RewriteObserver, type UnmaskedAt } from './normalize.js';
 import type { Normalizer } from './types.js';
 
 /**
@@ -20,6 +20,8 @@ export interface StreamPiece {
   run: string;
   holder: Record<string, unknown>;
   key: string;
+  /** A piece of signed reasoning (signed.ts): Anthropic's thinking, Converse's reasoning text. */
+  signed: boolean;
 }
 
 /**
@@ -31,8 +33,8 @@ export interface StreamPiece {
 export function streamPieces(event: unknown): StreamPiece[] {
   if (!isObject(event)) return [];
   const out: StreamPiece[] = [];
-  const add = (run: string, holder: unknown, key: string) => {
-    if (isObject(holder) && typeof holder[key] === 'string') out.push({ run, holder, key });
+  const add = (run: string, holder: unknown, key: string, signed = false) => {
+    if (isObject(holder) && typeof holder[key] === 'string') out.push({ run, holder, key, signed });
   };
   const at = (v: unknown, fallback: number) => (typeof v === 'number' ? v : fallback);
 
@@ -40,7 +42,7 @@ export function streamPieces(event: unknown): StreamPiece[] {
     const block = `anthropic ${at(event.index, 0)}`;
     const holder = event.type === 'content_block_start' ? event.content_block : event.delta;
     add(`${block} text`, holder, 'text');
-    add(`${block} thinking`, holder, 'thinking');
+    add(`${block} thinking`, holder, 'thinking', true);
     add(`${block} json`, holder, 'partial_json');
     return out;
   }
@@ -77,7 +79,7 @@ export function streamPieces(event: unknown): StreamPiece[] {
     const block = `converse ${event.contentBlockIndex}`;
     add(`${block} text`, event.delta, 'text');
     add(`${block} tool`, event.delta.toolUse, 'input');
-    add(`${block} reasoning`, event.delta.reasoningContent, 'text');
+    add(`${block} reasoning`, event.delta.reasoningContent, 'text', true);
     return out;
   }
   // Text completions (Claude's legacy API), Llama and Titan on Bedrock: each event the text that follows.
@@ -140,9 +142,12 @@ function spread(texts: string[], before: string, after: string): string[] {
 
 /**
  * Masks the streamed text of `events` (parsed events of one response, in order) across events, in
- * place. Returns the indexes of the events it changed.
+ * place. Returns the indexes of the events it changed. `keepSigned`, for a copy that can be
+ * replayed: a run of signed reasoning (a thinking block's text) stays as recorded, and the observer
+ * hears what the rules without a path match in the text it adds up to (`signed`), in the event its
+ * first piece is in.
  */
-export function maskStreamed(events: unknown[], rules: Normalizer[], observer?: RewriteObserver): Set<number> {
+export function maskStreamed(events: unknown[], rules: Normalizer[], observer?: RewriteObserver, keepSigned = false): Set<number> {
   const runs = new Map<string, Array<{ event: number; piece: StreamPiece }>>();
   events.forEach((e, event) => {
     for (const piece of streamPieces(e)) {
@@ -153,6 +158,10 @@ export function maskStreamed(events: unknown[], rules: Normalizer[], observer?: 
   });
   const changed = new Set<number>();
   for (const pieces of runs.values()) {
+    if (keepSigned && pieces[0]!.piece.signed) {
+      tellSigned(pieces.map(({ piece }) => piece.holder[piece.key] as string).join(''), rules, observer, pieces[0]!.event + 1);
+      continue;
+    }
     if (pieces.length < 2) continue; // one piece is masked as text with the rest of the stream
     const texts = pieces.map(({ piece }) => piece.holder[piece.key] as string);
     const masked = maskAcross(texts, rules, observer);
@@ -167,6 +176,16 @@ export function maskStreamed(events: unknown[], rules: Normalizer[], observer?: 
   return changed;
 }
 
+/** What the rules without a path match in a text of signed reasoning a copy keeps, told to the observer. */
+function tellSigned(text: string, rules: readonly Normalizer[], observer: RewriteObserver | undefined, event: number): void {
+  if (!observer?.signed) return;
+  rules.forEach((rule, i) => {
+    if (rule.path !== undefined || rule.pattern === undefined) return;
+    const count = countMatches(text, compilePattern(rule.pattern));
+    if (count) observer.signed!(i, text, { what: 'string', path: [], event, signed: true }, count);
+  });
+}
+
 /** A line of an SSE body: a field (`data:`, `event:`, `id:`, `retry:`) or a comment. */
 const FIELD = /^(?:data|event|id|retry):|^:/;
 
@@ -175,17 +194,22 @@ const FIELD = /^(?:data|event|id|retry):|^:/;
  * in (from 1), since no path rule reaches into a stream's events.
  */
 export function inEvent(observer: RewriteObserver | undefined, event: number): RewriteObserver | undefined {
-  if (!observer?.unmasked) return observer;
-  const unmasked = observer.unmasked.bind(observer);
-  return { ...observer, unmasked: (rule, text, at, count) => unmasked(rule, text, { ...at, event }, count) };
+  if (!observer?.unmasked && !observer?.signed) return observer;
+  const { unmasked, signed } = observer;
+  return {
+    ...observer,
+    ...(unmasked ? { unmasked: (rule: number, text: string, at: UnmaskedAt, count: number) => unmasked.call(observer, rule, text, { ...at, event }, count) } : {}),
+    ...(signed ? { signed: (rule: number, text: string, at: UnmaskedAt, count: number) => signed.call(observer, rule, text, { ...at, event }, count) } : {}),
+  };
 }
 
 /**
  * One event's data with the rules without a path applied: data that is JSON as a JSON document (its
- * strings, its numbers and layout kept), any other data (`[DONE]`) as text.
+ * strings, its numbers and layout kept), any other data (`[DONE]`) as text. `keepSigned` keeps its
+ * signed reasoning as recorded (rewriteJsonDocument).
  */
-export function maskEventData(data: string, rules: Normalizer[], observer: RewriteObserver | undefined, event: number): string {
-  return rewriteJsonDocument(data, rules, null, inEvent(observer, event)) ?? rewriteText(data, rules, observer);
+export function maskEventData(data: string, rules: Normalizer[], observer: RewriteObserver | undefined, event: number, keepSigned = false): string {
+  return rewriteJsonDocument(data, rules, null, inEvent(observer, event), keepSigned ? { stream: true } : undefined) ?? rewriteText(data, rules, observer);
 }
 
 /**
@@ -197,7 +221,7 @@ export function maskEventData(data: string, rules: Normalizer[], observer: Rewri
  * time) stays as recorded and the event stays JSON; the other lines are masked as text. Every other
  * byte stays as it was, line endings included.
  */
-export function maskSseStream(text: string, rules: Normalizer[], observer?: RewriteObserver): string | null {
+export function maskSseStream(text: string, rules: Normalizer[], observer?: RewriteObserver, keepSigned = false): string | null {
   // A body whose first line is no field is no stream: said without reading the rest.
   const first = /^[^\r\n]*/.exec(text)![0];
   if (first !== '' && !FIELD.test(first)) return null;
@@ -230,6 +254,7 @@ export function maskSseStream(text: string, rules: Normalizer[], observer?: Rewr
     blocks.map((b) => b.data),
     rules,
     observer,
+    keepSigned,
   );
   const isData = (line: string) => line.startsWith('data:');
   const prefix = (line: string) => (line.startsWith('data: ') ? 'data: ' : 'data:');
@@ -241,10 +266,10 @@ export function maskSseStream(text: string, rules: Normalizer[], observer?: Rewr
       const data = lines.filter(isData);
       const other = (line: string) => rewriteText(line, rules, observer);
       let payload: string[] | null = null;
-      if (across.has(i)) payload = [maskEventData(JSON.stringify(b.data), rules, observer, i + 1)];
+      if (across.has(i)) payload = [maskEventData(JSON.stringify(b.data), rules, observer, i + 1, keepSigned)];
       else if (data.length) {
         const joined = data.map((l) => l.slice(prefix(l).length)).join('\n');
-        const masked = maskEventData(joined, rules, observer, i + 1);
+        const masked = maskEventData(joined, rules, observer, i + 1, keepSigned);
         if (masked !== joined) payload = masked.split('\n');
       }
       if (!payload || (!across.has(i) && payload.length === data.length)) {
@@ -273,7 +298,7 @@ export function maskSseStream(text: string, rules: Normalizer[], observer?: Rewr
  * A streamed response sent as one JSON array of chunks (Gemini's and Vertex's streamGenerateContent
  * without `alt=sse`), masked across its chunks; null when it is not one or nothing changed.
  */
-export function maskJsonChunks(text: string, rules: Normalizer[], observer?: RewriteObserver): string | null {
+export function maskJsonChunks(text: string, rules: Normalizer[], observer?: RewriteObserver, keepSigned = false): string | null {
   if (!text.trimStart().startsWith('[')) return null;
   let chunks: unknown;
   try {
@@ -282,5 +307,5 @@ export function maskJsonChunks(text: string, rules: Normalizer[], observer?: Rew
     return null;
   }
   if (!Array.isArray(chunks) || !chunks.every(isObject)) return null;
-  return maskStreamed(chunks, rules, observer).size ? JSON.stringify(chunks) : null;
+  return maskStreamed(chunks, rules, observer, keepSigned).size ? JSON.stringify(chunks) : null;
 }

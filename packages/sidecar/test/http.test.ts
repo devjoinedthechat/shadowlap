@@ -60,6 +60,41 @@ describe('captured HTTP calls', () => {
     await sidecar.close();
     store.close();
   });
+
+  it('hand the agent a token from a response header live, and store the header without it', async () => {
+    // OpenStack Keystone hands a token back in X-Subject-Token, Swift's auth in X-Auth-Token.
+    const BODY = '{"token": {"expires_at": "2026-10-24T00:00:00Z"}, "id": 1234567890123456789}';
+    const keystone = createServer((req, res) => {
+      req.resume();
+      res.writeHead(201, { 'content-type': 'application/json', 'x-subject-token': 'gAAAAABl-real-keystone-token', 'x-auth-token': 'AUTH_tk-real-swift', authorization: 'Bearer echoed-sk-secret', 'proxy-authorization': 'Basic cHJveHk6cGFzcw==', 'set-cookie': 'session=secret' });
+      res.end(BODY);
+    });
+    await new Promise<void>((r) => keystone.listen(0, '127.0.0.1', () => r()));
+    const at = `http://127.0.0.1:${(keystone.address() as AddressInfo).port}`;
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, http: [{ host: new URL(at).host, effect: 'read' }] });
+    const tokens = async (runId: string) => {
+      const res = await fetch(`${sidecar.url}/r/${runId}/http/v3/auth/tokens`, { method: 'POST', headers: { 'x-shadowlap-upstream': at, 'content-type': 'application/json' }, body: '{"auth": {}}' });
+      return { status: res.status, subject: res.headers.get('x-subject-token'), auth: res.headers.get('x-auth-token'), cookie: res.headers.get('set-cookie'), body: await res.text() };
+    };
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      expect(await tokens(rec.runId)).toEqual({ status: 201, subject: 'gAAAAABl-real-keystone-token', auth: 'AUTH_tk-real-swift', cookie: null, body: BODY });
+      sidecar.endRun(rec.runId, 'completed');
+      const [call] = store.getCalls(rec.runId);
+      const stored = store.getBlob(call!.end!.responseRef!)!.toString('utf8');
+      for (const secret of ['real-keystone-token', 'real-swift', 'echoed-sk-secret', 'cHJveHk6cGFzcw==', 'session=secret']) expect(stored).not.toContain(secret);
+      expect(JSON.parse(stored).result.headers).toMatchObject({ 'x-subject-token': '<CREDENTIAL>', 'x-auth-token': '<CREDENTIAL>', authorization: '<CREDENTIAL>', 'proxy-authorization': '<CREDENTIAL>' });
+      // A replay finds the header it reads its token from, with the placeholder in it, and the body as sent.
+      const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['x'], cwd: '.' } });
+      expect(await tokens(rep.runId)).toEqual({ status: 201, subject: '<CREDENTIAL>', auth: '<CREDENTIAL>', cookie: null, body: BODY });
+      expect(sidecar.endRun(rep.runId, 'completed').summary.divergence).toBeNull();
+    } finally {
+      await sidecar.close();
+      store.close();
+      keystone.close();
+    }
+  });
 });
 
 describe('a captured JSON response', () => {
