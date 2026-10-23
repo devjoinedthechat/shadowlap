@@ -217,8 +217,8 @@ export interface NeedsLookRow {
   detail: string;
   /**
    * The word before the arrow, saying where it leads: Fix (the fix that holds the failure), Fix it,
-   * Run blame, Run more, Run again and Update (an inconclusive test, on Tests), Apply, Push (the runs
-   * only here, on Runs), Continue, or Open. A read-only dashboard says Open for each, since nothing
+   * Run blame, Run more, Run again and Update (an inconclusive test, on Tests), Apply, Mark applied
+   * (a verified fix with no patch), Push (the runs only here, on Runs), Continue, or Open. A read-only dashboard says Open for each, since nothing
    * runs there.
    */
   action: string;

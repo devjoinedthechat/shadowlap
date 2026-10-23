@@ -812,6 +812,24 @@ describe('fixes for the other views', () => {
     expect(needsLookFixes(store, { limit: 2 })).toHaveLength(2);
   });
 
+  it('says Mark applied for a verified fix with no patch, as its page does, and which request fields the agent is to make', () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { at: NOW - 2 });
+    // verify --set temperature=1 accepted it: a change no patch carries.
+    recordVerdict(store, { report: { ...verifyReport([{ runId: run, role: 'target', pass: true }]), fields: { temperature: 1 } }, expect: EXPECT, command: 'shadowlap verify --fixes label:double-email --set temperature=1', at: NOW - 1 });
+    expect(fixDetail(store, fix.fixId)!.actions.apply).toMatchObject({ kind: 'mark', change: "temperature=1 from each run's first model call" });
+    const row = () => needsLookFixes(store).find((x) => x.fixId === fix.fixId);
+    expect(row()).toMatchObject({ kind: 'ready', title: 'A verified fix is ready', detail: 'make temperature=1 in your agent, then mark it applied', action: 'Mark applied', href: `#/fixes/${fix.fixId}/verify` });
+    // Verified on the working tree as it was, with no fields set: nothing to apply either, only to mark applied.
+    const tree = makeRun(store, { labels: ['refund-bug'] });
+    const { fix: treeFix } = blame(tree, { at: NOW - 2, title: 'issue_refund called above the limit' });
+    recordVerdict(store, { report: verifyReport([{ runId: tree, role: 'target', pass: true }]), expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug', at: NOW - 1 });
+    expect(needsLookFixes(store).find((x) => x.fixId === treeFix.fixId)).toMatchObject({ kind: 'ready', detail: 'issue_refund called above the limit', action: 'Mark applied' });
+    // A repair's patch is still applied with Apply.
+    const { fixId } = story();
+    expect(needsLookFixes(store).find((x) => x.fixId === fixId)).toMatchObject({ kind: 'ready', action: 'Apply', detail: 'Escalate refunds above the policy limit' });
+  });
+
   it('says a repair could not ask its repairer, rather than that it found no fix', () => {
     const email = { tools: { send_email: 1 } };
     const run = makeRun(store, { labels: ['double-email'] });

@@ -960,13 +960,24 @@ function changeName(v: Pick<StoredVerdict, 'candidate' | 'command' | 'report'>):
   return `${fields}${v.report.codeVersion ? ` · at ${v.report.codeVersion}` : ''}`;
 }
 
+/** The request fields a verdict's change set, as `temperature=1`; null for a change all in the code. */
+function fieldsOf(v: Pick<StoredVerdict, 'report'>): string | null {
+  const fields = Object.entries(v.report.fields ?? {});
+  return fields.length ? fields.map(([k, x]) => `${k}=${typeof x === 'string' ? x : JSON.stringify(x)}`).join(', ') : null;
+}
+
 /** The request fields a verdict's change set, and from where: `temperature=1 from each run's first model call`; null for a change all in the code. */
 function fieldsSet(v: Pick<StoredVerdict, 'command' | 'report'>): string | null {
-  const fields = Object.entries(v.report.fields ?? {});
-  if (!fields.length) return null;
-  const set = fields.map(([k, x]) => `${k}=${typeof x === 'string' ? x : JSON.stringify(x)}`).join(', ');
+  const set = fieldsOf(v);
+  if (!set) return null;
   const from = fromModels(v.command);
   return `${set} from each run's first ${from.length ? `${from.join(' or ')} call` : 'model call'}`;
+}
+
+/** The verdict that verified a fix with no repair behind it: a change of request fields, or one in the working tree. */
+function unrepairedVerdict(rec: FixRecords): StoredVerdict | null {
+  const v = acceptedVerdict(rec);
+  return v && v.candidate === null ? v : null;
 }
 
 /**
@@ -975,8 +986,8 @@ function fieldsSet(v: Pick<StoredVerdict, 'command' | 'report'>): string | null 
  * can only mark applied. Null when the change was all in the code, or a repair's.
  */
 export function fieldChange(rec: FixRecords): string | null {
-  const v = acceptedVerdict(rec);
-  return v && v.candidate === null ? fieldsSet(v) : null;
+  const v = unrepairedVerdict(rec);
+  return v ? fieldsSet(v) : null;
 }
 
 function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
@@ -1557,7 +1568,7 @@ export interface NeedsLookItem {
   icon: 'blame' | 'fail' | 'fixok';
   title: string;
   detail: string;
-  action: 'Open' | 'Fix it' | 'Run blame' | 'Apply';
+  action: 'Open' | 'Fix it' | 'Run blame' | 'Apply' | 'Mark applied';
   fixId: string | null;
   runId: string | null;
   at: number;
@@ -1601,7 +1612,13 @@ export function needsLookFixes(store: Store, options: { limit?: number; patchInT
       if (patchMerged(rec, options.patchInTree)) continue;
       const p = shownRepair(rec);
       const c = p && acceptedCandidate(p);
-      ready.push({ kind: 'ready', href: fixHref(fix.fixId, c ? 'repair' : 'verify'), icon: 'fixok', title: 'A verified fix is ready', detail: c ? commitTitle(c) : fix.title, action: 'Apply', fixId: fix.fixId, runId: null, at: fix.verifiedAt ?? fix.openedAt });
+      // No patch to apply, so the fix's page leads with Mark applied, and the line says it too: for a
+      // change of request fields, which ones your agent is to make first.
+      const mark = !repairToApply(rec);
+      const v = mark ? unrepairedVerdict(rec) : null;
+      const fields = v ? fieldsOf(v) : null;
+      const detail = fields ? `make ${fields} in your agent, then mark it applied` : c ? commitTitle(c) : fix.title;
+      ready.push({ kind: 'ready', href: fixHref(fix.fixId, c ? 'repair' : 'verify'), icon: 'fixok', title: 'A verified fix is ready', detail, action: mark ? 'Mark applied' : 'Apply', fixId: fix.fixId, runId: null, at: fix.verifiedAt ?? fix.openedAt });
     } else {
       const why = brokenOf(rec);
       if (!why) continue;
