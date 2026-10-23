@@ -17,7 +17,7 @@ asked for.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Optional, Tuple, TypeVar
 
 from shadowlap import tool
 
@@ -26,7 +26,7 @@ __all__ = ["with_effect"]
 T = TypeVar("T")
 
 
-def with_effect(crew_tool: T, effect: str, *, on_fork: Optional[Callable[..., Any]] = None, exclude: tuple = (), trust: Optional[str] = None) -> T:
+def with_effect(crew_tool: T, effect: str, *, on_fork: Optional[Callable[..., Any]] = None, exclude: Tuple[str, ...] = (), trust: Optional[str] = None) -> T:
     """Records and replays a CrewAI tool instance as `effect`, and returns the same instance."""
     t: Any = crew_tool
     name = getattr(t, "name", None) or type(t).__name__

@@ -52,7 +52,7 @@ jobs:
         working-directory: sdks/python
         shell: bash
         run: |
-          python -m pip install --quiet pytest -e .
+          python -m pip install --quiet pytest trio anyio -e .
           python -m pytest -q
       - name: SDK conformance (typescript and python clients)
         run: node --test --test-reporter=spec testing/conformance/conformance.test.mjs
@@ -103,7 +103,10 @@ jobs:
           retention-days: 14
 
   # The Python SDK supports 3.9 onward, and some of what it promises (an injected timeout is an
-  # asyncio.TimeoutError) differs before 3.11: its own tests run on the oldest version and a current one.
+  # asyncio.TimeoutError) differs before 3.11: its own tests run on the oldest version, current ones,
+  # and the free-threaded build of 3.14 (3.14t), where nothing holds the GIL for the SDK. trio and anyio
+  # are installed for the tests that run tools under them; the SDK itself needs neither. Each job also
+  # builds the wheel and checks it carries py.typed and the shadowlap command.
   # Ubuntu 24.04, not ubuntu-latest: setup-python has no 3.9 for Ubuntu 26.04, which ubuntu-latest
   # becomes from October 19, 2026.
   python-sdk:
@@ -112,19 +115,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.9', '3.10', '3.13']
+        python: ['3.9', '3.10', '3.13', '3.14', '3.14t']
         include:
           # Installing shadowlap loads its pytest plugin into every pytest run, so it must load on the
           # oldest pytest it supports with the oldest pluggy that allows, and on pytest 7.4 with pluggy
-          # 1.1 (before new-style hook wrappers).
+          # 1.1 (before new-style hook wrappers). anyio's own pytest plugin needs a newer pluggy, so
+          # those two run the async tests under trio alone.
           - python: '3.9'
             pytest: pytest==6.2.5 pluggy==0.13.1
+            async: trio
           - python: '3.10'
             pytest: pytest==7.4.4 pluggy==1.1.0
+            async: trio
+    env:
+      SHADOWLAP_TEST_WHEEL: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install --quiet ${{ matrix.pytest || 'pytest' }} -e sdks/python
+      - run: python -m pip install --quiet ${{ matrix.pytest || 'pytest' }} ${{ matrix.async || 'trio anyio' }} -e sdks/python
       - run: python -m pytest -q sdks/python/tests
+
+  # The SDK's types, to mypy's strictest settings (sdks/python/pyproject.toml), checked against the
+  # real types of trio, anyio and pytest. Pinned, so a new mypy changes this job only when the pin does.
+  python-sdk-types:
+    name: python sdk types (mypy --strict)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --quiet mypy==2.4.0 pytest trio anyio -e sdks/python
+      - name: mypy --strict
+        working-directory: sdks/python
+        run: python -m mypy

@@ -21,6 +21,8 @@ pip install shadowlap
 
 `@shadowlap/sdk` also records the clock and randomness; `@shadowlap/adapters` declares effects through your framework, next to the SDK; `@shadowlap/test` brings the `shadowlap` CLI it runs. The Python package holds the SDK, the adapters and the pytest plugin. [`shadowlap init`](./cli.md#init) prints the install step with your project's package manager.
 
+`pip install shadowlap` also puts a `shadowlap` command on your `PATH`, for a Python project with no npm in it. It runs the CLI from npm at the Python package's own version, so the two always speak the same protocol: a `shadowlap` of that version installed with npm when one is on `PATH`, otherwise `npx --yes shadowlap@<version>`, which fetches it once. The CLI runs on Node.js 22.16 or later (not 23); without one, the command says so and how to get it, and exits 2. `SHADOWLAP_CLI` names another CLI to run instead, as it does for the [pytest plugin](./testing.md#pytest).
+
 ## TypeScript
 
 ```ts
@@ -74,11 +76,18 @@ def send_email(to: str, body: str) -> dict:
 @tool(name="fetch_page", effect="read")
 async def fetch(url: str) -> dict: ...          # async functions are supported
 
+@tool(effect="read")
+async def watch_order(order_id: str):           # so are async generators: the tool streams
+    async for status in orders.updates(order_id):
+        yield status
+
 started_at = now()      # synchronous
 request_id = uuid()
 ```
 
 - Arguments are recorded by name whether the tool was called positionally or with keywords, with defaults applied.
+- A tool keeps its kind. A coroutine function stays awaitable. An async generator function (or a plain generator function) keeps streaming: what it yields reaches the caller as the caller reads it, values sent in and errors thrown in reach the tool, its last value is recorded as the result, and a replay yields that value alone. A reader that stops early (`break`, `aclose()`) stops the tool there, and the last value it read is the one recorded. An object whose `__call__` is one of these, as frameworks build tool classes, is wrapped the same way, and named after its class unless you pass `name`.
+- Async tools run under asyncio, trio, and anyio on either backend. The SDK asks sniffio, which trio and anyio install, which library runs the task, and calls the sidecar from that library's worker threads, so the event loop never waits on it. A trio cancel scope that cuts a call off (`trio.move_on_after`, `anyio.fail_after`) is recorded as cancelled, as an asyncio deadline is (below).
 - Parameters a framework injects (a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper`, a LangChain config, injected graph state) are left out of the recording by the types in their annotation (an `Annotated` description or a `Literal` value that names one doesn't count). `exclude=("name",)` drops any other framework object; never use it for the tool's real input, which a replay matches the call by. An argument that can't be recorded raises `TypeError` before the tool runs, naming the argument. See [Frameworks](./frameworks.md#python).
 - Arguments and results that aren't JSON are recorded in their JSON form, by the same rules: a Pydantic model as `model_dump(mode="json")`, a dataclass as `dataclasses.asdict()`, a date, time or datetime as its ISO 8601 text, a UUID or `Decimal` as its text, an `Enum` as its value, a set as a sorted list, and anything else `pydantic_core` can turn into JSON when it is installed. The tool still gets the objects themselves; a replay returns a result's JSON form. Numbers come back as the tool returned them, an int past 2^53 and a float such as `20.0` included. A dict key that isn't a string (`{2026: 5}`) raises `TypeError` naming it, since JSON keeps it only as `"2026"` and a replay would return that. A NaN or Infinity, which JSON has no form for, is recorded as `None`, as `JSON.stringify` records it in TypeScript: the caller gets the tool's own value while recording, and `None` on replay. The same goes for arguments.
 - A replayed error is raised as `ReplayedError` with the recorded `name`, `message` and `code`. It reads as the recorded error did: the SDK records an error's module and its arguments too, so `str(err)`, `repr(err)`, `err.args`, `type(err).__name__` and a traceback's last line are what they were (`KeyError('A-17')`, `FileNotFoundError(2, 'No such file or directory')`), and an agent that hands a tool's error to the model sends it the same text on replay. Arguments that JSON can't hold as they are (an object, a tuple) are left out, and `repr()` then shows the message instead.
@@ -86,7 +95,8 @@ request_id = uuid()
 - `ShadowlapWriteBlocked` has `tool` and `tool_args`. It and `ReplayedError` survive `copy` and `pickle`.
 - A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails raises without running: `ShadowlapInjectedTimeout`, a `TimeoutError`, for a timeout; `ShadowlapInjectedHTTPError`, with `status_code`, `status` and `response.status_code`, for an HTTP status; `ShadowlapInjectedFailure`, their base, with the given message for an error. Each has `tool`, `tool_args`, `kind` and `injected = True`, and survives `copy` and `pickle`.
 - `trust="untrusted"` marks a read that brings outside text in: see [untrusted reads](#untrusted-reads).
-- Python ≥ 3.9. Zero dependencies (`urllib`).
+- The package is typed (`py.typed`), and passes mypy `--strict`, which CI checks.
+- Python ≥ 3.9; CI runs it on 3.9, 3.10, 3.13, 3.14 and the free-threaded 3.14t. Zero dependencies (`urllib`).
 
 ## Untrusted reads
 

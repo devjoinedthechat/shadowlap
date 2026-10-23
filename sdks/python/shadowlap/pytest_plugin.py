@@ -20,19 +20,21 @@ It loads into every pytest run once shadowlap is installed, so it uses only what
 on has, with the pluggy each one allows: old-style hook wrappers, and the recording kept on the item.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Any, Generator, Optional
 
 import pytest
 
 from shadowlap import testing
 
 
-def pytest_addoption(parser):
+def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("shadowlap")
     group.addoption(
         "--shadowlap-record",
@@ -42,11 +44,11 @@ def pytest_addoption(parser):
     )
 
 
-def pytest_configure(config):
+def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "shadowlap(recording=None): record the test's model and tool calls on its first run and replay them offline after that")
 
 
-def pytest_unconfigure(config):
+def pytest_unconfigure(config: pytest.Config) -> None:
     testing.close()
 
 
@@ -55,12 +57,12 @@ _RECORDING = "_shadowlap_recording"
 _FAILURE = "_shadowlap_failure"
 
 
-def _recording_for(item):
+def _recording_for(item: pytest.Item) -> testing.Recording:
     """The marked test's recording, created once: by the fixture during setup or when the test body runs."""
     rec = getattr(item, _RECORDING, None)
     if rec is None:
         marker = item.get_closest_marker("shadowlap")
-        path = marker.kwargs.get("recording") or _recording_path(item)
+        path = (marker.kwargs.get("recording") if marker is not None else None) or _recording_path(item)
         if not os.path.isabs(path):
             path = str(Path(str(item.config.rootpath)) / path)
         rec = testing.Recording(path, name=item.nodeid, mode=item.config.getoption("shadowlap_record"), command=["pytest", item.nodeid], root=str(item.config.rootpath))
@@ -69,7 +71,7 @@ def _recording_for(item):
 
 
 @pytest.fixture
-def shadowlap_recording(request):
+def shadowlap_recording(request: pytest.FixtureRequest) -> testing.Recording:
     """The test's recording: ``shadowlap_recording.called("send_email")``, ``.tool_calls()``, ``.calls()``, ``.answer()``."""
     if request.node.get_closest_marker("shadowlap") is None:
         raise pytest.fail.Exception("shadowlap_recording needs the test to be marked @pytest.mark.shadowlap", pytrace=False)
@@ -102,7 +104,7 @@ def _recorded_by(directory: Path) -> Optional[str]:
     return None
 
 
-def _recording_path(item) -> str:
+def _recording_path(item: pytest.Item) -> str:
     """``__recordings__/<file>/<Class>/<name>`` beside the test file. A name is cut at 120 characters,
     and one that was cut, or that would land on another test's recording (two cases that differ only
     in punctuation), gets the first 8 hex digits of the sha256 of the test's identity. A recording
@@ -132,7 +134,7 @@ def _recording_path(item) -> str:
 # and older ones don't route it), so a divergence found when the test ends is made the test's
 # failure in its report.
 @pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_call(item):
+def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, None]:
     # A test run again (pytest-rerunfailures, --count) is judged by its own attempt, not the one before.
     item.__dict__.pop(_FAILURE, None)
     marker = item.get_closest_marker("shadowlap")
@@ -158,7 +160,7 @@ def pytest_runtest_call(item):
 
 
 @pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Generator[None, Any, None]:
     outcome = yield
     if call.when != "call":
         return

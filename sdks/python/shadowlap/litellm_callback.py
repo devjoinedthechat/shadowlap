@@ -44,13 +44,14 @@ Three things to know, all of them deliberate:
 
 import json
 import os
+import time
 from typing import Any, Dict
 
 from litellm.integrations.custom_logger import CustomLogger
 
 from ._capture import FORMAT, VERSION, _agent_body, _headers, _lock, _capture_path, _millis, _response_text, _run_key
 
-class ShadowlapCapture(CustomLogger):
+class ShadowlapCapture(CustomLogger):  # type: ignore[misc]  # LiteLLM ships no types
     """Writes each completed model call as one line of JSON."""
 
     def _write(self, record: Dict[str, Any]) -> None:
@@ -97,7 +98,7 @@ class ShadowlapCapture(CustomLogger):
             record["timeMs"] = finished - started
         self._write(record)
 
-    async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):  # noqa: D102
+    async def async_log_success_event(self, kwargs: Dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:  # noqa: D102
         # The only hook that fires for both streamed and non-streamed calls, and it carries the
         # inbound request in litellm_params for both.
         try:
@@ -105,7 +106,7 @@ class ShadowlapCapture(CustomLogger):
         except Exception:
             pass
 
-    async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):  # noqa: D102
+    async def async_log_failure_event(self, kwargs: Dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:  # noqa: D102
         try:
             self._record(kwargs, response_obj, start_time, end_time, failed=True)
         except Exception:

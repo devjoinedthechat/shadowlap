@@ -150,7 +150,7 @@ All of that holds only while a recorded test runs, in both plugins: the base-URL
 - `shadowlap.config.json` applies: normalizers when matching, and redaction rules when a recording is saved.
 - Recordings are packs, the same format as `shadowlap pack`, so `shadowlap test` and `shadowlap unpack` read them. A test replays its own recording: a recording folder copied to another test and changed by hand, whose run id the store already holds with other calls, is refused, saying where the store's copy came from. They still belong to their test runner, which replays them with the test's own assertions: the [test history](./ci.md#test-history) that `shadowlap test` keeps covers the project's goldens, the packs in `goldens/` and those named under `tests` in the config.
 - Running the whole test suite under `shadowlap run` or `shadowlap replay` turns the plugin off; that run records everything.
-- The plugins need the `shadowlap` CLI. The Vitest and node:test plugin runs the one `@shadowlap/test` depends on; pytest runs `shadowlap` from your `PATH`, or through `npx`. `SHADOWLAP_CLI` names another for either.
+- The plugins need the `shadowlap` CLI. The Vitest and node:test plugin runs the one `@shadowlap/test` depends on; pytest runs `shadowlap` from your `PATH`, which `pip install shadowlap` provides: the [command](./sdk.md#install) that runs the npm CLI at the Python package's version. `SHADOWLAP_CLI` names another for either.
 - Tests that run concurrently inside one worker (`test.concurrent`, `pytest-asyncio` tasks sharing a loop) share its slot, so their calls can't be told apart. Run recorded tests one at a time per worker.
 
 ## Another test runner
