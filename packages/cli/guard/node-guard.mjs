@@ -45,9 +45,9 @@ if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
 
   // Reports go to the sidecar directly, with an agent of the guard's own: an http.globalAgent a
   // proxy package replaced would send them through its proxy. The request function is taken now,
-  // before the agent's own code runs.
+  // before the agent's own code runs, and is the one capture found (capture loads first).
   const direct = new http.Agent();
-  const request = http.request;
+  const request = globalThis[Symbol.for('shadowlap.request')]?.['http:'] ?? http.request;
   function report(key, action) {
     try {
       const req = request(`${url}/v1/guard`, { method: 'POST', agent: direct, headers: { 'content-type': 'application/json', ...(process.env.SHADOWLAP_RUN_ID ? { 'x-shadowlap-run': process.env.SHADOWLAP_RUN_ID } : {}) } }, (res) => res.resume());

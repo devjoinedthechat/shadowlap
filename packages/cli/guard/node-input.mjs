@@ -51,7 +51,8 @@ if (origin) {
   // The sidecar is reached directly, never through a proxy: not with fetch, whose dispatcher the
   // agent may route through one that ignores NO_PROXY, nor with an http.globalAgent a proxy package
   // replaced. The request functions are taken now, before the agent's own code runs.
-  const sidecarClients = { 'http:': [http.request, new http.Agent({ keepAlive: true })], 'https:': [https.request, new https.Agent({ keepAlive: true })] };
+  const original = globalThis[Symbol.for('shadowlap.request')] ?? {};
+  const sidecarClients = { 'http:': [original['http:'] ?? http.request, new http.Agent({ keepAlive: true })], 'https:': [original['https:'] ?? https.request, new https.Agent({ keepAlive: true })] };
   function send(url, headers, body, retried = false) {
     return new Promise((resolve, reject) => {
       const target = new URL(url);

@@ -20,8 +20,10 @@ if (url && !globalThis[HELLO]) {
   });
   try {
     const headers = { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)), ...(process.env.SHADOWLAP_RUN_ID ? { 'x-shadowlap-run': process.env.SHADOWLAP_RUN_ID } : {}) };
-    // To the sidecar directly, with an agent of its own: never through a proxy an agent set up.
-    const req = http.request(`${url.replace(/\/$/, '')}/v1/hello`, { method: 'POST', agent: new http.Agent(), headers }, (res) => res.resume());
+    // To the sidecar directly, with an agent of its own (and the request function capture found):
+    // never through a proxy an agent set up, nor on a connection the agent's own calls share.
+    const request = globalThis[Symbol.for('shadowlap.request')]?.['http:'] ?? http.request;
+    const req = request(`${url.replace(/\/$/, '')}/v1/hello`, { method: 'POST', agent: new http.Agent(), headers }, (res) => res.resume());
     req.on('error', () => {});
     // Held until the sidecar has it, so a process that ends at once still says it loaded, but never
     // for long: a sidecar that doesn't answer keeps no process from ending.

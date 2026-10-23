@@ -103,6 +103,36 @@ console.log('streamed', streamed.headers.get('content-type'), events.includes('m
   });
 });
 
+describe("the preload's own requests", () => {
+  it("leave the agent's connections alone: a model call slower than a second is still waited for", async () => {
+    // The hello and the guard's reports go on agents of their own; on the sidecar's pooled
+    // connection they would let go of a socket the agent's call had taken over, and the agent
+    // would end mid-call with nothing left to keep it running (exit 13).
+    const slow = await startMockAnthropic({ script: () => ({ message: message([{ type: 'text', text: 'slow answer' }]), delayMs: 1_800 }), eventDelayMs: () => 0 });
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: slow.url } });
+    try {
+      const r = sidecar.startRun({ mode: 'record', command: { argv: ['node'], cwd: dir } });
+      const env = agentEnv(sidecar, r.runId, 'warn', { anthropic: slow.url });
+      const { stdout } = await agent(
+        'slow',
+        `
+// Once the hello has its answer, its socket would be the only one in a pool shared with the
+// agent's calls, and the slow call would take it.
+await new Promise((resolve) => setTimeout(resolve, 300));
+const res = await fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': 'sk-test' }, body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 16, messages: [{ role: 'user', content: 'hello' }] }) });
+console.log('answer', (await res.json()).content[0].text);
+`,
+        env,
+      );
+      expect(stdout).toContain('answer slow answer');
+      sidecar.endRun(r.runId, 'completed');
+    } finally {
+      await sidecar.close();
+      await slow.close();
+    }
+  });
+});
+
 describe('fetch, captured, answered as fetch answers', () => {
   let fake: Server;
   let base: string;

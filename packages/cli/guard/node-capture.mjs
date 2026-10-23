@@ -48,10 +48,13 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   const sidecar = new URL(sidecarUrl);
   const sidecarKey = `${sidecar.hostname}:${sidecar.port}`;
 
-  // The originals, taken before anything below replaces them.
+  // The originals, taken before anything below replaces them, and left for the guard, recorded input
+  // and the hello, which reach the sidecar on agents of their own: through the wrapper below they
+  // would share the sidecar's pooled connections with the agent's own calls.
   const httpRequest = http.request;
   const httpsRequest = https.request;
   const originalFetch = globalThis.fetch;
+  globalThis[Symbol.for('shadowlap.request')] = { 'http:': httpRequest, 'https:': httpsRequest };
 
   const parseUrl = (value) => {
     try {
