@@ -263,6 +263,14 @@ export interface FixView {
  */
 export type RunDetail = Omit<ServerRunDetail, 'calls' | 'actions' | keyof RunDetailExtras> & { calls: CallRow[]; actions: ActionItem[] } & RunDetailExtras;
 
+/**
+ * The Overview while the server is still adding up the runs' totals it reads (`GET /api/summary`): how
+ * many of the runs it adds up are done. Asked again, it answers with the Overview once they all are.
+ */
+export interface OverviewWarming {
+  warming: { done: number; total: number };
+}
+
 /** A page of a run's calls after the first (`GET /api/runs/:id/calls?from=`, contract 8). */
 export type CallsPage = Omit<ServerCallsPage, 'calls'> & { calls: CallRow[] };
 

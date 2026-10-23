@@ -46,7 +46,8 @@
     "packages/dashboard/test/ui-fix-evidence.test.ts",
     "packages/dashboard/test/ui-render-counts.test.ts",
     "packages/dashboard/test/ui-runs-paging.test.ts",
-    "packages/dashboard/test/ui-run-paging.test.ts"
+    "packages/dashboard/test/ui-run-paging.test.ts",
+    "packages/dashboard/test/ui-overview-warming.test.ts"
   ],
   "exclude": []
 }

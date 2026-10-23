@@ -11,7 +11,7 @@ import { holdWhile, Revalidation } from './revalidate.js';
 import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
-import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
+import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { DecisionSessionDetail, DecisionsListView, RetirementsView, RunDecisionsView } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
@@ -177,8 +177,8 @@ export interface Client {
   changes(since: string | null): Promise<Changes | null>;
 
   // ---- overview-runs: the Overview, the Runs page, imports and the team store
-  /** The Overview, worked out on the server in the viewer's time zone (IANA). */
-  summary(tz: string): Promise<OverviewSummary>;
+  /** The Overview, worked out on the server in the viewer's time zone (IANA); or, while the runs' totals are still being added up, how far that has got. */
+  summary(tz: string): Promise<OverviewSummary | OverviewWarming>;
   /** A page of the Runs table: chips, filter, days and sort applied on the server, attempts bundled. */
   runsPage(q: RunsQuery): Promise<RunsPage & { runs: RunsPageRow[] }>;
   /** Runs per day for the calendar, in the viewer's days. */
@@ -427,7 +427,7 @@ export function createClient(token: string): Client {
       const { filename, res } = await fetchFile(`files/${id(file.fileId)}`, file.name);
       saveBlob(await res.blob(), filename);
     },
-    summary: (tz) => request<OverviewSummary>(`summary?tz=${id(tz)}`),
+    summary: (tz) => request<OverviewSummary | OverviewWarming>(`summary?tz=${id(tz)}`),
     runsPage: (q) => request<RunsPage & { runs: RunsPageRow[] }>(`runs/page${runsQueryString(q)}`),
     runsByDay: (q) => request<RunsByDay>(`runs/days${runsQueryString(q)}`),
     daysBisect: (q) => request<DaysBisect>(`runs/bisect${runsQueryString(q)}`),
