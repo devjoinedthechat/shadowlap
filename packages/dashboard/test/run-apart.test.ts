@@ -26,8 +26,12 @@ const savedExport = { ...EXPORT_LIMITS };
 const savedWait = { ...MASK_WAIT };
 
 const EMAIL: Normalizer = { pattern: 'email', replace: '<EMAIL>' };
-/** A pattern that backtracks for minutes on a long run of `a`s that doesn't end the text. */
-const SLOW: Normalizer = { pattern: '/(a+)+$/', replace: '<A>' };
+/**
+ * A pattern the engine's pattern check takes (no exponential backtracking), whose time still grows
+ * with the cube of a text it reads: minutes on SLOW_TEXT, an x every other character and no y.
+ */
+const SLOW: Normalizer = { pattern: '/\\w*x\\w*y/', replace: '<A>' };
+const SLOW_TEXT = 'ax'.repeat(3000);
 
 beforeEach(() => {
   project = realpathSync(mkdtempSync(join(tmpdir(), 'sl-run-apart-')));
@@ -108,7 +112,7 @@ describe('what a copy of a run would mask, on its Provenance', () => {
 
   it('leaves it uncounted, saying why, when a rule takes too long, and answers everything else meanwhile', async () => {
     const run = recording();
-    modelCall(run.runId, 1, `${'a'.repeat(40)}!`);
+    modelCall(run.runId, 1, SLOW_TEXT);
     // The rule runs for minutes, so only the hard limit ends the count, 5 s after its thread opened the
     // store: the order of the two answers below is checked within that limit, which leaves a slow
     // machine seconds to ask meta and answer it.
@@ -125,7 +129,7 @@ describe('what a copy of a run would mask, on its Provenance', () => {
     const p = (await res.json()) as { mask: { rules: number; values: number | null; why?: string } };
     expect(p.mask.rules).toBe(2);
     expect(p.mask.values).toBeNull();
-    expect(p.mask.why).toMatch(/Rule #2, \/\(a\+\)\+\$\/, repeats a group that repeats itself/);
+    expect(p.mask.why).toMatch(/a rule takes that long on this run’s text, and would in a pack too/);
   });
 
   it('counts nothing while the run records: a copy is made once it has ended', async () => {
@@ -185,7 +189,7 @@ describe('the HTML download', () => {
 
   it('is stopped when a rule takes too long, naming the rule, and the server answers meanwhile', async () => {
     const run = recording();
-    modelCall(run.runId, 1, `${'a'.repeat(40)}!`);
+    modelCall(run.runId, 1, SLOW_TEXT);
     // The rule runs for minutes, so only the hard limit ends the file, 5 s after its thread opened the
     // store: the order of the two answers below is checked within that limit, which leaves a slow
     // machine seconds to ask meta and answer it.
@@ -199,7 +203,7 @@ describe('the HTML download', () => {
     expect(made, 'the server answered only once the file was stopped').toBe(false);
     const res = await asked;
     expect(res.status).toBe(422);
-    expect(await error(res)).toBe('Making the HTML file took longer than 5 s, so it was stopped. Redaction rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text: write it without the outer repeat.');
+    expect(await error(res)).toBe(`Making the HTML file took longer than 5 s, so it was stopped. A redaction rule may take that long on this run’s text, or the run is too long for a download: shadowlap export html ${run.runId.slice(0, 10)} --lineage makes the file from a terminal.`);
   });
 
   it('waits for a run still recording, and for a thread when every one is busy', async () => {

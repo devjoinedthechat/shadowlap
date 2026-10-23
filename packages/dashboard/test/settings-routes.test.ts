@@ -334,11 +334,15 @@ describe('the redaction preview', () => {
     const saved = { ...PREVIEW_LIMITS };
     afterEach(() => void Object.assign(PREVIEW_LIMITS, saved));
 
-    /** A run with a value a pattern like (a+)+$ backtracks on for minutes. */
+    /**
+     * A run with a value a rule takes minutes on: a pattern the engine's pattern check takes (no
+     * exponential backtracking), whose time still grows with the cube of the text, on an x every
+     * other character and no y.
+     */
     function slowRun() {
-      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/(a+)+$/', replace: '<A>' }] }));
+      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/\\w*x\\w*y/', replace: '<A>' }] }));
       const run = recording();
-      modelCall(run.runId, 1, `${'a'.repeat(40)}!`);
+      modelCall(run.runId, 1, 'ax'.repeat(3000));
       return run;
     }
 
@@ -400,7 +404,7 @@ describe('the redaction preview', () => {
       expect(previewed, 'the server answered only once the preview was stopped').toBe(false);
       const res = await preview;
       expect(res.status).toBe(422);
-      expect(await error(res)).toBe('The preview stopped after 5 s on one call. Rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.');
+      expect(await error(res)).toBe('The preview stopped after 5 s on one call: a rule takes that long on this run’s text, and would in a pack too.');
       // Stopped at its hard limit, as the page promises, with room for a slow machine to start the thread.
       expect(Date.now() - t0).toBeLessThan(2 * PREVIEW_LIMITS.hardMs);
     });
