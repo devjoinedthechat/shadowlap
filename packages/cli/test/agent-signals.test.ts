@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
-import { exitStatus, sharesTerminal, signalStatus } from '../src/agent-signals.js';
+import { exitStatus, sharedGroup, signalStatus } from '../src/agent-signals.js';
 import { testAttempt } from '../src/run-agent.js';
 
 /**
@@ -101,11 +101,13 @@ describe('what a stop signal comes out as', () => {
     expect(exitStatus(null, null)).toBe(1);
   });
 
-  it('keeps an agent in the terminal only when it reads stdin and a standard stream is a terminal', () => {
-    expect(sharesTerminal(true, (fd) => fd === 0)).toBe(true);
-    expect(sharesTerminal(true, (fd) => fd === 2)).toBe(true);
-    expect(sharesTerminal(true, () => false)).toBe(false);
-    expect(sharesTerminal(false, () => true)).toBe(false);
+  it("keeps an agent in a dashboard job's group, or in the terminal's when it reads stdin and a standard stream is one", () => {
+    expect(sharedGroup(true, {}, (fd) => fd === 0)).toBe('terminal');
+    expect(sharedGroup(true, {}, (fd) => fd === 2)).toBe('terminal');
+    expect(sharedGroup(true, {}, () => false)).toBeNull();
+    expect(sharedGroup(false, {}, () => true)).toBeNull();
+    expect(sharedGroup(true, { SHADOWLAP_EVENTS_FD: '3' }, () => false)).toBe('job');
+    expect(sharedGroup(false, { SHADOWLAP_EVENTS_FD: '3' }, () => true)).toBe('job');
   });
 });
 

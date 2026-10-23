@@ -8,7 +8,7 @@ import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { AGENT_NODE_MAYBE_TOO_OLD, AGENT_NODE_TOO_OLD, namesNode, nodeRefusesPreload, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
-import { AgentStop, exitBySignal, exitStatus, GROUPS, sharesTerminal, STOP_SIGNALS, trackAgent } from './agent-signals.js';
+import { AgentStop, exitBySignal, exitStatus, GROUPS, sharedGroup, STOP_SIGNALS, trackAgent } from './agent-signals.js';
 import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
 import { askJudges, judgedOptions, judgesOf, materialOf, unjudged, type Judged } from './judge.js';
@@ -601,11 +601,12 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const endRun = (status: Exclude<RunStatus, 'running'>) => (ended ??= sidecar.endRun(run.runId, status));
   let interrupted = false;
   // The agent reads this process's stdin. In a terminal it shares the terminal's process group, where
-  // the terminal's own Ctrl-C reaches it once; elsewhere it leads a group of its own, which a stop
-  // signal is passed on to, once (AgentStop). Heard until the run has ended, its judge checks included.
-  const shares = sharesTerminal(true);
-  const group = GROUPS && !shares;
-  const stop = new AgentStop({ group, sharesTerminal: shares, onSignal: () => void (interrupted = true), abandon: () => (endRun('crashed'), clearActive()) }).start();
+  // the terminal's own Ctrl-C reaches it once, and in a dashboard job the job's group, which the
+  // dashboard signals and kills as a whole; elsewhere it leads a group of its own, which a stop signal
+  // is passed on to, once (AgentStop). Heard until the run has ended, its judge checks included.
+  const shared = sharedGroup(true);
+  const group = GROUPS && !shared;
+  const stop = new AgentStop({ group, shared, onSignal: () => void (interrupted = true), abandon: () => (endRun('crashed'), clearActive()) }).start();
   sidecar.expectPreloads(run.runId, guard);
   const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env }, detached: group }, { url: sidecar.url, runId: run.runId });
   trackAgent(child, group);
@@ -696,16 +697,17 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
   const results: AttemptResult[] = new Array(count);
   let stopped = false;
   // Streamed one at a time, an attempt reads this process's stdin: in a terminal it shares the
-  // terminal's process group, where the terminal's own Ctrl-C reaches it once. Otherwise each leads a
-  // group of its own, which a stop signal is passed on to, once (AgentStop). Heard until the last run
-  // has ended: a second signal while only judge checks are left ends those runs as interrupted.
+  // terminal's process group, where the terminal's own Ctrl-C reaches it once. In a dashboard job
+  // each shares the job's group, which the dashboard signals and kills as a whole. Otherwise each
+  // leads a group of its own, which a stop signal is passed on to, once (AgentStop). Heard until the
+  // last run has ended: a second signal while only judge checks are left ends those runs as interrupted.
   const streaming = concurrency === 1;
-  const shares = streaming && sharesTerminal(true);
-  const agentGroup = GROUPS && !shares;
+  const shared = sharedGroup(streaming);
+  const agentGroup = GROUPS && !shared;
   const open = new Set<string>();
   const stop = new AgentStop({
     group: agentGroup,
-    sharesTerminal: shares,
+    shared,
     onSignal: () => void (stopped = true),
     abandon: () => {
       for (const runId of open) sidecar.endRun(runId, 'crashed');

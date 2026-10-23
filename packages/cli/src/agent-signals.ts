@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { constants } from 'node:os';
 import { isatty } from 'node:tty';
+import { inDashboardJob } from './job-events.js';
 import { killTree } from './kill-tree.js';
 
 /**
@@ -12,9 +13,11 @@ import { killTree } from './kill-tree.js';
  * An agent that has the terminal to itself to read from, under `run` and `replay` in a terminal,
  * stays in the CLI's process group: the terminal's Ctrl-C reaches it directly, as it would without
  * Shadowlap, and so do its window size, Ctrl-Z and /dev/tty, which a process in a session of its own
- * can't open (a password prompt, `git` asking for credentials). Everywhere else the agent leads a
- * group of its own, which the signal is passed on to: no signal reaches it twice, and stopping the
- * group stops what the agent started (`npm start` runs node, `sh -c` its command).
+ * can't open (a password prompt, `git` asking for credentials). So does the agent of `run` and
+ * `replay` as a dashboard job: the dashboard stops a job by signalling its whole process group, and
+ * kills the group, agent included, when it can't wait. Everywhere else the agent leads a group of
+ * its own, which the signal is passed on to: no signal reaches it twice, and stopping the group
+ * stops what the agent started (`npm start` runs node, `sh -c` its command).
  */
 
 /** Signals that ask a process to stop: Ctrl-C, a supervisor's or a dashboard's stop, a closed terminal. */
@@ -41,12 +44,14 @@ export const STOP_GRACE_MS = 3_000;
 export const GROUPS = process.platform !== 'win32';
 
 /**
- * Whether an agent that reads this process's stdin shares its terminal: some standard stream is one.
- * Such an agent keeps the CLI's process group (see the header), where a terminal's Ctrl-C reaches
- * both, so the CLI passes no SIGINT on.
+ * Whose process group the agent of `run` or `replay` shares, or null for a group of its own (see the
+ * header): a dashboard job's, which the dashboard signals and kills as a whole, or, for an agent that
+ * reads this process's stdin, the terminal's, when some standard stream is one, where a Ctrl-C
+ * reaches the CLI and the agent alike.
  */
-export function sharesTerminal(stdinInherited: boolean, tty: (fd: number) => boolean = isatty): boolean {
-  return stdinInherited && [0, 1, 2].some((fd) => tty(fd));
+export function sharedGroup(stdinInherited: boolean, env: NodeJS.ProcessEnv = process.env, tty: (fd: number) => boolean = isatty): 'job' | 'terminal' | null {
+  if (inDashboardJob(env)) return 'job';
+  return stdinInherited && [0, 1, 2].some((fd) => tty(fd)) ? 'terminal' : null;
 }
 
 // ------------------------------------------------------------------------------- agents left behind
@@ -109,8 +114,12 @@ export function exitBySignal(signal: NodeJS.Signals): never {
 export interface AgentStopOptions {
   /** The agent leads a process group of its own (spawned `detached`), which the signal is passed on to. */
   group: boolean;
-  /** The agent shares this process's terminal and group: a Ctrl-C reached it already, so SIGINT is not passed on (see the header). */
-  sharesTerminal?: boolean;
+  /**
+   * The agent shares this process's group (see the header): a terminal's, where a Ctrl-C reached it
+   * already, so SIGINT is not passed on; or a dashboard job's, whose every stop and kill reaches the
+   * whole group, so nothing is.
+   */
+  shared?: 'job' | 'terminal' | null;
   /** Called on every stop signal, before it is passed on. */
   onSignal?: (signal: NodeJS.Signals) => void;
   /**
@@ -188,7 +197,9 @@ export class AgentStop {
 
   private pass(child: ChildProcess, signal: NodeJS.Signals, again: boolean): void {
     const group = this.o.group && GROUPS;
-    if (this.o.sharesTerminal && !group) {
+    // The dashboard signalled the job's whole group, the agent with it, and kills the group itself.
+    if (this.o.shared === 'job' && !group) return;
+    if (this.o.shared === 'terminal' && !group) {
       // The terminal's Ctrl-C reached the agent already, the first and every one after it, as it
       // would without Shadowlap. Anything else is passed on, and a second one doesn't wait.
       if (signal === 'SIGINT') return;
@@ -199,7 +210,7 @@ export class AgentStop {
     if (again) return;
     // An agent that ignores the signal is killed before whoever sent it kills this process. One that
     // shares the terminal is given the time it takes, as without Shadowlap, unless the terminal is gone.
-    if (this.o.sharesTerminal && !group && signal !== 'SIGHUP') return;
+    if (this.o.shared === 'terminal' && !group && signal !== 'SIGHUP') return;
     const timer = setTimeout(() => {
       this.timers.delete(timer);
       if (running(child)) killTree(child, 'SIGKILL', { group });
