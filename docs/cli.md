@@ -715,7 +715,7 @@ its result. Calls that say nothing of each other keep the order the source lists
 | `langfuse` | `GET /api/public/traces/<id>` with `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. Generations are model calls; TOOL observations, and spans named after a tool a generation asked for, are tool calls |
 | `langsmith` | `POST /runs/query` for the trace, every page, with `LANGSMITH_API_KEY`. `llm` runs are model calls (LangChain's serialized messages, or the request and response themselves from LangSmith's wrapped OpenAI and Anthropic clients, which rebuild exactly); `tool` runs are tool calls |
 | `phoenix` | `GET /v1/projects/<project>/spans` for the trace, every page, with `PHOENIX_API_KEY` when it is set (a Phoenix without authentication needs none). The API takes no order for spans, so they are put in the order they started once read, and a trace of more than 20,000 spans is refused rather than cut. The project is `--project`, else `PHOENIX_PROJECT` or its older name `PHOENIX_PROJECT_NAME`, as Phoenix's own client reads them, else `default`. Read with OpenInference's conventions, as `otel` reads them: LLM spans are model calls, rebuilt exactly where the OpenAI or Anthropic instrumentation logged the request itself as JSON; TOOL spans are tool calls. Needs Phoenix 13.9 or later, which reads spans by trace; an older one is refused with the reason |
-| `logfire` | One SQL query for the trace's spans in the `records` table (`POST /v2/query`), with the read token in `LOGFIRE_READ_TOKEN`, among spans that started since `--since` (a date, a time, or how long ago, such as `90d`; 30 days by default). Logfire's instrumentations and Pydantic AI write the current GenAI conventions, read as `otel` reads them; where Pydantic AI's model span wraps the client library's own (the Anthropic SDK's), that span adds what was sent that Pydantic AI leaves out, such as `max_tokens` and streaming. A function wrapped with `@logfire.instrument` is a tool call when the model asked for a tool of its name: its span's (`@logfire.instrument('lookup_order')`), or the function's own under the decorator's default message (`Calling tools.lookup_order`). It keeps its arguments, and its result with `record_return=True` |
+| `logfire` | One SQL query for the trace's spans in the `records` table (`POST /v2/query`), with the read token in `LOGFIRE_READ_TOKEN`, among spans that started since `--since` (a date, a time, or how long ago, such as `90d`; 30 days by default). Logfire's instrumentations and Pydantic AI write the current GenAI conventions, read as `otel` reads them; where Pydantic AI's model span wraps the client library's own (the Anthropic SDK's), that span adds what was sent that Pydantic AI leaves out, such as `max_tokens` and streaming. A function wrapped with `@logfire.instrument` is a tool call when the model asked for a tool of its name: its span's (`@logfire.instrument('lookup_order')`), or the function's own under the decorator's default message (`Calling tools.lookup_order`). It keeps its arguments, and its result with `record_return=True`. A block an agent handed back as the Anthropic SDK returned it, which `logfire.instrument_anthropic()` logs as the text the SDK prints for it (`ToolUseBlock(id='toolu_…', …)`), is read back as the block |
 
 The keys are read from the environment and sent only to the host: `--host`, else the variable the
 store's own SDK reads (`LANGFUSE_HOST`, `LANGSMITH_ENDPOINT`, `PHOENIX_ENDPOINT`,
@@ -742,15 +742,16 @@ was kept: such tools are listed in `meta.covers` as `tool:<name>`, and any other
 replay. A model call that failed where it ran, or kept no messages or output, is skipped and runs
 live.
 
-Two kinds of agent fork early whatever the store, because what they send isn't what their traces
-keep. A Pydantic AI agent forks at its first model call: Pydantic AI logs the conversation, not the
+Two kinds of agent fork early, because what they send isn't what their traces keep. A Pydantic AI
+agent forks at its first model call, whatever the store: Pydantic AI logs the conversation, not the
 request it sends, which writes text as content blocks and sets `tool_choice`. An agent that hands
 the Anthropic SDK's own response objects back as messages (`"content": reply.content`) forks at its
-second: the SDK sends those blocks with fields their logged form leaves out. Both still import, and
-replay runs live from the fork with writes fenced; an agent that builds its messages as plain dicts
-replays from the trace alone. A trace from [`export otel`](#export-otel) carries no prompt text,
-so it has nothing to replay: share the run as a [pack](#pack-unpack) instead. `--json` adds what the
-source kept:
+second: the SDK sends those blocks with fields their logged form leaves out. Traced by
+`logfire.instrument_anthropic()`, which logs each block as the text the SDK prints for it, it
+replays from the trace alone, as an agent that builds its messages as plain dicts does: that text is
+read back as the block. Both kinds still import, and replay runs live from the fork with writes
+fenced. A trace from [`export otel`](#export-otel) carries no prompt text, so it has nothing to
+replay: share the run as a [pack](#pack-unpack) instead. `--json` adds what the source kept:
 
 ```json
 "kept": { "traces": 1, "spans": 14, "modelCalls": 9, "modelCallsImported": 9, "withSettings": 9, "withToolDefinitions": 0, "toolCalls": 5, "toolCallsKept": 3 }

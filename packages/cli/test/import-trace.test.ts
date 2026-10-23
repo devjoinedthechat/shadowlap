@@ -442,6 +442,23 @@ describe('reading what traces log', () => {
     expect(outputOf(null)).toBeNull();
   });
 
+  it("reads an assistant's blocks logged as the text the Anthropic SDK prints for them as the blocks, and nothing else", () => {
+    const tool = "ToolUseBlock(id='toolu_1', caller=None, input={'order_id': 'A-1042'}, name='lookup_order', type='tool_use', toolset_name=None)";
+    const logged = [
+      { type: 'text', content: "TextBlock(citations=None, text='Looking it up.', type='text')" },
+      { type: 'text', content: tool },
+      // A block the conversation holds no part for, as one logged as an object.
+      { type: 'text', content: "ThinkingBlock(signature='c2ln', thinking='The order first.', type='thinking')" },
+    ];
+    expect(messagesOf([{ role: 'assistant', parts: logged }])).toEqual([{ role: 'assistant', parts: [{ type: 'text', text: 'Looking it up.' }, { type: 'tool_call', id: 'toolu_1', name: 'lookup_order', arguments: { order_id: 'A-1042' } }] }]);
+    expect(messagesOf({ messages: [{ role: 'assistant', content: [tool] }] })).toEqual([{ role: 'assistant', parts: [{ type: 'tool_call', id: 'toolu_1', name: 'lookup_order', arguments: { order_id: 'A-1042' } }] }]);
+    // A user's text is the user's, and text that is not one printed block, whole, with what it must hold, is text.
+    expect(messagesOf([{ role: 'user', content: [{ type: 'text', text: tool }] }])).toEqual([{ role: 'user', parts: [{ type: 'text', text: tool }] }]);
+    for (const text of [`${tool} and more`, `Called ${tool}`, "TextBlock(citations=None, text='cut short", "TextBlock(citations=None, text=None, type='text')", "ToolUseBlock(id='toolu_1', input=['A-1042'], name='lookup_order', type='tool_use')"]) {
+      expect(messagesOf([{ role: 'assistant', content: [{ type: 'text', text }] }])).toEqual([{ role: 'assistant', parts: [{ type: 'text', text }] }]);
+    }
+  });
+
   it('rebuilds in the dialect the source names, else the model family, else OpenAI', () => {
     expect(dialectOf('anthropic', null)).toBe('anthropic');
     expect(dialectOf('aws.bedrock', 'anthropic.claude-haiku-4-5')).toBe('anthropic');

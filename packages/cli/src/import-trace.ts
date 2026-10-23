@@ -1,5 +1,6 @@
 import { canonicalize, safeLine, type Store } from '@shadowlap/engine';
 import { append, ImportWriter, writeImport, type CapturedCall, type ImportOptions, type ImportResult, type Skip } from './import-capture.js';
+import { readPythonRepr } from './python-repr.js';
 
 /**
  * Building a recording out of a trace: OpenTelemetry spans, a Langfuse trace, LangSmith runs.
@@ -255,12 +256,33 @@ function toolCallOf(raw: unknown): Part | null {
   return null;
 }
 
+/**
+ * A content block logged as the text its provider SDK prints for it, read back as the block. An
+ * agent on the Anthropic SDK hands a reply's blocks back as the SDK returned them
+ * (`"content": reply.content`), and an instrumentation that logs a block it can't read as text
+ * (logfire.instrument_anthropic() logs str() of it) logs `TextBlock(citations=None, text='…',
+ * type='text')` or `ToolUseBlock(id='toolu_…', caller=None, input={…}, name='…', type='tool_use',
+ * toolset_name=None)`. Null for anything else: the text must be one such block, whole.
+ */
+function printedBlock(block: unknown): Record<string, unknown> | null {
+  const text = typeof block === 'string' ? block : isObject(block) && block.type === 'text' ? (block.text ?? block.content) : undefined;
+  if (typeof text !== 'string' || !/^[A-Z][A-Za-z0-9_]*Block\(/.test(text)) return null;
+  const read = readPythonRepr(text);
+  const b = read && isObject(read.value) ? read.value : null;
+  if (!b || typeof b.type !== 'string') return null;
+  // The two a conversation holds a part for, with what each must hold.
+  if (b.type === 'text' && typeof b.text !== 'string') return null;
+  if (b.type === 'tool_use' && !(typeof b.id === 'string' && typeof b.name === 'string' && isObject(b.input))) return null;
+  return b;
+}
+
 /** The parts of one content value: text and tool blocks, from a string or a list of blocks. */
 function partsOfContent(content: unknown, role: Role): Part[] {
   if (typeof content === 'string') return content ? [{ type: 'text', text: content }] : [];
   if (!Array.isArray(content)) return content === null || content === undefined ? [] : [{ type: 'text', text: textOf(content) }];
   const parts: Part[] = [];
-  for (const block of content) {
+  for (const logged of content) {
+    const block = (role === 'assistant' && printedBlock(logged)) || logged;
     if (typeof block === 'string') {
       if (block) parts.push({ type: 'text', text: block });
       continue;

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { loadApiRequest, Store } from '@shadowlap/engine';
 import { fetchLogfireRecords, logfireHost, readLogfire } from '../src/import-logfire.js';
 import { fetchPhoenixSpans, phoenixHostFromEnv, readPhoenix } from '../src/import-phoenix.js';
 import { importTrace, providerRequest, type TraceModelCall, type TraceToolCall } from '../src/import-trace.js';
@@ -81,6 +81,25 @@ describe('import logfire: spans from its query API', () => {
       ['lookup_order', { order_id: 'A-1042' }, { order_id: 'A-1042', total: 240, status: 'delivered' }],
       ['issue_refund', { order_id: 'A-1042', amount: 240 }, { refunded: 240, order_id: 'A-1042' }],
     ]);
+  });
+
+  it('reads back the blocks an agent handed back as the Anthropic SDK returned them, which Logfire logs as the SDK prints them', () => {
+    // The agent passed reply.content back, and Logfire logged each block as str() of it.
+    expect(JSON.stringify(logfireRows(LOGFIRE_ANTHROPIC))).toContain("ToolUseBlock(id='toolu_lookup_order_39', caller=None, input={'order_id': 'A-1042'}");
+    const trace = readLogfire(logfireRows(LOGFIRE_ANTHROPIC), LOGFIRE_ANTHROPIC);
+    const calls = models(trace.calls);
+    expect(turns(calls[2]!)).toEqual(['system:text', 'user:text', 'assistant:text+tool_call', 'user:tool_result', 'assistant:text+tool_call', 'user:tool_result']);
+    expect(JSON.stringify(calls)).not.toMatch(/TextBlock\(|ToolUseBlock\(/);
+    const store = Store.open(':memory:');
+    const { result } = importTrace(store, trace, { source: 'logfire:01a16460', labels: ['logfire'], author: null });
+    const [, second] = store.getCalls(result.run.runId).filter((c) => c.kind === 'api');
+    // The request the agent's SDK sent: the blocks as the API answered them, each tool result after the call it answers.
+    expect((loadApiRequest(store, second!.requestRef!) as { messages: unknown }).messages).toEqual([
+      { role: 'user', content: 'Customer asks for a refund of order A-1042.' },
+      { role: 'assistant', content: [{ type: 'text', text: 'Looking up the order.' }, { type: 'tool_use', id: 'toolu_lookup_order_39', name: 'lookup_order', input: { order_id: 'A-1042' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_lookup_order_39', content: '{"order_id": "A-1042", "total": 240, "status": "delivered"}' }] },
+    ]);
+    store.close();
   });
 
   it("keeps Pydantic AI's call, with what the Anthropic SDK's own span says went on the wire", () => {
