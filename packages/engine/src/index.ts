@@ -48,7 +48,7 @@ export type { AddedProject, ConfirmedCommand, ProjectContext, ProjectCounts, Pro
 export type { FolderCheck, FolderKind, FolderSuggestion, FolderSuggestions, SuggestOptions } from './projects/index.js';
 export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, RecordPlanResult } from './projects/index.js';
 export type { CalibrationOutcome, EffectiveSetup, GoldenTestFact, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
-export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
+export { bringRequest, loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';

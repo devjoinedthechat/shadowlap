@@ -120,7 +120,7 @@ An end, in `end` and in `attempts`:
 Every request and every answer is a blob: a file in `blobs/` whose name is the SHA-256 of its bytes, in lowercase hex, stored uncompressed.
 
 - A reader MUST refuse a blob whose bytes don't hash to its name.
-- Every blob a call names, and every blob a request manifest names, MUST be in the pack.
+- Every blob a call names, and every blob a request manifest names, the turns its runs name included, MUST be in the pack.
 - A JSON blob is UTF-8. Its numbers are kept as written, so an id past 2^53 stays exact.
 
 | Kind | The request, at `requestRef` | The answer, at `end.responseRef` |
@@ -149,6 +149,26 @@ A model request resends the whole conversation, so its parts are stored apart, a
 
 - `system`, `tools` and each of `messages` name a JSON blob that holds that member of the body; `system` and `tools` are `null` when the body has none.
 - `fields` holds every other member of the body.
+
+A body that is a JSON object whose conversation is Gemini's `contents` or the Responses API's `input` items, an array, is a *list*, a version 2 manifest:
+
+```json
+{
+  "v": 2,
+  "kind": "list",
+  "fields": { "generationConfig": { "temperature": 0 } },
+  "parts": { "systemInstruction": "…" },
+  "list": "contents",
+  "runs": ["…", "…"]
+}
+```
+
+- `list` names the member that holds the conversation: `contents`, `input` or `messages`.
+- `parts` names the members stored apart, each by the JSON blob that holds it: for `contents`, `systemInstruction`, `system_instruction` and `tools`; for `input`, `instructions` and `tools`; for `messages`, `system` and `tools`. A reader refuses any other.
+- `runs` names blobs that each hold a JSON array of blob hashes, and the conversation is the JSON blobs those name, run after run. A writer SHOULD make the runs' lengths the binary digits of the conversation's length, largest first (13 turns: runs of 8, 4 and 1), so that every call of a conversation shares each run that lies within the turns it has in common with an earlier call: the manifests of a run of n calls then grow as n·log n, not n², as a list of every turn's hash in each manifest does.
+- `fields` holds every other member of the body.
+
+Shadowlap writes version 1 for a `messages` body and version 2 for the others. A reader MUST read both, and MUST refuse a manifest of a version it doesn't know.
 
 Any other body is *whole*: `{ "v": 1, "kind": "whole", "blob": "…", "encoding": "json" }`, where the blob holds the body and `encoding` says how to read it: `json`, `utf8`, or `base64` for bytes. A reader rebuilds a request as the same JSON, not the same bytes: only answers are served as they were recorded.
 
@@ -586,6 +606,7 @@ The default that makes recorded tests pleasant: read an explicit setting from th
 This page is version 1, for packs and the protocol alike.
 
 - A pack says its version in `run.json`'s `version`, and a reader refuses a version it doesn't know. A change that would make a pack mean something else to a reader that doesn't know it, or keep a reader from reading it, comes with a new version.
+- A [request manifest](#request-manifests) says its own version in `v`, so a new way to store a request comes as a new manifest version, which a reader that doesn't know it refuses, naming the request, as it refuses a pack of a version it doesn't know.
 - The protocol says its version in its routes, `/v1/recordings/…`. A change that would break an integration written to this page comes with routes under a new version. `shadowlap` in the handshake is the CLI's version, for an integration to report alongside its own.
 - What a reader or an integration can ignore comes without a new version: a new key under a run's or a call's `meta`, a new provider, whose calls keep the fingerprints they were written with in a reader that doesn't know it, or a new field in a response.
 - Shadowlap is pre-1.0, and of everything it has, the format is what changes least: build on it where you have the choice.
