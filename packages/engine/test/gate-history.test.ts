@@ -98,6 +98,8 @@ describe('gateHistory', () => {
     expect(notBaseline(r({ branch: 'dev' }), 'main')).toBe('its session ran on dev, not main');
     expect(notBaseline(r({}, { revision: 'abc+dirty' }), 'main')).toBe('its session tested uncommitted changes');
     expect(notBaseline(r({ branch: null }), 'main')).toBe('its session recorded no branch');
+    // A result kept before results said where their session ran: it passed, but on no branch it can show.
+    expect(notBaseline({ ok: true, failure: null, revision: 'abc', data: { mode: 'fork', checks: CHECKS, attempts: { total: 5, passed: 5, required: null, runs: [] }, verdict: 'passed' } }, 'main')).toBe('its session recorded no branch');
     expect(notBaseline(r({}), null)).toBe('no baseline branch is known');
   });
 
