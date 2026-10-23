@@ -320,7 +320,9 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         log(`  ${label}  ${p.dim('attempt 1')}  ${describeAttempt(first)}${result.deterministic ? p.dim(' · clean replay, so it settles the run') : ''}`);
         const why = unjudged(first);
         if (why) result.undecided = why;
-        else if (role === 'good' && !result.deterministic && baseline.source !== 'none') {
+        // A replay that went around Shadowlap ran nothing the recording holds: no evidence, and no
+        // fork to pair a baseline with. Its gate fails the run, as it always has.
+        else if (role === 'good' && !result.deterministic && first.summary.divergence && !first.bypassed && baseline.source !== 'none') {
           // A good run that forked: against its baseline, or, when none can be had, by the gate alone.
           const decided = baseline.source === 'paired' ? await againstPaired(first) : await againstHistory();
           if (!decided) await byGate();
