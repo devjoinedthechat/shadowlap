@@ -17,7 +17,7 @@ import { VERSION } from './version.js';
 
 export { VERSION } from './version.js';
 
-/** The `x-shadowlap-sdk` header every call to the sidecar carries, so it can say when the SDK and the CLI differ. */
+/** The `x-shadowlap-sdk` header every call to the sidecar carries: which SDK made the call, and its release. */
 const SDK_HEADER = `node/${VERSION}`;
 
 export type Effect = 'pure' | 'read' | 'write';

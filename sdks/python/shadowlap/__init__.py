@@ -274,7 +274,7 @@ def _scope_header(scope: str) -> str:
 # see the call in clear text, its session token in the URL, and can't reach the loopback anyway.
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-#: Sent on every call to the sidecar, so it can say when this package and the CLI are of different versions.
+#: Sent on every call to the sidecar: which SDK made the call, and its release.
 SDK_HEADER = "python/" + __version__
 
 
