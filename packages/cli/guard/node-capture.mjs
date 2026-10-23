@@ -8,6 +8,12 @@
 // `x-shadowlap-upstream`. The sidecar records it and forwards it to that host (only hosts a provider
 // declares), or serves it from the recording on replay.
 //
+// Whatever goes to the sidecar, a captured call or one a base URL already points there, goes on a
+// connection of its own to this machine's loopback: never through a proxy the agent set up (a
+// dispatcher for fetch, a replaced http.globalAgent), which would see the call, its key and the
+// session token, and never over TLS, which the sidecar doesn't speak. A WebSocket for the sidecar
+// (`wss://` from an OpenAI Realtime client whose base URL is the sidecar) opens as `ws://`.
+//
 // Routes arrive in SHADOWLAP_CAPTURE as JSON: { "routes": [[hostRegex, providerId], ...],
 // "hosts": { "host:port": providerId }, "http": [[hostRegex, port | null], ...] }. The last are HTTP
 // hosts the user declared, recorded as tools; they go to the sidecar's `http` route over either
@@ -15,7 +21,10 @@
 import http from 'node:http';
 import http2 from 'node:http2';
 import https from 'node:https';
-import { syncBuiltinESMExports } from 'node:module';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
+import { PassThrough, Readable } from 'node:stream';
+import zlib from 'node:zlib';
 
 const sidecarUrl = process.env.SHADOWLAP_URL;
 const runId = process.env.SHADOWLAP_RUN_ID;
@@ -39,31 +48,20 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   const sidecar = new URL(sidecarUrl);
   const sidecarKey = `${sidecar.hostname}:${sidecar.port}`;
 
-  // `shadowlap run` points OPENAI_BASE_URL at the sidecar, and agents rely on that, often through
-  // `process.env.OPENAI_BASE_URL ?? '<their default>'`. The OpenAI SDK's AzureOpenAI takes its baseURL
-  // default from the same variable, though, and throws when it also gets an endpoint. So the Azure
-  // constructor alone sees the value the user had; its endpoint's host is captured here.
-  if ('SHADOWLAP_OPENAI_BASE_URL_WAS' in process.env) {
-    const was = process.env.SHADOWLAP_OPENAI_BASE_URL_WAS || undefined;
-    const env = process.env;
-    const insideAzureClient = () => {
-      const limit = Error.stackTraceLimit;
-      Error.stackTraceLimit = 30;
-      try {
-        return /\bnew AzureOpenAI\b/.test(String(new Error().stack));
-      } finally {
-        Error.stackTraceLimit = limit;
-      }
-    };
-    process.env = new Proxy(env, {
-      get: (target, key) => (key === 'OPENAI_BASE_URL' && insideAzureClient() ? was : Reflect.get(target, key)),
-      // Set on process.env itself. Without this, setting a variable that is already there goes
-      // through the proxy as a bare define, which process.env refuses (ERR_INVALID_OBJECT_DEFINE_PROPERTY):
-      // npm and npx set their own variables as they start and exit 1 without a word, and so would
-      // an agent that sets one.
-      set: (target, key, value) => Reflect.set(target, key, value),
-    });
-  }
+  // The originals, taken before anything below replaces them.
+  const httpRequest = http.request;
+  const httpsRequest = https.request;
+  const originalFetch = globalThis.fetch;
+
+  const parseUrl = (value) => {
+    try {
+      return new URL(value);
+    } catch {
+      return null;
+    }
+  };
+  const defaultPort = (url) => (url.protocol === 'https:' || url.protocol === 'wss:' ? '443' : '80');
+  const toSidecar = (url) => url !== null && `${url.hostname}:${url.port || defaultPort(url)}` === sidecarKey;
 
   // On unless a test runner turns it off between recorded tests (@shadowlap/test sets `active`), so
   // a test without a recording calls its model where it was going, as the Python module's `active`.
@@ -72,7 +70,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   /** The provider a URL belongs to, or null to leave the request alone. */
   function providerFor(url) {
     if (!state.active) return null;
-    const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+    const port = url.port || defaultPort(url);
     const key = `${url.hostname}:${port}`;
     if (key === sidecarKey) return null;
     if (exactHosts[key]) return exactHosts[key];
@@ -102,10 +100,71 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       }
     });
   };
-  const toSidecar = (url) => `${url.hostname}:${url.port || (url.protocol === 'https:' ? '443' : '80')}` === sidecarKey;
 
   function sidecarPath(provider, url) {
     return `${sidecar.pathname.replace(/\/$/, '')}${runSegment}/${provider}${url.pathname}${url.search}`;
+  }
+
+  // ---- OPENAI_BASE_URL, as the OpenAI SDK reads it ----
+  // `shadowlap run` points OPENAI_BASE_URL at the sidecar, and agents rely on that, often through
+  // `process.env.OPENAI_BASE_URL ?? '<a server of their own>'`, so the variable stays as it is. The
+  // OpenAI SDK's AzureOpenAI takes its baseURL default from the same variable, though, and throws
+  // when it also gets an endpoint. Every OpenAI client here is captured by the host it calls, which
+  // needs no base URL: so the openai package's own read of the variable, the default of a client
+  // built without a baseURL, gets what the person had, nothing, and the client calls its own host,
+  // which says what it is: api.openai.com is captured as openai, an Azure endpoint as azure. The
+  // reader is told apart by where its code is (V8's structured stack, the file it runs from), and
+  // only in a process that can load the openai package: anywhere else process.env stays itself.
+  const openaiBase = process.env.OPENAI_BASE_URL;
+  if (process.env.SHADOWLAP_OPENAI_BASE_URL_WAS === '' && openaiBase && toSidecar(parseUrl(openaiBase)) && providerFor(new URL('https://api.openai.com/v1')) === 'openai' && canLoad('openai')) {
+    const env = process.env;
+    const get = (target, key) => (key === 'OPENAI_BASE_URL' && target.OPENAI_BASE_URL === openaiBase && readByOpenAI(get) ? undefined : Reflect.get(target, key));
+    process.env = new Proxy(env, {
+      get,
+      // Set on process.env itself. Without this, setting a variable that is already there goes
+      // through the proxy as a bare define, which process.env refuses (ERR_INVALID_OBJECT_DEFINE_PROPERTY):
+      // npm and npx set their own variables as they start and exit 1 without a word, and so would
+      // an agent that sets one.
+      set: (target, key, value) => Reflect.set(target, key, value),
+    });
+  }
+
+  /** Whether a package resolves from where the agent runs: its working folder, or its main script's. */
+  function canLoad(name) {
+    for (const from of [process.cwd(), process.argv[1] ? dirname(resolve(process.argv[1])) : null]) {
+      if (!from) continue;
+      try {
+        createRequire(join(from, 'noop.js')).resolve(name);
+        return true;
+      } catch {
+        // not from here
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Whether the code reading a variable now (the frame below `trap`) is the openai package's own:
+   * code in its folder, or, in an agent bundled with its dependencies, the constructor of an OpenAI
+   * or AzureOpenAI client that kept its name.
+   */
+  function readByOpenAI(trap) {
+    const prepare = Error.prepareStackTrace;
+    const limit = Error.stackTraceLimit;
+    try {
+      Error.stackTraceLimit = 4;
+      Error.prepareStackTrace = (_, sites) => sites;
+      const holder = {};
+      Error.captureStackTrace(holder, trap);
+      const sites = Array.isArray(holder.stack) ? holder.stack : [];
+      if (/[\\/]node_modules[\\/]openai[\\/]/.test(sites[0]?.getFileName?.() ?? '')) return true;
+      return sites.some((site) => site.isConstructor?.() && /^(Azure)?OpenAI$/.test(site.getFunctionName?.() ?? ''));
+    } catch {
+      return false;
+    } finally {
+      Error.prepareStackTrace = prepare;
+      Error.stackTraceLimit = limit;
+    }
   }
 
   // A replay can fail a captured HTTP call with a timeout or an error (--fail-at <call>=timeout). The
@@ -158,46 +217,135 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     return req;
   }
 
+  // The sidecar is reached directly: an agent a client was given was for the host it named, and
+  // http.globalAgent may be a proxy package's, which would send the request to its proxy.
+  const sidecarAgent = new http.Agent({ keepAlive: true });
+
   // ---- fetch: the Anthropic, OpenAI and Google SDKs, and the Anthropic Bedrock and Vertex clients ----
-  const originalFetch = globalThis.fetch;
+  // Sent with http.request on the sidecar's own agent, not with fetch: an agent that routes fetch
+  // through a proxy of its own (undici's ProxyAgent set with setGlobalDispatcher, which ignores
+  // NO_PROXY) would send the proxy the call, its key and the session token. The request and its
+  // answer are fetch's all the same: its default headers, its body types, redirects, an AbortSignal,
+  // a decoded body, and its errors.
   if (typeof originalFetch === 'function') {
     globalThis.fetch = function capturedFetch(input, init) {
-      let url;
-      try {
-        url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
-      } catch {
-        return originalFetch(input, init);
-      }
+      const url = parseUrl(typeof input === 'string' || input instanceof URL ? input : input?.url);
+      if (!url) return originalFetch(input, init);
       const provider = providerFor(url);
-      const scoped = currentScope();
-      if (!provider) {
-        // A client already pointed at the sidecar by its base URL: only the scope needs adding.
-        if (!scoped || !toSidecar(url)) return originalFetch(input, init);
-        const headers = new Headers(init?.headers ?? (typeof input === 'object' && !(input instanceof URL) ? input.headers : undefined));
-        headers.set('x-shadowlap-scope', scoped);
-        if (typeof input === 'object' && !(input instanceof URL)) return originalFetch(new Request(input, { ...init, headers }));
-        return originalFetch(input, { ...init, headers });
-      }
-      const request = typeof input === 'object' && !(input instanceof URL) ? input : null;
-      const headers = new Headers(init?.headers ?? request?.headers ?? undefined);
-      headers.set('x-shadowlap-upstream', url.origin);
-      if (scoped) headers.set('x-shadowlap-scope', scoped);
-      if (provider === 'http') headers.set('x-shadowlap-failures', 'raise');
-      const target = `${sidecar.origin}${sidecarPath(provider, url)}`;
-      const method = init?.method ?? request?.method ?? 'GET';
-      const body = init?.body !== undefined ? init.body : request?.body ?? undefined;
-      const sent = originalFetch(target, {
-        method,
-        headers,
-        ...(body !== undefined && body !== null && method !== 'GET' && method !== 'HEAD' ? { body, duplex: 'half' } : {}),
-        ...(init?.signal ?? request?.signal ? { signal: init?.signal ?? request?.signal } : {}),
-        redirect: init?.redirect ?? request?.redirect ?? 'follow',
-      });
-      return provider === 'http' ? sent.then(failedFetch) : sent;
+      if (!provider && !toSidecar(url)) return originalFetch(input, init);
+      return fetchViaSidecar(input, init, url, provider, 0).then((response) => (provider === 'http' ? failedFetch(response) : response));
     };
   }
 
-  // ---- http(s).request: the AWS SDK's Node handler, and older clients ----
+  /** fetch's own default request headers, which it adds to a request that has none of them. */
+  function fetchDefaults(headers, url) {
+    if (!headers.has('accept')) headers.set('accept', '*/*');
+    if (!headers.has('accept-language')) headers.set('accept-language', '*');
+    if (!headers.has('sec-fetch-mode')) headers.set('sec-fetch-mode', 'cors');
+    if (!headers.has('user-agent')) headers.set('user-agent', 'node');
+    if (!headers.has('accept-encoding')) headers.set('accept-encoding', url.protocol === 'https:' ? 'br, gzip, deflate' : 'gzip, deflate');
+  }
+
+  /** A body fetch can send again for a redirect, which it holds whole: anything but a stream. */
+  const replayable = (body) => body === undefined || body === null || typeof body === 'string' || body instanceof ArrayBuffer || ArrayBuffer.isView(body) || body instanceof URLSearchParams || body instanceof Blob || body instanceof FormData;
+
+  async function fetchViaSidecar(input, init, url, provider, redirects) {
+    // Built as fetch builds it: the arguments merged, a body of any kind read, content-type set.
+    const request = new Request(input, init);
+    const { signal } = request;
+    if (signal.aborted) throw signal.reason;
+    const headers = new Headers(request.headers);
+    fetchDefaults(headers, url);
+    if (provider) {
+      headers.set('x-shadowlap-upstream', url.origin);
+      if (provider === 'http') headers.set('x-shadowlap-failures', 'raise');
+    }
+    const scoped = currentScope();
+    if (scoped) headers.set('x-shadowlap-scope', scoped);
+    const source = init !== undefined && init !== null && 'body' in init ? init.body : input instanceof Request ? input.body : undefined;
+    const whole = request.body !== null && replayable(source) ? Buffer.from(await request.arrayBuffer()) : null;
+    const path = provider ? sidecarPath(provider, url) : `${url.pathname}${url.search}`;
+    const res = await new Promise((resolve, reject) => {
+      const req = httpRequest({ protocol: 'http:', hostname: sidecar.hostname, port: sidecar.port, path, method: request.method, headers: Object.fromEntries(headers), agent: sidecarAgent }, resolve);
+      const abort = () => req.destroy(signal.reason);
+      signal.addEventListener('abort', abort, { once: true });
+      req.once('response', () => signal.removeEventListener('abort', abort));
+      req.on('error', (err) => {
+        signal.removeEventListener('abort', abort);
+        reject(signal.aborted ? signal.reason : new TypeError('fetch failed', { cause: err }));
+      });
+      if (whole) req.end(whole);
+      else if (request.body) Readable.fromWeb(request.body).on('error', (err) => req.destroy(err)).pipe(req);
+      else req.end();
+    });
+    const status = res.statusCode ?? 502;
+    const location = res.headers.location;
+    // Redirects are followed as fetch follows them, unless the request said otherwise.
+    if ([301, 302, 303, 307, 308].includes(status) && typeof location === 'string' && request.redirect !== 'manual') {
+      res.resume();
+      if (request.redirect === 'error' || redirects >= 20) throw new TypeError('fetch failed', { cause: new Error(request.redirect === 'error' ? 'unexpected redirect' : 'redirect count exceeded') });
+      const next = new URL(location, url);
+      const asGet = (status === 303 && request.method !== 'HEAD') || ((status === 301 || status === 302) && request.method === 'POST');
+      if (!asGet && request.body !== null && !whole) throw new TypeError('fetch failed', { cause: new Error('a streamed body cannot be sent again for a redirect') });
+      if (asGet) for (const name of ['content-type', 'content-length', 'content-encoding', 'content-language', 'content-location']) headers.delete(name);
+      for (const name of ['x-shadowlap-upstream', 'x-shadowlap-failures', 'x-shadowlap-scope']) headers.delete(name);
+      const followed = await globalThis.fetch(next, { method: asGet ? 'GET' : request.method, headers, body: asGet ? undefined : whole ?? undefined, redirect: request.redirect, signal });
+      Object.defineProperty(followed, 'redirected', { value: true });
+      return followed;
+    }
+    return toResponse(res, request, url, signal);
+  }
+
+  /** What fetch makes of an answer: its headers as sent, its body decoded, and an error in it "terminated". */
+  function toResponse(res, request, url, signal) {
+    const headers = new Headers();
+    for (let i = 0; i < res.rawHeaders.length; i += 2) headers.append(res.rawHeaders[i], res.rawHeaders[i + 1]);
+    const status = res.statusCode ?? 502;
+    let body = null;
+    if (request.method === 'HEAD' || status === 204 || status === 205 || status === 304) res.resume();
+    else {
+      const out = new PassThrough();
+      const chain = [res, ...decoders(headers.get('content-encoding'))];
+      const terminated = (cause) => out.destroy(new TypeError('terminated', { cause }));
+      for (let i = 0; i < chain.length; i++) {
+        chain[i].on('error', terminated);
+        chain[i].pipe(i + 1 < chain.length ? chain[i + 1] : out);
+      }
+      res.on('close', () => {
+        if (!res.complete) terminated(Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }));
+      });
+      const abort = () => {
+        out.destroy(signal.reason);
+        res.destroy();
+      };
+      signal.addEventListener('abort', abort, { once: true });
+      out.on('close', () => {
+        signal.removeEventListener('abort', abort);
+        // A body read no further leaves the connection with nothing to wait for.
+        if (!res.complete) res.destroy();
+      });
+      body = Readable.toWeb(out);
+    }
+    const response = new Response(body, { status, statusText: res.statusMessage ?? '', headers });
+    // The URL the agent asked for, as fetch gives it, never the sidecar's with its token.
+    Object.defineProperty(response, 'url', { value: url.href });
+    return response;
+  }
+
+  /** The decoders fetch puts a body through for its content-encoding; none for one it doesn't decode. */
+  function decoders(encoding) {
+    const codings = (encoding ?? '').toLowerCase().split(',').map((c) => c.trim()).filter(Boolean).reverse();
+    const out = [];
+    for (const coding of codings) {
+      if (coding === 'gzip' || coding === 'x-gzip') out.push(zlib.createGunzip({ flush: zlib.constants.Z_SYNC_FLUSH, finishFlush: zlib.constants.Z_SYNC_FLUSH }));
+      else if (coding === 'deflate') out.push(zlib.createInflate({ flush: zlib.constants.Z_SYNC_FLUSH, finishFlush: zlib.constants.Z_SYNC_FLUSH }));
+      else if (coding === 'br') out.push(zlib.createBrotliDecompress({ flush: zlib.constants.BROTLI_OPERATION_FLUSH, finishFlush: zlib.constants.BROTLI_OPERATION_FLUSH }));
+      else return [];
+    }
+    return out;
+  }
+
+  // ---- http(s).request: the AWS SDK's Node handler, the ws package, and older clients ----
   function normalize(args) {
     let url = null;
     let options = {};
@@ -217,24 +365,23 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     return { url, options, callback };
   }
 
-  /** http.request's arguments with x-shadowlap-scope added to the options' headers (an object, or a flat list of names and values). */
-  function withScope(args, scoped) {
-    const out = [...args];
-    const i = typeof out[0] === 'string' || out[0] instanceof URL ? 1 : 0;
-    const options = out[i] && typeof out[i] === 'object' ? out[i] : null;
-    if (!options) {
-      out.splice(i, 0, { headers: { 'x-shadowlap-scope': scoped } });
-      return out;
+  /** A request's headers as an object, from an object or a flat list of names and values. */
+  function headerObject(given) {
+    if (!Array.isArray(given)) return { ...(given ?? {}) };
+    const out = {};
+    for (let i = 0; i + 1 < given.length; i += 2) {
+      const name = String(given[i]);
+      out[name] = name in out ? [].concat(out[name], given[i + 1]) : given[i + 1];
     }
-    const given = options.headers;
-    const headers = Array.isArray(given) ? [...given, 'x-shadowlap-scope', scoped] : { ...(given ?? {}), 'x-shadowlap-scope': scoped };
-    out[i] = { ...options, headers };
     return out;
   }
 
-  // The sidecar is reached directly: the client's own agent (dropped above) was for the host it
-  // named, and http.globalAgent may be a proxy package's, which would send the request to its proxy.
-  const sidecarAgent = new http.Agent({ keepAlive: true });
+  /**
+   * What of a request's options still holds on the way to the sidecar: not the host, the agent or
+   * anything TLS (the ws package's own TLS connect among them), which were for the host it named.
+   */
+  const FOR_THE_HOST = new Set(['agent', 'protocol', 'host', 'hostname', 'port', 'path', 'headers', 'createConnection', 'defaultPort', '_defaultAgent', 'servername', 'ca', 'cert', 'key', 'pfx', 'passphrase', 'rejectUnauthorized', 'checkServerIdentity', 'ALPNProtocols', 'secureContext', 'secureOptions', 'secureProtocol', 'ciphers', 'ecdhCurve', 'minVersion', 'maxVersion', 'session', 'socketPath', 'lookup', 'family', 'hints', 'localAddress', 'localPort']);
+  const keptOptions = (options) => Object.fromEntries(Object.entries(options).filter(([k]) => !FOR_THE_HOST.has(k)));
 
   function wrap(original, defaultProtocol) {
     return function capturedRequest(...args) {
@@ -246,27 +393,23 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
         return original.apply(this, args);
       }
       const provider = providerFor(parsed.url);
-      const scoped = currentScope();
-      if (!provider) {
-        // A client already pointed at the sidecar by its base URL (node-fetch, axios): only the scope needs adding.
-        return scoped && toSidecar(parsed.url) ? original.apply(this, withScope(args, scoped)) : original.apply(this, args);
-      }
+      if (!provider && !toSidecar(parsed.url)) return original.apply(this, args);
       const { url, options, callback } = parsed;
-      const headers = { ...(options.headers ?? {}) };
-      headers['x-shadowlap-upstream'] = url.origin;
+      const headers = headerObject(options.headers);
+      const scoped = currentScope();
       if (scoped) headers['x-shadowlap-scope'] = scoped;
-      if (provider === 'http') headers['x-shadowlap-failures'] = 'raise';
-      const { agent: _agent, protocol: _protocol, host: _host, hostname: _hostname, port: _port, path: _path, servername: _servername, ...rest } = options;
-      const req = http.request(
-        { ...rest, protocol: sidecar.protocol, hostname: sidecar.hostname, port: sidecar.port, path: sidecarPath(provider, url), headers, agent: sidecarAgent },
-        callback,
-      );
+      if (provider) {
+        headers['x-shadowlap-upstream'] = url.origin;
+        if (provider === 'http') headers['x-shadowlap-failures'] = 'raise';
+      }
+      // A client already pointed at the sidecar by its base URL (node-fetch, axios, the ws package)
+      // goes there all the same, on the sidecar's agent and as plain HTTP.
+      const path = provider ? sidecarPath(provider, url) : `${url.pathname}${url.search}`;
+      const req = httpRequest({ ...keptOptions(options), protocol: 'http:', hostname: sidecar.hostname, port: sidecar.port, path, headers, agent: sidecarAgent }, callback);
       return provider === 'http' ? failOnInjected(req) : req;
     };
   }
 
-  const httpRequest = http.request;
-  const httpsRequest = https.request;
   http.request = wrap(httpRequest, 'http:');
   https.request = wrap(httpsRequest, 'https:');
   http.get = function capturedGet(...args) {
@@ -279,6 +422,30 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     req.end();
     return req;
   };
+
+  // ---- WebSocket: Node's own, as the OpenAI SDK's Realtime client opens it ----
+  // A client whose base URL is the sidecar makes a `wss://` URL of it, for a sidecar that speaks no
+  // TLS: it opens as `ws://`. One for a provider's host opens on the sidecar's route for it, the
+  // host named in x-shadowlap-upstream, as a captured HTTP call does.
+  const NativeWebSocket = globalThis.WebSocket;
+  if (typeof NativeWebSocket === 'function') {
+    globalThis.WebSocket = class WebSocket extends NativeWebSocket {
+      constructor(address, protocols) {
+        const url = parseUrl(address instanceof URL ? address.href : String(address));
+        const asHttp = url && (url.protocol === 'wss:' || url.protocol === 'ws:') ? new URL(`${url.protocol === 'wss:' ? 'https:' : 'http:'}${url.href.slice(url.protocol.length)}`) : null;
+        const provider = asHttp ? providerFor(asHttp) : null;
+        if (url && toSidecar(url) && url.protocol === 'wss:') {
+          url.protocol = 'ws:';
+          super(url.href, protocols);
+        } else if (provider) {
+          const headers = { 'x-shadowlap-upstream': asHttp.origin, ...(currentScope() ? { 'x-shadowlap-scope': currentScope() } : {}) };
+          const init = protocols !== null && typeof protocols === 'object' && !Array.isArray(protocols) ? { ...protocols, headers: { ...(protocols.headers ?? {}), ...headers } } : { protocols: protocols ?? [], headers };
+          super(`ws://${sidecar.host}${sidecarPath(provider, asHttp)}`, init);
+        } else super(address, protocols);
+      }
+    };
+  }
+
   // ---- http2.connect: the AWS SDK's Bedrock runtime client speaks only HTTP/2 ----
   const http2Url = process.env.SHADOWLAP_HTTP2_URL ? new URL(process.env.SHADOWLAP_HTTP2_URL) : null;
   const originalConnect = http2.connect;
