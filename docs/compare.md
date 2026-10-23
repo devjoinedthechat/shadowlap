@@ -1,6 +1,6 @@
 # Compared with other tools
 
-Shadowlap re-runs an agent's real code against a recording of what its model and its tools answered. Calls that haven't changed are answered from the recording. The first request that changed is reported with a diff, and the run forks there and continues live, with write tools fenced. [Blame](./blame.md), [repair](./repair.md) and [verify](./verify.md) build on those forks to find the model call that lost a run and to prove a fix. Several other tools touch the same problem from a different side. This page says what each one does and where it is the better choice.
+Shadowlap is change safety for agents: it re-runs an agent's real code against a recording of what its model and its tools answered. Calls that haven't changed are answered from the recording. The first request that changed is reported with a diff, and the run forks there and continues live, with write tools fenced. [Blame](./blame.md), [repair](./repair.md) and [verify](./verify.md) build on those forks to find the model call that lost a run and to prove a fix. Several other tools touch the same problem from a different side. This page says what each one does and where it is the better choice.
 
 What it says about other products was checked against their own documentation, repositories and announcements on 2026-10-23.
 
