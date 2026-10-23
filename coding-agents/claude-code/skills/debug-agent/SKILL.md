@@ -40,11 +40,11 @@ A golden that passed before and fails now broke in some commit: `shadowlap bisec
 
 - `shadowlap fix ls --json` lists the failures already being fixed: where each run was lost and how far its fix got.
 - `shadowlap fix show <fix> --json` prints one: the call where its run was lost, the change tried (`repair`) and why each candidate was kept or dropped, its verdicts, and what can be done next (`actions`).
-- `shadowlap fix apply <fix> --json` hands over a fix a verdict accepted: it applies its patch to the working tree, copies the recordings the fixed code made into the goldens, and replays them. It exits 1 while the fix is still open.
+- `shadowlap fix apply <fix> --json` hands over a fix a verdict accepted: it applies its patch to the working tree, copies the recordings the fixed code made into the goldens, and replays them. It exits 2 while the fix is still open.
 
 ## Switch the model
 
-`shadowlap migrate --to <model> --json` moves the agent to another model, for one being retired or one that costs less, with the evidence: it asks every model call the goldens recorded again on the new model (with the request fields that model refuses changed), verifies the runs whose decisions changed, and compares what a run costs. Read `changes` (the decisions that changed), `passes` (whether each run still passes) and `costs`. The edit to the project's files is a patch under `.shadowlap/migrations/` (`configChange`, with each mention of the model it left for you to review); apply it with git once no run breaks. It exits 1 when a run breaks under the new model, or when the report settles nothing.
+`shadowlap migrate --to <model> --json` moves the agent to another model, for one being retired or one that costs less, with the evidence: it asks every model call the goldens recorded again on the new model (with the request fields that model refuses changed), verifies the runs whose decisions changed, and compares what a run costs. Read `changes` (the decisions that changed), `passes` (whether each run still passes) and `costs`. The edit to the project's files is a patch under `.shadowlap/migrations/` (`configChange`, with each mention of the model it left for you to review); apply it with git once no run breaks. It exits 1 when a run breaks under the new model, and 3 when the report settles nothing.
 
 ## Before calling it done
 

@@ -300,10 +300,10 @@ const SCENARIOS: Record<string, Variant[]> = {
   'fix show': [{ fill: async () => ({ '<fix>': await openFix() }), check: (r) => expect(json(r.stdout, 'fix show --json')).toMatchObject({ status: 'open', actions: expect.anything() }) }],
   'fix apply': [
     {
-      // "It exits 1 while the fix is still open."
+      // "It exits 2 while the fix is still open."
       as: 'a fix still open',
       fill: async () => ({ '<fix>': await openFix() }),
-      exits: [1],
+      exits: [2],
       check: (r) => expect(json(r.stdout, 'fix apply --json')).toBeTruthy(),
     },
   ],
