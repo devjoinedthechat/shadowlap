@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fingerprintApi, fingerprintMisc, fingerprintTool } from '../src/fingerprint.js';
+import { maskClock } from '../src/clock.js';
+import { parseJsonExact, reportable } from '../src/json-exact.js';
+import { applyNormalizers, stripKeysDeep } from '../src/normalize.js';
 
 const ALLOW = ['anthropic-version', 'anthropic-beta'];
 const base = {
@@ -54,3 +57,47 @@ describe('fingerprintTool / fingerprintMisc', () => {
     expect(fingerprintMisc('clock', 'deadline').fingerprint).not.toBe(fingerprintMisc('clock', '').fingerprint);
   });
 });
+
+describe('a __proto__ key', () => {
+  // JSON.parse keeps `__proto__` as a member like any other; a copy made by assignment would set
+  // the copy's prototype instead and drop the member, so two requests differing only there matched.
+  const withKey = JSON.parse('{"model":"m","messages":[],"metadata":{"__proto__":{"tier":"gold"}}}') as Record<string, unknown>;
+  const without = { model: 'm', messages: [], metadata: {} };
+
+  it('is part of a model call\'s identity, as data', () => {
+    const a = fingerprintApi({ ...base, body: withKey }, [], ALLOW);
+    expect(a.canonical).toContain('"metadata":{"__proto__":{"tier":"gold"}}');
+    expect(a.fingerprint).not.toBe(fingerprintApi({ ...base, body: without }, [], ALLOW).fingerprint);
+    // Through every copy a fingerprint makes: dates masked, a pathless rule, a rule with a path into it.
+    const rules = [
+      { kind: 'api' as const, pattern: 'iso-date', replace: '<D>' },
+      { kind: 'api' as const, path: '$.metadata.__proto__.tier', replace: '<T>' },
+    ];
+    const masked = fingerprintApi({ ...base, body: withKey }, rules, ALLOW, Date.parse('2026-09-16T00:00:00Z'));
+    expect(masked.canonical).toContain('"metadata":{"__proto__":{"tier":"<T>"}}');
+  });
+
+  it('is part of a tool call\'s identity, numbers kept as written', () => {
+    const args = parseJsonExact('{"__proto__":{"id":12345678901234567890},"q":"a"}');
+    const a = fingerprintTool('search', args, []);
+    expect(a.canonical).toBe('{"args":{"__proto__":{"id":12345678901234567890},"q":"a"},"kind":"tool","name":"search"}');
+    expect(a.fingerprint).not.toBe(fingerprintTool('search', { q: 'a' }, []).fingerprint);
+  });
+
+  it('stays a member of every copy, and never becomes the copy\'s prototype', () => {
+    const doc = JSON.parse('{"__proto__":{"polluted":"yes"},"at":"2026-09-16"}') as Record<string, unknown>;
+    const copies = [
+      stripKeysDeep(doc, ['cache_control']),
+      maskClock(doc, Date.parse('2026-09-16T00:00:00Z')),
+      applyNormalizers(doc, [{ kind: 'api', pattern: 'iso-date', replace: '<D>' }], 'api', 'POST /v1/messages'),
+      reportable(parseJsonExact('{"__proto__":{"polluted":"yes"}}')),
+    ] as Array<Record<string, unknown>>;
+    for (const copy of copies) {
+      expect(Object.keys(copy)).toContain('__proto__');
+      expect(Object.getPrototypeOf(copy)).toBe(Object.prototype);
+      expect(copy.polluted).toBeUndefined();
+      expect(JSON.stringify(copy)).toContain('"__proto__":{"polluted":"yes"}');
+    }
+  });
+});
+

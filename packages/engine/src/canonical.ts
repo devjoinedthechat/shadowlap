@@ -1,4 +1,16 @@
 /**
+ * Sets `key` on `target` as a member of its own. Assigning `__proto__` sets an object's prototype
+ * instead: a copy made by assignment would lose a `__proto__` key that a JSON document holds as data
+ * (JSON.parse keeps it so), and inherit whatever the document put under it. Two requests that
+ * differ only there would then match. Every copy a fingerprint, a normalizer or a diff reads is
+ * built through this, so the key stays a member like any other.
+ */
+export function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (key === '__proto__') Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  else target[key] = value;
+}
+
+/**
  * JSON Canonicalization Scheme, RFC 8785.
  *
  * Object members are sorted by the UTF-16 code units of their names (JavaScript's default string

@@ -13,6 +13,12 @@ describe('structuralDiff', () => {
       { path: '$.d', op: 'added', after: true },
     ]);
   });
+  it('reads a member named like an inherited one (toString, __proto__) as a member', () => {
+    expect(structuralDiff({}, { toString: 'x' })).toEqual([{ path: '$.toString', op: 'added', after: 'x' }]);
+    expect(structuralDiff({ constructor: 1 }, {})).toEqual([{ path: '$.constructor', op: 'removed', before: 1 }]);
+    expect(structuralDiff(JSON.parse('{"__proto__":{"a":1}}'), {})).toEqual([{ path: '$.__proto__', op: 'removed', before: { a: 1 } }]);
+  });
+
   it('is empty for deep-equal values regardless of key order', () => {
     expect(structuralDiff({ a: { b: [1, { c: 2 }] } }, { a: { b: [1, { c: 2 }] } })).toEqual([]);
   });

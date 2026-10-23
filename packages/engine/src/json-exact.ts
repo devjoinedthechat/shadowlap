@@ -1,3 +1,5 @@
+import { setOwn } from './canonical.js';
+
 /**
  * JSON whose numbers survive the trip. `JSON.parse` reads every number as a double, so an id past
  * 2^53 comes back changed (1234567890123456789 as 1234567890123456800) and a Python float written
@@ -35,7 +37,7 @@ export function matchable(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(matchable);
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = matchable(v);
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, matchable(v));
     return out;
   }
   return value;
@@ -56,7 +58,7 @@ export function reportable(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(reportable);
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = reportable(v);
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, reportable(v));
     return out;
   }
   return value;

@@ -1,3 +1,4 @@
+import { setOwn } from './canonical.js';
 import { patternProblem } from './safe-regex.js';
 import type { CallKind, Normalizer } from './types.js';
 
@@ -145,7 +146,9 @@ export function applyNormalizers(value: unknown, normalizers: Normalizer[], kind
     visit(copy, segs, 0, (parent, key) => {
       const leaf = (parent as Record<string | number, unknown>)[key];
       observer?.reached?.(i, leaf);
-      (parent as Record<string | number, unknown>)[key] = rewriteLeaf(leaf, regex, n.replace, changed);
+      const rewritten = rewriteLeaf(leaf, regex, n.replace, changed);
+      if (typeof key === 'string') setOwn(parent as Record<string, unknown>, key, rewritten);
+      else (parent as unknown[])[key] = rewritten;
     });
   });
   if (observer?.unmasked) reportUnmasked(copy, normalizers, (n) => normalizerApplies(n, kind, name), observer.unmasked);
@@ -233,7 +236,7 @@ export function rewriteStringsDeep(value: unknown, regex: RegExp, replace: strin
   if (Array.isArray(value)) return value.map((v) => rewriteStringsDeep(v, regex, replace, onChange));
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = rewriteStringsDeep(v, regex, replace, onChange);
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, rewriteStringsDeep(v, regex, replace, onChange));
     return out;
   }
   return value;
@@ -300,7 +303,7 @@ export function stripKeysDeep(value: unknown, keys: readonly string[]): unknown 
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (keys.includes(k)) continue;
-    out[k] = stripKeysDeep(v, keys);
+    setOwn(out, k, stripKeysDeep(v, keys));
   }
   return out;
 }

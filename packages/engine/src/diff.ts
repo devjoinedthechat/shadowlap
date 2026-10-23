@@ -17,8 +17,9 @@ function walk(a: unknown, b: unknown, path: string, out: DiffEntry[]): void {
     const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort();
     for (const k of keys) {
       const p = `${path}.${k}`;
-      if (!(k in a)) out.push({ path: p, op: 'added', after: b[k] });
-      else if (!(k in b)) out.push({ path: p, op: 'removed', before: a[k] });
+      // Members of their own: an inherited one (`toString`, `constructor`) is no member of the request.
+      if (!Object.hasOwn(a, k)) out.push({ path: p, op: 'added', after: b[k] });
+      else if (!Object.hasOwn(b, k)) out.push({ path: p, op: 'removed', before: a[k] });
       else walk(a[k], b[k], p, out);
     }
     return;
