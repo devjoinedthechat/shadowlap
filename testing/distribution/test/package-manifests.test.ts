@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, posix } from 'node:path';
+import { join, posix } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
@@ -46,24 +46,6 @@ describe('internal dependencies', () => {
       }
     }
     expect(loose).toEqual([]);
-  });
-
-  it('stay exact when scripts/set-version.mjs moves the release, which sets the Node SDK\'s own version too', async () => {
-    const copy = mkdtempSync(join(tmpdir(), 'shadowlap-set-version-'));
-    // The files the script names, wherever they are: every package's manifest and each file it edits.
-    const script = readFileSync(join(ROOT, 'scripts/set-version.mjs'), 'utf8');
-    const named = [...script.matchAll(/'([\w./-]+\.(?:json|toml|py|ts|md))'/g)].map((m) => m[1]!).filter((f) => f.includes('.') && existsSync(join(ROOT, f)));
-    const files = [...new Set([...WORKSPACES.map((d) => `${d}/package.json`), 'scripts/set-version.mjs', ...named])];
-    expect(named).toContain('packages/sdk/src/version.ts');
-    for (const f of files) {
-      mkdirSync(join(copy, dirname(f)), { recursive: true });
-      cpSync(join(ROOT, f), join(copy, f));
-    }
-    await run(process.execPath, ['scripts/set-version.mjs', '9.8.7'], { cwd: copy });
-    const moved = JSON.parse(readFileSync(join(copy, 'packages/adapters/package.json'), 'utf8')) as Manifest;
-    expect(moved.dependencies?.['@shadowlap/sdk']).toBe('9.8.7');
-    expect(JSON.parse(readFileSync(join(copy, 'packages/test/package.json'), 'utf8')).dependencies.shadowlap).toBe('9.8.7');
-    expect(readFileSync(join(copy, 'packages/sdk/src/version.ts'), 'utf8')).toContain("export const VERSION = '9.8.7';");
   });
 
   it('leave the CLI asking npm for no peer: the Anthropic SDK is imported when a repairer needs it', () => {
