@@ -88,6 +88,9 @@ export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, G
 export { attemptsOf, gateHistory, judgedUnder, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, unifiedDiff } from './repair.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
+// Placeholders a rewrite keeps, and its growth before anything runs (repair).
+export { CHARS_PER_TOKEN, placeholders, rewriteGrowth, templateSyntax } from './repair.js';
+export type { Placeholder, TemplateSyntax } from './repair.js';
 export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole } from './verify.js';
 export type { RepeatAttempt, RepeatAttemptInput, RepeatReport } from './repeat.js';
 export { parseSse } from './sse.js';

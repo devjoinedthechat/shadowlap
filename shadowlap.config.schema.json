@@ -120,6 +120,11 @@
           "description": "The repairer's API base URL, for a gateway or an OpenAI-compatible server. Defaults to ANTHROPIC_BASE_URL or OPENAI_BASE_URL.",
           "type": "string",
           "format": "uri"
+        },
+        "timeout": {
+          "description": "Seconds the repairer may take to answer before repair gives up on it and says so. Default 600. --repairer-timeout overrides it.",
+          "type": "integer",
+          "minimum": 1
         }
       }
     },

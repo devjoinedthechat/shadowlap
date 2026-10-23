@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { estimateCost, safeLine, type Anchor, type Block, type Conversation, type Price, type ProposedEdit, type Usage } from '@shadowlap/engine';
 import { installedGlobally } from './installed.js';
+import { killTree } from './kill-tree.js';
 import { startCommand } from './start-command.js';
 
 /**
@@ -161,7 +162,7 @@ export function buildRepairPrompt(input: RepairPromptInput): { system: string; u
     `## Text you may rewrite\n\nEach span appears exactly once in the agent's source, in the file named. A candidate replaces one whole span with new text.\n\n${input.anchors.map((a) => `[${a.id}] ${a.surface}, in ${a.file}: ${a.text}`).join('\n')}`,
   );
   sections.push(
-    `## Rules\n\n- Fix the rule, not the case. Never mention names, ids, amounts, dates or any other detail of these conversations: a fix that names them is rejected, and it would not hold for the next case.\n- Change as little as you can. Keep what a span says unless it is wrong.\n- Give up to ${input.candidates} candidates, each a different strategy: for example, stating the rule plainly in the system prompt, saying in a tool's description when not to use it, or saying which tool to use instead.\n- A span on one line stays on one line. A span from a code file goes into a string there, so write it without quotation marks, apostrophes or backslashes; a span from a Markdown or text file is prose.\n- In \`strategy\`, name the change in a few words, as a commit title would.`,
+    `## Rules\n\n- Fix the rule, not the case. Never mention names, ids, amounts, dates or any other detail of these conversations: a fix that names them is rejected, and it would not hold for the next case.\n- Change as little as you can. Keep what a span says unless it is wrong.\n- Give up to ${input.candidates} candidates, each a different strategy: for example, stating the rule plainly in the system prompt, saying in a tool's description when not to use it, or saying which tool to use instead.\n- A span on one line stays on one line. A span from a code file goes into a string there, so write it without quotation marks, apostrophes or backslashes; a span from a Markdown or text file is prose.\n- A placeholder in a span, such as {limit}, \${limit}, {{ limit }} or %(limit)s, is filled in when the agent builds its prompt. Keep each one exactly as it is written, as many times as the span has it, and write no placeholder of your own, nor any brace: a rewrite that adds one is rejected.\n- In \`strategy\`, name the change in a few words, as a commit title would.`,
   );
   return { system: SYSTEM, user: sections.join('\n\n') };
 }
@@ -196,9 +197,48 @@ function jsonIn(text: string): unknown {
   }
 }
 
-export async function askRepairer(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
-  if (r.provider === 'claude-code') return askClaudeCode(r, prompt, prices);
-  return r.provider === 'anthropic' ? askAnthropic(r, prompt, prices) : askOpenAI(r, prompt, prices);
+/** How long the repairer has to answer, unless `--repairer-timeout` or `repair.timeout` says otherwise. */
+export const DEFAULT_REPAIRER_TIMEOUT_MS = 10 * 60_000;
+
+/** A limit as a person reads it: `10 minutes`, `90 seconds`, `1 second`. */
+export function describeLimit(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s >= 120 && s % 60 === 0) return `${s / 60} minutes`;
+  return `${s} second${s === 1 ? '' : 's'}`;
+}
+
+/** Why a repairer that took longer than it may gave no candidates, and what to do about it. */
+export const repairerTimedOut = (ms: number) => new RepairerError(`it did not answer within ${describeLimit(ms)}`, 'give it longer with --repairer-timeout <seconds>, or repair.timeout in shadowlap.config.json');
+
+/**
+ * Asks the repairer for candidates, and gives up once `o.timeoutMs` has passed (10 minutes by
+ * default): a request still open is aborted, and a Claude Code still running is stopped, so a
+ * repairer that hangs never holds the repair, or a CI job, until something else kills it. `o.signal`
+ * aborts it the same way, as Ctrl-C does.
+ */
+export async function askRepairer(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>, o: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<RepairerAnswer> {
+  const timeoutMs = o.timeoutMs ?? DEFAULT_REPAIRER_TIMEOUT_MS;
+  const abort = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abort.abort();
+  }, timeoutMs);
+  const stop = () => abort.abort();
+  o.signal?.addEventListener('abort', stop, { once: true });
+  if (o.signal?.aborted) abort.abort();
+  try {
+    if (abort.signal.aborted) throw new RepairerError('it was stopped before it answered');
+    const asked = r.provider === 'claude-code' ? askClaudeCode(r, prompt, prices, abort.signal) : r.provider === 'anthropic' ? askAnthropic(r, prompt, prices, abort.signal, timeoutMs) : askOpenAI(r, prompt, prices, abort.signal);
+    return await asked;
+  } catch (err) {
+    if (timedOut) throw repairerTimedOut(timeoutMs);
+    if (abort.signal.aborted) throw new RepairerError('it was stopped before it answered');
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    o.signal?.removeEventListener('abort', stop);
+  }
 }
 
 /**
@@ -223,7 +263,7 @@ export function claudeCodeArgs(systemFile: string, model: string | null): string
  * prompt; its system prompt is a file beside that directory. Shadowlap never sees how Claude Code is
  * signed in; it runs the binary the user installed, through cmd.exe when that is a batch file.
  */
-async function askClaudeCode(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
+async function askClaudeCode(r: Repairer, prompt: { system: string; user: string }, prices: Record<string, Price> | undefined, signal: AbortSignal): Promise<RepairerAnswer> {
   const bin = process.env.SHADOWLAP_CLAUDE || 'claude';
   const env = { ...process.env };
   for (const v of CLAUDE_SESSION_VARS) delete env[v];
@@ -237,6 +277,14 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
   let stderr = '';
   const code = await new Promise<number>((resolveCode, reject) => {
     const child = spawn(start.command, start.args, start.options);
+    // Past the time limit, or on Ctrl-C: stopped, with what it started (on Windows, cmd.exe's tree).
+    const end = () => {
+      killTree(child, 'SIGTERM');
+      setTimeout(() => killTree(child, 'SIGKILL'), 3_000).unref();
+    };
+    if (signal.aborted) end();
+    else signal.addEventListener('abort', end, { once: true });
+    child.on('close', () => signal.removeEventListener('abort', end));
     child.stdout!.on('data', (d: Buffer) => (stdout += d.toString()));
     child.stderr!.on('data', (d: Buffer) => (stderr += d.toString()));
     // Not found, or found and not runnable (no execute bit, a directory): either way it can't be asked.
@@ -304,7 +352,7 @@ export async function cannotAsk(r: Repairer): Promise<RepairerError | null> {
   }
 }
 
-async function askAnthropic(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
+async function askAnthropic(r: Repairer, prompt: { system: string; user: string }, prices: Record<string, Price> | undefined, signal: AbortSignal, timeoutMs: number): Promise<RepairerAnswer> {
   // An optional peer: installed by those who ask Claude for fixes, and by nobody else.
   let sdk: typeof import('@anthropic-ai/sdk');
   let helpers: typeof import('@anthropic-ai/sdk/helpers/beta/json-schema');
@@ -328,7 +376,7 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
       output_config: { ...(EFFORT.test(r.model) ? { effort: 'high' as const } : {}), format: betaJSONSchemaOutputFormat(SCHEMA) },
       // On a policy decline the API answers from a fallback model in the same call.
       ...(FALLBACK.has(r.model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
-    });
+    }, { signal, timeout: timeoutMs });
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) throw REFUSED();
     if (err instanceof Anthropic.NotFoundError) throw new RepairerError(`the Anthropic API has no model ${r.model}`);
@@ -344,11 +392,12 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
   return { ...out, served: message.model, usage, cost: estimateCost(message.model, usage, prices) };
 }
 
-async function askOpenAI(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
+async function askOpenAI(r: Repairer, prompt: { system: string; user: string }, prices: Record<string, Price> | undefined, signal: AbortSignal): Promise<RepairerAnswer> {
   const base = (r.baseUrl ?? process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
   const key = process.env.OPENAI_API_KEY;
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
+    signal,
     headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
     body: JSON.stringify({
       model: r.model,

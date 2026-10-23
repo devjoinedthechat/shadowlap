@@ -1,11 +1,12 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, BLAME_DEFAULTS, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Conversation, type HeldLock, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
-import { askRepairer, buildRepairPrompt, cannotAsk, RepairerError, type RepairCase, type Repairer } from './repairer.js';
+import { candidateTree, COPY_LIMIT, removeCandidateTrees } from './repair-tree.js';
+import { askRepairer, buildRepairPrompt, cannotAsk, DEFAULT_REPAIRER_TIMEOUT_MS, RepairerError, type RepairCase, type Repairer } from './repairer.js';
 import { physicalPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
@@ -17,10 +18,11 @@ import { runVerify } from './verify.js';
  * a model that isn't the agent's own; blame, applying an edit, replaying and the verdict are all
  * deterministic, so the repairer never grades its own work.
  *
- * Candidates are tried in the working tree, where the agent's command, dependencies and build output
- * already are: a copy elsewhere would run a recorded absolute path against the original, or fail to
- * start without its untracked dependencies. The original bytes go to a journal before any edit and
- * come back after each candidate, on Ctrl-C, and at the start of the next repair if a process died.
+ * Each candidate is verified in a temporary git worktree of the working tree as it is (repair-tree.ts),
+ * never in the working tree itself, which an editor, a dev server or a parallel `shadowlap test` reads
+ * while verify runs. The accepted one reaches the working tree only at the end, with `--apply`, once
+ * its patch is checked against it. Before verify spends anything on a candidate, its rewrite alone is
+ * held to `--max-growth`; the repairer is asked within a time limit.
  */
 
 export interface RepairSettings extends AttemptSettings {
@@ -45,6 +47,8 @@ export interface RepairSettings extends AttemptSettings {
   repairer: Repairer;
   /** Whether a repairer was configured at all; without one, only fixes that need no model are tried. */
   repairerConfigured?: boolean;
+  /** How long the repairer has to answer (`--repairer-timeout`, `repair.timeout`); 10 minutes when absent. */
+  repairerTimeoutMs?: number;
 }
 
 export interface RepairOutputs {
@@ -94,6 +98,9 @@ export class HandOverError extends RepairError {
 
 const journalPath = (cwd: string) => join(cwd, '.shadowlap', 'repair-journal.json');
 
+/** What is copied of the files git ignores into a candidate's worktree, in MB, as a warning says it. */
+const REPAIR_COPY_LIMIT_MB = COPY_LIMIT / 1024 / 1024;
+
 /** Puts back whatever an interrupted repair left in the working tree. Returns the files it restored. */
 export function recoverWorkingTree(cwd: string): string[] {
   const path = journalPath(cwd);
@@ -114,18 +121,20 @@ export function recoverWorkingTree(cwd: string): string[] {
 
 /**
  * Starts a repair in `cwd`: takes `.shadowlap/repair.lock` (the engine's lock file), held until the
- * repair ends, then puts back what an interrupted repair left. With one repair at a time trying
- * candidates in a folder, a journal found here is never that of a repair still running, whose
- * candidate would be undone while it is verified: the repair that wrote it died, and the lock of a
- * process that died is taken over at once. A repair runs for minutes, so a lock whose holder this
- * machine can't check (one in a container or on another machine that shares the folder) is never
- * taken over by its age: it waits until someone deletes it. Throws when another repair runs here.
+ * repair ends, then cleans up after one that died: the worktrees it verified candidates in, and the
+ * working tree an older Shadowlap, which tried candidates in place, may have left edited (its
+ * journal). One repair runs in a folder at a time, as `--apply` writes the working tree, so what is
+ * found here is never a running repair's: the repair that left it died, and the lock of a process
+ * that died is taken over at once. A repair runs for minutes, so a lock whose holder this machine
+ * can't check (one in a container or on another machine that shares the folder) is never taken over
+ * by its age: it waits until someone deletes it. Throws when another repair runs here.
  */
 export function startRepair(cwd: string): { lock: HeldLock; restored: string[] } {
   mkdirSync(join(cwd, '.shadowlap'), { recursive: true, mode: 0o700 });
   const path = join(cwd, '.shadowlap', 'repair.lock');
-  const lock = takeLock(path, { wait: 0, mode: 0o600, ageOut: false, busy: () => new RepairError(`another shadowlap repair is running in this folder, trying its candidates in the working tree: wait for it to end (if none is running, delete ${path})`) });
+  const lock = takeLock(path, { wait: 0, mode: 0o600, ageOut: false, busy: () => new RepairError(`another shadowlap repair is running in this folder: wait for it to end (if none is running, delete ${path})`) });
   try {
+    removeCandidateTrees(cwd);
     return { lock, restored: recoverWorkingTree(cwd) };
   } catch (err) {
     releaseLock(lock);
@@ -176,6 +185,9 @@ function projectFiles(root: string): SourceFile[] {
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** An anchor's text as the agent sent it: its placeholders filled in, for one the file holds with them. */
+const sentText = (a: Anchor | undefined): string => (a ? (a.rendered ?? a.text) : '');
 
 /** The texts a model call sends that a fix may rewrite: the system prompt and each tool's description. */
 function surfacesOf(body: unknown): { system: string; tools: Array<{ name: string; description: string }>; surfaces: Surface[] } {
@@ -329,8 +341,11 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
   const store = openStore(input.opts);
   const shown = rules.length ? maskedView(store, rules) : null;
   let interrupted = false;
+  // Ctrl-C stops a repairer that is still being asked, as it stops verify's attempts.
+  const asking = new AbortController();
   const onSignal = () => {
     interrupted = true;
+    asking.abort();
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
@@ -375,7 +390,11 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     warnings,
   };
   const blamed: Blamed[] = [];
-  const candidates: Array<{ c: RepairCandidate; edit: { file: string; offset: number; text: string } }> = [];
+  /** Each verified run's recorded requests, read once (recordedRequests), and whether linked files were said. */
+  const requestsOf = new Map<string, Array<{ body: string; inputTokens: number }>>();
+  let linkedSaid = false;
+  /** Each candidate, and the edit it makes: where, the text it replaces, and that text as the agent sent it. */
+  const candidates: Array<{ c: RepairCandidate; edit: { file: string; offset: number; text: string; sent: string } }> = [];
   // What a stopped repair found so far is still reported.
   const stopped = (why: string): RepairReport => ({ ...report, targets: blamed.map((b) => b.target), candidates: candidates.map((x) => x.c), outcome: 'stopped', why });
 
@@ -452,7 +471,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
         const at = quoted[0]!;
         candidates.push({
           c: { id: nextId++, source: 'model', strategy: `Use ${s.stronger} instead of ${from}`, why: `Asking ${from} again did not rescue the failing runs; ${s.stronger} did.`, surface: 'model', file: at.file, offset: at.offset, before: from, after: s.stronger, size: editSize(from, s.stronger), state: 'untried', reason: null, verify: null },
-          edit: { file: at.file, offset: at.offset, text: from },
+          edit: { file: at.file, offset: at.offset, text: from, sent: from },
         });
       } else {
         warnings.push(`${s.stronger} rescued the runs, but the model name ${from} appears ${quoted.length ? `${quoted.length} times` : 'nowhere'} in the source as a string, so no model switch was proposed`);
@@ -487,7 +506,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
         log(`\n  asking ${s.repairer.model ? `${s.repairer.provider}:${s.repairer.model}` : s.repairer.provider} for ${s.candidates} candidates (${anchors.length} spans it may rewrite; held-out runs are not shown to it)`);
         let answer: Awaited<ReturnType<typeof askRepairer>> | null = null;
         try {
-          answer = await askRepairer(repairer, request, config.prices);
+          answer = await askRepairer(repairer, request, config.prices, { timeoutMs: s.repairerTimeoutMs ?? DEFAULT_REPAIRER_TIMEOUT_MS, signal: asking.signal });
         } catch (err) {
           // Whatever kept it from answering, the blames and the fix they opened are kept, with why.
           notAsked(err instanceof RepairerError ? err : new RepairerError(safeLine((err instanceof Error ? err.message : String(err)).split('\n')[0]!).slice(0, 200) || 'it failed'));
@@ -503,7 +522,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
             const after = e.replace.trim();
             const c: RepairCandidate = { id: nextId++, source: 'repairer', strategy: e.strategy, why: e.why, surface: anchor?.surface ?? `anchor ${e.anchor}`, file: anchor?.file ?? '', offset: anchor?.offset ?? 0, before: anchor?.text ?? '', after, size: anchor ? editSize(anchor.text, after) : 0, state: check.ok ? 'untried' : 'invalid', reason: check.ok ? null : check.reason, verify: null };
             if (!check.ok) log(`  ${p.yellow('✗')} candidate ${c.id} set aside: ${check.reason}`);
-            fresh.push({ c, edit: { file: c.file, offset: anchor?.offset ?? 0, text: c.before } });
+            fresh.push({ c, edit: { file: c.file, offset: anchor?.offset ?? 0, text: c.before, sent: sentText(anchor) } });
           }
           candidates.push(...fresh);
           await tryAll(fresh);
@@ -619,10 +638,34 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     };
   }
 
-  /** Applies a candidate, verifies it, and puts the file back. Returns the file's two versions when the gate accepts it. */
-  async function tryCandidate(c: RepairCandidate, edit: { file: string; offset: number; text: string }): Promise<{ original: string; patched: string } | null> {
-    const abs = join(root, edit.file);
-    const original = readFileSync(abs, 'utf8');
+  /**
+   * The recorded model requests of the runs a candidate is verified on, each as its body's JSON with
+   * the input tokens it recorded: what a rewrite's growth is worked out against before anything runs.
+   */
+  function recordedRequests(runs: readonly AttemptTarget[]): Array<{ body: string; inputTokens: number }> {
+    return runs.flatMap((t) => {
+      let got = requestsOf.get(t.parent.runId);
+      if (!got) {
+        got = agentCallsOf(store.getCalls(t.parent.runId)).flatMap((c) => {
+          const u = c.kind === 'api' ? c.end?.meta.usage : undefined;
+          if (!u || !c.requestRef) return [];
+          return [{ body: JSON.stringify(loadApiRequest(store, c.requestRef)), inputTokens: u.inputTokens + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0) }];
+        });
+        requestsOf.set(t.parent.runId, got);
+      }
+      return got;
+    });
+  }
+
+  /**
+   * Verifies a candidate, never in the working tree. Its rewrite alone is first held to --max-growth,
+   * before anything is spent: a rewrite that already grows the recorded requests past it is rejected
+   * without a replay. Then a worktree of the working tree as it is gets the edit and, with --build,
+   * is built; verify replays every run there; and the worktree is removed, whatever came of it.
+   * Returns the file's two versions when the gate accepts it.
+   */
+  async function tryCandidate(c: RepairCandidate, edit: { file: string; offset: number; text: string; sent: string }): Promise<{ original: string; patched: string } | null> {
+    const original = readFileSync(join(root, edit.file), 'utf8');
     let patched: string;
     try {
       patched = applyEdit(original, edit, c.after);
@@ -631,23 +674,43 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
       c.reason = `${edit.file}: ${(err as Error).message}`;
       return null;
     }
-    mkdirSync(join(cwd, '.shadowlap'), { recursive: true, mode: 0o700 });
-    writeFileSync(journalPath(cwd), JSON.stringify({ pid: process.pid, files: [{ path: abs, original: Buffer.from(original).toString('base64'), patched: Buffer.from(patched).toString('base64') }] }));
-    writeFileSync(abs, patched);
+    const role = (list: AttemptTarget[], r: VerifyRole) => list.map((t) => ({ ...t, role: r }));
+    const runs = [...role(input.targets, 'target'), ...role(holdout, 'holdout'), ...role(input.good, 'good')];
+    if (c.source === 'repairer') {
+      const growth = rewriteGrowth(recordedRequests(runs), edit.sent, c.after.length - c.before.length);
+      if (growth !== null && growth > s.maxGrowth) {
+        c.state = 'rejected';
+        c.reason = `${growthReason(growth, s.maxGrowth, `from the rewrite alone, at ${CHARS_PER_TOKEN} characters a token`)}, so it was not verified`;
+        log(`  ${p.yellow('✗')} candidate ${c.id} rejected before it ran: ${c.reason}`);
+        return null;
+      }
+    }
+    let tree: ReturnType<typeof candidateTree>;
     try {
+      tree = candidateTree(root, cwd);
+    } catch (err) {
+      c.state = 'incomplete';
+      c.reason = `the worktree to verify it in could not be made: ${safeLine(((err as { stderr?: Buffer }).stderr?.toString() || (err as Error).message).trim().split('\n')[0]!)}`;
+      return null;
+    }
+    try {
+      if (tree.linked.length && !linkedSaid) {
+        linkedSaid = true;
+        warnings.push(`${tree.linked.slice(0, 3).join(', ')}${tree.linked.length > 3 ? ` and ${tree.linked.length - 3} more` : ''}, which git ignores, ${tree.linked.length === 1 ? 'was' : 'were'} linked into the worktree candidates were verified in rather than copied, past the ${REPAIR_COPY_LIMIT_MB} MB copied: a --build that writes there writes the working tree's copy`);
+      }
+      writeFileSync(join(tree.root, edit.file), patched);
       if (s.build) {
-        const b = runBuild(s.build, cwd);
+        const b = runBuild(s.build, tree.cwd);
         if (!b.ok) {
           c.state = 'build-failed';
           c.reason = `${s.build} failed: ${b.tail}`;
           return null;
         }
       }
-      const role = (list: AttemptTarget[], r: VerifyRole) => list.map((t) => ({ ...t, role: r }));
       const v = await runVerify({
         opts: input.opts,
-        runs: [...role(input.targets, 'target'), ...role(holdout, 'holdout'), ...role(input.good, 'good')],
-        settings: { attempts: s.attempts, needed: s.needed, gate: s.gate, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard },
+        runs: runs.map((t) => ({ ...t, argv: tree.argv(t.argv) })),
+        settings: { attempts: s.attempts, needed: s.needed, gate: s.gate, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard, cwd: tree.cwd },
         log: (line) => log(`  ${line}`),
       });
       cost.verify += v.spent;
@@ -673,12 +736,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
       log(`  ${p.green('✓')} candidate ${c.id} accepted`);
       return { original, patched };
     } finally {
-      const back = recoverWorkingTree(cwd);
-      if (!back.includes(abs)) warnings.push(`${edit.file} changed while candidate ${c.id} was verified, so it was left as it is: check it for the candidate's edit`);
-      if (s.build) {
-        const b = runBuild(s.build, cwd);
-        if (!b.ok) warnings.push(`${s.build} failed after ${edit.file} was restored: ${b.tail}`);
-      }
+      tree.remove();
     }
   }
 }
@@ -746,10 +804,7 @@ function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' | 'outpu
     const goldensDir = goldens ? resolve(cwd, goldens) : null;
     try {
       if (input.outputs.apply) {
-        const abs = join(root, accepted.file);
-        const now = readFileSync(abs, 'utf8');
-        if (now.slice(accepted.offset, accepted.offset + accepted.before.length) !== accepted.before) throw new RepairError(`${accepted.file} changed during the repair; apply ${out.patch} by hand`);
-        writeFileSync(abs, applyEdit(now, { offset: accepted.offset, text: accepted.before }, accepted.after));
+        applyAccepted(report, root);
         out.applied = true;
         if (goldensDir) {
           try {
@@ -778,6 +833,23 @@ function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' | 'outpu
   writeFileSync(join(dir, 'report.json'), JSON.stringify(report, null, 2) + '\n');
   if (failed) throw new HandOverError(failed.message, report);
   return report;
+}
+
+/**
+ * Puts the accepted candidate in the working tree: the only change a repair makes there, after every
+ * candidate was verified in a worktree of its own. Its patch is checked first to be that candidate's
+ * rewrite and nothing more (`repairPatchProblem`, as `shadowlap fix apply` checks a patch from the
+ * store), and its text to be where it was found; otherwise nothing is written and it says why.
+ */
+export function applyAccepted(report: Pick<RepairReport, 'patch' | 'candidates' | 'accepted' | 'output'>, root: string): void {
+  const accepted = report.candidates.find((c) => c.id === report.accepted);
+  if (!accepted || !report.patch) throw new RepairError('there is no accepted candidate to apply');
+  const problem = repairPatchProblem(report);
+  if (problem) throw new RepairError(`the patch is not the accepted candidate's change (${problem}), so nothing was applied`);
+  const abs = join(root, accepted.file);
+  const now = readFileSync(abs, 'utf8');
+  if (now.slice(accepted.offset, accepted.offset + accepted.before.length) !== accepted.before) throw new RepairError(`${accepted.file} changed during the repair; apply ${report.output.patch ?? 'the patch'} by hand`);
+  writeFileSync(abs, applyEdit(now, { offset: accepted.offset, text: accepted.before }, accepted.after));
 }
 
 function commitMessage(r: RepairReport, c: RepairCandidate): string {
@@ -870,8 +942,8 @@ export function splitHoldout<T extends { parent: RunRecord }>(runs: T[]): { targ
  * --max-growth 25%`. Both as precise as they need to be, so a limit given as 0.5 reads 0.5%, and a
  * growth past it never reads as no more than it.
  */
-export function growthReason(growth: number, maxGrowth: number): string {
+export function growthReason(growth: number, maxGrowth: number, from?: string): string {
   const limit = +(maxGrowth * 100).toFixed(4);
   const whole = Math.round(growth * 100);
-  return `input tokens per run grow ${whole > limit ? whole : +(growth * 100).toFixed(2)}%, more than --max-growth ${limit}%`;
+  return `input tokens per run grow ${whole > limit ? whole : +(growth * 100).toFixed(2)}%${from ? ` ${from}` : ''}, more than --max-growth ${limit}%`;
 }

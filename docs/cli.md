@@ -180,20 +180,21 @@ Exit status 0 when the change is accepted, 1 when it is rejected or the verifica
 shadowlap repair --fixes <run...> [--holdout <run...>] [--keeps <run...>] [options] [-- <command> [args...]]
 ```
 
-Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `repair.repairer` in the config) to rewrite the system prompt or a tool description, and keeps the smallest rewrite `verify` accepts on the failing runs, runs held out from the repairer, and the good runs. Rewrites that name a detail of the failing runs are set aside before anything runs. Candidates are tried in the working tree and put back; the fix comes out as a patch, a pull request body and a recording of each fixed run. [Repair](./repair.md) explains the loop and the safeguards.
+Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `repair.repairer` in the config) to rewrite the system prompt or a tool description, and keeps the smallest rewrite `verify` accepts on the failing runs, runs held out from the repairer, and the good runs. Rewrites that name a detail of the failing runs, or add a placeholder the agent would fill in, are set aside before anything runs. Each candidate is verified in a temporary git worktree, never in the working tree; the fix comes out as a patch, a pull request body and a recording of each fixed run. [Repair](./repair.md) explains the loop and the safeguards.
 
 | Option | Effect |
 |---|---|
 | `--fixes`, `--holdout`, `--keeps <run...>` | The failing runs, the failing runs kept from the repairer (default: every other `--fixes` run, when there are two or more), and the runs that must keep passing |
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0 |
 | `--repairer <provider:model>` | `anthropic` (Claude Opus 5.5), `anthropic:<model>`, `openai:<model>`, or `claude-code[:<model>]` to run your own Claude Code in print mode |
+| `--repairer-timeout <seconds>` | Give up on the repairer when it hasn't answered after this long. Default `repair.timeout` in the config, else 600 |
 | `--candidates <n>` | Rewrites to ask for. Default 3 |
 | `--stronger <model>` | When the recorded model can't be rescued, rescue with this one and try switching to it, before asking the repairer |
 | `--scope <name>`, `--set <key=value>` | As for `blame`: which calls to probe, and what probes change, such as `temperature=1` |
 | `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for `verify`. Default `{"good":0.9,"bad":0.7,"risk":0.05,"max":80}` |
 | `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, as for `verify` |
-| `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this. Default 25 |
-| `--build <command>` | Rebuild the agent after its source changes and after each restore |
+| `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this, before verify runs it when its rewrite alone does. Default 25 |
+| `--build <command>` | Build the agent in each candidate's worktree, and in the working tree after `--apply` |
 | `--apply` | Leave the accepted fix in the working tree |
 | `--branch <name>` | Commit it to a new branch without checking anything out |
 | `--pr` | With `--branch`: push it and open a pull request with `gh` |
@@ -914,7 +915,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | `tools` | `trust` by tool name (or a host under `http`): `untrusted` for a read that brings outside text in, where [`shadowlap injection`](./injection.md) plants payloads. Recorded on each call of the tool as it is made, and, read when a run is tested, it wins over every recorded mark (the SDK's, an MCP server's, an earlier config's) |
 | `prices` | USD per million tokens by model prefix, for cost estimates |
 | `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks); `calls`, `when` and `judge` in [Checks](./checks.md), and [judge checks](./judges.md)), a `gate` that decides on a forked golden's attempts with stated error rates ([gating](./gating.md)), an `injection` gate ([details](./injection.md#gate-ci-on-it)), a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)), and a `chaos` object with the golden's [error-path presets](./error-paths.md#configure-a-goldens-presets) (or `false` to leave it out of them) |
-| `repair` | `repairer` (`provider:model`) and `baseUrl` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
+| `repair` | `repairer` (`provider:model`), `baseUrl` and `timeout` (seconds it may take to answer, default 600) for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
 | `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
 | `ciPush` | `false` keeps `test --push` from pushing to the team store in CI, and the GitHub Action from pushing the fixes it opens (`shadowlap store push-from-ci on\|off`) |
 
