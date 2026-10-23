@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from './eventstream.js';
+import { capturedHttp, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, decodedParam, withoutStoredCredentials } from './http.js';
 import { reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
-import { loadApiRequest, storeApiRequest, type RequestManifest } from './manifest.js';
+import { loadApiRequest, manifestRefs, storeApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern, countMatches, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
 import { inEvent, maskJsonChunks, maskSseStream, maskStreamed } from './redact-stream.js';
 import { isJudgeCall, reachesJudgeRequest } from './judge-scope.js';
@@ -34,17 +35,29 @@ type RunCheck = NonNullable<RunMeta['checks']>[number];
  *
  * What the run record itself repeats of that content is masked too: the flags that made a fork
  * (an `--override` carries a whole tool result), the divergence report's diff and reason, the
- * checks' labels, details and judges' reasons, and each call's error, injected failure and response
- * headers. A judge's own request takes only the rules without a path (requestRules). The run's command
- * line, labels and notes are copied as they are: a replay of the copy runs that command. A copy that
- * is only ever read (`export html`) masks them too: redactRunWithDetails.
+ * checks' labels, details and judges' reasons, and each call's error, injected failure, response
+ * headers and query string (redactQuery). A judge's own request takes only the rules without a path
+ * (requestRules). The run's command line, labels and notes are copied as they are: a replay of the
+ * copy runs that command. A copy that is only ever read (`export html`) masks them too:
+ * redactRunWithDetails.
+ *
+ * Every copy also masks the credentials a recording made before they were known to be ones could
+ * hold, rules or none (http.ts): those in a model call's query, a credential response header, and a
+ * captured HTTP call's query, form body and response headers. A call no rule reaches is copied as
+ * its stored bytes, but for those.
  */
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** A call's request as it is stored: a model request is rebuilt from its manifest, a tool's is JSON. */
+/**
+ * A call's request as it is stored: a model request is rebuilt from its manifest, a tool's is JSON;
+ * a captured HTTP call's with the credentials in its query and form body masked, as a recording
+ * stores them now (an earlier version stored them as sent).
+ */
 function storedRequest(src: Store, call: CallRecord): unknown {
-  return call.kind === 'api' ? loadApiRequest(src, call.requestRef!) : src.getJson(call.requestRef!);
+  if (call.kind === 'api') return loadApiRequest(src, call.requestRef!);
+  const request = src.getJson(call.requestRef!);
+  return capturedHttp(call) && isObject(request) && 'args' in request ? { ...request, args: withoutStoredCredentials(request.args) } : request;
 }
 
 /**
@@ -131,8 +144,22 @@ function redactedError(error: SerializedError, rules: Normalizer[], observer?: R
   return out as SerializedError;
 }
 
+/**
+ * A call's request as a copy writes it. One no rule reaches is copied as its stored bytes (a model
+ * request with the parts its manifest names), but for a captured call's credentials; any other has
+ * the rules applied (redactedRequest).
+ */
 function redactRequest(src: Store, call: CallRecord, rules: Normalizer[], dst: Store): string | null {
   if (!call.requestRef) return null;
+  if (!requestRules(call, rules).rules.some((r) => normalizerApplies(r, call.kind, call.name))) {
+    const bytes = src.getBlob(call.requestRef);
+    if (bytes !== null && call.kind !== 'api') return dst.putBlob((capturedHttp(call) ? credentialFreeRequest(bytes) : null) ?? bytes);
+    const parts = bytes === null ? [] : manifestRefs(src, call.requestRef).map((h) => src.getBlob(h));
+    if (bytes !== null && parts.every((b): b is Buffer => b !== null)) {
+      for (const part of parts) dst.putBlob(part);
+      return dst.putBlob(bytes);
+    }
+  }
   const body = redactedRequest(src, call, rules);
   return call.kind === 'api' ? storeApiRequest(dst, body) : dst.putJson(body);
 }
@@ -185,11 +212,16 @@ export function matchedAs(call: Pick<CallRecord, 'kind' | 'name' | 'meta'>, norm
   return { name: masked(call.name), normalizers: normalizers.map((n) => (n.name === undefined ? n : { ...n, name: masked(n.name) })) };
 }
 
-/** What a call got back as a copy writes it: `read` for a copy that is only read (redactBytes' `call`). */
-function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallScope, read: boolean): string | null {
+/**
+ * What a call got back as a copy writes it: `read` for a copy that is only read (redactBytes'
+ * `call`). A captured HTTP call's result keeps its headers as a recording keeps them now
+ * (credentialFreeResult).
+ */
+function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallRecord, read: boolean): string | null {
   if (!ref) return null;
-  const bytes = src.getBlob(ref);
-  if (!bytes) return null;
+  const stored = src.getBlob(ref);
+  if (!stored) return null;
+  const bytes = capturedHttp(call) ? (credentialFreeResult(stored) ?? stored) : stored;
   return dst.putBlob(keptAsRecorded(call) ? bytes : redactBytes(bytes, rules, read ? call : undefined));
 }
 
@@ -401,7 +433,8 @@ function redactDivergence(d: DivergenceReport, rules: Normalizer[], observer?: R
  */
 function redactMeta(meta: RunMeta | undefined, rules: Normalizer[], observer?: RewriteObserver): RunMeta {
   const { expect: _expect, ...rest } = meta ?? {};
-  const out: RunMeta = { ...rest, redactions: [...(meta?.redactions ?? []), ...rules] };
+  // A copy made with no rules (to mask credentials alone) records none.
+  const out: RunMeta = { ...rest, ...(meta?.redactions !== undefined || rules.length ? { redactions: [...(meta?.redactions ?? []), ...rules] } : {}) };
   const text = (v: unknown): string => (typeof v === 'string' ? rewriteText(v, rules, observer) : '');
   if (Array.isArray(meta?.interventions)) out.interventions = meta.interventions.filter(isObject).map((i) => ({ kind: i.kind, at: i.at, flag: text(i.flag) }));
   // A judge's reason is a model's words about what it read, and its check's name is the label's:
@@ -416,15 +449,103 @@ function redactMeta(meta: RunMeta | undefined, rules: Normalizer[], observer?: R
 
 /**
  * A call's metadata with what it repeats of the content masked: its error, an injected failure's
- * message, the response headers. `call` for a copy that is only read: the error gets the path rules
- * that reach what that call got back too. `observer` hears each change, for the preview.
+ * message, the response headers (a credential header's value masked, a cookie left out:
+ * credentialFreeHeaders). `call` for a copy that is only read: the error gets the path rules that
+ * reach what that call got back too. `observer` hears each change, for the preview.
  */
 function redactCallMeta(meta: CallMeta, rules: Normalizer[], call: CallScope | undefined, observer?: RewriteObserver): CallMeta {
   const out: CallMeta = { ...meta };
   if (meta.error) out.error = redactedError(meta.error, rules, observer, call);
   if (isObject(meta.failure) && typeof meta.failure.message === 'string') out.failure = { ...meta.failure, message: rewriteText(meta.failure.message, rules, observer) };
-  if (meta.headers) out.headers = Object.fromEntries(Object.entries(meta.headers).map(([k, v]) => [k, rewriteText(v, rules, observer)]));
+  if (meta.headers) out.headers = Object.fromEntries(Object.entries(credentialFreeHeaders(meta.headers)).map(([k, v]) => [k, rewriteText(v, rules, observer)]));
   return out;
+}
+
+/**
+ * A model call's query string (`meta.query`, without its `?`) as every copy keeps it: its
+ * credentials left out, whatever their value (credentialFreeQuery), then the rules without a path
+ * that apply to the call, by its kind and name as on its request. Each parameter is read as the
+ * text `name=value`, both decoded, so a pattern finds an address the query wrote `alice%40…` and a
+ * lookbehind for the name (`(?<=customer=)\w+`) finds its value. A parameter a rule changed is
+ * written again, encoded; every other byte stays. Undefined when nothing is left. A replay of the
+ * copy reads a live call's query through it too, so both sides match alike.
+ */
+export function redactQuery(query: string, rules: readonly Normalizer[], call: Pick<CallRecord, 'kind' | 'name'>, observer?: RewriteObserver): string | undefined {
+  const free = credentialFreeQuery(query);
+  if (free === undefined) return undefined;
+  const applying = rules.flatMap((rule, i) => (rule.path === undefined && rule.pattern !== undefined && normalizerApplies(rule, call.kind, call.name) ? [{ rule, i, regex: compilePattern(rule.pattern) }] : []));
+  if (!applying.length) return free;
+  return free
+    .split('&')
+    .map((part) => {
+      const eq = part.indexOf('=');
+      const text = eq < 0 ? decodedParam(part) : `${decodedParam(part.slice(0, eq))}=${decodedParam(part.slice(eq + 1))}`;
+      let out = text;
+      for (const { rule, i, regex } of applying) {
+        regex.lastIndex = 0;
+        const next = out.replace(regex, rule.replace);
+        if (next !== out) observer?.changed?.(i, out, next, countMatches(out, regex));
+        out = next;
+      }
+      if (out === text) return part;
+      const at = out.indexOf('=');
+      return at < 0 ? encodeURIComponent(out) : `${encodeURIComponent(out.slice(0, at))}=${encodeURIComponent(out.slice(at + 1))}`;
+    })
+    .join('&');
+}
+
+/** A call's own metadata as a copy keeps it: a model call's query masked (redactQuery), the rest as it is. */
+function redactStartMeta(call: CallRecord, rules: readonly Normalizer[], observer?: RewriteObserver): CallMeta {
+  if (typeof call.meta.query !== 'string') return call.meta;
+  const { query: recorded, ...rest } = call.meta;
+  const query = redactQuery(recorded as string, rules, call, observer);
+  return query === undefined ? rest : { ...rest, query };
+}
+
+/**
+ * A call as a push copies it to the team store, as recorded but for the credentials a recording
+ * made before they were known to be ones kept in its metadata: a model call's query
+ * (credentialFreeQuery) and a credential response header (credentialFreeHeaders). Its stored
+ * requests and responses go as they are. The same object when there is nothing to mask.
+ */
+export function credentialFreeCall(call: CallRecord): CallRecord {
+  let meta = call.meta;
+  if (typeof call.meta.query === 'string') {
+    const query = credentialFreeQuery(call.meta.query);
+    if (query !== call.meta.query) {
+      const { query: _recorded, ...rest } = call.meta;
+      meta = query === undefined ? rest : { ...rest, query };
+    }
+  }
+  const end = (e: CallEndRow): CallEndRow => {
+    const headers = e.meta.headers && credentialFreeHeaders(e.meta.headers);
+    return headers && headers !== e.meta.headers ? { ...e, meta: { ...e.meta, headers } } : e;
+  };
+  const attempts = call.attempts.map(end);
+  const last = call.end ? end(call.end) : null;
+  if (meta === call.meta && last === call.end && attempts.every((a, i) => a === call.attempts[i])) return call;
+  return { ...call, meta, end: last, attempts };
+}
+
+/**
+ * Whether a run holds a credential that a recording made before it was known to be one kept: in a
+ * model call's query, a credential response header, or a captured HTTP call's query, form body or
+ * response headers. Every copy of such a run goes through redactRun, rules or none, which masks
+ * them; a run without any is copied as it is when no rule applies.
+ */
+export function carriesCredentials(store: Store, runId: string): boolean {
+  for (const call of store.getCalls(runId)) {
+    if (typeof call.meta.query === 'string' && credentialFreeQuery(call.meta.query) !== call.meta.query) return true;
+    const captured = capturedHttp(call);
+    const request = captured && call.requestRef ? store.getBlob(call.requestRef) : null;
+    if (request && credentialFreeRequest(request)) return true;
+    for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
+      if (end.meta.headers && credentialFreeHeaders(end.meta.headers) !== end.meta.headers) return true;
+      const result = captured && end.responseRef ? store.getBlob(end.responseRef) : null;
+      if (result && credentialFreeResult(result)) return true;
+    }
+  }
+  return false;
 }
 
 export interface RedactRunOptions {
@@ -455,7 +576,7 @@ export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: S
     for (const call of calls) {
       const { end, attempts, ...start } = call;
       const name = redactedCallName(call, rules);
-      dst.appendCallStart({ ...start, name, requestRef: redactRequest(src, call, rules, dst) });
+      dst.appendCallStart({ ...start, name, meta: redactStartMeta(call, rules), requestRef: redactRequest(src, call, rules, dst) });
       const identity = { kind: call.kind, name, fingerprint: call.fingerprint, occurrence: call.occurrence };
       const results = options.read ? call : undefined;
       const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, meta: redactCallMeta(e.meta, rules, results), responseRef: redactResponse(src, e.responseRef, rules, dst, call, options.read === true) });
@@ -1016,6 +1137,8 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
         const r = requestRules(call, rules, observer);
         applyNormalizers(request, r.rules, call.kind, call.name, r.observer);
       }
+      // A model call's query string, as every copy masks it.
+      if (typeof call.meta.query === 'string') redactQuery(call.meta.query, rules, call, observer);
       for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
         const response = end.responseRef ? counting.getBlob(end.responseRef) : null;
         here = { call, in: 'response' };

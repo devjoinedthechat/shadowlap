@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { asImportedRun, callRefs, classifyRun, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { asImportedRun, callRefs, classifyRun, credentialFreeCall, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
 import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
 import { asTheStoreHolds, keptHere, madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
@@ -244,8 +244,13 @@ type PushOutcome =
   | { kind: 'pushed' | 'updated' | 'unchanged'; entry: IndexEntry; index: boolean; repaired: boolean }
   | { kind: 'refused'; reason: string };
 
+/**
+ * A run's calls as the store holds them, as `shadowlap pack` writes them, gzipped: as recorded, but
+ * for a credential a recording made before it was known to be one kept in a call's metadata (a model
+ * call's query, a response header), which never goes up (credentialFreeCall).
+ */
 function callsFile(calls: readonly CallRecord[]): { lines: Buffer; gz: Buffer } {
-  const lines = Buffer.from(calls.map((c) => JSON.stringify(c)).join('\n') + (calls.length ? '\n' : ''), 'utf8');
+  const lines = Buffer.from(calls.map((c) => JSON.stringify(credentialFreeCall(c))).join('\n') + (calls.length ? '\n' : ''), 'utf8');
   return { lines, gz: gzipSync(lines) };
 }
 

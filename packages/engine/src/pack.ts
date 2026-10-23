@@ -5,7 +5,7 @@ import { sha256 } from './ids.js';
 import { agentCallsOf, isJudgeCall } from './judge-scope.js';
 import { loadApiRequest, manifestRefs } from './manifest.js';
 import { PACK_LIMITS, PackError, callRefs, validateCall, validateRun } from './pack-schema.js';
-import { redactRun } from './redact.js';
+import { carriesCredentials, redactRun } from './redact.js';
 import { Store } from './store.js';
 import { safeLine } from './text.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
@@ -142,12 +142,14 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
     }
   }
 
-  // Redaction works on a scratch copy; the source store is never modified.
+  // Redaction works on a scratch copy; the source store is never modified. A run whose recording
+  // kept a credential (one made before it was known to be one) is copied so too, with no rules,
+  // which masks it (redactRun): no pack carries one, --no-redact or not.
   let store = source;
   const redacted = (opts.redact?.length ?? 0) > 0;
-  if (redacted) {
+  if (redacted || runs.some((r) => carriesCredentials(source, r.runId))) {
     store = Store.open(':memory:');
-    runs = runs.map((r) => redactRun(source, r.runId, opts.redact!, store));
+    runs = runs.map((r) => redactRun(source, r.runId, opts.redact ?? [], store));
   }
 
   const lines: string[] = [];
