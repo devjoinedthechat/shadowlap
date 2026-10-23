@@ -62,7 +62,7 @@ describe('--prompt-from', () => {
     expect(live.every((r) => JSON.stringify((r.body as { system?: unknown }).system).includes('Be brief.'))).toBe(true);
 
     const bad = await shadowlap(['replay', runId, '--prompt-from', String(models[0]! + 1)]);
-    expect(bad.code).toBe(1);
+    expect(bad.code).toBe(2);
     expect(bad.out).toMatch(/is not a model call/);
   });
 });

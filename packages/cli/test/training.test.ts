@@ -456,7 +456,7 @@ describe('shadowlap tasks', () => {
     expect(before).toHaveLength(2);
     // An attempt costs more than the budget: the second never starts.
     const cut = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '2', '--budget', '0.001']);
-    expect(cut.code).toBe(1);
+    expect(cut.code).toBe(3);
     expect(cut.out.match(/the budget of \$0\.0010 is spent/g)).toHaveLength(1);
     expect(cut.out).toContain('refund-over-limit: kept the earlier score (0.33 over 2 attempts): this one stopped after 1 of 2');
     expect(scored()).toEqual(before);
@@ -464,7 +464,7 @@ describe('shadowlap tasks', () => {
 
   it('refuses what can\'t be scored, and says why', async () => {
     const r = await shadowlap(work, ['tasks', 'score', 'goldens/budget', '--model', 'weak-model']);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.out).toContain('skipped goldens/budget is not a task: its checks only cap tokens and cost');
     // Nothing answers at the endpoint: the first attempt runs alone and stops the task, whatever the concurrency.
     const down = await shadowlap(work, ['tasks', 'score', '--model', 'my-finetune', '--base-url', 'http://127.0.0.1:9/v1', '--attempts', '3', '--concurrency', '3']);
@@ -496,7 +496,7 @@ describe('shadowlap tasks', () => {
       expect(listed.tasks.find((t) => t.golden === 'goldens/captured')).toMatchObject({ status: 'blocked', note: expect.stringContaining('imported from a capture and has no command to run') });
       const runs = withStore(db, (s) => s.allRuns().length);
       const captured = await shadowlap(work, ['tasks', 'score', 'goldens/captured', '--model', 'weak-model', '--attempts', '1']);
-      expect(captured.code).toBe(1);
+      expect(captured.code).toBe(2);
       expect(captured.out).toContain('skipped goldens/captured is blocked: it was imported from a capture and has no command to run');
       expect(withStore(db, (s) => s.allRuns().length)).toBe(runs);
     } finally {
@@ -657,7 +657,7 @@ describe('a task with a judge check', () => {
 
     // A budget the attempt's own calls stay under, but not with its judge's: the second attempt never starts.
     const cut = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '2', '--budget', String(one.spent + one.judge!.spent / 2), '--json']);
-    expect(cut.code, cut.out).toBe(1);
+    expect(cut.code, cut.out).toBe(3);
     const stopped = (JSON.parse(cut.stdout) as Report).tasks[0]!;
     expect(stopped.attempts).toHaveLength(1);
     expect(stopped.stopped).toMatch(/^the budget of \$[\d.]+ is spent$/);
@@ -713,7 +713,7 @@ describe('a budget spent by the judge checks of an earlier task', () => {
 
   type Report = { tasks: Array<{ task: string; spent: number; judge: { spent: number } | null; stopped: string | null; stored: string; attempts: unknown[] }> };
 
-  it('starts no attempt of a later task, says it stopped there, and exits 1', async () => {
+  it('starts no attempt of a later task, says it stopped there, and exits 3, the budget spent before a verdict', async () => {
     // What an attempt of the first task costs, and apart, what its judge's call does.
     const alone = await shadowlap(work, ['tasks', 'score', 'goldens/first', '--model', 'claude-haiku-4-5', '--attempts', '1', '--json']);
     expect(alone.code, alone.out).toBe(0);
@@ -724,7 +724,7 @@ describe('a budget spent by the judge checks of an earlier task', () => {
     // More than the first task's own calls cost, less than with its judge's: it runs its one
     // attempt, and the budget is spent before the second starts any.
     const r = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '1', '--budget', String(first.spent + first.judge!.spent / 2), '--json']);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const report = JSON.parse(r.stdout) as Report;
     expect(report.tasks.map((t) => [t.task, t.attempts.length, t.stopped])).toEqual([
       ['goldens/first', 1, null],

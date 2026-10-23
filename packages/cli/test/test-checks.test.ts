@@ -154,7 +154,7 @@ describe('shadowlap test with outcome checks', () => {
 
   it('refuses a config it cannot read before replaying anything', async () => {
     const r = await shadowlapTest({ 'goldens/reference-agent': { expect: { tool: { send_email: 0 } } } });
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.out).toContain('tests["goldens/reference-agent"].expect has an unknown key "tool"');
   });
 });

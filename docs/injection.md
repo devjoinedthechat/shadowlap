@@ -224,7 +224,7 @@ shadowlap injection <run> --clean 7
   sets the most attempts, and fewer than the figures need to decide is refused.
 - A clean attempt in which something failed (a model call, the agent's exit), or that never made the
   read, decides nothing, and says why; three in a row stop the test.
-- Each write is *caused*, *not caused* or *inconclusive*; the exit status is 1 while one is
+- Each write is *caused*, *not caused* or *inconclusive*; the exit status is 3 while one is
   inconclusive, whatever the others are (`--inconclusive warn` lets it through). A read not marked
   untrusted is tested all the same, with a note on how to mark it.
 

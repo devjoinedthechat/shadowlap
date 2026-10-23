@@ -321,7 +321,7 @@ describe('an attempt a judge could not answer', () => {
     expect(v.runs[0]!.runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
     expect(v.runs[0]!.undecided).toMatch(/^judge "issued" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/);
     expect(v.reasons).toEqual([expect.stringMatching(new RegExp(`^good run ${rec.slice(0, 10)} inconclusive: attempt 1 could not be judged: judge "issued" answers yes`))]);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(3);
     // shadowlap show on the attempt says so too.
     expect((await shadowlap(['show', v.runs[0]!.runs[0]!.runId])).stdout).toContain('an attempt of shadowlap verify, replaying a good run: inconclusive, a check could not be decided');
     const text = await shadowlap(['verify', '--keeps', rec, '--expect', unanswered, '--attempts', '3', '--passes', '3', '--set', 'max_tokens=99'], { VARIANT: 'plain' });
@@ -345,7 +345,7 @@ describe('a gated golden whose attempt a judge could not answer', () => {
     const junit = join(work, `junit-${++counter}.xml`);
     const markdown = join(work, `summary-${++counter}.md`);
     const t = await test('goldens/twice', ['--junit', junit, '--markdown', markdown], { VARIANT: 'n' });
-    expect(t.code, t.out).toBe(1);
+    expect(t.code, t.out).toBe(3);
     expect(t.result).toMatchObject({ verdict: 'inconclusive', failure: 'inconclusive' });
     // Its gate decided nothing: the check is why it is inconclusive, and no report says otherwise.
     const xml = readFileSync(junit, 'utf8');

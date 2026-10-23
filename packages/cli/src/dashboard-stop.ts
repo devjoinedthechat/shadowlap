@@ -1,4 +1,5 @@
 import type { Dashboard } from '@shadowlap/dashboard';
+import { signalExit } from './exit-codes.js';
 
 /**
  * Stopping a process that runs dashboard jobs. Each job leads a process group of its own, so neither
@@ -96,6 +97,6 @@ function end(signal: NodeJS.Signals): void {
   try {
     process.kill(process.pid, signal);
   } catch {
-    process.exit(1);
+    process.exit(signalExit(signal));
   }
 }

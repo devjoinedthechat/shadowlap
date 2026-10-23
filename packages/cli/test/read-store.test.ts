@@ -28,26 +28,27 @@ function shadowlap(cwd: string, args: string[]): { code: number | null; out: str
 }
 
 describe('a command that only reads the store', () => {
+  // Exit status 2 for a run or fix it can't find (usage), 1 for a search that matches nothing (as grep).
   const reads: Array<[string[], number]> = [
     [['ls'], 0],
     [['ls', '--json'], 0],
-    [['show', 'x'], 1],
+    [['show', 'x'], 2],
     [['search', 'foo'], 1],
-    [['label', 'x', 'y'], 1],
-    [['note', 'x', 'hello'], 1],
-    [['diff', 'a', 'b'], 1],
-    [['rm', 'x'], 1],
-    [['pack', 'x', 'out'], 1],
-    [['export', 'html', 'x'], 1],
+    [['label', 'x', 'y'], 2],
+    [['note', 'x', 'hello'], 2],
+    [['diff', 'a', 'b'], 2],
+    [['rm', 'x'], 2],
+    [['pack', 'x', 'out'], 2],
+    [['export', 'html', 'x'], 2],
     [['export', 'dataset', '--all'], 0],
     [['export', 'pairs'], 0],
     [['fix', 'ls'], 0],
-    [['fix', 'show', 'fx-01'], 1],
-    [['fix', 'title', 'fx-01', 'New'], 1],
+    [['fix', 'show', 'fx-01'], 2],
+    [['fix', 'title', 'fx-01', 'New'], 2],
     [['tasks', 'ls'], 0],
     // Commands that record look their run up first: one that isn't there leaves no store either.
-    [['replay', 'x'], 1],
-    [['blame', 'x', '--expect', '{"exitCode":0}'], 1],
+    [['replay', 'x'], 2],
+    [['blame', 'x', '--expect', '{"exitCode":0}'], 2],
   ];
   it.each(reads)('%j leaves no store behind in a folder without one', (args, code) => {
     const dir = fresh();
@@ -68,7 +69,7 @@ describe('a command that only reads the store', () => {
     const src = join(project, 'src');
     mkdirSync(src);
     const show = shadowlap(src, ['show', run.runId.slice(0, 10)]);
-    expect(show.code).toBe(1);
+    expect(show.code).toBe(2);
     expect(show.out).toContain(`no run matches "${run.runId.slice(0, 10)}": there is no store in this folder, and the nearest is ${join('..', '.shadowlap', 'shadowlap.db')}. Run shadowlap from ${project}, or name that store: shadowlap --db ${join('..', '.shadowlap', 'shadowlap.db')} <command>`);
     const ls = shadowlap(src, ['ls']);
     expect(ls.code).toBe(0);
@@ -82,7 +83,7 @@ describe('a command that only reads the store', () => {
   it('says so when --db names a store that isn’t there, and creates none', () => {
     const dir = fresh();
     const r = shadowlap(dir, ['--db', 'other.db', 'show', 'x']);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.out).toContain('no run matches "x": there is no store at other.db');
     expect(existsSync(join(dir, 'other.db'))).toBe(false);
   });
@@ -93,7 +94,7 @@ describe('a command that only reads the store', () => {
     expect(ls.code).toBe(0);
     expect(ls.out).toContain('no runs yet: shadowlap run -- <command>');
     const show = shadowlap(dir, ['--db', ':memory:', 'show', 'x']);
-    expect(show.code).toBe(1);
+    expect(show.code).toBe(2);
     expect(show.out).toContain('no run matches "x" (see: shadowlap ls)');
     expect(show.out).not.toContain('there is no store');
     expect(readdirSync(dir)).toEqual([]);

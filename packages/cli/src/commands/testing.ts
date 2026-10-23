@@ -9,6 +9,7 @@ import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.
 import { testChaos } from '../chaos-session.js';
 import { checkLine, judgeResults, specFor, type JudgeCheck, type TestSpec } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { EXIT, interruptedStatus, signalExit } from '../exit-codes.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
@@ -549,8 +550,9 @@ export function register(program: Command): void {
       // A golden that passes but forks before its task's takeover: Training lists its task as blocked until it is updated.
       for (const f of forkedEarly) process.stdout.write(p.dim(`${safe(f.golden)} forks at #${f.at}, before its task's takeover at #${f.takeover}, so no model can be scored on it. Update it: shadowlap test ${safe(quoteArgv([f.packDir]))} --update\n`));
       await telemetry().flush();
-      // As a shell reports a command a signal stopped: 130 for Ctrl-C, 143 for SIGTERM.
-      process.exitCode = signal ? (signal === 'SIGINT' ? 130 : 143) : report.failed ? 1 : 0;
+      // As a shell reports a command a signal stopped: 130 for Ctrl-C, 143 for SIGTERM. Then a golden
+      // that failed, 1; one that was inconclusive and not let through (--inconclusive warn), 3.
+      process.exitCode = signal ? signalExit(signal) : results.some((r) => !r.ok && r.verdict === 'failed') ? EXIT.failed : results.some((r) => !r.ok) ? EXIT.inconclusive : EXIT.ok;
     });
 
   program
@@ -592,13 +594,15 @@ export function register(program: Command): void {
         emitJobEvent({ type: 'result', data: report });
         // Where the answer shows: above a golden's buttons on Tests, or on the run's page.
         emitJobEvent(report.target.kind === 'golden' ? { type: 'link', label: 'Open Tests', href: '#/tests' } : { type: 'link', label: 'Open the run', href: `#/run/${report.target.runId}` });
-        process.exitCode = report.outcome === 'found' ? 0 : 1;
+        // Found, 0; no first bad commit between the two, 1; a commit at either end that couldn't be tested, 3; cut short by a signal, its status.
+        process.exitCode = report.outcome === 'found' ? EXIT.ok : report.outcome === 'untestable' ? EXIT.inconclusive : report.outcome === 'stopped' ? interruptedStatus() : EXIT.failed;
       } catch (err) {
         if (!(err instanceof BisectError)) throw err;
         if (flags.json) process.stdout.write(JSON.stringify({ outcome: 'error', error: { message: err.message } }, null, 2) + '\n');
         // Declined: the question, or why it couldn't be asked, is already on the terminal.
         else if (!(err instanceof BisectDeclined)) process.stderr.write(`${p.red('✗')} ${err.message}\n`);
-        process.exitCode = 1;
+        // What it was given can't be searched (a commit that isn't one, a run with no command), or the command needs --yes.
+        process.exitCode = EXIT.usage;
       }
     });
 

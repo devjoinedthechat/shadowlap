@@ -218,7 +218,7 @@ describe('a switch changes the agent\'s model calls', () => {
   it("refuses to ask a model of another family the recorded request, and says why", async () => {
     const before = mock.requests.length;
     const r = await shadowlap(['decisions', runId, '--model', 'gpt-5.6-sol', '--json']);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(3);
     const report = json<DecisionsReport>(r);
     expect(mock.requests.length).toBe(before);
     expect(report.runs[0]!.counts).toMatchObject({ notAsked: 3, untouched: 1 });

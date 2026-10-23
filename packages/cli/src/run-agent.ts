@@ -12,6 +12,7 @@ import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } fro
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
 import { askJudges, judgedOptions, judgesOf, materialOf, unjudged, type Judged } from './judge.js';
 import { emitJobEvent } from './job-events.js';
+import { signalExit } from './exit-codes.js';
 import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
@@ -467,7 +468,8 @@ const STOP_SIGNALS: ReadonlySet<string> = new Set(['SIGINT', 'SIGTERM', 'SIGHUP'
  * of it. A grandchild that holds the pipes open keeps the run waiting no more than a moment.
  */
 function onDrained(child: ReturnType<typeof spawn>, resolve: (code: number) => void): void {
-  const status = (c: number | null, signal: NodeJS.Signals | null) => c ?? (signal ? 128 : 1);
+  // An agent a signal stopped ends with 128 + the signal's number, as a shell reports it: `run` and `replay` pass that on.
+  const status = (c: number | null, signal: NodeJS.Signals | null) => c ?? (signal ? signalExit(signal) : 1);
   child.on('close', (c, signal) => resolve(status(c, signal)));
   child.on('exit', (c, signal) => setTimeout(() => resolve(status(c, signal)), 2_000).unref());
 }
@@ -598,7 +600,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
       resolve(127);
     });
     if (extra.capture) onDrained(child, resolve);
-    else child.on('exit', (c, signal) => resolve(c ?? (signal ? 128 : 1)));
+    else child.on('exit', (c, signal) => resolve(c ?? (signal ? signalExit(signal) : 1)));
   });
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);
@@ -722,7 +724,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
         });
         // Piped output is read to the end before it is printed or checked.
         if (!streaming || tee) onDrained(child, resolveCode);
-        else child.on('exit', (c, signal) => resolveCode(c ?? (signal ? 128 : 1)));
+        else child.on('exit', (c, signal) => resolveCode(c ?? (signal ? signalExit(signal) : 1)));
       });
       running.delete(child);
       if (shown) {

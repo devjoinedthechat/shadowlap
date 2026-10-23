@@ -30,7 +30,7 @@ const actionCheck = /- name: Check Node\.js\n[\s\S]*?node -e '([^']+)'/.exec(rea
 describe('the Node the CLI starts on', () => {
   it.each(['22.13.0', '22.15.1', '23.11.1', '20.19.0', '18.20.8'])('refuses Node %s in one line naming the Node it needs', (version) => {
     const r = cliOn(version);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.stdout).toBe('');
     expect(r.stderr).toBe(`shadowlap: needs Node.js 22.16 or later (not 23), whose built-in SQLite has full-text search; this is Node.js ${version}\n`);
   });

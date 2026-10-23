@@ -81,10 +81,10 @@ describe.skipIf(process.platform === 'win32')('shadowlap fix pr', () => {
 
   it('says what it can’t record or read', async () => {
     const none = await shadowlap(['fix', 'pr', fixId]);
-    expect(none.code).toBe(1);
+    expect(none.code).toBe(2);
     expect(none.out).toContain('has no pull request: record one with shadowlap fix pr');
     const bad = await shadowlap(['fix', 'pr', fixId, 'acme/support-agent#138']);
-    expect(bad.code).toBe(1);
+    expect(bad.code).toBe(2);
     expect(bad.out).toContain("acme/support-agent#138 is not a pull request's address: give its https:// link");
     // gh can't tell (it answers nothing it knows): the state stays as recorded, and it says so.
     await shadowlap(['fix', 'pr', fixId, PR]);

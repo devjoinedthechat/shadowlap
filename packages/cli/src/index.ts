@@ -1,4 +1,5 @@
-import { Command, Option } from 'commander';
+import { Command, CommanderError, Option } from 'commander';
+import { CliError, EXIT } from './exit-codes.js';
 import { register as registerCheck } from './commands/check.js';
 import { register as registerChanges } from './commands/changes.js';
 import { register as registerCoverage } from './commands/coverage.js';
@@ -18,6 +19,8 @@ import { VERSION } from './shared.js';
 export { captureConfig, guardEnv, type GuardMode } from './run-agent.js';
 export { hasCredentials, keyEnvOf, placeholderKeys } from './placeholder-keys.js';
 export { quoteArgv } from './ui.js';
+// The exit status contract, for the entry point (bin/shadowlap.js) and for tools that run the CLI.
+export { CliError, EXIT, exitCodeOf, reportError, signalExit, stoppedBy, watchStopSignals } from './exit-codes.js';
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command()
@@ -55,8 +58,25 @@ export async function main(argv: string[]): Promise<void> {
   registerTraining(program);
   registerTeam(program);
   acceptGlobalOptionsAfterCommands(program);
+  usageErrorsExit2(program);
 
   await program.parseAsync(argv);
+}
+
+/**
+ * Commander's own errors (an unknown flag or command, a missing argument, a value its parser
+ * refused, a command group named with no command) end with status 2, after commander has printed
+ * them with the command's usage; --help and --version end with 0. Without this, commander ends the
+ * process itself, with 1.
+ */
+function usageErrorsExit2(program: Command): void {
+  const walk = (command: Command) => {
+    command.exitOverride((err: CommanderError) => {
+      throw new CliError(err.exitCode === 0 ? EXIT.ok : EXIT.usage, err.message, { cause: err, reported: true });
+    });
+    for (const sub of command.commands) walk(sub);
+  };
+  walk(program);
 }
 
 /**

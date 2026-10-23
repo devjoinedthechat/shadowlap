@@ -5,6 +5,7 @@ import { InvalidArgumentError } from 'commander';
 import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, wholeInput, type CallRecord, type RecordEventInput, type RunRecord, type RunStatus } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { defaultDbPath } from './config.js';
+import { usageError } from './exit-codes.js';
 import { Telemetry, type EventInput } from './telemetry.js';
 import { palette as p, quoteArgv, safe, shortId } from './ui.js';
 
@@ -167,7 +168,7 @@ export function requireRun(store: Store, idOrPrefix: string): RunRecord {
   const run = store.findRun(idOrPrefix);
   if (!run) {
     const note = missingStoreNote(store);
-    throw new Error(`no run matches "${idOrPrefix}"${note ? `: ${note}` : ' (see: shadowlap ls)'}`);
+    throw usageError(`no run matches "${idOrPrefix}"${note ? `: ${note}` : ' (see: shadowlap ls)'}`);
   }
   return run;
 }
@@ -192,7 +193,7 @@ export function stillRecording(store: Store, run: RunRecord, verb: string, linea
 /** Refuses to copy or replay a run still recording, as the dashboard's Share, Replay and Fork do (stillRecording). */
 export function requireEnded(store: Store, run: RunRecord, verb: string, lineage: readonly RunRecord[] = []): void {
   const why = stillRecording(store, run, verb, lineage);
-  if (why) throw new Error(why);
+  if (why) throw usageError(why);
 }
 
 /**

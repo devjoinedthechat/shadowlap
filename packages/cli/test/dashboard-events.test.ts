@@ -286,7 +286,7 @@ describe('more commands a dashboard job runs', () => {
     child.kill('SIGTERM');
     // Windows has no SIGTERM a process can catch: kill() ends it on the spot, before it can end its run.
     if (process.platform === 'win32') return void (await exited);
-    expect(await exited).toBe(0);
+    expect(await exited).toBe(143);
     withStore((s) => expect(s.getRun(started.runId)!.status).toBe('completed'));
   });
 });

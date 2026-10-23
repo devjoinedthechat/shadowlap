@@ -71,7 +71,7 @@ describe('shadowlap normalize', () => {
     expect(r.out).toContain('is already this rule; nothing changed');
 
     r = await shadowlap(['normalize', 'add', '--replace', '<X>']);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.err).toContain('give a path, a pattern or both');
     r = await shadowlap(['normalize', 'add', '--path', '$.a', '--pattern', 'uuidd']);
     expect(r.err).toContain('unknown pattern "uuidd"');
@@ -92,7 +92,7 @@ describe('shadowlap normalize', () => {
 
     // A script that read the list can make sure it removes what it read.
     r = await shadowlap(['normalize', 'rm', '1', '--expect', 'absent']);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('changed since it was read') });
+    expect(r).toMatchObject({ code: 2, err: expect.stringContaining('changed since it was read') });
     r = await shadowlap(['normalize', 'rm', 'create_ticket', '--expect', listed.version]);
     expect(r.out).toContain('removed normalizer #3 (tool · create_ticket  $.args.idempotency_key  whole value → <ID>)');
     r = await shadowlap(['normalize', 'rm', '#1']);
@@ -126,7 +126,7 @@ describe('shadowlap normalize', () => {
     expect(JSON.parse((await shadowlap(['normalize', 'ls', '--json'])).out).rules[1]).toMatchObject({ n: 2, error: expect.stringContaining('uuidd') });
     // What applies normalizers names the broken rule before it records anything.
     const run = await shadowlap(['run', '--', process.execPath, '-e', '']);
-    expect(run).toMatchObject({ code: 1, err: expect.stringContaining('shadowlap.config.json: normalizer #2: unknown pattern "uuidd"') });
+    expect(run).toMatchObject({ code: 2, err: expect.stringContaining('shadowlap.config.json: normalizer #2: unknown pattern "uuidd"') });
     expect((await shadowlap(['normalize', 'rm', 'uuidd'])).code).toBe(0);
     expect(config().normalize).toEqual([{ path: '$.a', replace: '<A>' }]);
   });
@@ -134,9 +134,9 @@ describe('shadowlap normalize', () => {
   it('says when a list of rules is not a list', async () => {
     writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ normalize: { pattern: 'uuid', replace: '<U>' } }));
     const r = await shadowlap(['normalize', 'ls']);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('shadowlap.config.json: normalize must be a list of rules') });
+    expect(r).toMatchObject({ code: 2, err: expect.stringContaining('shadowlap.config.json: normalize must be a list of rules') });
     const json = await shadowlap(['normalize', 'ls', '--json']);
-    expect(json.code).toBe(1);
+    expect(json.code).toBe(2);
     expect(JSON.parse(json.out)).toMatchObject({ error: 'shadowlap.config.json: normalize must be a list of rules', rules: [] });
     expect(JSON.parse((await shadowlap(['redact', 'ls', '--json'])).out)).toMatchObject({ error: null, rules: [] });
   });
@@ -243,7 +243,7 @@ describe('shadowlap redact', () => {
     // A path with no pattern masks the whole value there.
     expect((await shadowlap(['redact', 'add', '--kind', 'tool', '--path', '$.args.api_key', '--replace', '<KEY>'])).code).toBe(0);
     let r = await shadowlap(['redact', 'add', '--pattern', 'number', '--replace', 'n0']);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('number would rewrite its own replacement "n0"') });
+    expect(r).toMatchObject({ code: 2, err: expect.stringContaining('number would rewrite its own replacement "n0"') });
     r = await shadowlap(['redact', 'add', '--kind', 'clock', '--pattern', 'email']);
     expect(r.err).toMatch(/must be one of api, tool/);
 
@@ -262,7 +262,7 @@ describe('shadowlap redact', () => {
     expect(r.out).toContain('+ Owner: <EMAIL>');
 
     r = await shadowlap(['redact', 'preview', live]);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('is still recording; preview it once it has ended') });
+    expect(r).toMatchObject({ code: 2, err: expect.stringContaining('is still recording; preview it once it has ended') });
 
     expect((await shadowlap(['redact', 'rm', 'email'])).out).toContain('removed redaction rule #1 (every call  any string  email → <EMAIL>)');
     expect(config().redact).toEqual([{ kind: 'tool', path: '$.args.api_key', replace: '<KEY>' }]);
@@ -414,9 +414,9 @@ describe('shadowlap gc', () => {
 
     // The dialog says "Delete 2 runs": the run that confirms it deletes exactly those, or nothing.
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '3-0123456789abcdef']);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('the runs gc would delete changed since the dry run (2 runs, not the 3 it listed). Nothing was deleted') });
+    expect(r).toMatchObject({ code: 2, err: expect.stringContaining('the runs gc would delete changed since the dry run (2 runs, not the 3 it listed). Nothing was deleted') });
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '2-0123456789abcdef']);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('(the same number of runs, but not the same ones or not the same attempts under them)') });
+    expect(r).toMatchObject({ code: 2, err: expect.stringContaining('(the same number of runs, but not the same ones or not the same attempts under them)') });
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '2']);
     expect(r).toMatchObject({ code: 1, err: expect.stringContaining('must be the "expect" value a dry run printed') });
     r = await shadowlap(['gc', '--older-than', '30', '--before', String(plan.cutoff)]);
@@ -619,7 +619,7 @@ describe('shadowlap gc', () => {
     more.endRun(late.runId, 'completed');
     more.close();
     r = await shadowlap(['gc', '--before', String(dry.cutoff), '--expect', dry.expect]);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('(the same number of runs, but not the same ones or not the same attempts under them)') });
+    expect(r).toMatchObject({ code: 2, err: expect.stringContaining('(the same number of runs, but not the same ones or not the same attempts under them)') });
     const fresh = JSON.parse((await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json'])).out) as GcPlan & { attempts: number };
     expect(fresh).toMatchObject({ count: 1, attempts: 4 });
     r = await shadowlap(['gc', '--before', String(fresh.cutoff), '--expect', fresh.expect]);
@@ -714,7 +714,7 @@ describe('shadowlap gc', () => {
     const { done, live } = seedRuns();
     for (const args of [['pack', live, 'goldens/half'], ['export', 'html', live, 'half.html'], ['export', 'har', live, 'half.har'], ['export', 'otel', live, '--out', 'half.json'], ['export', 'dataset', live]]) {
       const r = await shadowlap(args);
-      expect(r.code, args.join(' ')).toBe(1);
+      expect(r.code, args.join(' ')).toBe(2);
       expect(r.err).toContain(`${live.slice(0, 10)} is still recording: ${args[0] === 'pack' ? 'pack' : 'export'} it once it has ended`);
     }
     expect(existsSync(join(cwd, 'goldens', 'half'))).toBe(false);
@@ -727,7 +727,7 @@ describe('shadowlap gc', () => {
     // Nor is it replayed, forked or calibrated: there is no end to replay to yet.
     for (const [verb, args] of [['replay', ['replay', live]], ['replay', ['replay', live, '--diverge-at', '1']], ['calibrate', ['calibrate', live]]] as const) {
       const r = await shadowlap([...args]);
-      expect(r.code, args.join(' ')).toBe(1);
+      expect(r.code, args.join(' ')).toBe(2);
       expect(r.err).toContain(`${live.slice(0, 10)} is still recording: ${verb} it once it has ended`);
     }
     // A copy with its lineage waits for every run in it: a fork that ended, of a run still recording.
@@ -788,7 +788,7 @@ describe('shadowlap gc', () => {
 describe('shadowlap calibrate', () => {
   it('asks for a recording first when there is none to calibrate', async () => {
     const r = await shadowlap(['calibrate']);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.err).toContain('Record a run first: shadowlap run -- <command>');
   });
 });

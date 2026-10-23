@@ -1,5 +1,6 @@
 import { statSync, watch } from 'node:fs';
 import { join, normalize, relative, resolve, sep } from 'node:path';
+import { signalExit } from './exit-codes.js';
 
 /**
  * Re-runs something when the project changes, for `shadowlap replay --watch`.
@@ -119,9 +120,10 @@ export function watchAndRerun(opts: WatchOptions): Promise<void> {
       process.off('SIGINT', exit);
       process.off('SIGTERM', exit);
     };
-    const exit = () => {
+    // Watching ends on a stop signal, with its status: 130 for Ctrl-C.
+    const exit = (signal: NodeJS.Signals) => {
       close();
-      process.exit(0);
+      process.exit(signalExit(signal));
     };
     watcher.on('error', (err) => {
       close();

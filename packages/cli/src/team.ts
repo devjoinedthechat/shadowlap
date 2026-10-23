@@ -91,8 +91,9 @@ export function teamEnv(db: string | undefined, io: Partial<TeamIo> = {}): TeamE
 
 /** A failure the command explains in words; the CLI prints the message and exits 1. */
 export class TeamError extends Error {
-  constructor(message: string) {
-    super(message);
+  /** `cause`: the store's own error it says in words, which decides the command's exit status. */
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = 'TeamError';
   }
 }
@@ -541,7 +542,7 @@ function runCounts(store: Store, loc: StoreLocation): { inStore: number; onlyLoc
 
 /** A store or bucket-layout failure, in words, as a TeamError: the command prints it without a stack. */
 function asTeamError(err: unknown, hint?: string): unknown {
-  if (err instanceof StoreError || err instanceof LayoutError || err instanceof StoreUrlError) return new TeamError(hint ? `${err.message}\n${hint}` : err.message);
+  if (err instanceof StoreError || err instanceof LayoutError || err instanceof StoreUrlError) return new TeamError(hint ? `${err.message}\n${hint}` : err.message, { cause: err });
   return err;
 }
 

@@ -250,7 +250,7 @@ describe('shadowlap import langfuse and langsmith', () => {
 
   it('refuses without the keys, with keys the store rejects, and with a host the keys may not travel to in the clear', async () => {
     const noKeys = await shadowlap(['import', 'langfuse', LANGFUSE_ID, '--host', host], { LANGFUSE_PUBLIC_KEY: '', LANGFUSE_SECRET_KEY: '' });
-    expect(noKeys.code).toBe(1);
+    expect(noKeys.code).toBe(2);
     expect(noKeys.err).toContain('LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY');
     const wrong = await shadowlap(['import', 'langsmith', LANGSMITH_ID, '--host', host], { ...KEYS, LANGSMITH_API_KEY: 'lsv2_wrong' });
     expect(wrong.code).toBe(1);
@@ -292,7 +292,7 @@ describe('shadowlap import phoenix and logfire', () => {
 
   it('refuses without a read token, with one Logfire rejects, a project Phoenix lacks, an id that is no trace id, or --since in the future', async () => {
     const noToken = await shadowlap(['import', 'logfire', LOGFIRE_ID, '--host', host]);
-    expect(noToken.code).toBe(1);
+    expect(noToken.code).toBe(2);
     expect(noToken.err).toContain('LOGFIRE_READ_TOKEN');
     const wrong = await shadowlap(['import', 'logfire', LOGFIRE_ID, '--host', host], { LOGFIRE_READ_TOKEN: 'pylf_v1_us_wrong' });
     expect(wrong.code).toBe(1);
@@ -313,7 +313,7 @@ describe('shadowlap import phoenix and logfire', () => {
 
   it('names the variable that gave an address it refuses, never --host when none was given', async () => {
     const withPassword = await shadowlap(['import', 'phoenix', PHOENIX_ID], { PHOENIX_COLLECTOR_ENDPOINT: 'https://ops:hunter2@phoenix.northwind.example/v1/traces' });
-    expect(withPassword.code).toBe(1);
+    expect(withPassword.code).toBe(2);
     expect(withPassword.err).toBe('shadowlap: PHOENIX_COLLECTOR_ENDPOINT: leave credentials out of the URL; the keys come from the environment\n');
     const cleartext = await shadowlap(['import', 'logfire', LOGFIRE_ID], { LOGFIRE_READ_TOKEN: LOGFIRE_TOKEN, LOGFIRE_BASE_URL: 'http://logfire.northwind.example' });
     expect(cleartext.code).toBe(1);
@@ -326,7 +326,7 @@ describe('shadowlap import phoenix and logfire', () => {
   it('reads a Phoenix that asks for no key over plain http on another host, and keeps a key to https there', async () => {
     // As a compose file names it: nothing secret travels, so no --allow-http is needed.
     const keyless = await shadowlap(['import', 'phoenix', PHOENIX_ID], { PHOENIX_COLLECTOR_ENDPOINT: 'http://0.0.0.0:1/v1/traces' });
-    expect(keyless.code).toBe(1);
+    expect(keyless.code).toBe(2);
     expect(keyless.err).toContain('could not reach 0.0.0.0:1');
     const keyed = await shadowlap(['import', 'phoenix', PHOENIX_ID], { PHOENIX_COLLECTOR_ENDPOINT: 'http://0.0.0.0:1/v1/traces', PHOENIX_API_KEY: PHOENIX_KEY });
     expect(keyed.code).toBe(1);

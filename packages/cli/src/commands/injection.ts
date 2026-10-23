@@ -8,6 +8,7 @@ import { loadConfig, loadTests } from '../config.js';
 import { importGolden } from '../golden-test.js';
 import { expandRecordings, goldenName } from '../goldens.js';
 import { CLEAN_GATE, cleanInjection, formatClean, formatPlant, plantInjections, type InconclusiveMode } from '../injection.js';
+import { EXIT, inconclusiveStatus, interruptedStatus } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { textOrFile } from '../interventions.js';
 import { type GuardMode } from '../run-agent.js';
@@ -198,7 +199,7 @@ export function register(program: Command): void {
       for (const t of targets) {
         const imported = !t.golden && commandIsImported(t.run);
         if (imported && !flags.yes && !(await confirmImportedCommand(t.run, t.run.command.argv, `shadowlap injection ${shortId(t.run.runId)} --yes`))) {
-          process.exitCode = 1;
+          process.exitCode = EXIT.usage;
           return;
         }
         attemptTargets.push({ parent: t.run, argv: t.run.command.argv, commandFromImport: imported });
@@ -257,6 +258,7 @@ export function register(program: Command): void {
       else if (verdict === 'inconclusive' && !runner.interrupted) process.stdout.write(p.dim(flags.inconclusive === 'warn' ? 'Inconclusive, let through by --inconclusive warn.\n' : 'Inconclusive fails the run; --inconclusive warn lets it through.\n'));
       emitJobEvent({ type: 'result', data: json });
       for (const r of reports) emitJobEvent({ type: 'link', label: reports.length === 1 ? 'Open the run' : `Open ${shortId(r.runId)}`, href: `#/run/${r.runId}`, ...(reports.length > 1 ? { secondary: true } : {}) });
-      process.exitCode = runner.interrupted ? 130 : passed ? 0 : 1;
+      // Cut short by a signal, its status; failed, 1; inconclusive and not let through, 3.
+      process.exitCode = runner.interrupted ? interruptedStatus() : passed ? EXIT.ok : verdict === 'failed' ? EXIT.failed : inconclusiveStatus(flags.inconclusive);
     });
 }

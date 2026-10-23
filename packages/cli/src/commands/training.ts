@@ -26,6 +26,7 @@ import {
 } from '@shadowlap/engine';
 import { formatBudget } from '../attempts.js';
 import { loadConfig } from '../config.js';
+import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
 import { serveTasks } from '../serve-tasks.js';
@@ -283,7 +284,8 @@ export function register(program: Command): void {
       if (!scorable.length) {
         log(all.length ? 'No task to score: a task is ready when its golden passes and its checks say whether the agent was right (shadowlap tasks).' : 'No tasks yet: pack a run as a golden and give it checks on what the agent must do (shadowlap tasks).');
         if (flags.json) process.stdout.write(JSON.stringify(scoreJson(target, targetVia(target, null), '', [], skipped), null, 2) + '\n');
-        process.exitCode = 1;
+        // Nothing it was given can be scored: no golden is a task yet, or those named aren't ready.
+        process.exitCode = EXIT.usage;
         return;
       }
       const session = `score-${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
@@ -353,7 +355,9 @@ export function register(program: Command): void {
       if (done.length) emitJobEvent({ type: 'link', label: 'Open the scores', href: '#/training/tasks' });
       emitJobEvent({ type: 'result', data: report });
       if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
-      process.exitCode = report.mean !== null && !skipped.length && scores.every((s) => !s.stopped) ? 0 : 1;
+      // Every task scored in full, 0; cut short by a signal, its status; by the budget, 3; a task skipped or stopped, 1.
+      const stopped = scores.map((s) => s.stopped).filter((x): x is string => !!x);
+      process.exitCode = stoppedBy() ? interruptedStatus() : report.mean !== null && !skipped.length && !stopped.length ? EXIT.ok : !skipped.length && stopped.length && stopped.every((x) => x.includes('budget')) ? EXIT.inconclusive : EXIT.failed;
     });
 
   tasks

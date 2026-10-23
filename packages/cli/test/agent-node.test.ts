@@ -106,7 +106,7 @@ describe.skipIf(process.platform === 'win32')('an agent whose Node refuses the p
     expect(once.out).not.toContain('no calls were made');
     for (const concurrency of ['1', '2']) {
       const repeated = shadowlap(dir, ['replay', runId, '--repeat', '3', '--concurrency', concurrency], oldPath);
-      expect(repeated.code).toBe(1);
+      expect(repeated.code).toBe(2);
       expect(repeated.stderr).toContain(`shadowlap: ${AGENT_NODE_TOO_OLD}\n`);
       expect(repeated.stderr).not.toContain('attempt 2 of 3');
     }
@@ -126,7 +126,7 @@ describe.skipIf(process.platform === 'win32')('an agent whose Node refuses the p
   it('stops verify, which replays through the attempt runner as blame and repair do, with that line', () => {
     const { dir, runId } = project();
     const r = shadowlap(dir, ['verify', '--keeps', runId, '--attempts', '2', '--', 'node', 'agent.mjs'], oldPath);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.stderr.trimEnd().split('\n').at(-1)).toBe(`shadowlap: ${AGENT_NODE_TOO_OLD}`);
     expect(runs(dir).map((x) => x.runId)).toEqual([runId]);
   });

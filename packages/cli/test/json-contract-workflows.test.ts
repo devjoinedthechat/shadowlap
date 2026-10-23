@@ -152,7 +152,7 @@ describe('Fixes: blame, verify, repair and fix', () => {
     const fixId = (first(ls.fixes) as { fixId: string }).fixId;
     hold([['fixShow', json(await cli(project, ['fix', 'show', fixId, '--json']))]]);
     const unknown = await cli(project, ['fix', 'show', 'fx-nosuch', '--json']);
-    expect(unknown.code).toBe(1);
+    expect(unknown.code).toBe(2);
     hold([['fixError', json(unknown)]]);
     const apply = await cli(project, ['fix', 'apply', fixId, '--json']);
     expect(apply.code, apply.out).toBe(0);

@@ -157,7 +157,7 @@ describe('shadowlap decisions', () => {
     const runId = await record();
     const before = mock.requests.length;
     const r = await shadowlap(['decisions', runId, '--from-code', '--json'], { AGENT_MODEL: 'claude-haiku-4-5' });
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const report = json<DecisionsReport>(r);
     expect(report.runs[0]!.asked).toBe(0);
     expect(report.runs[0]!.refused).toMatch(/^the first model request \(#\d+\) differs in more than its system prompt and tools \(\$\.model changed\): --from-code previews a prompt change/);
@@ -216,12 +216,12 @@ describe('shadowlap decisions', () => {
 
     // Claude 4.7 and later refuse the budget: decisions sends the change as given, and says what the model takes.
     const refused = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-5-5', '--json']);
-    expect(refused.code, refused.out).toBe(1);
+    expect(refused.code, refused.out).toBe(3);
     const unanswered = json<DecisionsReport>(refused);
     expect(unanswered.counts).toMatchObject({ same: 0, notAsked: 11 });
     expect(unanswered.warnings).toContain('claude-sonnet-5-5 takes thinking={"type":"adaptive"} in place of what the recorded requests send: shadowlap migrate --to claude-sonnet-5-5 asks with that, says why, and verifies the runs that change');
     const text = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-5-5']);
-    expect(text.code).toBe(1);
+    expect(text.code).toBe(3);
     expect(text.stdout).toContain('! No step was answered (the warnings say why), under the model claude-sonnet-5-5');
     expect(text.stdout).toContain('11 steps got no answer: HTTP 400: "thinking.type.enabled" is not supported for this model');
   }, 120_000);
@@ -289,10 +289,10 @@ describe('shadowlap decisions', () => {
     expect(out.verify.commands).toEqual([`shadowlap verify --keeps ${runId.slice(0, 10)} --gate '{"bad":0.1,"max":4}'`]);
     // A gate and a count at once is refused, as verify refuses it; so is either without a verify to decide.
     const both = await shadowlap(['decisions', '--verify', report.decisionsId!, '--gate', '{"bad":0.1}', '--attempts', '3'], noEmail);
-    expect(both.code).toBe(1);
+    expect(both.code).toBe(2);
     expect(both.out).toContain('give a gate (--gate) or a fixed count (--attempts, --passes), not both');
     const alone = await shadowlap(['decisions', runId, '--from-code', '--attempts', '3'], noEmail);
-    expect(alone.code).toBe(1);
+    expect(alone.code).toBe(2);
     expect(alone.out).toContain('--expect, --gate, --attempts and --passes are for --then-verify');
   }, 180_000);
 
@@ -304,7 +304,7 @@ describe('shadowlap decisions', () => {
     const report = json<DecisionsReport>(r);
     // Its first attempt could not be judged, which stops the run: inconclusive, with why, and no bound.
     expect(report.verify).toMatchObject({ verdict: 'incomplete', runs: [{ runId, outcome: 'inconclusive', passes: 0, attempts: 1, bound: null, undecided: expect.stringMatching(/^judge "summary" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/) }] });
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const text = await shadowlap(['decisions', '--verify', report.decisionsId!, '--attempts', '3', '--passes', '3', '--expect', unanswered], noEmail);
     expect(text.out).toContain(`${runId.slice(0, 10)}  inconclusive  attempt 1 not judged`);
     expect(text.out).not.toMatch(/0 of 1 passed|broken/);
@@ -322,7 +322,7 @@ describe('shadowlap decisions', () => {
     const gate = '{"bad":0.5,"max":7}';
     const rule = 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts';
     const r = await shadowlap(['decisions', '--verify', session.decisionsId!, one, '--gate', gate, '--json', ...flaky]);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(3);
     const first = json<{ verify: NonNullable<DecisionsReport['verify']> }>(r).verify;
     expect(first).toMatchObject({ verdict: 'incomplete', rule, runs: [{ runId: one, role: 'good', outcome: 'inconclusive', passes: 5, attempts: 7, bound: BOUND_5_OF_7 }] });
     expect(first.reasons).toEqual([`good run ${one.slice(0, 10)} inconclusive: 5 of 7 passed · ${BOUND_5_OF_7}, between the gate's bounds when its attempts ran out`]);
@@ -394,7 +394,7 @@ describe('shadowlap decisions', () => {
   it('sends nothing without credentials for the provider, and says which', async () => {
     const runId = await record();
     const r = await shadowlap(['decisions', runId, '--model', 'claude-opus-5', '--json'], { SHADOWLAP_UPSTREAM_ANTHROPIC: '', ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '', ANTHROPIC_BASE_URL: '' });
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     const refusal = json<{ outcome: string; error: { message: string } }>(r);
     expect(refusal).toEqual({ kind: 'decisions', outcome: 'error', error: { message: 'nothing was sent: no Anthropic key: set ANTHROPIC_API_KEY' } });
     const shape = departures('decisionsError', refusal);
@@ -494,14 +494,14 @@ describe('shadowlap decisions', () => {
       store.close();
     }
     const unknown = await shadowlap(['decisions', '--verify', 'dc-01ZZZZZZZZZZZZZZZZZZZZZZZZ', '--json'], {}, project);
-    expect(unknown.code).toBe(1);
+    expect(unknown.code).toBe(2);
     expect(json<{ error: { message: string } }>(unknown).error.message).toMatch(/^no session dc-01Z/);
   }, 240_000);
 
   it('stops at its budget and says so', async () => {
     const runId = await record();
     const r = await shadowlap(['decisions', runId, '--model', 'claude-opus-5', '--budget', '0.01', '--concurrency', '1', '--json']);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(3);
     const report = json<DecisionsReport>(r);
     expect(report.stopReason).toBe('the budget of $0.01 is spent');
     expect(report.runs[0]!.asked).toBeLessThan(11);
@@ -524,7 +524,7 @@ describe('shadowlap decisions', () => {
 
   it('refuses a change it is not given, and a step it cannot place', async () => {
     const none = await shadowlap(['decisions', 'nosuchrun', '--json']);
-    expect(none.code).toBe(1);
+    expect(none.code).toBe(2);
     expect(none.out).toMatch(/give the change: --model <model>, --set <key=value>, or --from-code/);
     expect(existsSync(join(cwd, 'goldens'))).toBe(true);
   }, 60_000);

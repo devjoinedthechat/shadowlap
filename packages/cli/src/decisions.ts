@@ -81,6 +81,7 @@ import { gateFlags, recordVerifyFix, verifyCommand } from './fixes.js';
 import { importGolden } from './golden-test.js';
 import { expandRecordings, goldenName, rawExpectFor } from './goldens.js';
 import { checksOfRun } from './interventions.js';
+import { signalExit } from './exit-codes.js';
 import { cannotJudge } from './judge.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, requireRun, type GlobalOpts } from './shared.js';
@@ -992,8 +993,8 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
   const at = input.now ?? Date.now();
   let interrupted = false;
   // The first Ctrl-C starts no new request and keeps what was asked; a second one doesn't wait.
-  const onSignal = () => {
-    if (interrupted) process.exit(130);
+  const onSignal = (signal: NodeJS.Signals) => {
+    if (interrupted) process.exit(signalExit(signal));
     interrupted = true;
   };
   process.on('SIGINT', onSignal);

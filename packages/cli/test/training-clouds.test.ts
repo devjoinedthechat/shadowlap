@@ -226,7 +226,7 @@ describe('a cloud recording scored with Anthropic\'s API', () => {
       await golden(work, 'azure', false);
       const asked = cloudAsked.length;
       const r = await shadowlap(work, ['tasks', 'score', '--model', 'gpt-other', '--attempts', '1']);
-      expect(r.code).toBe(1);
+      expect(r.code).toBe(2);
       expect(r.out).toContain("goldens/azure can't be scored with gpt-other: its takeover call goes through Azure OpenAI, where the deployment in the URL picks the model: score Anthropic's or OpenAI's API, or a model at your own endpoint, instead");
       expect(cloudAsked.length).toBe(asked);
     } finally {

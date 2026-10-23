@@ -76,7 +76,7 @@ describe.skipIf(process.platform === 'win32')('a run recorded through shadowlap 
     const agent = await run(process.execPath, ['agent.mjs'], vars);
     expect(agent.code, agent.out).toBe(0);
     serve.kill('SIGTERM');
-    expect(await exited, stderr).toBe(0);
+    expect(await exited, stderr).toBe(143);
   });
 
   it('has no command, so ls says so', async () => {
@@ -86,7 +86,7 @@ describe.skipIf(process.platform === 'win32')('a run recorded through shadowlap 
 
   it('asks for the command after -- on replay, and keeps no failed run', async () => {
     const r = await shadowlap(['replay', runId]);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(2);
     expect(r.out).toContain(`${runId.slice(0, 10)} was recorded through shadowlap serve, which records what was sent but not what sent it, so it has no command to re-run. Give yours after --`);
     expect(r.out).not.toContain('failed to start');
     const ls = await shadowlap(['ls', '--json']);
@@ -120,7 +120,7 @@ describe('a run a test recorded without a command', () => {
     const ls = await shadowlap(['--db', db, 'ls', '--json']);
     expect(JSON.parse(ls.stdout)).toEqual([expect.objectContaining({ runId: recorded.runId, hasCommand: false })]);
     const r = await shadowlap(['--db', db, 'replay', recorded.runId]);
-    expect(r.code, r.out).toBe(1);
+    expect(r.code, r.out).toBe(2);
     expect(r.out).toContain(`${recorded.runId.slice(0, 10)} was recorded by a test run, which records what was sent but not what sent it, so it has no command to re-run. Give yours after --`);
     expect(r.out).not.toContain('<test>');
   });

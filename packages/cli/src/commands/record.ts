@@ -3,6 +3,7 @@ import { Command, InvalidArgumentError } from 'commander';
 import { addRules, calibrationTarget, checkOutcome, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, statusTally, summarizeRepeats, type CheckStatus, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { replayChaos } from '../chaos-session.js';
 import { CHECK_MARKS, checkWords, type CheckResult, type TestSpec } from '../checks.js';
+import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { codeVersion, configPath, loadConfig, upstreamOverrides } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
 import { judgesOf, type Judged } from '../judge.js';
@@ -49,6 +50,11 @@ function formatCheckTally(judged: CheckResult[][], source: string): string {
     return `    ${mark('passed')} ${safe(label)}: passed in all ${judged.length}`;
   });
   return [`  Checks ${p.dim(`(${checksFrom(source)})`)}`, ...lines].join('\n');
+}
+
+/** How a replay's checks came out as a whole: failed when one failed, else inconclusive when one could not be decided, else passed. */
+function judgedOutcome(checks: readonly CheckResult[]): 'passed' | 'failed' | 'inconclusive' {
+  return checks.some((c) => c.status === 'failed') ? 'failed' : checks.some((c) => !c.ok) ? 'inconclusive' : 'passed';
 }
 
 export function register(program: Command): void {
@@ -164,7 +170,7 @@ export function register(program: Command): void {
       // A run imported from a pack carries a command someone else chose; running it needs consent.
       const commandFromImport = !command.length && commandIsImported(parent);
       if (commandFromImport && !flags.yes && !(await confirmImportedCommand(parent, argv))) {
-        process.exitCode = 1;
+        process.exitCode = EXIT.usage;
         return;
       }
       if (flags.chaos) {
@@ -246,8 +252,10 @@ export function register(program: Command): void {
         emitJobEvent({ type: 'link', label: 'Open the attempts', href: `#/run/${parent.runId}/${first?.callNo ?? 1}/forks` });
         // One that stopped before its recording did is among them: its divergence says so.
         const anyDiverged = attempts.some((a) => a.summary.divergence);
-        const checksFailed = judged.some((c) => c.some((x) => !x.ok));
-        process.exitCode = flags.strict && anyDiverged ? 1 : attempts.length < flags.repeat || attempts.some((a) => a.code !== 0) || checksFailed ? 1 : 0;
+        // A signal ends it with the signal's status; then a divergence under --strict, an attempt that
+        // failed or was never run, or a check that failed, 1; a check that could not be decided, 3.
+        const outcome = judgedOutcome(judged.flat());
+        process.exitCode = stoppedBy() ? interruptedStatus() : (flags.strict && anyDiverged) || attempts.length < flags.repeat || attempts.some((a) => a.code !== 0) || outcome === 'failed' ? EXIT.failed : outcome === 'inconclusive' ? EXIT.inconclusive : EXIT.ok;
         return;
       }
       const once = async (): Promise<void> => {
@@ -270,7 +278,10 @@ export function register(program: Command): void {
         if (unjudged) process.stderr.write(p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
         if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary, ...(judged ? { checks: judged } : {}) }, null, 2) + '\n');
         // A replay that stopped before its recording did is no clean one either: its divergence says so.
-        process.exitCode = flags.strict && summary.divergence ? 1 : judged?.some((c) => !c.ok) ? 1 : code;
+        // A check that failed ends it with 1; then an agent that failed, with its own status; then a
+        // check that could not be decided, with 3.
+        const outcome = judged ? judgedOutcome(judged) : 'passed';
+        process.exitCode = flags.strict && summary.divergence ? EXIT.failed : outcome === 'failed' ? EXIT.failed : code === 0 && outcome === 'inconclusive' ? EXIT.inconclusive : code;
       };
 
       if (!flags.watch) return once();
@@ -316,7 +327,7 @@ export function register(program: Command): void {
         const parent = target.run;
         requireEnded(store, parent, 'calibrate');
         if (commandIsImported(parent) && !flags.yes && !(await confirmImportedCommand(parent, parent.command.argv))) {
-          process.exitCode = 1;
+          process.exitCode = EXIT.usage;
           return;
         }
         say(`${p.yellow('⑂')} Calibrating ${shortId(parent.runId)} (${safe(quoteArgv(parent.command.argv))}): replaying it offline until it is clean\n\n`);
@@ -397,7 +408,7 @@ export function register(program: Command): void {
         }
         if (!outcome.clean) {
           say(`\n${p.red('✗')} Stopped: ${outcome.why}.\n${outcome.details ? outcome.details.split('\n').map((l) => `    ${l}`).join('\n') + '\n' : ''}`);
-          process.exitCode = 1;
+          process.exitCode = EXIT.failed;
         }
         emitJson();
       } finally {

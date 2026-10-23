@@ -141,7 +141,8 @@ describe('shadowlap run when the agent does not end well', () => {
   it.skipIf(process.platform === 'win32')('marks an interrupted run crashed and leaves no run "running"', async () => {
     const before = runCount();
     const r = await shadowlap(['run', '--', process.execPath, AGENT], { AGENT_PAUSE_MS: '400' }, { interruptAfterMs: 1500 });
-    expect(r.code).toBe(128);
+    // 128 + SIGINT's number, as a shell reports a command Ctrl-C stopped.
+    expect(r.code).toBe(130);
     expect(r.out).toMatch(/Recorded \S+: \d+ calls/);
     const store = Store.open(db);
     const runs = store.allRuns();
@@ -202,7 +203,7 @@ describe('shadowlap run when the agent does not end well', () => {
 
     // No terminal to ask: refuse, and say how to proceed.
     const refused = await shadowlap(['replay', runId]);
-    expect(refused.code).toBe(1);
+    expect(refused.code).toBe(2);
     expect(refused.out).toContain('was imported from a pack');
     expect(refused.out).toContain('--yes');
     expect(existsSync(marker)).toBe(false);
@@ -221,7 +222,7 @@ describe('shadowlap run when the agent does not end well', () => {
     store.close();
     expect(child).toBeDefined();
     const again = await shadowlap(['replay', child!.runId]);
-    expect(again.code).toBe(1);
+    expect(again.code).toBe(2);
     expect(again.out).toContain('was imported from a pack');
     rmSync(pack, { recursive: true, force: true });
   });

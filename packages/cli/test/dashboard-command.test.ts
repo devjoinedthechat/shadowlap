@@ -162,7 +162,7 @@ describe('shadowlap dashboard', () => {
     const empty = realpathSync(mkdtempSync(join(tmpdir(), 'sl-dash-ro-empty-')));
     try {
       const r = spawnSync(process.execPath, [CLI, 'dashboard', '--read-only', '--no-open'], { cwd: empty, env, encoding: 'utf8', timeout: 20_000 });
-      expect(r.status, r.stderr).toBe(1);
+      expect(r.status, r.stderr).toBe(2);
       expect(r.stderr).toMatch(/no store at .* never creates one/);
       expect(existsSync(join(empty, '.shadowlap'))).toBe(false);
     } finally {
@@ -263,7 +263,7 @@ describe.skipIf(process.platform === 'win32')('stopping shadowlap dashboard', ()
     const { agent, runId } = await replaying(d);
     const exited = new Promise<number | null>((r) => d.child.once('exit', (code) => r(code)));
     d.child.kill('SIGHUP');
-    expect(await exited).toBe(0);
+    expect(await exited).toBe(129);
     expect(await gone(agent), 'the agent was stopped with the dashboard').toBe(true);
     agents.delete(agent);
     expect(statusOf(runId), 'the replay was interrupted').toBe('crashed');
@@ -279,7 +279,7 @@ describe.skipIf(process.platform === 'win32')('stopping shadowlap dashboard', ()
     expect(existsSync(join(cwd, 'got-term')), 'the agent got the stop, and ignored it').toBe(true);
     const again = Date.now();
     d.child.kill('SIGINT');
-    expect(await exited).toBe(0);
+    expect(await exited).toBe(130);
     // Five seconds of grace were left: a second Ctrl-C does not wait for them.
     expect(Date.now() - again).toBeLessThan(4000);
     expect(await gone(agent), 'the agent was killed with the dashboard').toBe(true);

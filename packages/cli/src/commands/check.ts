@@ -7,6 +7,7 @@ import { CHECK_MARKS, checkWords, specFor } from '../checks.js';
 import { loadConfig, loadTests } from '../config.js';
 import { expandRecordings, goldenName } from '../goldens.js';
 import { checksOfRun } from '../interventions.js';
+import { EXIT } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { readStore, requireRun, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
@@ -44,8 +45,9 @@ export function register(program: Command): void {
         const report = checkRecordings(recordings, { expect: asked?.json ?? null, ...(config.prices ? { prices: config.prices } : {}) });
         process.stdout.write((flags.json ? JSON.stringify(report, null, 2) : formatCheckReport(report, recordings)) + '\n');
         emitJobEvent({ type: 'result', data: report });
-        // Nothing judged is no pass; nor is a recording it can't decide.
-        process.exitCode = !report.recordings.length || report.counts.failed || report.counts.inconclusive ? 1 : 0;
+        // Nothing judged is no pass (2: nothing it was given had checks to judge it by); a recording
+        // that failed, 1; one it can't decide, 3.
+        process.exitCode = !report.recordings.length ? EXIT.usage : report.counts.failed ? EXIT.failed : report.counts.inconclusive ? EXIT.inconclusive : EXIT.ok;
       } finally {
         for (const s of packs) s.close();
         store.close();

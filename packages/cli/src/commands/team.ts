@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { safeText } from '@shadowlap/engine';
 import { CI_PROVIDERS, LayoutError, PROVIDERS, StoreError, StoreUrlError, type CiProvider, type Provider } from '@shadowlap/remote';
+import { EXIT } from '../exit-codes.js';
 import { parseChoice, VERSION, type GlobalOpts } from '../shared.js';
 import { storeCheck, storeCi, storePolicy, storePushFromCi, storeSet, storeSetChecked, storeShow, teamEnv, TeamError, teamPull, teamPush, teamShare } from '../team.js';
 import { palette as p } from '../ui.js';
@@ -21,11 +22,23 @@ async function run(fn: () => number | Promise<number>): Promise<void> {
     if (err instanceof TeamError || err instanceof StoreError || err instanceof LayoutError || err instanceof StoreUrlError) {
       // A message may quote what a store answered: shown with its control characters escaped.
       process.stderr.write(p.red(`✗ ${safeText(err.message)}\n`));
-      process.exitCode = 1;
+      process.exitCode = teamStatus(err);
       return;
     }
     throw err;
   }
+}
+
+/**
+ * A store failure's exit status: what this machine is set up with (no store set, a URL that isn't
+ * one, no credentials, access denied, no such bucket, a run it can't name) is 2; the store failing
+ * part way (out of reach, an object it refused or that is damaged) is 1.
+ */
+function teamStatus(err: Error): number {
+  const origin = err instanceof TeamError && err.cause instanceof Error ? err.cause : err;
+  if (origin instanceof StoreError) return origin.code === 'denied' || origin.code === 'no-bucket' || origin.code === 'credentials' ? EXIT.usage : EXIT.failed;
+  if (origin instanceof LayoutError) return EXIT.failed;
+  return EXIT.usage;
 }
 
 const PROVIDER_FLAG = 's3 | gcs | azure | r2';
