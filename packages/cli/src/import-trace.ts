@@ -1,4 +1,4 @@
-import { safeLine, type Store } from '@shadowlap/engine';
+import { canonicalize, safeLine, type Store } from '@shadowlap/engine';
 import { append, ImportWriter, writeImport, type CapturedCall, type ImportOptions, type ImportResult, type Skip } from './import-capture.js';
 
 /**
@@ -80,8 +80,13 @@ export interface TraceModelCall {
   /** The response in the provider's own shape, when the source logged it whole. */
   rawResponse?: Record<string, unknown>;
   responseId: string | null;
+  /** Milliseconds since the epoch, as the store keeps a call's start. */
   startedAt: number | null;
   endedAt: number | null;
+  /** The start to the precision the source kept it, in nanoseconds since the epoch ({@link epochNs}), which puts the calls in order. */
+  startedAtNs?: string;
+  /** The span, observation or run's id at the source. */
+  spanId?: string;
 }
 
 export interface TraceToolCall {
@@ -96,6 +101,8 @@ export interface TraceToolCall {
   error: string | null;
   startedAt: number | null;
   endedAt: number | null;
+  startedAtNs?: string;
+  spanId?: string;
 }
 
 export type TraceCall = TraceModelCall | TraceToolCall;
@@ -103,12 +110,14 @@ export type TraceCall = TraceModelCall | TraceToolCall;
 export interface Trace {
   /** The trace's id at its source. */
   id: string;
-  /** Model and tool calls, in the order they started. */
+  /** Model and tool calls, in the order the source listed them: {@link callsInOrder} puts them in the order they ran. */
   calls: TraceCall[];
   /** Spans, observations or runs read, of every kind. */
   spans: number;
   /** Spans that looked like model or tool calls and could not be read, with the reason. */
   skipped: Skip[];
+  /** The span, observation or run each one ran inside, by id, where the source names one. */
+  parents?: ReadonlyMap<string, string>;
 }
 
 // ---------------------------------------------------------------------------------------------- reading what sources log
@@ -152,6 +161,33 @@ export function epochMs(v: unknown): number | null {
   const iso = /[zZ]|[+-]\d\d:?\d\d$/.test(v) ? v : `${v}Z`;
   const t = Date.parse(iso);
   return Number.isNaN(t) ? null : t;
+}
+
+/** Epoch milliseconds, which may hold a fraction, as nanoseconds in decimal. */
+function msToNs(ms: number): string {
+  const whole = Math.floor(ms);
+  return `${BigInt(whole) * 1_000_000n + BigInt(Math.round((ms - whole) * 1e6))}`;
+}
+
+/**
+ * What {@link epochMs} reads, to the precision it was written in, as nanoseconds since the epoch in
+ * decimal. Date.parse keeps milliseconds, and the stores keep more (Phoenix, Logfire and LangSmith,
+ * microseconds): a tool and the model call that reads its result often start in the same millisecond.
+ */
+export function epochNs(v: unknown): string | null {
+  const ms = epochMs(v);
+  if (ms === null) return null;
+  const fraction = typeof v === 'string' ? /^(.*:\d\d)\.(\d+)(.*)$/.exec(v) : null;
+  const seconds = fraction ? epochMs(`${fraction[1]}${fraction[3]}`) : null;
+  if (!fraction || seconds === null) return msToNs(ms);
+  return `${BigInt(seconds) * 1_000_000n + BigInt(fraction[2]!.slice(0, 9).padEnd(9, '0'))}`;
+}
+
+/** Where a call came from in its trace and when it ran: the id of its span, observation or run, and its start and end as the source wrote them. */
+export function placed(id: unknown, start: unknown, end: unknown): Pick<TraceToolCall, 'spanId' | 'startedAt' | 'endedAt' | 'startedAtNs'> {
+  const spanId = str(id);
+  const ns = epochNs(start);
+  return { ...(spanId ? { spanId } : {}), startedAt: epochMs(start), endedAt: epochMs(end), ...(ns !== null ? { startedAtNs: ns } : {}) };
 }
 
 /** Text out of whatever a source put in a content field: a string, text blocks, or anything else as JSON. */
@@ -701,13 +737,176 @@ export function capturedFromTrace(c: TraceModelCall, n: number): { call: Capture
   };
 }
 
-// ---------------------------------------------------------------------------------------------- writing a trace
+// ---------------------------------------------------------------------------------------------- putting calls in order
 
 /** A tool call's arguments, when the trace kept them as an object (a JSON object string counts). */
 function argsObject(args: unknown): Record<string, unknown> | null {
   const v = maybeJson(args);
   return isObject(v) ? v : null;
 }
+
+/** Where a call goes by its start: nanoseconds since the epoch, or before every other call when the source kept no start. */
+function startOf(c: TraceCall): bigint {
+  if (c.startedAtNs !== undefined && /^-?\d{1,30}$/.test(c.startedAtNs)) return BigInt(c.startedAtNs);
+  return c.startedAt === null || !Number.isFinite(c.startedAt) ? 0n : BigInt(msToNs(c.startedAt));
+}
+
+/**
+ * A tool's arguments, output or result as a key, however the source wrote it: JSON text as the value
+ * it holds, text blocks as their text. Null for a value with no such key (nested past what JSON reads).
+ */
+function valueKey(name: string, v: unknown): string | null {
+  if (Array.isArray(v) && v.length && v.every((b) => isObject(b) && b.type === 'text' && typeof b.text === 'string')) v = v.map((b) => (b as { text: string }).text).join('');
+  if (typeof v === 'string') {
+    try {
+      v = JSON.parse(v) as unknown;
+    } catch {
+      // text, not JSON
+    }
+  }
+  try {
+    return `${name}\u0000${canonicalize(v)}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The tool calls and results among a model call's messages, or in its answer, as a tool call is
+ * found among them: by its id, else by its name with its arguments or with its output. A result that
+ * names no tool goes by the name of the call it answers, or by none.
+ */
+interface Exchanges {
+  ids: Set<string>;
+  calls: Set<string>;
+  results: Set<string>;
+  /** The calls and results that carry no id: a tool call with an id is found among these by the rest. */
+  callsWithoutId: Set<string>;
+  resultsWithoutId: Set<string>;
+}
+
+function exchangesOf(parts: Part[]): Exchanges {
+  const x: Exchanges = { ids: new Set(), calls: new Set(), results: new Set(), callsWithoutId: new Set(), resultsWithoutId: new Set() };
+  const names = new Map<string, string>();
+  for (const p of parts) if (p.type === 'tool_call' && p.id) names.set(p.id, p.name);
+  for (const p of parts) {
+    if (p.type === 'text') continue;
+    const key = p.type === 'tool_call' ? valueKey(p.name, argsObject(p.arguments) ?? p.arguments) : valueKey(p.name ?? names.get(p.id) ?? '', p.content);
+    if (p.id) x.ids.add(p.id);
+    if (key === null) continue;
+    (p.type === 'tool_call' ? x.calls : x.results).add(key);
+    if (!p.id) (p.type === 'tool_call' ? x.callsWithoutId : x.resultsWithoutId).add(key);
+  }
+  return x;
+}
+
+/** What a tool call is found by among exchanges: its id, its name with its arguments, its name (or none) with its output. */
+interface ToolKeys {
+  id: string | null;
+  call: string | null;
+  results: string[];
+}
+
+function toolKeys(t: TraceToolCall): ToolKeys {
+  const args = argsObject(t.args);
+  const results = t.output === undefined ? [] : [valueKey(t.name, t.output), valueKey('', t.output)];
+  return { id: t.callId || null, call: args ? valueKey(t.name, args) : null, results: results.filter((r): r is string => r !== null) };
+}
+
+/** Whether a tool call is among the exchanges: by its id where both carry one, else by its name with its arguments or its output. */
+function holds(x: Exchanges, k: ToolKeys): boolean {
+  const has = (calls: Set<string>, results: Set<string>) => (k.call !== null && calls.has(k.call)) || k.results.some((r) => results.has(r));
+  return k.id !== null ? x.ids.has(k.id) || has(x.callsWithoutId, x.resultsWithoutId) : has(x.calls, x.results);
+}
+
+/** The most calls that started at one instant to put in the order they needed each other; past it, they keep the order listed. */
+const MOST_TIED = 1000;
+
+/**
+ * Calls that started at one instant, in the order one needed another: the call another ran inside
+ * goes first, a model call before the tool call it asked for, and a tool call before the model call
+ * whose request carries its result. Otherwise, and where two say opposite things, they keep the
+ * order listed.
+ */
+function inOrderOfNeed(tied: TraceCall[], within: (c: TraceCall) => TraceCall | undefined): TraceCall[] {
+  const index = new Map(tied.map((c, i) => [c, i]));
+  // The calls that go after each one.
+  const after = tied.map(() => new Set<number>());
+  tied.forEach((c, i) => {
+    const outer = within(c);
+    const o = outer && index.get(outer);
+    if (o !== undefined && o !== i) after[o]!.add(i);
+  });
+  if (tied.some((c) => c.kind === 'tool')) {
+    const models = tied.flatMap((c, i) => {
+      if (c.kind !== 'model') return [];
+      const sent = c.messages.length || !c.rawRequest ? c.messages : (messagesOf(c.rawRequest) ?? []);
+      return [{ i, sent: exchangesOf(sent.flatMap((m) => m.parts)), asked: exchangesOf(c.output?.parts ?? []) }];
+    });
+    tied.forEach((t, i) => {
+      if (t.kind !== 'tool' || !models.length) return;
+      const keys = toolKeys(t);
+      for (const m of models) {
+        if (holds(m.asked, keys)) after[m.i]!.add(i);
+        if (holds(m.sent, keys)) after[i]!.add(m.i);
+      }
+    });
+  }
+  for (let a = 0; a < tied.length; a++) {
+    for (const b of after[a]!) {
+      if (after[b]!.has(a)) {
+        after[a]!.delete(b);
+        after[b]!.delete(a);
+      }
+    }
+  }
+  const waiting = tied.map(() => 0);
+  for (const next of after) for (const b of next) waiting[b]!++;
+  const done = tied.map(() => false);
+  const out: TraceCall[] = [];
+  while (out.length < tied.length) {
+    // The first listed that waits on nothing; in a loop of needs, the first listed left.
+    let i = waiting.findIndex((w, j) => w === 0 && !done[j]);
+    if (i < 0) i = done.indexOf(false);
+    done[i] = true;
+    out.push(tied[i]!);
+    for (const b of after[i]!) waiting[b]!--;
+  }
+  return out;
+}
+
+/**
+ * A trace's calls in the order they ran: by their start to the precision the source kept it, since a
+ * tool and the model call that reads its result often start in the same millisecond; calls that
+ * started at the same instant in the order they needed each other ({@link inOrderOfNeed}), else as listed.
+ */
+export function callsInOrder(trace: Trace): TraceCall[] {
+  const keyed = trace.calls.map((call, listed) => ({ call, listed, at: startOf(call) }));
+  keyed.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.listed - b.listed));
+  // The call each one ran inside: the nearest span above it that is a call. The walk stops at a span
+  // already seen, so parents that form a loop cannot hang it.
+  const bySpan = new Map<string, TraceCall>();
+  for (const c of trace.calls) if (c.spanId) bySpan.set(c.spanId, c);
+  const within = (c: TraceCall): TraceCall | undefined => {
+    if (!c.spanId || !trace.parents) return undefined;
+    const seen = new Set([c.spanId]);
+    for (let p = trace.parents.get(c.spanId); p !== undefined && !seen.has(p); p = trace.parents.get(p)) {
+      const outer = bySpan.get(p);
+      if (outer) return outer;
+      seen.add(p);
+    }
+    return undefined;
+  };
+  const out: TraceCall[] = [];
+  for (let i = 0, j = 1; i < keyed.length; i = j++) {
+    while (j < keyed.length && keyed[j]!.at === keyed[i]!.at) j++;
+    const tied = keyed.slice(i, j).map((k) => k.call);
+    append(out, tied.length > 1 && tied.length <= MOST_TIED ? inOrderOfNeed(tied, within) : tied);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------- writing a trace
 
 const toolKept = (t: TraceToolCall) => argsObject(t.args) !== null && (t.output !== undefined || t.error !== null);
 
@@ -721,7 +920,7 @@ export interface TraceImport {
 
 /** Writes one trace as a partial recording: its model calls, and the tool calls whose every call it kept. */
 export function importTrace(store: Store, trace: Trace, opts: ImportOptions): TraceImport {
-  const calls = [...trace.calls].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
+  const calls = callsInOrder(trace);
   const tools = calls.filter((c): c is TraceToolCall => c.kind === 'tool');
   // Grouped in place and looked up in a set: a trace is a file from anywhere, and copying per call
   // or scanning a list per call would be quadratic in its size.

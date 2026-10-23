@@ -353,15 +353,15 @@ describe('a trace is a file from anywhere', () => {
 describe('import langfuse', () => {
   const trace = JSON.parse(fixture('langfuse-trace.json')) as Record<string, unknown>;
 
-  it('reads generations as model calls and tool observations, or spans named after a tool, as tool calls', () => {
+  it('reads generations as model calls and tool observations, or spans named after a tool, as tool calls, in the order the trace lists them', () => {
     const read = readLangfuse(trace);
     expect(read.spans).toBe(7);
     expect(read.calls.map((c) => `${c.kind}:${c.kind === 'tool' ? c.name : c.what}`)).toEqual([
       'model:generation OpenAI-generation',
       'tool:lookup_order',
       'model:generation OpenAI-generation',
-      'model:generation OpenAI-generation',
       'tool:create_replacement',
+      'model:generation OpenAI-generation',
     ]);
   });
 

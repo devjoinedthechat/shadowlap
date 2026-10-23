@@ -1,11 +1,11 @@
 import {
   clean,
-  epochMs,
   isObject,
   maybeJson,
   messagesOf,
   num,
   outputOf,
+  placed,
   providerRequest,
   providerResponse,
   settingsOf,
@@ -110,8 +110,7 @@ function modelCall(run: Record<string, unknown>): TraceModelCall {
     ...(raw ? { rawRequest: raw } : {}),
     ...(responseMeta ? { rawResponse: responseMeta } : {}),
     responseId: responseMeta ? str(responseMeta.id) : null,
-    startedAt: epochMs(run.start_time),
-    endedAt: epochMs(run.end_time),
+    ...placed(run.id, run.start_time, run.end_time),
   };
 }
 
@@ -141,8 +140,7 @@ function toolCall(run: Record<string, unknown>): TraceToolCall {
     args: toolArgs(run.inputs),
     output: toolOutput(run.outputs),
     error: str(run.error) === null ? null : clean(run.error, 500),
-    startedAt: epochMs(run.start_time),
-    endedAt: epochMs(run.end_time),
+    ...placed(run.id, run.start_time, run.end_time),
   };
 }
 
@@ -153,5 +151,6 @@ export function readLangsmith(runs: Array<Record<string, unknown>>, traceId: str
     if (run.run_type === 'llm') calls.push(modelCall(run));
     else if (run.run_type === 'tool' && str(run.name)) calls.push(toolCall(run));
   }
-  return { id: traceId, calls, spans: runs.length, skipped: [] };
+  const parents = new Map(runs.flatMap((r) => (str(r.id) && str(r.parent_run_id) ? [[String(r.id), String(r.parent_run_id)] as const] : [])));
+  return { id: traceId, calls, spans: runs.length, skipped: [], parents };
 }

@@ -57,6 +57,8 @@ interface Span {
   scope: string;
   start: number | null;
   end: number | null;
+  /** The start to the nanosecond, in decimal, where the source kept that. */
+  startNs: string | null;
   attrs: Record<string, unknown>;
   events: SpanEvent[];
   error: string | null;
@@ -94,6 +96,13 @@ function nanosToMs(v: unknown): number | null {
   if (typeof v === 'number' && Number.isFinite(v)) return Math.floor(v / 1e6);
   if (typeof v !== 'string' || !/^\d{1,25}$/.test(v)) return null;
   return Number(BigInt(v) / 1_000_000n);
+}
+
+/** Nanoseconds since the epoch (a string in OTLP JSON) in decimal, all of them. */
+function nanos(v: unknown): string | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return `${BigInt(Math.floor(v))}`;
+  if (typeof v !== 'string' || !/^\d{1,25}$/.test(v)) return null;
+  return `${BigInt(v)}`;
 }
 
 const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);
@@ -278,13 +287,18 @@ function toolNameOf(s: Span): string {
   return clean(str(a['gen_ai.tool.name']) ?? str(a['tool.name']) ?? str(a['traceloop.entity.name']) ?? s.name.replace(/^execute_tool\s+/, ''), 200);
 }
 
+/** Where a call came from in its trace and when it ran: its span's id, start and end. */
+function spanPlaced(s: Span): Pick<TraceToolCall, 'spanId' | 'startedAt' | 'endedAt' | 'startedAtNs'> {
+  return { spanId: s.spanId, startedAt: s.start, endedAt: s.end, ...(s.startNs !== null ? { startedAtNs: s.startNs } : {}) };
+}
+
 /** A tool call out of its span; `name` when the span goes by something else (a function's message). */
 function toolCall(s: Span, name = toolNameOf(s)): TraceToolCall {
   const a = s.attrs;
   const logfire = a['gen_ai.tool.call.arguments'] === undefined && a['traceloop.entity.input'] === undefined && a['input.value'] === undefined && isLogfireFunction(s);
   const args = logfire ? logfireArguments(a) : (a['gen_ai.tool.call.arguments'] ?? (a['traceloop.entity.input'] !== undefined ? entityValue(a['traceloop.entity.input'], 'inputs') : a['input.value']));
   const out = logfire ? a.return : (a['gen_ai.tool.call.result'] ?? (a['traceloop.entity.output'] !== undefined ? entityValue(a['traceloop.entity.output'], 'outputs') : a['output.value']));
-  return { kind: 'tool', what: `span ${s.name}`, name, callId: str(a['gen_ai.tool.call.id']) ?? str(a['tool_call.id']), args: maybeJson(args), output: maybeJson(out), error: s.error, startedAt: s.start, endedAt: s.end };
+  return { kind: 'tool', what: `span ${s.name}`, name, callId: str(a['gen_ai.tool.call.id']) ?? str(a['tool_call.id']), args: maybeJson(args), output: maybeJson(out), error: s.error, ...spanPlaced(s) };
 }
 
 /** OpenInference instrumentations whose `input.value` and `output.value` are the provider SDK's own request and response. */
@@ -341,8 +355,7 @@ function openInferenceModelCall(s: Span): TraceModelCall {
     ...(raw ? { rawRequest: raw } : {}),
     ...(response ? { rawResponse: response } : {}),
     responseId: response ? str(response.id) : null,
-    startedAt: s.start,
-    endedAt: s.end,
+    ...spanPlaced(s),
   };
 }
 
@@ -371,8 +384,7 @@ function modelCall(s: Span): TraceModelCall {
     usage: usage(a),
     error: s.error,
     responseId: str(a['gen_ai.response.id']),
-    startedAt: s.start,
-    endedAt: s.end,
+    ...spanPlaced(s),
   };
 }
 
@@ -451,6 +463,7 @@ function spansOf(payload: unknown): Span[] {
             scope: isObject(ss.scope) ? String(ss.scope.name ?? '') : isObject(ss.instrumentationLibrary) ? String(ss.instrumentationLibrary.name ?? '') : '',
             start: nanosToMs(raw.startTimeUnixNano),
             end: nanosToMs(raw.endTimeUnixNano),
+            startNs: nanos(raw.startTimeUnixNano),
             attrs,
             events,
             error: failed ? clean(str(status.message) ?? str(attrs['error.type']) ?? 'error', 500) : null,
@@ -498,8 +511,8 @@ export function readOtel(payloads: unknown[]): OtelRead {
 
 /**
  * A span as a trace store's API returns it (Phoenix, Logfire), read as a file's span is: its
- * attributes an object, its times in milliseconds, and its instrumentation's name where the store
- * keeps it.
+ * attributes an object, its times in milliseconds, its start to the precision the store keeps too
+ * (epochNs), and its instrumentation's name where the store keeps it.
  */
 export interface StoredSpan {
   traceId: string;
@@ -509,6 +522,7 @@ export interface StoredSpan {
   scope: string;
   start: number | null;
   end: number | null;
+  startNs: string | null;
   attrs: Record<string, unknown>;
   events: Array<{ name: string; time: number | null; attrs: Record<string, unknown> }>;
   error: string | null;
@@ -521,7 +535,7 @@ export function readStoredSpans(stored: StoredSpan[]): OtelRead {
     const attrs = own(s.attrs);
     const events = s.events.map((e) => ({ name: e.name, attrs: own(e.attrs), time: e.time }));
     withDetails(attrs, events);
-    return { traceId: clean(s.traceId, 64), spanId: s.spanId, parentSpanId: s.parentSpanId ?? '', name: clean(s.name), scope: s.scope, start: s.start, end: s.end, attrs, events, error: s.error === null ? null : clean(s.error, 500) };
+    return { traceId: clean(s.traceId, 64), spanId: s.spanId, parentSpanId: s.parentSpanId ?? '', name: clean(s.name), scope: s.scope, start: s.start, end: s.end, startNs: s.startNs, attrs, events, error: s.error === null ? null : clean(s.error, 500) };
   });
   return { traces: tracesOf(spans), spans: spans.length };
 }
@@ -546,7 +560,7 @@ function onTheWire(call: TraceModelCall, sent: Span | undefined): TraceModelCall
     stream: wire.stream || call.stream,
     usage: call.usage ?? wire.usage,
     responseId: call.responseId ?? wire.responseId,
-    startedAt: wire.startedAt ?? call.startedAt,
+    ...(wire.startedAt !== null ? { startedAt: wire.startedAt, ...(wire.startedAtNs !== undefined ? { startedAtNs: wire.startedAtNs } : {}) } : {}),
     endedAt: wire.endedAt ?? call.endedAt,
   };
 }
@@ -594,30 +608,33 @@ function tracesOf(spans: Span[]): Trace[] {
       for (const p of parents) wrappers.add(p.spanId);
     }
     const skipped: Skip[] = [];
-    const calls: TraceCall[] = [];
-    for (const s of list) {
+    // Each call by its span's place in the list, so that the calls keep the order the source listed them in.
+    const found: Array<{ at: number; call: TraceCall }> = [];
+    list.forEach((s, at) => {
       const kind = kinds.get(s.spanId);
       if (kind === 'embedding') skipped.push({ url: `span ${s.name}`, reason: 'an embeddings call: only model and tool calls are imported' });
-      else if (kind === 'model' && !wrappers.has(s.spanId) && !lent.has(s.spanId)) calls.push(onTheWire(modelCall(s), wire.get(s.spanId)));
-      else if (kind === 'tool') calls.push(toolCall(s));
-    }
+      else if (kind === 'model' && !wrappers.has(s.spanId) && !lent.has(s.spanId)) found.push({ at, call: onTheWire(modelCall(s), wire.get(s.spanId)) });
+      else if (kind === 'tool') found.push({ at, call: toolCall(s) });
+    });
     // A span named after a tool the model asked for is that tool's call, whatever else it says, and so
     // is a function `@logfire.instrument` wrapped under its default message, by the function's name;
     // unless a tool span of that name above it holds the call already (Pydantic AI's runs the function).
-    const asked = calledToolNames(calls);
-    for (const s of list) {
-      if (kinds.get(s.spanId) !== null) continue;
+    const asked = calledToolNames(found.map((f) => f.call));
+    list.forEach((s, at) => {
+      if (kinds.get(s.spanId) !== null) return;
       const fn = asked.has(s.name) ? null : logfireDefaultName(s);
       const name = asked.has(s.name) ? s.name : fn !== null && asked.has(fn) ? fn : null;
-      if (name === null || !(s.attrs['gen_ai.tool.call.arguments'] !== undefined || s.attrs['traceloop.entity.input'] !== undefined || s.attrs['input.value'] !== undefined || isLogfireFunction(s))) continue;
-      if (above(s).some((p) => kinds.get(p.spanId) === 'tool' && toolNameOf(p) === name)) continue;
-      calls.push(fn === name ? toolCall(s, fn) : toolCall(s));
-    }
+      if (name === null || !(s.attrs['gen_ai.tool.call.arguments'] !== undefined || s.attrs['traceloop.entity.input'] !== undefined || s.attrs['input.value'] !== undefined || isLogfireFunction(s))) return;
+      if (above(s).some((p) => kinds.get(p.spanId) === 'tool' && toolNameOf(p) === name)) return;
+      found.push({ at, call: fn === name ? toolCall(s, fn) : toolCall(s) });
+    });
+    const calls = found.sort((a, b) => a.at - b.at).map((f) => f.call);
     // `shadowlap export otel` leaves prompt text out, so its traces hold no messages to replay.
     if (!calls.some((c) => c.kind === 'model' && c.messages.length) && list.some((s) => s.attrs['shadowlap.run.id'] !== undefined || s.attrs['shadowlap.call_no'] !== undefined)) {
       skipped.push({ url: `trace ${id}`, reason: 'exported by shadowlap export otel, which carries no prompt text: share the run as a pack instead (shadowlap pack, then shadowlap unpack)' });
     }
-    traces.push({ id, calls, spans: list.length, skipped });
+    const parents = new Map(list.filter((s) => s.parentSpanId).map((s) => [s.spanId, s.parentSpanId]));
+    traces.push({ id, calls, spans: list.length, skipped, parents });
   }
   return traces;
 }

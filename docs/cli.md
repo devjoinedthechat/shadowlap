@@ -702,6 +702,13 @@ provider the trace names, else the model's family, else OpenAI's, which most oth
 and stored like a capture's. The run is a partial recording: what the trace didn't keep runs live on
 replay, with writes fenced.
 
+The run holds the calls in the order they started, read as finely as the source keeps the time (to
+the microsecond in Phoenix, Logfire and LangSmith, the nanosecond in OTLP), since a tool and the
+model call that reads its result often start in the same millisecond. Calls that started at the
+same instant go in the order one needed another: a span before the calls that ran inside it, a model
+call before the tool call it asked for, and a tool call before the model call whose request carries
+its result. Calls that say nothing of each other keep the order the source lists them in.
+
 | Source | What it reads |
 |---|---|
 | `otel` | OTLP JSON, as an OTLP/HTTP exporter sends it, the collector's file exporter writes it (one request per line), or Grafana Tempo downloads a trace; several files are read as one, so traces and their logs can come separately. Spans with the OpenTelemetry GenAI conventions: `gen_ai.input.messages` and `gen_ai.output.messages` (with `gen_ai.system_instructions` and `gen_ai.tool.definitions`, also from a `gen_ai.client.inference.operation.details` event), the older `gen_ai.prompt` and `gen_ai.completion` (as JSON, on `gen_ai.content.*` events, or flattened as OpenLLMetry writes them), or the per-message `gen_ai.*.message` and `gen_ai.choice` events, on the span or as log records (`resourceLogs`, tied to the span by its id), which is where the official instrumentations (openai-v2, vertexai, google-genai) send them; the model, provider, settings, token usage and finish reason; `execute_tool` spans for tool calls. Also OpenInference's conventions (Arize Phoenix, and the LlamaIndex, DSPy and smolagents instrumentations): LLM spans with `llm.input_messages`, `llm.output_messages`, `llm.tools` and `llm.invocation_parameters`, rebuilt exactly from `input.value` and `output.value` where its OpenAI and Anthropic instrumentations log the request and response themselves, and TOOL spans. One run per trace. When a framework's span wraps the client library's span for the same call, the inner one is kept |

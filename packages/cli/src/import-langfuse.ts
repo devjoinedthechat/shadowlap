@@ -1,12 +1,12 @@
 import {
   calledToolNames,
   clean,
-  epochMs,
   isObject,
   maybeJson,
   messagesOf,
   num,
   outputOf,
+  placed,
   settingsOf,
   str,
   toolDefinitionsOf,
@@ -96,8 +96,7 @@ function modelCall(o: Record<string, unknown>): TraceModelCall {
     usage: usage(o),
     error: failed ? clean(str(o.statusMessage) ?? 'error', 500) : null,
     responseId: null,
-    startedAt: epochMs(o.startTime),
-    endedAt: epochMs(o.endTime),
+    ...placed(o.id, o.startTime, o.endTime),
   };
 }
 
@@ -111,21 +110,24 @@ function toolCall(o: Record<string, unknown>): TraceToolCall {
     args: o.input === null || o.input === undefined ? undefined : maybeJson(o.input),
     output: o.output === null || o.output === undefined ? undefined : maybeJson(o.output),
     error: failed ? clean(str(o.statusMessage) ?? 'error', 500) : null,
-    startedAt: epochMs(o.startTime),
-    endedAt: epochMs(o.endTime),
+    ...placed(o.id, o.startTime, o.endTime),
   };
 }
 
-/** Reads a fetched trace into its calls. */
+/** Reads a fetched trace into its calls, in the order it lists its observations. */
 export function readLangfuse(trace: Record<string, unknown>): Trace {
   const observations = (Array.isArray(trace.observations) ? trace.observations : []).filter(isObject);
-  const calls: TraceCall[] = [];
-  for (const o of observations) {
-    if (o.type === 'GENERATION') calls.push(modelCall(o));
-    else if (o.type === 'TOOL' && str(o.name)) calls.push(toolCall(o));
-  }
+  const found: Array<{ at: number; call: TraceCall }> = [];
+  observations.forEach((o, at) => {
+    if (o.type === 'GENERATION') found.push({ at, call: modelCall(o) });
+    else if (o.type === 'TOOL' && str(o.name)) found.push({ at, call: toolCall(o) });
+  });
   // A span named after a tool a generation asked for is that tool's call.
-  const asked = calledToolNames(calls);
-  for (const o of observations) if (o.type === 'SPAN' && typeof o.name === 'string' && asked.has(o.name)) calls.push(toolCall(o));
-  return { id: String(trace.id ?? ''), calls, spans: observations.length, skipped: [] };
+  const asked = calledToolNames(found.map((f) => f.call));
+  observations.forEach((o, at) => {
+    if (o.type === 'SPAN' && typeof o.name === 'string' && asked.has(o.name)) found.push({ at, call: toolCall(o) });
+  });
+  const calls = found.sort((a, b) => a.at - b.at).map((f) => f.call);
+  const parents = new Map(observations.flatMap((o) => (str(o.id) && str(o.parentObservationId) ? [[String(o.id), String(o.parentObservationId)] as const] : [])));
+  return { id: String(trace.id ?? ''), calls, spans: observations.length, skipped: [], parents };
 }

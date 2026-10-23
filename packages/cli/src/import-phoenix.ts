@@ -1,4 +1,4 @@
-import { epochMs, isObject, maybeJson, providerRequest, str, type Trace } from './import-trace.js';
+import { epochMs, epochNs, isObject, maybeJson, providerRequest, str, type Trace } from './import-trace.js';
 import { fetchJson, type TraceStoreOptions } from './import-fetch.js';
 import { readStoredSpans, type StoredSpan } from './import-otel.js';
 
@@ -107,6 +107,7 @@ function storedSpan(raw: Record<string, unknown>): StoredSpan | null {
     scope: scopeOf(attrs),
     start: epochMs(raw.start_time),
     end: epochMs(raw.end_time),
+    startNs: epochNs(raw.start_time),
     attrs,
     events,
     error: raw.status_code === 'ERROR' ? (str(raw.status_message) ?? 'error') : null,
@@ -117,5 +118,5 @@ function storedSpan(raw: Record<string, unknown>): StoredSpan | null {
 export function readPhoenix(spans: Array<Record<string, unknown>>, traceId: string): Trace {
   const stored = spans.map(storedSpan).filter((s): s is StoredSpan => s !== null);
   const trace = readStoredSpans(stored).traces.find((t) => t.id === traceId);
-  return { id: traceId, calls: trace?.calls ?? [], spans: stored.length, skipped: trace?.skipped ?? [] };
+  return { id: traceId, calls: trace?.calls ?? [], spans: stored.length, skipped: trace?.skipped ?? [], ...(trace?.parents ? { parents: trace.parents } : {}) };
 }

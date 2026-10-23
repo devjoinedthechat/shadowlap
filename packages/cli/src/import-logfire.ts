@@ -1,4 +1,4 @@
-import { epochMs, isObject, maybeJson, str, type Trace } from './import-trace.js';
+import { epochMs, epochNs, isObject, maybeJson, str, type Trace } from './import-trace.js';
 import { fetchJson, type TraceStoreOptions } from './import-fetch.js';
 import { readStoredSpans, type StoredSpan } from './import-otel.js';
 
@@ -79,6 +79,7 @@ function storedSpan(row: Record<string, unknown>): StoredSpan | null {
     scope: str(row.otel_scope_name) ?? '',
     start: epochMs(row.start_timestamp),
     end: epochMs(row.end_timestamp),
+    startNs: epochNs(row.start_timestamp),
     attrs: isObject(attrs) ? attrs : {},
     events: (Array.isArray(events) ? events : []).filter(isObject).map((e) => ({ name: String(e.name ?? ''), time: epochMs(e.timestamp), attrs: isObject(e.attributes) ? e.attributes : {} })),
     error: failed ? (str(row.otel_status_message) ?? str(row.exception_message) ?? 'error') : null,
@@ -89,5 +90,5 @@ function storedSpan(row: Record<string, unknown>): StoredSpan | null {
 export function readLogfire(rows: Array<Record<string, unknown>>, traceId: string): Trace {
   const stored = rows.map(storedSpan).filter((s): s is StoredSpan => s !== null);
   const trace = readStoredSpans(stored).traces.find((t) => t.id === traceId);
-  return { id: traceId, calls: trace?.calls ?? [], spans: stored.length, skipped: trace?.skipped ?? [] };
+  return { id: traceId, calls: trace?.calls ?? [], spans: stored.length, skipped: trace?.skipped ?? [], ...(trace?.parents ? { parents: trace.parents } : {}) };
 }
