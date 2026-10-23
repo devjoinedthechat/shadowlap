@@ -117,6 +117,8 @@ export interface PullResult {
 
 const BLOB_HEAD_OVER = 64 * 1024;
 const HEX64 = /^[0-9a-f]{64}$/;
+/** The name a push gives an index segment: index/ and its id (newSegmentId), a ULID. */
+const SEGMENT_KEY = /^index\/[0-9A-HJKMNP-TV-Z]{26}\.json$/;
 const CALLS_MAX_GZ = 256 * 1024 * 1024;
 
 function now(ctx: SyncContext): number {
@@ -593,11 +595,20 @@ async function readIndex(ctx: SyncContext): Promise<{ segments: number; skipped:
   const rid = remoteId(ctx);
   const seen = ctx.store.seenTeamSegments(rid);
   const fresh: string[] = [];
-  for await (const o of ctx.remote.list(keys.segments)) if (o.key.endsWith('.json') && !seen.has(o.key)) fresh.push(o.key);
-  fresh.sort();
-  const segments: Array<IndexSegment | null> = new Array(fresh.length).fill(null);
   const done: string[] = [];
   const skipped: PullResult['skippedSegments'] = [];
+  for await (const o of ctx.remote.list(keys.segments)) {
+    if (!o.key.endsWith('.json') || seen.has(o.key)) continue;
+    // Only a name a push writes is read: anyone who can write to the bucket names its objects, and
+    // one named index/../../x.json would reach outside the store's folder. Said once.
+    if (SEGMENT_KEY.test(o.key)) fresh.push(o.key);
+    else {
+      done.push(o.key);
+      skipped.push({ key: o.key, reason: `isn't the name a push gives an index segment (index/<id>.json), so it isn't read` });
+    }
+  }
+  fresh.sort();
+  const segments: Array<IndexSegment | null> = new Array(fresh.length).fill(null);
   await eachLimit(fresh, ctx.concurrency ?? 8, async (key, i) => {
     const got = await ctx.remote.get(key, { maxBytes: 64 * 1024 * 1024 });
     if (!got) {

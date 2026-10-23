@@ -73,6 +73,7 @@ const R2_ACCOUNT = /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/;
 const REGION = /^[a-z0-9-]{2,40}$/;
 const PROFILE = /^[A-Za-z0-9_.+@-]{1,64}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+const CONTROL_ALL = /[\u0000-\u001f\u007f-\u009f]/g;
 
 function providerOf(scheme: string): Provider | null {
   const found = (Object.keys(SCHEMES) as Provider[]).find((p) => SCHEMES[p] === `${scheme}//`);
@@ -203,8 +204,14 @@ export function shortStoreName(loc: StoreLocation): string {
   return [loc.provider === 'azure' || loc.provider === 'r2' ? loc.account : null, loc.bucket, loc.prefix].filter(Boolean).join('/');
 }
 
-/** The object key for a path inside the store's folder. */
+/**
+ * The object key for a path inside the store's folder. A key with a `.` or `..` part is refused,
+ * whoever made it: a URL resolves those, so `index/../../other/x.json` would reach an object outside
+ * the folder (another team's, read or written with this machine's credentials). Every key Shadowlap
+ * writes is made of ids and hashes; one listed in the bucket is checked before it is read (sync.ts).
+ */
 export function objectKey(loc: StoreLocation, key: string): string {
+  if (key.split('/').some((part) => part === '.' || part === '..')) throw new StoreUrlError(`"${key.replace(CONTROL_ALL, '?')}" isn't a key in the store's folder: a key has no "." or ".." part`);
   return loc.prefix ? `${loc.prefix}/${key}` : key;
 }
 
