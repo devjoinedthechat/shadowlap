@@ -470,8 +470,16 @@ describe('imports', () => {
     const missing = await post(dash, 'jobs', { kind: 'import', format: 'logfire', traceId: id });
     expect(missing.status).toBe(409);
     expect(await errorOf(missing)).toMatch(/^Logfire needs LOGFIRE_READ_TOKEN in the environment/);
+    // A Phoenix that asks for no key is read over http on another host too, as a compose file names it; with a key, https.
+    expect(await built({ kind: 'import', format: 'phoenix', traceId: id, host: 'http://phoenix:6006' })).toEqual(['import', 'phoenix', id, '--host', 'http://phoenix:6006']);
+    process.env.PHOENIX_API_KEY = 'phx_6b1d_do_not_store';
+    const keyed = await post(dash, 'jobs', { kind: 'import', format: 'phoenix', traceId: id, host: 'http://phoenix:6006' });
+    expect(keyed.status).toBe(400);
+    expect(await errorOf(keyed)).toMatch(/^host: an https address/);
+    delete process.env.PHOENIX_API_KEY;
     process.env.LOGFIRE_READ_TOKEN = 'pylf_v1_eu_test';
     expect(await built({ kind: 'import', format: 'logfire', traceId: id, host: 'https://logfire-eu.pydantic.dev' })).toEqual(['import', 'logfire', id]);
+    expect((await post(dash, 'jobs', { kind: 'import', format: 'logfire', traceId: id, host: 'http://logfire.northwind.example' })).status).toBe(400);
     for (const body of [
       { kind: 'import', format: 'phoenix', traceId: '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07' },
       { kind: 'import', format: 'logfire', traceId: 'abc' },
@@ -500,6 +508,9 @@ describe('imports', () => {
     expect(JSON.stringify(traceSources({ PHOENIX_COLLECTOR_ENDPOINT: 'https://ops:hunter2@phoenix.northwind.example/s/support/v1/traces', LOGFIRE_BASE_URL: 'https://ops:hunter2@logfire.northwind.example' }))).not.toMatch(/hunter2|ops@/);
     expect(traceSources({ PHOENIX_COLLECTOR_ENDPOINT: 'https://ops:hunter2@phoenix.northwind.example/s/support/v1/traces' }).phoenix.host).toBe('https://phoenix.northwind.example/s/support');
     expect(traceHost('http://localhost:3000/')).toBe('http://localhost:3000');
+    expect(traceHost('http://phoenix:6006')).toBeNull();
+    expect(traceHost('http://phoenix:6006', true)).toBe('http://phoenix:6006');
+    expect(traceHost('http://ops:hunter2@phoenix:6006', true)).toBeNull();
     expect(traceHost('ftp://x')).toBeNull();
     expect(traceHost('')).toBeNull();
   });

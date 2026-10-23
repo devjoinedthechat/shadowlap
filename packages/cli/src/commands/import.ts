@@ -166,9 +166,9 @@ function addressOf(flag: string | undefined, envNames: string[], fallback: strin
 }
 
 /** The trace store's address, checked; a refusal names what gave it, so one from the environment isn't blamed on --host. */
-function hostFor(address: Address, what: string, allowHttp: boolean): string {
+function hostFor(address: Address, what: string, allowHttp: boolean, secret?: string): string {
   try {
-    return traceStoreHost(address.raw, what, { from: address.from, allowHttp });
+    return traceStoreHost(address.raw, what, { from: address.from, allowHttp, ...(secret ? { secret } : {}) });
   } catch (err) {
     throw new InvalidArgumentError((err as Error).message);
   }
@@ -380,7 +380,7 @@ export function register(program: Command): void {
       const traceId = traceIdOf(rawId);
       const apiKey = (process.env.LANGSMITH_API_KEY ?? process.env.LANGCHAIN_API_KEY)?.trim();
       if (!apiKey) throw new InvalidArgumentError('import langsmith reads the API key from LANGSMITH_API_KEY; set it (Settings → API Keys in LangSmith)');
-      const host = hostFor(addressOf(flags.host, ['LANGSMITH_ENDPOINT', 'LANGCHAIN_ENDPOINT'], LANGSMITH_HOST), 'LangSmith', flags.allowHttp === true);
+      const host = hostFor(addressOf(flags.host, ['LANGSMITH_ENDPOINT', 'LANGCHAIN_ENDPOINT'], LANGSMITH_HOST), 'LangSmith', flags.allowHttp === true, 'the key');
       const runs = await fetchLangsmithRuns(traceId, { host, apiKey });
       const trace = readLangsmith(runs, traceId);
       const source = `langsmith:${traceId.slice(0, 8)}`;
@@ -400,7 +400,7 @@ export function register(program: Command): void {
     .argument('<trace-id>', "the trace's id on its page in Phoenix: 32 hex characters")
     .option('--project <name>', `the project the trace is in (default: PHOENIX_PROJECT_NAME, else ${PHOENIX_PROJECT})`)
     .option('--host <url>', `Phoenix's address, as its client finds it (default: PHOENIX_ENDPOINT, PHOENIX_COLLECTOR_ENDPOINT or PHOENIX_BASE_URL, else ${PHOENIX_HOST})`)
-    .option('--allow-http', 'send the key over plain http to a --host on a network you trust (http is always accepted for this machine)')
+    .option('--allow-http', 'send PHOENIX_API_KEY over plain http to a --host on a network you trust (http is always accepted for this machine, and anywhere without a key)')
     .option('--json', 'machine-readable output: the run made, with its full id, source and call counts, and what the trace kept')
     .action(async (rawId: string, flags: { project?: string; host?: string; allowHttp?: boolean; json?: boolean }) => {
       const traceId = otelTraceIdOf(rawId);
@@ -408,7 +408,8 @@ export function register(program: Command): void {
       const project = flags.project?.trim() || process.env.PHOENIX_PROJECT_NAME?.trim() || PHOENIX_PROJECT;
       if (/[/?#]/.test(project) || project.length > 200) throw new InvalidArgumentError(`--project: a project's name or id, not "${project}"`);
       const named = flags.host === undefined ? phoenixHostFromEnv(process.env) : undefined;
-      const host = hostFor(named ? { raw: named.host, from: named.from } : addressOf(flags.host, [], PHOENIX_HOST), 'Phoenix', flags.allowHttp === true);
+      // A Phoenix that asks for no key is read over plain http anywhere: nothing secret travels.
+      const host = hostFor(named ? { raw: named.host, from: named.from } : addressOf(flags.host, [], PHOENIX_HOST), 'Phoenix', flags.allowHttp === true || !apiKey, 'PHOENIX_API_KEY');
       const trace = readPhoenix(await fetchPhoenixSpans(traceId, { host, apiKey, project }), traceId);
       const source = `phoenix:${traceId.slice(0, 8)}`;
       const store = openStore(program.opts<GlobalOpts>());
@@ -434,7 +435,7 @@ export function register(program: Command): void {
       const since = sinceOf(flags.since);
       const token = process.env.LOGFIRE_READ_TOKEN?.trim();
       if (!token) throw new InvalidArgumentError("import logfire reads a read token from LOGFIRE_READ_TOKEN; set it (create one in the project's settings in Logfire, or with logfire read-tokens create)");
-      const host = hostFor(addressOf(flags.host, ['LOGFIRE_BASE_URL'], logfireHost(token)), 'Logfire', flags.allowHttp === true);
+      const host = hostFor(addressOf(flags.host, ['LOGFIRE_BASE_URL'], logfireHost(token)), 'Logfire', flags.allowHttp === true, 'the read token');
       const trace = readLogfire(await fetchLogfireRecords(traceId, { host, token, since }), traceId);
       const source = `logfire:${traceId.slice(0, 8)}`;
       const store = openStore(program.opts<GlobalOpts>());

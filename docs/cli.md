@@ -718,9 +718,11 @@ store's own SDK reads (`LANGFUSE_HOST`, `LANGSMITH_ENDPOINT`, `PHOENIX_ENDPOINT`
 (`https://logfire-us.pydantic.dev` or `https://logfire-eu.pydantic.dev`). A self-hosted LangSmith is
 reached at its `/api/v1` path. Plain http is accepted for this machine (`localhost`, `127.0.0.0/8`,
 `::1`), since the keys travel with every request; `--allow-http` accepts it for another host, on a
-network you trust. Nothing of the keys is stored. The run's source reads `langfuse:<first 8
-characters of the id>` (or `langsmith:…`, `phoenix:…`, `logfire:…`), or the file's name for `otel`,
-and the run is labelled with the source as well as `imported`.
+network you trust. A Phoenix that asks for no key, with `PHOENIX_API_KEY` unset, is read over plain
+http on any host, such as the `http://phoenix:6006` of a compose file, since nothing secret travels.
+Nothing of the keys is stored. The run's source reads `langfuse:<first 8 characters of the id>` (or
+`langsmith:…`, `phoenix:…`, `logfire:…`), or the file's name for `otel`, and the run is labelled
+with the source as well as `imported`.
 
 Replay matches each model call on its whole request, but for the API version an Anthropic client
 names (`anthropic-version`), which no trace keeps: an imported call names none, and is matched

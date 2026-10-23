@@ -107,9 +107,10 @@ export function phoenixProject(raw: unknown): string | null {
 
 /**
  * A trace store's address from the dialog: https (http only for this machine, as the CLI accepts
- * without --allow-http), no credentials in it. Null when it isn't one; the CLI checks it again.
+ * without --allow-http, or anywhere with `anyHttp`, for a store sent nothing secret), no credentials
+ * in it. Null when it isn't one; the CLI checks it again.
  */
-export function traceHost(raw: unknown): string | null {
+export function traceHost(raw: unknown, anyHttp = false): string | null {
   if (typeof raw !== 'string' || !raw.trim() || raw.length > 500) return null;
   let url: URL;
   try {
@@ -119,7 +120,7 @@ export function traceHost(raw: unknown): string | null {
   }
   if (url.username || url.password) return null;
   const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) return null;
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && (loopback || anyHttp))) return null;
   url.hash = '';
   return url.toString().replace(/\/$/, '');
 }
@@ -135,10 +136,12 @@ export function register(router: Router, ctx: RouteContext): void {
         const source = format as TraceSource;
         const traceId = typeof req.traceId === 'string' ? req.traceId.trim() : '';
         if (!traceIdOk(source, traceId)) return { error: source === 'phoenix' || source === 'logfire' ? 'traceId: the trace’s id, 32 hex characters' : 'traceId: the id from the trace’s page' };
+        // A Phoenix that asks for no key is read over plain http anywhere, as the CLI reads it: nothing secret travels.
+        const anyHttp = source === 'phoenix' && !process.env.PHOENIX_API_KEY?.trim();
         let host: string | null = null;
         if (req.host !== undefined && req.host !== null && req.host !== '') {
-          host = traceHost(req.host);
-          if (!host) return { error: 'host: an https address, without credentials (the keys come from this machine’s environment)' };
+          host = traceHost(req.host, anyHttp);
+          if (!host) return { error: anyHttp ? 'host: an http or https address, without credentials' : 'host: an https address, without credentials (the keys come from this machine’s environment)' };
         }
         let project: string | null = null;
         if (source === 'phoenix' && req.project !== undefined && req.project !== null && req.project !== '') {
@@ -150,7 +153,7 @@ export function register(router: Router, ctx: RouteContext): void {
         // The CLI goes where the environment says (its SDK's variable, else the public API) unless
         // told otherwise: a host typed in the dialog that differs from that one goes on the command
         // line, the public API included when the environment names another.
-        const passHost = host && host !== (traceHost(env.host) ?? env.host) ? host : null;
+        const passHost = host && host !== (traceHost(env.host, anyHttp) ?? env.host) ? host : null;
         // So does a Phoenix project other than the one it would look in, as one argument.
         const passProject = project && project !== env.project ? project : null;
         return { args: ['import', source, traceId, ...(passHost ? ['--host', passHost] : []), ...(passProject ? [`--project=${passProject}`] : [])], opensRun: true };

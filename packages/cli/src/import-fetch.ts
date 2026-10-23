@@ -29,8 +29,10 @@ const EXAMPLES: Record<string, string> = {
 export interface HostCheck {
   /** What named the address, for a refusal to name: `--host` (the default), or the variable that held it. */
   from?: string;
-  /** Accept plain http to any host (`--allow-http`). */
+  /** Accept plain http to any host: `--allow-http`, or a store sent nothing secret. */
   allowHttp?: boolean;
+  /** What the requests carry that plain http would show, for its refusal: `the keys` (the default), `the read token`. */
+  secret?: string;
 }
 
 /**
@@ -50,7 +52,7 @@ export function traceStoreHost(raw: string, what: string, o: HostCheck = {}): st
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`${from}: ${what} is reached over https, not ${url.protocol}`);
   if (url.username || url.password) throw new Error(`${from}: leave credentials out of the URL; the keys come from the environment`);
   if (url.protocol === 'http:' && !o.allowHttp && !isLoopbackHost(url.hostname)) {
-    throw new Error(`${from}: use https for ${url.host}: the keys would cross the network in the clear. http is accepted for this machine, or with --allow-http on a network you trust`);
+    throw new Error(`${from}: use https for ${url.host}: ${o.secret ?? 'the keys'} would cross the network in the clear. http is accepted for this machine, or with --allow-http on a network you trust`);
   }
   url.hash = '';
   url.search = '';

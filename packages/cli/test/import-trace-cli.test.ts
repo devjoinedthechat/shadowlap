@@ -292,6 +292,16 @@ describe('shadowlap import phoenix and logfire', () => {
     expect(cleartext.err).toMatch(/^shadowlap: LOGFIRE_BASE_URL: use https for logfire\.northwind\.example: /);
     // Given with --host, the refusal says so.
     const flag = await shadowlap(['import', 'logfire', LOGFIRE_ID, '--host', 'http://logfire.northwind.example'], { LOGFIRE_READ_TOKEN: LOGFIRE_TOKEN, LOGFIRE_BASE_URL: 'https://logfire-eu.pydantic.dev' });
-    expect(flag.err).toMatch(/^shadowlap: --host: use https for logfire\.northwind\.example: /);
+    expect(flag.err).toMatch(/^shadowlap: --host: use https for logfire\.northwind\.example: the read token would cross the network in the clear/);
+  });
+
+  it('reads a Phoenix that asks for no key over plain http on another host, and keeps a key to https there', async () => {
+    // As a compose file names it: nothing secret travels, so no --allow-http is needed.
+    const keyless = await shadowlap(['import', 'phoenix', PHOENIX_ID], { PHOENIX_COLLECTOR_ENDPOINT: 'http://0.0.0.0:1/v1/traces' });
+    expect(keyless.code).toBe(1);
+    expect(keyless.err).toContain('could not reach 0.0.0.0:1');
+    const keyed = await shadowlap(['import', 'phoenix', PHOENIX_ID], { PHOENIX_COLLECTOR_ENDPOINT: 'http://0.0.0.0:1/v1/traces', PHOENIX_API_KEY: PHOENIX_KEY });
+    expect(keyed.code).toBe(1);
+    expect(keyed.err).toBe('shadowlap: PHOENIX_COLLECTOR_ENDPOINT: use https for 0.0.0.0:1: PHOENIX_API_KEY would cross the network in the clear. http is accepted for this machine, or with --allow-http on a network you trust\n');
   });
 });
