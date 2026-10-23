@@ -2,7 +2,8 @@ name: Action
 
 # The GitHub Action in action.yml, used the way a repository uses it: a committed recording that
 # replays clean, the same recording against a changed agent, and a job where the action has to
-# build the CLI from its own source (as it does when no version is given).
+# build the CLI from its own source. Every step sets build-from-source: otherwise the action
+# installs its own release from npm, and the CLI of the commit under test is no release.
 on:
   push:
     branches: [main]
@@ -31,11 +32,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # build-from-source finds the CLI built above and runs it, building nothing again.
       - name: A recording that still matches passes
         id: clean
         uses: ./
         with:
           recordings: testing/golden/*
+          build-from-source: 'true'
       - name: The same recording against a changed agent fails
         id: changed
         uses: ./
@@ -45,6 +48,7 @@ jobs:
           recordings: testing/golden/reference-agent
           fail-on-divergence: 'false'
           annotations: 'false'
+          build-from-source: 'true'
       - name: Check what the action reported
         shell: bash
         env:
@@ -73,6 +77,7 @@ jobs:
         uses: ./
         with:
           recordings: testing/golden/reference-agent
+          build-from-source: 'true'
       - shell: bash
         env:
           PASSED: ${{ steps.test.outputs.passed }}
