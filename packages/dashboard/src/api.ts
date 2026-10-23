@@ -6,8 +6,9 @@ import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
 import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
-import { analysisFor, conversationSource, NO_FACTS, ownFacts, partAnalysis, QUICK_FROM, READ_PAST, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
+import { analysisFor, blameAt, conversationSource, modelName, NO_FACTS, ownFacts, partAnalysis, QUICK_FROM, READ_PAST, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
 import { keptCalls, runCalls } from './run-calls.js';
+import { blameStep, runWholeFacts } from './run-summary.js';
 // How a run stands, as the run list works it out: a run's page and its family read the same state.
 import { bundleOf, runState, runStates, type RunState } from './runs-list.js';
 
@@ -304,6 +305,12 @@ function childRows(store: Store, runId: string): RunDetail['children'] {
 
 /** The most calls one answer holds: a run's first page, and each page after (contract 8). */
 export const CALLS_PAGE = 500;
+/**
+ * The first page of a long run that ended and that this thread hasn't read: a screen's worth and
+ * more, as the page shows a window of rows and asks for the page of any call it moves to; fewer
+ * calls read and analysed for the first answer.
+ */
+export const LONG_RUN_FIRST_PAGE = 200;
 
 /** The calls of a page: those after `after` (or from `from` on), at most `limit`, and where the next page starts. */
 function pageOf(calls: readonly CallRecord[], at: { after?: number; from?: number }, limit: number): { page: readonly CallRecord[]; next: number | null } {
@@ -354,13 +361,56 @@ function readPage(store: Store, run: RunRecord, at: { after?: number; from?: num
   return { page, next, analysis, whole, done, calls };
 }
 
+/** The calls a replay's flags are read from (run-facts.ts `runInterventions`): its overridden ones, those injected with a failure, and one it stubbed. */
+const FLAG_CALLS_SQL = `
+SELECT s.call_no AS n FROM call_events s WHERE s.run_id = ? AND s.phase = 'start' AND (s.origin = 'overridden' OR (s.kind = 'api' AND EXISTS (
+  SELECT 1 FROM call_events e WHERE e.run_id = s.run_id AND e.call_no = s.call_no AND e.phase = 'end' AND json_type(e.meta, '$.injected') IN ('true', 'integer', 'real', 'text', 'object', 'array'))))
+UNION SELECT n FROM (SELECT call_no AS n FROM call_events WHERE run_id = ? AND phase = 'start' AND origin = 'stubbed' LIMIT 1)`;
+
+/**
+ * The first page of a long run that ended, which this thread has not read lately: the calls it shows
+ * and a few after, whole, their facts from the analysis of those calls, and what the page says of the
+ * whole run (its summary, the origin strip, its models, blame's step) worked out in SQL rather than
+ * from every call read whole (run-summary.ts). The whole run is read and analysed beside the server
+ * once this is answered (`warming`).
+ */
+function firstPageOfLongRun(store: Store, run: RunRecord, shown: RunRecord, state: RunState | null, options: ReadOptions, limit: number): RunDetail {
+  const runId = run.runId;
+  const head = store.getCalls(runId, { after: 0, limit: limit + READ_PAST });
+  const page = head.slice(0, limit);
+  const whole = runWholeFacts(store, shown, { ...(options.prices ? { prices: options.prices } : {}), modelOf: modelResolver(store), name: modelName });
+  const analysis = partAnalysis(store, run, head);
+  const at = blameAt(run);
+  const flagCalls = run.mode === 'replay' ? store.getCalls(runId, { only: store.query(FLAG_CALLS_SQL, runId, runId).map((r) => Number(r.n)) }) : [];
+  const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
+  return {
+    run: shown,
+    label: runLabel(run, kindFacts(store, run, whole.calls)),
+    about: aboutOfRun(store, loadRunIndex(store), runId, { calls: head }),
+    source: captureSource(run),
+    summary: whole.summary,
+    calls: page.map((c) => row(store, c, options, analysis.facts(c.callNo), false)),
+    callsTotal: whole.calls,
+    callsNext: head[limit]?.callNo ?? null,
+    origins: whole.origins,
+    parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
+    children: childRows(store, runId),
+    attempts: bundleOf(loadRunIndex(store), runId).length,
+    actions: actionsFor(run, undefined),
+    ...runPageFacts(store, run, flagCalls, analysis, { models: whole.models, blameStep: at?.callNo != null ? blameStep(store, runId, at.callNo, at.scope) : null }),
+    fix: fixForRun(store, run.runId),
+    state,
+    attemptPlace: attemptPlace(store, run),
+    warming: { done: head.length, total: whole.calls },
+  };
+}
+
 /**
  * A run's page: the run, the first page of its calls (`CALLS_PAGE`, or `limit`: an exported copy
  * holds every call), `callsTotal` and `callsNext`, and what the page shows about it. `after` answers
- * with the page of calls after the n the page has, for a recording it follows. Every call is read,
- * once, for what the page says of the whole run (its summary, the origin strip, its models); the
- * facts of the calls shown come, for a long run that ended, from the analysis of its first calls
- * while the whole run is analysed beside the server, and the answer says so (`warming`).
+ * with the page of calls after the n the page has, for a recording it follows. A long run that ended
+ * is answered from the calls its first page shows (`firstPageOfLongRun`), and says so (`warming`);
+ * any other from every call, read once and kept for the pages after.
  */
 export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions = {}, part: { after?: number; limit?: number } = {}): RunDetail | null {
   const run = lookupRun(store, idOrPrefix);
@@ -371,7 +421,9 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
   // Interrupted as the lists have it: a run its recorder left running is not recording any more,
   // and ended at its last call, as gc would end it.
   const shown = state && state.status !== run.status ? { ...run, status: state.status, endedAt: run.endedAt ?? state.endedAt } : run;
-  const read = readPage(store, run, after === undefined ? {} : { after }, Math.max(1, part.limit ?? CALLS_PAGE), { whole: true });
+  const limit = Math.max(1, part.limit ?? CALLS_PAGE);
+  if (after === undefined && limit <= CALLS_PAGE && run.status !== 'running' && !keptCalls(store, runId) && store.countCalls(runId) >= QUICK_FROM) return firstPageOfLongRun(store, run, shown, state, options, Math.min(limit, LONG_RUN_FIRST_PAGE));
+  const read = readPage(store, run, after === undefined ? {} : { after }, limit, { whole: true });
   const { page, next, analysis, whole, done } = read;
   const calls = read.calls!;
   const summary = summarizeRun(shown, calls as CallRecord[], [], [], { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) });

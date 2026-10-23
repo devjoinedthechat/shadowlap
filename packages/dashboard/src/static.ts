@@ -117,7 +117,8 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   responses['runs'] = { runs };
   let calls = 0;
   for (const runId of runIds) {
-    const detail = runDetail(store, runId, read);
+    // A copy has no server to ask for the next page: it holds every call.
+    const detail = runDetail(store, runId, read, { limit: Infinity });
     const record = store.getRun(runId);
     if (!detail || !record) continue;
     // Only runs in the file are linked from it: a Compare or parent link to a run left out would dead-end.

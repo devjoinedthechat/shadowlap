@@ -147,7 +147,14 @@ export class ReadPool implements ReadModels {
    * thread takes it, reading the run's page again rather than waiting seconds for a long analysis.
    */
   private unpin(): Pending | undefined {
-    for (const s of this.slots) if (s.busy?.background && s.pinned.length) return s.pinned.shift();
+    for (const s of this.slots) {
+      const busy = s.busy;
+      if (!busy?.background) continue;
+      // The run it is analysing: the request is answered right after, from that analysis.
+      const analysing = busy.job.kind === 'analyse' ? busy.job.runId : null;
+      const i = s.pinned.findIndex((p) => p.affinity !== analysing);
+      if (i >= 0) return s.pinned.splice(i, 1)[0];
+    }
     return undefined;
   }
 

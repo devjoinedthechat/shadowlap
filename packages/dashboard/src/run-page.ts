@@ -429,20 +429,30 @@ const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const int = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null);
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback);
 
-function blameOf(run: RunRecord, calls: readonly CallRecord[]): RunBlame | null {
+/** Where a run's blame placed the failure, as kept: its call and scope. */
+export function blameAt(run: RunRecord): { callNo: number | null; scope: string | null } | null {
+  const b: unknown = run.meta?.blame;
+  return isObject(b) ? { callNo: int(b.callNo), scope: str(b.scope) } : null;
+}
+
+function blameOf(run: RunRecord, calls: readonly CallRecord[], step?: { k: number; m: number } | null): RunBlame | null {
   const b: unknown = run.meta?.blame;
   if (!isObject(b)) return null;
   const callNo = int(b.callNo);
   const scope = str(b.scope);
-  // The model calls blame probed: those with an answer, in its scope (the agent's, not a simulated user's).
-  // The agent's model calls: a judge check's are none of blame's steps.
-  const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope) && !isJudgeCall(c)).map((c) => c.callNo);
-  const k = callNo === null ? 0 : steps.indexOf(callNo) + 1;
+  let modelCall = step;
+  if (modelCall === undefined) {
+    // The model calls blame probed: those with an answer, in its scope (the agent's, not a simulated user's).
+    // The agent's model calls: a judge check's are none of blame's steps.
+    const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope) && !isJudgeCall(c)).map((c) => c.callNo);
+    const k = callNo === null ? 0 : steps.indexOf(callNo) + 1;
+    modelCall = k > 0 ? { k, m: steps.length } : null;
+  }
   return {
     outcome: oneOf(b.outcome, ['blamed', 'unrescuable', 'stopped'] as const, 'stopped'),
     ...(b.unsettled === true ? { unsettled: true as const } : {}),
     callNo,
-    modelCall: k > 0 ? { k, m: steps.length } : null,
+    modelCall,
     confidence: oneOf(b.confidence, ['high', 'medium', 'low'] as const, 'low'),
     rescuedRunId: str(b.rescuedRunId),
     scope,
@@ -553,7 +563,12 @@ function modelsOf(store: Store, calls: readonly CallRecord[]): Record<string, st
   return out;
 }
 
-export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallRecord[], a: RunAnalysis = analyseRun(store, run, calls)): RunPageFacts {
+/**
+ * The run page's facts beyond its rows. `o` gives what was worked out without reading every call
+ * (run-summary.ts): the models' names and blame's step; `calls` then needs to hold only the calls a
+ * replay's flags are read from (its overridden, injected and stubbed calls).
+ */
+export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallRecord[], a: RunAnalysis = analyseRun(store, run, calls), o: { models?: Record<string, string>; blameStep?: { k: number; m: number } | null } = {}): RunPageFacts {
   const interventions = run.mode === 'replay' ? runInterventions(store, run, calls) : [];
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
   const rescued = parent && isObject(parent.meta?.blame) && parent.meta.blame.rescuedRunId === run.runId ? parent.meta.blame : null;
@@ -569,9 +584,9 @@ export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallR
     intervention: interventions[0] ?? null,
     interventions,
     rescuedBy: rescued && parent ? { runId: parent.runId, callNo: int(rescued.callNo) } : null,
-    blame: blameOf(run, calls),
+    blame: blameOf(run, calls, o.blameStep),
     checks: checksOf(store, run),
-    models: modelsOf(store, calls),
+    models: o.models ?? modelsOf(store, calls),
   };
 }
 
