@@ -19,6 +19,7 @@ import { useActionRunner } from '../run/actions.js';
 import { CallsTable, CallsToolbar, matchesFilter, type OriginFilter } from '../run/CallsView.js';
 import { ContextView } from '../run/ContextView.js';
 import { ForksView } from '../run/ForksView.js';
+import { ForkDifferences } from '../run/ForkDifferences.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
 import { askedTools } from '../run/calls.js';
@@ -337,6 +338,8 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
       <Metrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} />
       <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} />
       {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
+      {/* What a fork did differently from its parent, ranked as decisions ranks a change. */}
+      {run.run.divergence && run.run.parentRunId && !live ? <ForkDifferences runId={runId} /> : null}
       <section className="strip">
         {calls.length ? <Strip calls={stripCalls} selected={selected} forkAt={forkMark} lostAt={lostAt} inScope={inScopeFn} live={live} onSelect={select} /> : <div className="cells empty-strip">{live ? 'Waiting for the first call…' : 'No calls.'}</div>}
         <Legend origins={present} />

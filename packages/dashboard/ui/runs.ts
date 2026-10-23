@@ -1,3 +1,4 @@
+import { isAttempt as isAttemptRun } from '../../engine/src/run-roles.js';
 import { approx, money, num, plural, shortId } from './format.js';
 import { countOrigins, parseOrigins, type Origin7, type OriginCounts } from './origins.js';
 
@@ -28,11 +29,14 @@ export interface RunLike {
   origins?: unknown;
   /** A replay made by `shadowlap test`. */
   test?: { golden: string; session?: string } | null;
-  /** What made the run an attempt (`--repeat`, a blame probe, a verify attempt): bundled, not listed. */
+  /** For an attempt the list bundles: the run it is bundled under (`normalizeRuns`, from the server's `attemptOf`). */
   attempt?: unknown;
-  repeat?: unknown;
-  probe?: unknown;
-  verify?: unknown;
+  /**
+   * What made the run an attempt, as the server classified it against the whole store (engine
+   * run-roles.ts); null for a run of its own, and for an attempt whose run isn't listed, which is
+   * listed like any run (`normalizeRuns`).
+   */
+  attemptKind?: string | null;
   /** The last blame: the call the run was lost at. */
   blame?: { callNo: number | null } | null;
   /** Outcome checks, as they came out for this run: `passed` of `total`, and when any, `inconclusive` and `notApplicable`. */
@@ -80,8 +84,13 @@ export function checksPassedText(passed: number, notApplicable = 0): string {
 
 export const isLive = (r: Pick<RunLike, 'status'>): boolean => r.status === 'running';
 
+/**
+ * An attempt the lists bundle under the run it came from rather than list (a blame probe, a verify
+ * attempt, a `--repeat`'s, an error-path preset's, a golden's repeated test replay): the engine's one
+ * rule (run-roles.ts), as the server applied it to the list's rows.
+ */
 export function isAttempt(r: RunLike): boolean {
-  return !!(r.attempt || r.repeat || r.probe || r.verify);
+  return isAttemptRun(r);
 }
 
 /**
@@ -181,6 +190,20 @@ export function runTag(r: RunLike): { cls: string; text: string } {
   if (t === 'capture') return { cls: 'cap', text: 'capture' };
   if (t === 'test') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: 'test', text: 'test' };
   return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'replay' };
+}
+
+/**
+ * The chip beside a run's id on its page: its status only, since the eyebrow above it names what kind
+ * of run it is and the meta line under it why it failed. In progress, failed, inconclusive (amber) or
+ * interrupted (neutral); none for a run with nothing to report, so no word in the header says twice
+ * what another says.
+ */
+export function headerStatus(r: RunLike): { cls: string; text: string } | null {
+  if (isLive(r)) return { cls: 'live', text: 'in progress' };
+  if (isFailed(r)) return { cls: 'fail', text: 'failed' };
+  if (runOutcome(r).tone === 'warn') return { cls: 'inc', text: 'inconclusive' };
+  if (isInterrupted(r)) return { cls: '', text: 'interrupted' };
+  return null;
 }
 
 /**

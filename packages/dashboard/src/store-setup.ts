@@ -22,6 +22,7 @@ import {
   type StoreLocation,
 } from '@shadowlap/remote';
 import { VERSION } from './ci-yaml.js';
+import { links } from './links.js';
 import { nextSetupStep, type SetupFacts } from './store-steps.js';
 import { countsOf, type TeamStoreInput } from './team-store.js';
 
@@ -204,7 +205,7 @@ export function storeSetupView(store: Store, input: TeamStoreInput, options: { e
           // The setup gives your workflow's job the credentials steps alone; store ci prints them in a job of its own.
           const credentials = step.credentials ?? null;
           const printed = credentials ? `${command} prints these two steps in a job of its own, which would run your goldens a second time: copy only the two steps.` : null;
-          return { ...shown, command: credentials ? command : null, workflow: { href: '#/settings/alerts', credentials, printed } };
+          return { ...shown, command: credentials ? command : null, workflow: { href: links.settings('alerts'), credentials, printed } };
         })
       : null,
     commit: loc ? { file: CONFIG_FILE, line: `"store": ${JSON.stringify(input.store)}`, command: COMMIT } : null,

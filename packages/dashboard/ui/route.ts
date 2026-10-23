@@ -1,6 +1,9 @@
+import { links, type LinkView } from '../src/links.js';
+
 /**
- * The dashboard's routes, as the URL fragment holds them. Parsing and building only: no DOM here,
- * so the tests import it. `router.ts` holds the hooks that follow the address bar.
+ * The dashboard's routes, as the URL fragment holds them. Parsing here, building in `src/links.ts`,
+ * the one builder the server's links come from too (`href`): no DOM here, so the tests import it.
+ * `router.ts` holds the hooks that follow the address bar.
  *
  *   #/                                   Overview
  *   #/runs                               Runs
@@ -11,7 +14,7 @@
  *   #/setup/store                        the team store's setup
  */
 
-export type View = 'calls' | 'turns' | 'context' | 'timeline' | 'forks' | 'provenance';
+export type View = LinkView;
 export const VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timeline', 'forks', 'provenance'];
 /** What `v` cycles through: Provenance is reached by its tab or the palette. */
 export const CYCLE_VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timeline', 'forks'];
@@ -96,25 +99,8 @@ export function parseRoute(hash: string): Route {
   }
 }
 
-const enc = encodeURIComponent;
-
-export const href = {
-  overview: () => '#/',
-  runs: () => '#/runs',
-  /** A run, at a call, in a view: Calls is the default and leaves the URL. */
-  run: (id: string, call?: number | null, view?: View | null) => {
-    const v = view && view !== 'calls' ? `/${view}` : '';
-    return `#/run/${enc(id)}${call ? `/${call}` : ''}${v}`;
-  },
-  compare: (a?: string | null, b?: string | null) => (a && b ? `#/compare/${enc(a)}/${enc(b)}` : '#/compare'),
-  fixes: (id?: string | null, step?: string | null, sub?: string | null) => `#/fixes${id ? `/${enc(id)}${step ? `/${enc(step)}${sub ? `/${enc(sub)}` : ''}` : ''}` : ''}`,
-  tests: () => '#/tests',
-  training: (tab?: 'pairs' | 'tasks') => (tab === 'tasks' ? '#/training/tasks' : '#/training'),
-  settings: (tab?: string | null) => (tab ? `#/settings/${enc(tab)}` : '#/settings'),
-  newProject: () => '#/new',
-  setup: () => '#/setup',
-  storeSetup: () => '#/setup/store',
-};
+/** The links the page writes: the server's builder (`src/links.ts`), so both write every route one way. */
+export const href = links;
 
 /** The fragment for a route, so a parsed route can be written back. */
 export function routeHref(r: Route): string {

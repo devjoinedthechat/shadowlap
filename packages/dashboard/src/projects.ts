@@ -20,6 +20,7 @@ import {
   type WrapSnippet,
 } from '@shadowlap/engine';
 import { SETUP_INTRO } from './setup-words.js';
+import { links } from './links.js';
 
 /**
  * The dashboard's read model for projects: plain data for the project switcher, the Add a project
@@ -144,7 +145,7 @@ export function projectSwitcher(input: { projects: readonly ProjectEntry[]; curr
     current,
     heading: 'Projects on this machine',
     items,
-    add: { label: 'Add project…', hint: 'a folder with your agent’s code', href: '#/new' },
+    add: { label: 'Add project…', hint: 'a folder with your agent’s code', href: links.newProject() },
     note: 'Each project keeps its own store.',
   };
 }
@@ -232,7 +233,7 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
     truncated: input.suggestions.truncated,
     error,
     button: addable ? { label: `Add ${folderName(picked!.path) || pickedDisplay}`, disabled: false, path: picked!.path, title: pickedDisplay } : { label: 'Add project', disabled: true, path: null, title: null },
-    cancel: { label: 'Cancel', href: '#/' },
+    cancel: { label: 'Cancel', href: links.overview() },
     next: {
       title: 'What happens next',
       steps: [
@@ -487,12 +488,12 @@ export function setupView(input: SetupInput): SetupView {
     text: recorded || live ? null : recordText,
     command: recorded || live ? null : command,
     button: recorded || live ? null : { label: 'Record a run', action: 'record', enabled: canRecord },
-    live: live && run ? { runId: run.runId, calls: totals?.calls ?? 0, text: `Recording ${short(run.runId)} · ${plural(totals?.calls ?? 0, 'call')} so far`, watch: { label: 'Watch it live', href: `#/run/${run.runId}` } } : null,
+    live: live && run ? { runId: run.runId, calls: totals?.calls ?? 0, text: `Recording ${short(run.runId)} · ${plural(totals?.calls ?? 0, 'call')} so far`, watch: { label: 'Watch it live', href: links.run(run.runId) } } : null,
     recorded:
       recorded && run
         ? {
             runId: run.runId,
-            href: `#/run/${run.runId}`,
+            href: links.run(run.runId),
             calls: totals?.calls ?? run.calls,
             spent: totals?.spent ?? 0,
             durationMs: totals?.durationMs ?? null,
@@ -507,7 +508,7 @@ export function setupView(input: SetupInput): SetupView {
     empty: setup.empty && !clean && !tested && !finished
       ? {
           runId: setup.empty.runId,
-          href: `#/run/${setup.empty.runId}`,
+          href: links.run(setup.empty.runId),
           text: `${short(setup.empty.runId)} holds no calls, so nothing was recorded: the command didn’t start your agent, or no model call reached Shadowlap. Check the command and record again.`,
         }
       : null,
@@ -561,14 +562,14 @@ export function setupView(input: SetupInput): SetupView {
         : {
             rules: input.redactRules,
             text: input.redactRules ? 'Your redaction rules apply to the copy.' : 'There are no redaction rules yet, so the copy holds what was recorded. Add some in Settings before you commit runs with user data.',
-            href: '#/settings/redaction',
+            href: links.settings('redaction'),
           },
     golden: tested || packedOnly ? null : { value: golden, enabled: clean },
     button: tested ? null : packedOnly ? { label: failed ? 'Run the test again' : 'Run the test', action: 'testgolden', enabled: true } : { label: 'Pack as a golden', action: 'packgolden', enabled: clean },
-    result: tested ? { text: `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}`, link: { label: 'Open Tests', href: '#/tests' } } : null,
+    result: tested ? { text: `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}`, link: { label: 'Open Tests', href: links.tests() } } : null,
     packed: packedOnly
       ? failed
-        ? { golden: packedOnly, failed: true, text: `${packedOnly} failed its test${setup.goldenTest?.reason ? `: ${setup.goldenTest.reason.replace(/[.\s]+$/, '')}` : ''}. Fix what changed, or record again, then run it again.`, link: { label: 'Open Tests', href: '#/tests' } }
+        ? { golden: packedOnly, failed: true, text: `${packedOnly} failed its test${setup.goldenTest?.reason ? `: ${setup.goldenTest.reason.replace(/[.\s]+$/, '')}` : ''}. Fix what changed, or record again, then run it again.`, link: { label: 'Open Tests', href: links.tests() } }
         : { golden: packedOnly, failed: false, text: `Packed as ${packedOnly}. Its test replays it offline: run it to finish.`, link: null }
       : null,
   };

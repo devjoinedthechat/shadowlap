@@ -43,6 +43,15 @@ function useProviders(run: RunDetail, server: ServerProvenance | null): Array<{ 
   return known ?? found;
 }
 
+/** A time in the record: local, as every page says times, with the instant in UTC on hover. */
+function When({ ms }: { ms: number }) {
+  return (
+    <time dateTime={new Date(ms).toISOString()} title={utcStamp(ms)}>
+      {stamp(ms)}
+    </time>
+  );
+}
+
 /** The requests and what they cost, kept on one line, then who spent it for a run pulled from the team store. */
 function UpstreamValue({ text, note }: { text: string; note: string | null }) {
   return (
@@ -59,7 +68,7 @@ function UpstreamValue({ text, note }: { text: string; note: string | null }) {
 }
 
 /**
- * Provenance: the run's record (command, code version, times in UTC, models, provider, upstream
+ * Provenance: the run's record (command, code version, times in local time, models, provider, upstream
  * requests, origins), its lineage, each call's fingerprint and blobs when the server sends them,
  * what a copy made now would mask, and its labels and notes. The calls' ledger draws only the rows
  * in view (window-hook.ts).
@@ -152,8 +161,9 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
     ['What it is', what],
     ['Command', run.source ? <span className="muted">none: imported from {run.source}</span> : <code key="c">{r.command.argv.join(' ')}</code>],
     ['Code version', r.codeVersion ? <code key="v">{r.codeVersion}</code> : '—'],
-    ['Started', utcStamp(r.startedAt)],
-    ['Ended', r.endedAt ? utcStamp(r.endedAt) : <span className="muted">{r.status === 'running' ? 'still recording' : '—'}</span>],
+    // Local time, as every other page says it; the instant in UTC on hover, for a record read elsewhere.
+    ['Started', <When key="s" ms={r.startedAt} />],
+    ['Ended', r.endedAt ? <When key="e" ms={r.endedAt} /> : <span className="muted">{r.status === 'running' ? 'still recording' : '—'}</span>],
     [
       'Models',
       models.size

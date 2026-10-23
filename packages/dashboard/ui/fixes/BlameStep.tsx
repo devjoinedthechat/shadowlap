@@ -5,6 +5,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import type { BlameStep, FixDetail } from '../types.js';
 import { attemptMark, blameWhere, callRowCells, probeBadge, probeVerdictWords } from './model.js';
+import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
 import { StepHead } from './parts.js';
 
 /**
@@ -12,11 +13,16 @@ import { StepHead } from './parts.js';
  * on both sides, the probes and their attempts, and what finding out took.
  */
 export function BlameStepView({ fix }: { fix: FixDetail }) {
+  const groups = useAttemptGroups(fix.fixId);
   const b = fix.blame;
   // A fix starts from a blame, so this only shows for a fix whose blame was deleted from the store.
   if (!b) return <EmptyState title="Not blamed yet" text="blame finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass." command={fix.commands.blame} />;
   const where = blameWhere(b);
   const others = fix.blames.filter((x) => x.blameId !== b.blameId);
+  // What blame's JSON says beyond its probes, when it says it: the calls it lost the run between, and the error bound its confidence comes from.
+  const range = b.evidence?.range ?? null;
+  const errorBound = b.evidence?.errorBound ?? null;
+  const probeGroups = (callNo: number) => (groups?.blame?.blameId === b.blameId ? (groups.blame.probes.find((p) => p.callNo === callNo) ?? null) : null);
   return (
     <>
       <StepHead
@@ -27,7 +33,8 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
             <a className="more" href={b.hrefs.run}>
               {shortId(b.runId)}
             </a>
-            {` · confidence ${b.confidence}`}
+            {` · confidence ${b.confidence}${errorBound !== null ? ` (error ≤ ${errorBound})` : ''}`}
+            {range && range.from !== range.to ? ` · lost between #${range.from} and #${range.to}` : null}
             <span className="pline" title={b.confidenceWhy}>
               {b.boundary}
             </span>
@@ -102,7 +109,13 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                     <td className="num left">
                       {p.passes} of {p.attempts - p.inconclusive}
                       {p.inconclusive ? <span className="fxdim"> · {p.inconclusive} not judged</span> : null}
-                      {p.bound ? <span className="fxdim"> · {p.bound}</span> : null}
+                      {p.bound ? (
+                        <span className="fxdim" title={p.gate?.method ? `the bound: ${p.gate.method}` : undefined}>
+                          {' '}
+                          · {p.bound}
+                        </span>
+                      ) : null}
+                      {p.gate?.unavailable ? <span className="fxdim"> · {p.gate.unavailable} unavailable</span> : null}
                     </td>
                     <td>
                       <Badge tone={probeBadge(p.verdict)}>{probeVerdictWords(p.verdict).word}</Badge>
@@ -126,6 +139,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
               b.bundles.map((x) => (
                 <div key={x.callNo} className="fxbundle">
                   <span className="k">{x.title}</span>
+                  {probeGroups(x.callNo) ? <AttemptGroups groups={probeGroups(x.callNo)!.groups} attempts={probeGroups(x.callNo)!.attempts} label={`probe #${x.callNo}`} /> : null}
                   <div className="attempts">
                     {x.attempts.map((a) => (
                       <a key={a.runId} href={a.href} title={`${shortId(a.runId)} · ${a.note}`}>

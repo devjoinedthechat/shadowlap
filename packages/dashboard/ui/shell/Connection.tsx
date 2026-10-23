@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { tokenInUse } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
@@ -87,13 +87,25 @@ function PasteLink() {
 
 export function ExpiredCard() {
   const { conn } = useApp();
+  const card = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    document.body.classList.toggle('is-expired', conn === 'expired');
-    return () => document.body.classList.remove('is-expired');
+    const expired = conn === 'expired';
+    document.body.classList.toggle('is-expired', expired);
+    // The page behind the card can't be used: Tab and assistive technology keep to the card, whose
+    // way out (Paste the new link) has the focus.
+    const app = document.querySelector<HTMLElement>('#app');
+    if (expired) {
+      app?.setAttribute('inert', '');
+      card.current?.querySelector<HTMLElement>('.btn.lime')?.focus();
+    } else app?.removeAttribute('inert');
+    return () => {
+      document.body.classList.remove('is-expired');
+      app?.removeAttribute('inert');
+    };
   }, [conn]);
   if (conn !== 'expired') return null;
   return (
-    <div className="connblock" role="alertdialog" aria-labelledby="connT">
+    <div className="connblock" role="alertdialog" aria-modal="true" aria-labelledby="connT" ref={card}>
       <div className="cb">
         <span className="cbi">
           <Icon name="clock" />

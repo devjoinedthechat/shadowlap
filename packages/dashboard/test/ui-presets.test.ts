@@ -119,9 +119,10 @@ describe('a preset’s attempt', () => {
     const failed = header(presetAttempt(matrix, ATTEMPT));
     expect(failed).toContain('<span class="tag fail">failed</span>');
     expect(failed).toContain(`<span class="bad">${WHY}</span>`);
-    // Before the presets are read: the fork's own chip, and that it exited with an error, plainly.
+    // Before the presets are read: no chip, its eyebrow naming it a fork, and that it exited with an error, plainly.
     const plain = header(null);
-    expect(plain).toContain('<span class="tag fork">fork @2</span>');
+    expect(plain).not.toContain('class="tag');
+    expect(plain).toContain('<span class="ebk">fork @2</span>');
     expect(plain).toContain('<span>exited with an error</span>');
   });
 });

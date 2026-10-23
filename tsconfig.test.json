@@ -72,6 +72,16 @@
     "packages/dashboard/test/ui-naming.test.ts",
     // These render the places that say a gate's verdict, and a preset's attempt and presets.
     "packages/dashboard/test/ui-verdict.test.ts",
-    "packages/dashboard/test/ui-presets.test.ts"
+    "packages/dashboard/test/ui-presets.test.ts",
+    // These render the run header and read which runs are attempts through the run page's modules.
+    "packages/dashboard/test/ui-run-header.test.ts",
+    "packages/dashboard/test/run-roles.test.ts",
+    // This renders the skip link, the palette, a menu, a dialog and the card a refused link shows.
+    "packages/dashboard/test/ui-focus.test.ts",
+    // These render what a fork did differently, and Edit and fork.
+    "packages/dashboard/test/ui-fork-differences.test.ts",
+    "packages/dashboard/test/ui-edit-and-fork.test.ts",
+    // This renders a fix's steps with what their verdicts say beyond their tallies.
+    "packages/dashboard/test/ui-fix-evidence.test.ts"
   ]
 }

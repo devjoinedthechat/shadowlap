@@ -106,7 +106,7 @@ export function TopBar({ route }: { route: Route }) {
           );
           const crumb = (
             <>
-              {i ? <i>/</i> : null}
+              {i ? <i aria-hidden="true">/</i> : null}
               {c.href ? <a href={c.href}>{inner}</a> : <span>{inner}</span>}
             </>
           );
@@ -121,7 +121,7 @@ export function TopBar({ route }: { route: Route }) {
               )}
               {i === 0 && ancestors.length ? (
                 <span className="cg cgap" hidden>
-                  <i>/</i>
+                  <i aria-hidden="true">/</i>
                   <span title={ancestors.join(' / ')}>…</span>
                 </span>
               ) : null}

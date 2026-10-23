@@ -2,6 +2,7 @@ import { cleanBound, cleanDecided, commandIsImported, hasRecordedCommand, import
 import { lookupRun } from './api.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
+import { links } from './links.js';
 import { optionLike, type GoldenSource } from './tests.js';
 
 /**
@@ -96,7 +97,7 @@ function row(r: StoredInjectionResult): InjectionRow {
     gate: resultGate(r),
     actor: r.actor,
     line: injectionLine(r),
-    href: `#/run/${r.runId}`,
+    href: links.run(r.runId),
   };
 }
 
@@ -146,7 +147,7 @@ export function injectionNeedsLook(store: Store, limit = 20): Array<{ resultId: 
     seen.add(key);
     const severity = r.obeyed ? 'obeyed' : r.influenced ? 'influenced' : resultGate(r) === 'inconclusive' ? 'inconclusive' : null;
     if (!severity) continue;
-    out.push({ resultId: r.resultId, runId: r.runId, golden: r.golden, text: injectionLine(r), href: `#/run/${r.runId}`, severity });
+    out.push({ resultId: r.resultId, runId: r.runId, golden: r.golden, text: injectionLine(r), href: links.run(r.runId), severity });
     if (out.length >= limit) break;
   }
   return out;

@@ -30,6 +30,10 @@ import * as teamStore from './store.js';
 // Error-path presets and production coverage: their results, read models and jobs.
 import * as chaos from './chaos.js';
 import * as coverage from './coverage.js';
+// Forks: what a fork did differently from its parent, and a fork from a result edited in the inspector.
+import * as forks from './forks.js';
+// A fix's attempts grouped by what each did, for its Blame and Verify steps.
+import * as attemptGroups from './attempt-groups.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
 export interface RouteModule {
@@ -73,6 +77,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   // Error-path presets (a run's presets matrix) and production coverage (Tests' Not covered panel).
   chaos,
   coverage,
+  forks,
+  attemptGroups,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState } from 'react';
 import { JOB_KINDS, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { Eyebrow, Tag } from '../components/bits.js';
@@ -10,7 +10,7 @@ import { copyText } from '../dom.js';
 import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { compareTarget, failedWord, isFailed, isInterrupted, runTag, runType } from '../runs.js';
+import { compareTarget, headerStatus, isFailed, runType } from '../runs.js';
 import { bulkToast, deleteText, deleteWhat } from '../runspage/bulk.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { useApp } from '../state.js';
@@ -39,13 +39,15 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const like = runLikeOf(run);
   const type = runType(like);
   const live = r.status === 'running';
-  // A preset's attempt takes its status from the preset's verdict: its run alone reads as a healthy fork.
-  const tag = presetTag(preset) ?? runTag(like);
+  // The chip says how the run stands, and nothing else: what kind of run it is is the eyebrow's, why it
+  // failed the meta line's. A preset's attempt takes its status from the preset's verdict: its run
+  // alone reads as a healthy fork.
+  const tag = preset ? presetTag(preset) : headerStatus(like);
   const share = useMenu();
   const [deleting, setDeleting] = useState(false);
   const replay = run.actions.find((a) => a.key === 'r');
   const pair = compareTarget(r, run.children);
-  const next = nextStepOf(run, { offers, exported, preset });
+  const next = nextStepOf(run, { offers, exported, preset, rescued });
   // The lineage is in the crumbs; a phone, which has none, reads the parent here, after the kind.
   const parent = run.parent ? (
     <span className="ebp">
@@ -55,9 +57,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
       </a>
     </span>
   ) : null;
-  // Failed, or only interrupted, as Runs, the sidebar and the Overview say it: the server's state.
+  // Failed, as Runs, the sidebar and the Overview say it: the server's state.
   const failed = isFailed(like);
-  const cut = isInterrupted(like);
   const outcome = like.outcome ?? null;
   // Why it failed, in the CLI's words: the check it failed and what the run did against it
   // ("send_email called 1 time, but called 2 times (2 blocked)"), the agent's exit, a fix's check. A
@@ -68,31 +69,18 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
     : type === 'test' && d && (!outcome || outcome.kind === 'diverged')
       ? `diverged at call ${d.callNo} (${d.kind} ${d.name})`
       : (failureText({ status: r.status, checks: checksOf(run), blame: null, outcome, calls: run.calls }) ?? (run.fix?.check ? fixCheckText(run.fix.check, run.calls) : null));
-  // A check (blame's among them), or the agent's exit: the word Runs and the sidebar use.
-  const checkFailed = !!failure?.startsWith('check failed') || (failed && failedWord(like) === 'check failed');
-  // An interrupted run says so after what it is, in grey: it stopped, it did not fail.
-  const stopped = cut ? ' · interrupted' : '';
-  // What kind of run it is, said once: its golden and what it changed are its about line, under the id.
+  // What kind of run it is, said once and only that: its golden and what it changed are its about
+  // line, under the id; how it stands is the chip beside the id, and why it failed the meta line.
   // An attempt says it is one (its banner says which and how it came out); a fork, where it forked.
   const forkWords = forkKindWords(run, type, rescued);
-  const kind = live ? 'recording' : forkWords ? forkWords : type === 'clean' ? 'clean replay' : type === 'replay' ? (failed ? 'replay · failed' : 'replay') : type === 'test' ? 'test replay' : type === 'capture' ? 'imported from a capture' : failed ? (checkFailed ? 'recording · check failed' : 'recording · failed') : cut ? 'recording · interrupted' : recordingWords(r);
-  const eyebrowOf = (tone: 'fork' | 'err' | 'n' | undefined, tail: ReactNode = null) => (
-    <Eyebrow tone={tone}>
+  const kind = live ? 'recording' : forkWords ? forkWords : type === 'clean' ? 'clean replay' : type === 'replay' ? 'replay' : type === 'test' ? 'test replay' : type === 'capture' ? 'imported from a capture' : recordingWords(r);
+  // A fork, or an attempt, keeps its own colour.
+  const eyebrow = (
+    <Eyebrow tone={!live && forkWords ? 'fork' : undefined}>
       <span className="ebk">{kind}</span>
       {parent}
-      {tail}
     </Eyebrow>
   );
-  const eyebrow = live
-    ? eyebrowOf(undefined)
-    : forkWords
-      ? // A fork, or an attempt, keeps its own colour; that it stopped is said in grey, as on every other run.
-        eyebrowOf('fork', cut ? <span className="n">{stopped}</span> : null)
-      : type === 'clean' || type === 'replay' || type === 'test'
-        ? eyebrowOf(failed ? 'err' : cut ? 'n' : undefined, stopped)
-        : type === 'capture'
-          ? eyebrowOf(undefined)
-          : eyebrowOf(failed ? 'err' : cut ? 'n' : undefined);
   // The about line, unless it only says what the eyebrow says (a clean replay): then the labels sit
   // on the id's row after Copy ID. An import's about line names its file, which the meta line leaves out.
   const about = run.about ?? null;
@@ -110,7 +98,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
           <h1 className="rnm" title={r.runId}>
             {shortId(r.runId)}
           </h1>
-          <Tag cls={tag.cls}>{tag.text}</Tag>
+          {tag ? <Tag cls={tag.cls}>{tag.text}</Tag> : null}
           <button className="linkbtn" type="button" onClick={() => void copyText(r.runId).then((ok) => toast(ok ? 'Copied the run id' : 'Copying was refused by the browser'))}>
             <Icon name="copy" />
             Copy ID

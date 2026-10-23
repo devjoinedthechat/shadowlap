@@ -1,4 +1,4 @@
-import { classifyRun } from '../classify.js';
+import { countAttempts, isAttempt as isAttemptRun } from '../run-roles.js';
 import { hasRecordedCommand } from '../pack.js';
 import type { Price } from '../prices.js';
 import { summarizeRun } from '../report.js';
@@ -204,31 +204,20 @@ function calledTools(store: FactsSource, runId: string): string[] {
   return [...new Set(calls.filter((c) => c.kind === 'tool').map((c) => c.name))];
 }
 
-/** An attempt rather than a run of its own: `replay --repeat`, a blame probe, a verify attempt, an error-path preset's attempt. */
+/** An attempt rather than a run of its own, by the one rule every count and list goes by (run-roles.ts). */
 export function isAttempt(run: RunRecord): boolean {
-  return Boolean(run.meta?.repeat || run.meta?.probe || run.meta?.verify || run.meta?.chaos);
+  return isAttemptRun(run);
 }
 
 /**
  * Runs and attempts as the status bar, the Runs page and Settings → Project count them
- * (`classifyRun`): an attempt is bundled under the run it replayed while that run is in the store.
+ * (`countAttempts`): an attempt is bundled under the run it replayed while that run is in the store.
  * The fork blame rescued a run with is a probe that shows as a fork of its own, and an attempt whose
  * run is gone has nowhere else to show: both count as runs. So the switcher and the Remove dialog
  * say the number the rest of the dashboard says.
  */
 export function countRunsAndAttempts(runs: readonly RunRecord[]): { runs: number; attempts: number } {
-  const ids = new Set(runs.map((r) => r.runId));
-  const rescued = new Set<string>();
-  for (const r of runs) {
-    const id = (r.meta?.blame as { rescuedRunId?: unknown } | undefined)?.rescuedRunId;
-    if (typeof id === 'string') rescued.add(id);
-  }
-  let attempts = 0;
-  for (const r of runs) {
-    const c = classifyRun(r, { rescued: rescued.has(r.runId) });
-    if (c.attemptKind && c.attemptOf && ids.has(c.attemptOf)) attempts++;
-  }
-  return { runs: runs.length - attempts, attempts };
+  return countAttempts(runs);
 }
 
 /** A recording made in the folder: what the setup's second step makes. */

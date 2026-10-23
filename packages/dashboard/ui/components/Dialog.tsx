@@ -52,7 +52,8 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
     // it, with the cursor at its end, as the design's dialogs do.
     if (first instanceof HTMLInputElement) first.select();
     else if (first instanceof HTMLTextAreaElement) first.setSelectionRange(first.value.length, first.value.length);
-    return () => prev?.focus?.();
+    // Back where it was; when that is gone (a menu item that opened it) or was nothing, to the page.
+    return () => (prev && prev !== document.body && prev.isConnected ? prev : document.querySelector<HTMLElement>('#view'))?.focus?.();
   }, []);
   // Asked in one project, never answered in another: the page turning to another project closes it.
   const openedIn = useRef(shownProject());

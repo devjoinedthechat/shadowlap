@@ -1,5 +1,6 @@
 import { CAPS_ONLY_NOTE, countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
+import { links } from './links.js';
 
 /**
  * The Training screen's read model (`#/training`, `#/training/tasks`): preference pairs read from the
@@ -377,14 +378,14 @@ const modelKey = (model: string, baseUrl: string | null) => `${model}\n${baseUrl
 
 /** A fix as its source opens it: at the Blame step, at the verify, or for a repair candidate turned down, at the Repair step. */
 function fixHref(kind: PairSource['kind'], fix: SourceFix): string {
-  if (kind === 'blame') return `#/fixes/${fix.id}/blame`;
-  return fix.repair ? `#/fixes/${fix.id}/repair` : `#/fixes/${fix.id}/verify${fix.verifyId ? `/${fix.verifyId}` : ''}`;
+  if (kind === 'blame') return links.fixes(fix.id, 'blame');
+  return fix.repair ? links.fixes(fix.id, 'repair') : links.fixes(fix.id, 'verify', fix.verifyId ?? null);
 }
 
 /** A source opens its fix; without one, its run's forks, at the call its pairs are about when it made some. */
 function sourceHref(s: PairSource, fix: SourceFix | null, callNo: number | null): string {
   if (fix && s.kind !== 'repeat') return fixHref(s.kind, fix);
-  return `#/run/${s.runId}${callNo ? `/${callNo}` : ''}/forks`;
+  return links.run(s.runId, callNo, 'forks');
 }
 
 /** An endpoint as a card names it: its host and port, or the provider's own API. */
@@ -399,7 +400,7 @@ function endpointName(baseUrl: string | null): string {
 
 /** The share of checks passed, as a pip: every check, some, or none. */
 function pip(row: TaskScoreRow): PipView {
-  return { score: row.score, kind: row.score >= 1 ? 'all' : row.score > 0 ? 'some' : 'none', attempt: row.attempt, runId: row.runId, href: row.runId ? `#/run/${row.runId}` : null };
+  return { score: row.score, kind: row.score >= 1 ? 'all' : row.score > 0 ? 'some' : 'none', attempt: row.attempt, runId: row.runId, href: row.runId ? links.run(row.runId) : null };
 }
 
 /** Each model's scores on the ready tasks, by model and endpoint: the mean of every attempt, and the tasks they were on. */
@@ -602,15 +603,15 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
         confidence: x.confidence,
         runId: head.runId,
         callNo: head.callNo,
-        href: `#/run/${head.runId}/${head.callNo}`,
+        href: links.run(head.runId, head.callNo),
         about: x.runId,
-        attemptOf: head.runId === x.runId ? null : { runId: x.runId, href: `#/run/${x.runId}` },
+        attemptOf: head.runId === x.runId ? null : { runId: x.runId, href: links.run(x.runId) },
         fix: fix && s && s.kind !== 'repeat' ? { label: fix.label, href: fixHref(s.kind, fix) } : null,
-        source: { key: x.source, kind: x.sourceKind, label: s?.label ?? x.sourceKind, href: s ? sourceLink(s) : `#/run/${x.runId}` },
+        source: { key: x.source, kind: x.sourceKind, label: s?.label ?? x.sourceKind, href: s ? sourceLink(s) : links.run(x.runId) },
         from: FROM[x.sourceKind],
         count: 0,
         context: x.context,
-        rejected: { text: x.rejected.text, what: x.rejected.what, runId: x.rejected.runId, callNo: x.rejected.callNo, href: `#/run/${x.rejected.runId}/${x.rejected.callNo}` },
+        rejected: { text: x.rejected.text, what: x.rejected.what, runId: x.rejected.runId, callNo: x.rejected.callNo, href: links.run(x.rejected.runId, x.rejected.callNo) },
         chosen: [],
         chosenLabel: '',
         ids: [],
@@ -620,7 +621,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     }
     g.count++;
     g.ids.push(x.id);
-    g.chosen.push({ text: x.chosen.text, what: x.chosen.what, runId: x.chosen.runId, callNo: x.chosen.callNo, href: `#/run/${x.chosen.runId}/${x.chosen.callNo}` });
+    g.chosen.push({ text: x.chosen.text, what: x.chosen.what, runId: x.chosen.runId, callNo: x.chosen.callNo, href: links.run(x.chosen.runId, x.chosen.callNo) });
   }
   for (const g of groups) g.chosenLabel = g.chosen.length === 1 ? `chosen · ${g.chosen[0]!.what}` : `chosen · ${g.chosen.length} attempts that passed`;
   const madeBy: Record<string, number> = {};
@@ -640,7 +641,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
         text: `All of them reward “${warn.rewards}”, so a model that learned only that would score full marks.${opposite ? ` ${opposite.name} rewards the opposite once ${once}.` : ''}`,
         name: opposite?.name ?? null,
         once,
-        fix: oppositeUpdate ? { label: 'Update the golden…', href: null, update: oppositeUpdate } : opposite?.status === 'blocked' ? { label: `${isInconclusiveNote(opposite.note) ? 'Settle' : 'Fix'} it on Tests`, href: '#/tests', update: null } : null,
+        fix: oppositeUpdate ? { label: 'Update the golden…', href: null, update: oppositeUpdate } : opposite?.status === 'blocked' ? { label: `${isInconclusiveNote(opposite.note) ? 'Settle' : 'Fix'} it on Tests`, href: links.tests(), update: null } : null,
       }
     : null;
   // Tasks a model can be scored on first, then what keeps the rest from being one; the project's order within each.
@@ -652,11 +653,11 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     const takeover = t.takeover;
     const k = takeover?.callNo ?? null;
     const update = updateOf(t);
-    const atTakeover = stored(t.runId) ? `#/run/${t.runId}${k !== null ? `/${k}` : ''}` : null;
+    const atTakeover = t.runId && stored(t.runId) ? links.run(t.runId, k) : null;
     // A task blocked by an early fork opens the test run where it forked, where what changed shows; else the golden's run.
-    const forkRun = update && t.fork?.runId && stored(t.fork.runId) ? `#/run/${t.fork.runId}/${t.fork.callNo}` : null;
-    const href = update ? (forkRun ?? atTakeover) : t.status === 'blocked' ? '#/tests' : atTakeover;
-    const opens = !href ? null : href === '#/tests' ? 'Open Tests' : href === forkRun ? `Open the test run where it forked, at #${t.fork!.callNo}` : k !== null ? 'Open the golden’s run at the takeover' : 'Open the golden’s run';
+    const forkRun = update && t.fork?.runId && stored(t.fork.runId) ? links.run(t.fork.runId, t.fork.callNo) : null;
+    const href = update ? (forkRun ?? atTakeover) : t.status === 'blocked' ? links.tests() : atTakeover;
+    const opens = !href ? null : href === links.tests() ? 'Open Tests' : href === forkRun ? `Open the test run where it forked, at #${t.fork!.callNo}` : k !== null ? 'Open the golden’s run at the takeover' : 'Open the golden’s run';
     return {
       golden: t.golden,
       name: t.name,
@@ -679,10 +680,10 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   const last = input.exports[0] ?? null;
   return {
     strip: {
-      pairs: { value: String(counts.all), sub: counts.all ? `${counts.high} high confidence · ${counts.medium} medium` : 'blame a failing run to make some', href: '#/training', high: counts.high, medium: counts.medium },
-      tasks: { value: `${ready.length} / ${input.tasks.length}`, sub: input.tasksError ? 'the tasks can’t be read' : [blocked ? `${blocked} blocked` : '', notTask ? `${notTask} not a task` : ''].filter(Boolean).join(' · ') || (input.tasks.length ? 'every golden is a task' : 'no goldens yet'), href: '#/training/tasks', ready: ready.length, total: input.tasks.length, blocked, notTask },
+      pairs: { value: String(counts.all), sub: counts.all ? `${counts.high} high confidence · ${counts.medium} medium` : 'blame a failing run to make some', href: links.training(), high: counts.high, medium: counts.medium },
+      tasks: { value: `${ready.length} / ${input.tasks.length}`, sub: input.tasksError ? 'the tasks can’t be read' : [blocked ? `${blocked} blocked` : '', notTask ? `${notTask} not a task` : ''].filter(Boolean).join(' · ') || (input.tasks.length ? 'every golden is a task' : 'no goldens yet'), href: links.training('tasks'), ready: ready.length, total: input.tasks.length, blocked, notTask },
       // The best names its endpoint when its model was scored at two; the same model at two endpoints is one model scored.
-      best: { value: best ? best.mean!.toFixed(2) : '—', sub: best ? `${best.model}${best.where ? ` at ${best.where}` : ''} · ${best.coverage ?? `${plural(new Set(cards.map((c) => c.model)).size, 'model')} scored`}` : 'no model scored yet', href: '#/training/tasks', model: best?.model ?? null, mean: best?.mean ?? null },
+      best: { value: best ? best.mean!.toFixed(2) : '—', sub: best ? `${best.model}${best.where ? ` at ${best.where}` : ''} · ${best.coverage ?? `${plural(new Set(cards.map((c) => c.model)).size, 'model')} scored`}` : 'no model scored yet', href: links.training('tasks'), model: best?.model ?? null, mean: best?.mean ?? null },
       // The UI adds the export's time (`at`) after the file, as it formats every time.
       left: { value: String(last?.pairs ?? 0), sub: last ? `pairs, to ${last.file === '-' ? 'stdout' : last.file}` : 'nothing exported yet', href: null, pairs: last?.pairs ?? 0, file: last?.file ?? null, at: last?.at ?? null },
     },

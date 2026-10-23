@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, type CSSProperties } from 'react';
+import { memo, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import type { RunListItem } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { RunIcon } from '../components/RunIcon.js';
@@ -16,6 +16,14 @@ const RECENT = 60;
 export function Sidebar({ route }: { route: Route }) {
   const { meta, runs, exported, sideOpen, setPalette, conn } = useApp();
   const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
+  // On a phone the sidebar is a drawer: closed while the focus was in it (Esc, a pick), the focus goes
+  // back to the menu button that opened it, rather than to nothing once the drawer is hidden.
+  const aside = useRef<HTMLElement>(null);
+  const wasOpen = useRef(sideOpen);
+  useEffect(() => {
+    if (wasOpen.current && !sideOpen && aside.current?.contains(document.activeElement)) document.querySelector<HTMLElement>('.menu-toggle')?.focus();
+    wasOpen.current = sideOpen;
+  }, [sideOpen]);
   const section = navSection(route);
   const count = meta?.counts?.runs ?? listed.length;
   const items: Array<[string, IconName, string, string, number | null]> = exported
@@ -29,7 +37,7 @@ export function Sidebar({ route }: { route: Route }) {
         ['training', 'target', 'Training', href.training(), null],
       ];
   return (
-    <aside className={`side${sideOpen ? ' open' : ''}`} id="side" aria-label="Navigation">
+    <aside className={`side${sideOpen ? ' open' : ''}`} id="side" aria-label="Navigation" ref={aside}>
       <div className="side-top">
         <ProjectBlock meta={meta} />
         {exported ? null : (

@@ -567,15 +567,23 @@ export async function render(element: ReactElement): Promise<Rendered> {
     },
     async press(key, mods = {}, el) {
       let e!: FakeEvent;
+      // The handlers first, and what they set drawn, as React draws a key's updates before the
+      // browser's own step: a menu Tab closes hands the focus back to its button before Tab moves on.
       await act(async () => {
         e = dispatch(doc, win, el ?? doc.activeElement, 'keydown', { key, ...mods });
-        if (key === 'Tab' && !e.defaultPrevented) {
-          const stops = tabStops(doc);
-          const at = stops.indexOf(doc.activeElement);
-          const next = mods.shiftKey ? (at <= 0 ? stops.at(-1) : stops[at - 1]) : stops[(at + 1) % stops.length];
-          next?.focus();
-        }
       });
+      if (key === 'Tab' && !e.defaultPrevented) {
+        await act(async () => {
+          // From where the focus is in the page, as a browser steps: the next stop after it (the
+          // one before it for Shift+Tab), though the element with the focus is no stop itself.
+          const order = new Map<FakeElement, number>();
+          walk(doc.body, (x) => void order.set(x, order.size));
+          const here = order.get(doc.activeElement) ?? 0;
+          const stops = tabStops(doc);
+          const next = mods.shiftKey ? ([...stops].reverse().find((x) => order.get(x)! < here) ?? stops.at(-1)) : (stops.find((x) => order.get(x)! > here) ?? stops[0]);
+          next?.focus();
+        });
+      }
       check();
       return e;
     },

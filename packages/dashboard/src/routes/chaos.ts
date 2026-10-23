@@ -4,6 +4,7 @@ import { lookupRun } from '../api.js';
 import { chaosFlags, chaosOfRun, chaosView } from '../chaos.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
+import { links } from '../links.js';
 import type { Router } from '../router.js';
 import { sessionBusy, testsBusy } from './tests.js';
 
@@ -29,7 +30,7 @@ describeEvent('chaos.session', (e, d) => {
   const failed = count(d.failed);
   const inconclusive = count(d.inconclusive);
   const parts = [`${count(d.passed)} passed`, `${failed} failed`, ...(inconclusive ? [`${inconclusive} inconclusive`] : [])];
-  return { kind: failed ? 'fail' : inconclusive ? 'warn' : 'test', text: `Error-path presets ${d.interrupted === true ? 'stopped' : 'ran'} · ${parts.join(', ')}`, href: e.runId ? `#/run/${e.runId}` : '#/tests' };
+  return { kind: failed ? 'fail' : inconclusive ? 'warn' : 'test', text: `Error-path presets ${d.interrupted === true ? 'stopped' : 'ran'} · ${parts.join(', ')}`, href: e.runId ? links.run(e.runId) : links.tests() };
 });
 
 export function register(router: Router, ctx: RouteContext): void {

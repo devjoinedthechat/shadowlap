@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
 import { Icon } from '../components/Icon.js';
@@ -9,12 +9,17 @@ import { highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette
 import { onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
+import { normalizeRuns } from '../normalize.js';
 import { isAttempt, kindWord, runSource, type RunLike } from '../runs.js';
 import { useApp, useLayer, type PaletteCommand } from '../state.js';
 
 /**
  * Search or jump to (⌘K, Ctrl K, or / away from a run): This run, Go to, Actions, Runs, Fixes,
  * Tests, Projects, and, from three characters, what runs recorded. Every typed word must match.
+ *
+ * It is a combobox, as ARIA's pattern has it: the field keeps the focus, ↑ and ↓ move the active
+ * option (`aria-activedescendant`), each group of options is a group of the listbox, and closing it
+ * (Esc, a click outside, or a pick) hands the focus back to where it was when it opened.
  */
 
 /** The jobs that run the goldens: while one runs, the palette offers no second session. */
@@ -40,7 +45,15 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   useFitAbouts(list);
   const input = useRef<HTMLInputElement>(null);
 
-  useEffect(() => input.current?.focus(), []);
+  // The field takes the focus; closing hands it back to what had it, as a dialog does, when that is
+  // still on the page (a pick that changed the page leaves it on the page's own).
+  useEffect(() => {
+    const before = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    input.current?.focus();
+    return () => {
+      if (before?.isConnected) before.focus();
+    };
+  }, []);
   // A source whose answer lands while the palette is open (Tests, loaded from any page) is read again.
   const [sourcesChanged, setSourcesChanged] = useState(0);
   useEffect(() => onPaletteSourcesChanged(() => setSourcesChanged((n) => n + 1)), []);
@@ -127,7 +140,8 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
     let alive = true;
     const timer = setTimeout(() => {
       app.client.runsPage({ q: prefix, limit: 20 }).then(
-        (page) => alive && setById(runsById(prefix, page.runs.filter((r) => !isAttempt(r))).map((r) => runCommand(r, go))),
+        // An attempt whose run isn't in the page is listed like any run, as the run list lists it.
+        (page) => alive && setById(runsById(prefix, normalizeRuns(page.runs).filter((r) => !isAttempt(r))).map((r) => runCommand(r, go))),
         () => alive && setById([]),
       );
     }, 150);
@@ -165,13 +179,20 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
     x.run();
   };
 
-  let group: string | null = null;
+  // Each group of options in its order, numbered as ↑ and ↓ count them.
+  const groups: Array<{ name: string; items: Array<{ x: (typeof shown)[number]; n: number }> }> = [];
+  shown.forEach((x, n) => {
+    const last = groups[groups.length - 1];
+    if (last && last.name === x.group) last.items.push({ x, n });
+    else groups.push({ name: x.group, items: [{ x, n }] });
+  });
+  const optionId = (n: number) => `palopt-${n}`;
   return (
     <div className="scrim palscrim" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div className="palette" role="dialog" aria-modal="true" aria-label="Search or jump to">
         <label className="palin">
           <Icon name="search" />
-          <span className="sr">Search</span>
+          <span className="sr">Search or jump to</span>
           <input
             ref={input}
             type="text"
@@ -180,8 +201,10 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
             spellCheck={false}
             value={q}
             role="combobox"
-            aria-expanded="true"
-            aria-controls="palList"
+            aria-autocomplete="list"
+            aria-expanded={shown.length > 0}
+            aria-controls={shown.length ? 'palList' : undefined}
+            aria-activedescendant={shown.length ? optionId(at) : undefined}
             onChange={(e) => {
               setQ(e.target.value);
               setI(0);
@@ -193,68 +216,100 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setI(Math.max(0, at - 1));
+              } else if (e.key === 'Home' && shown.length && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                setI(0);
+              } else if (e.key === 'End' && shown.length && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                setI(shown.length - 1);
               } else if (e.key === 'Enter') {
                 e.preventDefault();
                 pick(at);
               }
             }}
           />
-          <span className="kbd">Esc</span>
+          <span className="kbd" aria-hidden="true">
+            Esc
+          </span>
         </label>
-        <div className="pallist" id="palList" role="listbox" ref={list} tabIndex={-1}>
-          {shown.length === 0 ? <div className="empty">{note ? 'Nothing matches yet.' : `Nothing matches “${q.trim()}”.`}</div> : null}
-          {shown.map((x, n) => {
-            const head = x.group !== group ? <div className="palg">{x.group}</div> : null;
-            group = x.group;
-            const mark = highlight(x.label, q);
-            const paused = offline && x.job === true;
-            return (
-              <Fragment key={`${x.group}:${x.label}:${n}`}>
-                {head}
-                <button type="button" role="option" aria-selected={n === at} aria-disabled={paused || undefined} className={`palit${n === at ? ' on' : ''}${paused ? ' waits' : ''}`} onMouseMove={() => n !== at && setI(n)} onClick={() => pick(n)}>
-                  <span className={`pl${x.mono ? ' mono' : ''}`}>
-                    {mark ? (
-                      <>
-                        {mark[0]}
-                        <mark>{mark[1]}</mark>
-                        {mark[2]}
-                      </>
-                    ) : (
-                      x.label
-                    )}
-                  </span>
-                  {paused ? (
-                    // A job's entry while the server can't be reached: paused, in place of its hint.
-                    <span className="ph2">{PAUSED_HINT}</span>
-                  ) : x.about ? (
-                    // A run's about line as its hint, fitted to the rest of the row, the search word marked where it still is.
-                    <AboutLine about={x.about as { text: string; from: 'user' }} className="ph2" mark={words(q).find((w) => x.about!.text.toLowerCase().includes(w)) ?? null} />
-                  ) : x.snippet || !x.hint ? (
-                    <span className="ph2">
-                      {x.hint}
-                      {x.snippet ? (
-                        <>
-                          {' · '}
-                          {snippetParts(x.snippet).map((p, k) => (p.match ? <mark key={k}>{p.text}</mark> : <span key={k}>{p.text}</span>))}
-                        </>
-                      ) : null}
-                    </span>
-                  ) : (
-                    // Any other hint (a command, a list) is cut only at its end after a whole word: an id in it is whole or left out.
-                    <FitHint text={x.hint} className="ph2" />
-                  )}
-                  {n === at ? <span className="kbd">↵</span> : null}
-                </button>
-              </Fragment>
-            );
-          })}
+        <div className="pallist" ref={list}>
+          {shown.length ? (
+            <div id="palList" role="listbox" aria-label="Results">
+              {groups.map((g) => (
+                <div key={g.name} role="group" aria-label={g.name}>
+                  <div className="palg" aria-hidden="true">
+                    {g.name}
+                  </div>
+                  {g.items.map(({ x, n }) => {
+                    const mark = highlight(x.label, q);
+                    const paused = offline && x.job === true;
+                    return (
+                      <div
+                        key={`${x.group}:${x.label}:${n}`}
+                        id={optionId(n)}
+                        role="option"
+                        aria-selected={n === at}
+                        aria-disabled={paused || undefined}
+                        className={`palit${n === at ? ' on' : ''}${paused ? ' waits' : ''}`}
+                        // The field keeps the focus: a click picks without taking it.
+                        onMouseDown={(e) => e.preventDefault()}
+                        onMouseMove={() => n !== at && setI(n)}
+                        onClick={() => pick(n)}
+                      >
+                        <span className={`pl${x.mono ? ' mono' : ''}`}>
+                          {mark ? (
+                            <>
+                              {mark[0]}
+                              <mark>{mark[1]}</mark>
+                              {mark[2]}
+                            </>
+                          ) : (
+                            x.label
+                          )}
+                        </span>
+                        {paused ? (
+                          // A job's entry while the server can't be reached: paused, in place of its hint.
+                          <span className="ph2">{PAUSED_HINT}</span>
+                        ) : x.about ? (
+                          // A run's about line as its hint, fitted to the rest of the row, the search word marked where it still is.
+                          <AboutLine about={x.about as { text: string; from: 'user' }} className="ph2" mark={words(q).find((w) => x.about!.text.toLowerCase().includes(w)) ?? null} />
+                        ) : x.snippet || !x.hint ? (
+                          <span className="ph2">
+                            {x.hint}
+                            {x.snippet ? (
+                              <>
+                                {' · '}
+                                {snippetParts(x.snippet).map((p, k) => (p.match ? <mark key={k}>{p.text}</mark> : <span key={k}>{p.text}</span>))}
+                              </>
+                            ) : null}
+                          </span>
+                        ) : (
+                          // Any other hint (a command, a list) is cut only at its end after a whole word: an id in it is whole or left out.
+                          <FitHint text={x.hint} className="ph2" />
+                        )}
+                        {n === at ? (
+                          <span className="kbd" aria-hidden="true">
+                            ↵
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty" role="status">
+              {note ? 'Nothing matches yet.' : `Nothing matches “${q.trim()}”.`}
+            </div>
+          )}
           {note ? (
             <div className="palnote" role="status">
               {note}
             </div>
           ) : null}
         </div>
-        <div className="palfoot">
+        <div className="palfoot" aria-hidden="true">
           <span>
             <kbd>↑</kbd>
             <kbd>↓</kbd>move

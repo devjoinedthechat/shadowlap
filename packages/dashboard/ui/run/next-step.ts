@@ -1,6 +1,7 @@
+import { isAttempt } from '../../../engine/src/run-roles.js';
 import type { BlameOffer, BlameView, CheckView, FixView, RunDetail, RunOffers } from '../types.js';
 import { isFailed, runType } from '../runs.js';
-import { attemptOf, blameOf, checksOf, runLikeOf } from './model.js';
+import { blameOf, checksOf, runLikeOf } from './model.js';
 import { blameOfferFor } from './offers.js';
 import type { PresetAttempt } from './preset.js';
 
@@ -27,6 +28,8 @@ export interface NextStepContext {
   exported: boolean;
   /** An error-path preset's attempt, which its record alone doesn't say. */
   preset?: PresetAttempt | null;
+  /** The run is the fork blame rescued a run with: a fork of its own, though blame made it as a probe. */
+  rescued?: boolean;
   /** What the page read of the run already (`blameOf`, `checksOf`), when it has. */
   blame?: BlameView | null;
   checks?: readonly CheckView[];
@@ -53,12 +56,6 @@ export function runBlameOffer(run: RunDetail, c: Pick<NextStepContext, 'offers' 
   });
 }
 
-/** Whether the run is an attempt made with others: a blame probe's, a verify's, a `--repeat`'s, a preset's, an injection test's or a task's. */
-function isAttempt(run: RunDetail, preset: PresetAttempt | null | undefined): boolean {
-  const m = run.run.meta;
-  return !!(attemptOf(run) || preset || m?.chaos || m?.injection || m?.task);
-}
-
 export function nextStepOf(run: RunDetail, c: NextStepContext): NextStep {
   const r = run.run;
   if (r.status === 'running') return { key: 'replay' };
@@ -67,7 +64,10 @@ export function nextStepOf(run: RunDetail, c: NextStepContext): NextStep {
   const failed = isFailed(like);
   // A test whose golden diverged: its banner's Add normalizer or Update golden is the step.
   if (type === 'test' && failed && r.divergence && (!like.outcome || like.outcome.kind === 'diverged')) return { key: 'banner' };
-  if (r.parentRunId && isAttempt(run, c.preset)) return { key: 'compare', parent: r.parentRunId };
+  // An attempt is read against the run it came from, by the engine's one rule (run-roles.ts): a blame
+  // probe's, a verify's, a `--repeat`'s (an injection test's and a model's scoring among them), an
+  // error-path preset's, a golden's repeated test replay. Its failure counts towards what made it.
+  if (r.parentRunId && isAttempt(r, { rescued: c.rescued === true })) return { key: 'compare', parent: r.parentRunId };
   if (failed && run.fix && !c.exported) return { key: 'fix', fix: run.fix };
   if (failed) {
     const offer = runBlameOffer(run, c);
