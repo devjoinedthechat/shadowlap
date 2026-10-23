@@ -97,9 +97,11 @@ export interface ModelInfo {
 
 /**
  * `models`: what `GET /v1/models` lists, in this order (default: gpt-5 and gpt-5-mini); `GET
- * /v1/models/<id>` answers one of them.
+ * /v1/models/<id>` answers one of them. `root`: a path the API is served under, as a gateway serves
+ * OpenAI's (`/api` for OpenRouter's `/api/v1`, `/openai` for Bedrock's `/openai/v1`); a request
+ * outside it is not found.
  */
-export async function startMockOpenAI(opts: { script: Script; responses?: ResponsesScript; models?: string[] }): Promise<MockServer> {
+export async function startMockOpenAI(opts: { script: Script; responses?: ResponsesScript; models?: string[]; root?: string }): Promise<MockServer> {
   const requests: MockServer['requests'] = [];
   const otherRequests: MockServer['otherRequests'] = [];
   let requestNo = 0;
@@ -107,6 +109,14 @@ export async function startMockOpenAI(opts: { script: Script; responses?: Respon
   const server: Server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? '/', 'http://mock');
+      if (opts.root) {
+        if (!url.pathname.startsWith(`${opts.root}/`)) {
+          res.writeHead(404, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: `mock: nothing outside ${opts.root}: ${url.pathname}`, type: 'invalid_request_error' } }));
+          return;
+        }
+        url.pathname = url.pathname.slice(opts.root.length);
+      }
       // ---- The Models API ----
       if (req.method === 'GET' && (url.pathname === '/v1/models' || url.pathname.startsWith('/v1/models/'))) {
         const id = url.pathname.startsWith('/v1/models/') ? decodeURIComponent(url.pathname.slice('/v1/models/'.length)) : null;

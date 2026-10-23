@@ -59,7 +59,7 @@ import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedReque
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { identityQuery } from './query.js';
 import { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, placeholderRefusal } from './placeholders.js';
-import { providers as defaultProviders, sdkBasesFromEnvironment, type Provider } from './providers.js';
+import { activeProviders, formatHostProvider, hostedProviders, providers as defaultProviders, sdkBasesFromEnvironment, type FormatHost, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
 import { SseTimer } from './sse.js';
 import { isTelemetry } from './telemetry.js';
@@ -75,6 +75,11 @@ export interface SidecarOptions {
   host?: string;
   port?: number;
   providers?: Provider[];
+  /**
+   * Hosts of another provider's wire format to serve besides the built-in providers (`providers` in
+   * shadowlap.config.json). Defaults to those the config declared (declareFormatHosts).
+   */
+  formats?: FormatHost[];
   normalizers?: Normalizer[];
   /** Per-provider upstream overrides, e.g. `{ anthropic: 'http://127.0.0.1:9999' }` for a mock. */
   upstreams?: Record<string, string>;
@@ -402,7 +407,10 @@ export class Sidecar {
   readonly token: string;
   private readonly server: Server;
   private readonly store: Store;
+  /** The providers calls are routed to, `/<id>/…`. */
   private readonly providers: Map<string, Provider>;
+  /** Every provider by id, the hosts reached through another's route among them (hostedProviders), for reading a recorded call's `via`. */
+  private readonly byId: Map<string, Provider>;
   private readonly normalizers: Normalizer[];
   private readonly upstreams: Record<string, string>;
   private readonly sdkBases: Record<string, string>;
@@ -455,7 +463,8 @@ export class Sidecar {
     this.http2Url = http2Url;
     this.url = url;
     this.token = token;
-    this.providers = new Map((opts.providers ?? defaultProviders).map((p) => [p.id, p]));
+    this.providers = new Map((opts.providers ?? (opts.formats ? [...defaultProviders, ...opts.formats.map(formatHostProvider)] : activeProviders())).map((p) => [p.id, p]));
+    this.byId = new Map([...hostedProviders, ...this.providers.values()].map((p) => [p.id, p]));
     this.normalizers = opts.normalizers ?? [];
     this.upstreams = opts.upstreams ?? {};
     this.sdkBases = opts.sdkBases ?? sdkBasesFromEnvironment(process.env);
@@ -811,9 +820,11 @@ export class Sidecar {
 
     if (head === 'v1') return this.handleApi(req, res, rest, url, pinned);
     if (head === 'http') return this.proxyHttp(req, res, rest.slice(head.length) || '/', url.search, pinned);
-    const provider = head ? this.providers.get(head) : undefined;
-    if (!provider) throw new HttpError(404, `unknown route ${rest}`);
+    const route = head ? this.providers.get(head) : undefined;
+    if (!route) throw new HttpError(404, `unknown route ${rest}`);
     const sent = rest.slice(head.length) || '/';
+    // A host that serves another wire format under part of its paths (Claude on Foundry, under Azure's).
+    const provider = route.forPath?.(sent) ?? route;
     return this.proxy(req, res, provider, provider.apiPath?.(sent) ?? sent, url.search, pinned);
   }
 
@@ -986,7 +997,7 @@ export class Sidecar {
    */
   private requestedUpstream(req: IncomingMessage, provider: Provider, ctx: RunContext, websocket = false): string | undefined {
     // A configured upstream (a mock, a local server, or "offline" in shadowlap test) takes precedence.
-    if (this.upstreams[provider.id] || ctx.offline) return undefined;
+    if (this.upstreamOf(provider) || ctx.offline) return undefined;
     const raw = req.headers['x-shadowlap-upstream'];
     const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
     if (!value) return undefined;
@@ -996,12 +1007,13 @@ export class Sidecar {
     } catch {
       throw new HttpError(400, `x-shadowlap-upstream is not a URL: ${value}`);
     }
-    // A WebSocket's host may be named wss:; it is reached over TLS either way.
+    // A WebSocket's host may be named wss:; it is reached over TLS either way. A host the config
+    // declares with a port says what it takes itself, http included (Provider.accepts).
     const secure = url.protocol === 'https:' || (websocket && url.protocol === 'wss:');
-    if (!secure || !provider.hosts.test(url.hostname)) {
-      throw new HttpError(403, `${provider.id} cannot forward to ${url.origin}. Point it at a mock with SHADOWLAP_UPSTREAM_${provider.id.toUpperCase()} instead.`);
+    if (!(provider.accepts?.(url) ?? (secure && provider.hosts.test(url.hostname)))) {
+      throw new HttpError(403, `${provider.id} cannot forward to ${url.origin}. Point it at a mock with ${upstreamVariable(provider)} instead.`);
     }
-    return `https://${url.host}`;
+    return url.protocol === 'http:' ? url.origin : `https://${url.host}`;
   }
 
   /**
@@ -1046,8 +1058,9 @@ export class Sidecar {
     }
     // Gone before its request was all here: nothing was asked.
     if (client.gone) return null;
-    // The providers the agent used: a judge's is none of them.
-    if (!judge) ctx.providersUsed.add(provider.id);
+    // The providers the agent used: a judge's is none of them. A host the config declares is named by
+    // its format: its name is the project's own, and this list goes into telemetry.
+    if (!judge) ctx.providersUsed.add(provider.format && !hostedProviders.includes(provider) ? provider.format : provider.id);
     const headers = lowerHeaders(req.headers);
     let body: unknown;
     if (rawBody.length === 0) body = null;
@@ -1126,7 +1139,7 @@ export class Sidecar {
     const claimed = call.retrying ? ctx.claimRetry(retryKey) : undefined;
     const place = (claimed !== undefined ? ctx.calls.get(claimed)?.place : undefined) ?? ctx.interventions.next(scope);
     const done: Rewritten = { retryKey, place, ...(claimed !== undefined ? { claimed } : {}) };
-    const rewrite = ctx.interventions.apply(place, provider.id, call.sent, call.body);
+    const rewrite = ctx.interventions.apply(place, recordedId(provider), call.sent, call.body);
     if ('refused' in rewrite) return { ...done, refusal: rewrite.refused };
     // At the call a flag named: a changed body diverges on its own, and its diff shows the change; a
     // model switched in the path, or a setting the request already had, is forced.
@@ -1201,7 +1214,8 @@ export class Sidecar {
     // tells a call that had none from one recorded before calls kept it; not kept when it was matched
     // without one (unqueried), so this run's own replays match it the same way.
     const query = unqueried ? undefined : (credentialFreeQuery(call.search.replace(/^\?/, '')) ?? '');
-    const meta: CallStartRow['meta'] = { retryCount: call.retryCount, provider: provider.id, fingerprintHeaders: allowedHeaders(kept, provider.fingerprintHeaders), ...(query !== undefined ? { query } : {}), ...(scope ? { scope } : {}), ...(judge?.meta ? { judge: judge.meta } : {}) };
+    // Under the format's provider when it went through a host of another's, that host kept as `via`.
+    const meta: CallStartRow['meta'] = { retryCount: call.retryCount, provider: recordedId(provider), ...(provider.format ? { via: provider.id } : {}), fingerprintHeaders: allowedHeaders(kept, provider.fingerprintHeaders), ...(query !== undefined ? { query } : {}), ...(scope ? { scope } : {}), ...(judge?.meta ? { judge: judge.meta } : {}) };
     const at = Date.now();
     const start = (requestRef: string | null) => this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...tracked.identity, origin: tracked.origin, effect: null, requestRef, meta, at });
     let requestRef: string | null = null;
@@ -1355,7 +1369,7 @@ export class Sidecar {
     res.end(bytes);
     const error = { name: 'ShadowlapInjectedFailure', message };
     // Retryable by the provider's own rule, so the client's retry logic runs — and fails again.
-    this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status, injected: true, retryable, error, provider: provider.id, bytes: bytes.length, latencyMs: 0 } }, retryable);
+    this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status, injected: true, retryable, error, provider: recordedId(provider), bytes: bytes.length, latencyMs: 0 } }, retryable);
     this.log(`run ${ctx.run.runId} call ${callNo}: injected HTTP ${status}`);
   }
 
@@ -1423,9 +1437,9 @@ export class Sidecar {
     const { callNo, tracked } = placed;
     const judging = call.judge?.upstream !== undefined;
     const requested = call.judge?.upstream ?? call.requested;
-    const upstream = ctx.offline || call.judge?.offline === true ? 'offline' : ((judging ? requested : undefined) || this.upstreams[provider.id] || requested || provider.upstream).replace(/\/$/, '');
+    const upstream = ctx.offline || call.judge?.offline === true ? 'offline' : ((judging ? requested : undefined) || this.upstreamOf(provider) || requested || provider.upstream).replace(/\/$/, '');
     if (!upstream) {
-      const message = `no upstream for ${provider.id}: set SHADOWLAP_UPSTREAM_${provider.id.toUpperCase()}, or let Shadowlap capture the call in the agent's process`;
+      const message = `no upstream for ${provider.id}: set ${upstreamVariable(provider)}, or let Shadowlap capture the call in the agent's process`;
       const attempt = this.beginAttempt(tracked);
       res.writeHead(400, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_no_upstream', message } }));
@@ -1528,7 +1542,7 @@ export class Sidecar {
     const retryable = gone || streamError !== undefined || provider.isRetryableStatus(status);
     const outcome = status < 400 && !streamError && !gone ? 'ok' : 'error';
     attempt.settle(outcome === 'error' && retryable);
-    const meta: CallStartRow['meta'] = { status, headers: responseHeaders, latencyMs: Date.now() - attempt.started, retryable, bytes: bytes.length, provider: provider.id };
+    const meta: CallStartRow['meta'] = { status, headers: responseHeaders, latencyMs: Date.now() - attempt.started, retryable, bytes: bytes.length, provider: recordedId(provider) };
     // An upstream that asks another model than the request names says which (`shadowlap tasks score`'s takeover).
     const requestedModel = responseHeaders['x-shadowlap-model'] || provider.extractModel(call.path, call.body);
     if (requestedModel) meta.model = requestedModel;
@@ -2025,9 +2039,26 @@ export class Sidecar {
     return bytes ? (parseJsonExact(bytes.toString('utf8')) as T) : null;
   }
 
+  /**
+   * The upstream configured for a provider, by its id or by its id as SHADOWLAP_UPSTREAM_<NAME>
+   * spells it (`bedrock_mantle` for bedrock-mantle, `openrouter_ai` for a declared openrouter.ai).
+   */
+  private upstreamOf(provider: Provider): string | undefined {
+    return this.upstreams[provider.id] || this.upstreams[provider.id.toLowerCase().replace(/[^a-z0-9]/g, '_')] || undefined;
+  }
+
+  /**
+   * The provider a recorded model call went through: the host of another's format it was for
+   * (`meta.via`, Claude on Foundry), else the one it is recorded under.
+   */
+  private providerOf(rec: Pick<CallRecord, 'meta'>): Provider | undefined {
+    const via = typeof rec.meta.via === 'string' ? this.byId.get(rec.meta.via) : undefined;
+    return via ?? this.byId.get(String(rec.meta.provider ?? ''));
+  }
+
   /** A recorded model call's name as matching reads it (`Provider.matchPath`): a Vertex AI call without its project and region. */
   private matchName(rec: CallRecord): string {
-    const provider = rec.kind === 'api' && typeof rec.meta.provider === 'string' ? this.providers.get(rec.meta.provider) : undefined;
+    const provider = rec.kind === 'api' ? this.providerOf(rec) : undefined;
     if (!provider?.matchPath) return rec.name;
     const [method = 'POST', ...pathParts] = rec.name.split(' ');
     return apiCallName(method, provider.matchPath(pathParts.join(' ')));
@@ -2048,7 +2079,7 @@ export class Sidecar {
   private unversioned(calls: readonly CallRecord[]): Set<string> {
     const named = new Map<string, boolean>();
     for (const c of calls) {
-      const provider = c.kind === 'api' && !isJudgeCall(c) ? this.providers.get(String(c.meta.provider ?? '')) : undefined;
+      const provider = c.kind === 'api' && !isJudgeCall(c) ? this.providerOf(c) : undefined;
       if (!provider?.apiVersion) continue;
       const version = (c.meta.fingerprintHeaders as Record<string, string> | undefined)?.[provider.apiVersion.header];
       named.set(provider.id, named.get(provider.id) === true || version !== undefined);
@@ -2066,7 +2097,7 @@ export class Sidecar {
     const kept = new Map<string, boolean>();
     for (const c of calls) {
       if (c.kind !== 'api' || isJudgeCall(c)) continue;
-      const id = String(c.meta.provider ?? '');
+      const id = this.providerOf(c)?.id ?? String(c.meta.provider ?? '');
       kept.set(id, kept.get(id) === true || typeof c.meta.query === 'string');
     }
     return new Set([...kept].filter(([, some]) => !some).map(([id]) => id));
@@ -2074,7 +2105,7 @@ export class Sidecar {
 
   /** A model call with its fingerprint headers as matching reads them (Provider.matchHeaders). */
   private asMatched(rec: CallRecord): CallRecord {
-    const provider = rec.kind === 'api' ? this.providers.get(String(rec.meta.provider ?? '')) : undefined;
+    const provider = rec.kind === 'api' ? this.providerOf(rec) : undefined;
     const headers = rec.meta.fingerprintHeaders as Record<string, string> | undefined;
     if (!provider?.matchHeaders || !headers) return rec;
     return { ...rec, meta: { ...rec.meta, fingerprintHeaders: provider.matchHeaders(headers) } };
@@ -2139,7 +2170,8 @@ export class Sidecar {
     const ref = rec.requestRef;
     if (!ref) return null;
     if (rec.kind === 'api') {
-      const provider = this.providers.get(String(rec.meta.provider ?? ''));
+      // The host of another's format it went through (`via`), whose root it is matched under.
+      const provider = this.providerOf(rec);
       if (!provider) return null;
       const [method = 'POST', ...pathParts] = rec.name.split(' ');
       const path = pathParts.join(' ');
@@ -2269,6 +2301,12 @@ function storedOrigin(kind: CallKind, decision: Decision): Origin {
   if (decision.origin === 'overridden' && kind === 'api') return 'replayed';
   return decision.origin;
 }
+
+/** The variable that sends a provider's calls elsewhere: SHADOWLAP_UPSTREAM_BEDROCK_MANTLE for bedrock-mantle. */
+const upstreamVariable = (provider: Provider): string => `SHADOWLAP_UPSTREAM_${provider.id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
+
+/** The id a provider's calls are recorded under: the format's, for a host of another's (Provider.format). */
+const recordedId = (provider: Provider): string => provider.format ?? provider.id;
 
 /** A model call's query as its identity reads it, from what its recording kept: none when it kept none. */
 function storedQuery(rec: Pick<CallRecord, 'meta'>): string {

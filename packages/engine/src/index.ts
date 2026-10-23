@@ -49,6 +49,7 @@ export type { FolderCheck, FolderKind, FolderSuggestion, FolderSuggestions, Sugg
 export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, RecordPlanResult } from './projects/index.js';
 export type { CalibrationOutcome, EffectiveSetup, GoldenTestFact, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
 export { bringRequest, loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
+export { ACCOUNT_HEADERS, withoutAccountHeaders } from './account-headers.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';

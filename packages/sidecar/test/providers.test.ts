@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anthropic, azure, bedrock, gemini, openai, providers, sseDataObjects, vertex } from '../src/providers.js';
+import { activeProviders, anthropic, azure, bedrock, bedrockMantle, declareFormatHosts, formatHostProblem, formatHostProvider, foundry, gemini, hostedProviders, openai, providers, sseDataObjects, vertex } from '../src/providers.js';
 
 const sse = (events: Array<[string | null, unknown]>) => Buffer.from(events.map(([e, d]) => (e ? `event: ${e}\n` : '') + `data: ${typeof d === 'string' ? d : JSON.stringify(d)}\n\n`).join(''));
 const SSE = 'text/event-stream; charset=utf-8';
@@ -132,6 +132,87 @@ describe('cloud providers', () => {
     expect(azure.env('http://sidecar/azure')).toEqual({});
     expect(vertex.env('http://sidecar/vertex')).toEqual({});
     expect(bedrock.env('http://sidecar/bedrock')).toEqual({});
+  });
+});
+
+describe('hosts of another provider\'s wire format', () => {
+  it('read Claude on Microsoft Foundry as Anthropic\'s, under Azure\'s hosts, with its own key', () => {
+    expect(azure.forPath?.('/anthropic/v1/messages')).toBe(foundry);
+    expect(azure.forPath?.('/openai/deployments/gpt-4o/chat/completions')).toBeUndefined();
+    expect(foundry.format).toBe('anthropic');
+    // Matched as Anthropic's API names the call; its name keeps the path it was sent to.
+    expect(foundry.matchPath?.('/anthropic/v1/messages')).toBe('/v1/messages');
+    expect(foundry.hosts.test('my-resource.services.ai.azure.com')).toBe(true);
+    expect(foundry.hosts.test('my-resource.services.ai.azure.com.evil.test')).toBe(false);
+    // Usage as Anthropic reports it, cache reads included: it was read as OpenAI's, which has none of these fields.
+    expect(foundry.extractUsage(Buffer.from(JSON.stringify({ type: 'message', usage: { input_tokens: 40, output_tokens: 9, cache_read_input_tokens: 1200, cache_creation_input_tokens: 30 } })), JSON_CT)).toEqual({ inputTokens: 40, outputTokens: 9, cacheReadInputTokens: 1200, cacheCreationInputTokens: 30 });
+    const streamed = sse([
+      ['message_start', { type: 'message_start', message: { usage: { input_tokens: 120, output_tokens: 1, cache_read_input_tokens: 800 } } }],
+      ['message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 17 } }],
+    ]);
+    expect(foundry.extractUsage(streamed, SSE)).toEqual({ inputTokens: 120, outputTokens: 17, cacheReadInputTokens: 800 });
+    expect(azure.extractUsage(streamed, SSE)).not.toEqual(foundry.extractUsage(streamed, SSE));
+    expect(foundry.extractStopReason(streamed, SSE)).toBe('end_turn');
+    expect(foundry.keys).toMatchObject({ placeholders: { ANTHROPIC_FOUNDRY_API_KEY: 'shadowlap-offline-replay-placeholder' }, set: 'ANTHROPIC_FOUNDRY_API_KEY', onlyWhereRecorded: true });
+    expect(foundry.env('http://sidecar/foundry')).toEqual({});
+  });
+
+  it('capture OpenAI\'s SDK on Bedrock (bedrock-mantle) under Bedrock\'s hosts, and read it as OpenAI\'s', () => {
+    expect(bedrock.hosts.test('bedrock-mantle.us-west-2.api.aws')).toBe(true);
+    expect(bedrock.forPath?.('/openai/v1/responses')).toBe(bedrockMantle);
+    expect(bedrock.forPath?.('/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/converse')).toBeUndefined();
+    expect(bedrockMantle.hosts.test('bedrock-mantle.us-west-2.api.aws')).toBe(true);
+    expect(bedrockMantle.hosts.test('bedrock-mantle.us-west-2.api.aws.evil.test')).toBe(false);
+    expect(bedrockMantle.hosts.test('bedrock-runtime.us-west-2.amazonaws.com')).toBe(false);
+    expect(bedrockMantle.format).toBe('openai');
+    expect(bedrockMantle.matchPath?.('/openai/v1/responses')).toBe('/v1/responses');
+    expect(bedrockMantle.extractUsage(Buffer.from(JSON.stringify({ object: 'response', usage: { input_tokens: 50, output_tokens: 5, input_tokens_details: { cached_tokens: 20 } } })), JSON_CT)).toEqual({ inputTokens: 30, outputTokens: 5, cacheReadInputTokens: 20 });
+    expect(bedrockMantle.retryCountHeader).toBe('x-stainless-retry-count');
+    // Reached through Bedrock's route and Azure's: no route of their own.
+    expect(hostedProviders.map((p) => p.id)).toEqual(['foundry', 'bedrock-mantle']);
+    expect(providers.map((p) => p.id)).not.toContain('bedrock-mantle');
+  });
+
+  it('never keep the organization a key belongs to', () => {
+    expect(anthropic.credentialHeaders).toContain('anthropic-organization-id');
+    expect(foundry.credentialHeaders).toContain('anthropic-organization-id');
+  });
+
+  it('take a host the config declares, its format, and its root', () => {
+    const router = formatHostProvider({ host: 'openrouter.ai', format: 'openai', root: '/api/v1' });
+    expect(router).toMatchObject({ id: 'openrouter.ai', format: 'openai', upstream: '' });
+    expect(router.matchPath?.('/api/v1/chat/completions')).toBe('/v1/chat/completions');
+    expect(router.matchPath?.('/other/thing')).toBe('/other/thing');
+    expect(router.accepts?.(new URL('https://openrouter.ai'))).toBe(true);
+    expect(router.accepts?.(new URL('http://openrouter.ai'))).toBe(false);
+    expect(router.accepts?.(new URL('https://openrouter.ai.evil.test'))).toBe(false);
+    const any = formatHostProvider({ host: '*.gateway.example.com', format: 'anthropic' });
+    expect(any.accepts?.(new URL('https://eu.gateway.example.com'))).toBe(true);
+    expect(any.accepts?.(new URL('https://gateway.example.com'))).toBe(false);
+    expect(any.matchPath).toBeUndefined();
+    // With a port: that server, over http too, as a gateway on this machine is reached.
+    const local = formatHostProvider({ host: 'localhost:4000', format: 'gemini', root: '/gemini' });
+    expect(local.accepts?.(new URL('http://localhost:4000'))).toBe(true);
+    expect(local.accepts?.(new URL('http://localhost:4001'))).toBe(false);
+    expect(local.matchPath?.('/gemini/v1beta/models/gemini-2.5-flash:generateContent')).toBe('/v1beta/models/gemini-2.5-flash:generateContent');
+    expect(local.extractModel('/gemini/v1beta/models/gemini-2.5-flash:generateContent', {})).toBe('gemini-2.5-flash');
+  });
+
+  it('refuse a declared host that is no host, no format, or a name Shadowlap uses', () => {
+    expect(formatHostProblem({ host: 'openrouter.ai', format: 'openai', root: '/api/v1' }, 'p')).toBeNull();
+    expect(formatHostProblem({ host: 'https://openrouter.ai', format: 'openai' }, 'p')).toMatch(/p\.host must be a host/);
+    expect(formatHostProblem({ host: 'openrouter.ai', format: 'bedrock' }, 'p')).toMatch(/p\.format must be openai, anthropic or gemini/);
+    expect(formatHostProblem({ host: 'openrouter.ai', format: 'openai', root: 'api/v1' }, 'p')).toMatch(/p\.root must be a path/);
+    expect(formatHostProblem({ host: 'openai', format: 'openai' }, 'p')).toMatch(/a name Shadowlap uses itself/);
+    expect(formatHostProblem({ host: '*.example.com:8443', format: 'openai' }, 'p')).toMatch(/takes no \*\./);
+    expect(formatHostProblem({ host: 'example.com', format: 'openai', key: 'sk-x' }, 'p')).toMatch(/"key", which a provider doesn't take/);
+  });
+
+  it('are served by every sidecar once the config declares them, and by none after', () => {
+    declareFormatHosts([{ host: 'openrouter.ai', format: 'openai', root: '/api/v1' }]);
+    expect(activeProviders().map((p) => p.id)).toContain('openrouter.ai');
+    declareFormatHosts([]);
+    expect(activeProviders()).toEqual(providers);
   });
 });
 

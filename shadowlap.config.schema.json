@@ -70,6 +70,38 @@
         "$ref": "#/$defs/effect"
       }
     },
+    "providers": {
+      "description": "Hosts of a provider's wire format that the agent sends model calls to, such as a gateway or an OpenAI-compatible service: each is captured and recorded as that provider's calls, with its streaming, usage and interventions. Calls under its root match as the format's own API names them.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host",
+          "format"
+        ],
+        "properties": {
+          "host": {
+            "description": "api.example.com or *.example.com (any subdomain), either with an optional :port. Without a port, its calls are captured over https; with one, at that port over http too.",
+            "type": "string",
+            "pattern": "^(\\*\\.)?[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(:[0-9]{1,5})?$"
+          },
+          "format": {
+            "description": "The wire format the host speaks: OpenAI's (Chat Completions and the Responses API), Anthropic's Messages API, or Gemini's.",
+            "enum": [
+              "openai",
+              "anthropic",
+              "gemini"
+            ]
+          },
+          "root": {
+            "description": "The path of the base URL the format's SDK is given at this host, such as /api/v1 for OpenRouter (https://openrouter.ai/api/v1): a call under it matches as the format's own API names it (POST /v1/chat/completions), and keeps its full path as its name.",
+            "type": "string",
+            "pattern": "^(/[A-Za-z0-9._~-]+)+$"
+          }
+        }
+      }
+    },
     "mcp": {
       "description": "`shadowlap mcp`: effects by tool name, overriding what the server's annotations imply.",
       "type": "object",

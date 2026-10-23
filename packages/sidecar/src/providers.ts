@@ -80,6 +80,24 @@ export interface Provider {
    * an open proxy. For Azure, Vertex and Bedrock the host depends on the account and region.
    */
   hosts: RegExp;
+  /**
+   * The id of the provider whose wire format this one speaks, when it is a host of another's: Claude
+   * on Microsoft Foundry speaks Anthropic's, OpenAI's SDK on Bedrock speaks OpenAI's, and a host the
+   * config declares speaks the format it names. Its calls are recorded under that id (`meta.provider`),
+   * so everything that reads a recording reads them as that provider's (usage, conversations,
+   * interventions), and under this one's as `meta.via`, which matching and keys read.
+   */
+  format?: string;
+  /**
+   * Whether a captured call may be forwarded to `origin`: by default an https origin whose host
+   * `hosts` matches. A host the config declares with a port is taken at that port, over http too.
+   */
+  accepts?(origin: URL): boolean;
+  /**
+   * The provider that serves a path of this one's hosts in another wire format: Azure's
+   * `services.ai.azure.com` serves Claude under `/anthropic` (Microsoft Foundry).
+   */
+  forPath?(path: string): Provider | undefined;
 }
 
 function modelInBody(body: unknown): string | null {
@@ -94,6 +112,8 @@ export function modelInPath(path: string): string | null {
 }
 
 const COMMON_CREDENTIAL_HEADERS = ['authorization', 'proxy-authorization', 'cookie', 'set-cookie'] as const;
+/** The response header that names the Anthropic organization a key belongs to: never stored, nor sent on to the agent. */
+const ACCOUNT_HEADER = 'anthropic-organization-id';
 const stainlessRetryable = (status: number) => status === 408 || status === 409 || status === 429 || status >= 500;
 
 function num(v: unknown): number {
@@ -165,8 +185,9 @@ export const anthropic: Provider = {
   apiVersion: { header: 'anthropic-version', default: '2023-06-01' },
   // A golden recorded signed in with a profile replays with a key, in CI, and asks the same.
   matchHeaders: withoutSignInBetas,
-  // The key travels as x-api-key, or as a bearer token (anthropic for Python 2.0 and later, a profile's sign-in).
-  credentialHeaders: ['x-api-key', ...COMMON_CREDENTIAL_HEADERS],
+  // The key travels as x-api-key, or as a bearer token (anthropic for Python 2.0 and later, a profile's
+  // sign-in). A response names the organization the key belongs to, which no recording keeps.
+  credentialHeaders: ['x-api-key', ACCOUNT_HEADER, ...COMMON_CREDENTIAL_HEADERS],
   // A profile (ANTHROPIC_PROFILE, or a config file the CLI looks for) and workload identity
   // federation are credentials too: with a key in the environment the SDKs would use the key instead.
   keys: { placeholders: { ANTHROPIC_API_KEY: PLACEHOLDER_KEY }, credentials: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_PROFILE', 'ANTHROPIC_FEDERATION_RULE_ID'], set: 'ANTHROPIC_API_KEY' },
@@ -364,6 +385,8 @@ export const azure: Provider = {
   extractStopReason: (body, contentType) => openai.extractStopReason(body, contentType),
   extractModel: (subpath, body) => modelInBody(body) ?? deploymentInPath(subpath),
   hosts: /^[a-z0-9-]+\.(openai\.azure\.com|cognitiveservices\.azure\.com|services\.ai\.azure\.com)$/,
+  // Microsoft Foundry serves Claude in Anthropic's format under /anthropic of the same hosts.
+  forPath: (path) => (/^\/anthropic(\/|$)/.test(path) ? foundry : undefined),
 };
 
 // ---- Google Vertex AI (Anthropic and Gemini models) ----
@@ -451,7 +474,10 @@ export const bedrock: Provider = {
     const m = /\/model\/([^/]+)\//.exec(subpath);
     return m ? decodeURIComponent(m[1]!) : null;
   },
-  hosts: /^bedrock-runtime(-fips)?\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$/,
+  // bedrock-runtime.<region>.amazonaws.com, and bedrock-mantle.<region>.api.aws, where OpenAI's SDK
+  // reaches Bedrock in OpenAI's format (bedrockMantle, by its /openai paths).
+  hosts: /^(bedrock-runtime(-fips)?\.[a-z0-9-]+\.amazonaws\.com(\.cn)?|bedrock-mantle\.[a-z0-9-]+\.api\.aws)$/,
+  forPath: (path) => (/^\/openai(\/|$)/.test(path) ? bedrockMantle : undefined),
 };
 
 /** A message_start / message_delta event of an Anthropic model served through Bedrock. */
@@ -466,4 +492,125 @@ function anthropicStreamUsage(payload: Record<string, unknown>, current: Usage |
   return null;
 }
 
+// ---- Hosts of another provider's wire format ----
+
+/**
+ * Where a host serves a format's API (`root`, the path of the base URL its SDK is given there), as
+ * the format's own API names its calls: `/api/v1/chat/completions` at a root of `/api/v1` matches as
+ * OpenAI's `/v1/chat/completions`. The call keeps its full path as its name and is forwarded so.
+ */
+function underRoot(root: string, format: Provider): (path: string) => string {
+  return (path) => (path === root || path.startsWith(`${root}/`) ? `${format.sdkPath ?? ''}${path.slice(root.length)}` || '/' : path);
+}
+
+/** A provider for a host of `format`'s wire format: its reading of requests and answers, with the host's own id, hosts, keys and root. */
+function hostOf(format: Provider, own: Pick<Provider, 'id' | 'hosts' | 'credentialHeaders'> & Partial<Provider> & { root?: string }): Provider {
+  const { root, ...rest } = own;
+  // The format's reading of requests and answers, and nothing a client of its own API needs: no base
+  // URL, no sign-in betas, no keys, nothing read from the path. The host's own say comes after.
+  const { upstream: _upstream, env: _env, sdkPath: _sdkPath, apiPath: _apiPath, matchHeaders: _matchHeaders, keys: _keys, matchPath: _matchPath, forPath: _forPath, ...reading } = format;
+  return { ...reading, upstream: '', env: () => ({}), ...(root ? { matchPath: underRoot(root, format) } : {}), ...rest, format: format.id };
+}
+
+/**
+ * Claude on Microsoft Foundry (`AnthropicFoundry`): Anthropic's Messages API at
+ * `https://<resource>.services.ai.azure.com/anthropic/`, its key in ANTHROPIC_FOUNDRY_API_KEY sent as
+ * x-api-key, or a Microsoft Entra token. Reached through Azure's hosts (`azure.forPath`).
+ */
+export const foundry: Provider = hostOf(anthropic, {
+  id: 'foundry',
+  root: '/anthropic',
+  hosts: /^[a-z0-9-]+\.services\.ai\.azure\.com$/,
+  credentialHeaders: ['x-api-key', 'api-key', ACCOUNT_HEADER, ...COMMON_CREDENTIAL_HEADERS],
+  // The client refuses a key beside a token provider, which no variable shows: as for Azure OpenAI,
+  // only a recording whose environment held the key gets one.
+  keys: { placeholders: { ANTHROPIC_FOUNDRY_API_KEY: PLACEHOLDER_KEY }, credentials: ['ANTHROPIC_FOUNDRY_API_KEY', 'AZURE_CLIENT_ID', 'AZURE_FEDERATED_TOKEN_FILE', 'IDENTITY_ENDPOINT', 'MSI_ENDPOINT'], set: 'ANTHROPIC_FOUNDRY_API_KEY', onlyWhereRecorded: true },
+});
+
+/**
+ * OpenAI's SDK on Amazon Bedrock (`bedrock()` from openai/providers/bedrock, `BedrockOpenAI`):
+ * OpenAI's API at `https://bedrock-mantle.<region>.api.aws/openai/v1`, signed with SigV4 or sent
+ * with a Bedrock API key (AWS_BEARER_TOKEN_BEDROCK). Reached through Bedrock's hosts (`bedrock.forPath`).
+ */
+export const bedrockMantle: Provider = hostOf(openai, {
+  id: 'bedrock-mantle',
+  root: '/openai/v1',
+  hosts: /^bedrock-mantle\.[a-z0-9-]+\.api\.aws$/,
+  credentialHeaders: ['x-amz-security-token', 'x-amz-content-sha256', 'x-amz-date', 'x-amzn-trace-id', ...COMMON_CREDENTIAL_HEADERS],
+  // The Bedrock API key the bearer clients read; one signing with SigV4 reads the AWS credentials.
+  keys: { placeholders: { AWS_BEARER_TOKEN_BEDROCK: PLACEHOLDER_KEY }, credentials: ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_PROFILE', 'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'], set: 'AWS_BEARER_TOKEN_BEDROCK', onlyWhereRecorded: true },
+});
+
+/** The providers the sidecar routes to, `/<id>/…`: each provider's own hosts. */
 export const providers: Provider[] = [anthropic, openai, gemini, azure, vertex, bedrock];
+
+/**
+ * Hosts of another provider's format that are built in, each reached through the route of the
+ * provider whose hosts serve it (`forPath`): matching reads a call through one by its `meta.via`,
+ * and a replay gives its key a placeholder.
+ */
+export const hostedProviders: Provider[] = [foundry, bedrockMantle];
+
+// ---- Hosts the config declares (`providers` in shadowlap.config.json) ----
+
+/** A host the config declares, and the wire format it speaks: `{ "host": "openrouter.ai", "format": "openai", "root": "/api/v1" }`. */
+export interface FormatHost {
+  /** `api.example.com` or `*.example.com` (any subdomain), either with an optional `:port`. */
+  host: string;
+  format: 'openai' | 'anthropic' | 'gemini';
+  /** The path of the base URL the format's SDK is given at that host: `/api/v1` for OpenRouter. Calls under it match as the format's own API names them. */
+  root?: string;
+}
+
+const FORMATS: Readonly<Record<FormatHost['format'], Provider>> = { openai, anthropic, gemini };
+const FORMAT_HOST = /^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/;
+/** Route names the sidecar keeps for itself or a built-in provider: no declared host may take one. */
+const RESERVED = new Set(['v1', 'http', ...providers.map((p) => p.id), ...hostedProviders.map((p) => p.id)]);
+
+/** Why `raw` is no host to declare, or null when it is one. `where` names it in the message. */
+export function formatHostProblem(raw: unknown, where: string): string | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return `${where} must be an object, such as { "host": "openrouter.ai", "format": "openai", "root": "/api/v1" }`;
+  const { host, format, root, ...rest } = raw as Record<string, unknown>;
+  const extra = Object.keys(rest);
+  if (extra.length) return `${where} has ${extra.map((k) => `"${k}"`).join(', ')}, which a provider doesn't take: host, format and root`;
+  if (typeof host !== 'string' || !FORMAT_HOST.test(host)) return `${where}.host must be a host like api.example.com or *.example.com, with an optional :port, in lower case`;
+  if (host.startsWith('*.') && host.includes(':')) return `${where}.host: a host with a port is one host, so it takes no *.`;
+  if (RESERVED.has(host)) return `${where}.host "${host}" is a name Shadowlap uses itself`;
+  if (format !== 'openai' && format !== 'anthropic' && format !== 'gemini') return `${where}.format must be openai, anthropic or gemini`;
+  if (root !== undefined && (typeof root !== 'string' || !/^(\/[A-Za-z0-9._~-]+)+$/.test(root))) return `${where}.root must be a path such as /api/v1`;
+  return null;
+}
+
+/** A provider for a host the config declares: the format's reading of requests and answers, at that host. */
+export function formatHostProvider(h: FormatHost): Provider {
+  const [hostname, port] = h.host.split(':') as [string, string | undefined];
+  const escaped = hostname.replace(/^\*\./, '').replace(/[.]/g, '\\.');
+  const hosts = new RegExp(hostname.startsWith('*.') ? `^([a-z0-9-]+\\.)+${escaped}$` : `^${escaped}$`);
+  const format = FORMATS[h.format];
+  return hostOf(format, {
+    id: h.host,
+    ...(h.root ? { root: h.root } : {}),
+    hosts,
+    // Its key, whatever it is called, is the format's: a header the format's SDK sends it in.
+    credentialHeaders: [...new Set([...format.credentialHeaders, 'x-api-key', 'api-key'])],
+    // With a port, the host's own server, as the agent named it: over http too. Without, https only.
+    accepts: (origin) => hosts.test(origin.hostname) && (port !== undefined ? origin.port === port && (origin.protocol === 'http:' || origin.protocol === 'https:') : origin.protocol === 'https:'),
+  });
+}
+
+/** The hosts the project's config declares, which every sidecar this process starts serves, and which capture sends there. */
+let declared: Provider[] = [];
+
+/**
+ * Takes the hosts the project's config declares (`providers` in shadowlap.config.json, read when a
+ * command loads it): every sidecar this process starts serves them besides the built-in providers,
+ * unless it is given its own list, and in-process capture sends their calls to it.
+ */
+export function declareFormatHosts(hosts: readonly FormatHost[]): void {
+  declared = hosts.map(formatHostProvider);
+}
+
+/** The built-in providers, then the hosts the config declares (declareFormatHosts). */
+export function activeProviders(): Provider[] {
+  return [...providers, ...declared];
+}
