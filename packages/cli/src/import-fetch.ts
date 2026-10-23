@@ -64,14 +64,19 @@ export function traceStoreHost(raw: string, what: string, o: HostCheck = {}): st
  * A trace store that refused, failed or did not answer, with its HTTP status (null for none) and
  * the exit status it ends the import with: what this machine is set up with (keys refused, no such
  * project or trace, an address that isn't the API) is 2; a store that didn't answer, or failed, is 1.
+ * `ofTrace` marks a failure that is the one trace's (there is no trace of that id, or it is more than
+ * an import reads): an import of the traces in a window skips that trace and goes on, where any other
+ * failure stops it.
  */
 export class TraceStoreError extends CliError {
   readonly status: number | null;
+  readonly ofTrace: boolean;
 
-  constructor(message: string, status: number | null, o: { exitCode?: number } = {}) {
+  constructor(message: string, status: number | null, o: { exitCode?: number; ofTrace?: boolean } = {}) {
     super(o.exitCode ?? (status === null || status === 429 || status >= 500 ? EXIT.failed : EXIT.usage), message);
     this.name = 'TraceStoreError';
     this.status = status;
+    this.ofTrace = o.ofTrace === true;
   }
 }
 
@@ -90,9 +95,9 @@ export async function fetchJson(o: TraceStoreOptions, path: string, init: Reques
     throw new TraceStoreError(refusals[res.status] ?? `${new URL(o.host).host} answered ${res.status} ${res.statusText}`.trim(), res.status);
   }
   const length = Number(res.headers.get('content-length') ?? 0);
-  if (length > MAX_BYTES) throw new TraceStoreError(`${new URL(o.host).host} sent ${length} bytes, more than a trace should take`, null);
+  if (length > MAX_BYTES) throw new TraceStoreError(`${new URL(o.host).host} sent ${length} bytes, more than a trace should take`, null, { ofTrace: true });
   const text = await res.text();
-  if (text.length > MAX_BYTES) throw new TraceStoreError(`${new URL(o.host).host} sent more than a trace should take`, null);
+  if (text.length > MAX_BYTES) throw new TraceStoreError(`${new URL(o.host).host} sent more than a trace should take`, null, { ofTrace: true });
   try {
     return JSON.parse(text) as unknown;
   } catch {

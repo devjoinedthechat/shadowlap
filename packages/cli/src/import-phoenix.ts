@@ -71,9 +71,9 @@ export async function fetchPhoenixSpans(traceId: string, o: PhoenixOptions): Pro
     cursor = str(res.next_cursor);
   } while (cursor && spans.length + others < MAX_SPANS);
   if (others && (cursor || !spans.length)) throw new TraceStoreError(`Phoenix on ${where} lists every span instead of the trace's: it is older than 13.9, which reads spans by trace. Update Phoenix, or export the trace as OTLP JSON and use shadowlap import otel`, null, { exitCode: EXIT.usage });
-  if (!spans.length) throw new TraceStoreError(`Phoenix on ${where} has no trace ${traceId} in project ${o.project}`, null, { exitCode: EXIT.usage });
+  if (!spans.length) throw new TraceStoreError(`Phoenix on ${where} has no trace ${traceId} in project ${o.project}`, null, { exitCode: EXIT.usage, ofTrace: true });
   // Cut short, a trace would miss the spans listed last: in Phoenix 20, its oldest, where a replay starts.
-  if (cursor) throw new TraceStoreError(`the trace has more than ${MAX_SPANS} spans, more than an import reads from Phoenix: export it as OTLP JSON and use shadowlap import otel`, null);
+  if (cursor) throw new TraceStoreError(`the trace has more than ${MAX_SPANS} spans, more than an import reads from Phoenix: export it as OTLP JSON and use shadowlap import otel`, null, { ofTrace: true });
   return spans;
 }
 

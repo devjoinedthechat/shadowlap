@@ -229,9 +229,10 @@ export interface RunMeta {
    * Set by `unpack` and `pull`: the run came from a pack or the team store, so its recorded command
    * is someone else's. `from`: the pack's folder, or the store's URL (`s3://…`, `gs://…`, `az://…`,
    * `r2://…`), which marks a run pulled from it (`pulledRun`). `pr`: it came from a pull request's
-   * folder in the store, so it never goes back into the store's own runs.
+   * folder in the store, so it never goes back into the store's own runs. `key`: for a trace imported
+   * from a trace store, the trace's id there, by which a later import of the same trace skips it.
    */
-  imported?: { at: number; from: string; pr?: string };
+  imported?: { at: number; from: string; pr?: string; key?: string };
   /**
    * A partial recording: the call kinds it actually contains. An import that only saw the network
    * covers `['api']`; a trace that kept some tools' outputs adds `tool:<name>` for each of those

@@ -51,6 +51,25 @@ export interface ImportJson {
   skipped: Skip[];
   /** Traces only: what the source kept. */
   kept?: TraceKept;
+  /** An import of the traces in a window (a trace store's, without a trace id): the window it read. */
+  window?: { since: string; until: string; limit: number; traceName: string | null };
+  /** ... and each trace the store listed in it, newest first, with what became of it. */
+  traces?: ImportJsonTrace[];
+}
+
+/**
+ * A trace an import of a window found: `imported` as `runId`; `already` imported, as `runId`, by an
+ * earlier import, and left as it is; `skipped` for `reason` (it held nothing to import, or the store
+ * can't give it whole); `failed`, where the store failed and the import stopped; `unread` after that.
+ */
+export interface ImportJsonTrace {
+  id: string;
+  name: string | null;
+  /** When it started (ISO 8601), where the store says. */
+  startedAt: string | null;
+  outcome: 'imported' | 'already' | 'skipped' | 'failed' | 'unread';
+  runId: string | null;
+  reason: string | null;
 }
 
 export interface ImportedRun {
@@ -89,10 +108,45 @@ export function importedRunsLink(runs: ReadonlyArray<Pick<ImportJsonRun, 'source
 }
 
 /**
+ * Settles one run an import wrote: deletes it when it holds no call, else records `capture.imported`
+ * for it and returns it as `--json` lists it.
+ */
+export function settleRun(store: Store, o: { format: ImportFormat; key: string | null; result: ImportResult; author?: string | null }): ImportJsonRun | null {
+  const { result, key } = o;
+  if (!result.imported.length) {
+    store.deleteRun(result.run.runId);
+    return null;
+  }
+  const source = result.run.meta?.imported?.from ?? '';
+  const calls = { model: result.imported.filter((c) => c.kind === 'api').length, tool: result.imported.filter((c) => c.kind === 'tool').length };
+  recordEvent(store, {
+    kind: 'capture.imported',
+    actor: o.author ?? null,
+    runId: result.run.runId,
+    ref: sourceName(source),
+    data: { format: o.format, from: source, key, modelCalls: calls.model, toolCalls: calls.tool },
+  });
+  return { runId: result.run.runId, source, key, calls, labels: result.run.meta?.labels ?? [], imported: result.imported };
+}
+
+/**
+ * Tells a dashboard job what an import made: each run (`{ type: 'run', role: 'imported' }`), links
+ * to them, and the result.
+ */
+export function reportImportJob(json: ImportJson, env: NodeJS.ProcessEnv = process.env): void {
+  const { runs } = json;
+  for (const r of runs) emitJobEvent({ type: 'run', runId: r.runId, role: 'imported' }, env);
+  // A dashboard job opens the run it made. One that made a few links each (a LiteLLM file holds a run
+  // per correlation id); past that, the Runs page, filtered to them, lists them all.
+  if (runs.length > IMPORT_LINKS) emitJobEvent({ type: 'link', label: `All ${runs.length} on Runs`, href: importedRunsLink(runs) }, env);
+  else if (runs.length > 1) for (const r of runs) emitJobEvent({ type: 'link', label: `Open ${r.runId.slice(0, 10)}`, href: `#/run/${r.runId}` }, env);
+  emitJobEvent({ type: 'result', data: json }, env);
+}
+
+/**
  * Settles an import: deletes the runs that hold no call, records `capture.imported` for each run
- * kept, reports each to a dashboard job (`{ type: 'run', role: 'imported' }`) followed by the
- * result, and returns that result. Skips come first from `skipped` (what the file itself couldn't
- * offer), then from each run in order.
+ * kept, reports each to a dashboard job followed by the result, and returns that result. Skips come
+ * first from `skipped` (what the file itself couldn't offer), then from each run in order.
  */
 export function settleImport(
   store: Store,
@@ -102,28 +156,10 @@ export function settleImport(
   const runs: ImportJsonRun[] = [];
   for (const { key, result } of o.runs) {
     append(skipped, result.skipped);
-    if (!result.imported.length) {
-      store.deleteRun(result.run.runId);
-      continue;
-    }
-    const source = result.run.meta?.imported?.from ?? '';
-    const calls = { model: result.imported.filter((c) => c.kind === 'api').length, tool: result.imported.filter((c) => c.kind === 'tool').length };
-    runs.push({ runId: result.run.runId, source, key, calls, labels: result.run.meta?.labels ?? [], imported: result.imported });
-    recordEvent(store, {
-      kind: 'capture.imported',
-      actor: o.author ?? null,
-      runId: result.run.runId,
-      ref: sourceName(source),
-      data: { format: o.format, from: source, key, modelCalls: calls.model, toolCalls: calls.tool },
-    });
+    const run = settleRun(store, { format: o.format, key, result, author: o.author ?? null });
+    if (run) runs.push(run);
   }
   const json: ImportJson = { format: o.format, entries: o.entries, runs, skipped, ...(o.kept ? { kept: o.kept } : {}) };
-  const env = o.env ?? process.env;
-  for (const r of runs) emitJobEvent({ type: 'run', runId: r.runId, role: 'imported' }, env);
-  // A dashboard job opens the run it made. One that made a few links each (a LiteLLM file holds a run
-  // per correlation id); past that, the Runs page, filtered to them, lists them all.
-  if (runs.length > IMPORT_LINKS) emitJobEvent({ type: 'link', label: `All ${runs.length} on Runs`, href: importedRunsLink(runs) }, env);
-  else if (runs.length > 1) for (const r of runs) emitJobEvent({ type: 'link', label: `Open ${r.runId.slice(0, 10)}`, href: `#/run/${r.runId}` }, env);
-  emitJobEvent({ type: 'result', data: json }, env);
+  reportImportJob(json, o.env ?? process.env);
   return json;
 }

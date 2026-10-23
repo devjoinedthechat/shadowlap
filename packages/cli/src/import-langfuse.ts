@@ -93,12 +93,14 @@ export async function fetchLangfuseTrace(traceId: string, o: LangfuseOptions): P
     cursor = isObject(res) && isObject(res.meta) ? str(res.meta.cursor) : null;
   } while (cursor && observations.length < MAX_OBSERVATIONS);
   if (v2) {
-    if (!observations.length) throw new TraceStoreError(`Langfuse has no trace ${traceId} on ${new URL(o.host).host}`, 404);
+    if (!observations.length) throw new TraceStoreError(`Langfuse has no trace ${traceId} on ${new URL(o.host).host}`, 404, { ofTrace: true });
     // The API lists the newest first; the trace reader takes them in the order they started.
     observations.sort((a, b) => (epochMs((a as Record<string, unknown>).startTime) ?? 0) - (epochMs((b as Record<string, unknown>).startTime) ?? 0));
     return { id: traceId, observations };
   }
-  const trace = await get(`/api/public/traces/${encodeURIComponent(traceId)}`);
+  const trace = await get(`/api/public/traces/${encodeURIComponent(traceId)}`).catch((err: unknown) => {
+    throw err instanceof TraceStoreError && err.status === 404 ? new TraceStoreError(err.message, 404, { ofTrace: true }) : err;
+  });
   if (!isObject(trace)) throw new TraceStoreError('Langfuse answered with something that is not a trace', null, { exitCode: EXIT.usage });
   if (Array.isArray(trace.observations) && trace.observations.every(isObject)) return trace;
   // Some deployments list observation ids only; the observations endpoint has them whole.

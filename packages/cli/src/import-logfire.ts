@@ -52,8 +52,8 @@ export async function fetchLogfireRecords(traceId: string, o: LogfireOptions): P
   );
   const rows = rowsOf(res);
   if (!rows) throw new TraceStoreError(`${where} answered with something that is not query results: is ${o.host} Logfire's API?`, null, { exitCode: EXIT.usage });
-  if (!rows.length) throw new TraceStoreError(`Logfire has no trace ${traceId} that started since ${o.since.toISOString().slice(0, 10)}: for an older one, give --since`, null, { exitCode: EXIT.usage });
-  if (rows.length >= LIMIT) throw new TraceStoreError(`the trace has ${LIMIT} spans or more, more than one query returns`, null);
+  if (!rows.length) throw new TraceStoreError(`Logfire has no trace ${traceId} that started since ${o.since.toISOString().slice(0, 10)}: for an older one, give --since`, null, { exitCode: EXIT.usage, ofTrace: true });
+  if (rows.length >= LIMIT) throw new TraceStoreError(`the trace has ${LIMIT} spans or more, more than one query returns`, null, { ofTrace: true });
   return rows;
 }
 

@@ -655,6 +655,7 @@ shadowlap import langfuse <trace-id>     # a Langfuse trace, read with the proje
 shadowlap import langsmith <trace-id>    # a LangSmith trace, read with your API key
 shadowlap import phoenix <trace-id>      # an Arize Phoenix trace, from Phoenix's REST API
 shadowlap import logfire <trace-id>      # a Pydantic Logfire trace, read with a read token
+shadowlap import langfuse --since 7d     # each Langfuse trace of the last 7 days, one run per trace
 shadowlap import har traffic.har --json  # every run made, by its full id, and the entries skipped
 ```
 
@@ -777,6 +778,52 @@ the run as a [pack](#pack-unpack) instead. `--json` adds what the source kept:
 ```json
 "kept": { "traces": 1, "spans": 14, "modelCalls": 9, "modelCallsImported": 9, "withSettings": 9, "withToolDefinitions": 0, "toolCalls": 5, "toolCallsKept": 3 }
 ```
+
+### The traces in a window
+
+```sh
+shadowlap import langfuse --since 7d
+shadowlap import phoenix --since 2026-10-01 --until 2026-10-08 --project support-agent
+shadowlap import logfire --since 24h --trace-name support-agent --limit 20
+```
+
+Without a trace id, `import langfuse`, `import phoenix` and `import logfire` import each trace that
+started in a window, one run per trace, newest first: from `--since` (a date, a time, or how long
+ago, such as `7d` or `12h`; 30 days ago by default) to `--until` (the same, now by default), up to
+`--limit` traces (100 by default, at most 10,000), only those named `--trace-name` when it is given:
+Langfuse's trace name, the root span's name in Phoenix and Logfire. Give a trace id or these flags,
+not both; only `import logfire` takes `--since` with a trace id too, for how far back to look for
+it. Each store is asked
+through its own API for the traces' roots: Langfuse for the root observations in the window
+(`GET /api/public/v2/observations`, or its traces list, `GET /api/public/traces`, where it has no v2
+API), Phoenix for the root spans (`GET /v1/projects/<project>/spans` with `parent_id=null`), Logfire
+with one SQL query for the root spans in the `records` table. Each trace is then read as a single
+import reads it, with the same keys, hosts and flags.
+
+A trace store's import keeps the trace's id with the run (`meta.imported.key`), so a trace imported
+before, by a window or by its id, is skipped and not read again. A trace still running when it was
+imported keeps what it had by then: import it by its id once it has ended to bring in the rest. One
+line per trace, as it goes:
+
+```text
+3 traces in Langfuse on cloud.langfuse.com that started from 2026-10-16 09:12 UTC to 2026-10-23 09:12 UTC:
+  11111111-41b8-4d  imported as 01M5N2NX8F: 3 model calls and 1 tool result  support-chat
+  22222222-41b8-4d  imported before, as 01M5N2NVXR  support-chat
+  33333333-41b8-4d  skipped: no model calls in its 3 observations  nightly-eval
+Imported 1 of 3 traces: 1 imported before, 1 skipped.
+```
+
+A trace with nothing to import is skipped, and so is one the store can't give whole: gone since it
+was listed, or more spans than an import reads. Any other failure, the store refusing, failing or
+not answering, stops the import at that trace: the runs it made stay, and the same command run again
+goes on from there. The exit status is that failure's (2 for keys the store refused, 1 for a store
+that failed or didn't answer); 1 when the window held traces and none of them is imported, now or
+before; otherwise 0, an empty window included. `--json` adds the window it read (`window`: `since`,
+`until`, `limit`, `traceName`) and each trace it found, newest first (`traces`: `id`, `name`,
+`startedAt`, `outcome`, `runId`, `reason`). A trace's `outcome` is `imported`, `already` (imported
+before, as `runId`), `skipped` (for its `reason`), `failed` (where the import stopped) or `unread`
+(after that). `kept` counts what the traces it imported kept, and `entries` every observation or
+span it read.
 
 ### `--json`
 
