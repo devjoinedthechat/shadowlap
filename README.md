@@ -305,5 +305,3 @@ npm run demo && node scripts/readme-shots.mjs
 ## License
 
 [Apache-2.0](LICENSE). Shadowlap has no accounts to sign&nbsp;up&nbsp;for.
-
-Regulated teams can add organisation features through a paid pilot: setup on your infrastructure, evidence reports for your auditors and support with an&nbsp;SLA. [Talk&nbsp;to&nbsp;an&nbsp;engineer](https://github.com/devjoinedthechat/shadowlap/issues/new?template=pilot.md).
