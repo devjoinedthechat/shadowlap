@@ -61,7 +61,7 @@ export interface ImportedRun {
 
 /** What the activity feed and an import dialog call the source: a file's name, or `langfuse:7f3a9c2e`. */
 export function sourceName(source: string): string {
-  return /^(langfuse|langsmith):/.test(source) ? source : basename(source) || source;
+  return /^(langfuse|langsmith|phoenix|logfire):/.test(source) ? source : basename(source) || source;
 }
 
 /**

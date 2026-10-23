@@ -161,15 +161,18 @@ export function batchInput(argv: readonly string[]): string | null {
   return words || null;
 }
 
+/** The trace stores `shadowlap import` reads a trace from by its id, each by its own name. */
+const TRACE_STORES: Readonly<Record<string, string>> = { langfuse: 'Langfuse', langsmith: 'LangSmith', phoenix: 'Phoenix', logfire: 'Logfire' };
+
 /**
  * Where an import came from, in words: its file, or the trace it was read from (`langfuse:7f3a9c2e`
- * reads `Langfuse trace 7f3a9c2e`). A path keeps its last part: the folder it sat in on someone's
- * machine says nothing of the run.
+ * reads `Langfuse trace 7f3a9c2e`, `phoenix:4a2db41d` reads `Phoenix trace 4a2db41d`). A path keeps
+ * its last part: the folder it sat in on someone's machine says nothing of the run.
  */
 export function sourceWords(from: string): string {
   const s = oneLine(from);
-  const trace = /^(langfuse|langsmith):(.+)$/i.exec(s);
-  if (trace) return `${trace[1]!.toLowerCase() === 'langfuse' ? 'Langfuse' : 'LangSmith'} trace ${trace[2]!.trim()}`;
+  const trace = /^(langfuse|langsmith|phoenix|logfire):(.+)$/i.exec(s);
+  if (trace) return `${TRACE_STORES[trace[1]!.toLowerCase()]} trace ${trace[2]!.trim()}`;
   return s
     .split(/,\s*/)
     .map((part) => part.split(/[\\/]/).filter(Boolean).pop() ?? part)

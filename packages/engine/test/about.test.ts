@@ -40,6 +40,8 @@ describe('an import’s source and a golden, in words', () => {
   it('names a trace by its store, and a file by its name alone', () => {
     expect(sourceWords('langfuse:cdd33040')).toBe('Langfuse trace cdd33040');
     expect(sourceWords('langsmith:65e69242')).toBe('LangSmith trace 65e69242');
+    expect(sourceWords('phoenix:4a2db41d')).toBe('Phoenix trace 4a2db41d');
+    expect(sourceWords('logfire:01a16460')).toBe('Logfire trace 01a16460');
     expect(sourceWords('/home/someone/captures/refund-A-1077.har')).toBe('refund-A-1077.har');
     expect(sourceWords('shadowlap-4121.jsonl, shadowlap-4122.jsonl')).toBe('shadowlap-4121.jsonl, shadowlap-4122.jsonl');
     expect(goldenWords('goldens/refund-in-limit')).toBe('refund-in-limit');
