@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
@@ -193,7 +193,10 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
   try {
     const { data, calls } = payload(store, asked, { ...(opts.prices ? { prices: opts.prices } : {}), version: opts.version ?? null, rules: rules.length, now: opts.now ?? Date.now(), keepAuthor: opts.keepAuthor === true });
     const css = readFileSync(join(uiDir, 'assets', 'app.css'), 'utf8').replace(/url\(["']?\.\/fonts\/([\w.-]+)["']?\)/g, (_m, name: string) => `url(${dataUri(join(uiDir, 'assets', 'fonts', name), 'font/woff2')})`);
-    const js = readFileSync(join(uiDir, 'assets', 'app.js'), 'utf8');
+    // The script with every page in it (build-ui.mjs): the one the dashboard serves loads a page's
+    // code from the server when it opens, and a copy has none. A UI without one (a test's stand-in) has app.js.
+    const whole = join(uiDir, 'assets', 'standalone.js');
+    const js = readFileSync(existsSync(whole) ? whole : join(uiDir, 'assets', 'app.js'), 'utf8');
     const favicon = dataUri(join(uiDir, 'assets', 'favicon.svg'), 'image/svg+xml');
     // The run it opens on, by its id, as the page's own title names it (ui/title.ts) once it has drawn.
     const title = `${asked[0]!.slice(0, 10)} — shadowlap`;
