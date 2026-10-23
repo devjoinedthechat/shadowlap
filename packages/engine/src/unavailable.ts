@@ -102,7 +102,19 @@ export function retryDelay(n: number, retryAfterMs: number | null, random: () =>
   return Math.min(limits.maxDelayMs, Math.round(base * (0.8 + 0.4 * random())));
 }
 
+/** How every reason `unavailableReason` gives starts: what a stop's reason is read by (`unavailableStop`). */
+const UNAVAILABLE_PREFIX = 'provider unavailable: ';
+
 /** The reason a result is inconclusive when the provider was unavailable for `n` attempts in a row. */
 export function unavailableReason(n: number, last: Unavailable): string {
-  return `provider unavailable: ${n} attempt${n === 1 ? '' : 's'} in a row ended on ${last.reason}, so none of them says anything about the agent; run it again once the provider answers`;
+  return `${UNAVAILABLE_PREFIX}${n} attempt${n === 1 ? '' : 's'} in a row ended on ${last.reason}, so none of them says anything about the agent; run it again once the provider answers`;
+}
+
+/**
+ * Whether a run, a probe or a session stopped because its provider was unavailable too many attempts
+ * in a row (its `stopReason` is `unavailableReason`'s): inconclusive, the provider's doing, never a
+ * failure of the agent's.
+ */
+export function unavailableStop(reason: string | null | undefined): boolean {
+  return typeof reason === 'string' && reason.startsWith(UNAVAILABLE_PREFIX);
 }

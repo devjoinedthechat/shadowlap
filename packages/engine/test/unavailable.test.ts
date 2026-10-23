@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CallEndRow, CallMeta, CallRecord } from '../src/types.js';
-import { UNAVAILABLE_RETRY, providerUnavailable, retryAfter, retryDelay, unavailableReason, unavailableStatus } from '../src/unavailable.js';
+import { UNAVAILABLE_RETRY, providerUnavailable, retryAfter, retryDelay, unavailableReason, unavailableStatus, unavailableStop } from '../src/unavailable.js';
 
 /**
  * An attempt the agent failed while its provider couldn't answer says nothing about the agent: what
@@ -103,5 +103,8 @@ describe('retryDelay', () => {
     expect(UNAVAILABLE_RETRY.inARow).toBe(3);
     const u = providerUnavailable([call({ status: 529 })])!;
     expect(unavailableReason(3, u)).toBe(`provider unavailable: 3 attempts in a row ended on HTTP 529 from anthropic at call #${u.callNo}, so none of them says anything about the agent; run it again once the provider answers`);
+    // A stop for that reason reads as the provider's, never as a failure or another stop (contract: inconclusive).
+    expect(unavailableStop(unavailableReason(3, u))).toBe(true);
+    expect([unavailableStop('interrupted'), unavailableStop('the budget of $1.00 is spent'), unavailableStop(null), unavailableStop(undefined)]).toEqual([false, false, false, false]);
   });
 });
