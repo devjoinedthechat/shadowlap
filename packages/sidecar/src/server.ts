@@ -353,11 +353,28 @@ interface ModelCall {
   retrying: boolean;
 }
 
+/** What interventions made of a model request (rewriteForInterventions): its place, the call it retries if it is a retry, and how it changed. */
+interface Rewritten {
+  retryKey?: string;
+  claimed?: number;
+  place?: CallPlace;
+  refusal?: string;
+  forced?: { by: string; counterpart: number };
+  changedBy?: string;
+}
+
 /** A model call once resolved: which call it is, and why an intervention could not be applied to it, if it couldn't. */
 interface PlacedCall {
   callNo: number;
   tracked: TrackedCall;
   refusal?: string;
+}
+
+/** A live attempt under way: when it started, how it ends for the agent (once), and how its end is recorded. */
+interface LiveAttempt {
+  started: number;
+  settle(retryable: boolean): void;
+  end(row: Omit<AttemptEnd, 'attempt'>): void;
 }
 
 /** An attempt's end as it is recorded: the answer the agent got (`response`, stored when written), or one already stored. */
@@ -1046,70 +1063,18 @@ export class Sidecar {
    * client retries, that reads as a retry, is that call's next attempt: the first such call with
    * nothing in flight, oldest failure first (RunContext.retries). Anything else is a new call the
    * session decides (replayed, live, forced live by an intervention), and its start is recorded.
-   * Interventions rewrite the request first, and a retry gets the rewrite of the attempt it repeats.
-   * Null when the call is answered here already (a judge that may not be asked live).
+   * Interventions rewrite the request first (rewriteForInterventions), and a retry gets the rewrite
+   * of the attempt it repeats. Null when the call is answered here already (a judge that may not be
+   * asked live).
    */
   private resolveModelCall(call: ModelCall): PlacedCall | null {
     const { ctx, provider, scope, judge } = call;
-    let claimed: number | undefined;
-    let retryKey: string | undefined;
-    let place: CallPlace | undefined;
-    let refusal: string | undefined;
-    let forced: { by: string; counterpart: number } | undefined;
-    let changedBy: string | undefined;
-    // Interventions rewrite the request before it is fingerprinted, stored or forwarded, so the
-    // recording of the fork holds exactly what was sent.
-    if (ctx.interventions?.active && !judge) {
-      // A flag names a model call by its place among the recording's model calls (of its scope, when
-      // the recording has scopes), counted the way the recording counts them: every one, whatever it
-      // sends (an embeddings call too), and a retry as the call it retries. A retry is told apart as the
-      // recording tells it, by its fingerprint, here of the request before any rewrite, so it gets the
-      // same rewrite as the attempt it repeats.
-      retryKey = `sent\n${scope ?? ''}\n${this.apiFingerprint(ctx, provider, { method: call.method, path: call.sent, headers: matchedHeaders(provider, call.headers), body: call.body })}`;
-      claimed = call.retrying ? ctx.claimRetry(retryKey) : undefined;
-      place = (claimed !== undefined ? ctx.calls.get(claimed)?.place : undefined) ?? ctx.interventions.next(scope);
-      const rewrite = ctx.interventions.apply(place, provider.id, call.sent, call.body);
-      if ('refused' in rewrite) refusal = rewrite.refused;
-      else {
-        // At the call a flag named: a changed body diverges on its own, and its diff shows the
-        // change; a model switched in the path, or a setting the request already had, is forced.
-        if (rewrite.target) {
-          if (rewrite.changed && rewrite.path === call.sent) changedBy = rewrite.target.by;
-          else forced = rewrite.target;
-        }
-        if (rewrite.changed) {
-          call.path = rewrite.path;
-          call.body = rewrite.body;
-          call.rawBody = Buffer.from(JSON.stringify(call.body), 'utf8');
-          // AWS signs a request's exact path and body: the changed one is signed again, or refused.
-          // One signed with placeholder credentials is never sent, so forwardLive refuses it as it is.
-          const keyId = signingKeyId(call.headers.authorization);
-          if (keyId && keyId !== PLACEHOLDER_AWS_ACCESS_KEY_ID) {
-            const signed = this.resign(call.req, call.headers, call.method, call.path, call.search, call.rawBody);
-            if ('error' in signed) refusal = `${rewrite.target?.by ?? 'the intervention'}: ${signed.error}`;
-            else call.headers = signed.headers;
-          }
-        }
-      }
-    }
-
+    const { place, refusal, forced, ...rewritten } = this.rewriteForInterventions(call);
+    let { claimed, retryKey, changedBy } = rewritten;
     // A request that carries planted text (shadowlap injection's canary) forks the replay there, even
     // when a normalizer masks the text into a match: the point of the plant is a model reading it.
     if (refusal === undefined && !forced && !changedBy && ctx.session.state === 'replaying' && ctx.session.options.plantMarks && ctx.session.carriesPlant(call.rawBody.toString('utf8'))) changedBy = ctx.session.options.plantMarks.by;
-
-    const name = apiCallName(call.method, call.path);
-    // What identifies the call, where the provider leaves part of its path out (Vertex AI's project and region).
-    const matchPath = provider.matchPath?.(call.path);
-    const matchName = matchPath !== undefined && matchPath !== call.path ? apiCallName(call.method, matchPath) : undefined;
-    // A parent that names no API version (a trace never keeps one) is matched, and this run kept,
-    // without the version this request names: the run names none either, as the one it replays, so
-    // the two stay the same calls (Compare, coverage) and its own replays match whatever version.
-    const version = !judge && ctx.unversioned.has(provider.id) ? provider.apiVersion?.header : undefined;
-    const kept = version !== undefined ? withoutHeader(call.headers, version) : call.headers;
-    // Matched without what only says how the call signed in (matchHeaders); kept as it was sent.
-    const asked = matchedHeaders(provider, kept);
-    const request = { method: call.method, path: call.path, headers: asked, body: call.body };
-    const fingerprint = judge ? judgeFingerprint(request, ctx.redactions, provider, matchPath).fingerprint : this.apiFingerprint(ctx, provider, request);
+    const { name, matchName, kept, asked, fingerprint } = this.identifyModelCall(call);
 
     // A judge that may not be asked live, whose very request the recording never answered, is
     // answered by no one: nothing is kept of it, since a call no one answered holds no verdict, and
@@ -1137,6 +1102,65 @@ export class Sidecar {
     this.noteDivergence(ctx);
     this.recordModelStart(call, callNo, tracked, kept, asked);
     return { callNo, tracked, ...(refusal !== undefined ? { refusal } : {}) };
+  }
+
+  /**
+   * Resolve, with interventions: the request rewritten as the run's flags have it, before it is
+   * fingerprinted, stored or forwarded, so the recording of the fork holds exactly what was sent.
+   * A flag names a model call by its place among the recording's model calls (of its scope, when the
+   * recording has scopes), counted the way the recording counts them: every one, whatever it sends
+   * (an embeddings call too), and a retry as the call it retries. A retry is told apart as the
+   * recording tells it, by its fingerprint, here of the request before any rewrite, so it gets the
+   * same rewrite as the attempt it repeats. Nothing without interventions, or for a judge's call.
+   */
+  private rewriteForInterventions(call: ModelCall): Rewritten {
+    const { ctx, provider, scope } = call;
+    if (!ctx.interventions?.active || call.judge) return {};
+    const retryKey = `sent\n${scope ?? ''}\n${this.apiFingerprint(ctx, provider, { method: call.method, path: call.sent, headers: matchedHeaders(provider, call.headers), body: call.body })}`;
+    const claimed = call.retrying ? ctx.claimRetry(retryKey) : undefined;
+    const place = (claimed !== undefined ? ctx.calls.get(claimed)?.place : undefined) ?? ctx.interventions.next(scope);
+    const done: Rewritten = { retryKey, place, ...(claimed !== undefined ? { claimed } : {}) };
+    const rewrite = ctx.interventions.apply(place, provider.id, call.sent, call.body);
+    if ('refused' in rewrite) return { ...done, refusal: rewrite.refused };
+    // At the call a flag named: a changed body diverges on its own, and its diff shows the change; a
+    // model switched in the path, or a setting the request already had, is forced.
+    if (rewrite.target) {
+      if (rewrite.changed && rewrite.path === call.sent) done.changedBy = rewrite.target.by;
+      else done.forced = rewrite.target;
+    }
+    if (rewrite.changed) {
+      call.path = rewrite.path;
+      call.body = rewrite.body;
+      call.rawBody = Buffer.from(JSON.stringify(call.body), 'utf8');
+      // AWS signs a request's exact path and body: the changed one is signed again, or refused. One
+      // signed with placeholder credentials is never sent, so forwardLive refuses it as it is.
+      const keyId = signingKeyId(call.headers.authorization);
+      if (keyId && keyId !== PLACEHOLDER_AWS_ACCESS_KEY_ID) {
+        const signed = this.resign(call.req, call.headers, call.method, call.path, call.search, call.rawBody);
+        if ('error' in signed) done.refusal = `${rewrite.target?.by ?? 'the intervention'}: ${signed.error}`;
+        else call.headers = signed.headers;
+      }
+    }
+    return done;
+  }
+
+  /** Resolve: what identifies a model call, as its request is matched, and the headers it keeps. */
+  private identifyModelCall(call: ModelCall): { name: string; matchName: string | undefined; kept: Record<string, string>; asked: Record<string, string>; fingerprint: string } {
+    const { ctx, provider, judge } = call;
+    const name = apiCallName(call.method, call.path);
+    // What identifies the call, where the provider leaves part of its path out (Vertex AI's project and region).
+    const matchPath = provider.matchPath?.(call.path);
+    const matchName = matchPath !== undefined && matchPath !== call.path ? apiCallName(call.method, matchPath) : undefined;
+    // A parent that names no API version (a trace never keeps one) is matched, and this run kept,
+    // without the version this request names: the run names none either, as the one it replays, so
+    // the two stay the same calls (Compare, coverage) and its own replays match whatever version.
+    const version = !judge && ctx.unversioned.has(provider.id) ? provider.apiVersion?.header : undefined;
+    const kept = version !== undefined ? withoutHeader(call.headers, version) : call.headers;
+    // Matched without what only says how the call signed in (matchHeaders); kept as it was sent.
+    const asked = matchedHeaders(provider, kept);
+    const request = { method: call.method, path: call.path, headers: asked, body: call.body };
+    const fingerprint = judge ? judgeFingerprint(request, ctx.redactions, provider, matchPath).fingerprint : this.apiFingerprint(ctx, provider, request);
+    return { name, matchName, kept, asked, fingerprint };
   }
 
   /**
@@ -1320,19 +1344,67 @@ export class Sidecar {
   }
 
   /**
-   * Forward live: the call sent to its provider, or refused where it can't be (offline, no upstream,
-   * a placeholder key), and the answer streamed back as it arrives. The agent's own
-   * `accept-encoding` goes as it sent it, since a signed request (AWS SigV4) may sign it; a
-   * compressed answer is decoded for the recording and the agent alike. When the agent leaves, the
-   * request upstream ends with it, and the attempt is recorded as a retryable disconnect, so its
-   * client's retry is the same call. When the provider's connection breaks part way, the agent's
-   * breaks there too, as it would without Shadowlap.
+   * Forward live: the call sent to its provider, or refused where it can't be (liveUpstream), and
+   * the answer streamed back as it arrives (relayAnswer). When the agent leaves, the request upstream
+   * ends with it, and the attempt is recorded as a retryable disconnect, so its client's retry is
+   * the same call. When the provider's connection breaks part way, the agent's breaks there too, as
+   * it would without Shadowlap.
    */
   private async forwardLive(call: ModelCall, placed: PlacedCall): Promise<void> {
+    const upstream = this.liveUpstream(call, placed);
+    if (upstream === null) return;
     const { ctx, res, provider, client } = call;
     const { callNo, tracked } = placed;
-    // An upstream configured here wins (shadowlap test sets "offline"), then the one a captured
-    // request names, then the provider's own default. A judge names its own.
+    const number = this.beginAttempt(tracked);
+    let settled = false;
+    const attempt: LiveAttempt = {
+      started: Date.now(),
+      // The attempt ends for the agent once: when it leaves (its client may retry before the request
+      // upstream has ended), or when its answer has.
+      settle: (retryable) => {
+        if (settled) return;
+        settled = true;
+        this.settleAttempt(ctx, callNo, tracked, retryable);
+      },
+      end: (row) => this.recordEnd(ctx, callNo, tracked.identity, { attempt: number, ...row }),
+    };
+    client.whenGone(() => attempt.settle(true));
+    if (client.gone) {
+      attempt.end({ responseRef: null, outcome: 'error', meta: { latencyMs: 0, retryable: true, provider: provider.id, error: clientLeft('before its request was sent') } });
+      return;
+    }
+    let answer: Response;
+    try {
+      answer = await this.sendUpstream(call, upstream);
+    } catch (err) {
+      // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
+      if (this.closed) return;
+      if (client.gone) {
+        // The agent left before the provider answered (its own timeout, say): it saw no answer at all.
+        attempt.end({ responseRef: null, outcome: 'error', meta: { latencyMs: Date.now() - attempt.started, retryable: true, provider: provider.id, error: clientLeft('before the response headers') } });
+        return;
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      const error: SerializedError = { name: 'UpstreamConnectionError', message };
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_upstream_error', message } }));
+      attempt.settle(true);
+      attempt.end({ responseRef: null, outcome: 'error', meta: { status: 502, latencyMs: Date.now() - attempt.started, retryable: true, error } });
+      return;
+    }
+    await this.relayAnswer(call, answer, attempt);
+  }
+
+  /**
+   * Forward live: where the call goes. An upstream configured here wins (shadowlap test sets
+   * "offline"), then the one a captured request names, then the provider's own default; a judge names
+   * its own. Null when it can go nowhere, answered and recorded with why: offline, no upstream for its
+   * provider, or a placeholder key, which is never sent to any host (a provider, a gateway, a model
+   * server or a mock).
+   */
+  private liveUpstream(call: ModelCall, placed: PlacedCall): string | null {
+    const { ctx, res, provider } = call;
+    const { callNo, tracked } = placed;
     const judging = call.judge?.upstream !== undefined;
     const requested = call.judge?.upstream ?? call.requested;
     const upstream = ctx.offline || call.judge?.offline === true ? 'offline' : ((judging ? requested : undefined) || this.upstreams[provider.id] || requested || provider.upstream).replace(/\/$/, '');
@@ -1342,7 +1414,7 @@ export class Sidecar {
       res.writeHead(400, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_no_upstream', message } }));
       this.endAttempt(ctx, callNo, tracked, { attempt, responseRef: null, outcome: 'error', meta: { status: 400, latencyMs: 0, retryable: false, error: { name: 'ShadowlapNoUpstream', message } } }, false);
-      return;
+      return null;
     }
     if (upstream === 'offline') {
       // `shadowlap test` runs offline: a live call here means the replay diverged, and the run must fail loudly, not spend tokens.
@@ -1352,58 +1424,40 @@ export class Sidecar {
       res.writeHead(503, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_offline', message } }));
       this.endAttempt(ctx, callNo, tracked, { attempt, responseRef: null, outcome: 'error', meta: { status: 503, latencyMs: 0, retryable: false, offline: true, error } }, false);
-      return;
+      return null;
     }
-    // A placeholder key, which a replay gives an agent whose environment has no key, is never sent,
-    // whatever the upstream: a provider, a gateway, a model server or a mock.
-    if (carriesPlaceholder(call.headers, call.search)) return this.servePlaceholderRefusal(ctx, res, provider, callNo, tracked);
-    const path = this.upstreamPath(provider, upstream, call.path);
+    if (carriesPlaceholder(call.headers, call.search)) {
+      this.servePlaceholderRefusal(ctx, res, provider, callNo, tracked);
+      return null;
+    }
+    return upstream;
+  }
+
+  /**
+   * Forward live: the request as the agent sent it, signed headers and all. Its own `accept-encoding`
+   * goes as it sent it, since a signed request (AWS SigV4) may sign it, and a compressed answer is
+   * decoded for the recording and the agent alike; with none, an uncompressed answer is asked for. A
+   * request that arrived over HTTP/2 carries its signed :authority, and leaves the same way. It ends
+   * when its agent has gone (ClientWatch).
+   */
+  private sendUpstream(call: ModelCall, upstream: string): Promise<Response> {
+    const path = this.upstreamPath(call.provider, upstream, call.path);
     const headers = forwardedHeaders(call.headers);
-    // With no accept-encoding of the agent's, an uncompressed answer.
     headers['accept-encoding'] ??= 'identity';
     const body = call.method === 'GET' || call.method === 'HEAD' ? null : call.rawBody;
+    const authority = call.headers[':authority'];
+    return authority
+      ? this.fetchOverHttp2(upstream.replace(/(https?:\/\/[^/]+).*/, '$1'), `${upstream.replace(/https?:\/\/[^/]+/, '')}${path}${call.search}`, call.method, headers, body, authority, call.client.signal)
+      : requestUpstream(upstream + path + call.search, call.method, headers, body, this.upstreamRequests, call.client.signal);
+  }
 
-    const attempt = this.beginAttempt(tracked);
-    const started = Date.now();
-    const end = (row: Omit<AttemptEnd, 'attempt'>) => this.recordEnd(ctx, callNo, tracked.identity, { attempt, ...row });
-    // The attempt ends for the agent once: when it leaves (its client may retry before the request
-    // upstream has ended), or when its answer has.
-    let settled = false;
-    const settle = (retryable: boolean) => {
-      if (settled) return;
-      settled = true;
-      this.settleAttempt(ctx, callNo, tracked, retryable);
-    };
-    client.whenGone(() => settle(true));
-    if (client.gone) {
-      end({ responseRef: null, outcome: 'error', meta: { latencyMs: 0, retryable: true, provider: provider.id, error: clientLeft('before its request was sent') } });
-      return;
-    }
-
-    let answer: Response;
-    try {
-      // A request that arrived over HTTP/2 carries its signed :authority; it leaves the same way.
-      const authority = call.headers[':authority'];
-      answer = authority
-        ? await this.fetchOverHttp2(upstream.replace(/(https?:\/\/[^/]+).*/, '$1'), `${upstream.replace(/https?:\/\/[^/]+/, '')}${path}${call.search}`, call.method, headers, body, authority, client.signal)
-        : await requestUpstream(upstream + path + call.search, call.method, headers, body, this.upstreamRequests, client.signal);
-    } catch (err) {
-      // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
-      if (this.closed) return;
-      if (client.gone) {
-        // The agent left before the provider answered (its own timeout, say): it saw no answer at all.
-        end({ responseRef: null, outcome: 'error', meta: { latencyMs: Date.now() - started, retryable: true, provider: provider.id, error: clientLeft('before the response headers') } });
-        return;
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      const error: SerializedError = { name: 'UpstreamConnectionError', message };
-      res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_upstream_error', message } }));
-      settle(true);
-      end({ responseRef: null, outcome: 'error', meta: { status: 502, latencyMs: Date.now() - started, retryable: true, error } });
-      return;
-    }
-
+  /**
+   * Forward live: the provider's answer streamed to the agent as it arrives, and recorded as the agent
+   * got it. What arrives after the agent left reached nobody and isn't recorded; an answer the
+   * provider cut part way reaches the agent as far as it came, then the agent's connection breaks.
+   */
+  private async relayAnswer(call: ModelCall, answer: Response, attempt: LiveAttempt): Promise<void> {
+    const { res, provider, client } = call;
     const status = answer.status;
     const responseHeaders: Record<string, string> = {};
     answer.headers.forEach((v, k) => {
@@ -1412,7 +1466,7 @@ export class Sidecar {
       responseHeaders[key] = v;
     });
     const reader = answer.body?.getReader();
-    const timer = new SseTimer(started);
+    const timer = new SseTimer(attempt.started);
     const chunks: Buffer[] = [];
     let streamError: SerializedError | undefined;
     // The last write to the agent, so a broken answer reaches it whole before its connection breaks.
@@ -1430,7 +1484,6 @@ export class Sidecar {
       try {
         for (;;) {
           const { done, value } = await reader.read();
-          // What arrives after the agent left never reached it, and isn't recorded either.
           if (done || client.gone) break;
           const buf = Buffer.from(value);
           chunks.push(buf);
@@ -1458,8 +1511,8 @@ export class Sidecar {
     const contentType = responseHeaders['content-type'];
     const retryable = gone || streamError !== undefined || provider.isRetryableStatus(status);
     const outcome = status < 400 && !streamError && !gone ? 'ok' : 'error';
-    settle(outcome === 'error' && retryable);
-    const meta: CallStartRow['meta'] = { status, headers: responseHeaders, latencyMs: Date.now() - started, retryable, bytes: bytes.length, provider: provider.id };
+    attempt.settle(outcome === 'error' && retryable);
+    const meta: CallStartRow['meta'] = { status, headers: responseHeaders, latencyMs: Date.now() - attempt.started, retryable, bytes: bytes.length, provider: provider.id };
     // An upstream that asks another model than the request names says which (`shadowlap tasks score`'s takeover).
     const requestedModel = responseHeaders['x-shadowlap-model'] || provider.extractModel(call.path, call.body);
     if (requestedModel) meta.model = requestedModel;
@@ -1470,7 +1523,7 @@ export class Sidecar {
     if (timer.events.length) meta.chunks = timer.events;
     if (streamError) meta.error = streamError;
     if (gone) meta.error = clientLeft('before the response completed');
-    end({ response: bytes, outcome, meta });
+    attempt.end({ response: bytes, outcome, meta });
   }
 
   /** The path a call goes to under `upstream`: an SDK's own base URL with no `/v1` under it (sdkBases) takes the SDK's path without that `/v1`. */
