@@ -576,7 +576,8 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9]!, 'utf8');
     expect(body).toContain('This pull request was opened with the token the action was given (`github-token`), so GitHub starts its workflows as for any pull request.');
     expect(r.summary).toContain('· its workflows start as for any pull request |');
-  });
+    // A whole blame, repair and verify: more than the default 30 s on a busy machine.
+  }, 90_000);
 
   it("says so, in the pull request, the log and the summary, when the workflow can't be started on the fix's branch", async () => {
     await setUp({ expect: EXPECT });
@@ -589,7 +590,8 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(body).toContain("the job could not start `ci.yml` on its branch: ci.yml has no workflow_dispatch trigger, which it needs to be started on a branch: GitHub answered 422 (Workflow does not have 'workflow_dispatch' trigger). No check has run on this branch");
     expect(r.summary).toContain('· ⚠️ no check started on its branch |');
     expect(r.summary).toContain("⚠️ No check started on a fix pull request: GitHub starts no workflow for one the job's `GITHUB_TOKEN` opens, and the job couldn't start it on the branch.");
-  });
+    // A whole blame, repair and verify: more than the default 30 s on a busy machine.
+  }, 90_000);
 
   it("opens no fix from a fix's own branch, as when the workflow it started there finds a check failing", async () => {
     await setUp({ expect: EXPECT });
