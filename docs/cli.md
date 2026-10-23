@@ -773,9 +773,8 @@ lines, spans, observations or runs). `source` is what the run records as where i
 file's name (never its folder, which belongs to this machine and would travel with the store), the
 names of the files a LiteLLM run was put together from, or `langfuse:…`, `langsmith:…`,
 `phoenix:…` or `logfire:…`. `key` is the correlation id for LiteLLM, the trace id for `otel` and the
-trace stores, otherwise
-`null`. When nothing could be imported, `runs` is empty and the exit code is 1. Started from the
-dashboard, the command also reports each run to the job that started it.
+trace stores, otherwise `null`. When nothing could be imported, `runs` is empty and the exit code
+is 1. Started from the dashboard, the command also reports each run to the job that started it.
 
 ## coverage
 
