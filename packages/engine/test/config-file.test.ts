@@ -84,8 +84,12 @@ describe('validateRule', () => {
     const bad: Array<[Parameters<typeof validateRule>[0], unknown, RegExp]> = [
       ['normalize', { replace: '<X>' }, /a path, a pattern or both/],
       ['normalize', { pattern: 'uuidd' }, /unknown pattern "uuidd": use one of iso-datetime, iso-date, uuid, ulid, number, email/],
-      ['normalize', { pattern: '/(/' }, /Invalid regular expression/],
-      ['normalize', { pattern: '/a/x' }, /Invalid flags/],
+      ['normalize', { pattern: '/(/' }, /^\/\(\/: it isn't a regular expression: unterminated group$/],
+      ['normalize', { pattern: '/a/x' }, /its flags "x" aren't flags a regular expression takes/],
+      // A pattern that could take time that grows exponentially with the text, or refers back to a group.
+      ['redact', { pattern: '/(a+)+$/' }, /\/\(a\+\)\+\$\/: matching it could take too long: "a\+" can stop or go on at "a" inside "\(a\+\)\+"/],
+      ['redact', { pattern: '/(\\w|\\d)+/' }, /the alternatives "\\w" and "\\d" can both start with "0"/],
+      ['normalize', { pattern: '/(id)-\\1/' }, /"\\1" refers back to a group/],
       ['normalize', { path: 'metadata.user_id' }, /must start with "\$"/],
       ['normalize', { kind: 'tools', path: '$.args' }, /kind must be one of api, tool, clock, random/],
       ['redact', { kind: 'clock', pattern: 'email' }, /kind must be one of api, tool$/],
@@ -134,12 +138,19 @@ describe('parseRules', () => {
     expect(parseRules([{ kind: 'random', pattern: 'number', replace: '0' }], 'redact')).toHaveLength(1);
   });
 
-  it('applies no length limit to the rules in the file, only to what a form or a command line sends', () => {
-    const long = `/${Array.from({ length: 1500 }, (_, i) => `name${i}`).join('|')}/`;
-    expect(long.length).toBeGreaterThan(10_000);
-    expect(parseRules([{ pattern: long, replace: '<NAME>' }, { name: `tool\n${'x'.repeat(300)}`, path: '$.a', replace: 'y'.repeat(600) }], 'redact')).toHaveLength(2);
-    expect(() => validateRule('redact', { pattern: long, replace: '<NAME>' })).toThrow(/pattern must be at most 10000 characters/);
-    expect(validateRule('redact', { pattern: `/${Array.from({ length: 300 }, (_, i) => `name${i}`).join('|')}/`, replace: '<NAME>' }).pattern!.length).toBeGreaterThan(2000);
+  it('limits a pattern to 10,000 characters wherever it is, and nothing else in the file', () => {
+    // An alternation of customer names is a fine redaction rule, up to the limit.
+    const names = (n: number) => `/${Array.from({ length: n }, (_, i) => `name${i}`).join('|')}/`;
+    expect(names(1200).length).toBeLessThan(10_000);
+    expect(parseRules([{ pattern: names(1200), replace: '<NAME>' }, { name: `tool\n${'x'.repeat(300)}`, path: '$.a', replace: 'y'.repeat(600) }], 'redact')).toHaveLength(2);
+    expect(names(1500).length).toBeGreaterThan(10_000);
+    expect(() => parseRules([{ path: '$.a', replace: '<A>' }, { pattern: names(1500), replace: '<NAME>' }], 'redact')).toThrow(/shadowlap\.config\.json: redaction rule #2: \/name0\|.*… is 1\d{4} characters long, over the 10000 a pattern may be/);
+    expect(() => validateRule('redact', { pattern: names(1500), replace: '<NAME>' })).toThrow(/pattern must be at most 10000 characters/);
+    expect(validateRule('redact', { pattern: names(300), replace: '<NAME>' }).pattern!.length).toBeGreaterThan(2000);
+  });
+
+  it('names a rule whose pattern could take too long by its number, before anything runs it', () => {
+    expect(() => parseRules([{ pattern: 'email', replace: '<EMAIL>' }, { kind: 'api', pattern: '/^(\\w+\\s?)*$/', replace: '<X>' }], 'normalize')).toThrow(/shadowlap\.config\.json: normalizer #2: \/\^\(\\w\+\\s\?\)\*\$\/: matching it could take too long/);
   });
 });
 

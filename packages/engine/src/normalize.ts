@@ -1,3 +1,4 @@
+import { patternProblem } from './safe-regex.js';
 import type { CallKind, Normalizer } from './types.js';
 
 /**
@@ -20,11 +21,18 @@ export function namedPatterns(): string[] {
   return Object.keys(NAMED_PATTERNS);
 }
 
+/**
+ * A rule's pattern as a global regular expression: a named pattern, or a `/regex/flags` literal. A
+ * literal is read before it is compiled, wherever it came from (the config, the dashboard, a pack,
+ * the team store), and refused with the reason when it isn't one, is too long, or could take time
+ * that grows exponentially with the text it reads (safe-regex.ts).
+ */
 export function compilePattern(pattern: string): RegExp {
   const named = NAMED_PATTERNS[pattern];
   if (named) return new RegExp(named.source, named.flags);
-  const m = /^\/(.*)\/([a-z]*)$/s.exec(pattern);
-  if (!m) throw new Error(`unknown pattern "${pattern}": use one of ${namedPatterns().join(', ')} or a /regex/ literal`);
+  const problem = patternProblem(pattern, namedPatterns());
+  if (problem) throw new Error(problem);
+  const m = /^\/(.*)\/([a-z]*)$/s.exec(pattern)!;
   const flags = m[2]!.includes('g') ? m[2]! : m[2]! + 'g';
   return new RegExp(m[1]!, flags);
 }

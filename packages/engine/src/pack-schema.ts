@@ -1,3 +1,5 @@
+import { namedPatterns, parsePath } from './normalize.js';
+import { PATTERN_MAX, patternProblem } from './safe-regex.js';
 import type { CallEndRow, CallRecord, RunRecord } from './types.js';
 
 /**
@@ -141,12 +143,26 @@ export function validateRun(v: unknown, where: string): RunRecord {
       int(n.at, `${where}.meta.notes[${i}].at`);
     }
   }
+  // The rules a copy was made with: a replay applies them to every request, so each is read as the
+  // config's are, its pattern checked before anything compiles it (safe-regex.ts) and its path parsed.
   if (m.redactions !== undefined) {
     if (!Array.isArray(m.redactions) || m.redactions.length > 1000) fail(`${where}.meta.redactions`, 'must be an array of at most 1000 rules');
     for (const [i, rule] of m.redactions.entries()) {
-      if (!isObject(rule)) fail(`${where}.meta.redactions[${i}]`, 'must be an object');
-      for (const k of ['kind', 'name', 'path', 'pattern'] as const) if (rule[k] !== undefined) text(rule[k], `${where}.meta.redactions[${i}].${k}`, 2048);
-      if (typeof rule.replace !== 'string' || rule.replace.length > 2048) fail(`${where}.meta.redactions[${i}].replace`, 'must be a string');
+      const at = `${where}.meta.redactions[${i}]`;
+      if (!isObject(rule)) fail(at, 'must be an object');
+      for (const k of ['kind', 'name', 'path'] as const) if (rule[k] !== undefined) text(rule[k], `${at}.${k}`, 2048);
+      if (rule.pattern !== undefined) {
+        const problem = patternProblem(text(rule.pattern, `${at}.pattern`, PATTERN_MAX), namedPatterns());
+        if (problem) fail(`${at}.pattern`, problem);
+      }
+      if (rule.path !== undefined) {
+        try {
+          parsePath(rule.path as string);
+        } catch (err) {
+          fail(`${at}.path`, err instanceof Error ? err.message : String(err));
+        }
+      }
+      if (typeof rule.replace !== 'string' || rule.replace.length > 2048) fail(`${at}.replace`, 'must be a string');
     }
   }
   if (m.blame !== undefined) validateBlame(m.blame, `${where}.meta.blame`);
