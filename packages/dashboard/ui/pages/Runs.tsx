@@ -86,7 +86,9 @@ addPaletteSource(({ app, go }) =>
         {
           group: 'Actions',
           label: 'Import a capture…',
-          hint: 'HAR, nock, VCR, LiteLLM, OpenTelemetry, or a Langfuse, LangSmith, Phoenix or Logfire trace',
+          // The dialog's sources, short enough to show whole on a desktop's row; the file formats match unseen.
+          hint: 'a file, or a Langfuse, LangSmith, Phoenix or Logfire trace',
+          match: 'HAR nock VCR LiteLLM OpenTelemetry OTLP',
           job: true,
           run: () =>
             app.guard(() => {
