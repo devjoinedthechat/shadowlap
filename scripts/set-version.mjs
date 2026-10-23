@@ -19,7 +19,8 @@ for (const dir of [...PACKAGES, ...PRIVATE]) {
   const pkg = JSON.parse(readFileSync(file, 'utf8'));
   pkg.version = version;
   for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
-    for (const name of Object.keys(pkg[field] ?? {})) if (INTERNAL.has(name)) pkg[field][name] = `^${version}`;
+    // Exact: a package installs the release of each internal one it was built and tested with.
+    for (const name of Object.keys(pkg[field] ?? {})) if (INTERNAL.has(name)) pkg[field][name] = version;
   }
   writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
 }
@@ -28,6 +29,10 @@ const py = 'sdks/python/pyproject.toml';
 writeFileSync(py, readFileSync(py, 'utf8').replace(/^version = ".*"$/m, `version = "${version}"`));
 const init = 'sdks/python/shadowlap/__init__.py';
 writeFileSync(init, readFileSync(init, 'utf8').replace(/^__version__ = ".*"$/m, `__version__ = "${version}"`));
+
+// The Node SDK names its version on every call to the sidecar.
+const sdk = 'packages/sdk/src/version.ts';
+writeFileSync(sdk, readFileSync(sdk, 'utf8').replace(/^export const VERSION = '[^']*';$/m, `export const VERSION = '${version}';`));
 
 // The CI step pins the release, the action at its tag and the CLI it installs from npm: in the
 // dashboard's generator, and on the pages that show the step.
