@@ -6,7 +6,7 @@ import { Sidecar } from '../../packages/sidecar/dist/index.js';
 
 export async function startHarness(opts = {}) {
   const store = Store.open(':memory:');
-  const sidecar = await Sidecar.start({ store, ...(opts.upstreams ? { upstreams: opts.upstreams } : {}) });
+  const sidecar = await Sidecar.start({ store, ...(opts.upstreams ? { upstreams: opts.upstreams } : {}), ...(opts.normalizers ? { normalizers: opts.normalizers } : {}) });
   const command = { argv: ['framework-test'], cwd: '/' };
 
   async function within(run, fn) {

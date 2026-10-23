@@ -220,6 +220,28 @@ async def search_web(ctx: Context, query: str) -> str: ...
 agent = FunctionAgent(tools=[FunctionTool.from_defaults(async_fn=search_web), FunctionTool.from_defaults(fn=send_email)], llm=llm)
 ```
 
+### Microsoft Agent Framework, Strands, smolagents and Agno
+
+Give each framework functions wrapped with `shadowlap.tool`, the way it takes tools: Agent Framework and Agno take plain functions; Strands and smolagents take functions under their own `@tool`, with Shadowlap's underneath. Each reports a tool's error to its model, a blocked write included (Agent Framework says only that the function failed, unless its detailed errors are on). Their model calls are recorded through the provider's base URL.
+
+```python
+from strands import Agent, tool as strands_tool
+from shadowlap import tool
+
+@strands_tool
+@tool(effect="write")
+def send_email(to: str, body: str) -> str:
+    """Send an email.
+
+    Args:
+        to: The address.
+        body: The text.
+    """
+    ...
+
+agent = Agent(model=model, tools=[search_web, send_email])
+```
+
 ### CrewAI
 
 Wrap tool instances before giving them to an agent: `@tool` functions and `BaseTool` subclasses both work.
@@ -240,7 +262,7 @@ Results are recorded as JSON. A tool that returns a Pydantic model, a dataclass 
 
 ## Tested against
 
-Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a stand-in: record, a replay that executes nothing, and a fork that blocks the write, through the framework's own tool path (`generateText` with the AI SDK's mock model, the Agents SDK's `FunctionTool.invoke`, Mastra's `createTool`, LangGraph's `ToolNode`, the Anthropic tool runner end to end through the sidecar, a Pydantic AI `Agent` with `FunctionModel`, the Python Agents SDK's `Runner` with a scripted model, a compiled LangGraph graph in Python, CrewAI's `BaseTool.run`, and Google ADK's `Runner` and a LlamaIndex `FunctionAgent` with their model calls recorded through the sidecar in front of a scripted Gemini and Anthropic API). An agent on the AI SDK's Anthropic provider runs under `shadowlap run` as written, with no base URL in its code: `@ai-sdk/anthropic` reads `ANTHROPIC_BASE_URL` as a root that ends in `/v1` and sends `/messages` under it, and the sidecar takes that as the API's `/v1/messages`. Versions are pinned in `testing/frameworks/package.json` and the Frameworks workflow, and re-tested weekly against the latest releases, on Linux, macOS and Windows.
+Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a stand-in: record, a replay that executes nothing, and a fork that blocks the write, through the framework's own tool path (`generateText` with the AI SDK's mock model, the Agents SDK's `FunctionTool.invoke`, Mastra's `createTool`, LangGraph's `ToolNode`, the Anthropic tool runner end to end through the sidecar, a Pydantic AI `Agent` with `FunctionModel`, the Python Agents SDK's `Runner` with a scripted model, a compiled LangGraph graph in Python, CrewAI's `BaseTool.run`, and, with their model calls recorded through the sidecar in front of a scripted model API, Google ADK's `Runner`, a LlamaIndex `FunctionAgent`, a Microsoft Agent Framework `Agent` on Chat Completions, a Strands `Agent`, a smolagents `ToolCallingAgent` and an Agno `Agent`; and the Claude Agent SDK's `query()` in TypeScript and Python, running the Claude Code CLI it brings against a scripted Anthropic API: a recording that changes the project, a replay that sends no model request and leaves it as it was, and a fork that refuses every write). An agent on the AI SDK's Anthropic provider runs under `shadowlap run` as written, with no base URL in its code: `@ai-sdk/anthropic` reads `ANTHROPIC_BASE_URL` as a root that ends in `/v1` and sends `/messages` under it, and the sidecar takes that as the API's `/v1/messages`. Versions are pinned in `testing/frameworks/package.json` and the Frameworks workflow, and re-tested weekly against the latest releases, on Linux, macOS and Windows.
 
 | Framework | Pinned version |
 |---|---|
@@ -256,6 +278,11 @@ Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real fr
 | CrewAI (`crewai`) | 1.15.22 |
 | Google ADK (`google-adk`) | 2.12.0 |
 | LlamaIndex (`llama-index-core`, `llama-index-llms-anthropic`) | 0.14.25 / 0.12.3 |
+| Microsoft Agent Framework (`agent-framework-core`, `agent-framework-openai`) | 1.23.0 / 1.17.0 |
+| Strands Agents (`strands-agents`) | 1.62.0 |
+| smolagents (`smolagents`) | 1.26.0 |
+| Agno (`agno`) | 3.1.10 |
+| Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`, `claude-agent-sdk`), with the Claude Code CLI each brings | 0.3.309 / 0.2.173, CLI 2.1.309 |
 
 ## Anything else
 
