@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
-import { exitStatus, sharedGroup, signalStatus } from '../src/agent-signals.js';
+import { exitStatus, sharedGroup } from '../src/agent-signals.js';
 import { testAttempt } from '../src/run-agent.js';
 
 /**
@@ -93,9 +93,9 @@ setInterval(() => {}, 1000);
 
 describe('what a stop signal comes out as', () => {
   it('reports a signal as a shell does: 128 + its number', () => {
-    expect(signalStatus('SIGINT')).toBe(130);
-    expect(signalStatus('SIGHUP')).toBe(129);
-    expect(signalStatus('SIGTERM')).toBe(143);
+    expect(exitStatus(null, 'SIGINT')).toBe(130);
+    expect(exitStatus(null, 'SIGHUP')).toBe(129);
+    expect(exitStatus(null, 'SIGTERM')).toBe(143);
     expect(exitStatus(null, 'SIGKILL')).toBe(137);
     expect(exitStatus(0, null)).toBe(0);
     expect(exitStatus(null, null)).toBe(1);

@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
-import { constants } from 'node:os';
 import { isatty } from 'node:tty';
+import { signalExit } from './exit-codes.js';
 import { inDashboardJob } from './job-events.js';
 import { killTree } from './kill-tree.js';
 
@@ -23,14 +23,9 @@ import { killTree } from './kill-tree.js';
 /** Signals that ask a process to stop: Ctrl-C, a supervisor's or a dashboard's stop, a closed terminal. */
 export const STOP_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 
-/** The status a shell reports for a process a signal ended: 128 + the signal's number (130 SIGINT, 129 SIGHUP, 143 SIGTERM). */
-export function signalStatus(signal: NodeJS.Signals): number {
-  return 128 + (constants.signals[signal] ?? 0);
-}
-
-/** A child's exit status as a shell reports it: its code, or 128 + n when signal n ended it. */
+/** A child's exit status as a shell reports it: its code, or 128 + n when signal n ended it (signalExit, the CLI's own). */
 export function exitStatus(code: number | null, signal: NodeJS.Signals | null): number {
-  return code ?? (signal ? signalStatus(signal) : 1);
+  return code ?? (signal ? signalExit(signal) : 1);
 }
 
 /**
@@ -108,7 +103,7 @@ export function exitBySignal(signal: NodeJS.Signals): never {
       // can't signal ourselves: the status says it
     }
   }
-  process.exit(signalStatus(signal));
+  process.exit(signalExit(signal));
 }
 
 export interface AgentStopOptions {
