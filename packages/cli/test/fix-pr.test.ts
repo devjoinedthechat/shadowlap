@@ -93,7 +93,7 @@ describe.skipIf(process.platform === 'win32')('shadowlap fix pr', () => {
     expect(unknown.stdout).toContain('PR #138 open');
     expect(unknown.stdout).toContain('gh could not read it, so its state is as recorded');
     const missing = await shadowlap(['fix', 'pr', 'fx-NOPE']);
-    expect(missing.code).toBe(1);
+    expect(missing.code).toBe(2);
   });
 
   it('asks gh only about a pull request on github.com or a host of this project, which a pulled fix may not name', async () => {

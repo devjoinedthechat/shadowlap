@@ -99,7 +99,7 @@ describe('shadowlap normalize', () => {
     expect(r.out).toContain('removed normalizer #1');
     expect(r.out).toContain('the normalizers after it moved up one');
     r = await shadowlap(['normalize', 'rm', '7']);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('there is no normalizer #7') });
+    expect(r).toMatchObject({ code: 2, err: expect.stringContaining('there is no normalizer #7') });
 
     expect(config()).toEqual({ $schema: 'x', tests: { 'goldens/*': { expect: { tools: { send_email: 0 } } } }, normalize: [{ pattern: '/req_[a-z0-9]+/i', replace: '<REQ>' }] });
     expect(Object.keys(config())).toEqual(['$schema', 'tests', 'normalize']);
@@ -418,9 +418,9 @@ describe('shadowlap gc', () => {
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '2-0123456789abcdef']);
     expect(r).toMatchObject({ code: 2, err: expect.stringContaining('(the same number of runs, but not the same ones or not the same attempts under them)') });
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '2']);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('must be the "expect" value a dry run printed') });
+    expect(r).toMatchObject({ code: 2, err: expect.stringContaining('must be the "expect" value a dry run printed') });
     r = await shadowlap(['gc', '--older-than', '30', '--before', String(plan.cutoff)]);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('give --older-than or --before, not both') });
+    expect(r).toMatchObject({ code: 2, err: expect.stringContaining('give --older-than or --before, not both') });
 
     // A run is still recording: the old runs go, the abandoned ones are marked interrupted, and blobs wait for a gc when nothing records.
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', plan.expect]);
@@ -737,14 +737,14 @@ describe('shadowlap gc', () => {
     store.close();
     for (const args of [['pack', fork.runId, 'goldens/fork', '--lineage'], ['export', 'html', fork.runId, 'fork.html', '--lineage']]) {
       const r = await shadowlap(args);
-      expect(r.code, args.join(' ')).toBe(1);
+      expect(r.code, args.join(' ')).toBe(2);
       expect(r.err).toContain(`${live.slice(0, 10)}, which ${fork.runId.slice(0, 10)} was forked from, is still recording: ${args[0] === 'pack' ? 'pack' : 'export'} ${fork.runId.slice(0, 10)} with --lineage once it has ended, or without --lineage now`);
     }
     expect((await shadowlap(['pack', fork.runId, 'goldens/fork'])).code).toBe(0);
     // The team store's share link copies it too, so it waits as well (before anything is asked of the store).
     writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ store: 's3://team-bucket/shadowlap' }));
     const shared = await shadowlap(['share', live]);
-    expect(shared.code).toBe(1);
+    expect(shared.code).toBe(2);
     expect(shared.err).toContain(`${live.slice(0, 10)} is still recording: share it once it has ended`);
   });
 
