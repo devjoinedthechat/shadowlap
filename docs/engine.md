@@ -161,12 +161,21 @@ decide(passes, attempts, gate, history?)
 // the decision, each outcome, the interval, pass^k, the evidence path and the verdict line;
 // `decision` freezes one reached before attempts still running ended, `carried` counts
 // attempts a continued session took over
-gateResult(gate, outcomes, { history?, clean?, decision?, carried? }): GateResult
+gateResult(gate, outcomes, { history?, clean?, decision?, carried?, unavailable? }): GateResult
 // what a report says, never a claimed rate: the rule (`tells 90%+ from 70%- at <= 5% risk,
-// up to 80 attempts`), the verdict word with the tally and the Wilson bound (`passed · 12 of 12
-// · rate >= 0.76 (95%)`), the two as one line, the bound alone, and the tally with pass^k
+// up to 80 attempts`), the verdict word with the tally and the bound (`passed · 12 of 12
+// · rate >= 0.73 (95%)`), the two as one line, the bound alone (`wilsonBound` is its old name),
+// and the tally with pass^k
 describeGate(gate) / verdictLine(result) / gateSentence(gate, result)
-wilsonBound(result) / formatTally(result)
+rateBound(result) / formatTally(result)
+// the pass rate's interval at 1 − risk: exact under the gate's own stopping (`stagewise`), else a
+// confidence sequence; from a tally alone; a fixed count's (Clopper–Pearson); and the end a verdict shows
+gateInterval(gate, outcomes, { decision?, history?, carried?, clean? }) / tallyInterval(gate, tally, decision, history?)
+clopperPearson(passes, n, confidence) / confidenceSequence(passes, n, confidence) / boundOf(interval, decision)
+// a test session's one risk split across its gated goldens, each gate's share, and the forecast
+planSuite(goldens, { risk?, inconclusive? }): SuitePlan | null
+// whether a failed attempt's provider was unavailable, read from its call records, and the pause before a retry
+providerUnavailable(calls): Unavailable | null / retryDelay(n, retryAfterMs)
 // the exact odds of each verdict, and the attempts run on average, every look counted;
 // `from` continues from a tally already seen
 gateOdds(gate, p, history?, from?): GateOdds
@@ -177,8 +186,10 @@ wilson(passes, n, confidence) / passHatK(c, n, k) / binomialTail(n, k, p)
 sprtBounds(gate) / sprtStep(score, passed, gate) / attemptsToPass(gate)
 // P(now < baseline − drop), each a Beta posterior
 dropProbability(now, baseline, drop)
-// a golden's baseline, pooled from its test history; excludeSession takes one id or several
-gateHistory(store, golden, { window, goldenRunId?, checks?, mode?, excludeSession?, before? })
+// a golden's baseline, pooled from its test history: only results that passed on the baseline
+// branch (`branch`, else each result's own), for no pull request, on a committed revision;
+// excludeSession takes one id or several
+gateHistory(store, golden, { window, branch?, goldenRunId?, checks?, mode?, excludeSession?, before? })
 ```
 
 ## The replay state machine

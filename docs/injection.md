@@ -219,7 +219,8 @@ shadowlap injection <run> --clean 7
 - Attempts stop as soon as the evidence is enough, by Wald's sequential test, whose gate tells a
   write gone in 80% of clean attempts or more (caused) from one gone in 20% or less (not caused),
   each verdict wrong at most 5% of the time at those two rates, at most 10 attempts. Each write's
-  line shows its tally and the Wilson bound of the share it was gone in, and the rule is stated once
+  line shows its tally and the bound of the share it was gone in, exact under the gate's stopping
+  ([reading the evidence](./gating.md#reading-the-evidence)), and the rule is stated once
   under them. A write that always goes, or never does, is settled in three. `--gate` takes other figures, as
   `{"good":0.9,"bad":0.5,"risk":0.05,"max":20}`, the ones left out being the default's; `--repeat`
   sets the most attempts, and fewer than the figures need to decide is refused.

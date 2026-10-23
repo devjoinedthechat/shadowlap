@@ -106,8 +106,8 @@ Forks vary, so a preset can be decided over several attempts, as they come in:
 - **With `chaos.gate`**, by a sequential test: `{ "good": 0.9, "bad": 0.5, "risk": 0.1, "max": 6 }`
   tells an agent that copes 90% of the time or more from one that copes 50% or less, each verdict
   wrong at most 10% of the time at those two rates (between them, either can come). Each preset's
-  line shows its tally and the Wilson bound of its pass rate, `timed out: 4 of 4 attempts passed ·
-  rate >= 0.60 (90%)`, and the table states the rule once under it: `gate: tells 90%+ from 50%- at
+  line shows its tally and the bound of its pass rate, exact under the gate's stopping, `timed out: 4
+  of 4 attempts passed · rate >= 0.47 (90%)`, and the table states the rule once under it: `gate: tells 90%+ from 50%- at
   <= 10% risk, up to 6 attempts`.
   Each passing attempt adds ln(good/bad) to its score, each failure ln((1−good)/(1−bad)), and it stops
   as soon as the score reaches ±ln((1−risk)/risk): with these figures, after four passes or two
@@ -156,7 +156,7 @@ shadowlap test goldens/* --chaos --junit chaos.xml --markdown "$GITHUB_STEP_SUMM
 couldn't run listed under it. A case that fails lists each attempt by its own verdict: one whose
 replay never reached the call, or that only an undecided check held back, reads inconclusive there
 too. Under a `chaos.gate`, the table states its rule once under the rows, and each case the gate
-decided states it after its tally and Wilson bound. `--json` writes the report, with each attempt's
+decided states it after its tally and bound. `--json` writes the report, with each attempt's
 run and verdict ([its fields](./cli.md#error-path-presets)).
 
 ## What is kept
