@@ -1,6 +1,6 @@
 import type { Block } from './deltas.js';
 import { formatUsd } from './prices.js';
-import { atLeast, atMost, percent, wilson, wilsonBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
+import { atLeast, atMost, confidenceSequence, percent, rateBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
@@ -102,22 +102,30 @@ function decidedOn(x: Pick<BlameProbe, 'passes' | 'attempts'> & { gate?: Pick<Ga
   return on ? { passes: on.passes, attempts: on.attempts, late: x.attempts.length - on.attempts } : { passes: x.passes, attempts: x.attempts.length, late: 0 };
 }
 
-/** A gated probe's Wilson bound, on the attempts it decided on, at the gate's confidence: `rate >= 0.34 (95%)`. */
-export function probeBound(x: Pick<BlameProbe, 'passes' | 'attempts' | 'decision'> & { gate?: Pick<GateResult, 'passes' | 'attempts'> | null | undefined; undecided?: string | null | undefined }, gate: Pick<SprtGate, 'risk'> | null | undefined): string | null {
+/**
+ * A gated probe's bound, on the attempts it decided on, at its gate's confidence: `rate >= 0.15 (95%)`.
+ * It is the interval its gate result holds (stats.ts `gateInterval`), exact under the gate's own
+ * stopping when the probe stopped by it. A result kept before bounds were exact (it has no `bound`),
+ * or one whose tally isn't the attempts it decided on, gets a confidence sequence instead, which
+ * holds however the attempts stopped.
+ */
+export function probeBound(x: Pick<BlameProbe, 'passes' | 'attempts' | 'decision'> & { gate?: (Pick<GateResult, 'passes' | 'attempts'> & Partial<Pick<GateResult, 'interval' | 'bound'>>) | null | undefined; undecided?: string | null | undefined }, gate: Pick<SprtGate, 'risk'> | null | undefined): string | null {
   // A probe an attempt that could not be judged stopped was decided by no gate.
   if (!gate || !x.decision || x.undecided) return null;
   const on = decidedOn(x);
   const confidence = 1 - gate.risk;
   // A report copied from elsewhere could carry counts that don't add up: no bound then.
   if (!Number.isInteger(on.passes) || on.passes < 0 || on.passes > on.attempts || !(confidence > 0 && confidence < 1)) return null;
-  return wilsonBound({ attempts: on.attempts, interval: { ...wilson(on.passes, on.attempts, confidence), confidence }, decision: x.decision });
+  const kept = x.gate?.bound && x.gate.interval && x.gate.passes === on.passes && x.gate.attempts === on.attempts ? x.gate.interval : null;
+  const exact = kept && [kept.lo, kept.hi, kept.confidence].every(Number.isFinite) ? kept : null;
+  return rateBound({ attempts: on.attempts, interval: exact ?? { ...confidenceSequence(on.passes, on.attempts, confidence), confidence }, decision: x.decision });
 }
 
 /**
- * What a probe found: its verdict word, its tally and, under a gate, the Wilson bound on the
- * attempts it decided on, `rescued · 2 of 2 · rate >= 0.34 (95%)`, `lost · 0 of 4 · rate <= 0.49
- * (95%)`, `inconclusive · 7 of 20 · rate 0.18 to 0.57 (95%)`. The rule it was decided by is said
- * once, apart (`rescueRule`). A probe a fixed count decided says its tally.
+ * What a probe found: its verdict word, its tally and, under a gate, the bound on the attempts it
+ * decided on (`probeBound`), `rescued · 2 of 2 · rate >= 0.15 (95%)`, `lost · 0 of 4 · rate <= 0.61
+ * (95%)`. The rule it was decided by is said once, apart (`rescueRule`). A probe a fixed count
+ * decided says its tally.
  */
 export function probeFinding(x: Pick<BlameProbe, 'rescued' | 'decision' | 'passes' | 'attempts'> & { gate?: Pick<GateResult, 'passes' | 'attempts'> | null | undefined; undecided?: string | null | undefined }, gate: Pick<SprtGate, 'risk'> | null | undefined): string {
   // An attempt that could not be judged stopped it: inconclusive, the attempt counted apart, no bound.
@@ -460,7 +468,7 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
     const { head, under } = probesLines(rescueRule(r), r.rescue.fields);
     lines.push('', `  ${p.bold('Probes')} ${p.dim(head)}`, ...under.map((u) => `${UNDER}${p.dim(u)}`));
     const w = Math.max(...r.probes.map((x) => String(x.callNo).length)) + 1;
-    // Each probe's tally, and under a gate the Wilson bound on the attempts it decided on.
+    // Each probe's tally, and under a gate the bound on the attempts it decided on (probeBound).
     const tallies = r.probes.map((x) => [probeTally(x, ' passed'), probeBound(x, r.gate)].filter(Boolean).join(' · '));
     const tw = Math.max(14, ...tallies.map((t) => t.length));
     for (const [i, x] of r.probes.entries()) {

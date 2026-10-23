@@ -262,7 +262,10 @@ describe('the Forks view’s bundles', () => {
     );
     expect(report.probes).toHaveLength(3);
 
-    // Under a gate: the word, the tally and the Wilson bound, and the gate's rule; never a claimed rate.
+    // Under a gate: the word, the tally and the bound, and the gate's rule; never a claimed rate. These
+    // probes' attempts came from a fixed count: 2 of 3 and 2 of 4 are no stop blame's gate makes (two
+    // straight passes rescue), so they read a confidence sequence, which holds however attempts stopped;
+    // 0 of 4 is its own stop, exact.
     const gated = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api', 'tool', 'api'] });
     const gate = { kind: 'sprt' as const, good: 0.6, bad: 0.1, risk: 0.05, max: 20 };
     const base = blameReport(gated);
@@ -271,9 +274,9 @@ describe('the Forks view’s bundles', () => {
     for (const p of withGate.probes) attemptRuns(gated, p.attempts, (passed) => ({ probe: { of: gated, callNo: p.callNo, passed } }));
     const lines = fixBundles(store, gated)!.filter((b) => b.kind === 'blame').map((b) => [b.verdictLine, b.rule]);
     expect(lines).toEqual([
-      ['rescued · 2 of 3 · rate >= 0.21 (95%)', 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts'],
-      ['rescued · 2 of 4 · rate >= 0.15 (95%)', 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts'],
-      ['lost · 0 of 4 · rate <= 0.49 (95%)', 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts'],
+      ['rescued · 2 of 3 · rate >= 0.06 (95%)', 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts'],
+      ['rescued · 2 of 4 · rate >= 0.04 (95%)', 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts'],
+      ['lost · 0 of 4 · rate <= 0.61 (95%)', 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts'],
     ]);
     expect(JSON.stringify(lines)).not.toMatch(/at least|passes at/);
   });
