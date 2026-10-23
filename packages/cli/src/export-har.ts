@@ -1,4 +1,4 @@
-import { applyNormalizers, credentialFreeHeaders, loadApiRequest, redactBytes, rewriteText, withoutAccountHeaders, type CallRecord, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
+import { applyNormalizers, credentialFreeHeaders, loadApiRequest, redactBytes, rewriteText, type CallRecord, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
 import { providers } from '@shadowlap/sidecar';
 import { VERSION } from './shared.js';
 
@@ -59,8 +59,8 @@ export function runToHar(store: Store, run: RunRecord, calls: CallRecord[], opti
     const recorded = c.end.responseRef ? (store.getBlob(c.end.responseRef) ?? Buffer.alloc(0)) : Buffer.alloc(0);
     const bytes = rules.length ? redactBytes(recorded, rules, c) : recorded;
     // A credential header a recording made before it was known to be one kept leaves without its value,
-    // and never the organization a key belonged to, which a run recorded before it was left out may hold.
-    const responseHeaders = masked(withoutAccountHeaders(credentialFreeHeaders((c.end.meta.headers ?? {}) as Record<string, string>)));
+    // and the organization a key belonged to not at all.
+    const responseHeaders = masked(credentialFreeHeaders((c.end.meta.headers ?? {}) as Record<string, string>));
     const mimeType = responseHeaders['content-type'] ?? 'application/json';
     const time = Math.max(0, (c.end.at ?? c.at) - c.at);
     // The headers that fingerprint have to travel, or a re-import matches nothing.

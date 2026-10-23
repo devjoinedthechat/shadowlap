@@ -688,7 +688,8 @@ export class Sidecar {
       ...(input.replay ? { replay: input.replay } : {}),
       loadRequest: (rec) => this.loadRequest(rec),
       matchName: (rec) => this.matchName(rec),
-      matchQuery: (rec) => identityQuery(typeof rec.meta.query === 'string' ? rec.meta.query : undefined),
+      // Its query as the call's identity reads it, under the rules that redacted it, as the live call's is.
+      matchQuery: (rec) => storedQuery(rec, redactions),
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
@@ -1148,7 +1149,7 @@ export class Sidecar {
   private rewriteForInterventions(call: ModelCall): Rewritten {
     const { ctx, provider, scope } = call;
     if (!ctx.interventions?.active || call.judge) return {};
-    const retryKey = `sent\n${scope ?? ''}\n${this.apiFingerprint(ctx, provider, { method: call.method, path: call.sent, headers: matchedHeaders(provider, call.headers), body: call.body, query: identityQuery(call.search) })}`;
+    const retryKey = `sent\n${scope ?? ''}\n${this.apiFingerprint(ctx, provider, { method: call.method, path: call.sent, headers: matchedHeaders(provider, call.headers), body: call.body, query: identityQuery(call.search, ctx.redactions, apiCallName(call.method, call.sent)) })}`;
     const claimed = call.retrying ? ctx.claimRetry(retryKey) : undefined;
     const place = (claimed !== undefined ? ctx.calls.get(claimed)?.place : undefined) ?? ctx.interventions.next(scope);
     const done: Rewritten = { retryKey, place, ...(claimed !== undefined ? { claimed } : {}) };
@@ -1196,7 +1197,8 @@ export class Sidecar {
     // Matched without what only says how the call signed in (matchHeaders); kept as it was sent.
     const asked = matchedHeaders(provider, kept);
     const unqueried = !judge && ctx.unqueried.has(provider.id);
-    const query = unqueried ? '' : identityQuery(call.search);
+    // Read as the recording's copy keeps its query: a parameter a redaction rule masked there is masked here too.
+    const query = unqueried ? '' : identityQuery(call.search, ctx.redactions, name);
     const request = { method: call.method, path: call.path, headers: asked, body: call.body, query };
     const fingerprint = judge ? judgeFingerprint(request, ctx.redactions, provider, matchPath).fingerprint : this.apiFingerprint(ctx, provider, request);
     return { name, matchName, kept, asked, fingerprint, query, unqueried };
@@ -2248,7 +2250,7 @@ export class Sidecar {
         requestRef: ref,
         compute: () => {
           // From the query it kept: none for a call recorded before calls kept one.
-          const request = { method, path, headers, body: loadApiRequest(this.store, ref), query: storedQuery(rec) };
+          const request = { method, path, headers, body: loadApiRequest(this.store, ref), query: storedQuery(rec, rules.redactions) };
           if (judge) return { fingerprint: judgeFingerprint(request, rules.redactions, provider, provider.matchPath?.(path)).fingerprint, marks: [] };
           return { fingerprint: this.apiFingerprint(rules, provider, request), marks: clockMarks([multipartView(request.body), query ?? '', ...Object.values(headers)], rules.clockRef) };
         },
@@ -2381,9 +2383,9 @@ const upstreamVariable = (provider: Provider): string => `SHADOWLAP_UPSTREAM_${p
 /** The id a provider's calls are recorded under: the format's, for a host of another's (Provider.format). */
 const recordedId = (provider: Provider): string => provider.format ?? provider.id;
 
-/** A model call's query as its identity reads it, from what its recording kept: none when it kept none. */
-function storedQuery(rec: Pick<CallRecord, 'meta'>): string {
-  return identityQuery(typeof rec.meta.query === 'string' ? rec.meta.query : undefined);
+/** A model call's query as its identity reads it, from what its recording kept (none when it kept none), under the rules that redacted the recording. */
+function storedQuery(rec: Pick<CallRecord, 'meta' | 'name'>, redactions: readonly Normalizer[] = []): string {
+  return identityQuery(typeof rec.meta.query === 'string' ? rec.meta.query : undefined, redactions, rec.name);
 }
 
 /** A call to a host under `http` in the config, recorded as a tool (proxyHttp). */

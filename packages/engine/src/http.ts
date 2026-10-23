@@ -1,3 +1,4 @@
+import { ACCOUNT_HEADERS } from './account-headers.js';
 import { parseJsonExact } from './json-exact.js';
 
 /**
@@ -180,14 +181,15 @@ export const STATE_HEADERS: readonly string[] = ['set-cookie', 'set-cookie2'];
 
 /**
  * Headers as a recording keeps them: each credential header (CREDENTIAL_HEADERS) with
- * CREDENTIAL_PLACEHOLDER for its value, and the headers that set a cookie left out. Names are read
- * in any case. The same object when nothing changes.
+ * CREDENTIAL_PLACEHOLDER for its value, and the headers that set a cookie or name the account a
+ * call was made with (ACCOUNT_HEADERS) left out. Names are read in any case. The same object when
+ * nothing changes.
  */
 export function credentialFreeHeaders(headers: Readonly<Record<string, string>>): Record<string, string> {
   let out: Record<string, string> | null = null;
   for (const [name, value] of Object.entries(headers)) {
     const lower = name.toLowerCase();
-    const state = STATE_HEADERS.includes(lower);
+    const state = STATE_HEADERS.includes(lower) || ACCOUNT_HEADERS.includes(lower);
     const credential = !state && CREDENTIAL_HEADERS.includes(lower) && value !== CREDENTIAL_PLACEHOLDER;
     if (!state && !credential) continue;
     out ??= { ...headers };

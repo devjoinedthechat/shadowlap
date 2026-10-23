@@ -1,4 +1,4 @@
-import { eventStreamMessages, type Usage } from '@shadowlap/engine';
+import { ACCOUNT_HEADERS, eventStreamMessages, type Usage } from '@shadowlap/engine';
 import { PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY } from './placeholders.js';
 
 /**
@@ -112,8 +112,6 @@ export function modelInPath(path: string): string | null {
 }
 
 const COMMON_CREDENTIAL_HEADERS = ['authorization', 'proxy-authorization', 'cookie', 'set-cookie'] as const;
-/** The response header that names the Anthropic organization a key belongs to: never stored, nor sent on to the agent. */
-const ACCOUNT_HEADER = 'anthropic-organization-id';
 const stainlessRetryable = (status: number) => status === 408 || status === 409 || status === 429 || status >= 500;
 
 function num(v: unknown): number {
@@ -187,7 +185,7 @@ export const anthropic: Provider = {
   matchHeaders: withoutSignInBetas,
   // The key travels as x-api-key, or as a bearer token (anthropic for Python 2.0 and later, a profile's
   // sign-in). A response names the organization the key belongs to, which no recording keeps.
-  credentialHeaders: ['x-api-key', ACCOUNT_HEADER, ...COMMON_CREDENTIAL_HEADERS],
+  credentialHeaders: ['x-api-key', ...ACCOUNT_HEADERS, ...COMMON_CREDENTIAL_HEADERS],
   // A profile (ANTHROPIC_PROFILE, or a config file the CLI looks for) and workload identity
   // federation are credentials too: with a key in the environment the SDKs would use the key instead.
   keys: { placeholders: { ANTHROPIC_API_KEY: PLACEHOLDER_KEY }, credentials: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_PROFILE', 'ANTHROPIC_FEDERATION_RULE_ID'], set: 'ANTHROPIC_API_KEY' },
@@ -521,7 +519,7 @@ export const foundry: Provider = hostOf(anthropic, {
   id: 'foundry',
   root: '/anthropic',
   hosts: /^[a-z0-9-]+\.services\.ai\.azure\.com$/,
-  credentialHeaders: ['x-api-key', 'api-key', ACCOUNT_HEADER, ...COMMON_CREDENTIAL_HEADERS],
+  credentialHeaders: ['x-api-key', 'api-key', ...ACCOUNT_HEADERS, ...COMMON_CREDENTIAL_HEADERS],
   // The client refuses a key beside a token provider, which no variable shows: as for Azure OpenAI,
   // only a recording whose environment held the key gets one.
   keys: { placeholders: { ANTHROPIC_FOUNDRY_API_KEY: PLACEHOLDER_KEY }, credentials: ['ANTHROPIC_FOUNDRY_API_KEY', 'AZURE_CLIENT_ID', 'AZURE_FEDERATED_TOKEN_FILE', 'IDENTITY_ENDPOINT', 'MSI_ENDPOINT'], set: 'ANTHROPIC_FOUNDRY_API_KEY', onlyWhereRecorded: true },

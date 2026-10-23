@@ -4,7 +4,6 @@ import { pulledRun } from './classify.js';
 import { sha256 } from './ids.js';
 import { agentCallsOf, isJudgeCall } from './judge-scope.js';
 import { bringRequest, loadApiRequest, manifestRefs } from './manifest.js';
-import { forCopy } from './account-headers.js';
 import { PACK_LIMITS, PackError, callRefs, validateCall, validateRun } from './pack-schema.js';
 import { carriesCredentials, redactRun } from './redact.js';
 import { Store } from './store.js';
@@ -166,8 +165,7 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
   try {
     for (const run of runs) {
       for (const call of store.getCalls(run.runId)) {
-        // Never the organization a key belonged to, which a run recorded before it was left out may hold.
-        lines.push(JSON.stringify(forCopy(call)));
+        lines.push(JSON.stringify(call));
         for (const ref of blobRefs(call)) {
           blobs.add(ref);
           if (call.kind === 'api' && ref === call.requestRef) for (const child of manifestChildren(store, ref)) blobs.add(child);

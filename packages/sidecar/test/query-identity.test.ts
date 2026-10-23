@@ -1,7 +1,10 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store, storeApiRequest } from '@shadowlap/engine';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { packRun, Store, storeApiRequest, unpackRun, type Normalizer } from '@shadowlap/engine';
 import { Sidecar } from '../src/index.js';
 
 /**
@@ -156,4 +159,38 @@ describe('the query string in a call\'s identity', () => {
     expect(rep.summary.divergence).toMatchObject({ type: 'request_changed', diff: [{ path: 'query.api-version', op: 'added', after: '2024-10-21' }] });
     store.close();
   });
+
+  it('replays a redacted pack whose rule masked a query parameter, the live call read as the pack keeps it', async () => {
+    const tenant = 'tenant=acme-corp-77';
+    // A rule over the whole parameter, name and value, and one over its value alone.
+    const rules: Normalizer[][] = [[{ kind: 'api', pattern: '/tenant=acme-corp-\\d+/g', replace: 'tenant=<TENANT>' }], [{ kind: 'api', pattern: '/acme-corp-\\d+/g', replace: '<TENANT>' }]];
+    for (const redact of rules) {
+      const store = Store.open(':memory:');
+      const dir = mkdtempSync(join(tmpdir(), 'sl-redacted-query-'));
+      try {
+        const rec = await through(store, 'record', [{ provider: 'azure', path: AZURE, query: `api-version=2024-10-21&${tenant}` }]);
+        packRun(store, rec.runId, join(dir, 'golden'), { redact });
+        const golden = Store.open(':memory:');
+        try {
+          const { imported } = unpackRun(golden, join(dir, 'golden'));
+          // The pack keeps the query masked, and no tenant.
+          expect(JSON.stringify(golden.getCalls(imported[0]!))).not.toContain('acme-corp-77');
+          for (const clock of ['auto', 'exact'] as const) {
+            const rep = await through(golden, 'replay', [{ provider: 'azure', path: AZURE, query: `api-version=2024-10-21&${tenant}` }], imported[0]!, clock);
+            expect(rep.summary.divergence, `${JSON.stringify(redact)} ${clock}`).toBeNull();
+            expect(rep.answers[0]).toContain('200 ');
+          }
+          // Another version still forks: only what the rule masked matches whatever it was.
+          const other = await through(golden, 'replay', [{ provider: 'azure', path: AZURE, query: `api-version=2025-04-01-preview&${tenant}` }], imported[0]!);
+          expect(other.summary.divergence).toMatchObject({ type: 'request_changed', diff: [{ path: 'query.api-version' }] });
+        } finally {
+          golden.close();
+        }
+      } finally {
+        store.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
 });
+
