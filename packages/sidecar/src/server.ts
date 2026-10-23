@@ -305,8 +305,9 @@ class ClientWatch {
   private readonly onGone: Array<() => void> = [];
 
   constructor(res: ServerResponse) {
+    // Over HTTP/2 a response the client reset reads as finished, but never as ended by the sidecar.
     res.once('close', () => {
-      if (!res.writableFinished) this.leave();
+      if (!res.writableEnded || !res.writableFinished) this.leave();
     });
   }
 
@@ -1574,6 +1575,9 @@ export class Sidecar {
    * replays, and only the live forward carries them.
    */
   private async proxyHttp(req: IncomingMessage, res: ServerResponse, subpath: string, search: string, pinned?: string): Promise<void> {
+    // Watched from the start, as a model call's agent is: one that leaves ends the request to the host too.
+    const client = new ClientWatch(res);
+    res.on('error', () => {});
     const ctx = this.contextFor(req, pinned);
     const { scope } = this.callScope(req, ctx, 'tool');
     const raw = req.headers['x-shadowlap-upstream'];
@@ -1586,7 +1590,15 @@ export class Sidecar {
     const rule = matchHttpRule(this.httpRules, origin);
     if (!rule) throw new HttpError(403, `${origin.host} is not an HTTP host Shadowlap records: add it under "http" in shadowlap.config.json`);
     const method = (req.method ?? 'GET').toUpperCase();
-    const rawBody = await readBody(req);
+    let rawBody: Buffer;
+    try {
+      rawBody = await readBody(req);
+    } catch (err) {
+      if (client.gone) return;
+      throw err;
+    }
+    // Gone before its request was all here: nothing was asked.
+    if (client.gone) return;
     const contentType = req.headers['content-type'];
     const requestBody = storedRequestBody(rawBody, contentType);
     const name = `${method} ${origin.host}${subpath}`;
@@ -1627,6 +1639,8 @@ export class Sidecar {
       // The bytes the service sent, not the body written again: an agent that reads the text, or a
       // number JSON.parse would round, gets what it got then.
       if (payload.result) return send(payload.result, 'replayed', storedResponseBytes(payload.result, recorded.responseRef ? this.store.getBlob(recorded.responseRef) : null));
+      // The agent left before the host answered, when it was recorded: its connection closes again, with no answer.
+      if (recorded.meta.error?.name === 'ClientDisconnected') return void res.destroy();
       return json(res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
     }
     if (decision.origin === 'injected') {
@@ -1706,14 +1720,21 @@ export class Sidecar {
     const started = Date.now();
     let upstream: Response;
     let bytes: Buffer;
+    // The agent left before the host answered (its own timeout, say): it saw no answer at all.
+    const left = () => {
+      const error = clientLeft('before the response');
+      end(jsonBytes({ error }), 'error', { error, latencyMs: Date.now() - started });
+    };
     try {
-      upstream = await requestUpstream(url, method, headers, rawBody.length && method !== 'GET' && method !== 'HEAD' ? rawBody : null, this.upstreamRequests);
+      upstream = await requestUpstream(url, method, headers, rawBody.length && method !== 'GET' && method !== 'HEAD' ? rawBody : null, this.upstreamRequests, client.signal);
       bytes = Buffer.from(await upstream.arrayBuffer());
     } catch (err) {
       // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
       if (this.closed) return;
+      if (client.gone) return left();
       return fail(502, { name: 'ShadowlapUpstreamError', message: `${name}: ${err instanceof Error ? err.message : String(err)}` }, 'shadowlap_upstream_error');
     }
+    if (client.gone) return left();
     const result: HttpResult = { status: upstream.status, headers: keptResponseHeaders(upstream.headers), ...decodeBody(bytes, upstream.headers.get('content-type') ?? undefined) };
     end(storedResult(result, bytes), 'ok', { status: upstream.status, latencyMs: Date.now() - started, bytes: bytes.length });
     res.writeHead(upstream.status, { ...result.headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': 'live' });

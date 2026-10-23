@@ -259,6 +259,110 @@ describe('an agent that leaves before its answer came', () => {
   });
 });
 
+describe('an agent that leaves before its answer came, elsewhere on the proxy', () => {
+  /** A raw request that gives up after `ms`, as a client's timeout does; how it ended. */
+  const giveUpAfter = (url: string, headers: Record<string, string>, body: string, ms: number) =>
+    new Promise<string>((resolve) => {
+      const req = httpRequest(url, { method: 'POST', agent: false, headers: { 'content-type': 'application/json', ...headers } });
+      req.on('response', (res) => {
+        res.resume();
+        res.on('end', () => resolve(`answered ${res.statusCode}`));
+        res.on('error', (e) => resolve(`broken: ${e.message}`));
+      });
+      req.on('error', (e) => resolve(`error: ${e.message}`));
+      req.end(body);
+      if (ms > 0) setTimeout(() => req.destroy(), ms);
+    });
+
+  it('cuts the request to a declared HTTP host, records that the agent left, and a replay closes the connection again', async () => {
+    const cut: number[] = [];
+    let asked = 0;
+    const host = await serve((req, res) => {
+      asked++;
+      const arrived = Date.now();
+      req.resume();
+      req.on('end', () => {
+        const later = setTimeout(() => {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end('{"found":true}');
+        }, 2_000);
+        res.on('close', () => {
+          if (res.writableFinished) return;
+          clearTimeout(later);
+          cut.push(Date.now() - arrived);
+        });
+      });
+    });
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, http: [{ host: new URL(host).host, effect: 'read' }] });
+    try {
+      const run = sidecar.startRun({ mode: 'record', command });
+      const url = `${sidecar.url}/r/${run.runId}/http/orders/search`;
+      expect(await giveUpAfter(url, { 'x-shadowlap-upstream': host }, '{"q":"A-1042"}', 200)).toMatch(/^error/);
+      await until(() => cut.length === 1);
+      expect(cut[0]).toBeLessThan(1_000);
+      sidecar.endRun(run.runId, 'completed');
+      const [call] = store.getCalls(run.runId);
+      expect(call).toMatchObject({ kind: 'tool', name: `POST ${new URL(host).host}/orders/search` });
+      expect(call!.end).toMatchObject({ outcome: 'error', meta: { error: { name: 'ClientDisconnected' } } });
+
+      const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
+      const replayed = await giveUpAfter(`${sidecar.url}/r/${replay.runId}/http/orders/search`, { 'x-shadowlap-upstream': host }, '{"q":"A-1042"}', 0);
+      expect(replayed).toMatch(/^error: socket hang up|^error: .*ECONNRESET/);
+      expect(asked).toBe(1);
+      expect(sidecar.endRun(replay.runId, 'completed').summary.divergence).toBeNull();
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
+  it('cuts the HTTP/2 request upstream when an agent on HTTP/2 leaves before the headers, and records a retryable disconnect', async () => {
+    const cut: number[] = [];
+    const upstream = createHttp2Server();
+    servers.push(upstream);
+    upstream.on('stream', (stream) => {
+      const arrived = Date.now();
+      let answered = false;
+      stream.resume();
+      const later = setTimeout(() => {
+        if (stream.destroyed) return;
+        answered = true;
+        stream.respond({ ':status': 200, 'content-type': 'application/json' });
+        stream.end(JSON.stringify(BEDROCK_REPLY));
+      }, 2_000);
+      // A stream reset by its client reads as finished over HTTP/2: what tells is that it was never answered.
+      stream.on('close', () => {
+        if (answered) return;
+        clearTimeout(later);
+        cut.push(Date.now() - arrived);
+      });
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { bedrock: `http://127.0.0.1:${(upstream.address() as AddressInfo).port}` } });
+    const session = connectHttp2(new URL(sidecar.http2Url).origin);
+    session.on('error', () => {});
+    try {
+      const run = sidecar.startRun({ mode: 'record', command });
+      const stream = session.request({ ':method': 'POST', ':path': `${new URL(sidecar.http2Url).pathname}/r/${run.runId}/bedrock${MODEL_PATH}`, ':authority': SIGNED_HOST, 'content-type': 'application/json' });
+      stream.on('error', () => {});
+      stream.end(JSON.stringify({ anthropic_version: 'bedrock-2023-05-31', max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }));
+      await sleep(200);
+      stream.close();
+      await until(() => cut.length === 1);
+      expect(cut[0]).toBeLessThan(1_000);
+      sidecar.endRun(run.runId, 'completed');
+      const [call] = store.getCalls(run.runId);
+      expect(call!.end).toMatchObject({ attempt: 0, outcome: 'error', meta: { retryable: true, error: { name: 'ClientDisconnected' } } });
+    } finally {
+      session.close();
+      await sidecar.close();
+      store.close();
+    }
+  });
+});
+
 describe('a store another process holds locked', () => {
   let dir: string;
   beforeAll(() => {
