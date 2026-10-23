@@ -187,8 +187,8 @@ export function passedLine(o: GoldenOutcome): string {
     ...(r.shown.checks?.length ? [statusTally(r.shown.checks)] : []),
     // An attempt a check could not decide, after the count was met, is counted apart: it did not fail.
     ...(r.attempts.length - r.unavailable > 1 && !r.gate ? [`${r.passed}/${r.attempts.length - r.unavailable} attempts passed${r.inconclusive ? ` (${r.inconclusive} inconclusive)` : ''}`] : []),
-    // Attempts the provider was unavailable for: run, and not counted.
-    ...(r.unavailable ? [`${r.unavailable} attempt${r.unavailable === 1 ? '' : 's'} not counted: the provider was unavailable`] : []),
+    // Attempts the provider was unavailable for: run, and not counted. A gate's verdict line says so in its tally.
+    ...(r.unavailable && !r.gate ? [`${r.unavailable} attempt${r.unavailable === 1 ? '' : 's'} not counted: the provider was unavailable`] : []),
   ].join(', ');
 }
 
@@ -213,7 +213,7 @@ function printGolden(o: GoldenOutcome, suffix = ''): void {
     for (const note of o.notes ?? []) process.stdout.write(p.dim(`    ${note}\n`));
   };
   if (!o.failure) {
-    // A gate's verdict line leads (the verdict word, the tally, the Wilson bound, the rule), with pass^k and the rest under it.
+    // A gate's verdict line leads (the verdict word, the tally, the bound, the rule), with pass^k and the rest under it.
     if (gate) process.stdout.write(`${p.green('✓')} ${o.name}: ${gate.sentence}${suffix}\n${p.dim(`    ${[formatPassK(gate), passedLine(o)].filter(Boolean).join(' · ')}`)}\n`);
     else process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}${suffix}\n`);
     // A judge's verdict and reason are worth reading on a golden that passed too.

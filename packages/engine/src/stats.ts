@@ -1059,7 +1059,7 @@ export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { histor
     evidence,
     clean,
     ...(carried ? { carried } : {}),
-    sentence: gateSentence(gate, { decision, passes, attempts, interval, clean, evidence, ...(carried ? { carried } : {}) }),
+    sentence: gateSentence(gate, { decision, passes, attempts, interval, clean, evidence, ...(carried ? { carried } : {}), ...(unavailable ? { unavailable } : {}) }),
   };
 }
 
@@ -1079,9 +1079,12 @@ function baselineWords(e: BaselineEvidence): string {
  * A gate's verdict without its rule, for a report that states the rule once above its lines: the
  * verdict word, the tally and the bound, `passed · 12 of 12 · rate >= 0.73 (95%)`; against history,
  * the baseline after them. A clean replay's one attempt has no rate to show: it is the same every time.
+ * The tally says what it left out or took in apart: attempts carried over from a session it continued,
+ * and attempts the provider was unavailable for, never counted (`12 of 12 (2 unavailable, not counted)`).
  */
-export function verdictLine(r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined }): string {
-  const tally = `${r.passes} of ${r.attempts}${r.carried ? ` (${r.carried} carried over)` : ''}`;
+export function verdictLine(r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined; unavailable?: number | undefined }): string {
+  const apart = [r.carried ? `${r.carried} carried over` : null, r.unavailable ? `${r.unavailable} unavailable, not counted` : null].filter(Boolean).join('; ');
+  const tally = `${r.passes} of ${r.attempts}${apart ? ` (${apart})` : ''}`;
   if (r.clean) return `${decisionWord(r.decision)} · ${tally} · a clean replay, the same every time`;
   const parts = [decisionWord(r.decision), tally, rateBound(r)];
   if (r.evidence.kind === 'baseline') parts.push(baselineWords(r.evidence));
@@ -1091,11 +1094,11 @@ export function verdictLine(r: Pick<GateOutcome, 'decision' | 'passes' | 'attemp
 /**
  * The verdict line every report says, the rule stated once after the evidence: `passed · 12 of 12 ·
  * rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`, `failed · 0 of
- * 3 · rate <= 0.53 (95%) · gate: …`, `inconclusive · 14 of 20 · rate 0.48 to 0.86 (95%) · gate: …`;
+ * 3 · rate <= 0.71 (95%) · gate: …`, `inconclusive · 64 of 80 · rate 0.67 to 0.91 (95%) · gate: …`;
  * against history, `passed · 5 of 5 · rate >= 0.47 (95%) · against 0.94 over the last 10 sessions
  * (47 of 50) · gate: fails a drop of 15+ points …`. A clean replay is settled by its one attempt.
  */
-export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined }): string {
+export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined; unavailable?: number | undefined }): string {
   if (r.clean) return `${verdictLine(r)}, so its one attempt settles it`;
   return `${verdictLine(r)} · gate: ${describeGate(g)}`;
 }

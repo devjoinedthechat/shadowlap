@@ -94,7 +94,10 @@ describe('shadowlap test while the provider is unavailable', () => {
     expect(result.runs).toHaveLength(14);
     expect(result.runs.slice(0, 2).map((x: { verdict: string }) => x.verdict)).toEqual(['unavailable', 'unavailable']);
     expect(result.runs.slice(2).every((x: { verdict: string }) => x.verdict === 'passed')).toBe(true);
-    expect(r.out).toContain('2 attempts not counted: the provider was unavailable');
+    // Its verdict line counts them apart from the tally, once.
+    expect(r.out).toContain('✓ reference-agent: passed · 12 of 12 (2 unavailable, not counted) · rate >= 0.73 (95%) · gate:');
+    expect(result.gate.sentence).toMatch(/^passed · 12 of 12 \(2 unavailable, not counted\) · rate >= 0\.73 \(95%\) · gate: /);
+    expect(r.out).not.toContain('2 attempts not counted');
     const store = Store.open(db);
     try {
       expect(store.listTestResults({ golden: 'goldens/reference-agent' })[0]!.data?.attempts).toMatchObject({ total: 12, passed: 12, unavailable: 2 });

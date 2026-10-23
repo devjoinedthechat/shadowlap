@@ -560,6 +560,18 @@ describe('what the reports say', () => {
     expect(gateResult(sprt({ max: 40 }), [...Array(16).fill(true), false, false, false, false, ...Array(22).fill(true)].slice(0, 26), { carried: 20, decision: 'continue' }).sentence).toBe('undecided · 22 of 26 (20 carried over) · rate 0.56 to 0.98 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 40 attempts');
   });
 
+  it('counts apart the attempts the provider was unavailable for, which its tally and bound leave out', () => {
+    const r = gateResult(SPEC, Array(12).fill(true), { unavailable: 2 });
+    expect(r).toMatchObject({ unavailable: 2, passes: 12, attempts: 12, decision: 'pass' });
+    // The same bound as without them: they are no evidence either way.
+    expect(r.interval).toEqual(gateResult(SPEC, Array(12).fill(true)).interval);
+    expect(r.sentence).toBe('passed · 12 of 12 (2 unavailable, not counted) · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(verdictLine({ ...r, carried: 4 })).toBe('passed · 12 of 12 (4 carried over; 2 unavailable, not counted) · rate >= 0.73 (95%)');
+    expect(gateResult(SPEC, Array(12).fill(true)).unavailable).toBeUndefined();
+    // Three in a row before any counted: nothing decided, and no rate to show.
+    expect(gateResult(SPEC, [], { unavailable: 3, decision: 'continue' }).sentence).toBe('undecided · 0 of 0 (3 unavailable, not counted) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+  });
+
   it('shows the evidence: the tally, the interval and pass^k', () => {
     // Two failures first, then passes: the gate reaches its 20th attempt still between its bounds.
     const r = gateResult(SPEC, path('FFTTTTTTTTTTTTTTTTTT'));
