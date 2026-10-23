@@ -289,11 +289,33 @@ The step names a release twice: the action at its tag, and in `version:` the `sh
 | `fix-on-failure` | `false` | Open a fix pull request when a golden fails an outcome check ([below](#fix-on-failure)) |
 | `fix-budget` | `2.00` | Dollars that may be spent per failing golden on finding and proving a fix |
 | `repairer` | empty | The model that proposes fixes, as for `shadowlap repair --repairer`; empty uses `repair.repairer` in the config |
-| `github-token` | empty | The token a fix's branch is pushed and its pull request opened with: a GitHub App's token or a personal access token, for which GitHub starts the fix pull request's workflows. Empty uses the job's `GITHUB_TOKEN`, and the action [starts the workflow itself](#how-a-fix-pull-requests-checks-start). The CLI and your agent never get it |
+| `github-token` | empty | The token a fix's branch is pushed, its pull request opened and the [pull request comment](#the-pull-request-comment) kept with: a GitHub App's token or a personal access token, for which GitHub starts the fix pull request's workflows. Empty uses the job's `GITHUB_TOKEN`, and the action [starts the workflow itself](#how-a-fix-pull-requests-checks-start). The CLI and your agent never get it |
+| `comment` | `true` | On a pull request, keep one [comment](#the-pull-request-comment) on it with each golden's verdict |
 
 Outputs: `passed`, `failed` (every recording that fails the step: each failure, and each inconclusive one unless `inconclusive` is `warn`), `inconclusive` (the recordings whose verdict is inconclusive, a gate that ran out of attempts between its bounds, a check that could not be decided or an injection gate that showed too little to say, whatever the input made of them), `diverged`, `checks-failed` (definite check failures only), `session` (the test session's id), `fixes` and `fix-prs` (the fix pull requests opened, and their URLs), and the paths `report-json`, `report-markdown` and `junit`.
 
 The action reads `tests` from `shadowlap.config.json` in the working directory. A recording marked `fork` calls the providers after the fork, so pass their keys to the step as environment variables (`env: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}`).
+
+### The pull request comment
+
+On a pull request, the action keeps one comment with each golden's verdict on one line, as every report says a verdict ([gating](./gating.md#reading-the-evidence)): the verdict word first, then for a golden with a gate its tally, Wilson bound and rule, and for one without, how its replay went or why it failed. As Markdown, before GitHub renders it:
+
+```markdown
+<!-- shadowlap-test-comment 0123456789ab -->
+### Shadowlap: 1 of 3 goldens failed
+
+| | Golden | Verdict | On `main` |
+|---|---|---|---|
+| ❌ | `goldens/refund-flow` | failed · check failed: issue_refund called 0 times, but called 1 time | ✅ passed |
+| ✅ | `goldens/triage-inbox` | passed · replayed clean | ✅ passed |
+| ✅ | `goldens/refund-gated` | passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts | not tested |
+
+Compared with `main` as the test history last tested it, at `e5f6a7b`.
+```
+
+The comment is found again by a hidden marker, one per workflow, job and set of recordings, and edited in place on every run, so a pull request carries one, however often it is pushed. When the [test history](#test-history) the job restored has a session of the pull request's base branch, the last one is a column of its own: a session whose results name the branch, or one that tested the base branch's commit. That history is kept between jobs with `keep-history`. A fix pull request the job opened is named under the table, and the job summary has each failure in full.
+
+The comment needs `pull-requests: write` in the job's `permissions`. A pull request from a fork gets a token from GitHub that may not comment, so it gets none: nothing is asked of GitHub, and the job summary says why, without a warning. So does a token GitHub refuses. `comment: false` turns it off.
 
 When a recording fails and the logs aren't enough, keep the failed replay as a file to open. The action replays into a store it throws away, so these steps install the `shadowlap` CLI, replay again into a store they keep (`--db`), take the first recording that failed from the JSON report, and export its replay together with the recording. Of several attempts they take one that failed. A recording marked `fork` runs live again here. When nothing fails on the second run, the step says so and the upload finds no file.
 

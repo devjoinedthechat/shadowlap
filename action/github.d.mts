@@ -22,3 +22,18 @@ export interface Dispatch {
   why: string | null;
 }
 export function dispatchWorkflow(o: { env: NodeJS.ProcessEnv; auth: GitHubAuth; branch: string; fetch?: Fetch }): Promise<Dispatch>;
+
+export interface PullRequest {
+  number: number;
+  baseRef: string | null;
+  baseSha: string | null;
+}
+export function pullRequestOf(env: NodeJS.ProcessEnv, read?: (path: string) => string): PullRequest | null;
+
+/** How keeping the comment went: `updated`, `created`, `denied` (the token may not comment) or `failed`; `skipped` and `none` come from postComment. */
+export interface Posted {
+  state: 'updated' | 'created' | 'denied' | 'failed' | 'skipped' | 'none';
+  url: string | null;
+  why: string | null;
+}
+export function upsertComment(o: { env: NodeJS.ProcessEnv; auth: GitHubAuth; number: number; marker: string; body: string; fetch?: Fetch }): Promise<Posted>;

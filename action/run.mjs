@@ -1,13 +1,14 @@
 // The GitHub Action's work: find the recordings, run `shadowlap test` on them, report through the
-// job summary, annotations and step outputs, and with fix-on-failure open a fix pull request for each
-// failed outcome check. Inputs arrive as environment variables from action.yml, so this runs the same
-// on a laptop:
+// job summary, annotations and step outputs, with fix-on-failure open a fix pull request for each
+// failed outcome check, and on a pull request keep a comment with each golden's verdict. Inputs arrive
+// as environment variables from action.yml, so this runs the same on a laptop:
 // SHADOWLAP_CLI=... INPUT_RECORDINGS='goldens/*' node action/run.mjs
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { commentNote, postComment } from './comment.mjs';
 import { fixSummary, runFixes } from './fix.mjs';
 import { githubToken, withoutTokens } from './github.mjs';
 
@@ -70,6 +71,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (!['fail', 'warn'].includes(inconclusive)) fail(`input inconclusive must be fail or warn, not "${inconclusive}"`);
   const maxAttempts = input('MAX_ATTEMPTS');
   if (maxAttempts && !/^[1-9]\d{0,3}$/.test(maxAttempts)) fail(`input max-attempts must be a whole number of attempts, such as 160, not "${maxAttempts}"`);
+  const comment = bool('COMMENT', true);
 
   /**
    * The recordings a path or pattern names, as `shadowlap test` reads them. A path as given (or one
@@ -106,7 +108,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (maxAttempts) args.push('--max-attempts', maxAttempts);
   if (bool('ANNOTATIONS', true)) args.push('--annotations');
   if (push) args.push('--push');
-  // The token the action pushes and opens pull requests with goes to git, gh and GitHub's
+  // The token the action pushes, opens pull requests and comments with goes to git, gh and GitHub's
   // API only: the CLI, and the agent it runs, never get it.
   const auth = githubToken(env);
   const cliEnv = { ...withoutTokens(env), SHADOWLAP_TELEMETRY: env.SHADOWLAP_TELEMETRY ?? '0' };
@@ -126,9 +128,17 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
       else process.stdout.write(`${f.name}: no fix pull request: ${f.why}\n`);
     }
   }
+  // On a pull request, one comment with each golden's verdict, edited in place. Never fails the job.
+  let posted = null;
+  if (comment && !report.interrupted) {
+    posted = await postComment({ env, auth, report, fixes, store: store ?? join(workdir, '.shadowlap', 'shadowlap.db'), recordings: patterns.join(' '), workdir: input('WORKING_DIRECTORY', '.') || '.', fetch: fetchFn });
+    if (posted.state === 'created' || posted.state === 'updated') process.stdout.write(`the pull request comment is ${posted.state === 'created' ? 'posted' : 'updated'}: ${posted.url ?? ''}\n`);
+    else if (posted.state === 'failed') process.stdout.write(`::warning title=Shadowlap::the pull request comment was not posted: ${posted.why}\n`);
+    else if (posted.state !== 'none') process.stdout.write(`the pull request comment was not posted: ${posted.why}\n`);
+  }
   const outputs = outputsOf(report, fixes, { json, markdown, junit });
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, Object.entries(outputs).map(([k, v]) => `${k}=${v}\n`).join(''));
-  if (bool('SUMMARY', true) && env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, readFileSync(markdown, 'utf8') + (fixes.length ? `\n${fixSummary(fixes, budget)}` : ''));
+  if (bool('SUMMARY', true) && env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, readFileSync(markdown, 'utf8') + (fixes.length ? `\n${fixSummary(fixes, budget)}` : '') + commentNote(posted));
 
   // Part of the recordings ran when a signal stopped the session: that is never a pass.
   return (report.failed && bool('FAIL_ON_DIVERGENCE', true)) || report.interrupted ? 1 : 0;

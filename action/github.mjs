@@ -1,7 +1,9 @@
-// GitHub, for the action: the token it pushes a fix's branch and opens its pull request with, and the
-// workflow it starts on a fix's branch when GitHub starts none. The REST API is called with Node's own
-// fetch, which the tests replace: the action adds no dependency. Inputs arrive as environment
-// variables, as for run.mjs.
+// GitHub, for the action: the token it pushes a fix's branch, opens its pull request and comments
+// with; the workflow it starts on a fix's branch when GitHub starts none; and the comment it keeps on
+// a pull request. The REST API is called with Node's own fetch, which the tests replace: the action
+// adds no dependency. Inputs arrive as environment variables, as for run.mjs.
+import { readFileSync } from 'node:fs';
+
 const API_VERSION = '2022-11-28';
 
 /**
@@ -108,4 +110,53 @@ export async function dispatchWorkflow({ env, auth, branch, fetch: fetchFn = glo
   }
 }
 
+/**
+ * The pull request this job runs for, from its event: its number, and its base branch and commit.
+ * Null for any other event, or an event that can't be read.
+ */
+export function pullRequestOf(env, read = (path) => readFileSync(path, 'utf8')) {
+  if (!(env.GITHUB_EVENT_NAME ?? '').startsWith('pull_request') || !env.GITHUB_EVENT_PATH) return null;
+  try {
+    const pr = JSON.parse(read(env.GITHUB_EVENT_PATH)).pull_request;
+    if (!pr || typeof pr.number !== 'number') return null;
+    return { number: pr.number, baseRef: typeof pr.base?.ref === 'string' ? pr.base.ref : null, baseSha: typeof pr.base?.sha === 'string' ? pr.base.sha : null };
+  } catch {
+    return null;
+  }
+}
 
+/** Why GitHub refused a comment: the token may not, which is said quietly; or anything else. */
+const refusal = (r) => (r.status === 401 || r.status === 403 || r.status === 404 ? { state: 'denied', url: null, why: `the job's token may not comment on the pull request: give the job pull-requests: write (${said(r)})` } : { state: 'failed', url: null, why: said(r) });
+
+/**
+ * Keeps `body` on pull request `number` in one comment: the comment whose body holds `marker` is
+ * edited in place, one by a bot first when there are several, else a new one is made. The comments
+ * are read a page of 100 at a time. One with the marker the token may not edit (someone else's that
+ * quotes it) gets a comment of the action's own instead. Never throws: `{ state, url, why }`, state
+ * `updated`, `created`, `denied` (the token may not comment) or `failed`.
+ */
+export async function upsertComment({ env, auth, number, marker, body, fetch: fetchFn = globalThis.fetch }) {
+  const { api, repo } = repositoryOf(env);
+  if (!repo || !auth?.token) return { state: 'failed', url: null, why: 'the job has no repository or token to comment with' };
+  const by = { api, token: auth.token };
+  try {
+    const marked = [];
+    for (let page = 1; page <= 50; page++) {
+      const r = await call(fetchFn, by, 'GET', `/repos/${repo}/issues/${number}/comments?per_page=100&page=${page}`);
+      if (!r.ok) return refusal(r);
+      const list = Array.isArray(r.data) ? r.data : [];
+      marked.push(...list.filter((c) => c && typeof c.body === 'string' && c.body.includes(marker) && typeof c.id === 'number'));
+      if (list.length < 100) break;
+    }
+    const found = marked.find((c) => c.user?.type === 'Bot') ?? marked[0] ?? null;
+    if (found) {
+      const r = await call(fetchFn, by, 'PATCH', `/repos/${repo}/issues/comments/${found.id}`, { body });
+      if (r.ok) return { state: 'updated', url: r.data?.html_url ?? found.html_url ?? null, why: null };
+      if (r.status !== 403 && r.status !== 404) return refusal(r);
+    }
+    const r = await call(fetchFn, by, 'POST', `/repos/${repo}/issues/${number}/comments`, { body });
+    return r.ok ? { state: 'created', url: r.data?.html_url ?? null, why: null } : refusal(r);
+  } catch (err) {
+    return { state: 'failed', url: null, why: `GitHub could not be reached: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
