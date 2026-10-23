@@ -38,7 +38,7 @@ Around a fork, arrival order does matter, and only there. Calls that reach Shado
 
 ## The replay state machine
 
-A replay is `REPLAYING` until the first call whose key has no unconsumed recorded counterpart, then `DIVERGED`.
+A replay is `REPLAYING` until the first call whose key has no unconsumed recorded counterpart, then `DIVERGED`, with one exception: a plain read (a clock read, a random value, a `pure` tool's call) that has none is answered live and the replay stays `REPLAYING`.
 
 ```
 resolve(kind, request):
@@ -47,11 +47,14 @@ resolve(kind, request):
   if REPLAYING and not forced_live:
     rec = parent.find(kind, fp, occ)
     if rec exists and is complete:      serve rec.response      (origin: replayed)
+    elif kind is clock, random or pure: execute live; stay REPLAYING  (an extra read)
     else:                               DIVERGED; explain
   # live region
   if kind == tool and effect == write:  block | stub | allow    (--writes)
   execute live; store                                           (origin: live)
 ```
+
+**Extra reads.** A plain read changes nothing outside the agent, so one the recording never held (an agent changed to log a timestamp, to tag a request with a fresh id) is no change to what the agent did. It runs live, and every call after it is still matched against the recording. What the agent does with the value shows in the next request that carries it, which is matched as strictly as ever, so a timestamp that reaches a prompt still forks there. The run marks each one (`extraRead` on the call), its summary lists them (`2 extra reads answered live, with no recorded counterpart: #3 clock now, #4 random uuid`), `shadowlap test` counts them on the golden's line, and a later divergence names those before it, since one of their values may be what changed its request. Leftover reads are the other side of the same rule: a replay that never makes a recorded clock, random or pure read hasn't ended early. An extra `read` tool call still forks, since what it returns may have changed in the world, and so does an extra `write`. A plain read a flag forces live (`--diverge-at`, `--live-tool`) forks as before.
 
 **Prefix semantics.** Once diverged, every later model call and `read` tool runs live, so live results never mix with stale reads of a world that may have changed. `pure` tools are the exception: a pure result is a function of its arguments by declaration, so matching pure calls are still served from the recording. `--reads replay` extends that to `read` tools for offline forks, with the staleness caveat.
 
@@ -67,7 +70,7 @@ Tools declare what they do to the world outside their arguments:
 
 | Effect | Recording | Replay, before divergence | Replay, after divergence |
 |---|---|---|---|
-| `pure` | execute, store | serve recorded | serve recorded when identical, otherwise execute |
+| `pure` | execute, store | serve recorded; one with no recorded counterpart runs live and the replay goes on | serve recorded when identical, otherwise execute |
 | `read` | execute, store | serve recorded | execute live (`--reads replay` serves recorded matches) |
 | `write` | execute, store | serve recorded (never executed) | `block` (default, throws `ShadowlapWriteBlocked` into the agent), `stub` (returns `onFork(args)`), or `allow` |
 

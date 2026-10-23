@@ -51,7 +51,7 @@ refund-flow/
 | `codeVersion` | no | The git revision the run was made at, up to 128 characters, or `null` |
 | `startedAt` | yes | When the run started |
 | `endedAt` | no | When it ended, or `null` |
-| `divergence` | no | Where a replay forked, or `null`: its `type` (`request_changed`, `new_call`, `forced`, `beyond_recording` or `ended_early`), `callNo`, `kind`, `name` and the calls `replayedBefore` it |
+| `divergence` | no | Where a replay forked, or `null`: its `type` (`request_changed`, `new_call`, `forced`, `beyond_recording` or `ended_early`), `callNo`, `kind`, `name`, the calls `replayedBefore` it, and the [extra reads](./how-it-works.md#the-replay-state-machine) it answered live before it (`extraReads`, each `callNo`, `kind` and `name`), when there were any |
 | `meta` | no | An object of the keys below and any others: a reader MUST keep keys it doesn't know |
 
 A run made where nothing knows what started the agent, such as a capture of production traffic, has `["<no-recorded-command>"]` as its `argv`: replaying it then takes the agent's command after `--`.
@@ -106,6 +106,7 @@ An end, in `end` and in `attempts`:
 | `fingerprintHeaders` | start, `api` | The request's [fingerprint headers](#identity) as it sent them, names in lower case |
 | `scope` | start | The branch of the agent the call was made in ([scopes](./sdk.md#scopes)) |
 | `implHash` | start, `tool` | A hash of the tool's source, for the warning that it changed since the recording |
+| `extraRead` | start | `true` on a replay's clock read, random value or pure tool call that its recording held no counterpart for: answered live while the replay went on ([extra reads](./how-it-works.md#the-replay-state-machine)) |
 | `status`, `headers` | end, `api` | The response's HTTP status (200 when left out) and headers, served with its body on replay: `content-type` tells the client a stream (`text/event-stream`) from JSON |
 | `chunks` | end, `api` | A stream's events as `[byteOffset, msSinceFirstByte]` pairs, to play it back at its recorded pace |
 | `retryable` | end, `api` | The failure was one a client retries (429, 5xx) |

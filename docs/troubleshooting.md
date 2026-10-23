@@ -48,7 +48,7 @@ The agent made more calls than the recording contains. Usually the loop's stop c
 
 ### `ended_early`
 
-Every request the agent sent matched, but it stopped before making every recorded model or tool call: `✗ Ended early at call N: X of Y recorded calls replayed`, where N is the first recorded call it never made. Clock and random reads left over don't count. It is kept on the run like any other divergence, so `--strict` exits 1, `shadowlap test`, `bisect` and the test plugins fail it, and `ls` and the dashboard list it as `ended early @N`, never as a clean replay. Read the agent's output for why it stopped: an exception it caught, a stop condition that changed, a step it now skips.
+Every request the agent sent matched, but it stopped before making every recorded model or tool call: `✗ Ended early at call N: X of Y recorded calls replayed`, where N is the first recorded call it never made. Clock, random and pure reads left over don't count, nor does one the agent made that the recording never held: it is answered live as an extra read. It is kept on the run like any other divergence, so `--strict` exits 1, `shadowlap test`, `bisect` and the test plugins fail it, and `ls` and the dashboard list it as `ended early @N`, never as a clean replay. Read the agent's output for why it stopped: an exception it caught, a stop condition that changed, a step it now skips.
 
 ### Not reached
 

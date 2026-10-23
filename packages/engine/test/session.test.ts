@@ -74,9 +74,63 @@ describe('Session in replay mode', () => {
     const b = s.resolve({ callNo: 2, kind: 'tool', name: 'read_file', fingerprint: 'F1', effect: 'pure' });
     expect(a.origin === 'replayed' && a.record.callNo).toBe(3);
     expect(b.origin === 'replayed' && b.record.callNo).toBe(5);
+    // A third call of a pure tool has no counterpart: answered live, and the replay goes on.
     const c = s.resolve({ callNo: 3, kind: 'tool', name: 'read_file', fingerprint: 'F1', effect: 'pure' });
-    expect(c.origin).toBe('live');
-    expect(s.divergence?.type).toBe('new_call');
+    expect(c).toEqual({ origin: 'live', occurrence: 3, extra: true });
+    expect(s.divergence).toBeNull();
+    // A second call of a read tool has none either, and forks: what it returns may have changed.
+    expect(s.resolve({ callNo: 4, kind: 'tool', name: 'search_web', fingerprint: 'S1', effect: 'read' }).origin).toBe('replayed');
+    expect(s.resolve({ callNo: 5, kind: 'tool', name: 'search_web', fingerprint: 'S1', effect: 'read' }).origin).toBe('live');
+    expect(s.divergence).toMatchObject({ type: 'new_call', callNo: 5, extraReads: [{ callNo: 3, kind: 'tool', name: 'read_file' }] });
+  });
+
+  it('answers extra clock, random and pure reads live and goes on replaying, the rest of the run replayed', () => {
+    no = 0;
+    const calls = [rec('clock', 'now', 'C1'), rec('api', 'POST /v1/messages', 'A1'), rec('tool', 'send_email', 'E1', 1, 'write'), rec('api', 'POST /v1/messages', 'A2')];
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest });
+    expect(s.resolve({ callNo: 1, kind: 'clock', name: 'now', fingerprint: 'C1' }).origin).toBe('replayed');
+    // The agent now logs a timestamp, a request id and a formatted date nobody recorded.
+    expect(s.resolve({ callNo: 2, kind: 'clock', name: 'now', fingerprint: 'C1' })).toEqual({ origin: 'live', occurrence: 2, extra: true });
+    expect(s.resolve({ callNo: 3, kind: 'random', name: 'uuid', fingerprint: 'U1' })).toEqual({ origin: 'live', occurrence: 1, extra: true });
+    expect(s.resolve({ callNo: 4, kind: 'tool', name: 'format_date', fingerprint: 'D1', effect: 'pure' })).toEqual({ origin: 'live', occurrence: 1, extra: true });
+    expect(s.state).toBe('replaying');
+    // Everything after it still comes from the recording, the write too.
+    expect(s.resolve({ callNo: 5, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} }).origin).toBe('replayed');
+    expect(s.resolve({ callNo: 6, kind: 'tool', name: 'send_email', fingerprint: 'E1', effect: 'write' }).origin).toBe('replayed');
+    expect(s.resolve({ callNo: 7, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A2', request: {} }).origin).toBe('replayed');
+    expect(s.end()).toBeNull();
+    expect(s.divergence).toBeNull();
+    expect(s.extraReads()).toEqual([
+      { callNo: 2, kind: 'clock', name: 'now' },
+      { callNo: 3, kind: 'random', name: 'uuid' },
+      { callNo: 4, kind: 'tool', name: 'format_date' },
+    ]);
+    expect(s.replayed).toBe(4);
+  });
+
+  it('forks on an extra write, and on a plain read a flag forces or changed', () => {
+    no = 0;
+    const calls = [rec('clock', 'now', 'C1'), rec('api', 'POST /v1/messages', 'A1')];
+    const write = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest });
+    expect(write.resolve({ callNo: 1, kind: 'tool', name: 'send_email', fingerprint: 'E9', effect: 'write' }).origin).toBe('blocked');
+    expect(write.divergence).toMatchObject({ type: 'new_call', callNo: 1 });
+
+    const forced = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest, replay: { divergeAt: 1 } });
+    expect(forced.resolve({ callNo: 1, kind: 'clock', name: 'now', fingerprint: 'C1' }).origin).toBe('live');
+    expect(forced.divergence).toMatchObject({ type: 'forced', callNo: 1 });
+
+    const changed = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest });
+    expect(changed.resolve({ callNo: 1, kind: 'tool', name: 'format_date', fingerprint: 'D1', effect: 'pure', changedBy: '--inject-result' }).origin).toBe('live');
+    expect(changed.state).toBe('diverged');
+  });
+
+  it('names the extra reads answered before a divergence, whose values may be what changed its request', () => {
+    no = 0;
+    const calls = [rec('api', 'POST /v1/messages', 'A1', 1, null, { system: 'Run 7f3a', messages: [] })];
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest });
+    s.resolve({ callNo: 1, kind: 'random', name: 'uuid', fingerprint: 'U1' });
+    s.resolve({ callNo: 2, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1-changed', request: { system: 'Run 9c21', messages: [] } });
+    expect(s.divergence).toMatchObject({ type: 'request_changed', callNo: 2, replayedBefore: 0, extraReads: [{ callNo: 1, kind: 'random', name: 'uuid' }] });
   });
 
   it('explains a changed request with a diff, the closest counterpart and a hint', () => {
@@ -192,16 +246,17 @@ describe('Session in replay mode', () => {
     // Every request matched: nothing diverged while it ran.
     expect(s.divergence).toBeNull();
     const d = s.end();
-    expect(d).toEqual({ type: 'ended_early', callNo: 3, kind: 'tool', name: 'read_file', replayedBefore: 2, recorded: 7, reason: 'the agent stopped after 2 of the 7 recorded calls, before making #3', counterpart: { runId: 'PARENT', callNo: 3 } });
+    // #3 is a pure read, which a replay may leave unmade as it may make one more: the first call it misses is #4.
+    expect(d).toEqual({ type: 'ended_early', callNo: 4, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, recorded: 7, reason: 'the agent stopped after 2 of the 7 recorded calls, before making #4', counterpart: { runId: 'PARENT', callNo: 4 } });
     expect(s.divergence).toBe(d);
     expect(s.end()).toBeNull();
     // An intervention it never got to says so, not that the replay forked before it.
     expect(s.unapplied()).toEqual(['--override 6 changed nothing: #6 send_email was not served, because the run never made that call']);
   });
 
-  it('ends with no divergence when only clock and random reads are left, after a fork, and on a recording', () => {
+  it('ends with no divergence when only clock, random and pure reads are left, after a fork, and on a recording', () => {
     no = 0;
-    const calls = [rec('api', 'POST /v1/messages', 'A1'), rec('clock', 'Date.now', 'C1'), rec('random', 'Math.random', 'R1')];
+    const calls = [rec('api', 'POST /v1/messages', 'A1'), rec('clock', 'Date.now', 'C1'), rec('random', 'Math.random', 'R1'), rec('tool', 'format_date', 'D1', 1, 'pure')];
     const clean = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest });
     clean.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} });
     expect(clean.end()).toBeNull();

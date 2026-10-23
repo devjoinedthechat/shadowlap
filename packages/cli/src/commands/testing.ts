@@ -172,6 +172,8 @@ export function passedLine(o: GoldenOutcome): string {
         ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed`
         : `${replayed}/${replayed + s.notReached.length} replayed`,
     `${formatTokens(wholeInput(s.tokensNotRespent))} input tokens not re-spent`,
+    // Reads the recording never held (a timestamp the agent logs now), answered live: no change, said all the same.
+    ...(s.extraReads?.length ? [`${s.extraReads.length} extra read${s.extraReads.length === 1 ? '' : 's'} answered live`] : []),
     ...(r.shown.checks?.length ? [statusTally(r.shown.checks)] : []),
     // An attempt a check could not decide, after the count was met, is counted apart: it did not fail.
     ...(r.attempts.length > 1 && !r.gate ? [`${r.passed}/${r.attempts.length} attempts passed${r.inconclusive ? ` (${r.inconclusive} inconclusive)` : ''}`] : []),

@@ -1658,7 +1658,8 @@ export class Sidecar {
     const tracked: TrackedCall = { identity, effect, origin: stored, decision, attempts: 0, inFlight: 0, retryable: false, done: false };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
-    const requestRef = this.recordToolStart(ctx, callNo, tracked, { args }, { http: origin.host, ...(scope ? { scope } : {}), ...this.trustMeta(name, origin.host, null) });
+    // A plain read the recording held no counterpart for, answered live while the replay goes on.
+    const requestRef = this.recordToolStart(ctx, callNo, tracked, { args }, { http: origin.host, ...(scope ? { scope } : {}), ...(decision.origin === 'live' && decision.extra ? { extraRead: true } : {}), ...this.trustMeta(name, origin.host, null) });
     this.cacheToolFingerprint(ctx, callNo, matched, true, fingerprint, args, requestRef);
 
     /** The call's end: `response` the bytes to store, or the ref of what is stored already. */
@@ -1810,6 +1811,8 @@ export class Sidecar {
     if (body.implHash) meta.implHash = body.implHash;
     if (scope) meta.scope = scope;
     if (input) meta.input = true;
+    // A plain read the recording held no counterpart for, answered live while the replay goes on.
+    if (decision.origin === 'live' && decision.extra) meta.extraRead = true;
     const mcp = kind === 'tool' ? mcpCallMeta(body.mcp) : undefined;
     if (mcp) meta.mcp = mcp;
     // A tool that brings outside text in, as the config's `tools`, the SDK's `trust` or an MCP

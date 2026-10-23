@@ -141,9 +141,24 @@ export type Decision =
   | { origin: 'planted'; occurrence: number; record: CallRecord; text: string }
   /** The tool fails as `--fail-at` asked, without running. Stored as live, with the failure marked injected. */
   | { origin: 'injected'; occurrence: number; record: CallRecord; failure: ToolFailure }
-  | { origin: 'live'; occurrence: number }
+  /**
+   * Run live. `extra`: a clock or random read, or a pure tool's call, that the recording holds no
+   * counterpart for, answered live while the replay goes on replaying (`isPlainRead`).
+   */
+  | { origin: 'live'; occurrence: number; extra?: true }
   | { origin: 'blocked'; occurrence: number }
   | { origin: 'stubbed'; occurrence: number };
+
+/**
+ * A clock read, a random value or a pure tool's call: a read that changes nothing outside the agent.
+ * One the recording holds no counterpart for (an agent that now logs a timestamp) is answered live
+ * without ending the replay, and one the replay never makes is no change either: what the agent does
+ * with the value shows in the next request that carries it, which is matched as strictly as ever. A
+ * `read` tool's extra call still forks, since what it returns may have changed in the world.
+ */
+export function isPlainRead(kind: CallKind, effect: Effect | null | undefined): boolean {
+  return kind === 'clock' || kind === 'random' || (kind === 'tool' && effect === 'pure');
+}
 
 export interface SessionOptions {
   mode: RunMode;
@@ -207,6 +222,8 @@ export class Session {
   /** Whether the recording holds what a person typed (see `SessionOptions.parentRecordsInput`). */
   private readonly holdsInput: boolean;
   private replayedCount = 0;
+  /** Plain reads the recording held no counterpart for, answered live while the replay went on (`isPlainRead`). */
+  private readonly extras: NotReached[] = [];
 
   constructor(opts: SessionOptions) {
     this.mode = opts.mode;
@@ -286,13 +303,20 @@ export class Session {
     if (this.state === 'replaying') {
       const record = forced ? undefined : this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
       if (record && !this.consumed.has(record.callNo) && !input.changedBy) return this.serve(input, record, occurrence);
+      // A plain read the recording has no counterpart for changes nothing the replay is checking:
+      // answered live, and the replay goes on. One a flag forces or changed still forks.
+      if (!forced && !input.changedBy && !input.input && isPlainRead(input.kind, effect)) {
+        this.extras.push({ callNo: input.callNo, kind: input.kind, name: input.name });
+        return { origin: 'live', occurrence, extra: true };
+      }
       this.state = 'diverged';
       // A flag changed this request, yet it matches the recording: a normalizer or --prompt-from masks
       // the change for matching. The flag named this call, so it still forks here.
-      this.divergence =
+      this.divergence = this.withExtras(
         record && !this.consumed.has(record.callNo) && input.changedBy
           ? { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount, type: 'forced', reason: `forced live by ${input.changedBy}, a change the normalizers or --prompt-from hide from matching`, counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } }
-          : this.explain(input, forced, occurrence);
+          : this.explain(input, forced, occurrence),
+      );
     } else if (input.kind === 'tool' && !forced && !this.options.liveTools.has(input.name) && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay') || (effect === 'write' && this.options.recordedWrites))) {
       // After divergence only declared-pure results (and reads, on request) may come from the
       // recording, and the writes it made, when asked: what the world answered them, never a fence
@@ -375,7 +399,7 @@ export class Session {
         this.applied.add(record.callNo);
         if (this.state === 'replaying') {
           this.state = 'diverged';
-          this.divergence = {
+          this.divergence = this.withExtras({
             type: 'forced',
             callNo: input.callNo,
             kind: input.kind,
@@ -383,7 +407,7 @@ export class Session {
             replayedBefore: this.replayedCount,
             reason: `forced by --fail-at ${record.callNo}=${formatToolFailure(failure)}: ${input.name} did not run, and the agent got ${failure.kind === 'timeout' ? 'a timeout' : failure.kind === 'status' ? `an HTTP ${failure.status}` : 'an error'} instead, so its error path runs`,
             counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo },
-          };
+          });
         }
         return { origin: 'injected', occurrence, record, failure };
       }
@@ -404,17 +428,18 @@ export class Session {
    * The run has ended. A replay that never diverged, yet left recorded model or tool calls unmade,
    * stopped before its recording did: every request it sent matched, but what it never sent (the
    * last model turn, a write) is as much a change, so it leaves the recording there, at the first
-   * such call. Clock and random reads left over never make it one. Returns that divergence, which
-   * `divergence` holds from now on, or null.
+   * such call. Plain reads left over (clock, random, a pure tool's call) never make it one, as an
+   * extra one never forks a replay (`isPlainRead`). Returns that divergence, which `divergence`
+   * holds from now on, or null.
    */
   end(): DivergenceReport | null {
     if (this.mode !== 'replay' || this.state !== 'replaying') return null;
     // The judge's calls are none of the agent's: one never asked again is judged live, not missing.
     const recorded = this.parentCalls.filter((c) => c.end && !isJudgeCall(c));
-    const first = recorded.filter((c) => (c.kind === 'api' || c.kind === 'tool') && !this.consumed.has(c.callNo)).reduce<CallRecord | null>((a, c) => (a && a.callNo < c.callNo ? a : c), null);
+    const first = recorded.filter((c) => !isPlainRead(c.kind, c.effect) && !this.consumed.has(c.callNo)).reduce<CallRecord | null>((a, c) => (a && a.callNo < c.callNo ? a : c), null);
     if (!first) return null;
     this.state = 'diverged';
-    this.divergence = {
+    this.divergence = this.withExtras({
       type: 'ended_early',
       callNo: first.callNo,
       kind: first.kind,
@@ -423,8 +448,18 @@ export class Session {
       recorded: recorded.length,
       reason: `the agent stopped after ${this.replayedCount} of the ${recorded.length} recorded calls, before making #${first.callNo}`,
       counterpart: { runId: this.parentRunId ?? first.runId, callNo: first.callNo },
-    };
+    });
     return this.divergence;
+  }
+
+  /** Plain reads the recording held no counterpart for, answered live while the replay went on replaying, in the order they came. */
+  extraReads(): NotReached[] {
+    return [...this.extras];
+  }
+
+  /** A divergence with the plain reads answered live before it, which may be what changed its request. */
+  private withExtras(d: DivergenceReport): DivergenceReport {
+    return this.extras.length ? { ...d, extraReads: [...this.extras] } : d;
   }
 
   /** Recorded calls this replay never reached. Meaningful once the run has ended. */
