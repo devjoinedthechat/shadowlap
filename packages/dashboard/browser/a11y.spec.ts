@@ -1,0 +1,214 @@
+import { expect, test, type Page } from '@playwright/test';
+import { parseRoute, routeHref } from '../ui/route.js';
+import { runsLinkQuery } from '../ui/runspage/query.js';
+import { contrast, dash, demoId, focusedLabel, openPage, seriousViolations, tabUntil } from './dashboard.js';
+
+/**
+ * The dashboard in Chromium over the demo store, as a person with a keyboard or a screen reader
+ * meets it: no serious or critical axe violation on the pages a user lands on most, text that
+ * reaches AA contrast, a skip link first, a focus order that follows the page, focus rings drawn
+ * whole in scrolling panes, the palette as a combobox, and every overlay keeping and returning the
+ * focus. And every link the server writes opens a page the dashboard has.
+ */
+
+const PAGES: Array<{ name: string; path: () => string; drawn: string }> = [
+  { name: 'the Overview', path: () => '/', drawn: 'main#view .ovg' },
+  { name: 'Runs', path: () => '/runs', drawn: 'main#view table.runst tbody tr' },
+  { name: 'a run', path: () => `/run/${demoId('refundBug')}`, drawn: 'run' },
+  { name: 'a fork', path: () => `/run/${demoId('override')}`, drawn: 'run' },
+  { name: 'a fix', path: () => `/fixes/${demoId('refundFix')}`, drawn: 'fix' },
+];
+
+for (const p of PAGES) {
+  test(`${p.name} has no serious or critical axe violation`, async ({ page }) => {
+    await openPage(page, p.path(), p.drawn);
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+}
+
+test('a fork’s page says what it did differently, and has no serious or critical axe violation with it', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  await page.waitForSelector('.fdiff h2');
+  expect(await page.textContent('.fdiff h2')).toBe('What the fork did differently');
+  expect(await seriousViolations(page)).toEqual([]);
+});
+
+test('the fix’s steps group their attempts by what each did, with no serious or critical axe violation', async ({ page }) => {
+  await openPage(page, `/fixes/${demoId('refundFix')}/verify`, 'fix');
+  await page.waitForSelector('main#view table.t tbody tr');
+  expect(await seriousViolations(page)).toEqual([]);
+  await openPage(page, `/fixes/${demoId('refundFix')}/blame`, 'fix');
+  await page.waitForSelector('main#view table.probes tbody tr');
+  expect(await seriousViolations(page)).toEqual([]);
+});
+
+/** Text tokens, and the surfaces text is drawn on, as the browser computed them on the page. */
+const TEXT = ['--ink', '--dim', '--faint', '--err', '--warn', '--accent', '--o-over', '--o-stub', '--k-write', '--c-write', '--del', '--add'];
+const SURFACES = ['--bg', '--bg2', '--panel', '--raise', '--hover', '--sel', '--code'];
+
+test('every text colour reaches 4.5:1 on the page and on every panel, as the browser draws them', async ({ page }) => {
+  await openPage(page, '/', 'main#view .ovg');
+  const tokens = await page.evaluate((names) => {
+    const s = getComputedStyle(document.documentElement);
+    return Object.fromEntries(names.map((n) => [n, s.getPropertyValue(n).trim()]));
+  }, [...TEXT, ...SURFACES]);
+  const low: string[] = [];
+  for (const t of TEXT) for (const s of SURFACES) if (contrast(tokens[t]!, tokens[s]!) < 4.5) low.push(`${t} on ${s}: ${contrast(tokens[t]!, tokens[s]!).toFixed(2)}`);
+  expect(low).toEqual([]);
+  // And faint text where it is drawn, on what is under it.
+  const pairs = await page.evaluate(() => {
+    const faint = getComputedStyle(document.documentElement).getPropertyValue('--faint').trim();
+    const rgb = (hex: string) => `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
+    const out: Array<[string, string]> = [];
+    for (const el of document.querySelectorAll<HTMLElement>('main#view *, aside#side *')) {
+      const s = getComputedStyle(el);
+      if (s.color !== rgb(faint) || !el.textContent?.trim() || !el.getClientRects().length) continue;
+      let bg = 'rgba(0, 0, 0, 0)';
+      for (let n: HTMLElement | null = el; n && /rgba\(0, 0, 0, 0\)|transparent/.test(bg); n = n.parentElement) bg = getComputedStyle(n).backgroundColor;
+      out.push([s.color, bg]);
+    }
+    return out;
+  });
+  expect(pairs.length).toBeGreaterThan(20);
+  for (const [fg, bg] of pairs) if (!/rgba\(.*, 0\)$/.test(bg)) expect(contrast(fg, bg), `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+});
+
+/** Which part of the page the focus is in. */
+const region = (page: Page) =>
+  page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return 'body';
+    if (el.classList.contains('skip')) return 'skip';
+    if (el.closest('header.top, .top')) return 'top';
+    if (el.closest('aside#side')) return 'side';
+    if (el.closest('main#view')) return 'main';
+    return 'other';
+  });
+
+test('Skip to the page is the first stop for Tab, shows when it has the focus, and takes it to the page', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  await page.keyboard.press('Tab');
+  expect(await focusedLabel(page)).toContain('Skip to the page');
+  const box = (await page.locator('a.skip').boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.height).toBeGreaterThan(10);
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('main#view'))).toBe(true);
+  // The run's own actions are a few presses away, not the 53rd stop they were.
+  const presses = await tabUntil(page, () => document.activeElement?.textContent?.trim() === 'Replay', 15);
+  expect(presses).toBeLessThanOrEqual(10);
+});
+
+test('Tab goes through the top bar, then the sidebar, then the page, never back', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  const order = ['skip', 'top', 'side', 'main'];
+  const seen: string[] = [];
+  for (let i = 0; i < 90; i++) {
+    await page.keyboard.press('Tab');
+    const at = await region(page);
+    if (seen.at(-1) !== at) seen.push(at);
+    if (at === 'main') break;
+  }
+  expect(seen.filter((x) => order.includes(x))).toEqual(order);
+});
+
+test('a focus ring in a pane that scrolls is drawn inside the control, so the pane cuts none of it off', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  await page.waitForSelector('aside#side .runs a.run');
+  // The sidebar's runs, and a run's calls: rows flush with their scrolling pane's edges.
+  for (const sel of ['aside#side .runs a.run', 'main#view .vbody button, main#view .vbody a']) {
+    await page.focus(sel);
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    const ring = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement;
+      const s = getComputedStyle(el);
+      const pane = (() => {
+        for (let n = el.parentElement; n; n = n.parentElement) if (/(auto|scroll)/.test(getComputedStyle(n).overflowY + getComputedStyle(n).overflowX)) return n;
+        return null;
+      })();
+      const r = el.getBoundingClientRect();
+      const out = parseFloat(s.outlineWidth) + parseFloat(s.outlineOffset);
+      const p = pane!.getBoundingClientRect();
+      return { style: s.outlineStyle, offset: s.outlineOffset, inside: r.left - out >= p.left - 0.5 && r.right + out <= p.right + 0.5 && r.top - out >= p.top - 0.5 };
+    });
+    expect(ring, sel).toEqual({ style: 'solid', offset: '-2px', inside: true });
+  }
+});
+
+test('Search or jump to is a combobox, and hands the focus back when Esc closes it', async ({ page }) => {
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  await page.focus('aside#side button.sbtn');
+  await page.keyboard.press('Enter');
+  const field = page.locator('.palin input');
+  await expect(field).toBeFocused();
+  await expect(field).toHaveAttribute('role', 'combobox');
+  const active = async () => page.evaluate(() => {
+    const id = document.querySelector('.palin input')!.getAttribute('aria-activedescendant');
+    const el = id ? document.getElementById(id) : null;
+    return el ? { id, role: el.getAttribute('role'), selected: el.getAttribute('aria-selected'), text: el.textContent } : null;
+  });
+  const first = (await active())!;
+  expect(first).toMatchObject({ role: 'option', selected: 'true' });
+  await page.keyboard.press('ArrowDown');
+  const second = (await active())!;
+  expect(second.id).not.toBe(first.id);
+  await expect(field).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.palette')).toHaveCount(0);
+  expect(await focusedLabel(page)).toContain('Search or jump to');
+});
+
+test('a menu closes on Esc to its button; a dialog keeps Tab in it and hands the focus back', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  const share = page.locator('.rhead .actions button', { hasText: 'Share' });
+  await share.click();
+  await expect(page.locator('.pop[role="menu"]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.pop[role="menu"]')).toHaveCount(0);
+  await expect(share).toBeFocused();
+  const del = page.locator('.rhead .actions button', { hasText: 'Delete' });
+  await del.click();
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+  await expect(dialog).toBeVisible();
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
+  }
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(del).toBeFocused();
+});
+
+test('on a phone, the sidebar hands the focus back to the menu button when Esc closes it', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 900 });
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  const menu = page.locator('button.menu-toggle');
+  await menu.click();
+  await expect(page.locator('aside#side.open')).toBeVisible();
+  await page.focus('aside#side .navlist a');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('aside#side.open')).toHaveCount(0);
+  await expect(menu).toBeFocused();
+});
+
+test('every link the server writes opens a page the dashboard has', async ({ request }) => {
+  const { origin, token } = dash();
+  const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
+  const fix = demoId('refundFix');
+  const answers = await Promise.all(['summary?tz=UTC', 'activity?limit=200', 'fixes', `fixes/${fix}`, `fixes/${fix}/groups`, 'training', 'tests', `runs/${demoId('override')}/differences`, 'setup', 'projects'].map(get));
+  const links = new Set<string>();
+  const walk = (v: unknown) => {
+    if (typeof v === 'string' && v.startsWith('#/')) links.add(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  answers.forEach(walk);
+  expect(links.size).toBeGreaterThan(20);
+  for (const link of links) {
+    const route = parseRoute(link);
+    expect(route.page, link).not.toBe('notfound');
+    if (link.includes('?')) expect(runsLinkQuery(link), link).not.toBeNull();
+    else expect(routeHref(route), link).toBe(link);
+  }
+});

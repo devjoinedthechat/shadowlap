@@ -1,0 +1,18 @@
+{
+  // The real-browser tests (npm run test:browser): type-checked before they run, against the DOM
+  // library for what they evaluate in the page and Node's for what they do around it.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "inlineSources": false,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
+  "include": ["*.ts"]
+}

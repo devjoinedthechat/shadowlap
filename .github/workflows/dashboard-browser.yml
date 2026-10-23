@@ -1,0 +1,44 @@
+name: Dashboard in a browser
+
+# The dashboard as a person meets it, in Chromium (npm run test:browser): no serious or critical
+# axe-core violation on the Overview, Runs, a run, a fork and a fix; text at WCAG AA contrast; the
+# skip link, the focus order, focus rings in scrolling panes, the palette and every overlay's focus;
+# and every link the server writes opening a page. Over a demo store built by real commands
+# (scripts/demo-store.mjs --fast) and served by `shadowlap dashboard`.
+on:
+  push:
+    branches: [main]
+    paths: ['packages/**', 'scripts/demo-store.mjs', 'scripts/demo-store/**', 'testing/mock-anthropic/**', 'testing/mock-openai/**', 'testing/mock-gemini/**', 'package-lock.json', '.github/workflows/dashboard-browser.yml']
+  pull_request:
+    paths: ['packages/**', 'scripts/demo-store.mjs', 'scripts/demo-store/**', 'testing/mock-anthropic/**', 'testing/mock-openai/**', 'testing/mock-gemini/**', 'package-lock.json', '.github/workflows/dashboard-browser.yml']
+  workflow_dispatch:
+
+jobs:
+  chromium:
+    name: dashboard in Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # The Chromium the pinned @playwright/test drives, with what it needs on Linux.
+      - run: npx playwright install --with-deps chromium
+        working-directory: packages/dashboard
+      - run: npm run test:browser
+        # Its demo store and its results in the runner's own temporary folder, where the step below finds them.
+        env:
+          TMPDIR: ${{ runner.temp }}
+      # A failure's trace (the page, the network, each step) is the way to see what the browser saw.
+      - name: Traces of what failed
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dashboard-browser-traces
+          path: ${{ runner.temp }}/shadowlap-dashboard-browser-results
+          if-no-files-found: ignore
+          retention-days: 14
