@@ -118,7 +118,7 @@ The replay keeps the options that change what it does (`--fail-at`, `--override`
 
 ### Checks on a replay
 
-A replay is judged by checks when it has them: `--expect`, or, without it, the `tests` entry of `shadowlap.config.json` for the recording the run came from (the pack it was unpacked from, or the golden `shadowlap test` replayed). The checks are those of an [outcome check](./ci.md#outcome-checks), [`calls` and `when` rules](./checks.md) included; the replay exits 1 when one fails or is inconclusive, and they are kept on the run, with the `--expect` they came from, so making the fork again from the fork menu judges it the same way. With `--repeat`, every attempt is judged, and the report says in how many attempts each check failed, could not be decided (inconclusive) or did not apply:
+A replay is judged by checks when it has them: `--expect`, or, without it, the `tests` entry of `shadowlap.config.json` for the recording the run came from (the pack it was unpacked from, or the golden `shadowlap test` replayed). The checks are those of an [outcome check](./ci.md#outcome-checks), [`calls` and `when` rules](./checks.md) included; the replay exits 1 when one fails, and 3 when the agent exited 0, none failed and one could not be decided, and they are kept on the run, with the `--expect` they came from, so making the fork again from the fork menu judges it the same way. With `--repeat`, every attempt is judged, and the report says in how many attempts each check failed, could not be decided (inconclusive) or did not apply:
 
 ```
   Checks (--expect)

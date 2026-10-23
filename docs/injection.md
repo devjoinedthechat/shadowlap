@@ -136,7 +136,8 @@ Each run tested comes to one verdict against its limits:
   needs none of them;
 - **passed** otherwise.
 
-An inconclusive test fails the command, as a failed one does, and the reason says why:
+An inconclusive test fails the command too, with exit status 3 where a failed one ends with 1, and
+the reason says why:
 
 ```text
 ! 5 attempts: 0 obeyed · 0 influenced · 0 ignored · 5 inconclusive

@@ -153,7 +153,7 @@ After asking, `--then-verify` runs [`verify`](./verify.md) on the runs with a ra
 
 A session kept earlier can be verified later, or one run of it: `shadowlap decisions --verify dc-01M58W8A0Z… [run]` verifies the runs it flagged the same way, without asking anything again, and keeps what verify finds in the session, over what an earlier verify found for the others. A run whose gate ran out of attempts between its bounds, or that an attempt it could not judge stopped, is *inconclusive*, and the session stays incomplete until a verify settles it. Each run keeps the rule that decided it, so a session verified again under another gate states each rule once, over the runs it decided. The dashboard runs it as its `decisions-verify` job.
 
-An inconclusive verify settles nothing: `decisions` and `migrate` then exit 1 unless `--inconclusive warn`, as `test` does with an inconclusive gate.
+An inconclusive verify settles nothing: `decisions` and `migrate` then exit 3 unless `--inconclusive warn`, as `test` does with an inconclusive gate.
 
 ## Migrate
 
