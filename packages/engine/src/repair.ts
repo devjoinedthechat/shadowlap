@@ -37,10 +37,19 @@ export interface SourceFile {
 export interface Anchor {
   id: number;
   surface: string;
+  /** The span as the file holds it, placeholders and all: `Refunds above {limit} need a manager.` */
   text: string;
   file: string;
   /** Where the text starts in the file. */
   offset: number;
+  /**
+   * The span as the agent sent it, when that differs from `text`: its placeholders filled in
+   * (`Refunds above 100 need a manager.`). Absent for a span the file holds verbatim.
+   */
+  rendered?: string;
+  /** The characters just before and after the span in the file ('' at either end), which a rewrite must not join into a placeholder. */
+  prev?: string;
+  next?: string;
 }
 
 /** Spans worth anchoring, largest first: the whole text, its lines, the sentences of each line. */
@@ -60,27 +69,347 @@ function occurrences(haystack: string, needle: string, limit = 2): number[] {
   return at;
 }
 
+// ---- Placeholders ------------------------------------------------------------------------------
+
+/**
+ * What reads a file's text, for the placeholders it can hold: JavaScript and TypeScript, Python,
+ * prose (Markdown, plain text, a prompt file, which a template engine may render), or other code.
+ */
+export type TemplateSyntax = 'js' | 'python' | 'prose' | 'code';
+
+export function templateSyntax(path: string): TemplateSyntax {
+  if (/\.(?:[cm]?[jt]s|[jt]sx)$/i.test(path)) return 'js';
+  if (/\.py[iw]?$/i.test(path)) return 'python';
+  if (isProse(path)) return 'prose';
+  return 'code';
+}
+
+/**
+ * A place in a text that is filled in, or read as syntax, when the agent builds its prompt: a
+ * template literal's `${…}`, an f-string's or `.format`'s `{…}` (and the `{{` and `}}` that escape a
+ * brace), a printf-style `%s` or `%(name)s`, Jinja's and Mustache's `{{ … }}`, `{% … %}` and
+ * `{# … #}`, an EJS or ERB `<% … %>`; outside JavaScript, a `string.Template` or shell `$name`; in
+ * other code, Ruby's `#{…}` and the shell's `$(…)`.
+ */
+export interface Placeholder {
+  /** As written: `${limit}`, `{limit}`, `{{ limit }}`, `%(limit)s`, `{{`. */
+  text: string;
+  start: number;
+  end: number;
+  /** For an escape, the text it renders as (`{{` → `{` in Python, `{{` in JavaScript, `%%` → `%`); absent for a placeholder that is filled in. */
+  literal?: string;
+  /**
+   * It only names a value (`{limit}`, `${policy.limit}`, `{{ limit | upper }}`, `%(limit)s`), with
+   * no quotes, statements or code around it: a templated span may stand on it.
+   */
+  simple: boolean;
+}
+
+/** The longest text read as one placeholder: a brace further on is code, not a placeholder's end. */
+const LONGEST_PLACEHOLDER = 400;
+
+/** Python's printf conversions: `%%`, `%(name)…s`, `%5.2f`. A space flag alone is left out, so prose such as "a 5% fee" holds none. */
+const PRINTF = /%(?:%|\([^()\n]{1,64}\)[-+#0 ]*(?:\d+|\*)?(?:\.(?:\d+|\*))?[diouxXeEfFgGcrsa]|[-+#0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?[diouxXeEfFgGcrsa])/y;
+/** Node's util.format conversions. */
+const UTIL_FORMAT = /%[sdifjoOc%]/y;
+const NAME = /[A-Za-z_]\w*/y;
+
+/** The index of the `close` that matches the `open` at `at`, counting those between, or -1. */
+function closing(s: string, at: number, open = '{', close = '}'): number {
+  let depth = 0;
+  const stop = Math.min(s.length, at + LONGEST_PLACEHOLDER);
+  for (let i = at; i < stop; i++) {
+    if (s[i] === open) depth++;
+    else if (s[i] === close && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/** Whether what a placeholder holds only names a value: no quotes, statements or nested braces. */
+const namesAValue = (inner: string) => inner.length <= 80 && !/[\n'"`;{}<>\\]/.test(inner);
+
+/** The placeholders in a text, as the file it lives in would read them (see `Placeholder`), in order. */
+export function placeholders(text: string, syntax: TemplateSyntax): Placeholder[] {
+  const out: Placeholder[] = [];
+  let i = 0;
+  const take = (end: number, inner: string, literal?: string) => {
+    out.push({ text: text.slice(i, end), start: i, end, ...(literal !== undefined ? { literal } : {}), simple: literal !== undefined || namesAValue(inner) });
+    i = end;
+  };
+  const regex = (re: RegExp) => {
+    re.lastIndex = i;
+    return re.exec(text)?.[0] ?? null;
+  };
+  while (i < text.length) {
+    const c = text[i]!;
+    const d = text[i + 1];
+    if (c === '{') {
+      // Jinja and Mustache: {{{ x }}}, {{ x }}, {% x %}, {# x #}.
+      if (d === '{' || d === '%' || d === '#') {
+        const triple = d === '{' && text[i + 2] === '{';
+        const close = triple ? '}}}' : d === '{' ? '}}' : d === '%' ? '%}' : '#}';
+        const from = i + (triple ? 3 : 2);
+        const end = text.indexOf(close, from);
+        if (end >= 0 && end - i <= LONGEST_PLACEHOLDER && !text.slice(from, end).includes('\n')) {
+          take(end + close.length, text.slice(from, end));
+          continue;
+        }
+        // `{{` with no `}}` after it: an f-string's or format's escape for a brace (in JavaScript, two braces).
+        if (d === '{') {
+          take(i + 2, '', syntax === 'js' ? '{{' : '{');
+          continue;
+        }
+      }
+      const end = closing(text, i);
+      if (end > i) {
+        take(end + 1, text.slice(i + 1, end));
+        continue;
+      }
+    } else if (c === '}' && d === '}') {
+      take(i + 2, '', syntax === 'js' ? '}}' : '}');
+      continue;
+    } else if (c === '$') {
+      if (d === '{') {
+        const end = closing(text, i + 1);
+        if (end > i) {
+          take(end + 1, text.slice(i + 2, end));
+          continue;
+        }
+      } else if (d === '(' && syntax === 'code') {
+        const end = closing(text, i + 1, '(', ')');
+        if (end > i) {
+          take(end + 1, text.slice(i + 2, end));
+          continue;
+        }
+      } else if (d === '$' && syntax === 'python') {
+        take(i + 2, '', '$');
+        continue;
+      } else if (syntax !== 'js' && d !== undefined && /[A-Za-z_]/.test(d)) {
+        NAME.lastIndex = i + 1;
+        const name = NAME.exec(text)![0];
+        take(i + 1 + name.length, name);
+        continue;
+      }
+    } else if (c === '#' && d === '{' && syntax === 'code') {
+      const end = closing(text, i + 1);
+      if (end > i) {
+        take(end + 1, text.slice(i + 2, end));
+        continue;
+      }
+    } else if (c === '<' && d === '%') {
+      const end = text.indexOf('%>', i + 2);
+      if (end >= 0 && end - i <= LONGEST_PLACEHOLDER) {
+        take(end + 2, text.slice(i + 2, end));
+        continue;
+      }
+    } else if (c === '%') {
+      const spec = regex(syntax === 'js' ? UTIL_FORMAT : PRINTF);
+      if (spec) {
+        take(i + spec.length, /\(([^()]*)\)/.exec(spec)?.[1] ?? '', spec === '%%' ? '%' : undefined);
+        continue;
+      }
+    }
+    i++;
+  }
+  return out;
+}
+
+/** The text with its placeholders taken out: what a rewrite writes in its own words. */
+function outsidePlaceholders(text: string, found: readonly Placeholder[]): string {
+  let out = '';
+  let at = 0;
+  for (const p of found) {
+    out += text.slice(at, p.start);
+    at = p.end;
+  }
+  return out + text.slice(at);
+}
+
+/** Syntax that starts or ends a placeholder when it stands on its own: a brace, `<%`, `%>`, and in other code `#{` and `$(`. */
+function strays(text: string, syntax: TemplateSyntax): string[] {
+  return [...text.matchAll(syntax === 'code' ? /[{}]|<%|%>|#\{|\$\(/g : /[{}]|<%|%>/g)].map((m) => m[0]);
+}
+
+/** What `from` has that `to` lacks, counting repeats: the placeholders a rewrite dropped, or added. */
+function lacking(from: readonly string[], to: readonly string[]): string[] {
+  const left = [...to];
+  return from.filter((x) => {
+    const at = left.indexOf(x);
+    if (at < 0) return true;
+    left.splice(at, 1);
+    return false;
+  });
+}
+
+/** Characters that open a placeholder together with what follows them: `$` `{`, `#` `{`, `%` `(`, `<` `%`, `{` `{`. */
+const OPENS = /[$#%<{@]/;
+
+// ---- Templated anchors -------------------------------------------------------------------------
+
+/** A line of a file broken into what a span is matched against: characters, and placeholders that stand for any text. */
+type Unit = { char: string } | { value: true } | { barrier: true };
+
+interface TemplateLine {
+  file: SourceFile;
+  /** Where the line starts in the file. */
+  start: number;
+  text: string;
+  units: Unit[];
+  /** Each unit's offset in the line, and the line's length after the last. */
+  at: number[];
+  /** Which unit each is part of: the characters an escape stands for share its number, so a span never splits one. */
+  part: number[];
+  /** The words of its text outside placeholders, lower-cased, to pass over lines a span can't be. */
+  words: Set<string>;
+}
+
+const wordsOf = (s: string) => new Set((s.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w, i, all) => all.indexOf(w) === i));
+
+/** The lines of the project's files that hold a placeholder that only names a value: where a span sent with values filled in can come from. */
+function templateLines(files: readonly SourceFile[]): TemplateLine[] {
+  const out: TemplateLine[] = [];
+  for (const file of files) {
+    const syntax = templateSyntax(file.path);
+    let start = 0;
+    for (const text of file.content.split('\n')) {
+      const lineStart = start;
+      start += text.length + 1;
+      if (text.length > 4000) continue;
+      const found = placeholders(text, syntax);
+      if (!found.some((p) => p.simple && p.literal === undefined)) continue;
+      const units: Unit[] = [];
+      const at: number[] = [];
+      const part: number[] = [];
+      let i = 0;
+      const one = (unit: Unit, offset: number, of = part.length) => {
+        units.push(unit);
+        at.push(offset);
+        part.push(of);
+      };
+      for (const p of found) {
+        for (; i < p.start; i++) one({ char: text[i]! }, i);
+        // An escape stands for its own text, a character at a time, all at the escape's place.
+        if (p.literal !== undefined) {
+          const of = part.length;
+          for (const char of p.literal) one({ char }, p.start, of);
+        } else one(p.simple ? { value: true } : { barrier: true }, p.start);
+        i = p.end;
+      }
+      for (; i < text.length; i++) one({ char: text[i]! }, i);
+      at.push(text.length);
+      part.push(-1);
+      out.push({ file, start: lineStart, text, units, at, part, words: wordsOf(outsidePlaceholders(text, found)) });
+    }
+  }
+  return out;
+}
+
+/**
+ * Where `span` is `line` with its placeholders filled in: each run of units (from `from` to `to`)
+ * whose characters equal the span's where they are characters, each placeholder standing for one or
+ * more characters of it. Found in one pass per start, the set of the span's positions reached kept
+ * as it goes, so a line is read in time that grows with its length times the span's.
+ */
+function templateRuns(line: TemplateLine, span: string): Array<{ from: number; to: number; literal: number }> {
+  const n = span.length;
+  const found: Array<{ from: number; to: number; literal: number }> = [];
+  let reach = new Uint8Array(n + 1);
+  let next = new Uint8Array(n + 1);
+  for (let from = 0; from < line.units.length; from++) {
+    const first = line.units[from]!;
+    if ('barrier' in first || ('char' in first && first.char !== span[0])) continue;
+    reach.fill(0);
+    reach[0] = 1;
+    let values = 0;
+    let literal = 0;
+    for (let j = from; j < line.units.length && j - from <= 3 * n; j++) {
+      const u = line.units[j]!;
+      next.fill(0);
+      let any = false;
+      if ('barrier' in u) break;
+      if ('value' in u) {
+        values++;
+        let low = -1;
+        for (let k = 0; k < n; k++)
+          if (reach[k]) {
+            low = k;
+            break;
+          }
+        if (low < 0) break;
+        for (let k = low + 1; k <= n; k++) next[k] = 1;
+        any = true;
+      } else {
+        literal++;
+        for (let k = 0; k < n; k++)
+          if (reach[k] && span[k] === u.char) {
+            next[k + 1] = 1;
+            any = true;
+          }
+      }
+      if (next[n] && values > 0) found.push({ from, to: j + 1, literal });
+      next[n] = 0;
+      [reach, next] = [next, reach];
+      if (!any || !reach.some((x) => x === 1)) break;
+    }
+  }
+  return found;
+}
+
+/**
+ * The places a span sent with its values filled in comes from: a line's run whose placeholders,
+ * filled in, give the span. Most of the span has to be the line's own text (a placeholder that would
+ * stand for most of it says nothing of where it is), and of two runs of one line that overlap, the
+ * one with more of its own text is the span's.
+ */
+function templatedMatches(span: string, lines: readonly TemplateLine[]): Array<{ file: SourceFile; offset: number; text: string }> {
+  if (span.includes('\n') || span.length > 2000) return [];
+  const words = [...wordsOf(span)];
+  const out: Array<{ file: SourceFile; offset: number; text: string; literal: number }> = [];
+  for (const line of lines) {
+    if (words.length && words.filter((w) => line.words.has(w)).length * 2 < words.length) continue;
+    // A run that starts or ends inside an escape stands for part of it, which no span of the file is.
+    const whole = (r: { from: number; to: number }) => (r.from === 0 || line.part[r.from] !== line.part[r.from - 1]) && line.part[r.to] !== line.part[r.to - 1];
+    const runs = templateRuns(line, span).filter((r) => r.literal >= Math.max(8, span.length / 2) && whole(r));
+    const kept = runs.filter((r) => !runs.some((o) => o !== r && o.from < r.to && r.from < o.to && o.literal > r.literal));
+    for (const r of kept) out.push({ file: line.file, offset: line.start + line.at[r.from]!, text: line.text.slice(line.at[r.from]!, line.at[r.to]!), literal: r.literal });
+  }
+  return out.filter((m, i) => out.findIndex((o) => o.file === m.file && o.offset === m.offset && o.text === m.text) === i).map(({ literal: _literal, ...m }) => m);
+}
+
 /**
  * The spans of each surface that appear exactly once across the project's files. A span inside a
  * larger anchored span of the same surface is left out: rewriting the larger one covers it.
+ *
+ * A span the files don't hold verbatim may be one the agent filled values into: `Refunds above 100
+ * need a manager.` from `f"Refunds above {limit} need a manager."`. Each line of a file with a
+ * placeholder is matched against it, every placeholder standing for any text, and a span found that
+ * way exactly once (and nowhere verbatim) anchors where the file holds it, placeholders and all.
  */
 export function findAnchors(surfaces: readonly Surface[], files: readonly SourceFile[]): Anchor[] {
   const anchors: Anchor[] = [];
+  let lines: TemplateLine[] | null = null;
   for (const surface of surfaces) {
     const taken: string[] = [];
     for (const span of spansOf(surface.text)) {
       if (taken.some((t) => t.includes(span))) continue;
-      let found: { file: string; offset: number } | null = null;
+      let found: { file: SourceFile; offset: number; text: string } | null = null;
       let count = 0;
       for (const f of files) {
         const at = occurrences(f.content, span);
         count += at.length;
         if (count > 1) break;
-        if (at.length === 1) found = { file: f.path, offset: at[0]! };
+        if (at.length === 1) found = { file: f, offset: at[0]!, text: span };
+      }
+      if (count === 0) {
+        const matches = templatedMatches(span, (lines ??= templateLines(files)));
+        count = matches.length;
+        if (count === 1) found = matches[0]!;
       }
       if (count !== 1 || !found) continue;
       taken.push(span);
-      if (!anchors.some((a) => a.file === found.file && a.offset === found.offset && a.text === span)) anchors.push({ id: anchors.length + 1, surface: surface.label, text: span, ...found });
+      const { file, offset, text } = found;
+      if (anchors.some((a) => a.file === file.path && a.offset === offset && a.text === text)) continue;
+      anchors.push({ id: anchors.length + 1, surface: surface.label, text, file: file.path, offset, ...(text !== span ? { rendered: span } : {}), prev: file.content[offset - 1] ?? '', next: file.content[offset + text.length] ?? '' });
     }
   }
   return anchors;
@@ -130,18 +459,42 @@ export const REPAIR_FILE_LIMIT = 1024 * 1024;
 /** The longest replacement `checkEdit` lets a candidate make of a text so long. */
 const longestRewrite = (length: number) => Math.max(600, length * 4);
 
-/** Whether a proposed rewrite may be tried at all. */
+/**
+ * Whether a proposed rewrite may be tried at all. The repairer reads the failing runs, tool output
+ * included, which can be anyone's text, so a rewrite is held to text and nothing more before it
+ * runs: verify builds the agent's prompt from it, and a placeholder brought in (a template literal's
+ * `${process.env.GH_TOKEN}`, an f-string's `{os.environ}`, a Jinja expression) would be evaluated
+ * there, its value sent to the provider and recorded. So a rewrite keeps exactly the placeholders of
+ * the text it replaces, each as written, and adds none: no other placeholder, no brace or other
+ * syntax that starts one, and nothing that would make one with the characters on either side of it.
+ */
 export function checkEdit(edit: ProposedEdit, anchors: readonly Anchor[], forbidden: ReadonlySet<string>): EditCheck {
   const anchor = anchors.find((a) => a.id === edit.anchor);
   if (!anchor) return { ok: false, reason: `anchor ${edit.anchor} does not exist` };
   const replace = edit.replace.trim();
   if (!replace) return { ok: false, reason: 'the replacement is empty' };
   if (replace === anchor.text) return { ok: false, reason: 'the replacement is the text it replaces' };
+  const syntax = templateSyntax(anchor.file);
+  const had = placeholders(anchor.text, syntax);
+  const has = placeholders(replace, syntax);
+  const own = outsidePlaceholders(replace, has);
+  const was = outsidePlaceholders(anchor.text, had);
   // A one-line span stays one line. In code it sits in a string, which quotes and backslashes would
   // end or escape; in a prose file (a Markdown policy) they are just punctuation.
   if (/[\n\r]/.test(replace) && !/[\n\r]/.test(anchor.text)) return { ok: false, reason: 'the replacement spans several lines, and the text it replaces is one' };
-  if (!isProse(anchor.file) && /["'`\\]/.test(replace) && !/["'`\\]/.test(anchor.text)) return { ok: false, reason: 'the replacement has quotes or backslashes, which could break the string in code it goes into' };
+  if (!isProse(anchor.file) && /["'`\\]/.test(own) && !/["'`\\]/.test(was)) return { ok: false, reason: 'the replacement has quotes or backslashes, which could break the string in code it goes into' };
   if (replace.length > longestRewrite(anchor.text.length)) return { ok: false, reason: `the replacement is ${replace.length} characters, far longer than the ${anchor.text.length} it replaces` };
+  const added = lacking(has.map((p) => p.text), had.map((p) => p.text));
+  if (added.length) return { ok: false, reason: `it brings in ${safeLine(added.join(', ')).slice(0, 120)}, which ${anchor.file} could fill in when the agent builds its prompt, as code or as a value of the agent's: a rewrite keeps the placeholders of the text it replaces and adds none` };
+  const dropped = lacking(had.map((p) => p.text), has.map((p) => p.text));
+  if (dropped.length) return { ok: false, reason: `it leaves out ${safeLine(dropped.join(', ')).slice(0, 120)}, which the text it replaces has: a rewrite keeps each placeholder as it is written` };
+  const stray = lacking(strays(own, syntax), strays(was, syntax));
+  if (stray.length) return { ok: false, reason: `it has ${stray[0]} outside a placeholder, which could start one in ${anchor.file}: a rewrite keeps the placeholders of the text it replaces and adds none` };
+  // The characters on either side of the span stay: a rewrite that starts after a `$` with a `{`,
+  // or ends in a `%` before a `(`, makes a placeholder with them.
+  if (anchor.prev !== undefined && OPENS.test(anchor.prev) && replace[0] !== anchor.text[0]) return { ok: false, reason: `it starts differently from the text it replaces, right after the ${anchor.prev} in ${anchor.file}, and the two could make a placeholder` };
+  const last = replace.at(-1)!;
+  if (anchor.next !== undefined && /[\w{(%]/.test(anchor.next) && OPENS.test(last) && last !== anchor.text.at(-1)) return { ok: false, reason: `it ends in ${last}, right before the ${anchor.next} in ${anchor.file}, and the two could make a placeholder` };
   const before = caseDetails(anchor.text);
   const brought = [...caseDetails(replace)].filter((d) => forbidden.has(d) && !before.has(d));
   if (brought.length) {
@@ -159,6 +512,31 @@ export function editSize(before: string, after: string): number {
   let s = 0;
   while (s < before.length - p && s < after.length - p && before[before.length - 1 - s] === after[after.length - 1 - s]) s++;
   return before.length - p - s + (after.length - p - s);
+}
+
+/**
+ * The characters one token is taken to hold when a rewrite's growth is worked out before anything
+ * runs: more than tokenizers fit into a token of English prose (about 3.5 to 4.5), so the tokens a
+ * rewrite adds are counted low, and the estimate stays under the growth verify measures.
+ */
+export const CHARS_PER_TOKEN = 5;
+
+/**
+ * How much a rewrite alone grows the input tokens of runs, before any of them is replayed: each
+ * recorded model request that carries the span as it was sent grows by the characters the rewrite
+ * adds (`extra`, negative for a shorter one), at CHARS_PER_TOKEN, against what those runs' model
+ * calls recorded in all. `requests` holds each call's request body as JSON and the input tokens it
+ * recorded (cache reads and writes included, as verify's footprint counts them). Null when they
+ * recorded none, as an import without usage does: nothing to measure the growth against.
+ */
+export function rewriteGrowth(requests: ReadonlyArray<{ body: string; inputTokens: number }>, sent: string, extra: number): number | null {
+  const total = requests.reduce((n, r) => n + r.inputTokens, 0);
+  if (!(total > 0) || !sent) return null;
+  // As the body holds it: JSON-escaped.
+  const needle = JSON.stringify(sent).slice(1, -1);
+  let carried = 0;
+  for (const r of requests) for (let i = r.body.indexOf(needle); i !== -1; i = r.body.indexOf(needle, i + needle.length)) carried++;
+  return (carried * extra) / CHARS_PER_TOKEN / total;
 }
 
 /** A file with one span replaced. Throws when the span is not where the anchor says, rather than guess. */

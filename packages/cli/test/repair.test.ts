@@ -1,14 +1,14 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { judgeAnswer, judgeQuestion, message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
-import { releaseLock } from '@shadowlap/engine';
-import { noDiagnosisWhy, recoverWorkingTree, startRepair } from '../src/repair.js';
+import { releaseLock, unifiedDiff } from '@shadowlap/engine';
+import { applyAccepted, noDiagnosisWhy, recoverWorkingTree, startRepair } from '../src/repair.js';
 
 /**
  * `shadowlap repair` through the CLI, on the support agent in a git repository of its own. The mock
@@ -28,6 +28,8 @@ let project: string;
 let mode: 'refund' | 'alternate' | 'stubborn' = 'refund';
 let decisions = 0;
 let counter = 0;
+/** What the repairer proposes instead of the three below, given the prompt it was sent (with its line breaks). */
+let proposals: ((prompt: string) => Array<{ anchor: number; replace: string; strategy: string; why: string }>) | null = null;
 
 /** A judge check that reads the run: it passes when no $240 refund was issued. */
 const JUDGED = [{ name: 'no-big-refund', question: 'Did the agent avoid refunding $240?', of: 'run', model: 'claude-haiku-4-5' }];
@@ -40,6 +42,7 @@ function script(ctx: ScriptContext) {
   const usage = { input_tokens: Math.round(JSON.stringify(ctx.request).length / 4), output_tokens: 30 };
   if (system.includes('You improve AI agents')) {
     const user = JSON.stringify(ctx.request.messages);
+    if (proposals) return { message: message([text(JSON.stringify({ diagnosis: 'The policy line says who decides, not what to do.', candidates: proposals(user.replace(/\\n/g, '\n')) }))], usage) };
     const anchor = (label: string) => Number(new RegExp(`\\[(\\d+)\\] ${label}, in [^:]+:`).exec(user.replace(/\\n/g, '\n'))?.[1]);
     const answer = {
       diagnosis: 'The system prompt says to follow the policy but not what the policy asks of large refunds.',
@@ -95,6 +98,7 @@ beforeEach(() => {
   sh(project, 'git', ['commit', '-q', '-m', 'agent']);
   mode = 'refund';
   decisions = 0;
+  proposals = null;
 });
 afterEach(() => {
   rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -363,9 +367,11 @@ process.stdin.on('end', () => {
     const { failed } = await runs();
     mode = 'stubborn';
     const before = mock.requests.length;
-    // A build that fails unless the folder's repair lock is held: it runs after each candidate is
-    // applied and put back, and after --apply writes the fix, which another repair must not see half done.
-    const build = `"${process.execPath}" -e "process.exit(require('node:fs').existsSync('.shadowlap/repair.lock') ? 0 : 3)"`;
+    // A build that fails unless the folder's repair lock is held: it runs in each candidate's
+    // worktree once the candidate is in it, and after --apply writes the fix, which another repair
+    // must not see half done.
+    const lock = JSON.stringify(join(project, '.shadowlap', 'repair.lock')).replace(/"/g, "'");
+    const build = `"${process.execPath}" -e "process.exit(require('node:fs').existsSync(${lock}) ? 0 : 3)"`;
     const r = await shadowlap(['repair', '--fixes', failed[0]!, '--keeps', 'label:good', '--expect', ORACLE, '--stronger', 'big-model', '--build', build, '--apply', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as Report;
@@ -513,6 +519,209 @@ process.stdin.on('end', () => {
   });
 });
 
+describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }, () => {
+  it('verifies every candidate in a worktree of its own, the working tree as it is, and leaves the working tree alone while verify runs', async () => {
+    // The agent writes down, each time it runs, where it runs, the file it runs from, the working
+    // tree's copy of it, and the untracked and ignored files it can read there.
+    const probe = [
+      "import { appendFileSync as logLine, existsSync as there, readFileSync as read } from 'node:fs';",
+      "if (process.env.LIVE_LOG) logLine(process.env.LIVE_LOG, JSON.stringify({ cwd: process.cwd(), self: read(new URL(import.meta.url), 'utf8'), live: read(process.env.LIVE_FILE, 'utf8'), untracked: there('notes.txt') ? read('notes.txt', 'utf8') : null, ignored: there('.env.local') ? read('.env.local', 'utf8') : null }) + '\\n');",
+    ].join('\n');
+    writeFileSync(join(project, 'agent.mjs'), `${probe}\n${readFileSync(AGENT, 'utf8')}`);
+    writeFileSync(join(project, '.gitignore'), '.shadowlap/\n.env.local\n');
+    sh(project, 'git', ['commit', '-qam', 'agent that says where it runs']);
+    const { failed } = await runs();
+    // A change not committed, a file not tracked, and one git ignores: verify replays all three.
+    writeFileSync(join(project, 'agent.mjs'), `${readFileSync(join(project, 'agent.mjs'), 'utf8')}// changed, not committed\n`);
+    writeFileSync(join(project, 'notes.txt'), 'untracked note');
+    writeFileSync(join(project, '.env.local'), 'IGNORED=1');
+    // The project's own post-checkout hook, which a candidate's worktree is checked out without.
+    const hookLog = join(project, '.shadowlap', 'hook.log');
+    writeFileSync(join(project, '.git', 'hooks', 'post-checkout'), `#!/bin/sh\necho ran >> "${hookLog}"\n`, { mode: 0o755 });
+    const live = join(project, 'agent.mjs');
+    const before = { text: readFileSync(live, 'utf8'), mtime: statSync(live).mtimeMs };
+    mode = 'alternate';
+    const log = join(project, '.shadowlap', 'live.log');
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json'], { LIVE_LOG: log, LIVE_FILE: live });
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as Report;
+    expect(report.outcome).toBe('fixed');
+
+    const lines = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { cwd: string; self: string; live: string; untracked: string | null; ignored: string | null });
+    // Blame probes the code as it is, in the working tree; every attempt verify made ran elsewhere.
+    // (The worktrees are gone by now, so their paths are compared as the agent saw them.)
+    const home = [project, realpathSync(project)];
+    const verified = lines.filter((l) => !home.includes(l.cwd));
+    expect(verified.length).toBeGreaterThan(10);
+    for (const l of verified) {
+      expect(home.some((h) => l.cwd.startsWith(h))).toBe(false);
+      // The working tree never held a candidate while verify ran.
+      expect(l.live).toBe(before.text);
+      expect(l.self).toContain('// changed, not committed');
+      expect(l).toMatchObject({ untracked: 'untracked note', ignored: 'IGNORED=1' });
+    }
+    // The candidate that was accepted was in the file the agent ran from, there and only there.
+    expect(verified.some((l) => l.self.includes(FIX))).toBe(true);
+    expect(readFileSync(live, 'utf8')).toBe(before.text);
+    expect(statSync(live).mtimeMs).toBe(before.mtime);
+    // Every worktree is gone, and git keeps nothing of them; none ran the project's hook.
+    expect(sh(project, 'git', ['worktree', 'list', '--porcelain']).split('\n').filter((l) => l.startsWith('worktree '))).toHaveLength(1);
+    expect(existsSync(hookLog)).toBe(false);
+    expect(sh(project, 'git', ['status', '--porcelain'])).toBe(' M agent.mjs\n?? notes.txt\n');
+  });
+
+  it('anchors a policy sentence the agent fills a value into, repairs it keeping the placeholder, and sets aside a rewrite that would read the environment', async () => {
+    // The policy line is a template literal: the agent sends "Refunds above $100 need a manager."
+    const templated = readFileSync(AGENT, 'utf8')
+      .replace('const outbox =', 'const limit = 100;\nconst outbox =')
+      .replace("process.env.AGENT_SYSTEM ?? 'You are a support agent. Follow the refund policy.'", () => 'process.env.AGENT_SYSTEM ?? `You are a support agent. Refunds above $${limit} need a manager.`');
+    expect(templated).toContain('$${limit}');
+    writeFileSync(join(project, 'agent.mjs'), templated);
+    sh(project, 'git', ['commit', '-qam', 'the policy limit in the prompt']);
+    const { failed } = await runs();
+    mode = 'alternate';
+    const secret = 'ghs_SECRETTOKENFORTHETEST0123456789';
+    let shown = '';
+    proposals = (prompt) => {
+      shown = prompt;
+      const id = Number(/\[(\d+)\] system prompt, in agent\.mjs: You are a support agent\. Refunds above \$\$\{limit\} need a manager\./.exec(prompt)?.[1]);
+      return [
+        { anchor: id, replace: 'You are a support agent. Refunds above $${limit} need a manager. ${process.env.GH_TOKEN}', strategy: 'Say what the policy is', why: 'Read it from the environment.' },
+        { anchor: id, replace: 'You are a support agent. Refunds above $${limit} need a manager: escalate every refund above the limit.', strategy: 'Escalate refunds above the policy limit', why: 'Say what to do above the limit.' },
+      ];
+    };
+    const before = mock.requests.length;
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json'], { GH_TOKEN: secret });
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as Report & { candidates: Array<{ before: string; verify: unknown }> };
+    // The repairer is shown the line as the file has it, placeholder and all, and told to keep it.
+    expect(shown).toContain('agent.mjs: You are a support agent. Refunds above $${limit} need a manager.');
+    expect(shown).toContain('Keep each one exactly as it is written');
+    expect(report.outcome).toBe('fixed');
+    expect(report.candidates.map((c) => [c.id, c.state])).toEqual([
+      [1, 'invalid'],
+      [2, 'accepted'],
+    ]);
+    expect(report.candidates[0]!.reason).toContain('it brings in ${process.env.GH_TOKEN}, which agent.mjs could fill in when the agent builds its prompt');
+    expect(report.candidates[0]!.verify).toBeNull();
+    expect(report.candidates[1]!.before).toBe('You are a support agent. Refunds above $${limit} need a manager.');
+    expect(report.patch).toContain('+    system: process.env.AGENT_SYSTEM ?? `You are a support agent. Refunds above $${limit} need a manager: escalate every refund above the limit.`,');
+    // Verify ran the agent with the value filled in, and the token went nowhere.
+    const sent = mock.requests.slice(before).map((q) => JSON.stringify(q.body));
+    expect(sent.some((b) => b.includes('Refunds above $100 need a manager: escalate every refund above the limit.'))).toBe(true);
+    expect(sent.some((b) => b.includes(secret))).toBe(false);
+  });
+
+  it('rejects a rewrite whose growth alone is past --max-growth before verify runs anything for it', async () => {
+    const { failed } = await runs();
+    mode = 'alternate';
+    const padding = 'Read the whole refund policy before you choose a tool, and say which rule applies. '.repeat(6).trim();
+    proposals = (prompt) => {
+      const id = Number(/\[(\d+)\] system prompt, in agent\.mjs:/.exec(prompt)?.[1]);
+      return [{ anchor: id, replace: `${FIX} ${padding}`, strategy: 'Spell the policy out', why: 'More words.' }];
+    };
+    const before = mock.requests.length;
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = JSON.parse(r.stdout) as Report & { cost: { verify: number }; candidates: Array<{ verify: unknown }> };
+    expect(report.outcome).toBe('not-fixed');
+    expect(report.why).toBe('the one candidate that could be tried grew the input tokens per run past --max-growth 25% by its rewrite alone, so verify ran none');
+    expect(report.candidates).toHaveLength(1);
+    expect(report.candidates[0]).toMatchObject({ state: 'rejected', verify: null });
+    expect(report.candidates[0]!.reason).toMatch(/^input tokens per run grow \d+% from the rewrite alone, at 5 characters a token, more than --max-growth 25%, so it was not verified$/);
+    expect(report.cost.verify).toBe(0);
+    // Nothing was sent with it: no attempt ran.
+    expect(mock.requests.slice(before).some((q) => JSON.stringify(q.body).includes('say which rule applies'))).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')('gives up on a repairer that does not answer in time, stops it, and says why', async () => {
+    const failed = await record();
+    mode = 'alternate';
+    const bin = mkdtempSync(join(tmpdir(), 'fp-claude-'));
+    try {
+      // A claude that never answers, and writes down its process id.
+      writeFileSync(join(bin, 'claude'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(join(bin, 'pid'))}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
+      chmodSync(join(bin, 'claude'), 0o755);
+      const started = Date.now();
+      const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'claude-code', '--repairer-timeout', '2', '--json'], { SHADOWLAP_CLAUDE: join(bin, 'claude') });
+      expect(r.code, r.out).toBe(1);
+      const report = JSON.parse(r.stdout) as Report & { noRepairer: string | null };
+      expect(report).toMatchObject({ outcome: 'not-fixed', noRepairer: 'the repairer could not be asked: it did not answer within 2 seconds', why: 'the repairer could not be asked: it did not answer within 2 seconds' });
+      expect(report.warnings).toContain('the repairer could not be asked: it did not answer within 2 seconds: give it longer with --repairer-timeout <seconds>, or repair.timeout in shadowlap.config.json');
+      expect(report.targets[0]).toMatchObject({ outcome: 'blamed' });
+      expect(Date.now() - started).toBeLessThan(90_000);
+      // It was stopped, not left running.
+      const pid = Number(readFileSync(join(bin, 'pid'), 'utf8'));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('stops a repairer still being asked on Ctrl-C, and reports the repair stopped', async () => {
+    const failed = await record();
+    mode = 'alternate';
+    const bin = mkdtempSync(join(tmpdir(), 'fp-claude-'));
+    try {
+      writeFileSync(join(bin, 'claude'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(join(bin, 'pid'))}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
+      chmodSync(join(bin, 'claude'), 0o755);
+      const child = spawn(process.execPath, [CLI, 'repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'claude-code', '--json'], {
+        cwd: project,
+        env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, ANTHROPIC_BASE_URL: mock.url, ANTHROPIC_API_KEY: 'test-key', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_CLAUDE: join(bin, 'claude') },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
+      const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
+      // Once the repairer is being asked, Ctrl-C.
+      for (let i = 0; i < 600 && !existsSync(join(bin, 'pid')); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(existsSync(join(bin, 'pid'))).toBe(true);
+      child.kill('SIGINT');
+      await exited;
+      const report = JSON.parse(stdout) as Report & { noRepairer: string | null };
+      expect(report).toMatchObject({ outcome: 'stopped', why: 'interrupted', noRepairer: null });
+      expect(report.warnings.some((w) => w.startsWith('the repairer could not be asked'))).toBe(false);
+      const pid = Number(readFileSync(join(bin, 'pid'), 'utf8'));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  it('takes the time limit from repair.timeout in the config, and refuses one that is no number of seconds', async () => {
+    const failed = await record();
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ repair: { timeout: 0 } }));
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain('repair.timeout must be a whole number of seconds, such as 600');
+  });
+});
+
+describe('applyAccepted', () => {
+  const candidate = { id: 1, source: 'repairer' as const, strategy: 's', why: 'w', surface: 'system prompt', file: 'agent.mjs', offset: 16, before: 'Follow the refund policy.', after: 'Follow the refund policy: escalate above the limit.', size: 26, state: 'accepted' as const, reason: null, verify: null };
+  const content = "const system = 'Follow the refund policy.';\n";
+
+  it('writes the accepted candidate into the working tree, and nothing when its patch is anything more', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-apply-'));
+    try {
+      writeFileSync(join(dir, 'agent.mjs'), content);
+      writeFileSync(join(dir, 'other.mjs'), 'export {};\n');
+      const fixed = content.replace(candidate.before, candidate.after);
+      const report = { candidates: [candidate], accepted: 1, patch: unifiedDiff('agent.mjs', content, fixed), output: { dir: null, patch: 'fix.patch', report: null, goldens: [], applied: false, branch: null, pr: null } };
+      // A patch that also changes another file is not the candidate's change: refused, nothing written.
+      const more = { ...report, patch: report.patch + unifiedDiff('other.mjs', 'export {};\n', 'process.exit(1);\n') };
+      expect(() => applyAccepted(more, dir)).toThrow(/the patch is not the accepted candidate's change \(it changes agent\.mjs and other\.mjs, where its accepted candidate changes agent\.mjs alone\), so nothing was applied/);
+      expect(readFileSync(join(dir, 'agent.mjs'), 'utf8')).toBe(content);
+      applyAccepted(report, dir);
+      expect(readFileSync(join(dir, 'agent.mjs'), 'utf8')).toBe(fixed);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('recoverWorkingTree', () => {
   it('puts back an edit an interrupted repair left, and leaves a file someone changed since alone', () => {
     const dir = mkdtempSync(join(tmpdir(), 'fp-journal-'));
@@ -573,6 +782,17 @@ describe('startRepair', () => {
       running.kill('SIGKILL');
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('removes the worktree a repair that died left in the temporary folder, and what git keeps of it', () => {
+    const base = mkdtempSync(join(tmpdir(), 'shadowlap-repair-'));
+    sh(project, 'git', ['worktree', 'add', '--detach', join(base, 'tree'), 'HEAD']);
+    const trees = () => sh(project, 'git', ['worktree', 'list', '--porcelain']).split('\n').filter((l) => l.startsWith('worktree '));
+    expect(trees()).toHaveLength(2);
+    const { lock } = startRepair(project);
+    releaseLock(lock);
+    expect(trees()).toHaveLength(1);
+    expect(existsSync(base)).toBe(false);
   });
 
   it('never takes over by its age the lock of a repair it can’t check, one in a container or on another machine sharing the folder', () => {

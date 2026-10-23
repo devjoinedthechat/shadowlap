@@ -27,8 +27,8 @@ export interface ShadowlapConfig {
   clock?: ClockMode;
   /** HTTP hosts recorded as tools, from `"http": { "<host>": "<effect>" }`. */
   http?: HttpRule[];
-  /** `shadowlap repair`: the model that proposes fixes (`provider:model`) and its base URL. */
-  repair?: { repairer?: string; baseUrl?: string };
+  /** `shadowlap repair`: the model that proposes fixes (`provider:model`), its base URL, and how long it may take to answer, in seconds. */
+  repair?: { repairer?: string; baseUrl?: string; timeout?: number };
   /** Tools by name (or a captured HTTP call's host): `trust` marks the reads `shadowlap injection` plants in, over what the SDK or an MCP server declared. */
   tools?: ToolTrust;
   /** `tools.unrecorded`: the effect of tools the agent runs without Shadowlap recording them, which decides whether `replay` and `test` may run them again. */
@@ -77,10 +77,12 @@ export function loadConfig(cwd: string): ShadowlapConfig {
   if (parsed.repair !== undefined) {
     const r = parsed.repair as unknown;
     if (typeof r !== 'object' || r === null || Array.isArray(r)) throw new Error(`${file}: repair must be an object, e.g. { "repairer": "anthropic:claude-opus-5-5" }`);
-    const { repairer, baseUrl } = r as Record<string, unknown>;
+    const { repairer, baseUrl, timeout } = r as Record<string, unknown>;
     if (repairer !== undefined && typeof repairer !== 'string') throw new Error(`${file}: repair.repairer must be a string such as "anthropic:claude-opus-5-5"`);
     if (baseUrl !== undefined && typeof baseUrl !== 'string') throw new Error(`${file}: repair.baseUrl must be a URL`);
-    config.repair = { ...(repairer ? { repairer } : {}), ...(baseUrl ? { baseUrl } : {}) };
+    // How long the repairer may take to answer (shadowlap repair --repairer-timeout).
+    if (timeout !== undefined && !(typeof timeout === 'number' && Number.isInteger(timeout) && timeout > 0)) throw new Error(`${file}: repair.timeout must be a whole number of seconds, such as 600`);
+    config.repair = { ...(repairer ? { repairer } : {}), ...(baseUrl ? { baseUrl } : {}), ...(timeout !== undefined ? { timeout: timeout as number } : {}) };
   }
   // Team store: taken as written. A typo in the URL can't stop a recording: push, pull and the store
   // commands parse it and say what is wrong.

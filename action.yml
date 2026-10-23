@@ -16,8 +16,11 @@ inputs:
     description: Where the recorded commands run and relative paths start.
     default: .
   version:
-    description: The shadowlap version to install from npm, e.g. 0.1.0. Empty builds the CLI from this action's own source, which adds about a minute.
+    description: The shadowlap version to install from npm, e.g. 0.1.0. Empty installs this action's own release, the version its packages/cli/package.json names.
     default: ''
+  build-from-source:
+    description: Build the CLI from this action's own source rather than install it from npm, as for an action used at a commit that is no release (version is then ignored). It adds about a minute, and the build runs with none of the job's environment but what npm and Node need, so no secret, key or token reaches the scripts it runs.
+    default: 'false'
   writes:
     description: What write tools do after a divergence (block, stub or allow).
     default: block
@@ -55,7 +58,7 @@ inputs:
     description: Push every test run and the session's report to the team store set in shadowlap.config.json (shadowlap test --push), and each fix that fix-on-failure opens, so teammates see it on their Fixes page. The job needs credentials for the bucket (shadowlap store ci prints the steps that give them, and with R2 keeps its keys and the push to jobs that aren't a pull request's); a pull request's job writes only to its own folder. A push that can't happen, such as one without credentials or from a fork's pull request, is a warning that says why; it never fails the job or keeps a fix's pull request from opening.
     default: 'false'
   fix-on-failure:
-    description: When a golden fails an outcome check, run blame, repair and verify, and open a pull request with the fix verify accepted. Never for a divergence; never merges. Needs contents and pull-requests write permission, GH_TOKEN, the repairer's key, and the agent's own provider keys (blame and verify run it live).
+    description: When a golden fails an outcome check, run blame, repair and verify, and open a pull request with the fix verify accepted. Never for a divergence, nor from a fix's own branch; never merges. Needs contents and pull-requests write permission, the repairer's key, and the agent's own provider keys (blame and verify run it live); github-token says how the pull request's checks start.
     default: 'false'
   fix-budget:
     description: Dollars fix-on-failure may spend per failing golden, on blame, the repairer and verify together.
@@ -63,6 +66,12 @@ inputs:
   repairer:
     description: The model that proposes fixes, as for shadowlap repair --repairer (claude-code, anthropic, anthropic:<model>, openai:<model>). Empty uses repair.repairer in shadowlap.config.json.
     default: ''
+  github-token:
+    description: The token fix-on-failure pushes a fix's branch and opens its pull request with, and the pull request comment is kept with. A GitHub App's token or a personal access token makes GitHub start the fix pull request's workflows. Empty uses the job's GITHUB_TOKEN, for which GitHub starts none, so the action then starts the workflow it runs in on the fix's branch, which needs a workflow_dispatch trigger and actions write permission; the pull request says which happened. The CLI and the agent never get this token.
+    default: ''
+  comment:
+    description: On a pull request, keep one comment on it with each golden's verdict line, compared with the base branch's last session when the test history has one, edited in place on every run. Needs pull-requests write permission. A pull request from a fork, whose token may not comment, gets none, and the job summary says so.
+    default: 'true'
 
 outputs:
   passed:
@@ -109,33 +118,43 @@ runs:
 
     - name: Install shadowlap ${{ inputs.version }}
       id: install
-      if: inputs.version != ''
+      if: inputs.build-from-source != 'true'
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
         FIX_ON_FAILURE: ${{ inputs.fix-on-failure }}
       run: |
-        # The step names the release twice, the action's tag and `version`: an update that moves only
-        # the tag would have this action drive another CLI than the one it was released with.
+        # The CLI this action was released with, unless the step names another: the action's tag and
+        # `version` name one release, and an update that moves only the tag would have this action
+        # drive another CLI than its own.
         action=$(node -p "require(process.env.GITHUB_ACTION_PATH + '/packages/cli/package.json').version")
-        if [ "$VERSION" != "$action" ]; then echo "::warning title=Shadowlap::this action is v$action but installs shadowlap $VERSION; set version: $action"; fi
+        if [ -z "$VERSION" ]; then VERSION="$action"; elif [ "$VERSION" != "$action" ]; then echo "::warning title=Shadowlap::this action is v$action but installs shadowlap $VERSION; set version: $action, or leave it out"; fi
         # fix-on-failure may ask Claude for the fix through the Anthropic SDK, an optional peer that the
         # CLI imports from where it is installed: it goes in beside it, at the version this release was
         # tested with, never whatever is newest, in a job that holds GH_TOKEN and the provider keys.
         sdk=()
         if [ "$FIX_ON_FAILURE" = true ]; then sdk=("@anthropic-ai/sdk@$(node -p "require(process.env.GITHUB_ACTION_PATH + '/package-lock.json').packages['node_modules/@anthropic-ai/sdk']?.version ?? '>=0.126.0 <1'")"); fi
-        npm install --prefix "$RUNNER_TEMP/shadowlap-cli" --no-save --no-audit --no-fund "shadowlap@$VERSION" "${sdk[@]}"
+        # No package's install script runs in a job that may hold provider keys and tokens: none of
+        # these packages needs one.
+        npm install --prefix "$RUNNER_TEMP/shadowlap-cli" --no-save --no-audit --no-fund --ignore-scripts "shadowlap@$VERSION" "${sdk[@]}"
         echo "cli=$RUNNER_TEMP/shadowlap-cli/node_modules/shadowlap/bin/shadowlap.js" >> "$GITHUB_OUTPUT"
 
     - name: Build shadowlap from the action's source
       id: build
-      if: inputs.version == ''
+      if: inputs.build-from-source == 'true'
       shell: bash
       working-directory: ${{ github.action_path }}
       run: |
+        # npm ci runs the install scripts of every package the monorepo builds with, so the build gets
+        # nothing of the job's environment but what npm and Node need: no provider key, token or other
+        # secret the step was given.
+        keep=()
+        for name in PATH HOME USER LOGNAME SHELL LANG LC_ALL TMPDIR TEMP TMP RUNNER_TEMP RUNNER_OS CI HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy NODE_EXTRA_CA_CERTS npm_config_cache SYSTEMROOT SystemRoot WINDIR COMSPEC ComSpec PATHEXT APPDATA LOCALAPPDATA USERPROFILE PROGRAMDATA ProgramFiles; do
+          if [ -n "${!name+set}" ]; then keep+=("$name=${!name}"); fi
+        done
         if [ ! -f packages/cli/dist/index.js ]; then
-          npm ci --no-audit --no-fund
-          npm run build
+          env -i "${keep[@]}" npm ci --no-audit --no-fund
+          env -i "${keep[@]}" npm run build
         fi
         echo "cli=$(pwd)/packages/cli/bin/shadowlap.js" >> "$GITHUB_OUTPUT"
 
@@ -178,6 +197,10 @@ runs:
         INPUT_REPAIRER: ${{ inputs.repairer }}
         INPUT_INCONCLUSIVE: ${{ inputs.inconclusive }}
         INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        # For git, gh and GitHub's API alone: run.mjs takes both out of what the CLI and the agent get.
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        SHADOWLAP_JOB_TOKEN: ${{ github.token }}
       run: node "${{ github.action_path }}/action/run.mjs"
 
     # Saved whether the tests passed or not: a run that failed is history too, and the next one's baseline.

@@ -57,7 +57,20 @@ The repairer is asked for candidates, and that is all it does. Everything that d
 
 ## What a fix may change
 
-A rewrite replaces one **anchor**: a span of the system prompt or of a tool description, as the recording shows it, that appears verbatim exactly once in the project's files (tracked, or untracked and not ignored). That makes every candidate applicable where the text lives, and every patch one readable change. A prompt assembled from pieces still anchors: each sentence or line that appears once is its own span. When nothing anchors, the report says so, and the fix is for a person or a coding agent to make.
+A rewrite replaces one **anchor**: a span of the system prompt or of a tool description, as the recording shows it, that appears exactly once in the project's files (tracked, or untracked and not ignored). That makes every candidate applicable where the text lives, and every patch one readable change. A prompt assembled from pieces still anchors: each sentence or line that appears once is its own span. When nothing anchors, the report says so, and the fix is for a person or a coding agent to make.
+
+A span the agent filled a value into anchors where the file has its placeholder. The recording holds `Refunds above 100 need a manager.`; the file holds ``f"Refunds above {limit} need a manager."``, or `` `Refunds above ${limit} need a manager.` ``, or `Refunds above {{ limit }} need a manager.` in a Jinja template, and that is the anchor, placeholder and all. Each line of a file with a placeholder is matched against the span, the placeholder standing for any text, and the span anchors when it is found that way exactly once and nowhere verbatim. Most of the span has to be the line's own words, and a placeholder holding more than a name (`${user.name ?? "customer"}`) is no place to stand, so a sentence that is mostly a value doesn't anchor.
+
+A rewrite is held to text before anything runs. The repairer reads the failing runs, tool output included, and tool output can be anyone's words; verify then builds the agent's prompt from the rewrite, so a placeholder it brought in would be evaluated there, and its value sent to the provider and recorded. So a rewrite keeps exactly the placeholders of the text it replaces, each as it is written and as many times, and adds none, by what reads the file:
+
+| File | Placeholders |
+|---|---|
+| JavaScript and TypeScript | a template literal's `${…}`; `{name}`, `{{ … }}`, `{% … %}` and `<% … %>`, which template libraries read; `%s` and Node's other format conversions |
+| Python | an f-string's or `.format`'s `{…}`, and the `{{` and `}}` that escape a brace; `%s` and `%(name)s`; Jinja's `{{ … }}` and `{% … %}`; `string.Template`'s `$name` |
+| Markdown and text | the same as Python, as a template engine or `.format` may render the file |
+| Other code | all of the above, and Ruby's `#{…}` and the shell's `$(…)` |
+
+A rewrite that drops one of them, or brings in another (`${process.env.GH_TOKEN}`, `{os.environ}`), is set aside, as is one with a brace of its own, or one that would make a placeholder with the characters on either side of its span: a `$` before it and a `{` it starts with. The repairer is told so.
 
 A rewrite of a one-line span stays on one line. A span in code sits in a string, so its rewrite may not bring in quotes or backslashes; a span in a Markdown or text file, such as a policy the agent is given, is prose, and may.
 
@@ -67,15 +80,15 @@ A model shown two failed refunds will happily write "never refund order A-1042".
 
 - **Case details are forbidden.** Ids, amounts and email addresses that appear in the failing runs, but not in the good runs or in the agent's own prompt, may not appear in a replacement. The repairer is told so, and a candidate that names one is set aside before anything runs. A number the policy itself uses, such as its $100 limit, is fine: it appears in the good runs too.
 - **Held-out runs decide.** Failing runs given with `--holdout` are never shown to the repairer, and the gate must fix them too. Without `--holdout`, and with two or more failing runs, every other one is held out automatically. A fix that only fits the runs it was written against fails here.
-- **Prompts don't grow for free.** A fix that grows the input tokens per run by more than `--max-growth` (25% by default) is rejected, however well it scores.
+- **Prompts don't grow for free.** A fix that grows the input tokens per run by more than `--max-growth` (25% by default) is rejected, however well it scores. Its rewrite alone is measured first, before verify spends anything: each recorded request that carries the span grows by the characters the rewrite adds, counted at 5 characters a token, which is more than tokenizers fit into a token of English prose, so the estimate stays under what verify would measure. A rewrite already past the limit that way is rejected without a replay (*input tokens per run grow 31% from the rewrite alone, at 5 characters a token, more than --max-growth 25%, so it was not verified*); one that passes is measured again on the runs verify makes.
 
-## Candidates are tried in your working tree
+## Candidates are tried in a worktree of their own
 
-Each candidate is applied in place, verified, and put back. The agent's command, its dependencies and its build output are already there. A copy elsewhere would run a recorded absolute path against the original code, or fail to start without the untracked `node_modules` or virtual environment. `--build "npm run build"` rebuilds after each change and after each restore.
+Each candidate is verified in a temporary git worktree, in the system's temporary folder, never in your working tree: an editor's autosave, a dev server that reloads and a `shadowlap test` running beside the repair never see a candidate. It is checked out without the repository's hooks, and it is your working tree as it is, not HEAD: tracked files with uncommitted changes and untracked files git doesn't ignore are copied in, so verify replays the code you started the repair on, with one change. What git ignores comes along as the agent needs it: `node_modules` is linked package by package (a package of the repository itself is the worktree's own copy, so a candidate in it is the one that runs), a Python virtual environment is linked, packages installed in a folder above the repository are linked in too, Python's caches (`__pycache__`, `.pytest_cache` and the like) are left out, and everything else, such as a `.env` or build output, is copied, up to 256 MB in all and beyond that linked, which the report says. The recorded command runs there as [bisect](./ci.md#find-the-commit-that-broke-it) runs it at a commit: an absolute path into the repository becomes the worktree's copy. `--build "npm run build"` builds in the worktree, once the candidate is in it. The worktree is removed once the candidate is decided, and on Ctrl-C.
 
-Before an edit, the original bytes go to `.shadowlap/repair-journal.json`. The file is restored after each candidate, on Ctrl-C, and at the start of the next repair if a process died; `shadowlap doctor` reports a journal left behind. A file you edit while a candidate is being verified is left alone, and the report says so.
+Your working tree changes only at the end, with `--apply`, and only by the accepted candidate: its patch is checked first to be that candidate's rewrite and nothing more, as [`shadowlap fix apply`](./cli.md#fix) checks a patch, and its text to be where it was found. Then `--build` runs in the working tree.
 
-One repair runs in a folder at a time. It holds `.shadowlap/repair.lock` while it runs and while it hands its fix over, and a repair started there meanwhile stops before it does anything and says so, rather than undo the running one's candidate. The lock of a repair whose process died on this machine is taken over at once, and its journal restored. A repair in a container or on another machine that shares the folder is kept apart too, but neither side can check the other's process, so such a lock is never taken over: if a repair died there, delete `.shadowlap/repair.lock`. On Windows, which can't tell a process from one given the same process id since, the lock of a repair that died also waits while a running process has its id: delete it if no repair is running.
+One repair runs in a folder at a time. It holds `.shadowlap/repair.lock` while it runs and while it hands its fix over, and a repair started there meanwhile stops before it does anything and says so. The lock of a repair whose process died on this machine is taken over at once, and the worktree it left is removed. A repair in a container or on another machine that shares the folder is kept apart too, but neither side can check the other's process, so such a lock is never taken over: if a repair died there, delete `.shadowlap/repair.lock`. On Windows, which can't tell a process from one given the same process id since, the lock of a repair that died also waits while a running process has its id: delete it if no repair is running. A `.shadowlap/repair-journal.json`, which a repair that tried candidates in place left when it died, is put back at the start of the next repair, and `shadowlap doctor` reports one.
 
 ## Handing it over
 
@@ -107,6 +120,8 @@ Any model from any vendor, configured rather than built in:
 | `claude-code`, `claude-code:<model>` | Your own [Claude Code](https://code.claude.com), run in print mode (`claude -p`), with no tools, the answer held to a JSON schema. It runs as whatever Claude Code is signed in with; Shadowlap never sees its credentials. Without a model, Claude Code's own default is used. `SHADOWLAP_CLAUDE` names the binary when `claude` isn't on the PATH |
 
 `--repairer` overrides the config, and `repair.baseUrl` points it at a gateway. Claude is asked with high effort and structured output. On models that support it, the API's server-side fallback answers a policy decline from another model in the same call, and the report names the model that answered. It is called once per repair, so even the most capable model costs little next to the replays.
+
+It has 10 minutes to answer, `--repairer-timeout <seconds>` or `repair.timeout` in the config for another limit. Past it, the request is aborted, or Claude Code stopped, and the repair goes on without candidates from it: the report says why (`noRepairer`, *the repairer could not be asked: it did not answer within 10 minutes*), as for any repairer that can't be asked. Ctrl-C stops it the same way.
 
 Claude Code runs in an empty temporary directory, so no project's `CLAUDE.md` reaches the prompt. It runs without the variables of any Claude Code session it was started from, so a repair started inside Claude Code asks a fresh one. Its system prompt is a file (`--system-prompt-file`) and the request goes on stdin, so the command line carries no line break, and on Windows a `claude` npm installed, a batch file, runs through cmd.exe. The cost reported is Claude Code's own estimate.
 
@@ -162,14 +177,15 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 | `--keeps <run...>` | Runs that pass and must keep passing, such as `label:good` |
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0 ([outcome checks](./ci.md#outcome-checks)). A [judge check](./judges.md) is asked live on each attempt, and one whose judge can't be is refused before anything runs, as [verify](./verify.md) refuses it |
 | `--repairer <provider:model>` | The model that proposes fixes (default: `repair.repairer` in the config) |
+| `--repairer-timeout <seconds>` | How long the repairer may take to answer (default: `repair.timeout` in the config, else 600) |
 | `--candidates <n>` | Rewrites to ask for. Default 3 |
 | `--stronger <model>` | Rescue with this model when the recorded one can't be, and try switching to it |
 | `--scope <name>` | Blame only the model calls of this scope: the agent's, not a simulated user's |
 | `--set <key=value>` | Blame's probes set this request field, such as `temperature=1` for an agent recorded at 0, whose answers don't vary when asked again |
 | `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for [`verify`](./verify.md#how-a-run-is-judged): by default a run passes at 90% or more and fails at 70% or less, each at 5% risk, up to 80 attempts |
 | `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, such as `--attempts 5 --passes 4` |
-| `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this. Default 25 |
-| `--build <command>` | Rebuild the agent after its source changes |
+| `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this, its rewrite alone measured before it runs. Default 25 |
+| `--build <command>` | Build the agent in each candidate's worktree, and in the working tree after `--apply` |
 | `--apply`, `--branch <name>`, `--pr`, `--goldens <dir>` | Hand-over, above |
 | `--budget <usd>` | Stop once this much is spent on blame, the repairer and verification |
 | `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y`, `--json` | As for [verify](./verify.md) |

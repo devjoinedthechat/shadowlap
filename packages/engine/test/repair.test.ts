@@ -37,8 +37,12 @@ describe('findAnchors', () => {
       { path: 'test/prompt.test.ts', content: "expect(p).toContain('Follow the refund policy.');" },
     ];
     const anchors = findAnchors([{ label: 'system prompt', text: 'You are a support agent. Follow the refund policy. Today is 2026-09-30.' }], files);
-    // The whole prompt is built from pieces; the second sentence is also in a test, so it is not unique.
-    expect(anchors.map((a) => [a.text, a.file])).toEqual([['You are a support agent.', 'prompt.ts']]);
+    // The whole prompt is built from pieces; the second sentence is also in a test, so it is not
+    // unique. The third was sent with the date filled in, and anchors where the file has ${date}.
+    expect(anchors.map((a) => [a.text, a.file])).toEqual([
+      ['You are a support agent.', 'prompt.ts'],
+      ['Today is ${date}.', 'prompt.ts'],
+    ]);
   });
 });
 

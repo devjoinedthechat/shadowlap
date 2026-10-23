@@ -423,6 +423,7 @@ export function register(program: Command): void {
     .option('--keeps <run...>', 'runs that pass and must keep passing, e.g. label:good')
     .option('--expect <json|@file>', 'what a passing run must do besides exiting 0, as under "expect" in shadowlap.config.json tests')
     .option('--repairer <provider:model>', 'the model that proposes fixes: anthropic (claude-opus-5-5), anthropic:<model>, openai:<model>, or claude-code[:<model>] to run your own Claude Code (default: repair.repairer in shadowlap.config.json)')
+    .option('--repairer-timeout <seconds>', 'give up on the repairer when it has not answered after this long (default: repair.timeout in shadowlap.config.json, else 600)', parseIntArg)
     .option('--candidates <n>', 'fixes to ask the repairer for', parseIntArg, 3)
     .option('--stronger <model>', 'when asking the recorded model again rescues nothing, rescue with this one, and try switching to it')
     .option('--scope <name>', 'blame only model calls made in this scope, such as the agent\'s and not a simulated user\'s')
@@ -445,7 +446,7 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', 'run the recorded command of imported runs without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; repairer?: string; candidates: number; stronger?: string; scope?: string; set: string[]; gate?: string; attempts?: number; passes?: number; maxGrowth: number; build?: string; apply?: boolean; branch?: string; pr?: boolean; goldens?: string; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; repairer?: string; repairerTimeout?: number; candidates: number; stronger?: string; scope?: string; set: string[]; gate?: string; attempts?: number; passes?: number; maxGrowth: number; build?: string; apply?: boolean; branch?: string; pr?: boolean; goldens?: string; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       if (!flags.fixes?.length) throw new InvalidArgumentError('give the failing runs to repair: --fixes <runs>');
       if (flags.pr && !flags.branch) throw new InvalidArgumentError('--pr opens a pull request from the branch --branch <name> makes; give both');
@@ -508,7 +509,9 @@ export function register(program: Command): void {
         let report: RepairReport;
         let handOverFailed: HandOverError | null = null;
         try {
-          report = await runRepair({ opts, targets, holdout: held, good, heldOutAutomatically, settings: { ...settings, repairerConfigured: repairer !== null }, outputs, log });
+          // How long the repairer may take: the flag, else the config, else the default (repairer.ts).
+          const repairerTimeout = flags.repairerTimeout ?? config.repair?.timeout;
+          report = await runRepair({ opts, targets, holdout: held, good, heldOutAutomatically, settings: { ...settings, repairerConfigured: repairer !== null, ...(repairerTimeout !== undefined ? { repairerTimeoutMs: repairerTimeout * 1000 } : {}) }, outputs, log });
         } catch (err) {
           if (!(err instanceof HandOverError)) throw err;
           handOverFailed = err;

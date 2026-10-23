@@ -1,11 +1,11 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../src/test-report.js';
-import { gateResult } from '@shadowlap/engine';
+import { gateResult, Store } from '@shadowlap/engine';
 import { hasHistoryGate, historyPlan, keyPart } from '../../../action/history.mjs';
 
 /**
@@ -292,4 +292,160 @@ describe('test reports', () => {
   it('escapes GitHub annotation properties and data', () => {
     expect(githubAnnotations(testReport([clean, failed]))).toBe('::error file=goldens/summarize/run.json,title=Shadowlap%3A summarize|thread::diverged at call 3 (api POST /v1/messages)%0A%0Aa ``` fence%0A50%25 of it: here, there');
   });
+});
+
+describe('the pull request comment the GitHub Action keeps', () => {
+  /** GitHub, as far as comments go: it keeps them, and every request. */
+  const comments: Array<{ id: number; body: string; user: { type: string }; html_url: string }> = [];
+  const calls: Array<{ method: string; url: string; authorization: string | undefined }> = [];
+  let api = '';
+  let server: import('node:http').Server;
+  beforeAll(async () => {
+    const { createServer } = await import('node:http');
+    server = createServer((req, res) => {
+      let text = '';
+      req.on('data', (d: Buffer) => (text += d.toString()));
+      req.on('end', () => {
+        calls.push({ method: req.method ?? '', url: req.url ?? '', authorization: req.headers.authorization });
+        const json = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+        if (req.method === 'GET' && /\/issues\/12\/comments\?/.test(req.url ?? '')) return json(200, comments);
+        if (req.method === 'POST' && /\/issues\/12\/comments$/.test(req.url ?? '')) {
+          const c = { id: comments.length + 1, body: (JSON.parse(text) as { body: string }).body, user: { type: 'Bot' }, html_url: `https://github.test/northwind/agent/pull/12#issuecomment-${comments.length + 1}` };
+          comments.push(c);
+          return json(201, c);
+        }
+        const patch = /\/issues\/comments\/(\d+)$/.exec(req.url ?? '');
+        if (req.method === 'PATCH' && patch) {
+          const c = comments.find((x) => x.id === Number(patch[1]))!;
+          c.body = (JSON.parse(text) as { body: string }).body;
+          return json(200, c);
+        }
+        json(404, { message: 'Not Found' });
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    api = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
+  });
+  afterAll(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  /** A pull_request event for pull request 12 into main, from `head`, as GITHUB_EVENT_PATH holds it. */
+  function event(dir: string, head: string): string {
+    const path = join(dir, 'event.json');
+    writeFileSync(path, JSON.stringify({ number: 12, pull_request: { number: 12, head: { ref: 'feature', repo: { full_name: head } }, base: { ref: 'main', sha: 'e5f6a7b8c9d0e1f2', repo: { full_name: 'northwind/agent' } } } }));
+    return path;
+  }
+
+  /** The action as action.yml runs it on a pull request, while the stand-in for GitHub answers. */
+  function onPullRequest(inputs: Record<string, string>, head = 'northwind/agent', extraEnv: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; summary: string; dir: string }> {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-pr-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'output'), '');
+    writeFileSync(join(dir, 'summary.md'), '');
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      SHADOWLAP_CLI: CLI,
+      GITHUB_OUTPUT: join(dir, 'output'),
+      GITHUB_STEP_SUMMARY: join(dir, 'summary.md'),
+      RUNNER_TEMP: dir,
+      NO_COLOR: '1',
+      SHADOWLAP_GUARD: 'off',
+      INPUT_STORE: join(dir, 'shadowlap.db'),
+      GITHUB_ACTIONS: 'true',
+      GITHUB_EVENT_NAME: 'pull_request',
+      GITHUB_EVENT_PATH: event(dir, head),
+      GITHUB_API_URL: api,
+      GITHUB_SERVER_URL: 'https://github.test',
+      GITHUB_REPOSITORY: 'northwind/agent',
+      GITHUB_RUN_ID: '7',
+      GITHUB_WORKFLOW: 'CI',
+      GITHUB_JOB: 'goldens',
+      SHADOWLAP_JOB_TOKEN: 'ghs_job',
+      GH_TOKEN: undefined,
+      GITHUB_TOKEN: undefined,
+      ...extraEnv,
+    };
+    for (const [k, v] of Object.entries(inputs)) env[`INPUT_${k}`] = v;
+    return new Promise((resolve) => {
+      const child = spawn(process.execPath, [RUN], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+      child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+      child.on('exit', (code) => resolve({ code, out, summary: readFileSync(join(dir, 'summary.md'), 'utf8'), dir }));
+    });
+  }
+
+  it("keeps one comment with each golden's verdict line, compared with main from the test history, and edits it in place on the next run", async () => {
+    comments.length = 0;
+    calls.length = 0;
+    // The test history the job restored: main's last session, at the commit the pull request is based
+    // on, where the golden failed.
+    const history = mkdtempSync(join(tmpdir(), 'fp-action-history-'));
+    dirs.push(history);
+    const store = Store.open(join(history, 'shadowlap.db'));
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'testing/golden/*'], revision: 'e5f6a7b' });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'testing/golden/reference-agent', ok: false, failure: 'diverged', reason: 'diverged at call 3', revision: 'e5f6a7b', data: { verdict: 'failed' } });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    store.close();
+
+    const first = await onPullRequest({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, GUARD: 'off', STORE: join(history, 'shadowlap.db') });
+    expect(first.code, first.out).toBe(0);
+    expect(first.out).toContain('the pull request comment is posted: https://github.test/northwind/agent/pull/12#issuecomment-1');
+    expect(comments).toHaveLength(1);
+    const body = comments[0]!.body;
+    expect(body).toMatch(/^<!-- shadowlap-test-comment [0-9a-f]{12} -->\n### Shadowlap: 1 golden passed\n/);
+    expect(body).toContain('| | Golden | Verdict | On `main` |');
+    expect(body).toContain('| ✅ | `testing/golden/reference-agent` | passed · replayed clean | ❌ failed |');
+    expect(body).toContain('Compared with `main` as the test history last tested it, at `e5f6a7b`.');
+    expect(body).toContain("[The job's summary](https://github.test/northwind/agent/actions/runs/7) has each failure in full.");
+    expect(calls.every((c) => c.authorization === 'Bearer ghs_job')).toBe(true);
+    expect(first.summary).not.toContain('pull request comment');
+
+    // The next run edits that comment rather than adding one.
+    const second = await onPullRequest({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, GUARD: 'off', STORE: join(history, 'shadowlap.db') }, 'northwind/agent', { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
+    expect(second.code).toBe(1);
+    expect(second.out).toContain('the pull request comment is updated');
+    expect(comments).toHaveLength(1);
+    expect(comments[0]!.body).toContain('| ❌ | `testing/golden/reference-agent` | failed · diverged at call 3');
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+  }, 120_000);
+
+  it("posts nothing on a fork's pull request, whose token may not comment, and says so in the job summary only", async () => {
+    comments.length = 0;
+    calls.length = 0;
+    const r = await onPullRequest({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, GUARD: 'off' }, 'someone/agent');
+    expect(r.code, r.out).toBe(0);
+    expect(calls).toEqual([]);
+    expect(r.out).not.toContain('::warning');
+    expect(r.summary).toContain('The pull request comment was not posted: a pull request from a fork gets a token from GitHub that may not comment on it.');
+    // Nor with comment: false.
+    const off = await onPullRequest({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, GUARD: 'off', COMMENT: 'false' });
+    expect(off.code).toBe(0);
+    expect(calls).toEqual([]);
+    expect(off.summary).not.toContain('pull request comment');
+  }, 120_000);
+
+  it('never hands the CLI, nor the agent it runs, the tokens the step was given for GitHub', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-env-'));
+    dirs.push(dir);
+    const cli = join(dir, 'fake-cli.mjs');
+    writeFileSync(
+      cli,
+      [
+        "import { writeFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        "const at = (flag) => args[args.indexOf(flag) + 1];",
+        `writeFileSync(${JSON.stringify(join(dir, 'env.json'))}, JSON.stringify({ input: process.env.INPUT_GITHUB_TOKEN ?? null, job: process.env.SHADOWLAP_JOB_TOKEN ?? null }));`,
+        "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S', revision: null, passed: 1, failed: 0, inconclusive: 0, interrupted: false, results: [{ name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'replay', ok: true, verdict: 'passed', failure: null, message: null, runs: [] }] }));",
+        "writeFileSync(at('--markdown'), '### Shadowlap: 1 recording passed\\n');",
+      ].join('\n'),
+    );
+    const r = await onPullRequest({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, GITHUB_TOKEN: 'github_pat_secret' }, 'northwind/agent', { SHADOWLAP_CLI: cli });
+    expect(r.code, r.out).toBe(0);
+    expect(JSON.parse(readFileSync(join(dir, 'env.json'), 'utf8'))).toEqual({ input: null, job: null });
+    // It commented with the token it was given.
+    expect(calls.at(-1)?.authorization).toBe('Bearer github_pat_secret');
+  }, 60_000);
 });
