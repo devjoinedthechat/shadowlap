@@ -122,7 +122,8 @@ describe('shadowlap skill install', () => {
 
   it('refuses an agent it has nothing for', async () => {
     const r = await shadowlap(scratch('vim'), ['skill', 'install', 'vim']);
-    expect(r.code).toBe(1);
+    // A choice commander refuses is a usage error.
+    expect(r.code).toBe(2);
     expect(r.stderr).toMatch(/Allowed choices are claude-code, agents, kiro, codex, cursor, copilot/);
   });
 });
