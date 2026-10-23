@@ -515,7 +515,6 @@ interface Rebuilt {
   path: string;
   /** The query string the client adds (Gemini streams with `?alt=sse`). */
   search: string;
-  headers: Record<string, string>;
   body: Record<string, unknown>;
 }
 
@@ -528,17 +527,15 @@ export function rebuildRequest(c: TraceModelCall, dialect: Dialect): Rebuilt {
     for (const [k, v] of Object.entries(c.rawRequest)) if (!CLIENT_ONLY.includes(k) && v !== undefined) body[k] = v;
     if (dialect === 'gemini') {
       const { model: m, ...rest } = body;
-      return { path: `/v1beta/models/${encodeURIComponent(String(m ?? model))}:${c.stream ? 'streamGenerateContent' : 'generateContent'}`, search: c.stream ? '?alt=sse' : '', headers: {}, body: rest };
+      return { path: `/v1beta/models/${encodeURIComponent(String(m ?? model))}:${c.stream ? 'streamGenerateContent' : 'generateContent'}`, search: c.stream ? '?alt=sse' : '', body: rest };
     }
-    return { path: dialect === 'anthropic' ? '/v1/messages' : '/v1/chat/completions', search: '', headers: dialect === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {}, body };
+    return { path: dialect === 'anthropic' ? '/v1/messages' : '/v1/chat/completions', search: '', body };
   }
   if (dialect === 'anthropic') {
     const system = systemText(c.messages);
     return {
       path: '/v1/messages',
       search: '',
-      // Every Anthropic SDK sends it, and it takes part in the fingerprint.
-      headers: { 'anthropic-version': '2023-06-01' },
       body: {
         model,
         ...(s.maxTokens !== undefined ? { max_tokens: s.maxTokens } : {}),
@@ -566,7 +563,6 @@ export function rebuildRequest(c: TraceModelCall, dialect: Dialect): Rebuilt {
     return {
       path: `/v1beta/models/${encodeURIComponent(model)}:${c.stream ? 'streamGenerateContent' : 'generateContent'}`,
       search: c.stream ? '?alt=sse' : '',
-      headers: {},
       body: {
         contents: geminiContents(c.messages),
         ...(system !== null ? { systemInstruction: { parts: [{ text: system }] } } : {}),
@@ -578,7 +574,6 @@ export function rebuildRequest(c: TraceModelCall, dialect: Dialect): Rebuilt {
   return {
     path: '/v1/chat/completions',
     search: '',
-    headers: {},
     body: {
       model,
       messages: openaiMessages(c.messages),
@@ -692,7 +687,10 @@ export function capturedFromTrace(c: TraceModelCall, n: number): { call: Capture
     call: {
       url: `https://${HOSTS[dialect]}${req.path}${req.search}`,
       method: 'POST',
-      requestHeaders: { 'content-type': 'application/json', ...req.headers },
+      // A trace keeps what was asked, not the headers the client sent it with, such as the API version
+      // an Anthropic client names: the call names none, and a replay matches it whatever version the
+      // agent's SDK names.
+      requestHeaders: { 'content-type': 'application/json' },
       requestBody: req.body,
       status: 200,
       responseHeaders: { 'content-type': res.contentType },

@@ -52,7 +52,8 @@ describe('import otel: the current GenAI conventions', () => {
 
     const [first, tool, second] = callsOf(store, result.run.runId);
     expect(first!.name).toBe('POST /v1/messages');
-    expect(first!.meta.fingerprintHeaders).toEqual({ 'anthropic-version': '2023-06-01' });
+    // A trace keeps no API version, so the call names none: a replay matches it whatever version the agent's SDK names.
+    expect(first!.meta.fingerprintHeaders).toEqual({});
     expect(first!.request).toEqual({
       model: 'claude-haiku-4-5',
       max_tokens: 512,

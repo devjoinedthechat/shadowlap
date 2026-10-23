@@ -81,6 +81,18 @@ describe('ModelSender', () => {
     expect(JSON.parse(last.body)).toEqual({ model: 'claude-x', max_tokens: 10, messages: [] });
   });
 
+  it('names the API version a recorded call named, and one for a call imported from a trace, which names none', async () => {
+    const sender = new ModelSender({ upstreams: { anthropic: base }, env: { ANTHROPIC_API_KEY: 'sk-test' }, ...noWait });
+    for (const [recorded, sent] of [
+      [{ 'anthropic-version': '2026-10-21' }, '2026-10-21'],
+      [{}, '2023-06-01'],
+    ] as const) {
+      answers = [{ status: 200, body: { content: [], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } } }];
+      await sender.send({ provider: 'anthropic', method: 'POST', path: '/v1/messages', headers: { ...recorded }, body: { model: 'claude-x', max_tokens: 10, messages: [] } });
+      expect(seen.at(-1)!.headers['anthropic-version']).toBe(sent);
+    }
+  });
+
   it('retries what the provider says to retry, honouring retry-after, and keeps a refusal\'s words', async () => {
     answers = [{ status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, headers: { 'retry-after': '0' } }, { status: 200, body: { content: [], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } } }];
     const sender = new ModelSender({ upstreams: { anthropic: base }, env: {}, ...noWait });

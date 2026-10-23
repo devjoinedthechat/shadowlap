@@ -171,6 +171,15 @@ describe('shadowlap import otel', () => {
     expect(mock.requests.length).toBe(before);
   });
 
+  it('replays an agent on an SDK that names another API version just as clean: a trace keeps no version', async () => {
+    const imported = JSON.parse((await shadowlap(['import', 'otel', 'otel-traces.json', '--json'])).out);
+    const before = mock.requests.length;
+    const r = await shadowlap(['replay', imported.runs[0].runId, '--', process.execPath, AGENT], { API_VERSION: '2026-10-21' });
+    expect(r.err + r.out).toContain('Replay clean: 3/3 calls replayed (2 api, 1 tool), 0 upstream requests');
+    expect(r.out).toContain('answer: Order A-1042 was delivered; it cost $240.');
+    expect(mock.requests.length).toBe(before);
+  });
+
   it('forks at the first model call when the trace left out what the agent sends, and runs live from there', async () => {
     const imported = JSON.parse((await shadowlap(['import', 'otel', 'otel-no-tools.json', '--json'])).out);
     expect(imported.kept.withToolDefinitions).toBe(0);

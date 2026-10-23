@@ -269,6 +269,8 @@ export class ModelSender {
     const body = Buffer.from(JSON.stringify(req.body), 'utf8');
     const stream = typeof req.body === 'object' && req.body !== null && (req.body as { stream?: unknown }).stream === true;
     const model = provider.extractModel(req.path, req.body);
+    // A call imported from a trace names no API version, which the API asks every request for.
+    const version = provider.apiVersion && req.headers[provider.apiVersion.header] === undefined ? { [provider.apiVersion.header]: provider.apiVersion.default } : {};
     const retries = this.o.retries ?? 2;
     let attempts = 0;
     for (let attempt = 0; ; attempt++) {
@@ -276,7 +278,7 @@ export class ModelSender {
       try {
         // Bedrock's streaming operations answer in AWS event stream frames, Gemini's alt=sse and the rest with `stream` in server-sent events.
         const accept = /\/(invoke-with-response-stream|converse-stream)$/.test(req.path) ? 'application/vnd.amazon.eventstream' : stream || req.query?.includes('alt=sse') ? 'text/event-stream' : 'application/json';
-        headers = { 'content-type': 'application/json', accept, 'accept-encoding': 'gzip, br, deflate', ...req.headers, ...(await credentialHeaders(provider, url, req.method, body, this.env, up.official)) };
+        headers = { 'content-type': 'application/json', accept, 'accept-encoding': 'gzip, br, deflate', ...version, ...req.headers, ...(await credentialHeaders(provider, url, req.method, body, this.env, up.official)) };
       } catch (err) {
         return { ...none(`${provider.id} credentials: ${(err as Error).message}`), latencyMs: Date.now() - started };
       }

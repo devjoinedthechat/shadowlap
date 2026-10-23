@@ -722,13 +722,15 @@ network you trust. Nothing of the keys is stored. The run's source reads `langfu
 characters of the id>` (or `langsmith:…`, `phoenix:…`, `logfire:…`), or the file's name for `otel`,
 and the run is labelled with the source as well as `imported`.
 
-Replay matches each model call on its whole request. A trace that kept everything the agent sends
-replays it with nothing live; where it left something out, typically the tool definitions, the
-replay forks at the first model call that differs and runs live from there, which the import says.
-A tool call replays when the trace kept its arguments (as an object) and its output, and only if
-every call of that tool was kept: such tools are listed in `meta.covers` as `tool:<name>`, and any
-other tool runs live on replay. A model call that failed where it ran, or kept no messages or
-output, is skipped and runs live.
+Replay matches each model call on its whole request, but for the API version an Anthropic client
+names (`anthropic-version`), which no trace keeps: an imported call names none, and is matched
+whatever version the agent's SDK names. A trace that kept everything the agent sends replays it with
+nothing live; where it left something out, typically the tool definitions, the replay forks at the
+first model call that differs and runs live from there, which the import says. A tool call replays
+when the trace kept its arguments (as an object) and its output, and only if every call of that tool
+was kept: such tools are listed in `meta.covers` as `tool:<name>`, and any other tool runs live on
+replay. A model call that failed where it ran, or kept no messages or output, is skipped and runs
+live.
 
 Two kinds of agent fork early whatever the store, because what they send isn't what their traces
 keep. A Pydantic AI agent forks at its first model call: Pydantic AI logs the conversation, not the

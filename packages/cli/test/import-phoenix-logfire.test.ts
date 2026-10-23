@@ -62,6 +62,8 @@ describe('import phoenix: OpenInference spans from its REST API', () => {
     const { result, counts } = importTrace(store, trace, { source: 'phoenix:4a2db41d', labels: ['phoenix'], author: null });
     expect(counts).toMatchObject({ modelCalls: 3, modelCallsImported: 3, withToolDefinitions: 3, toolCalls: 2, toolCallsKept: 2 });
     expect(store.getCalls(result.run.runId).map((c) => (c.kind === 'api' ? 'model' : c.name))).toEqual(['model', 'lookup_order', 'model', 'issue_refund', 'model']);
+    // The request the instrumentation logged holds no API version, nor does the call: a replay matches it whatever version the agent's SDK names.
+    expect(store.getCalls(result.run.runId).filter((c) => c.kind === 'api').map((c) => c.meta.fingerprintHeaders)).toEqual([{}, {}, {}]);
     store.close();
   });
 });
