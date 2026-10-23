@@ -495,6 +495,10 @@ describe('imports', () => {
     expect(traceSources({ LOGFIRE_READ_TOKEN: 'pylf_v1_eu_secret', LOGFIRE_BASE_URL: 'https://logfire.northwind.example' }).logfire.host).toBe('https://logfire.northwind.example');
     expect(traceSources({}).logfire).toEqual({ keys: false, keyNames: ['LOGFIRE_READ_TOKEN'], host: 'https://logfire-us.pydantic.dev' });
     expect(JSON.stringify(traceSources({ PHOENIX_API_KEY: 'px-secret', LOGFIRE_READ_TOKEN: 'pylf_v1_us_secret' }))).not.toMatch(/secret/);
+    // A password in an address the environment names stays off the page, as the CLI refuses that address.
+    expect(traceSources({ LANGFUSE_HOST: 'https://proxy:hunter2@langfuse.northwind.example' }).langfuse.host).toBe('https://langfuse.northwind.example');
+    expect(JSON.stringify(traceSources({ PHOENIX_COLLECTOR_ENDPOINT: 'https://ops:hunter2@phoenix.northwind.example/s/support/v1/traces', LOGFIRE_BASE_URL: 'https://ops:hunter2@logfire.northwind.example' }))).not.toMatch(/hunter2|ops@/);
+    expect(traceSources({ PHOENIX_COLLECTOR_ENDPOINT: 'https://ops:hunter2@phoenix.northwind.example/s/support/v1/traces' }).phoenix.host).toBe('https://phoenix.northwind.example/s/support');
     expect(traceHost('http://localhost:3000/')).toBe('http://localhost:3000');
     expect(traceHost('ftp://x')).toBeNull();
     expect(traceHost('')).toBeNull();

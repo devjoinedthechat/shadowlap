@@ -58,10 +58,27 @@ export interface TraceSourceView {
   keyNames: string[];
   /** The key is sent only when it is set: a Phoenix without authentication needs none. */
   optional?: true;
-  /** Where it is reached: the variable its SDK reads, else its public API (Phoenix: this machine). */
+  /** Where it is reached: the variable its SDK reads, else its public API (Phoenix: this machine); never with a user name or password. */
   host: string;
   /** Phoenix: the project the CLI looks for the trace in unless told another (PHOENIX_PROJECT_NAME, else default). */
   project?: string;
+}
+
+/**
+ * An address from the environment as the dialog shows it: a user name or password in it stays off
+ * the page. The CLI refuses such an address, and says so without repeating it.
+ */
+function shownHost(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return raw;
+  }
+  if (!url.username && !url.password) return raw;
+  url.username = '';
+  url.password = '';
+  return url.href.replace(/\/$/, '');
 }
 
 /** Whether this machine can fetch from each trace store, read from the environment the CLI's jobs get. */
@@ -74,7 +91,7 @@ export function traceSources(env: NodeJS.ProcessEnv): Record<TraceSource, TraceS
       keys: t.keys.every(set),
       keyNames: t.optional ? [t.optional] : t.keys.map((alts) => alts[0]!),
       ...(t.optional ? { optional: true as const } : {}),
-      host: named ? (t.path ? named.replace(t.path, '') : named) : t.fallback(env),
+      host: shownHost(named ? (t.path ? named.replace(t.path, '') : named) : t.fallback(env)),
       ...(s === 'phoenix' ? { project: env.PHOENIX_PROJECT_NAME?.trim() || PHOENIX_PROJECT } : {}),
     };
   };
