@@ -266,13 +266,14 @@ It replays each recording offline and fails the check when one diverges, makes a
 
 A Python agent needs its interpreter and packages installed before the action, as for any other step. The action itself needs Node 22.16 or later, not 23.
 
-The step names a release twice: the action at its tag, and in `version:` the `shadowlap` CLI it installs from npm. Keep the two the same release, the one your project uses: when they differ, as after an update that moved only the tag, the step warns and names the version to set. With `fix-on-failure`, it installs the Anthropic SDK beside the CLI at the version the release was tested with. With `version:` left empty, the action builds the CLI from its own source, which adds about a minute.
+The step names a release twice: the action at its tag, and in `version:` the `shadowlap` CLI it installs from npm. Keep the two the same release, the one your project uses: when they differ, as after an update that moved only the tag, the step warns and names the version to set. With `version:` left out, the action installs its own release, the version in its `packages/cli/package.json`. With `fix-on-failure`, it installs the Anthropic SDK beside the CLI at the version the release was tested with. No package's install script runs, since the job may hold provider keys and tokens. An action used at a commit that is no release has no CLI on npm to install: `build-from-source: true` builds it from the action's own source instead, which adds about a minute, with none of the job's environment but what npm and Node need (`PATH`, `HOME`, a proxy and the like), so the scripts the build runs never see a secret, key or token the step was given.
 
 | Input | Default | Effect |
 |---|---|---|
 | `recordings` | `goldens/*` | Recording directories, separated by spaces or new lines; `*` is allowed in the last part of a path. As with `shadowlap test`, a path that names no pack fails as a test, and a pattern that matches none fails the step |
 | `working-directory` | `.` | Where the recorded commands run |
-| `version` | empty | A `shadowlap` version from npm; empty builds it from the action's source |
+| `version` | empty | A `shadowlap` version from npm; empty installs the action's own release |
+| `build-from-source` | `false` | Build the CLI from the action's own source instead of installing it from npm, with none of the job's secrets in the build's environment; `version` is then ignored |
 | `writes` | `block` | What write tools do after a divergence: `block`, `stub` or `allow` |
 | `guard` | `block` | The network guard: `block`, `warn` or `off` |
 | `online` | `false` | Allow live model calls after a divergence |

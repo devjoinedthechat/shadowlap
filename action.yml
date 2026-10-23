@@ -16,8 +16,11 @@ inputs:
     description: Where the recorded commands run and relative paths start.
     default: .
   version:
-    description: The shadowlap version to install from npm, e.g. 0.1.0. Empty builds the CLI from this action's own source, which adds about a minute.
+    description: The shadowlap version to install from npm, e.g. 0.1.0. Empty installs this action's own release, the version its packages/cli/package.json names.
     default: ''
+  build-from-source:
+    description: Build the CLI from this action's own source rather than install it from npm, as for an action used at a commit that is no release (version is then ignored). It adds about a minute, and the build runs with none of the job's environment but what npm and Node need, so no secret, key or token reaches the scripts it runs.
+    default: 'false'
   writes:
     description: What write tools do after a divergence (block, stub or allow).
     default: block
@@ -109,33 +112,43 @@ runs:
 
     - name: Install shadowlap ${{ inputs.version }}
       id: install
-      if: inputs.version != ''
+      if: inputs.build-from-source != 'true'
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
         FIX_ON_FAILURE: ${{ inputs.fix-on-failure }}
       run: |
-        # The step names the release twice, the action's tag and `version`: an update that moves only
-        # the tag would have this action drive another CLI than the one it was released with.
+        # The CLI this action was released with, unless the step names another: the action's tag and
+        # `version` name one release, and an update that moves only the tag would have this action
+        # drive another CLI than its own.
         action=$(node -p "require(process.env.GITHUB_ACTION_PATH + '/packages/cli/package.json').version")
-        if [ "$VERSION" != "$action" ]; then echo "::warning title=Shadowlap::this action is v$action but installs shadowlap $VERSION; set version: $action"; fi
+        if [ -z "$VERSION" ]; then VERSION="$action"; elif [ "$VERSION" != "$action" ]; then echo "::warning title=Shadowlap::this action is v$action but installs shadowlap $VERSION; set version: $action, or leave it out"; fi
         # fix-on-failure may ask Claude for the fix through the Anthropic SDK, an optional peer that the
         # CLI imports from where it is installed: it goes in beside it, at the version this release was
         # tested with, never whatever is newest, in a job that holds GH_TOKEN and the provider keys.
         sdk=()
         if [ "$FIX_ON_FAILURE" = true ]; then sdk=("@anthropic-ai/sdk@$(node -p "require(process.env.GITHUB_ACTION_PATH + '/package-lock.json').packages['node_modules/@anthropic-ai/sdk']?.version ?? '>=0.126.0 <1'")"); fi
-        npm install --prefix "$RUNNER_TEMP/shadowlap-cli" --no-save --no-audit --no-fund "shadowlap@$VERSION" "${sdk[@]}"
+        # No package's install script runs in a job that may hold provider keys and tokens: none of
+        # these packages needs one.
+        npm install --prefix "$RUNNER_TEMP/shadowlap-cli" --no-save --no-audit --no-fund --ignore-scripts "shadowlap@$VERSION" "${sdk[@]}"
         echo "cli=$RUNNER_TEMP/shadowlap-cli/node_modules/shadowlap/bin/shadowlap.js" >> "$GITHUB_OUTPUT"
 
     - name: Build shadowlap from the action's source
       id: build
-      if: inputs.version == ''
+      if: inputs.build-from-source == 'true'
       shell: bash
       working-directory: ${{ github.action_path }}
       run: |
+        # npm ci runs the install scripts of every package the monorepo builds with, so the build gets
+        # nothing of the job's environment but what npm and Node need: no provider key, token or other
+        # secret the step was given.
+        keep=()
+        for name in PATH HOME USER LOGNAME SHELL LANG LC_ALL TMPDIR TEMP TMP RUNNER_TEMP RUNNER_OS CI HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy NODE_EXTRA_CA_CERTS npm_config_cache SYSTEMROOT SystemRoot WINDIR COMSPEC ComSpec PATHEXT APPDATA LOCALAPPDATA USERPROFILE PROGRAMDATA ProgramFiles; do
+          if [ -n "${!name+set}" ]; then keep+=("$name=${!name}"); fi
+        done
         if [ ! -f packages/cli/dist/index.js ]; then
-          npm ci --no-audit --no-fund
-          npm run build
+          env -i "${keep[@]}" npm ci --no-audit --no-fund
+          env -i "${keep[@]}" npm run build
         fi
         echo "cli=$(pwd)/packages/cli/bin/shadowlap.js" >> "$GITHUB_OUTPUT"
 
