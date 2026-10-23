@@ -225,6 +225,9 @@ export class AttemptRunner {
     stampAuthor(this.store, run.runId);
     stampKeyEnv(this.store, run.runId);
     recordsInput(this.store, run.runId);
+    // Each Node and Python process of the agent says its preload loaded: an attempt that made calls
+    // with none was never watched by the guard, and fails under --guard block.
+    this.sidecar.expectPreloads(run.runId, s.guard);
     const child = spawnAgent(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'], detached: GROUP }, { url: this.sidecar.url, runId: run.runId });
     this.running.add(child);
     trackAgent(child, GROUP);
@@ -285,7 +288,7 @@ export class AttemptRunner {
     const bypassed = !calls.some((c) => c.kind === 'api' && !isJudgeCall(c)) && this.recordedModelCalls(parent.runId) > 0;
     if (bypassed) this.warnings.add(BYPASSED);
     const checks = this.check(calls, output, s.spec, judged);
-    const failures = [...(bypassed ? [BYPASSED] : []), ...(timedOut ? [`timed out after ${formatDuration(s.timeoutMs!)}`] : code !== 0 ? [`the agent exited with code ${code}`] : []), ...failed(checks)];
+    const failures = [...(bypassed ? [BYPASSED] : []), ...(ended.preloads?.failed ? [ended.preloads.missing!] : []), ...(timedOut ? [`timed out after ${formatDuration(s.timeoutMs!)}`] : code !== 0 ? [`the agent exited with code ${code}`] : []), ...failed(checks)];
     if (tally && !this.interrupted) {
       this.attempts++;
       this.spent += ended.summary.cost.spent;
@@ -300,7 +303,7 @@ export class AttemptRunner {
     for (const m of ended.summary.judge?.unknownModels ?? []) this.unknownModels.add(m);
     for (const w of ended.summary.warnings) this.warnings.add(w);
     // The agent exited 0 in time, through Shadowlap, and failed no check: only an undecided check kept it from passing.
-    const undecided = !bypassed && !timedOut && code === 0 && checks.some((c) => !c.ok) && checks.every((c) => c.ok || c.status === 'inconclusive');
+    const undecided = !bypassed && !ended.preloads?.failed && !timedOut && code === 0 && checks.some((c) => !c.ok) && checks.every((c) => c.ok || c.status === 'inconclusive');
     const verdict = failures.length === 0 ? 'passed' : undecided ? 'inconclusive' : 'failed';
     return { run, code, summary: ended.summary, calls, checks, failures, passed: failures.length === 0, verdict, bypassed, ms: Date.now() - started };
   }

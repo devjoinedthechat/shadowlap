@@ -6,7 +6,9 @@ is allowed, everything else is a side effect Shadowlap cannot replay, so it is r
 (SHADOWLAP_GUARD=warn) or refused (=block). SHADOWLAP_GUARD=off disables it;
 SHADOWLAP_GUARD_ALLOW=host:port,host:port whitelists targets.
 
-If the project has its own sitecustomize further down sys.path, it is loaded afterwards.
+Once set up, the preload says so to the sidecar (POST /v1/hello), once per process: a run that made
+calls with no hello from any process is one the guard never watched. If the project has its own
+sitecustomize further down sys.path, it is loaded afterwards.
 """
 
 import atexit
@@ -18,6 +20,7 @@ import socket
 import sys
 import threading
 import time
+from urllib.parse import urlparse
 
 _url = os.environ.get("SHADOWLAP_URL")
 _mode = os.environ.get("SHADOWLAP_GUARD", "warn")
@@ -40,9 +43,65 @@ except Exception as _input_error:  # never break the agent
 finally:
     sys.path.pop(0)
 
+# Set on the thread that talks to the sidecar: the guard never reports the preload's own connections.
+_reporting = threading.local()
+# Posts on their way to the sidecar, which the agent waits for when it exits (_flush).
+_sending = set()
+
+
+def _post(path, payload):
+    """Posts `payload` as JSON to the sidecar, on a thread of its own: straight to this machine's
+    loopback, never through a proxy (HTTP_PROXY), and over a plain socket, so no HTTP library is
+    imported for it, nor a TLS context made for nothing (as urllib's opener makes one, reading the
+    system's certificates, slowly on Windows)."""
+
+    def send():
+        _reporting.active = True
+        try:
+            target = urlparse(_url)
+            body = json.dumps(payload).encode("utf-8")
+            head = ["POST %s%s HTTP/1.1" % (target.path.rstrip("/"), path), "Host: %s" % target.netloc, "Content-Type: application/json", "Content-Length: %d" % len(body), "Connection: close"]
+            run_id = os.environ.get("SHADOWLAP_RUN_ID")
+            if run_id:
+                head.append("x-shadowlap-run: %s" % run_id)
+            conn = socket.create_connection((target.hostname, target.port or 80), timeout=2)
+            try:
+                conn.sendall(("\r\n".join(head) + "\r\n\r\n").encode("latin-1") + body)
+                # Read to the end of the answer, which the sidecar closes, so it is never cut off.
+                while conn.recv(4096):
+                    pass
+            finally:
+                conn.close()
+        except Exception:
+            pass
+        finally:
+            _sending.discard(threading.current_thread())
+
+    thread = threading.Thread(target=send, name="shadowlap-preload", daemon=True)
+    _sending.add(thread)
+    try:
+        thread.start()
+    except RuntimeError:  # no new thread while the interpreter shuts down
+        _sending.discard(thread)
+
+
+def _flush():
+    # The run lists what bypassed Shadowlap from these reports, and counts the preloads that loaded:
+    # one still on its way when the agent exits would be left out, so the agent waits for them,
+    # 2 seconds at most in all.
+    deadline = time.monotonic() + 2
+    for thread in list(_sending):
+        try:
+            thread.join(max(0.0, deadline - time.monotonic()))
+        except RuntimeError:  # not started yet
+            pass
+
+
+if _url:
+    atexit.register(_flush)
+
 if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
     socket._shadowlap_guard = True
-    from urllib.parse import urlparse
 
     _u = urlparse(_url)
     _allowed = {"%s:%s" % (_u.hostname, _u.port or (443 if _u.scheme == "https" else 80))}
@@ -53,55 +112,9 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         if _item.strip():
             _allowed.add(_item.strip())
     _seen = {}
-    # Set on the thread that reports: the guard's own connections are never reported.
-    _reporting = threading.local()
-    # Reports on their way to the sidecar, which the agent waits for when it exits (_flush).
-    _sending = set()
 
     def _report(key, action):
-        def send():
-            _reporting.active = True
-            try:
-                import http.client
-
-                data = json.dumps({"target": key, "action": action, "runtime": "python"}).encode("utf-8")
-                headers = {"content-type": "application/json"}
-                run_id = os.environ.get("SHADOWLAP_RUN_ID")
-                if run_id:
-                    headers["x-shadowlap-run"] = run_id
-                # Straight to the sidecar on this machine's loopback: never through a proxy
-                # (HTTP_PROXY), and with no TLS context made for nothing, as urllib's opener makes
-                # one, reading the system's certificates (slowly on Windows) for every report.
-                target = urlparse(_url + "/v1/guard")
-                connection = (http.client.HTTPSConnection if target.scheme == "https" else http.client.HTTPConnection)(target.hostname, target.port, timeout=2)
-                try:
-                    connection.request("POST", target.path, body=data, headers=headers)
-                    connection.getresponse().read()
-                finally:
-                    connection.close()
-            except Exception:
-                pass
-            finally:
-                _sending.discard(threading.current_thread())
-
-        thread = threading.Thread(target=send, daemon=True)
-        _sending.add(thread)
-        try:
-            thread.start()
-        except RuntimeError:  # no new thread while the interpreter shuts down
-            _sending.discard(thread)
-
-    def _flush():
-        # The run lists what bypassed Shadowlap from these reports: one still on its way when the
-        # agent exits would be left out, so the agent waits for them, 2 seconds at most in all.
-        deadline = time.monotonic() + 2
-        for thread in list(_sending):
-            try:
-                thread.join(max(0.0, deadline - time.monotonic()))
-            except RuntimeError:  # not started yet
-                pass
-
-    atexit.register(_flush)
+        _post("/v1/guard", {"target": key, "action": action, "runtime": "python"})
 
     # Python connects to the address a name resolved to, so the guard remembers every name that
     # resolved to each address: the run then says which host it reached (api.stripe.com:443, not
@@ -174,6 +187,21 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
 
     socket.socket.connect = _connect
     socket.socket.connect_ex = _connect_ex
+
+# Says it loaded, with what it set up: a run whose processes all stayed silent was never watched.
+if _url and not getattr(sys, "_shadowlap_hello", False):
+    sys._shadowlap_hello = True
+    _post(
+        "/v1/hello",
+        {
+            "runtime": "python",
+            "runtimeVersion": "%d.%d.%d" % tuple(sys.version_info[:3]),
+            "pid": os.getpid(),
+            "ppid": os.getppid(),
+            "guard": _mode if getattr(socket, "_shadowlap_guard", False) else "off",
+            "capture": bool(getattr(sys, "_shadowlap_capture", False)),
+        },
+    )
 
 # Chain to the project's own sitecustomize, if any.
 _here = os.path.dirname(os.path.abspath(__file__))

@@ -196,6 +196,9 @@ export async function testAttempt(
   let interrupted = null as NodeJS.Signals | null;
   // Heard until the run has ended, its judge checks included: a signal never leaves it running.
   const stop = new AgentStop({ group, onSignal: (sig) => void (interrupted ??= sig), abandon: () => endRun('crashed') }).start();
+  // Each Node and Python process of the agent says its preload loaded: one that made calls with none
+  // was never watched by the guard, which fails it under block.
+  sidecar.expectPreloads(run.runId, o.guard);
   const child = spawnAgent(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'], detached: group }, { url: sidecar.url, runId: run.runId });
   trackAgent(child, group);
   stop.add(child);
@@ -271,6 +274,10 @@ export async function testAttempt(
     // Never a pass, whatever the agent did with the signal: an update must not keep it.
     kind = 'exit';
     failure = { message: `the replay was interrupted (${interrupted})`, details: divergence + formatSummary(summary) };
+  } else if (ended.preloads?.failed) {
+    // Nothing watched the agent's connections under --guard block: whatever else came out, it proves nothing.
+    kind = 'guard';
+    failure = { message: ended.preloads.missing!, details: divergence + formatSummary(summary) };
   } else if (changed && !o.spec?.fork) {
     kind = 'diverged';
     failure = { message: divergenceLine(changed), details: divergence + formatSummary(summary) };
@@ -554,9 +561,10 @@ export function startFailure(err: NodeJS.ErrnoException, argv0: string, cwd: str
 /**
  * Runs an agent under a sidecar, as `run` and `replay` do. `code` is the agent's exit status (128 + n
  * when signal n ended it); `signal` the stop signal this process heard while it waited, if any, which
- * the command ends on in turn (status 128 + n).
+ * the command ends on in turn (status 128 + n); `preloads` what the preloads in the agent's processes
+ * said, with `failed` when the run failed for having none under --guard block.
  */
-export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean; beforeEnd?: BeforeEnd; env?: Record<string, string> } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean; signal: NodeJS.Signals | null }> {
+export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean; beforeEnd?: BeforeEnd; env?: Record<string, string> } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean; signal: NodeJS.Signals | null; preloads: ReturnType<Sidecar['endRun']>['preloads'] }> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
@@ -598,6 +606,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const shares = sharesTerminal(true);
   const group = GROUPS && !shares;
   const stop = new AgentStop({ group, sharesTerminal: shares, onSignal: () => void (interrupted = true), abandon: () => (endRun('crashed'), clearActive()) }).start();
+  sidecar.expectPreloads(run.runId, guard);
   const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env }, detached: group }, { url: sidecar.url, runId: run.runId });
   trackAgent(child, group);
   stop.add(child);
@@ -645,7 +654,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     const said = why.notFound && !/[\\/]/.test(argv[0]!) ? notFoundMessage(argv, again) : `${p.red('✗')} ${why.message}`;
     process.stderr.write(`${said}\n${p.dim(`  nothing ran, so run ${shortId(run.runId)} is not kept`)}\n`);
     emitJobEvent({ type: 'result', data: { exitCode: code, summary: result.summary, started: false } });
-    return { code, run, summary: result.summary, output: output(), started: false, signal: stop.signal };
+    return { code, run, summary: result.summary, output: output(), started: false, signal: stop.signal, preloads: result.preloads };
   }
   if (run.mode === 'record') noteUnrecordedTools(store, run.runId, process.cwd());
   await sidecar.close();
@@ -656,7 +665,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   await pushIfQueued(teamEnv(opts.db));
   telemetry().record({ type: run.mode === 'record' ? 'run' : 'replay', ...usageOf(result, Date.now() - run.startedAt, code) });
   await telemetry().flush();
-  return { code, run, summary: result.summary, output: output(), started: true, signal: stop.signal };
+  return { code, run, summary: result.summary, output: output(), started: true, signal: stop.signal, preloads: result.preloads };
 }
 
 export interface AttemptResult {
@@ -721,6 +730,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
       if (streaming) process.stderr.write(`${header}\n`);
       const tee = streaming && extra.capture;
+      sidecar.expectPreloads(run.runId, guard);
       const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env }, detached: agentGroup }, { url: sidecar.url, runId: run.runId });
       trackAgent(child, agentGroup);
       stop.add(child);
