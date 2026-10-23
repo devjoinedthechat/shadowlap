@@ -2,6 +2,7 @@ import { applyNormalizers, BUILTIN_STRIPPED_KEYS, isReservedScope, loadApiReques
 import { Sidecar } from '@shadowlap/sidecar';
 import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
+import { AgentStop, exitStatus, GROUPS, trackAgent } from './agent-signals.js';
 import { codeVersion, type ShadowlapConfig } from './config.js';
 import { killTree } from './kill-tree.js';
 import { placeholderKeys } from './placeholder-keys.js';
@@ -49,7 +50,7 @@ export interface CaptureInput {
   cwd: string;
 }
 
-const GROUP = process.platform !== 'win32';
+const GROUP = GROUPS;
 
 /** The agent's model calls with a request and an answer, in call order: Shadowlap's own (its judge's, made after the agent exits) are none of them. */
 const modelCalls = (calls: readonly CallRecord[]) => calls.filter((c) => c.kind === 'api' && c.requestRef && c.end && !isReservedScope(c.meta.scope));
@@ -75,6 +76,10 @@ export async function captureFromCode(input: CaptureInput): Promise<FromCodeCapt
   const upstreams = Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
   const sidecar = await Sidecar.start({ store, normalizers: input.config.normalize, upstreams, ...(input.config.prices ? { prices: input.config.prices } : {}), ...(input.config.clock ? { clock: input.config.clock } : {}), ...(input.config.http ? { http: input.config.http } : {}) });
   let runId: string | null = null;
+  // A stop signal reaches the agent once, through its group, and the capture ends there: decisions
+  // asks nothing more once it has heard one, and a second signal ends it (the exit hook kills the group).
+  let signalled = false;
+  const stop = new AgentStop({ group: GROUP, onSignal: () => void (signalled = true) }).start();
   try {
     const run = sidecar.startRun({
       mode: 'replay',
@@ -88,6 +93,8 @@ export async function captureFromCode(input: CaptureInput): Promise<FromCodeCapt
     });
     runId = run.runId;
     const child = spawnAgent(input.argv[0]!, input.argv.slice(1), { cwd: input.cwd, env: { ...agentEnv(sidecar, run.runId, input.guard, upstreams), ...placeholderKeys(process.env, { calls: recorded, keyEnv: parent.meta?.keyEnv }, 'offline') }, stdio: ['ignore', 'pipe', 'pipe'], detached: GROUP }, { url: sidecar.url, runId: run.runId });
+    trackAgent(child, GROUP);
+    stop.add(child);
     let output = '';
     child.stdout!.on('data', (d: Buffer) => (output = (output + d.toString()).slice(-4000)));
     child.stderr!.on('data', (d: Buffer) => (output = (output + d.toString()).slice(-4000)));
@@ -96,7 +103,7 @@ export async function captureFromCode(input: CaptureInput): Promise<FromCodeCapt
     const live = () => store.query(`SELECT 1 AS x FROM call_events WHERE run_id = ? AND phase = 'start' AND kind = 'api' AND origin = 'live' LIMIT 1`, run.runId).length > 0;
     const exited = new Promise<number>((resolve) => {
       child.on('error', () => resolve(127));
-      child.on('exit', (c, signal) => resolve(c ?? (signal ? 128 : 1)));
+      child.on('exit', (c, signal) => resolve(exitStatus(c, signal)));
     });
     const started = Date.now();
     let stopped = false;
@@ -112,6 +119,7 @@ export async function captureFromCode(input: CaptureInput): Promise<FromCodeCapt
       }
     }
     if (GROUP) killTree(child, 'SIGKILL', { group: true });
+    stopped ||= signalled;
     sidecar.endRun(run.runId, stopped ? 'crashed' : 'completed');
     // An agent on a Node before 18.18 never started: its Node refused the preload and exited 9, as it
     // would for every run, so none can be read here.
@@ -175,6 +183,7 @@ export async function captureFromCode(input: CaptureInput): Promise<FromCodeCapt
     }
     return { prompts, refused: null, notes, codeVersion: codeVersion(input.cwd) };
   } finally {
+    stop.stop();
     // The replay was a way to read the prompt, not a run anyone made: it is not kept.
     if (runId) {
       try {

@@ -71,6 +71,7 @@ import {
   type VerifyRole,
   wilsonBound,
 } from '@shadowlap/engine';
+import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording } from './attempts.js';
 import { specFor, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, loadTests, upstreamOverrides, type ShadowlapConfig } from './config.js';
@@ -992,13 +993,14 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
   const store = openStore(input.opts);
   const at = input.now ?? Date.now();
   let interrupted = false;
-  // The first Ctrl-C starts no new request and keeps what was asked; a second one doesn't wait.
+  // The first stop signal (Ctrl-C, a dashboard's stop, a closed terminal) starts no new request and
+  // keeps what was asked; a second one doesn't wait, and the agent --from-code left running goes with
+  // this process (the exit hook kills its group).
   const onSignal = (signal: NodeJS.Signals) => {
     if (interrupted) process.exit(signalExit(signal));
     interrupted = true;
   };
-  process.on('SIGINT', onSignal);
-  process.on('SIGTERM', onSignal);
+  for (const s of STOP_SIGNALS) process.on(s, onSignal);
   try {
     // Which recorded models the model and the fields change at: --from, else the default for a switch.
     const use = modelUse(store, input.targets, s.scope);
@@ -1184,8 +1186,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     if (input.kind !== 'migrate') report.decisionsId = keepDecisions(store, report, 'decisions');
     return report;
   } finally {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
+    for (const s of STOP_SIGNALS) process.off(s, onSignal);
     store.close();
   }
 }

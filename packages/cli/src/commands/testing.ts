@@ -5,6 +5,7 @@ import { Command, InvalidArgumentError } from 'commander';
 import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
+import { STOP_SIGNALS } from '../agent-signals.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
 import { testChaos } from '../chaos-session.js';
 import { checkLine, judgeResults, specFor, type JudgeCheck, type TestSpec } from '../checks.js';
@@ -302,8 +303,7 @@ export function register(program: Command): void {
         signal = sig;
         process.stderr.write(p.yellow(`\n[shadowlap] interrupted: ${current ? `stopping ${current}, ` : ''}no golden after it runs, and the session keeps what finished\n`));
       };
-      process.on('SIGINT', onSignal);
-      process.on('SIGTERM', onSignal);
+      for (const s of STOP_SIGNALS) process.on(s, onSignal);
       const stopped = () => signal !== null;
       let cut = null as string | null;
       // Applied fixes whose goldens failed their last test and passed every one of them here.
@@ -513,8 +513,7 @@ export function register(program: Command): void {
           if (unpruned) process.stderr.write(p.yellow(`[shadowlap] ${unpruned}\n`));
         }
       } finally {
-        process.off('SIGINT', onSignal);
-        process.off('SIGTERM', onSignal);
+        for (const s of STOP_SIGNALS) process.off(s, onSignal);
         // Counted from the results recorded, so a session cut short by an error or a signal counts what
         // ran, each by how it came out: an inconclusive golden is neither passed nor failed, whatever CI
         // does with it, and the test history keeps how many there were with the event.

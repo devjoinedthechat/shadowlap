@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { hasRecordedCommand, parsePresets, recordEvent, resolveAuthor, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
+import { STOP_SIGNALS } from './agent-signals.js';
 import { chaosFor, DEFAULT_CHAOS, type ChaosSpec } from './chaos-config.js';
 import { chaosJunit, chaosMarkdown, chaosReport, chaosTotals, formatPresets, judgedOnExit, runPresets, type ChaosRecordingResult, type PresetOutcome } from './chaos.js';
 import { parseExpect, specFor, type TestSpec } from './checks.js';
@@ -60,8 +61,7 @@ function startSession(store: Store, command: string[], presets: ChaosPreset[], c
     signal = sig;
     process.stderr.write(p.yellow('\n[shadowlap] interrupted: the attempt running now stops, no preset after it runs, and the session keeps what finished\n'));
   };
-  process.on('SIGINT', onSignal);
-  process.on('SIGTERM', onSignal);
+  for (const s of STOP_SIGNALS) process.on(s, onSignal);
   return {
     store,
     id: session.sessionId,
@@ -71,8 +71,7 @@ function startSession(store: Store, command: string[], presets: ChaosPreset[], c
     stopped: () => signal !== null,
     signal: () => signal,
     done: () => {
-      process.off('SIGINT', onSignal);
-      process.off('SIGTERM', onSignal);
+      for (const s of STOP_SIGNALS) process.off(s, onSignal);
     },
   };
 }
