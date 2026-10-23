@@ -30,7 +30,7 @@ Shadowlap is change safety for agents: every change to an agent (its code, its p
 - [How it works](./how-it-works.md): the sidecar, fingerprints, matching, effects, thinking blocks, storage.
 - [Why did my replay diverge?](./troubleshooting.md): the page you'll visit most.
 - Fixes: [blame](./blame.md) finds the model call that lost a run, [repair](./repair.md) rewrites the prompt, and [verify](./verify.md) proves the fix on failing, held-out and good runs.
-- [Coding agents](./agents.md): Claude Code, Cursor and Codex debugging an agent through the CLI, with the Claude Code plugin and the Cursor rule that tell them how.
+- [Coding agents](./agents.md): Claude Code, Codex, Cursor, Copilot and others setting Shadowlap up for an agent and debugging it through the CLI, with the skills that tell them how.
 - [CI mode](./ci.md): a run kept as a golden, replayed offline on every pull request.
 - [Checks](./checks.md): what a passing run must do, from call counts and budgets to the order of its calls, their arguments against earlier calls' results, and rules that apply only on a condition; tried on your recordings for free with `shadowlap check`.
 - [Gating](./gating.md): verdicts on attempts that vary, with stated error rates: a forked golden's gate, against two pass rates or its own history, and how verify and blame decide.

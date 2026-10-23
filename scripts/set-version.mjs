@@ -1,7 +1,7 @@
 // Sets one version across every publishable package, their internal dependencies, the Python SDK, the
-// release the CI step pins, and the Claude Code plugin in coding-agents/.
+// release the CI step pins, and the Claude Code plugin in coding-agents/ with its skills.
 // Usage: node scripts/set-version.mjs 0.1.0
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const version = process.argv[2];
@@ -42,10 +42,19 @@ for (const page of ['README.md', 'docs/ci.md', 'packages/cli/README.md']) {
   writeFileSync(page, text);
 }
 
-// The Claude Code plugin is versioned with the CLI whose commands its skill names.
+// The Claude Code plugin is versioned with the CLI whose commands its skills name, and so is each
+// skill, in its frontmatter's metadata: a copy installed outside the plugin says its version there.
 const plugin = 'coding-agents/claude-code/.claude-plugin/plugin.json';
 const manifest = JSON.parse(readFileSync(plugin, 'utf8'));
 manifest.version = version;
 writeFileSync(plugin, JSON.stringify(manifest, null, 2) + '\n');
+const skills = 'coding-agents/claude-code/skills';
+for (const name of readdirSync(skills)) {
+  const file = join(skills, name, 'SKILL.md');
+  const text = readFileSync(file, 'utf8');
+  const next = text.replace(/^(metadata:\n(?:[ \t]+.*\n)*?[ \t]+version: ).*$/m, `$1${version}`);
+  if (next === text && !text.includes(`  version: ${version}\n`)) throw new Error(`${file} has no metadata.version to set`);
+  writeFileSync(file, next);
+}
 
-console.log(`version ${version} set in ${PACKAGES.length} packages, the Python SDK, the CI step and the Claude Code plugin; run npm install to refresh the lockfile`);
+console.log(`version ${version} set in ${PACKAGES.length} packages, the Python SDK, the CI step and the Claude Code plugin with its skills; run npm install to refresh the lockfile`);

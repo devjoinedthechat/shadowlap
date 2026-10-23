@@ -42,8 +42,8 @@ export { choicesHere, choicesInCheckout, commitsHere, commitSubjects, forgetComm
 // Settings: one read model per tab; edits go through the engine's config-file module.
 export { CLEANUP_DAYS, agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, readShippedDoc, redactionSettings, splitCommandLine, stdioServerName, toolsSettings } from './settings.js';
 export type { AgentFile, CodingAgentsSettings, ConfigInfo, HttpHostRow, MatchingSettings, McpRecordedServer, McpServerRow, ProjectSettings, RedactionSettings, RuleForm, RuleRow, SettingsContext, ToolRow, ToolsSettings } from './settings.js';
-// The coding agents' plugin and rule: the copy shipped with the CLI, what a project has of it, installing it, and the offer.
-export { CLAUDE_CODE_PLUGIN, CODING_AGENTS, CURSOR_RULE, SKILL_COMMAND, SKILL_PLUGIN, SKILL_PUBLISHED, SKILL_REPOSITORY, claudeConfigDir, installCodingAgent, installedCopy, marketplaceEnabled, shippedCodingAgents, shippedFiles, shippedVersion, skillOffer } from './agent-skill.js';
+// The coding agents' skills, as the Claude Code plugin and in .agents/skills: the copy shipped with the CLI, what a project has of it, installing it, and the offer.
+export { AGENTS_FOLDER_READERS, CLAUDE_CODE_PLUGIN, CODING_AGENTS, SKILLS, SKILL_PLUGIN, SKILL_PUBLISHED, SKILL_REPOSITORY, TARGETS, claudeConfigDir, codingAgent, installCodingAgent, installedCopy, marketplaceEnabled, sharedSkill, shippedCodingAgents, shippedFiles, shippedVersion, skillOffer } from './agent-skill.js';
 export type { AgentInstall, AgentOffer, CodingAgent, InstallResult, InstallState, InstalledCopy, SkillOffer } from './agent-skill.js';
 // Training: pairs, tasks and the model picker.
 export { approx, exportPairsJob, modelsView, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, sourceFixes, trainingView } from './training.js';

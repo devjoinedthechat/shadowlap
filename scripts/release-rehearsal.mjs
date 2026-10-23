@@ -200,12 +200,15 @@ const tested = fp(['test', golden]);
 check('packs it and passes it as a golden', packed.code === 0 && tested.code === 0 && tested.out.includes('1 passed, 0 failed'), `${packed.out}\n${tested.out}`);
 const doctor = fp(['doctor'], env);
 check('runs doctor', /node|Node/.test(doctor.out), doctor.out);
-// The coding agents' plugin and rule come inside the packages: skill install puts them into the project, offline.
+// The coding agents' skills come inside the packages: skill install puts them into the project, offline,
+// as the Claude Code plugin and in the folder the other agents read.
 const skilled = fp(['skill', 'install']);
-const ruled = fp(['skill', 'install', 'cursor']);
+const shared = fp(['skill', 'install', 'agents']);
 const manifest = join(app, '.claude', 'skills', 'shadowlap', '.claude-plugin', 'plugin.json');
 const pluginVersion = existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).version : null;
-check('installs the skill and the Cursor rule from the packages', skilled.code === 0 && ruled.code === 0 && pluginVersion === VERSION && existsSync(join(app, '.cursor', 'rules', 'shadowlap.mdc')), `${skilled.out}\n${ruled.out}`);
+const sharedSkill = join(app, '.agents', 'skills', 'shadowlap-debug-agent', 'SKILL.md');
+const sharedVersion = existsSync(sharedSkill) ? /^ {2}version: (\S+)$/m.exec(readFileSync(sharedSkill, 'utf8'))?.[1] : null;
+check('installs the skills from the packages, for Claude Code and the other agents', skilled.code === 0 && shared.code === 0 && pluginVersion === VERSION && sharedVersion === VERSION, `${skilled.out}\n${shared.out}`);
 
 // ---- 5. The dashboard: its bundled UI and API from the installed package.
 // Its list of projects goes in the rehearsal's own folder, not the real ~/.shadowlap.

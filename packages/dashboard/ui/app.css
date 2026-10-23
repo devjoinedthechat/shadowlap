@@ -1157,8 +1157,8 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 .agentfiles div { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .agentfiles code { min-width: 110px; }
 .agentfiles .warn { color: var(--warn); }
-/* Settings → Coding agents, as the design has it: the Cursor rule's install on its row, small and to the right, or why it
-   can't go in; the skill once published, with its install command and the commands for every project on the machine */
+/* Settings → Coding agents, as the design has it: the skills' install on the .agents/skills row, small and to the right, or
+   why they can't go in; the plugin's skills once published, with its install command and the commands for every project */
 .agentfiles div .btn, .agentfiles div .agwhy { margin-left: auto; }
 .agentfiles div .agwhy { text-align: right; }
 @media (max-width: 640px) { .agentfiles div:has(.btn, .agwhy) { flex-wrap: wrap; } .agentfiles div:has(.btn, .agwhy) :is(.btn, .agwhy) { margin: 4px 0 0 auto; } }

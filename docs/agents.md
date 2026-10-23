@@ -1,11 +1,12 @@
 # Coding agents
 
-Claude Code, Cursor, Codex and other coding agents can debug an agent with Shadowlap the way you would: record a failing run, read where it went wrong, change the code, and replay to check the fix, without paying for the model calls that didn't change. The CLI is their interface, with no MCP server to run: every command they need reads and writes JSON. What they need to know about it comes packaged, as a [Claude Code plugin](#claude-code) or a [Cursor rule](#cursor) that `shadowlap skill install` puts into the project, or as a [section to paste](#instructions-to-give-it) into any other agent's instructions.
+Claude Code, Codex, Cursor, GitHub Copilot and other coding agents can set Shadowlap up for an agent and debug it the way you would: record a run, read where it went wrong, change the code, and replay to check the change, without paying for the model calls that didn't change. The CLI is their interface, with no MCP server to run: every command they need reads and writes JSON. What they need to know about it comes packaged as two [skills](#the-skills), which `shadowlap skill install` puts into the project for [Claude Code](#claude-code) or for [the other agents](#codex-cursor-copilot-and-others), or as a [section to paste](#instructions-to-give-it) into any agent's instructions.
 
 ## What an agent uses
 
 | To | Run | Reads |
 |---|---|---|
+| Set up a project | `shadowlap init --json` | The model SDKs, the framework, the command that starts the agent, every tool with its effect and a suggested one, and the code that wraps the tools ([fields](./cli.md#init)) |
 | Find runs | `shadowlap ls --json [--label bug]` | Run ids, whether each forked and where, labels; whether a run has a command to re-run, came from a pack or a capture, or is an attempt with check results ([fields](./cli.md#ls)) |
 | Read a run | `shadowlap show <run> --json` | The summary (calls by origin, divergence, cost), every call, and the reads of tools marked untrusted, whose text could carry a prompt injection ([fields](./cli.md#show)) |
 | Read one call | `shadowlap show <run> --request <n>` / `--response <n>` | The request as sent, the response as received |
@@ -15,25 +16,39 @@ Claude Code, Cursor, Codex and other coding agents can debug an agent with Shado
 | See what a prompt or model change decides differently | `shadowlap decisions <runs\|goldens> --from-code --json` (or `--model <model>`) | Each recorded model call asked again with only the change: the changed decisions in rank order, writes first, with the recorded and the new action; no tool runs ([fields](./cli.md#decisions)) |
 | See whether a fix holds | `shadowlap replay <run> --repeat 5 --summary-json out.json` | Every attempt, and the paths they took |
 | Find where a failed run went wrong | `shadowlap blame <run> --expect '<checks>' --json` | The model call that lost the run, what the model answered there in the recording and in a fork that passed, and that fork's run id ([fields](./blame.md#json)) |
+| Find the commit that broke a golden | `shadowlap bisect <golden> --good <rev> --json` | The first commit where it fails, and why ([fields](./cli.md#bisect)) |
 | Check a fix before calling it done | `shadowlap verify --fixes <runs> --keeps label:good --expect '<checks>' --json` | Accepted or rejected, and for each run whether it is fixed, kept or broken ([fields](./verify.md#json)) |
 | Get a verified fix to the prompt | `shadowlap repair --fixes <runs> --keeps label:good --expect '<checks>' --json` | The accepted rewrite and its patch, or why none passed; where each run was lost, as a brief for a fix in code ([details](./repair.md)) |
+| Switch the agent to another model | `shadowlap migrate --to <model> --json` | The decisions that change, whether each run still passes, what a run costs before and after, and the patch to the project's files ([fields](./cli.md#migrate)) |
 | Compare two runs | `shadowlap diff <a> <b> --json` | What changed, what made a fork when its flag changed an answer, the first differing request, each run's course after it |
-| See what is being fixed | `shadowlap fix ls --json` | Each failure blame opened a fix for: where its run was lost, and how far its fix got ([fields](./cli.md#fix)) |
+| See what is being fixed | `shadowlap fix ls --json`, `shadowlap fix show <fix> --json` | Each failure blame opened a fix for: where its run was lost, how far its fix got, and what can be done next ([fields](./cli.md#fix)) |
+| Hand over a verified fix | `shadowlap fix apply <fix> --json` | The patch applied, the recordings copied into the goldens, and whether they pass ([details](./cli.md#fix)) |
 | Find ids and temp paths that change every run | `shadowlap calibrate --json` | Proposed normalizers |
 | Run the recorded tests | `shadowlap test <pack...> --json report.json` | Per recording: result, divergence, checks |
 | Check whether text the agent reads can steer it | `shadowlap injection <run> --json` | Each untrusted read with each payload: obeyed, influenced, ignored or inconclusive (with why), the tool call that carried the planted canary, and the run's verdict against its limits ([details](./injection.md)) |
 
 A replay runs the agent's own command, so its output mixes with Shadowlap's on the terminal; `--summary-json` writes the outcome to a file instead. Replays make no model calls until the fork, so an agent can replay as often as it likes.
 
+## The skills
+
+Two skills in the [Agent Skills](https://agentskills.io/specification) format, each loaded when a task calls for it:
+
+| Skill | For |
+|---|---|
+| `setup-agent` | A project with an agent but nothing recorded yet. It finds the agent and its tools, marks what each tool does to the world from the tool's code, records a first run (asking first, since a recording runs the agent live), makes its replay clean, keeps good runs as goldens, and adds the CI check. |
+| `debug-agent` | Every change to the agent's prompt, tools, model or code, checked against what the agent actually did before the change is called done, whether or not anyone asked to debug; and every failing run: where it went wrong, the commit that broke it, a switch to another model, and a fix verified. |
+
+They are in [coding-agents/claude-code/skills](https://github.com/devjoinedthechat/shadowlap/tree/main/coding-agents/claude-code/skills), versioned with the CLI.
+
 ## Claude Code
 
-A plugin with one skill, `debug-agent`, which Claude uses when a task calls for it, or on purpose with `/shadowlap:debug-agent`. Put it into the project:
+A plugin with both skills, which Claude uses when a task calls for them, or on purpose with `/shadowlap:setup-agent` and `/shadowlap:debug-agent`. Put it into the project:
 
 ```sh
 shadowlap skill install
 ```
 
-It writes the plugin to `.claude/skills/shadowlap/` from the copy that comes with the CLI, so nothing is downloaded and the skill names the commands your CLI takes. Claude Code loads a plugin there for everyone working on the project, once they trust the folder: commit it. After upgrading Shadowlap, `shadowlap skill install --force` brings it to the new version; without `--force`, the command leaves alone whatever there isn't this version's copy, and says what differs ([`skill`](./cli.md#skill)).
+It writes the plugin to `.claude/skills/shadowlap/` from the copy that comes with the CLI, so nothing is downloaded and the skills name the commands your CLI takes. Claude Code loads a plugin there for everyone working on the project, once they trust the folder: commit it. After upgrading Shadowlap, `shadowlap skill install --force` brings it to the new version; without `--force`, the command leaves alone whatever there isn't this version's copy, and says what differs ([`skill`](./cli.md#skill)).
 
 To have it in every project on your machine instead, install it from the repository, which is its own plugin marketplace, at your CLI's version. The last command moves an earlier install to that version, which installing again doesn't:
 
@@ -43,26 +58,33 @@ claude plugin install shadowlap@shadowlap
 claude plugin update shadowlap@shadowlap
 ```
 
-From a clone, `claude --plugin-dir shadowlap/coding-agents/claude-code` loads it for one session. While Claude uses the skill, it may run the commands that only read (`shadowlap ls`, `show`, `search`, `diff` and `fix ls`) without asking: the grant lasts for the turn in which it loads the skill, and ends at your next message. Everything that runs the agent asks first, as any other command does. The plugin is in [coding-agents/claude-code](https://github.com/devjoinedthechat/shadowlap/tree/main/coding-agents/claude-code), and its version is the CLI's.
+From a clone, `claude --plugin-dir shadowlap/coding-agents/claude-code` loads it for one session. While Claude uses a skill, it may run the commands that only read without asking: `shadowlap ls`, `show`, `search`, `diff`, `fix ls` and `fix show` for `debug-agent`, and `shadowlap ls`, `show` and `doctor` for `setup-agent`. The grant lasts for the turn in which Claude loads the skill, and ends at your next message. Everything that runs the agent asks first, as any other command does. The plugin is in [coding-agents/claude-code](https://github.com/devjoinedthechat/shadowlap/tree/main/coding-agents/claude-code), and its version is the CLI's.
 
-## Cursor
+## Codex, Cursor, Copilot and others
 
-A project rule, which Agent applies when it finds it relevant, holding the skill's instructions word for word. Put it into the project:
+The same skills, in the folder the Agent Skills format names for every coding agent. Put them into the project:
 
 ```sh
-shadowlap skill install cursor
+shadowlap skill install agents
 ```
 
-It writes the rule to `.cursor/rules/shadowlap.mdc` from the copy that comes with the CLI, beside the project's own rules; `--force` replaces another version's rule, or one edited here. The rule is also in the repository: [coding-agents/cursor/shadowlap.mdc](https://github.com/devjoinedthechat/shadowlap/blob/main/coding-agents/cursor/shadowlap.mdc). In the [dashboard](./dashboard.md), Settings → Coding agents does the same with **Add the Cursor rule** on the `.cursor/rules` row, which then reads *found · shadowlap.mdc* with the version.
+It writes them to `.agents/skills/shadowlap-setup-agent/` and `.agents/skills/shadowlap-debug-agent/` from the copy that comes with the CLI. Codex, Cursor, GitHub Copilot (in VS Code, its CLI and its coding agent), Gemini CLI, Antigravity, Windsurf, OpenCode, Cline, Amp, goose, Zed and Junie read skills from that folder, so one install covers whichever of them the people on the project use: commit it. Any of their names works in place of `agents`, as in `shadowlap skill install cursor`. Kiro reads only its own folder, so for Kiro:
+
+```sh
+shadowlap skill install kiro
+```
+
+which writes the same skills to `.kiro/skills/`. In these folders, which every tool's skills share, each skill's name starts with `shadowlap-`, so it can't collide with another tool's; and the skills leave out the commands Claude Code may run without asking, since each of these agents asks before running a command as its own settings say. `--force` replaces another version's copy, or one edited here, and removes the files of ours that this version doesn't have; skills of other tools in the folder are never touched. In the [dashboard](./dashboard.md), Settings → Coding agents does the same with **Add the skills** on the `.agents/skills` row, which then reads *found · shadowlap-setup-agent, shadowlap-debug-agent* with the version.
 
 ## Instructions to give it
 
-For any other agent (Codex reads `AGENTS.md`, GitHub Copilot `.github/copilot-instructions.md`), or to keep them in `CLAUDE.md`, paste this into the project's instructions file, and adjust the commands:
+For an agent that doesn't read skills, or to keep the instructions in `CLAUDE.md` or `AGENTS.md`, paste this into the project's instructions file, and adjust the commands:
 
 ```md
 ## Debugging the agent with Shadowlap
 
-Agent runs are recorded with Shadowlap (`shadowlap run -- <command>`). To investigate a failing run:
+Agent runs are recorded with Shadowlap (`shadowlap run -- <command>`). Check every change to the
+agent's prompt, tools, model or code this way before calling it done. To investigate a failing run:
 
 1. `shadowlap ls --json` to find it, `shadowlap show <run> --json` to read it. A call's request and
    response: `shadowlap show <run> --request <call>` and `shadowlap show <run> --response <call>`.
@@ -84,6 +106,6 @@ Agent runs are recorded with Shadowlap (`shadowlap run -- <command>`). To invest
 
 ## Kept in step with the CLI
 
-The skill, the rule and the section above say which commands to run word for word, so each is tested as an agent would use it: CI runs every command they name against the repository's reference agent, with a scripted fake of the model's API, checks that the JSON fields they say to read are there and that the checks they show parse ([coding-agents.yml](https://github.com/devjoinedthechat/shadowlap/blob/main/.github/workflows/coding-agents.yml)). A flag renamed, or a field moved, fails that job before a coding agent meets it. And the copy `shadowlap skill install` puts into a project is the one that came with your CLI, so the two stay in step there too.
+The skills and the section above say which commands to run word for word, so each is tested as an agent would use it: CI runs every command they name against the repository's reference agent, with a scripted fake of the model's API, checks that the JSON fields they say to read are there and that the checks they show parse ([coding-agents.yml](https://github.com/devjoinedthechat/shadowlap/blob/main/.github/workflows/coding-agents.yml)). A flag renamed, or a field moved, fails that job before a coding agent meets it. The same job validates the plugin with Claude Code's validator, and every installed copy of the skills with the Agent Skills reference validator. And the copy `shadowlap skill install` puts into a project is the one that came with your CLI, so the two stay in step there too.
 
 Shadowlap never passes credentials to the agent's process beyond what it already had, and a replay reaches a provider only for calls after the fork.

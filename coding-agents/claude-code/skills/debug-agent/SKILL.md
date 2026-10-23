@@ -1,21 +1,24 @@
 ---
 name: debug-agent
-description: Debug, fix and check a change to an AI agent whose runs Shadowlap records (the shadowlap CLI; shadowlap.config.json or a .shadowlap folder in the project). Use it to find a failing run, read where it went wrong, replay a code or prompt change against what the agent actually did, find the model call that lost the run, and verify a fix before calling it done.
+description: Debug an AI agent whose runs Shadowlap records, and check every change to it against what it actually did (the shadowlap CLI; shadowlap.config.json or a .shadowlap folder in the project). Use it whenever you change the agent's prompt, tools, model or code, before calling the change done, and to find a failing run, read where it went wrong, find the model call or the commit that lost it, switch the agent to another model, and verify a fix.
 license: Apache-2.0
 compatibility: Needs the shadowlap CLI on the PATH (Node.js 22.16 or later, not 23), run in the agent's project.
-allowed-tools: Bash(shadowlap ls *) Bash(shadowlap show *) Bash(shadowlap search *) Bash(shadowlap diff *) Bash(shadowlap fix ls *)
+allowed-tools: Bash(shadowlap ls *) Bash(shadowlap show *) Bash(shadowlap search *) Bash(shadowlap diff *) Bash(shadowlap fix ls *) Bash(shadowlap fix show *)
+metadata:
+  version: 0.1.0
 ---
 
 # Debugging an agent with Shadowlap
 
 This project records its agent's runs with Shadowlap: `shadowlap run -- <command>` records every model and tool call, and a replay re-runs the agent's real code against the recording. Calls that didn't change are served from it at no cost; the run forks at the first request that changed, runs live from there, and blocks write tools (emails, tickets, payments). Read the JSON of the commands below that give it (`--json`, or `--summary-json` for a replay) rather than their text. A run id can be shortened to any unique prefix.
 
+Whenever you change the agent's prompt, tools, model or code, check the change here before calling it done, whether or not you were asked to debug anything. A project with no `shadowlap.config.json` and no `.shadowlap` folder records nothing yet: set it up first, which Shadowlap's setup skill walks through.
+
 ## Find the run
 
 - `shadowlap ls --json` lists runs, newest first, with their `status`, `labels` and where each forked (`forkedAt`). `shadowlap ls --label bug --json` keeps the runs labelled `bug`.
 - `shadowlap show <run> --json` prints the run, its summary, every call, and its untrusted reads (`untrusted`: the reads of tools marked untrusted, whose text could carry a prompt injection). One call's request as sent and response as received: `shadowlap show <run> --request <call>` and `shadowlap show <run> --response <call>`, with a call number from `show`.
 - `shadowlap search <words> --json` finds prompts, responses, tool arguments and tool results across runs. It exits 1 when nothing matches.
-- `shadowlap fix ls --json` lists the failures already being fixed: where each run was lost and how far its fix got.
 
 ## Check a change
 
@@ -30,6 +33,18 @@ This project records its agent's runs with Shadowlap: `shadowlap run -- <command
 ## Find where a failed run went wrong
 
 `shadowlap blame <run> --expect '<checks>' --json` names the model call that lost the run (`blamed`), and what the model answered there in the recording and in a fork that passed (`contrast`: its `recorded` and `rescued` answers, and that fork's `rescuedRunId`). `<checks>` is what a passing run must do besides exiting 0, as JSON: `{"tools":{"send_email":0}}` never sends an email, `{"tools":{"escalate":">= 1","issue_refund":0}}` escalates and never refunds, `{"answer":{"includes":"refund"}}` mentions the refund in its last reply. An `outcome` of `unrescuable` means no model answer saves the run: the fault is in the code, or in what a tool returned.
+
+A golden that passed before and fails now broke in some commit: `shadowlap bisect <golden> --good <rev> --json` replays it at the commits between one where it passed and the current one, and names the `first` that fails, with `why`. Add `--build '<command>'` when the agent needs building at each commit.
+
+## Fixes found already
+
+- `shadowlap fix ls --json` lists the failures already being fixed: where each run was lost and how far its fix got.
+- `shadowlap fix show <fix> --json` prints one: the call where its run was lost, the change tried (`repair`) and why each candidate was kept or dropped, its verdicts, and what can be done next (`actions`).
+- `shadowlap fix apply <fix> --json` hands over a fix a verdict accepted: it applies its patch to the working tree, copies the recordings the fixed code made into the goldens, and replays them. It exits 1 while the fix is still open.
+
+## Switch the model
+
+`shadowlap migrate --to <model> --json` moves the agent to another model, for one being retired or one that costs less, with the evidence: it asks every model call the goldens recorded again on the new model (with the request fields that model refuses changed), verifies the runs whose decisions changed, and compares what a run costs. Read `changes` (the decisions that changed), `passes` (whether each run still passes) and `costs`. The edit to the project's files is a patch under `.shadowlap/migrations/` (`configChange`, with each mention of the model it left for you to review); apply it with git once no run breaks. It exits 1 when a run breaks under the new model, or when the report settles nothing.
 
 ## Before calling it done
 

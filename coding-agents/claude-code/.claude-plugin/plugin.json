@@ -2,7 +2,7 @@
   "name": "shadowlap",
   "displayName": "Shadowlap",
   "version": "0.1.0",
-  "description": "Change safety for agents: find a failing run, replay a change against what your agent actually did, find the model call that lost the run, and verify the fix, with the shadowlap CLI.",
+  "description": "Change safety for agents: set Shadowlap up for your agent, check every change to it against what it actually did, find the model call that lost a run, and verify the fix, with the shadowlap CLI.",
   "author": {
     "name": "Shadowlap",
     "url": "https://github.com/devjoinedthechat/shadowlap"

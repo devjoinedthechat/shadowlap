@@ -1,6 +1,6 @@
 {
   "name": "shadowlap",
-  "description": "Shadowlap for Claude Code: the skill that debugs an AI agent and checks a change to it with the shadowlap CLI.",
+  "description": "Shadowlap for Claude Code: the skills that set Shadowlap up for an AI agent, debug it and check every change to it with the shadowlap CLI.",
   "owner": {
     "name": "Shadowlap",
     "url": "https://github.com/devjoinedthechat/shadowlap"
