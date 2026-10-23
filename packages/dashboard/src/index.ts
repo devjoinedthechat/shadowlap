@@ -57,20 +57,6 @@ export type { ReadTeamStoreOptions, TeamStoreInput, TeamStoreStatus } from './te
 export { applyDeltas, normalizeConversation, normalizeResponse } from '@shadowlap/engine';
 export type { Block, Conversation, Delta, NormalizedResponse, Turn, TurnBlock } from '@shadowlap/engine';
 
-/** Opens a URL in the default browser. Resolves false when no opener is available. */
-export async function openInBrowser(url: string): Promise<boolean> {
-  const { spawn } = await import('node:child_process');
-  const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', url.replace(/&/g, '^&')]] : ['xdg-open', [url]];
-  return new Promise((resolve) => {
-    try {
-      const child = spawn(cmd as string, args as string[], { stdio: 'ignore', detached: true });
-      child.on('error', () => resolve(false));
-      child.on('spawn', () => {
-        child.unref();
-        resolve(true);
-      });
-    } catch {
-      resolve(false);
-    }
-  });
-}
+// Opens the dashboard's link in the default browser through a file only its owner can read: the
+// session token never goes on a command line.
+export { openInBrowser, redirectPage, type OpenOptions } from './open-browser.js';

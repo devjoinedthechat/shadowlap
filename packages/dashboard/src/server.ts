@@ -97,6 +97,8 @@ export interface DashboardOptions {
 export interface Dashboard {
   /** Origin, e.g. http://127.0.0.1:4777 */
   url: string;
+  /** The port it listens on: the one asked for, or the one the system gave for port 0 (or for a taken default). */
+  port: number;
   /** The URL to open: origin plus the token in the fragment. */
   openUrl: string;
   /** The link that opens a run directly. */
@@ -509,6 +511,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   let closing: Promise<void> | null = null;
   return {
     url,
+    port,
     openUrl: `${url}/#token=${token}`,
     runUrl: (runId, callNo) => `${url}/#token=${token}&open=/run/${runId}${callNo ? `/call/${callNo}` : ''}`,
     token,
