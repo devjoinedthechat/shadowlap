@@ -1,7 +1,7 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash, randomUUID } from 'node:crypto';
-import { Agent as HttpAgent, request as httpRequest, type ClientRequest, type IncomingMessage } from 'node:http';
-import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
+import type { Agent as HttpAgent, ClientRequest, IncomingMessage } from 'node:http';
+import type { Agent as HttpsAgent } from 'node:https';
+import { sharedStore, useContextStore, type ContextStore, type ContextStoreClass } from './context.js';
+import { VERSION } from './version.js';
 
 /**
  * The Shadowlap SDK for TypeScript: an effect-typed tool wrapper, clock/random helpers, and
@@ -9,7 +9,16 @@ import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
  * Everything here is a thin client of the sidecar's call resolution API; no hashing or matching
  * logic lives in the SDK. When Shadowlap is not active (no SHADOWLAP_URL), every function is a
  * direct passthrough, so wrapped tools ship to production unchanged.
+ *
+ * Nothing here loads a Node module until a call goes to the sidecar, so the SDK loads where Node's
+ * modules don't exist (an Edge runtime, a browser bundle), and its wrappers just call through there.
+ * Under Shadowlap the agent runs on Node, or on a runtime with Node's modules.
  */
+
+export { VERSION } from './version.js';
+
+/** The `x-shadowlap-sdk` header every call to the sidecar carries, so it can say when the SDK and the CLI differ. */
+const SDK_HEADER = `node/${VERSION}`;
 
 export type Effect = 'pure' | 'read' | 'write';
 
@@ -117,10 +126,15 @@ interface Config {
   runId: string | undefined;
 }
 
+/** The environment, where there is one: an Edge runtime may have no `process` at all. */
+function env(): Record<string, string | undefined> {
+  return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+}
+
 function config(): Config | null {
-  const url = process.env.SHADOWLAP_URL;
+  const url = env().SHADOWLAP_URL;
   if (!url) return null;
-  return { url: url.replace(/\/$/, ''), runId: process.env.SHADOWLAP_RUN_ID };
+  return { url: url.replace(/\/$/, ''), runId: env().SHADOWLAP_RUN_ID };
 }
 
 export function isActive(): boolean {
@@ -130,10 +144,7 @@ export function isActive(): boolean {
 // One store per process, shared with Shadowlap's capture preload, which may load before this module or
 // in another copy of it.
 const SCOPES = Symbol.for('shadowlap.scope');
-function scopes(): AsyncLocalStorage<string> {
-  const g = globalThis as { [SCOPES]?: AsyncLocalStorage<string> };
-  return (g[SCOPES] ??= new AsyncLocalStorage<string>());
-}
+const scopes = () => sharedStore<string>(SCOPES);
 
 /**
  * Runs `fn` as a named branch of the agent, such as one sub-agent of several that run at once. Every
@@ -144,7 +155,8 @@ function scopes(): AsyncLocalStorage<string> {
  */
 export function scope<T>(name: string, fn: () => T): T {
   const parent = currentScope();
-  return scopes().run(parent ? `${parent}/${name}` : name, fn);
+  const store = scopes();
+  return store ? store.run(parent ? `${parent}/${name}` : name, fn) : fn();
 }
 
 /**
@@ -155,14 +167,14 @@ export function scope<T>(name: string, fn: () => T): T {
  * entered inside it nest underneath. Limits match what the sidecar accepts.
  */
 function baseScope(): string | undefined {
-  const raw = process.env.SHADOWLAP_SCOPE?.trim();
+  const raw = env().SHADOWLAP_SCOPE?.trim();
   if (!raw || raw.length > 200 || /[\u0000-\u001f\u007f]/.test(raw)) return undefined;
   return raw;
 }
 
 /** The scope the caller runs in, if any. */
 export function currentScope(): string | undefined {
-  return scopes().getStore() ?? baseScope();
+  return scopes()?.getStore() ?? baseScope();
 }
 
 /**
@@ -187,6 +199,29 @@ type ResolveResponse =
   | { origin: 'blocked'; callNo: number; outcome: 'error'; error: SerializedError }
   | { origin: 'stubbed'; callNo: number };
 
+/** Node's modules the calls to the sidecar take, loaded the first time one is made. */
+interface NodeModules {
+  http: typeof import('node:http');
+  https: typeof import('node:https');
+  crypto: typeof import('node:crypto');
+}
+
+/**
+ * Loads a Node module when a call first needs it. The name is held in a variable, and marked for
+ * the bundlers that read such marks, so a bundle for an Edge runtime leaves the import alone: it only
+ * runs under Shadowlap, which runs the agent on Node.
+ */
+const load = (name: string): Promise<unknown> => import(/* webpackIgnore: true */ /* @vite-ignore */ name);
+
+let nodeModules: Promise<NodeModules> | undefined;
+function node(): Promise<NodeModules> {
+  return (nodeModules ??= Promise.all([load('node:http'), load('node:https'), load('node:crypto')]).then(([http, https, crypto]) => ({
+    http: http as NodeModules['http'],
+    https: https as NodeModules['https'],
+    crypto: crypto as NodeModules['crypto'],
+  })));
+}
+
 /**
  * Agents of the SDK's own for the sidecar, which is on the machine's loopback and is reached
  * directly, never through a proxy: not with fetch, whose dispatcher an agent may route through one
@@ -197,11 +232,12 @@ type ResolveResponse =
 const direct: { http?: HttpAgent; https?: HttpsAgent } = {};
 
 /** POSTs to the sidecar and reads the whole answer. A kept-alive socket the sidecar closed while it was idle is retried once on a new one. */
-function send(url: string, headers: Record<string, string>, body: string, retried = false): Promise<{ status: number; text: string }> {
+async function send(url: string, headers: Record<string, string>, body: string, retried = false): Promise<{ status: number; text: string }> {
+  const { http, https } = await node();
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     const secure = target.protocol === 'https:';
-    const agent = secure ? (direct.https ??= new HttpsAgent({ keepAlive: true })) : (direct.http ??= new HttpAgent({ keepAlive: true }));
+    const agent = secure ? (direct.https ??= new https.Agent({ keepAlive: true })) : (direct.http ??= new http.Agent({ keepAlive: true }));
     const options = { method: 'POST', headers: { ...headers, 'content-length': String(Buffer.byteLength(body)) }, agent };
     const answered = (res: IncomingMessage) => {
       const chunks: Buffer[] = [];
@@ -209,7 +245,7 @@ function send(url: string, headers: Record<string, string>, body: string, retrie
       res.on('end', () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
       res.on('error', reject);
     };
-    const req: ClientRequest = secure ? httpsRequest(target, options, answered) : httpRequest(target, options, answered);
+    const req: ClientRequest = secure ? https.request(target, options, answered) : http.request(target, options, answered);
     req.on('error', (err: NodeJS.ErrnoException) => {
       if (req.reusedSocket && !retried && (err.code === 'ECONNRESET' || err.code === 'EPIPE')) send(url, headers, body, true).then(resolve, reject);
       else reject(err);
@@ -219,7 +255,7 @@ function send(url: string, headers: Record<string, string>, body: string, retrie
 }
 
 async function post<T>(cfg: Config, path: string, body: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const headers: Record<string, string> = { 'content-type': 'application/json', 'x-shadowlap-sdk': SDK_HEADER };
   if (cfg.runId) headers['x-shadowlap-run'] = cfg.runId;
   const scoped = currentScope();
   if (scoped) headers['x-shadowlap-scope'] = encodeScope(scoped);
@@ -335,13 +371,15 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
   if (options.trust !== undefined && options.trust !== 'trusted' && options.trust !== 'untrusted') {
     throw new TypeError(`tool ${name}: trust must be "trusted" or "untrusted"`);
   }
-  const implHash = createHash('sha256').update(String(options.source ?? impl)).digest('hex');
+  // Hashed the first time the tool is called under Shadowlap, which is when Node's crypto is at hand.
+  let implHash: string | undefined;
+  const hashed = async () => (implHash ??= (await node()).crypto.createHash('sha256').update(String(options.source ?? impl)).digest('hex'));
   // What the sidecar is asked for every call: `trust` only when the tool brings outside text in.
-  const resolveBody = (args: A) => ({ kind: 'tool', name, effect: options.effect, args, implHash, ...(options.trust === 'untrusted' ? { trust: 'untrusted' } : {}) });
+  const resolveBody = async (args: A) => ({ kind: 'tool', name, effect: options.effect, args, implHash: await hashed(), ...(options.trust === 'untrusted' ? { trust: 'untrusted' } : {}) });
 
   /** One call under Shadowlap; `run` executes the implementation and gives the result to record. */
   async function call(cfg: Config, args: A, run: (args: A) => Promise<unknown>, decided?: ResolveResponse): Promise<{ value: unknown; ran: boolean }> {
-    const r = decided ?? (await post<ResolveResponse>(cfg, '/v1/calls/resolve', resolveBody(args)));
+    const r = decided ?? (await post<ResolveResponse>(cfg, '/v1/calls/resolve', await resolveBody(args)));
     switch (r.origin) {
       case 'replayed':
         if (r.outcome === 'ok') return { value: r.result, ran: false };
@@ -381,7 +419,7 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
         yield* stream(args);
         return;
       }
-      const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', resolveBody(args));
+      const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', await resolveBody(args));
       if (r.origin !== 'live') {
         // Replayed or stubbed: the implementation doesn't run, so the recorded value is the stream.
         yield (await call(cfg, args, async () => null, r)).value;
@@ -416,9 +454,12 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
 // alone, so an answer typed at the terminal is recorded once. Shared through a global symbol, as the
 // scope store is.
 const DIRECT_INPUT = Symbol.for('shadowlap.input.direct');
-function directInput(): AsyncLocalStorage<boolean> {
-  const g = globalThis as { [DIRECT_INPUT]?: AsyncLocalStorage<boolean> };
-  return (g[DIRECT_INPUT] ??= new AsyncLocalStorage<boolean>());
+async function directInput(): Promise<ContextStore<boolean>> {
+  const store = sharedStore<boolean>(DIRECT_INPUT);
+  if (store) return store;
+  // A Node before 20.16 without the Node entry point: the class comes with an import, once.
+  useContextStore(((await load('node:async_hooks')) as { AsyncLocalStorage: ContextStoreClass }).AsyncLocalStorage);
+  return sharedStore<boolean>(DIRECT_INPUT)!;
 }
 
 /** The text of a recorded answer: `{ text }`, or a bare string from an override. */
@@ -449,7 +490,8 @@ export async function userInput(prompt: string, read: (prompt: string) => string
   if (r.origin !== 'live') throw new Error(`unexpected origin ${r.origin} for user input`);
   const started = Date.now();
   try {
-    const text = await directInput().run(true, () => read(prompt));
+    const direct = await directInput();
+    const text = await direct.run(true, () => read(prompt));
     await post(cfg, `/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result: { text }, latencyMs: Date.now() - started });
     return text;
   } catch (err) {
@@ -458,7 +500,7 @@ export async function userInput(prompt: string, read: (prompt: string) => string
   }
 }
 
-async function misc<T>(kind: 'clock' | 'random', name: string, label: string | undefined, fallback: () => T): Promise<T> {
+async function misc<T>(kind: 'clock' | 'random', name: string, label: string | undefined, fallback: () => T | Promise<T>): Promise<T> {
   const cfg = config();
   if (!cfg) return fallback();
   const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', { kind, name, label: label ?? '' });
@@ -474,4 +516,11 @@ export const now = (label?: string): Promise<number> => misc('clock', 'now', lab
 /** A number in [0, 1), recorded. */
 export const random = (label?: string): Promise<number> => misc('random', 'random', label, () => Math.random());
 /** A UUID v4, recorded. */
-export const uuid = (label?: string): Promise<string> => misc('random', 'uuid', label, () => randomUUID());
+export const uuid = (label?: string): Promise<string> => misc('random', 'uuid', label, randomUUID);
+
+/** A UUID v4 from the Web Crypto API where the runtime has it (Node 19 and later, Edge runtimes), else from Node's crypto (Node 18). */
+async function randomUUID(): Promise<string> {
+  const web = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (typeof web?.randomUUID === 'function') return web.randomUUID();
+  return ((await load('node:crypto')) as typeof import('node:crypto')).randomUUID();
+}

@@ -12,6 +12,7 @@
   "files": [
     "bin",
     "dist",
+    "!dist/**/*.d.ts.map",
     "README.md",
     "LICENSE",
     "guard",
@@ -21,20 +22,12 @@
     "node": "^22.16.0 || >=24"
   },
   "dependencies": {
-    "@shadowlap/engine": "^0.1.0",
-    "@shadowlap/sidecar": "^0.1.0",
+    "@shadowlap/engine": "0.1.0",
+    "@shadowlap/sidecar": "0.1.0",
     "commander": "^15.0.0",
-    "@shadowlap/tui": "^0.1.0",
-    "@shadowlap/dashboard": "^0.1.0",
-    "@shadowlap/remote": "^0.1.0"
-  },
-  "peerDependencies": {
-    "@anthropic-ai/sdk": ">=0.126.0"
-  },
-  "peerDependenciesMeta": {
-    "@anthropic-ai/sdk": {
-      "optional": true
-    }
+    "@shadowlap/tui": "0.1.0",
+    "@shadowlap/dashboard": "0.1.0",
+    "@shadowlap/remote": "0.1.0"
   },
   "repository": {
     "type": "git",
@@ -62,7 +55,7 @@
     "mcp"
   ],
   "devDependencies": {
-    "@shadowlap/collector": "^0.1.0",
+    "@shadowlap/collector": "0.1.0",
     "@anthropic-ai/sdk": "^0.126.0"
   }
 }

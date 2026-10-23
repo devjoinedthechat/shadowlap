@@ -128,7 +128,8 @@ describe('installing the packages', () => {
       expect(seen.withEffects).toBe('function');
       // One module: a scope the agent enters is the scope the adapters' tools see.
       expect(seen.theirs).toBe(seen.own);
-      expect(seen.own).toBe(realpathSync(join(ROOT, 'packages', 'sdk', 'dist', 'index.js')));
+      // Node takes the SDK's `node` entry, which is its index with Node's AsyncLocalStorage registered.
+      expect(seen.own).toBe(realpathSync(join(ROOT, 'packages', 'sdk', 'dist', 'node.js')));
       // @shadowlap/test runs the CLI it depends on: here, the repository's own.
       expect(seen.cli).toBe(realpathSync(join(ROOT, 'packages', 'cli', 'bin', 'shadowlap.js')));
       expect(existsSync(join(project, 'node_modules', '@shadowlap', 'test'))).toBe(true);

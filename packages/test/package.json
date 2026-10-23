@@ -24,8 +24,22 @@
       "default": "./dist/register.js"
     }
   },
+  "typesVersions": {
+    "*": {
+      "global-setup": [
+        "./dist/global-setup.d.ts"
+      ],
+      "setup": [
+        "./dist/setup.d.ts"
+      ],
+      "register": [
+        "./dist/register.d.ts"
+      ]
+    }
+  },
   "files": [
     "dist",
+    "src",
     "README.md",
     "LICENSE"
   ],
@@ -33,7 +47,7 @@
     "node": "^22.16.0 || >=24"
   },
   "dependencies": {
-    "shadowlap": "^0.1.0"
+    "shadowlap": "0.1.0"
   },
   "repository": {
     "type": "git",

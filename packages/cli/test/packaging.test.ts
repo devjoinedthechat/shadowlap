@@ -49,11 +49,17 @@ describe('supply chain', () => {
     });
   }
 
-  it('asks for the Anthropic SDK only as an optional peer, for shadowlap repair with Claude as the repairer', () => {
-    const cli = JSON.parse(readFileSync(join(ROOT, 'packages', 'cli', 'package.json'), 'utf8')) as { peerDependencies?: Record<string, string>; peerDependenciesMeta?: Record<string, { optional?: boolean }> };
-    // An optional peer is installed by whoever wants it, never by npm on everyone's behalf.
-    expect(Object.keys(cli.peerDependencies ?? {})).toEqual(['@anthropic-ai/sdk']);
-    for (const name of Object.keys(cli.peerDependencies ?? {})) expect(cli.peerDependenciesMeta?.[name]?.optional, name).toBe(true);
+  it('asks npm for no peer, so it never conflicts with the Anthropic SDK a project pins; a Claude repairer imports the SDK when asked', () => {
+    // An optional peer still takes part in npm's resolution: a project on an older @anthropic-ai/sdk
+    // would fail to install shadowlap beside it (ERESOLVE). The repairer imports the SDK itself, and
+    // says how to install it when it is missing.
+    for (const dir of readdirSync(join(ROOT, 'packages'))) {
+      const m = JSON.parse(readFileSync(join(ROOT, 'packages', dir, 'package.json'), 'utf8')) as { name: string; peerDependencies?: Record<string, string> };
+      expect(m.peerDependencies, m.name).toBeUndefined();
+    }
+    const repairer = readFileSync(join(ROOT, 'packages', 'cli', 'src', 'repairer.ts'), 'utf8');
+    expect(repairer).toContain("await import('@anthropic-ai/sdk')");
+    expect(repairer).toMatch(/npm install[^\n]*@anthropic-ai\/sdk/);
   });
 
   it('leaves the engine, sidecar, SDK, adapters and dashboard with no external dependencies at all', () => {

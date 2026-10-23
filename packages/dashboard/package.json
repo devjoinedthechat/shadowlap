@@ -14,6 +14,7 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.d.ts.map",
     "README.md",
     "LICENSE"
   ],
@@ -24,9 +25,9 @@
     "node": "^22.16.0 || >=24"
   },
   "dependencies": {
-    "@shadowlap/engine": "^0.1.0",
-    "@shadowlap/tui": "^0.1.0",
-    "@shadowlap/remote": "^0.1.0"
+    "@shadowlap/engine": "0.1.0",
+    "@shadowlap/tui": "0.1.0",
+    "@shadowlap/remote": "0.1.0"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
