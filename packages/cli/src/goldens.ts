@@ -15,12 +15,12 @@ import { configPath, loadTests } from './config.js';
 export const GOLDENS_FOLDER = 'goldens';
 
 /**
- * A new scratch folder for `bisect`'s worktrees or a golden `test --update` is writing, under the
+ * A new scratch folder for `bisect`'s worktrees, `verify`'s base checkout or a golden `test --update` is writing, under the
  * project's `.shadowlap/`, which gets a .gitignore of its own: `git status` never shows what is
  * there, a pattern such as `goldens/*` never matches it, and one left by an interrupted command
  * harms nothing.
  */
-export function scratchDir(projectDir: string, purpose: 'bisect' | 'update'): string {
+export function scratchDir(projectDir: string, purpose: 'bisect' | 'update' | 'verify'): string {
   const dir = join(projectDir, '.shadowlap');
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {

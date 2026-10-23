@@ -264,7 +264,10 @@ const runArgs = (r: RunSpecs): string[] => [...(r.fixes?.length ? ['--fixes', ..
 
 const gateArgs = (gate: SprtGate | null, attempts: number, passes: number | undefined) => gateFlags(gate, SPRT_DEFAULTS, { attempts, passes });
 
-export function verifyCommand(runs: RunSpecs, f: StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; gate: SprtGate | null; fields: Record<string, unknown>; from?: readonly string[] | undefined; liveTools: string[]; failFast?: boolean }): string {
+export function verifyCommand(
+  runs: RunSpecs,
+  f: StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; gate: SprtGate | null; fields: Record<string, unknown>; from?: readonly string[] | undefined; liveTools: string[]; failFast?: boolean; margin?: number | undefined; baseline?: 'paired' | 'history' | undefined; base?: string | undefined; build?: string | null | undefined },
+): string {
   return quoteArgv([
     'shadowlap',
     'verify',
@@ -274,6 +277,11 @@ export function verifyCommand(runs: RunSpecs, f: StepFlags & { expect?: unknown;
     ...(f.from ?? []).flatMap((m) => ['--from', m]),
     ...f.liveTools.flatMap((t) => ['--live-tool', t]),
     ...gateArgs(f.gate, f.attempts, f.passes),
+    // How good runs were kept, when given: against what, from which commit, by what margin.
+    ...(f.margin !== undefined ? ['--margin', String(f.margin)] : []),
+    ...(f.baseline ? ['--baseline', f.baseline] : []),
+    ...(f.base ? ['--base', f.base] : []),
+    ...(f.build ? ['--build', f.build] : []),
     ...(f.failFast ? ['--fail-fast'] : []),
     ...stepArgs(f),
     ...commandArgs(f),

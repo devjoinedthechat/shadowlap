@@ -173,6 +173,32 @@
         }
       }
     },
+    "verify": {
+      "description": "`shadowlap verify`: how a good run is kept. It is kept unless its pass rate drops by `margin` or more below its baseline's, at the gate's risk: the same run at the base revision, attempt for attempt (`paired`), or its golden's test history (`history`), up to `max` pairs or attempts. --margin and --baseline override them.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "margin": {
+          "description": "The drop in pass rate from the baseline that breaks a good run: 0.1 is 10 points. Default 0.1.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "baseline": {
+          "description": "paired (default): the same run at the base revision, paired attempt for attempt with the change's. history: its golden's test history.",
+          "enum": [
+            "paired",
+            "history"
+          ]
+        },
+        "max": {
+          "description": "The most pairs (paired) or attempts (history) a good run takes; between the verdicts then, it is inconclusive. Default 200.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      }
+    },
     "store": {
       "description": "The team store: the project's runs in a bucket you own, written by `shadowlap store set`. s3://bucket/folder, gs://bucket/folder, az://account/container/folder or r2://account/bucket/folder; a query adds what the name can't say (region, endpoint, path-style, auth=hmac, profile). Credentials never go here: each machine uses its own.",
       "type": "string",

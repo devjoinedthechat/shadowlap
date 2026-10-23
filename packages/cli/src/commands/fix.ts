@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { applyLeft, BLAME_DEFAULTS, commandIsImported, percent, probeGate, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { applyLeft, BLAME_DEFAULTS, commandIsImported, describeBaselineRule, dropBound, KEPT_DEFAULTS, percent, probeGate, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
@@ -15,7 +15,8 @@ import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { type GuardMode } from '../run-agent.js';
 import { confirmImportedCommand, missingStoreNote, parseChoice, parseIntArg, readStore, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { ago, clauses, folder, palette as p, quoteArgv, safe, shortId } from '../ui.js';
-import { runVerify } from '../verify.js';
+import { runVerify, type VerifyBaseline } from '../verify.js';
+import { resolveBase } from '../verify-base.js';
 import { HandOverError, RepairError, runRepair, splitHoldout } from '../repair.js';
 import { parseRepairer, type Repairer } from '../repairer.js';
 import { loadConfig } from '../config.js';
@@ -126,6 +127,21 @@ export function attemptRule(flags: { attempts?: number | undefined; passes?: num
 /** A gate's result as `--json` prints it beside a run or a probe: its decision, the pass rate's interval and its sentence. */
 const gateJson = (g: { decision: string; interval: unknown; sentence: string } | null | undefined) => (g ? { decision: g.decision, interval: g.interval, sentence: g.sentence } : null);
 
+/** A good run kept against its baseline, as `--json` prints its verdict: the decision, the drop's interval and the sentence, rule included. */
+function keptJson(x: VerifyReport['runs'][number], r: VerifyReport): { decision: string; drop: unknown; sentence: string } {
+  const bound = x.drop ? dropBound(x.drop, x.decision) : null;
+  const rule = r.kept ? ` · ${describeBaselineRule({ ...r.kept, revision: r.kept.label ?? r.kept.revision ?? null })}` : '';
+  const tally = `${x.passes} of ${x.attempts.length} passed, baseline ${x.baseline!.passes} of ${x.baseline!.attempts}`;
+  return { decision: x.decision ?? 'continue', drop: x.drop ?? null, sentence: `${outcomeOf(x)} · ${tally}${bound ? ` · ${bound}` : ''}${rule}` };
+}
+
+/** `--margin`: a drop between 0 and 1, as a share (0.1 is 10 points). */
+function parseMargin(value: string): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0 || n >= 1) throw new InvalidArgumentError('must be a share between 0 and 1, such as 0.1 (a drop of 10 points)');
+  return n;
+}
+
 /** The report as `--json` prints it: stable field names for scripts and coding agents. */
 export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Record<string, unknown> {
   const probe = (x: NonNullable<BlameReport['blamed']>) => ({ callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length });
@@ -205,7 +221,26 @@ export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Ar
     gate: r.gate ?? null,
     change: { fields: r.fields },
     summary: { targets: count('target'), holdout: count('holdout'), good: count('good') },
-    runs: r.runs.map((x) => ({ runId: x.runId, role: x.role, outcome: outcomeOf(x).replace(' ', '-'), passes: x.passes, attempts: x.attempts.length, decision: x.decision ?? null, rate: x.undecided ? null : gateJson(x.gate), deterministic: x.deterministic, recorded: x.recorded, undecided: x.undecided ?? null, runs: x.attempts })),
+    runs: r.runs.map((x) => ({
+      runId: x.runId,
+      role: x.role,
+      outcome: outcomeOf(x).replace(' ', '-'),
+      passes: x.passes,
+      attempts: x.attempts.length,
+      decision: x.decision ?? null,
+      rate: x.undecided ? null : x.baseline ? keptJson(x, r) : gateJson(x.gate),
+      deterministic: x.deterministic,
+      recorded: x.recorded,
+      undecided: x.undecided ?? null,
+      // A good run decided against its own baseline: the baseline's tally and where it came from, the
+      // margin, the bound on the drop, and the baseline's attempts; why there was none, when none.
+      ...(x.baseline ? { baseline: x.baseline, margin: x.margin ?? null, drop: x.drop ?? null } : {}),
+      ...(x.baselineRuns ? { baselineRuns: x.baselineRuns } : {}),
+      ...(x.noBaseline ? { noBaseline: x.noBaseline } : {}),
+      runs: x.attempts,
+    })),
+    // The rule good runs were kept by: against what, the margin, the risk and the most pairs or attempts.
+    kept: r.kept ?? null,
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
     // Judge checks' calls, apart from the agent's: what they sent upstream and spent. Null when no judge was asked live.
     judge: r.judge ?? null,
@@ -356,10 +391,14 @@ export function register(program: Command): void {
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--fail-fast', 'start nothing new once a run has failed')
+    .option('--margin <share>', `a good run that forks is kept unless its pass rate drops this much or more below its baseline's: 0.1 is 10 points (default: verify.margin in ${'shadowlap.config.json'}, else ${KEPT_DEFAULTS.margin})`, parseMargin)
+    .option('--baseline <source>', 'what a good run is compared with: paired, the same run under the code before the change, attempt for attempt; or history, its golden\'s test history (default: verify.baseline, else paired)', parseChoice(['paired', 'history'] as const))
+    .option('--base <rev>', 'with a paired baseline: the commit before the change (default: HEAD, when the working tree has a change)')
+    .option('--build <command>', 'with a paired baseline at a commit: build its checkout before its attempts, e.g. "npm run build"')
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', 'run the recorded command of imported runs without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; gate?: string; attempts?: number; passes?: number; model?: string; set: string[]; from: string[]; liveTool: string[]; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; failFast?: boolean; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; gate?: string; attempts?: number; passes?: number; model?: string; set: string[]; from: string[]; liveTool: string[]; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; failFast?: boolean; margin?: number; baseline?: 'paired' | 'history'; base?: string; build?: string; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const rule = attemptRule(flags, { defaults: SPRT_DEFAULTS, passes: (n) => Math.ceil(0.8 * n) });
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
@@ -368,6 +407,18 @@ export function register(program: Command): void {
       if (undecidable) throw new InvalidArgumentError(undecidable);
       const fields = parseFields(flags.set, flags.model);
       if (flags.from.length && !Object.keys(fields).length) throw new InvalidArgumentError('--from names the model calls --model and --set change: give one of them');
+      // What good runs are kept against: the same runs under the code before the change, or history.
+      const source = flags.baseline ?? loadConfig(process.cwd()).verify?.baseline ?? 'paired';
+      if (source === 'history' && (flags.base !== undefined || flags.build !== undefined)) throw new InvalidArgumentError('--base and --build check out the code a paired baseline runs at: give them without --baseline history');
+      if (!rule.gate && (flags.margin !== undefined || flags.baseline !== undefined || flags.base !== undefined || flags.build !== undefined)) throw new InvalidArgumentError('a fixed count (--attempts, --passes) judges every run on its own: --margin, --baseline, --base and --build are for the gate, which keeps a good run against its baseline');
+      let baseline: VerifyBaseline;
+      if (source === 'history') baseline = { source: 'history' };
+      else {
+        const found = resolveBase(process.cwd(), { base: flags.base, fields: Object.keys(fields).length > 0, build: flags.build ?? null });
+        // A commit named that isn't one is a mistake; a working tree with nothing to compare is not.
+        if ('none' in found && flags.base !== undefined) throw new InvalidArgumentError(found.none);
+        baseline = 'base' in found ? { source: 'paired', base: found.base } : { source: 'none', why: found.none };
+      }
 
       const store = readStore(opts);
       const roles: Array<[VerifyRole, string, string[] | undefined]> = [
@@ -402,18 +453,25 @@ export function register(program: Command): void {
       log(`${p.yellow('⑂')} Verifying the code as it is now against ${runs.length} run${runs.length === 1 ? '' : 's'} (${counts})`);
       const decides = rule.gate ? `each run's gate: ${describeGate(rule.gate)}` : `a run passes at ${rule.needed} of ${rule.attempts} attempts`;
       log(p.dim(`  ${decides}; one that replays clean is settled by its first · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`));
+      // How a good run that forks is kept: against its baseline, or, when there is none, by its gate alone.
+      if (rule.gate && n('good')) {
+        const margin = flags.margin ?? loadConfig(process.cwd()).verify?.margin ?? KEPT_DEFAULTS.margin;
+        const max = loadConfig(process.cwd()).verify?.max ?? KEPT_DEFAULTS.max;
+        if (baseline.source === 'none') log(p.dim(`  a good run that forks: by its gate on its own, as ${baseline.why}`));
+        else log(p.dim(`  a good run that forks: ${describeBaselineRule({ margin, risk: rule.gate.risk, max, source: baseline.source, revision: baseline.source === 'paired' ? (baseline.base.revision ? baseline.base.label : 'the working tree, without the change') : null })}`));
+      }
 
       const report = await runVerify({
         opts,
         runs,
-        settings: { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, fields, ...(flags.from.length ? { fromModels: flags.from } : {}), failFast: !!flags.failFast, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard },
+        settings: { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, fields, ...(flags.from.length ? { fromModels: flags.from } : {}), failFast: !!flags.failFast, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, ...(rule.gate ? { baseline } : {}), ...(flags.margin !== undefined ? { margin: flags.margin } : {}) },
         log,
       });
       // The verdict is kept whatever it is. It turns the fix of its failing runs verified when it accepts
       // and counts there: it checked the fix's own check, on a run that failed it as recorded.
       const line = verifyCommand(
         { fixes: flags.fixes, holdout: flags.holdout, keeps: flags.keeps },
-        { expect: expect?.json ?? null, attempts: rule.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), gate: rule.gate, fields, from: flags.from, liveTools: flags.liveTool, failFast: !!flags.failFast, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null },
+        { expect: expect?.json ?? null, attempts: rule.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), gate: rule.gate, fields, from: flags.from, liveTools: flags.liveTool, failFast: !!flags.failFast, margin: flags.margin, baseline: flags.baseline, base: flags.base, build: flags.build ?? null, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null },
       );
       const kept = recordVerifyFix(opts, report, { expect: expect?.json ?? null, command: line });
       const json = verifyJson(report, kept ? { verifyId: kept.verdict.verifyId, fixes: kept.fixes } : null);

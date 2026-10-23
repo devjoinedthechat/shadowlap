@@ -278,7 +278,14 @@ export interface RunMeta {
    * its verdict, inconclusive when all it fell short on is a check that could not be decided, and
    * unavailable when the agent failed while its provider was (unavailable.ts): retried, never counted.
    */
-  verify?: { role: 'target' | 'holdout' | 'good'; passed: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' | 'unavailable' };
+  verify?: {
+    role: 'target' | 'holdout' | 'good';
+    passed: boolean;
+    verdict?: 'passed' | 'failed' | 'inconclusive' | 'unavailable';
+    /** An attempt of a good run's baseline: the run under the code before the change (its `revision`, or the working tree's), paired with one of the change's. Absent otherwise. */
+    arm?: 'baseline';
+    revision?: string | null;
+  };
   /** Labels people gave the run: `bug`, `good`, `refund-flow`. */
   labels?: string[];
   /** Notes on the run, or on one of its calls. */

@@ -1,5 +1,6 @@
 import { probeVerdict } from './blame.js';
 import { agentCallsOf } from './judge-scope.js';
+import { describeBaselineRule, dropBound, type BaselineDecision, type BaselineRule, type BaselineSource, type DropBound } from './noninferiority.js';
 import { formatUsd } from './prices.js';
 import { atLeast, atMost, decide, describeGate, percent, wilsonBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
@@ -16,14 +17,23 @@ import type { CallRecord } from './types.js';
  *   fix that only fits the runs it was written against shows up here;
  * - **good** runs passed, and must still pass.
  *
- * A run passes or fails on its attempts as a gate decides after each one (stats.ts): by default it
- * tells a run that meets the oracle 90% of the time or more from one that meets it 70% or less, each
- * verdict wrong at most 5% of the time at those two rates, and is inconclusive when the gate's
- * attempts run out between them. A fixed count (`needed` of `attempts`) still decides when one is
- * given. The change is accepted only when
- * every failing run is fixed and every good run kept. A replay that forks nowhere served every call
- * from the recording, so it would come out the same every time: one attempt settles it, which is
- * what makes checking a harness fix, or the good runs a prompt change doesn't touch, free.
+ * A target or held-out run passes or fails on its attempts as a gate decides after each one
+ * (stats.ts): by default it tells a run that meets the oracle 90% of the time or more from one that
+ * meets it 70% or less, each verdict wrong at most 5% of the time at those two rates, and is
+ * inconclusive when the gate's attempts run out between them. "Fixed" stays absolute: the run passes
+ * the gate. A fixed count (`needed` of `attempts`) still decides when one is given.
+ *
+ * A good run is kept relative to its own baseline (noninferiority.ts): not worse than the same run
+ * under the code before the change by `margin` or more, each attempt of the change paired with one
+ * of the baseline's, or against its golden's history. A run that drops by the margin or more is kept
+ * at most `risk` of the time, whatever its baseline's own pass rate. Where no baseline can be had (no
+ * git repository, no change to compare with, no history), a good run falls back to the gate on its
+ * own, and the report says so.
+ *
+ * The change is accepted only when every failing run is fixed and every good run kept. A replay
+ * that forks nowhere served every call from the recording, so it would come out the same every time:
+ * one attempt settles it, which is what makes checking a harness fix, or the good runs a prompt
+ * change doesn't touch, free.
  */
 
 export type VerifyRole = 'target' | 'holdout' | 'good';
@@ -95,6 +105,21 @@ export interface VerifiedRun {
    * otherwise.
    */
   undecided?: string | null;
+  /**
+   * A good run decided against its own baseline: the baseline's passes and attempts, where they came
+   * from (the same run at the base revision, paired with the change's attempts, or its golden's test
+   * history), and the revision it ran at. Absent for a target or held-out run, a clean replay, a run
+   * with no baseline, and in reports made before baselines.
+   */
+  baseline?: { passes: number; attempts: number; source: BaselineSource; revision?: string | null };
+  /** The drop from its baseline that breaks it (0.1 is 10 points), with `baseline`. */
+  margin?: number;
+  /** With `baseline`: a confidence interval for the drop from the baseline, each end valid whenever the test stopped. */
+  drop?: DropBound | null;
+  /** With a paired baseline: the baseline's attempts, each the run at the base revision. */
+  baselineRuns?: VerifyAttempt[];
+  /** A good run judged by its gate on its own: why it had no baseline. Absent otherwise. */
+  noBaseline?: string | null;
 }
 
 /** A run's verdict after `done` attempts. A deterministic run is settled by its first. */
@@ -112,6 +137,16 @@ export function runVerdict(passes: number, done: number, attempts: number, neede
 export function gateVerdict(passes: number, done: number, gate: SprtGate, deterministic: boolean): { verdict: RunVerdict; decision: GateDecision } {
   const decision: GateDecision = deterministic && done > 0 ? (passes > 0 ? 'pass' : 'fail') : decide(passes, done, gate);
   return { verdict: decision === 'pass' ? 'pass' : decision === 'fail' ? 'fail' : 'open', decision };
+}
+
+/**
+ * A good run's verdict from the test against its baseline: kept passes it, broken fails it, and an
+ * inconclusive test, or one still going, leaves it open.
+ */
+export function keptVerdict(decision: BaselineDecision): { verdict: RunVerdict; decision: GateDecision } {
+  if (decision === 'kept') return { verdict: 'pass', decision: 'pass' };
+  if (decision === 'broken') return { verdict: 'fail', decision: 'fail' };
+  return { verdict: 'open', decision };
 }
 
 export type VerifyOutcome = 'accepted' | 'rejected' | 'incomplete';
@@ -145,6 +180,12 @@ function tally(r: VerifiedRun): string {
     return `${judged ? `${r.passes} of ${judged} passed, ` : ''}attempt ${r.attempts.length} not judged`;
   }
   if (r.deterministic) return 'clean replay';
+  // A good run against its baseline: both tallies, and the bound on the drop that bears on its verdict.
+  if (r.baseline) {
+    const b = r.baseline;
+    const bound = r.drop ? dropBound(r.drop, r.decision) : null;
+    return `${r.passes} of ${r.attempts.length} passed, baseline ${b.passes} of ${b.attempts}${bound ? ` · ${bound}` : ''}`;
+  }
   const g = r.gate;
   const bound = g && r.attempts.length ? wilsonBound(g) : null;
   return `${r.passes} of ${r.attempts.length} passed${bound ? ` · ${bound}` : ''}`;
@@ -167,8 +208,8 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
   }
   // A gate that ran out of attempts between its bounds settled nothing either, and says so apart; so
   // does a run whose attempt could not be judged, which is no failure of the change.
-  for (const r of runs) if (r.decision === 'inconclusive') reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: ${tally(r)}, between the gate's bounds when its attempts ran out`);
-  for (const r of runs) if (r.undecided && r.decision !== 'inconclusive') reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: attempt ${r.attempts.length} could not be judged: ${r.undecided}`);
+  for (const r of runs) if (r.decision === 'inconclusive' && !r.undecided) reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: ${tally(r)}, ${r.baseline ? 'neither kept nor broken against its baseline when its pairs ran out' : "between the gate's bounds when its attempts ran out"}`);
+  for (const r of runs) if (r.undecided) reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: attempt ${r.attempts.length} could not be judged: ${r.undecided}`);
   const open = runs.filter((r) => r.verdict === 'open' && r.decision !== 'inconclusive' && !r.undecided);
   if (open.length) reasons.push(`${open.length} run${open.length === 1 ? '' : 's'} not settled${stopReason ? `: ${stopReason}` : ''}`);
 
@@ -177,6 +218,9 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
     if (r.role !== 'good' && r.recorded.passed === true) warnings.push(`${ROLE[r.role]} run ${short(r.runId)} already passes as recorded, so fixing it proves nothing`);
     if (r.role === 'good' && r.recorded.passed === false) warnings.push(`good run ${short(r.runId)} fails as recorded (${r.recorded.failures[0]}), so it is not a good run`);
   }
+  // A good run that forked with no baseline to compare with was judged by its gate on its own.
+  const alone = runs.filter((r) => r.role === 'good' && r.noBaseline);
+  if (alone.length) warnings.push(`${alone.length === 1 ? `good run ${short(alone[0]!.runId)} was` : `${alone.length} good runs were`} judged by the gate on ${alone.length === 1 ? 'its' : 'their'} own, not against the code before the change: ${alone[0]!.noBaseline}`);
   const has = (role: VerifyRole) => runs.some((r) => r.role === role);
   if (!has('good')) warnings.push('no good runs: nothing was checked for regressions (--keeps label:good)');
   if (has('target') && !has('holdout')) warnings.push('no held-out runs: the change was only tried on the runs it was written for (--holdout)');
@@ -208,6 +252,12 @@ export interface VerifyReport extends VerifyDecision {
   stopReason: string | null;
   /** What the replays warned about: a tool that changed since its recording (and so needs --live-tool), a connection that bypassed Shadowlap. */
   replayWarnings: string[];
+  /**
+   * The rule good runs were kept by, stated once: against what (`source`, and for a paired baseline
+   * the base revision and how reports name it), the margin, the risk and the most pairs or attempts.
+   * Null when no good run was verified against a baseline; absent in reports made before baselines.
+   */
+  kept?: (BaselineRule & { source: BaselineSource; revision?: string | null; label?: string | null }) | null;
 }
 
 /** What the settled runs would cost live, as recorded and under the change (the mean of each run's attempts). */
@@ -242,12 +292,13 @@ const pct = (before: number, after: number) => {
  * gate, `… Its gate decides after each attempt (gate: tells 90%+ from 70%- at <= 5% risk, up to 80
  * attempts); a clean replay settles it in one.`
  */
-export function verifyRule(r: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | 'gate' | 'fields' | 'oracle'>): string {
+export function verifyRule(r: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | 'gate' | 'fields' | 'oracle'> & { kept?: VerifyReport['kept'] }): string {
   const fields = Object.entries(r.fields);
   const change = fields.length ? `, with ${fields.map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ')} from each run's first model call` : '';
   const oracle = r.oracle.map(safeLine).join('; ');
-  if (r.gate) return `A run's attempts must meet the oracle${change}: ${oracle}. Its gate decides after each attempt (gate: ${describeGate(r.gate)}); a clean replay settles it in one.`;
-  return `A run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the oracle${change}: ${oracle}.`;
+  const kept = r.kept ? ` A good run that forks is ${describeBaselineRule({ ...r.kept, revision: r.kept.label ?? r.kept.revision ?? null })}.` : '';
+  if (r.gate) return `A run's attempts must meet the oracle${change}: ${oracle}. Its gate decides after each attempt (gate: ${describeGate(r.gate)}); a clean replay settles it in one.${kept}`;
+  return `A run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the oracle${change}: ${oracle}.${kept}`;
 }
 
 /** A gate's rule in a few words, for a step's line: `tells 90%+ from 70%- at <= 5% risk`. */
@@ -293,7 +344,8 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
       const failure = x.verdict === 'fail' ? x.attempts.find((a) => !a.passed)?.failures[0] : (x.undecided ?? undefined);
       const forks = [...new Set(x.attempts.map((a) => a.forkedAt).filter((f): f is number => f !== null))];
       const note = failure ? safeLine(failure) : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '';
-      lines.push(`    ${ROLE[x.role].padEnd(8)}  ${short(x.runId)}  ${colored}  ${tally(x).padEnd(r.gate ? 38 : 14)}${note ? `  ${p.dim(note)}` : ''}`.trimEnd());
+      const width = r.gate ? (r.kept ? 64 : 38) : 14;
+      lines.push(`    ${ROLE[x.role].padEnd(8)}  ${short(x.runId)}  ${colored}  ${tally(x).padEnd(width)}${note ? `  ${p.dim(note)}` : ''}`.trimEnd());
     }
   }
 
