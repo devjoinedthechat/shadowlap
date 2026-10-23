@@ -14,6 +14,7 @@ import {
   matchedAs,
   multipartView,
   configuredTrust,
+  credentialFreeQuery,
   plantInToolResult,
   refused,
   storeApiRequest,
@@ -54,7 +55,7 @@ import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 // Judge checks: calls in the reserved scope, which only this process can make (judge.ts in the engine).
 import { isJudgeCall, JUDGE_SCOPE, judgeRules, RESERVED_SCOPE_PREFIX, summarizeJudge } from '@shadowlap/engine';
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
-import { credentialParam, decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule } from './http.js';
+import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, placeholderRefusal } from './placeholders.js';
 import { providers as defaultProviders, sdkBasesFromEnvironment, type Provider } from './providers.js';
@@ -67,17 +68,6 @@ import { StoreWriter, type StoreWrites } from './writer.js';
 
 export type { Interventions } from './interventions.js';
 export { requestUpstream } from './upstream.js';
-
-/**
- * A model call's query string as its recording keeps it: without `?` and without the parameters that
- * carry a credential (credentialParam: a Gemini API key, an Azure subscription key, a token, a
- * presigned URL's signature); undefined when nothing is left.
- */
-export function recordedQuery(search: string): string | undefined {
-  const kept = new URLSearchParams();
-  for (const [name, value] of new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)) if (!credentialParam(name, value)) kept.append(name, value);
-  return kept.toString() || undefined;
-}
 
 export interface SidecarOptions {
   store: Store;
@@ -1184,7 +1174,7 @@ export class Sidecar {
   private recordModelStart(call: ModelCall, callNo: number, tracked: TrackedCall, kept: Record<string, string>, asked: Record<string, string>): void {
     const { ctx, provider, scope, judge, body } = call;
     // The query too, credentials left out: asking the call again (shadowlap decisions) sends it as the agent did.
-    const query = recordedQuery(call.search);
+    const query = credentialFreeQuery(call.search.replace(/^\?/, ''));
     const meta: CallStartRow['meta'] = { retryCount: call.retryCount, provider: provider.id, fingerprintHeaders: allowedHeaders(kept, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(scope ? { scope } : {}), ...(judge?.meta ? { judge: judge.meta } : {}) };
     const at = Date.now();
     const start = (requestRef: string | null) => this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...tracked.identity, origin: tracked.origin, effect: null, requestRef, meta, at });
