@@ -82,6 +82,12 @@ export interface PackResult {
   calls: number;
   blobs: number;
   redacted: boolean;
+  /**
+   * Each redaction rule (`n` from 1, as `redact ls` numbers them) that matches inside signed
+   * reasoning, which the pack keeps as recorded (signed.ts), with the calls it does in: what it
+   * matches there leaves with the pack.
+   */
+  signed: Array<{ n: number; rule: Normalizer; calls: Array<{ runId: string; callNo: number }> }>;
 }
 
 /** What a pack's `.gitattributes` says: git keeps every file's bytes as they are. */
@@ -147,9 +153,15 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
   // which masks it (redactRun): no pack carries one, --no-redact or not.
   let store = source;
   const redacted = (opts.redact?.length ?? 0) > 0;
+  const signed = new Map<number, Array<{ runId: string; callNo: number }>>();
+  const heard = (rule: number, call: CallRecord) => {
+    const calls = signed.get(rule) ?? [];
+    if (!calls.some((c) => c.runId === call.runId && c.callNo === call.callNo)) calls.push({ runId: call.runId, callNo: call.callNo });
+    signed.set(rule, calls);
+  };
   if (redacted || runs.some((r) => carriesCredentials(source, r.runId))) {
     store = Store.open(':memory:');
-    runs = runs.map((r) => redactRun(source, r.runId, opts.redact ?? [], store));
+    runs = runs.map((r) => redactRun(source, r.runId, opts.redact ?? [], store, { signed: heard }));
   }
 
   const lines: string[] = [];
@@ -180,7 +192,7 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
   } finally {
     if (store !== source) store.close();
   }
-  return { dir, runs: runs.map((r) => r.runId), calls: lines.length, blobs: blobs.size, redacted };
+  return { dir, runs: runs.map((r) => r.runId), calls: lines.length, blobs: blobs.size, redacted, signed: [...signed].sort(([a], [b]) => a - b).map(([i, calls]) => ({ n: i + 1, rule: opts.redact![i]!, calls })) };
 }
 
 /** What a pack is made of; run.json last, since a folder is taken for a pack by it. */

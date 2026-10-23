@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { EXTERNAL_COMMAND, endedEarlyCount, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -638,6 +638,8 @@ export function register(program: Command): void {
       const result = packRun(store, run.runId, dir, { lineage: flags.lineage === true, redact: rules });
       process.stdout.write(`packed ${result.runs.length} run${result.runs.length === 1 ? '' : 's'} (${result.calls} calls, ${result.blobs} blobs) to ${result.dir}${result.redacted ? ` with ${rules.length} redaction rule${rules.length === 1 ? '' : 's'}` : ''}\n`);
       if (!result.redacted) process.stderr.write(p.yellow(configured.length ? `  ${unredacted(configured.length, 'the pack holds everything the agent saw')}\n` : '  recordings contain everything the agent saw; add rules with `shadowlap redact add` before sharing\n'));
+      // Signed reasoning stays as recorded: a fork of the pack sends it back, and the provider checks it.
+      for (const s of result.signed) process.stderr.write(p.yellow(`  ! redaction rule #${s.n} (${safe(describeRule(s.rule))}) matches inside signed reasoning in ${s.calls.length === 1 ? 'call' : 'calls'} ${s.calls.map((c) => `#${c.callNo}`).join(', ')}, which the pack keeps as recorded: a fork sends it back and the provider refuses a signed block that has been changed. What it matches there leaves with the pack.\n`));
       const where = relative(process.cwd(), resolve(result.dir)).split('\\').join('/') || '.';
       // The activity log names a pack outside the project by its folder alone: a path climbing out
       // of it would put this machine's folders in a feed the whole team reads.

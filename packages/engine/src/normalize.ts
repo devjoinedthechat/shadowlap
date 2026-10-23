@@ -97,6 +97,13 @@ export interface RewriteObserver {
    * matches it holds.
    */
   unmasked?(rule: number, text: string, at: UnmaskedAt, count: number): void;
+  /**
+   * A rule's pattern (or a path rule's path) reaches into signed reasoning that a copy which can be
+   * replayed keeps as recorded (signed.ts): a thinking block, its signature, encrypted reasoning.
+   * Told with the text there and how many matches it holds (1 for a path rule that would have
+   * replaced it whole).
+   */
+  signed?(rule: number, text: string, at: UnmaskedAt, count: number): void;
 }
 
 /** Where a value the rules leave as it is sits, and what it is. */
@@ -107,6 +114,8 @@ export interface UnmaskedAt {
   what: 'number' | 'key' | 'string';
   /** In a streamed response, the event it is in, from 1. */
   event?: number;
+  /** In signed reasoning, which a copy that can be replayed keeps as recorded (RewriteObserver.signed). */
+  signed?: true;
 }
 
 /** Returns a deep copy of `value` with every applicable normalizer applied. */
