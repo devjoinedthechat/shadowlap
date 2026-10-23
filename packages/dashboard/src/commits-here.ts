@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { gitAsync } from './patch-in-tree.js';
 import { bisectArgs, type BisectChoices, type BisectRange, type BisectRevision } from './tests.js';
 
 /**
@@ -10,7 +10,8 @@ import { bisectArgs, type BisectChoices, type BisectRange, type BisectRevision }
  *
  * The pages that show these are read again as the store changes, so git's answers are kept: a
  * commit found stays found and its subject never changes; one not found is asked about again after
- * a minute, as a fetch may bring it.
+ * a minute, as a fetch may bring it. git runs beside the server (`execFile`), which answers other
+ * requests while it waits.
  */
 
 /** Only a commit's hex name is ever handed to git: a revision comes from a run, which may have come from anyone. */
@@ -48,25 +49,21 @@ export function forgetCommits(): void {
 }
 
 /** Asks git about the revisions it hasn't answered for lately: whether each is a commit here, and its subject. False when git can't say. */
-function ask(cwd: string, revs: readonly string[], now: number): boolean {
+async function ask(cwd: string, revs: readonly string[], now: number): Promise<boolean> {
   const a = answersIn(cwd);
   const wanted = revs.filter((r) => !a.has.has(r) && !(now - (a.lacks.get(r) ?? -Infinity) < MISSING_FOR_MS));
   if (!wanted.length) return true;
-  let found: Array<{ rev: string; sha: string }>;
-  try {
-    // One line each, in order: "<sha> commit <size>", or "<rev> missing" (or "ambiguous").
-    const out = execFileSync('git', ['cat-file', '--batch-check'], { cwd, input: wanted.map((r) => `${r}^{commit}\n`).join(''), stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000, maxBuffer: 1024 * 1024 });
-    const lines = out.toString().split('\n');
-    found = [];
-    wanted.forEach((rev, i) => {
-      const sha = /^([0-9a-f]{40,64}) commit \d+$/.exec(lines[i] ?? '')?.[1];
-      if (sha) found.push({ rev, sha });
-      else a.lacks.set(rev, now);
-    });
-  } catch {
-    return false;
-  }
-  const subjects = found.length ? subjectsOf(cwd, found.map((f) => f.sha)) : new Map<string, string>();
+  // One line each, in order: "<sha> commit <size>", or "<rev> missing" (or "ambiguous").
+  const out = await gitAsync(cwd, ['cat-file', '--batch-check'], { input: wanted.map((r) => `${r}^{commit}\n`).join(''), maxBuffer: 1024 * 1024 });
+  if (out.code !== 0) return false;
+  const lines = out.stdout.split('\n');
+  const found: Array<{ rev: string; sha: string }> = [];
+  wanted.forEach((rev, i) => {
+    const sha = /^([0-9a-f]{40,64}) commit \d+$/.exec(lines[i] ?? '')?.[1];
+    if (sha) found.push({ rev, sha });
+    else a.lacks.set(rev, now);
+  });
+  const subjects = found.length ? await subjectsOf(cwd, found.map((f) => f.sha)) : new Map<string, string>();
   for (const f of found) {
     a.has.set(f.rev, subjects.get(f.sha) ?? null);
     a.lacks.delete(f.rev);
@@ -75,18 +72,15 @@ function ask(cwd: string, revs: readonly string[], now: number): boolean {
 }
 
 /** Each commit's subject, by its full name; none when git won't say. */
-function subjectsOf(cwd: string, shas: readonly string[]): Map<string, string> {
-  try {
-    const out = execFileSync('git', ['log', '--no-walk=unsorted', '--format=%H%x09%s', ...new Set(shas)], { cwd, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000, maxBuffer: 4 * 1024 * 1024 });
-    const map = new Map<string, string>();
-    for (const line of out.toString().split('\n')) {
-      const tab = line.indexOf('\t');
-      if (tab > 0) map.set(line.slice(0, tab), line.slice(tab + 1).slice(0, 200));
-    }
-    return map;
-  } catch {
-    return new Map();
+async function subjectsOf(cwd: string, shas: readonly string[]): Promise<Map<string, string>> {
+  const out = await gitAsync(cwd, ['log', '--no-walk=unsorted', '--format=%H%x09%s', ...new Set(shas)]);
+  const map = new Map<string, string>();
+  if (out.code !== 0) return map;
+  for (const line of out.stdout.split('\n')) {
+    const tab = line.indexOf('\t');
+    if (tab > 0) map.set(line.slice(0, tab), line.slice(tab + 1).slice(0, 200));
   }
+  return map;
 }
 
 /**
@@ -94,19 +88,19 @@ function subjectsOf(cwd: string, shas: readonly string[]): Map<string, string> {
  * name commits of their own checkout, which bisect can't start from here. Null when git can't say
  * (no git, not a repository): the choices stay as they are, and bisect says why it can't run.
  */
-export function commitsHere(cwd: string, revs: ReadonlyArray<string | null>, now = Date.now()): Set<string> | null {
+export async function commitsHere(cwd: string, revs: ReadonlyArray<string | null>, now = Date.now()): Promise<Set<string> | null> {
   const wanted = [...new Set(revs.filter((r): r is string => !!r && HEX.test(r)))];
   if (!wanted.length) return new Set();
-  if (!ask(cwd, wanted, now)) return null;
+  if (!(await ask(cwd, wanted, now))) return null;
   const has = answersIn(cwd).has;
   return new Set(wanted.filter((r) => has.has(r)));
 }
 
 /** The subjects of those of these revisions that are commits here, by revision (asked of git along with `commitsHere`). */
-export function commitSubjects(cwd: string, revs: ReadonlyArray<string | null>, now = Date.now()): Map<string, string> {
+export async function commitSubjects(cwd: string, revs: ReadonlyArray<string | null>, now = Date.now()): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const has = answersIn(cwd).has;
-  for (const r of commitsHere(cwd, revs, now) ?? []) {
+  for (const r of (await commitsHere(cwd, revs, now)) ?? []) {
     const subject = has.get(r);
     if (subject) out.set(r, subject);
   }
@@ -132,30 +126,23 @@ export function choicesHere(c: BisectChoices, here: ReadonlySet<string>, subject
  * the repository's first, or the oldest commit a shallow clone has (`shallow`). False when it has a
  * parent; null when git can't say, or doesn't have the commit.
  */
-export function parentlessHere(cwd: string, rev: string, now = Date.now()): { shallow: boolean } | false | null {
+export async function parentlessHere(cwd: string, rev: string, now = Date.now()): Promise<{ shallow: boolean } | false | null> {
   if (!HEX.test(rev)) return null;
   const a = answersIn(cwd);
   if (a.parented.has(rev)) return false;
   const known = a.parentless.get(rev);
   if (known && now - known.at < MISSING_FOR_MS) return { shallow: known.shallow };
-  let words: string[];
-  try {
-    // "<sha> <parent> …" for the commit: its sha alone when it has none here.
-    words = execFileSync('git', ['rev-list', '--parents', '--max-count=1', rev, '--'], { cwd, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).toString().trim().split(/\s+/);
-  } catch {
-    return null;
-  }
+  // "<sha> <parent> …" for the commit: its sha alone when it has none here.
+  const out = await gitAsync(cwd, ['rev-list', '--parents', '--max-count=1', rev, '--']);
+  if (out.code !== 0) return null;
+  const words = out.stdout.trim().split(/\s+/);
   if (!words[0]) return null;
   if (words.length > 1) {
     a.parented.add(rev);
     return false;
   }
-  let shallow = false;
-  try {
-    shallow = execFileSync('git', ['rev-parse', '--is-shallow-repository'], { cwd, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).toString().trim() === 'true';
-  } catch {
-    shallow = false;
-  }
+  const deep = await gitAsync(cwd, ['rev-parse', '--is-shallow-repository']);
+  const shallow = deep.code === 0 && deep.stdout.trim() === 'true';
   a.parentless.set(rev, { shallow, at: now });
   return { shallow };
 }
@@ -165,9 +152,9 @@ export function parentlessHere(cwd: string, rev: string, now = Date.now()): { sh
  * good commit before it, and there is none, so no search is offered, and `unavailable` says why:
  * "01M5GS40V1 failed at the first commit, f6c5756: there is nothing before it to search" (`first`).
  */
-function atFirstCommit(root: string, c: BisectChoices): BisectChoices {
+async function atFirstCommit(root: string, c: BisectChoices): Promise<BisectChoices> {
   if (!c.failed || c.unavailable || !c.bad) return c;
-  const first = parentlessHere(root, c.bad);
+  const first = await parentlessHere(root, c.bad);
   if (!first) return c;
   const what = c.target.kind === 'golden' ? c.target.golden : c.target.runId.slice(0, 10);
   return { ...c, good: null, args: null, first: true, unavailable: `${what} failed at ${first.shallow ? 'the oldest commit this checkout has' : 'the first commit'}, ${c.bad}: there is nothing before it to search` };
@@ -178,11 +165,11 @@ function atFirstCommit(root: string, c: BisectChoices): BisectChoices {
  * no search from a failure at its first commit. As it is without a project folder, or when git
  * can't say.
  */
-export function choicesInCheckout(root: string | null | undefined, c: BisectChoices): BisectChoices {
+export async function choicesInCheckout(root: string | null | undefined, c: BisectChoices): Promise<BisectChoices> {
   if (!root) return c;
   const revs = [c.good, c.bad, ...c.revisions.map((r) => r.rev)];
-  const here = commitsHere(root, revs);
-  return atFirstCommit(root, here ? choicesHere(c, here, commitSubjects(root, revs)) : c);
+  const here = await commitsHere(root, revs);
+  return atFirstCommit(root, here ? choicesHere(c, here, await commitSubjects(root, revs)) : c);
 }
 
 /**

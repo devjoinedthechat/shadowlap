@@ -1354,9 +1354,31 @@ export type PatchCheck = (patch: string) => boolean | null;
  * A patch `fix apply` refuses is never asked about.
  */
 function patchMerged(rec: FixRecords, check: PatchCheck | undefined): boolean {
-  if (!check || rec.fix.status !== 'verified') return false;
+  if (!check) return false;
+  const patch = patchToCheck(rec);
+  return patch !== null && check(patch) === true;
+}
+
+/** The patch `patchMerged` asks about for a fix: a verified fix's, which `fix apply` would apply; null for any other. */
+function patchToCheck(rec: FixRecords): string | null {
+  if (rec.fix.status !== 'verified') return null;
   const r = repairToApply(rec);
-  return !!r?.report.patch && !repairPatchProblem(r.report) && check(r.report.patch) === true;
+  return r?.report.patch && !repairPatchProblem(r.report) ? r.report.patch : null;
+}
+
+/**
+ * The patches a read model asks its `PatchCheck` about, for these fixes (every fix unless given):
+ * git answers asynchronously and a read model works synchronously, so a route asks git about them
+ * first (`patchesInTree`, patch-in-tree.ts) and hands the read model the answers.
+ */
+export function patchesToCheck(store: Store, fixes: readonly StoredFix[] = store.listFixes()): string[] {
+  const out: string[] = [];
+  for (const fix of fixes) {
+    if (fix.status !== 'verified') continue;
+    const patch = patchToCheck(fixRecords(store, fix));
+    if (patch !== null) out.push(patch);
+  }
+  return out;
 }
 
 /**

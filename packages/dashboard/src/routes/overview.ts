@@ -1,7 +1,8 @@
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { overviewOptions, overviewSummary } from '../overview.js';
-import { patchInTree } from '../patch-in-tree.js';
+import { patchesToCheck } from '../fixes.js';
+import { patchesInTree } from '../patch-in-tree.js';
 import type { Router } from '../router.js';
 import { warmRunStats } from '../run-stats.js';
 import { setupUnderWay } from '../store-setup.js';
@@ -37,7 +38,7 @@ export function register(router: Router, ctx: RouteContext): void {
   };
   setTimeout(warm, 0).unref();
 
-  router.get('/summary', (r) => {
+  router.get('/summary', async (r) => {
     const o = overviewOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
     const store = teamStoreFor(ctx);
@@ -46,6 +47,7 @@ export function register(router: Router, ctx: RouteContext): void {
     // store left unfinished leads back to its page.
     const setup = store && ctx.project ? setupUnderWay(ctx.store, readTeamStoreInput({ cwd: ctx.project.path })) : null;
     const project = ctx.project?.path;
-    r.json(overviewSummary(ctx.store, { ...o, ...ctx.read, goldens: goldensOf(ctx), teamStore: store ? { name: store.name, onlyLocal: store.onlyLocal, setup } : null, ...(project ? { patchInTree: (patch: string) => patchInTree(project, patch) } : {}) }));
+    const patchInTree = project ? await patchesInTree(project, patchesToCheck(ctx.store)) : null;
+    r.json(overviewSummary(ctx.store, { ...o, ...ctx.read, goldens: goldensOf(ctx), teamStore: store ? { name: store.name, onlyLocal: store.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}) }));
   });
 }

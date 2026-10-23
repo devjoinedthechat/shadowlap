@@ -109,13 +109,13 @@ export function testsBuild(job: TestsJob, busy: string | null = null): JobBuildR
  * those this checkout has, each with its subject. As it is without a project folder or when git
  * can't say.
  */
-function rangesInCheckout(view: TestsView, root: string | null | undefined): TestsView {
+async function rangesInCheckout(view: TestsView, root: string | null | undefined): Promise<TestsView> {
   const all = [...view.divergences, ...view.failures];
   const revs = all.flatMap((d) => [d.bisect?.good ?? null, d.bisect?.bad ?? null, ...d.revisions.map((r) => r.rev)]);
   if (!root || !revs.some(Boolean)) return view;
-  const here = commitsHere(root, revs);
+  const here = await commitsHere(root, revs);
   if (!here) return view;
-  const subjects = commitSubjects(root, revs);
+  const subjects = await commitSubjects(root, revs);
   const inCheckout = <T extends { golden: string; bisect: BisectRange | null; revisions: TestsView['divergences'][number]['revisions'] }>(d: T): T => ({ ...d, bisect: d.bisect ? rangeHere(d.golden, d.bisect, here) : null, revisions: revisionsHere(d.revisions, here, subjects) });
   return { ...view, divergences: view.divergences.map(inCheckout), failures: view.failures.map(inCheckout) };
 }
@@ -138,20 +138,20 @@ export function register(router: Router, ctx: RouteContext): void {
   // Another job replaying or rewriting the goldens, then a session from a terminal: the job is named first.
   const busy = (store: Store, projectId: string | null, verb: string) => testsBusy(ctx.jobs.list(), projectId, verb) ?? sessionBusy(store, verb);
 
-  router.get('/tests', (r) => {
-    r.tagged(rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path));
+  router.get('/tests', async (r) => {
+    r.tagged(await rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find the commit's
   // choices for any run (`before`: the calendar's first day picked, in milliseconds).
-  router.get('/tests/runs/:id', (r) => {
+  router.get('/tests/runs/:id', async (r) => {
     const run = ctx.store.getRun(r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id}`);
     const raw = r.query.get('before');
     const before = raw === null || raw === '' ? undefined : Number(raw);
     if (before !== undefined && !Number.isFinite(before)) throw new HttpError(400, 'before is a time in milliseconds');
     const bisect = bisectChoices(ctx.store, run.runId, { goldens: goldens(), ...(before !== undefined ? { before } : {}) });
-    r.tagged({ banner: testRunBanner(ctx.store, run.runId, { normalizers: normalizers() }), bisect: bisect && choicesInCheckout(ctx.project?.path, bisect) });
+    r.tagged({ banner: testRunBanner(ctx.store, run.runId, { normalizers: normalizers() }), bisect: bisect && (await choicesInCheckout(ctx.project?.path, bisect)) });
   });
 
   // A gate's figures, previewed before they are saved: what it means, what it costs, and its odds.
@@ -202,8 +202,16 @@ export function register(router: Router, ctx: RouteContext): void {
   // A golden's search waits for the tests, and they for it; a run's searches nothing on disk.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.bisect, {
     title: () => 'Finding the commit',
-    build: (req, { store, project, projectId }) => {
-      const job = bisectJob(store, goldens(), req, project ? { here: (revs) => commitsHere(project.path, revs) } : {});
+    build: async (req, { store, project, projectId }) => {
+      // Whether this checkout has the commit a run's search would end at, asked of git beside the
+      // server before the job is built: bisectJob looks the answer up.
+      let here: ((revs: string[]) => ReadonlySet<string> | null) | undefined;
+      if (project && typeof req.runId === 'string' && /^[0-9A-Z]{26}$/.test(req.runId)) {
+        const end = bisectChoices(store, req.runId, { goldens: goldens() })?.bad ?? null;
+        const known = await commitsHere(project.path, [end]);
+        here = (revs) => (known ? new Set(revs.filter((rev) => known.has(rev))) : null);
+      }
+      const job = bisectJob(store, goldens(), req, here ? { here } : {});
       return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, 'find the commit') : null);
     },
   });

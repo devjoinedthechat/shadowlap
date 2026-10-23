@@ -94,7 +94,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // before the first day picked and that failure's own commit. A failure at the first commit has
   // nothing before it to search: the first failure that started later is offered instead, and the
   // dialog says why; with none, the first failure says so.
-  router.get('/runs/bisect', (r) => {
+  router.get('/runs/bisect', async (r) => {
     const o = runsPageOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
     if (o.from == null || o.to == null) throw new HttpError(400, 'from and to: the days picked');
@@ -107,7 +107,7 @@ export function register(router: Router, ctx: RouteContext): void {
       const all = bisectChoices(store, run.runId, { goldens: goldensOf(ctx), before: o.from });
       if (!all) continue;
       // Only commits this checkout has (a teammate's pulled runs name commits of theirs), and none before its first.
-      const choices = choicesInCheckout(ctx.project?.path, all);
+      const choices = await choicesInCheckout(ctx.project?.path, all);
       if (!choices.first) return r.json({ ...offer(run, choices), ...(earlier ? { earlier: { runId: earlier.run.runId, why: earlier.choices.unavailable! } } : {}) } satisfies DaysBisect);
       earlier ??= { run, choices };
     }

@@ -123,7 +123,7 @@ describe('reading a pull request’s state', () => {
     store.close();
   });
 
-  it('reads pull requests only on github.com and the project’s own GitHub hosts', () => {
+  it('reads pull requests only on github.com and the project’s own GitHub hosts', async () => {
     const store = Store.open(':memory:');
     const planted = fixWithPr(store, 'https://evil.example/acme/agent/pull/1', 'open', 'Refunds sent twice');
     const asked: string[] = [];
@@ -137,9 +137,9 @@ describe('reading a pull request’s state', () => {
     try {
       execFileSync('git', ['init', '-q'], { cwd: repo });
       execFileSync('git', ['remote', 'add', 'origin', 'git@ghes.acme.example:acme/agent.git'], { cwd: repo });
-      expect([...readableHosts(repo, {})].sort()).toEqual(['ghes.acme.example', 'github.com']);
-      expect([...readableHosts(null, { GH_HOST: 'https://other.example:8443' })].sort()).toEqual(['github.com', 'other.example']);
-      expect([...readableHosts(join(repo, 'missing'), {})]).toEqual(['github.com']);
+      expect([...(await readableHosts(repo, {}))].sort()).toEqual(['ghes.acme.example', 'github.com']);
+      expect([...(await readableHosts(null, { GH_HOST: 'https://other.example:8443' }))].sort()).toEqual(['github.com', 'other.example']);
+      expect([...(await readableHosts(join(repo, 'missing'), {}))]).toEqual(['github.com']);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

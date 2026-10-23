@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { applyLeft, BLAME_DEFAULTS, commandIsImported, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
-import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchInTree, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
+import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
 import { parseExpect } from '../checks.js';
@@ -650,13 +650,15 @@ function registerFixes(program: Command): void {
     .description('A fix and its three steps: where the run was lost, the change proposed for it, and every verdict on it')
     .argument('<fix>', 'a fix id or a unique prefix of it, such as fx-01K5CQ2E8M')
     .option('--json', 'print the fix as JSON, as the dashboard reads it')
-    .action((arg: string, flags: { json?: boolean }) => {
+    .action(async (arg: string, flags: { json?: boolean }) => {
       const store = readStore(program.opts<GlobalOpts>());
       try {
         const repairer = configuredRepairer();
         // The repair it suggests next, whether its repairer can be asked from here (claude on the PATH),
         // and whether a verified fix's patch is in this working tree already, which apply only marks applied.
-        const detail = fixDetail(store, requireFix(store, arg).fixId, { repairer, checkRepairer: repairerProblem, patchInTree: (patch) => patchInTree(process.cwd(), patch) })!;
+        const fix = requireFix(store, arg);
+        const patchInTree = await patchesInTree(process.cwd(), patchesToCheck(store, [fix]));
+        const detail = fixDetail(store, fix.fixId, { repairer, checkRepairer: repairerProblem, patchInTree })!;
         process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer })) + '\n');
       } catch (err) {
         fixIdFailed(err, arg, flags.json);
@@ -699,7 +701,7 @@ function registerFixes(program: Command): void {
         } else {
           if (!pr) throw new FixPrError(`${shortFixId(found.fixId)} has no pull request: record one with shadowlap fix pr ${shortFixId(found.fixId)} <url>`);
           // Only a host this project uses is asked: a fix pulled from the team store can name any, and gh would send it a token.
-          const hosts = readableHosts(process.cwd());
+          const hosts = await readableHosts(process.cwd());
           const read = hosts.has(prHost(pr.url)) ? await new Promise<PrRead>((done) => ghReader({ readable: (u) => hosts.has(prHost(u)) })(pr!.url, done)) : null;
           if (read?.state) {
             if (read.state !== (pr.state ?? 'open')) store.mergeFixData(found.fixId, { source: { pr: { state: read.state } } });

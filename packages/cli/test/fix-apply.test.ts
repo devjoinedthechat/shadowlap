@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { packRun, plain, recordBlame, recordRepair, Store, unifiedDiff, type RepairReport } from '@shadowlap/engine';
-import { fixDetail, patchInTree } from '@shadowlap/dashboard';
+import { fixDetail, patchesInTree, patchesToCheck } from '@shadowlap/dashboard';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
 import { ApplyError, applyFix } from '../src/fix-apply.js';
 import { formatFixDetail } from '../src/fix-format.js';
@@ -77,7 +77,7 @@ describe('fix apply after repair --apply', () => {
 });
 
 describe('fix show of a verified fix whose patch is in the working tree already', () => {
-  it('says applying only marks it applied, with the goldens it copies and runs, and offers no git apply to copy', () => {
+  it('says applying only marks it applied, with the goldens it copies and runs, and offers no git apply to copy', async () => {
     const store = Store.open(join(project, 'shadowlap.db'));
     try {
       const run = makeRun(store, { labels: ['refund-over-limit'] });
@@ -85,12 +85,13 @@ describe('fix show of a verified fix whose patch is in the working tree already'
       const dir = '.shadowlap/repairs/repair-mv9gxsdm';
       const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report: repairReport({ targets: [run], dir }), expect: EXPECT, command: 'r' }).fixes[0]!.fix;
       expect(fix.status).toBe('verified');
-      const shown = () => formatFixDetail(fixDetail(store, fix.fixId, { patchInTree: (patch) => patchInTree(project, patch) })!, plain);
-      expect(shown()).toContain(`next: shadowlap fix apply ${fix.fixId.slice(0, 13)}   (or by hand: git -c core.autocrlf=false apply ${dir}/fix.patch)`);
+      // git is asked first, beside the thread, and the read model looks its answers up.
+      const shown = async () => formatFixDetail(fixDetail(store, fix.fixId, { patchInTree: await patchesInTree(project, patchesToCheck(store)) })!, plain);
+      expect(await shown()).toContain(`next: shadowlap fix apply ${fix.fixId.slice(0, 13)}   (or by hand: git -c core.autocrlf=false apply ${dir}/fix.patch)`);
       // A pull request merged it: agent.mjs has the change.
       writeFileSync(join(project, 'agent.mjs'), `${AFTER}\n`);
-      expect(shown()).toContain(`next: shadowlap fix apply ${fix.fixId.slice(0, 13)} (its patch is in your working tree already: copies the goldens it is missing, runs them and marks it applied)`);
-      expect(shown()).not.toContain('git apply');
+      expect(await shown()).toContain(`next: shadowlap fix apply ${fix.fixId.slice(0, 13)} (its patch is in your working tree already: copies the goldens it is missing, runs them and marks it applied)`);
+      expect(await shown()).not.toContain('git apply');
     } finally {
       store.close();
     }

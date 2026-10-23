@@ -1,5 +1,6 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import type { Store, StoredFix } from '@shadowlap/engine';
+import { gitAsync } from './patch-in-tree.js';
 
 /**
  * Where a fix's pull request stands, read from the forge: a fix that `repair --pr` or CI's fix on
@@ -44,20 +45,29 @@ export function remoteHost(remote: string): string | null {
 /** How long the origin remote's host is kept before git is asked again. */
 const ORIGIN_FOR_MS = 5 * 60_000;
 const origins = new Map<string, { host: string | null; at: number }>();
+/** Folders whose origin git is being asked about now: a second question waits for the first's answer. */
+const askingOrigin = new Map<string, Promise<string | null>>();
 
-/** The host of a project's `origin` remote, asked of git and kept a few minutes; null when there is none. */
-function originHost(projectDir: string, now = Date.now()): string | null {
+/**
+ * The host of a project's `origin` remote, asked of git beside the server (which answers other
+ * requests meanwhile) and kept a few minutes; null when there is none.
+ */
+function originHost(projectDir: string, now = Date.now()): Promise<string | null> {
   const kept = origins.get(projectDir);
-  if (kept && now - kept.at < ORIGIN_FOR_MS) return kept.host;
-  let host: string | null = null;
-  try {
-    host = remoteHost(execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: projectDir, stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).toString());
-  } catch {
-    // not a repository, or no origin
-  }
-  if (origins.size >= 16) origins.delete(origins.keys().next().value!);
-  origins.set(projectDir, { host, at: now });
-  return host;
+  if (kept && now - kept.at < ORIGIN_FOR_MS) return Promise.resolve(kept.host);
+  const asking = askingOrigin.get(projectDir);
+  if (asking) return asking;
+  const answer = gitAsync(projectDir, ['remote', 'get-url', 'origin'], { timeoutMs: 2000 })
+    .then((out) => {
+      // Not a repository, or no origin: no host.
+      const host = out.code === 0 ? remoteHost(out.stdout) : null;
+      if (origins.size >= 16) origins.delete(origins.keys().next().value!);
+      origins.set(projectDir, { host, at: now });
+      return host;
+    })
+    .finally(() => askingOrigin.delete(projectDir));
+  askingOrigin.set(projectDir, answer);
+  return answer;
 }
 
 /**
@@ -66,11 +76,11 @@ function originHost(projectDir: string, now = Date.now()): string | null {
  * data, which a pull from the team store brings from anyone: one on any other host is never handed
  * to gh, which would send that host a token.
  */
-export function readableHosts(projectDir: string | null, env: NodeJS.ProcessEnv = process.env): Set<string> {
+export async function readableHosts(projectDir: string | null, env: NodeJS.ProcessEnv = process.env): Promise<Set<string>> {
   const hosts = new Set(['github.com']);
   const ghHost = hostName(env.GH_HOST);
   if (ghHost) hosts.add(ghHost);
-  const origin = projectDir ? originHost(projectDir) : null;
+  const origin = projectDir ? await originHost(projectDir) : null;
   if (origin) hosts.add(origin);
   return hosts;
 }
@@ -157,8 +167,11 @@ export interface PrStatesOptions {
   read: PrReader;
   /** Records a state that changed. */
   write: (fixId: string, state: PrState) => void;
-  /** Which addresses may be read (default: github.com's): `readableHosts`. */
-  readable?: (url: string) => boolean;
+  /**
+   * Which addresses may be read (default: github.com's): `readableHosts`. A promise is waited for
+   * before the pull request is asked about (git names the project's own hosts).
+   */
+  readable?: (url: string) => boolean | Promise<boolean>;
   now?: () => number;
   /** How long an answer stands before the same pull request is asked about again (default 5 minutes). */
   everyMs?: number;
@@ -186,7 +199,9 @@ export class PrStates {
   private readonly everyMs: number;
   private readonly pauseMs: number;
   private readonly parallel: number;
-  private readonly readable: (url: string) => boolean;
+  private readonly readable: (url: string) => boolean | Promise<boolean>;
+  /** Addresses whose readability is still being asked (git, for the project's own hosts). */
+  private readonly checking = new Set<string>();
 
   constructor(private readonly o: PrStatesOptions) {
     this.now = o.now ?? Date.now;
@@ -206,27 +221,45 @@ export class PrStates {
     for (const fix of fixes) {
       if (this.running >= this.parallel) return;
       const url = openPullRequest(fix);
-      if (!url || !this.readable(url) || now - (this.asked.get(url) ?? -Infinity) < this.everyMs) continue;
+      if (!url || now - (this.asked.get(url) ?? -Infinity) < this.everyMs || this.checking.has(url)) continue;
       const host = prHost(url);
       if (this.paused(host, now)) continue;
-      this.asked.set(url, now);
-      this.running++;
-      this.o.read(url, (read) => {
-        this.running--;
-        if (read.state === null) {
-          // gh missing pauses every host; signed out of one, that one.
-          if (read.unusable) this.pausedUntil.set(read.missing ? EVERY_HOST : host, this.now() + this.pauseMs);
-          return;
-        }
-        if (read.state === 'open') return;
-        try {
-          this.o.write(fix.fixId, read.state);
-        } catch {
-          // the fix is gone, or the store is closing: the next read asks again
-          this.asked.delete(url);
-        }
-      });
+      const readable = this.readable(url);
+      if (readable === false) continue;
+      if (readable === true) {
+        this.ask(fix, url, host, now);
+        continue;
+      }
+      // Asked once git has named the project's own hosts; a read meanwhile doesn't ask twice.
+      this.checking.add(url);
+      readable.then(
+        (yes) => {
+          this.checking.delete(url);
+          if (yes && this.running < this.parallel && !this.paused(host, this.now())) this.ask(fix, url, host, this.now());
+        },
+        () => this.checking.delete(url),
+      );
     }
+  }
+
+  private ask(fix: StoredFix, url: string, host: string, now: number): void {
+    this.asked.set(url, now);
+    this.running++;
+    this.o.read(url, (read) => {
+      this.running--;
+      if (read.state === null) {
+        // gh missing pauses every host; signed out of one, that one.
+        if (read.unusable) this.pausedUntil.set(read.missing ? EVERY_HOST : host, this.now() + this.pauseMs);
+        return;
+      }
+      if (read.state === 'open') return;
+      try {
+        this.o.write(fix.fixId, read.state);
+      } catch {
+        // the fix is gone, or the store is closing: the next read asks again
+        this.asked.delete(url);
+      }
+    });
   }
 }
 
@@ -237,6 +270,11 @@ export class PrStates {
  */
 export function storePrStates(store: () => Store, o: { projectDir?: string | null; read?: PrReader; env?: NodeJS.ProcessEnv } = {}): PrStates {
   const env = o.env ?? process.env;
-  const readable = (url: string) => readableHosts(o.projectDir ?? null, env).has(prHost(url));
-  return new PrStates({ read: o.read ?? ghReader({ readable, env }), readable, write: (fixId, state) => store().mergeFixData(fixId, { source: { pr: { state } } }) });
+  // The hosts as git last named them: gh checks them again before it is handed an address.
+  let hosts = new Set<string>();
+  const readable = async (url: string) => {
+    hosts = await readableHosts(o.projectDir ?? null, env);
+    return hosts.has(prHost(url));
+  };
+  return new PrStates({ read: o.read ?? ghReader({ readable: (url) => hosts.has(prHost(url)), env }), readable, write: (fixId, state) => store().mergeFixData(fixId, { source: { pr: { state } } }) });
 }
