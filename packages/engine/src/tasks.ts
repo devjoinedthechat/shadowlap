@@ -29,8 +29,8 @@ import type { CallRecord, RunRecord, Usage } from './types.js';
  * A fourth, `scope`, names the scope the agent's model calls are made in when a simulated user's are
  * made in another (`scope()` in the SDKs): the default takeover is then the agent's call, never the
  * user's. It defaults to the scope blame was limited to. A golden whose model calls are made in more
- * than one scope can't be scored yet, since from the takeover on every model call would go to the
- * model under test, the simulated user's too.
+ * than one scope isn't scored, since from the takeover on every model call would go to the model
+ * under test, the simulated user's too.
  */
 
 export interface TaskFields {
@@ -431,7 +431,7 @@ export function describeTask(input: TaskInput): Task {
   if (!outcome.length) return { ...base, status: 'not-a-task', note: checks.length ? CAPS_ONLY_NOTE : 'it has no checks' };
   // As shadowlap test refuses it: a golden packed straight from a capture can't start its agent.
   if (!hasRecordedCommand(golden.run)) return { ...task, status: 'blocked', note: NO_COMMAND_NOTE };
-  if (task.scopes.length > 1) return { ...task, status: 'not-a-task', note: `its model calls are made in more than one scope (${task.scopes.map(scopeName).join(', ')}), and scoring can't yet send only ${task.scope === null ? "one scope's" : `${task.scope}'s`} to the model under test` };
+  if (task.scopes.length > 1) return { ...task, status: 'not-a-task', note: `its model calls are made in more than one scope (${task.scopes.map(scopeName).join(', ')}), and from the takeover on scoring would send them all to the model under test, not only ${task.scope === null ? "one scope's" : `${task.scope}'s`}` };
   if (input.testFailed === true) return { ...task, status: 'blocked', note: 'its test fails' };
   if (input.testInconclusive === true) return { ...task, status: 'blocked', note: inconclusiveTestNote(input.inconclusiveWhy) };
   // A fork at the takeover changes nothing: the model under test answers that call anyway.

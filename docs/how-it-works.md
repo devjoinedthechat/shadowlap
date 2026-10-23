@@ -142,7 +142,7 @@ Two consequences worth knowing:
 - **Values the agent generates leak back in.** With the clock and randomness running live, a request id or timestamp the agent puts into a prompt differs from the capture and forks the replay. The report names it and suggests the [normalizer](./normalizers-and-redaction.md); that is the usual first step after an import.
 - **Replaying a partial recording produces a complete one.** The model calls come from the capture and everything else is recorded live, so the resulting run covers everything — which is what you pack as a CI golden. An imported HAR is the start of a recording, not the end of one.
 
-`shadowlap import` is what sets this today. The mechanism is general: any source that sees some kinds
+`shadowlap import` sets this. The mechanism is general: any source that sees some kinds
 and not others describes itself the same way. A [trace](./cli.md#traces) can hold some tools' calls
 and not others': it lists each tool whose every call it kept as `tool:<name>` (`["api",
 "tool:lookup_order"]`), and those calls replay while every other tool runs live.

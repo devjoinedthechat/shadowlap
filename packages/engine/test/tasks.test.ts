@@ -186,7 +186,7 @@ describe('tasks', () => {
     expect(models).toEqual([[2, 'agent'], [4, 'user'], [5, 'agent'], [7, 'user'], [8, 'agent'], [10, 'user']]);
     const task = describeTask({ path: 'goldens/dialogue', golden, fields: { scope: 'agent' }, checks: OUTCOME, testFailed: null });
     expect(task).toMatchObject({ scope: 'agent', scopes: ['agent', 'user'], takeover: { callNo: 2, from: 'input' }, status: 'not-a-task' });
-    expect(task.note).toBe("its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test");
+    expect(task.note).toBe("its model calls are made in more than one scope (agent, user), and from the takeover on scoring would send them all to the model under test, not only agent's");
     // Blame was limited to the agent's scope: its call is the takeover, and its scope the task's.
     store.updateRunMeta(lost.runId, { blame: { at: 1, outcome: 'blamed', callNo: 8, confidence: 'high', rescuedRunId: null, fields: {}, scope: 'agent', oracle: [], probes: [], spent: 0 } });
     expect(describeTask({ path: 'goldens/dialogue', golden, fields: {}, checks: OUTCOME, testFailed: null, ancestors: [store.getRun(lost.runId)!] })).toMatchObject({ scope: 'agent', takeover: { callNo: 8, from: 'blame' } });

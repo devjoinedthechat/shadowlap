@@ -75,7 +75,7 @@ A golden whose checks say what the agent must do, not only what it may spend, is
 
 All three are optional. Without `takeover`, a task takes over at the call blame found when the golden came from a blamed run (the decision the run turned on), else at the first model call after the last recorded user input, else at the first model call, where the model plays the whole run. Without `rewards`, a task rewards its outcome checks. Only a call that asks a model for an answer can be a takeover (a POST to messages, chat completions, completions, responses, generateContent, converse or invoke): a model list, an embedding or a token count is passed over, and a `takeover` set at one is refused, naming the call.
 
-A fourth key, `scope`, names the scope the agent's model calls are made in when a simulated user's are made in another; it defaults to the scope blame was limited to. The default takeover is then the agent's call, never the simulated user's, and a `takeover` set at the user's call is refused. Such a golden can't be scored yet, though: from the takeover on, every model call goes to the model under test, the simulated user's too, so the score wouldn't be the agent's. It is listed as not a task, with that reason, until scoring can keep the model under test to one scope.
+A fourth key, `scope`, names the scope the agent's model calls are made in when a simulated user's are made in another; it defaults to the scope blame was limited to. The default takeover is then the agent's call, never the simulated user's, and a `takeover` set at the user's call is refused. Such a golden isn't scored: from the takeover on, every model call would go to the model under test, the simulated user's too, so the score wouldn't be the agent's. It is listed as not a task, with that reason.
 
 ```sh
 shadowlap tasks
@@ -186,7 +186,7 @@ Which model can answer which recording:
 - **Reads run live.** After the takeover, read tools call the real services, so those must be up. `--reads replay` serves matching calls from the recording instead.
 - **Writes are stubbed.** A task can't score what a write would have caused.
 - **A model learns what the checks reward.** Weak checks teach the wrong thing. That's why a golden whose checks only cap tokens and cost isn't a task, and why a set of tasks that all reward one behaviour is flagged.
-- **A simulated user isn't scored around yet.** A golden whose model calls are made in more than one scope can't be scored: the model under test would answer the simulated user's calls too.
+- **A golden with a simulated user isn't scored.** Its model calls are made in more than one scope, and the model under test would answer the simulated user's calls too.
 
 ## Models to score
 

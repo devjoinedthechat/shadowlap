@@ -274,7 +274,7 @@ describe('the Training read model', () => {
     expect(trainingView(readTraining(s, { tasks: [TASKS[0]!, bare, TASKS[2]!] })).tasks.weak).toBe('refund-flow-budget');
     expect(trainingView(readTraining(s, { tasks: [TASKS[0]!, bare] })).tasks.weak).toBeNull();
     // A golden with a simulated user: the row says which scope the model plays, and why it can't be scored yet.
-    const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], takeover: { callNo: 17, why: 'decides between refunding and escalating', from: 'config' }, checks: [{ label: 'issue_refund called 0 times', cap: false }], note: "its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test" });
+    const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], takeover: { callNo: 17, why: 'decides between refunding and escalating', from: 'config' }, checks: [{ label: 'issue_refund called 0 times', cap: false }], note: "its model calls are made in more than one scope (agent, user), and from the takeover on scoring would send them all to the model under test, not only agent's" });
     expect(trainingView({ ...readTraining(s, { tasks: [dialogue] }) }).tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating · plays scope agent', status: { label: 'not a task', short: expect.stringContaining('more than one scope') } });
 
     // Means count the ready tasks only: qwen's zeros on the blocked task don't, and its card says it was scored on one of the two.
