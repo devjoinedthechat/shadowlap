@@ -213,7 +213,7 @@ class RunContext {
     readonly redactions: Normalizer[] = [],
     /**
      * The providers whose calls in the parent name no API version (`Provider.apiVersion`), as a
-     * trace's never do: a live call to one is matched without the version it names.
+     * trace's never do: a live call to one is matched and kept without the version it names.
      */
     readonly unversioned: ReadonlySet<string> = new Set(),
   ) {}
@@ -868,11 +868,16 @@ export class Sidecar {
     // What identifies the call, where the provider leaves part of its path out (Vertex AI's project and region).
     const matchPath = provider.matchPath?.(path);
     const matchName = matchPath !== undefined && matchPath !== path ? apiCallName(method, matchPath) : undefined;
+    // A parent that names no API version (a trace never keeps one) is matched, and this run kept,
+    // without the version this request names: the run names none either, as the one it replays, so
+    // the two stay the same calls (Compare, coverage) and its own replays match whatever version.
+    const version = !judge && ctx.unversioned.has(provider.id) ? provider.apiVersion?.header : undefined;
+    const kept = version !== undefined ? withoutHeader(headers, version) : headers;
     // Matched without what only says how the call signed in (matchHeaders); kept as it was sent.
-    const asked = matchedHeaders(provider, headers);
+    const asked = matchedHeaders(provider, kept);
     const { fingerprint } = judge ? judgeFingerprint({ method, path, headers: asked, body }, ctx.redactions, provider, matchPath) : fingerprintApi({ method, path, headers: asked, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath });
     const fingerprintHeaders: Record<string, string> = {};
-    for (const h of provider.fingerprintHeaders) if (headers[h] !== undefined) fingerprintHeaders[h] = headers[h]!;
+    for (const h of provider.fingerprintHeaders) if (kept[h] !== undefined) fingerprintHeaders[h] = kept[h]!;
     const askedHeaders: Record<string, string> = {};
     for (const h of provider.fingerprintHeaders) if (asked[h] !== undefined) askedHeaders[h] = asked[h]!;
 
@@ -901,12 +906,7 @@ export class Sidecar {
       callNo = ctx.nextCallNo++;
       // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
       const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-      // A parent that names no API version (a trace's never does) holds the call without one: it is
-      // matched without the version this request names, which the call keeps as its own.
-      const version = !judge && ctx.unversioned.has(provider.id) ? provider.apiVersion?.header : undefined;
-      const unpinned = version !== undefined && asked[version] !== undefined;
-      const matchFingerprint = unpinned ? fingerprintApi({ method, path, headers: withoutHeader(asked, version), body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath }).fingerprint : undefined;
-      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, ...(matchFingerprint ? { matchFingerprint } : {}), request: body, headers: unpinned ? withoutHeader(askedHeaders, version) : askedHeaders, ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, headers: askedHeaders, ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
       const origin = storedOrigin('api', decision);
       tracked = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin, decision, ends: 0, retryable: false, done: false };
       ctx.calls.set(callNo, tracked);
@@ -1554,7 +1554,7 @@ export class Sidecar {
 
   /**
    * The providers whose model calls in a parent all name no API version (`Provider.apiVersion`), as
-   * a trace's never do: a replay matches its calls to them without the version it names.
+   * a trace's never do: a replay matches and keeps its calls to them without the version they name.
    */
   private unversioned(calls: readonly CallRecord[]): Set<string> {
     const named = new Map<string, boolean>();

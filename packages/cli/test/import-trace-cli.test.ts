@@ -173,11 +173,17 @@ describe('shadowlap import otel', () => {
 
   it('replays an agent on an SDK that names another API version just as clean: a trace keeps no version', async () => {
     const imported = JSON.parse((await shadowlap(['import', 'otel', 'otel-traces.json', '--json'])).out);
+    const runId = imported.runs[0].runId as string;
     const before = mock.requests.length;
-    const r = await shadowlap(['replay', imported.runs[0].runId, '--', process.execPath, AGENT], { API_VERSION: '2026-10-21' });
+    const r = await shadowlap(['replay', runId, '--', process.execPath, AGENT], { API_VERSION: '2026-10-21' });
     expect(r.err + r.out).toContain('Replay clean: 3/3 calls replayed (2 api, 1 tool), 0 upstream requests');
     expect(r.out).toContain('answer: Order A-1042 was delivered; it cost $240.');
     expect(mock.requests.length).toBe(before);
+    // The replay names no version either: the same calls as the trace's, and a replay of it is clean on the other release.
+    const replays = (JSON.parse((await shadowlap(['ls', '--json'])).out) as Array<{ runId: string; parentRunId: string | null }>).filter((x) => x.parentRunId === runId);
+    expect(replays).toHaveLength(1);
+    expect((await shadowlap(['diff', runId, replays[0]!.runId])).out).toContain('= identical: every request and every response');
+    expect((await shadowlap(['replay', replays[0]!.runId, '--', process.execPath, AGENT])).out).toContain('answer: Order A-1042 was delivered; it cost $240.');
   });
 
   it('forks at the first model call when the trace left out what the agent sends, and runs live from there', async () => {

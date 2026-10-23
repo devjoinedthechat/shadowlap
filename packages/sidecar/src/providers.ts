@@ -37,7 +37,7 @@ export interface Provider {
    * The fingerprint header every request to the API names its version in (`anthropic-version`), and
    * the version Shadowlap names when it sends a recorded request that names none. A recording whose
    * calls to this provider name none (one imported from a trace, which never keeps the version) is
-   * matched whatever version a replay's requests name; the replay keeps the version they name.
+   * matched whatever version a replay's requests name, and the replay keeps none either.
    */
   apiVersion?: { header: string; default: string };
   /**

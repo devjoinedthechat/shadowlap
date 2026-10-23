@@ -726,7 +726,8 @@ with the source as well as `imported`.
 
 Replay matches each model call on its whole request, but for the API version an Anthropic client
 names (`anthropic-version`), which no trace keeps: an imported call names none, and is matched
-whatever version the agent's SDK names. A trace that kept everything the agent sends replays it with
+whatever version the agent's SDK names. Its replay names none either, so a golden packed from it
+replays on any release of the SDK. A trace that kept everything the agent sends replays it with
 nothing live; where it left something out, typically the tool definitions, the replay forks at the
 first model call that differs and runs live from there, which the import says. A tool call replays
 when the trace kept its arguments (as an object) and its output, and only if every call of that tool

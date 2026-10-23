@@ -90,13 +90,6 @@ export interface ResolveInput {
   kind: CallKind;
   name: string;
   fingerprint: string;
-  /**
-   * The fingerprint the recording holds this call under, when it is another: a model call matched
-   * without the API version it names, against a recording whose calls name none (one imported from
-   * a trace, which never keeps it). Its occurrences are counted apart; `fingerprint` and the
-   * occurrence the decision gives stay the call's own.
-   */
-  matchFingerprint?: string;
   effect?: Effect | null;
   /** The (raw, un-normalized) request, used only to explain a divergence. */
   request?: unknown;
@@ -274,9 +267,6 @@ export class Session {
 
     if (input.scope === JUDGE_SCOPE) return this.judge(input, occurrence);
     if (this.mode === 'record') return { origin: 'live', occurrence };
-    // Where the recording holds the call: under its fingerprint, or under the one it is matched by
-    // when that is another (`matchFingerprint`), counted apart.
-    const held = input.matchFingerprint !== undefined && input.matchFingerprint !== input.fingerprint ? key(input.kind, input.matchFingerprint, this.nextOccurrence(input.kind, input.matchFingerprint, input.scope), scope) : key(input.kind, input.fingerprint, occurrence, scope);
 
     // A partial recording never saw this kind of call, so its absence is not a divergence: run it
     // live, but keep the write policy, because a live write is still a real side effect.
@@ -294,7 +284,7 @@ export class Session {
     const place = input.kind === 'api' && input.occurrence === undefined ? this.nextPlace(input.scope, this.apiCounts) : undefined;
     const forced = this.isForced(input, place);
     if (this.state === 'replaying') {
-      const record = forced ? undefined : this.index.get(held);
+      const record = forced ? undefined : this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
       if (record && !this.consumed.has(record.callNo) && !input.changedBy) return this.serve(input, record, occurrence);
       this.state = 'diverged';
       // A flag changed this request, yet it matches the recording: a normalizer or --prompt-from masks
@@ -302,7 +292,7 @@ export class Session {
       this.divergence =
         record && !this.consumed.has(record.callNo) && input.changedBy
           ? { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount, type: 'forced', reason: `forced live by ${input.changedBy}, a change the normalizers or --prompt-from hide from matching`, counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } }
-          : this.explain(input, forced, held);
+          : this.explain(input, forced, occurrence);
     } else if (input.kind === 'tool' && !forced && !this.options.liveTools.has(input.name) && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay') || (effect === 'write' && this.options.recordedWrites))) {
       // After divergence only declared-pure results (and reads, on request) may come from the
       // recording, and the writes it made, when asked: what the world answered them, never a fence
@@ -538,12 +528,11 @@ export class Session {
     return false;
   }
 
-  /** Why the replay forks at this call; `held` is where the recording would hold it (see `resolve`). */
-  private explain(input: ResolveInput, forced: boolean, held: string): DivergenceReport {
+  private explain(input: ResolveInput, forced: boolean, occurrence: number): DivergenceReport {
     const base = { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount };
     if (forced) {
       const forcing = this.forcing ?? { by: 'an intervention' };
-      const record = forcing.counterpart !== undefined ? this.parentCalls.find((c) => c.callNo === forcing.counterpart) : this.index.get(held);
+      const record = forcing.counterpart !== undefined ? this.parentCalls.find((c) => c.callNo === forcing.counterpart) : this.index.get(key(input.kind, input.fingerprint, occurrence, this.scopeOf(input.scope)));
       return { ...base, type: 'forced', reason: `forced live by ${forcing.by}`, ...(record ? { counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } } : {}) };
     }
 
