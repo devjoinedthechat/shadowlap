@@ -2,7 +2,7 @@
 
 Global options: `--db <path>` (default `./.shadowlap/shadowlap.db`), `-v` / `--verbose` (sidecar log on stderr), given before the command or after it: `shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Each command's `--help` lists them. Run ids can be abbreviated to any unique prefix.
 
-The CLI runs on Node 22.16 or later, but not on Node 23: every store has a full-text index, which Node's built-in SQLite has from 22.16 on and in 24 and later. On another Node it says which Node it needs, in one line, and exits 2. On a Node in that range whose SQLite was built without full-text search, such as a custom build, opening a store says to use an official build, as [`doctor`](#doctor) does.
+The CLI runs on Node 22.16 or later, but not on Node 23: every store keeps a full-text index, which Node's built-in SQLite has from 22.16 on and in 24 and later. On another Node it names the Node it needs and exits 2. On a Node in that range whose SQLite was built without full-text search, such as a custom build, opening a store says to use an official build, as [`doctor`](#doctor) does.
 
 Every command ends with an [exit status](#exit-status) a script or a CI step can tell apart: 1 for a check that failed, 2 for a command it can't run as given, 3 for a verdict that couldn't be reached.
 
