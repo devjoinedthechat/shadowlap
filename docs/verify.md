@@ -9,13 +9,13 @@ shadowlap verify --fixes 01M3RXQ4VB --holdout 01M3RXQ51B --keeps label:good \
 
 ```
 ✗ Rejected: the change fixes 1 of 1 target run, 1 of 1 held-out run and keeps 0 of 1 good run
-  · good run 01M3RXQ56V broken: 0 of 3 passed · rate <= 0.56 (95%) (the agent exited with code 1)
+  · good run 01M3RXQ56V broken: 0 of 3 passed · rate <= 0.71 (95%) (the agent exited with code 1)
 
   A run's attempts must meet the oracle: the agent exits 0; issue_refund with {"amount":240} called 0 times. Its gate decides after each attempt (gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts); a clean replay settles it in one.
 
-    target    01M3RXQ4VB  fixed   12 of 12 passed · rate >= 0.76 (95%)    forked at #1
-    held-out  01M3RXQ51B  fixed   12 of 12 passed · rate >= 0.76 (95%)    forked at #1
-    good      01M3RXQ56V  broken  0 of 3 passed · rate <= 0.56 (95%)      the agent exited with code 1
+    target    01M3RXQ4VB  fixed   12 of 12 passed · rate >= 0.73 (95%)    forked at #1
+    held-out  01M3RXQ51B  fixed   12 of 12 passed · rate >= 0.73 (95%)    forked at #1
+    good      01M3RXQ56V  broken  0 of 3 passed · rate <= 0.71 (95%)      the agent exited with code 1
 
   per run, as it would run live: 4,329 → 5,193 input tokens (+20%) · ≈$0.015 → ≈$0.018 (+16%)
   verifying: 27 attempts · 102 upstream requests · ≈$0.486 spent · code 370712a+dirty

@@ -173,7 +173,7 @@ What changes
   besides: 1 read added or removed, 1 read asked differently
 
 What still passes
-  goldens/research             passed · kept, verified · 12 of 12 · rate >= 0.76 (95%)
+  goldens/research             passed · kept, verified · 12 of 12 · rate >= 0.73 (95%)
   gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts
 
 What it costs

@@ -179,6 +179,10 @@ All of that holds only while a recorded test runs, in both plugins: the base-URL
 - The plugins need the `shadowlap` CLI. The Vitest, Jest and node:test plugin runs the one `@shadowlap/test` depends on; pytest runs `shadowlap` from your `PATH`, which `pip install shadowlap` provides: the [command](./sdk.md#install) that runs the npm CLI at the Python package's version. `SHADOWLAP_CLI` names another for either.
 - Tests that run concurrently inside one worker (`test.concurrent`, `pytest-asyncio` tasks sharing a loop) share its slot, so their calls can't be told apart. Run recorded tests one at a time per worker.
 
+## Tests that fork
+
+A recorded test replays offline and comes out the same every time, so one run settles it. A golden that `shadowlap test` lets fork is different: everything after its fork runs live, so it is a sample, and its `gate` decides on attempts as they come in, with the error rates it states. The session splits one risk of going red for nothing across its gated goldens, says what it will cost before it runs, keeps a golden's baseline to sessions that passed on the default branch, and never counts an attempt its provider was unavailable for. [Gating](./gating.md) has the rules and the proof of each figure.
+
 ## Another test runner
 
 The plugins here are clients of one small HTTP API on `shadowlap serve --recordings`, specified in
