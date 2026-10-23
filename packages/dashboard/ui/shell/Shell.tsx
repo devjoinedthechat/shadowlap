@@ -29,13 +29,14 @@ import { Keyboard } from './Keyboard.js';
 import { Palette } from './Palette.js';
 import { Shortcuts } from './Shortcuts.js';
 import { Sidebar } from './Sidebar.js';
+import { SkipLink } from './SkipLink.js';
 import { StatusBar } from './StatusBar.js';
 import { TopBar } from './TopBar.js';
 
 /** The app: top bar, sidebar, the page, the status bar, and what sits over them. */
 export function Shell() {
   const route = useRoute();
-  const { setSideOpen, exported, meta, runs, closeJobs } = useApp();
+  const { setSideOpen, exported, meta, runs, closeJobs, conn } = useApp();
   useDocTitle(route);
 
   // The phone sidebar closes on navigation; a job's drawer closes when the page changes (not when a
@@ -57,6 +58,9 @@ export function Shell() {
   return (
     <>
       <Sprite />
+      {/* The first stop for Tab: past the top bar and the sidebar to the page. Not while the link has
+          expired, when the card over the page is all there is to reach. */}
+      {conn === 'expired' ? null : <SkipLink />}
       <div className="app" id="app">
         <TopBar route={route} />
         <Sidebar route={route} />

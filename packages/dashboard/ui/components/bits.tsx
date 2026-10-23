@@ -67,7 +67,8 @@ export function Legend({ origins, className = 'legend' }: { origins: readonly Or
 /** One square per attempt: passed, partly, failed. */
 export function Pips({ ok = 0, part = 0, unsure = 0, no = 0 }: { ok?: number; part?: number; unsure?: number; no?: number }) {
   return (
-    <span className="pips" aria-label={`${ok} passed${part ? `, ${part} partly` : ''}${unsure ? `, ${unsure} inconclusive` : ''}${no ? `, ${no} failed` : ''}`}>
+    // A tally drawn as dots: an image to assistive technology, its label the tally in words.
+    <span className="pips" role="img" aria-label={`${ok} passed${part ? `, ${part} partly` : ''}${unsure ? `, ${unsure} inconclusive` : ''}${no ? `, ${no} failed` : ''}`}>
       {Array.from({ length: ok }, (_, i) => (
         <i key={`o${i}`} />
       ))}

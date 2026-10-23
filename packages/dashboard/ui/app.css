@@ -19,7 +19,8 @@
   --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%238a887a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --bg: #0b0c09; --bg2: #0f100c; --panel: #12130e; --raise: #16170f; --hover: #17180f; --sel: #1c1e14;
   --line: #22231b; --line2: #34352b;
-  --ink: #eeede6; --dim: #a8a699; --faint: #76745f;
+  /* Text: each token reaches WCAG AA's 4.5:1 on every surface below (test/ui-contrast.test.ts). */
+  --ink: #eeede6; --dim: #a8a699; --faint: #8a8873;
   --accent: #c4f233; --accent-line: #c4f233;
   --o-rep: #c4f233; --o-live: #e4e3da; --o-block: #ff6b5e; --o-stub: #f2c94c; --o-over: #b99cff;
   --warn: #f2c94c; --err: #ff6b5e; --ok: #c4f233;
@@ -45,6 +46,13 @@ code, pre, .mono { font-family: var(--mono); }
 :focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
 /* Chrome makes a scrolling pane focusable on its own; the selected row already shows where you are, so the pane draws no ring */
 main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visible, .ibody:focus-visible, .pallist:focus-visible, .drawer pre:focus-visible, .rawsse:focus-visible, .codebox:focus-visible { outline: none; }
+/* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
+   inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
+:is(.runs, .vbody, .ibody, .pallist, .pop, .help, .dialog .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .bulkbar, .rawsse, .codebox, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
+/* Skip to the page: the first stop for Tab, out of sight until it has the focus. */
+.skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border-radius: 9px; background: var(--lime); color: var(--tar); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
+.skip:focus { transform: none; }
+.skip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; border: 3px solid var(--bg); }
@@ -167,7 +175,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .btn.quiet:hover:not([disabled]) { color: var(--ink); background: var(--hover); }
 .btn.quiet.dz:hover:not([disabled]) { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
 .btn.push { margin-left: auto; }
-.btn.danger { background: var(--err); border-color: var(--err); color: #fff; font-weight: 600; }
+.btn.danger { background: var(--err); border-color: var(--err); color: var(--tar); font-weight: 600; }
 .btn.solid { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
 .btn.solid:hover:not([disabled]) { background: color-mix(in srgb, var(--ink) 86%, var(--bg)); border-color: color-mix(in srgb, var(--ink) 86%, var(--bg)); }
 .btn.danger:hover:not([disabled]) { background: color-mix(in srgb, var(--err) 88%, #000); border-color: color-mix(in srgb, var(--err) 88%, #000); }
@@ -509,7 +517,7 @@ table.ctab tr.miss td { color: var(--warn); }
 .msg { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .msg:last-child { border-bottom: 0; }
 .msg .role { font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding-top: 2px; }
-.msg .role small { display: block; margin-top: 2px; font-size: 10px; letter-spacing: 0; opacity: .8; }
+.msg .role small { display: block; margin-top: 2px; font-size: 10px; letter-spacing: 0; }
 .msg.system .role { color: var(--o-over); } .msg.user .role { color: var(--accent); } .msg.assistant .role { color: var(--ink); }
 .msg .txt { white-space: pre-wrap; word-break: break-word; }
 .msg.system .txt { color: var(--dim); }
@@ -882,6 +890,7 @@ pre.report .no, pre.report .del { color: var(--err); } pre.report .add { color: 
 .pvhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .pick { position: relative; display: inline-flex; }
 .pick select { -webkit-appearance: none; appearance: none; height: 32px; max-width: 100%; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 12px var(--mono); padding: 0 32px 0 11px; cursor: pointer; outline: none; }
+.pick select:focus-visible { border-color: var(--accent-line); }
 .pick select:hover { border-color: var(--faint); }
 .pick .caret { position: absolute; right: 11px; top: 50%; width: 10px; height: 10px; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
 .pvrule { display: grid; grid-template-columns: auto 34px minmax(0, 1fr); gap: 4px 12px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); }
@@ -1641,7 +1650,7 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .slackmsg .sm { min-width: 0; }
 .slackmsg .sh { display: flex; align-items: baseline; gap: 6px; }
 .slackmsg .sh b { font-weight: 700; font-size: 13.5px; }
-.slackmsg .sh .sapp { font: 600 9.5px var(--body); letter-spacing: .04em; padding: 1px 4px; border-radius: 3px; background: var(--line); color: var(--faint); }
+.slackmsg .sh .sapp { font: 600 9.5px var(--body); letter-spacing: .04em; padding: 1px 4px; border-radius: 3px; background: var(--line); color: var(--dim); }
 .slackmsg .sh .t { font-size: 11.5px; color: var(--faint); }
 .slackmsg p { margin: 3px 0 2px; font-size: 13.5px; line-height: 1.45; color: var(--ink); }
 .slackmsg .sl { display: block; font-size: 13px; color: #4ea6ff; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

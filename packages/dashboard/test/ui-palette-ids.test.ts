@@ -90,11 +90,11 @@ describe('Search or jump to, by a run’s id', () => {
     await page.until('the palette to offer a run', () => rows(page).length > 0);
     expect(runsPage).toHaveBeenCalledWith({ q: '01M584YKT6', limit: 20 });
     expect(rows(page)).toEqual(['01M584YKT6recording · node agent.js']);
-    // Tab stays in the palette, as in any dialog.
-    await page.press('Tab');
-    expect(page.focused().className).toContain('palit');
+    // Tab stays in the palette, as in any dialog: its field is its one stop, the options are picked
+    // with the arrows (the combobox pattern), never tabbed to.
     await page.press('Tab');
     expect(page.focused()).toBe(input);
+    expect(page.all('.palit[tabindex]')).toEqual([]);
   });
 
   it('offers a run the list has from the list, without asking', async () => {

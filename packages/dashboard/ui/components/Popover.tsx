@@ -87,6 +87,12 @@ export function Popover({ anchor, onClose, children, className = '', align = 'ri
   }, [anchor, closeRef]);
 
   const keys = (e: React.KeyboardEvent) => {
+    // Tab leaves a menu, as ARIA's menu button pattern has it: the menu closes, its button gets the
+    // focus back, and Tab goes on from there.
+    if (e.key === 'Tab') {
+      closeRef.current();
+      return;
+    }
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
     // Only what can take the focus: a button hidden until its row is hovered (the switcher's ×) is passed over.
