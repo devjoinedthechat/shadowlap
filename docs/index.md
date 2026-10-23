@@ -40,7 +40,7 @@ Shadowlap is change safety for agents: every change to an agent (its code, its p
 - [Production coverage](./coverage.md): the behaviours your imported production traffic shows that no golden covers, and a golden made of one run of each.
 - [Error-path presets](./error-paths.md): a golden forked where a tool times out or answers malformed JSON, or the provider fails, to check the agent's error path.
 - [Training](./training.md): the preference pairs your blames and verifies already left in the store, exported for fine-tuning, and goldens as tasks a model is scored on, in the CLI or on the dashboard's Training page.
-- [Compared with other tools](./compare.md): cassettes, tracing platforms, framework time travel, durable execution.
+- [Compared with other tools](./compare.md): cassettes, tracing and eval platforms, replay evals, agent debuggers with cached replay, framework time travel, durable execution.
 - [Agents across services](./downstream-services.md): a service the agent calls over HTTP, recorded as a tool, so its answers replay without it.
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.
 - [Team store](./team.md): your team's runs in a bucket you own, pushed and pulled with your own credentials, with pull requests kept to their own folders, and share links.

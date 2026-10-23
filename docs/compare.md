@@ -1,73 +1,115 @@
 # Compared with other tools
 
-Shadowlap is change safety for agents, by one mechanism: it replays an agent's *real code* against a recording of what the model and the tools said last time, and forks at the first call that changed. Several other tools touch the same problem from a different side. This page says where each one is the better choice.
+Shadowlap re-runs an agent's real code against a recording of what its model and its tools answered. Calls that haven't changed are answered from the recording. The first request that changed is reported with a diff, and the run forks there and continues live, with write tools fenced. [Blame](./blame.md), [repair](./repair.md) and [verify](./verify.md) build on those forks to find the model call that lost a run and to prove a fix. Several other tools touch the same problem from a different side. This page says what each one does and where it is the better choice.
 
-| | Shadowlap | HTTP cassettes | Tracing platforms | Replay evals | Framework time travel | Durable execution |
-|---|---|---|---|---|---|---|
-| Examples | | VCR.py, nock, Polly.js, Betamax | LangSmith, Langfuse, Braintrust, Phoenix, Helicone | Kitaru | LangGraph checkpoints, agent framework "time travel" | Temporal, Restate, Inngest |
-| Re-runs your code against recorded model output, zero tokens | **yes** | partly (breaks on the first changed byte) | no | no — tools replay, the model runs live | within the framework | within the runtime |
-| Continues live from the first changed call (fork) | **yes** | no | no | no — every replay starts from the top | from a chosen checkpoint | no |
-| Explains *why* it forked: structural diff, hints | **yes** | no | no | no | no | no |
-| Side effects fenced after a fork | **yes** (`write` tools) | no | no | a policy per tool; live by default | no | activities re-run |
-| Works with any framework, TypeScript and Python | **yes** | per language | per SDK | per framework adapter | one framework | one runtime |
-| Streaming responses recorded byte for byte, with per-event timing for playback | **yes** | some | n/a | n/a | n/a | n/a |
-| Shows what happened in production, at scale | no — it runs on your machine and in CI | no | **yes** | **yes** (sessions) | no | **yes** (history) |
-| Injects a failure to exercise the error path | **yes** (`--fail-at`, no tokens spent) | no — it can only replay an error that was recorded | no | tool results only | no | no |
-| Fails a build on a token or cost regression | **yes** (outcome checks) | no | alerts on spend, does not gate a build | a budget evaluator; failing the build on it takes a script | no | no |
-| Evaluates output quality | no | no | **yes** | **yes** | no | no |
+What it says about other products was checked against their own documentation, repositories and announcements on 2026-10-23.
+
+| | Shadowlap | HTTP cassettes | Tracing and eval platforms | Replay evals | Agent debuggers | Framework time travel | Durable execution |
+|---|---|---|---|---|---|---|---|
+| Examples | | VCR.py, Polly.js, nock | LangSmith, Langfuse, Braintrust, Phoenix, Weave, Logfire, Helicone | Kitaru | Laminar, OrcaReplay | LangGraph, Microsoft Agent Framework, Google ADK, Claude Agent SDK | Inngest, DBOS, Restate, Cloudflare Workflows, Temporal |
+| Model answers when your code runs again | **from the recording**, zero tokens | from the cassette, while requests match | asked again | asked again | **from the recording**, up to a call you choose | asked again after the checkpoint | recorded step results, before the restart point |
+| Where the run goes live | **at the first changed request, with a structural diff** | on a miss: an error or a live call, by library | throughout | throughout, from the start | at a step you choose; Laminar also at a cache miss | at the checkpoint you choose | at the step you choose |
+| Tool calls when your code runs again | **from the recording; after a fork, writes are blocked** | from the cassette if they are HTTP calls | run, unless your agent blocks them | a policy per tool; with none set, they run | run | run after the checkpoint | recorded before the restart point, run after it |
+| Finds where a run went wrong | **`blame`**: the model call that lost it | – | LangSmith Engine diagnoses recurring issues | a review your coding assistant drafts and you answer | you read the trace (Laminar) or its causal graph (OrcaReplay) | – | – |
+| Proposes a fix and checks it | **`repair` and `verify`**: failing, held-out and good runs, at a stated error rate | – | LangSmith Engine: a pull request, replayed live on up to 5 traces | an experiment scores your change across a cohort | you rerun your change; an eval (Laminar) or a command (OrcaReplay) grades it | – | – |
+| Judges output quality | judge checks, recorded so a clean replay is judged free | – | **evals**: LLM judges, scorers, human review | **evaluators**, LLM judges, human labels | evals (Laminar), a command you name (OrcaReplay) | – | – |
+| Gates a pull request | **offline, with no key**: goldens and the GitHub Action | offline tests | evals in CI (Langfuse, Braintrust, LangSmith) | `--wait` fails on a failed run; scores need a check you write | OrcaReplay's JSON output, in a script you write | – | – |
+| Production traffic | imported from traces and gateway captures | – | **yes, at scale** | **yes**: sessions recorded or imported | Laminar traces it | – | **workflow history** |
+| Works with | any framework; SDKs for TypeScript and Python, a wire protocol for others | one language each | their SDKs, OpenTelemetry or a proxy | adapters for six frameworks, Python and TypeScript; imported traces | Laminar's cache: four Python integrations and the AI SDK; OrcaReplay: what its proxy reaches | that framework | that runtime |
 
 ## HTTP record and replay libraries
 
-VCR.py, nock, Polly.js and their relatives record HTTP calls and replay them by matching the URL, method and body. That model breaks on agents: every model call resends the whole conversation, so the request bodies grow with each turn, any change to a prompt or a tool result changes every later body, and the cassette matches nothing. Concurrent tool calls arrive in a different order on each run. Tool calls, clock reads and random ids never touch HTTP at all.
+VCR.py, Polly.js and nock record HTTP exchanges and replay them in tests. Which requests count as the same depends on the library. VCR.py matches on the method and the URL by default, so a call to a model endpoint matches a recorded call to that endpoint, whatever its prompt says, and gets that call's answer. Polly.js matches the body, the headers and the order of requests by default, and nock matches a recorded body exactly.
+
+Exact matching breaks on agents in another way. Every model call resends the whole conversation, so a change to a prompt or a tool result changes that request and every later one, and the cassette matches none of them. Parallel requests arrive in a different order on each run. On a miss, by default, VCR.py raises an error, Polly.js sends the request live and records it, and nock.back lets it through unrecorded. Tool calls that don't go over HTTP, clock reads and random ids are not in a cassette at all. LangSmith's pytest plugin has a cache of this kind: with `LANGSMITH_TEST_CACHE` set, it keeps HTTP requests on disk, so evals in CI don't call the model again.
 
 Shadowlap matches by a canonical fingerprint of what the model actually saw, counts occurrences so that order does not matter, replays the unchanged prefix, then keeps going live with a diff of the first change instead of failing. Tools are recorded through the SDK, with an effect, so a replay never re-sends an email.
 
-What these captures are good for is *starting* a recording. `shadowlap import` reads a HAR (what
-mitmproxy, Charles, Proxyman, devtools and Polly.js write), a nock recording, or a VCR cassette in
-its JSON form, and turns it into a recording you can replay your own code against — so traffic
-already captured in front of an agent need not be produced again. An existing cassette suite is
-therefore a starting point, not something to throw away. See [`import`](./cli.md#import) for what a
-capture of the network cannot carry.
+What these captures are good for is *starting* a recording. `shadowlap import` reads a HAR (what mitmproxy, Charles, Proxyman, devtools and Polly.js write), a nock recording, or a VCR cassette in its JSON form, and turns it into a recording you can replay your own code against, so traffic already captured in front of an agent need not be produced again. An existing cassette suite is therefore a starting point, not something to throw away. See [`import`](./cli.md#import) for what a capture of the network cannot carry.
 
-Use a cassette library when the thing under test is a plain HTTP client with stable requests.
+Use a cassette library when the thing under test is a plain HTTP client with stable requests. Use Shadowlap when it is an agent, whose requests grow with every turn and whose tools act outside HTTP.
 
-## Tracing and observability platforms
+## Tracing and eval platforms
 
-LangSmith, Langfuse, Braintrust, Arize Phoenix, Helicone and OpenTelemetry-based tools show you what a run did: spans, prompts, latencies, costs, feedback. They are the right place to *look at* production traffic and to evaluate output quality. What they cannot do is run your code again against that trace. Their "replay" or "playground" re-sends a recorded prompt to the model, which costs tokens and returns something new, and it exercises the prompt, not the harness around it.
+LangSmith, Langfuse, Braintrust, Arize Phoenix, W&B Weave, Pydantic Logfire and Helicone show what runs did in production: spans, prompts, latencies, costs, feedback. Helicone does it as a gateway in the request path. Most of them also run evals, with LLM judges, code scorers and human review over datasets, and run them in CI: Langfuse's GitHub Action fails a pull request when a score breaks your threshold, and Braintrust's posts the results on it. Several have changed hands: Langfuse joined ClickHouse in January 2026, Weights & Biases (Weave) joined CoreWeave in May 2025, and Dynatrace completed its purchase of Arize (Phoenix) on 2026-10-01. Langfuse and Phoenix stay open source and can be self-hosted.
 
-Shadowlap is the debugger to their dashboard: a recording is a trace you can execute. The two compose; `shadowlap export otel` sends a run as an OpenTelemetry trace with the GenAI semantic conventions to any OTLP collector.
+None of them runs your code against a trace's recorded answers. A playground sends one recorded call to the model again (Langfuse's Open in Playground, Phoenix's span replay, Weave's Open chat in Playground), and an experiment runs your code over a dataset's inputs, live. Either way the model answers again: that costs tokens, the answer can differ, and a playground exercises one prompt, not the code around it.
 
-For production runs specifically, the two also compose on the way in: a gateway already in the request path can capture what the agent sent, and [`shadowlap import litellm`](./gateways.md) turns that into a recording. The prompts stay in your own infrastructure, which is the part a hosted platform cannot offer.
+Shadowlap is the debugger to their dashboard: a recording is a trace you can execute. The two compose:
 
-Use a tracing platform for production visibility and evals. Use Shadowlap when you need to reproduce and fix.
+- **Traces in.** `shadowlap import` turns a Langfuse, LangSmith, Phoenix or Logfire trace, or OpenTelemetry spans, into a recording to replay your code against ([traces](./cli.md#traces)). A gateway already in the request path can capture production runs for [`shadowlap import litellm`](./gateways.md), and [`shadowlap coverage`](./coverage.md) shows what that traffic does that no golden covers.
+- **Runs out.** [`shadowlap export otel`](./cli.md#export-otel) sends a run to any OTLP collector as spans with the GenAI semantic conventions (models, tokens and cost, no prompt text), and [`shadowlap export dataset`](./cli.md#export-dataset) writes recordings as eval datasets, in Braintrust's or Langfuse's shape among others.
+- **Quality in CI.** A [judge check](./judges.md) asks a model a yes-or-no question about a run inside `shadowlap test`. Its call is recorded, so a golden is judged once when it is packed, and every clean replay after that is judged from the recording, free.
+
+Use a tracing platform for production visibility, evals across large datasets, human review and dashboards over time. Use Shadowlap to reproduce one run exactly, find the call that lost it, and prove the fix offline.
+
+### LangSmith Engine
+
+LangSmith Engine scans a tracing project for recurring issues, diagnoses each one against the traces and your connected source code, and proposes a fix as a pull request, code changes included. Its fix validation, in private beta, checks a fix by running the agent. It replays the inputs of up to five of the issue's traces against your deployment, then against a preview deployment built from the pull request, and judges whether each replay shows the issue again. The fix comes out Verified, Not fixed (Engine revises it, for up to three attempts in all) or Inconclusive. Fix validation is available only on LangSmith Cloud, for agents that run on LangSmith Cloud deployments.
+
+Those replays are live: the model answers again, and the agent can call its tools. Engine marks each replay in the run's config so the agent can hold back, and its docs give middleware that runs only the tools listed in `safe_tools`. An agent without such a guard runs every tool it calls.
+
+`repair` and `verify` answer the same question for any agent, on your machine or in CI. A replay serves the recorded answers up to the first request the fix changes, and write tools are blocked after it by default. Verify also runs the fix on held-out failing runs and on runs that passed, not only on the runs it was written for, and decides each run with a [gate](./gating.md) at a stated error rate. Repair rewrites the system prompt, a tool description or the model's name; a fix in code is yours or a coding agent's to write, and verify checks it.
+
+Use LangSmith Engine when your agent runs on LangSmith Cloud deployments and you want issues found in production traffic and fixes opened as pull requests. Use Shadowlap when the agent runs anywhere else, when writes must be blocked by default, or when a fix has to hold on runs it wasn't written for and on runs that already worked.
 
 ## Replay-based evals
 
-Kitaru also re-runs an agent's real code against a recorded session, but it holds the other side of the conversation constant. Tool calls are answered from the recording and model calls run live, so a replay measures how a different model, prompt or version of the code behaves in the same world. Sessions are recorded through a wrapper around a supported framework, or imported from Langfuse, LangSmith, Braintrust and other tracing platforms; fixed cohorts of them are replayed as experiments and scored by evaluators, LLM judges and human labels. It runs as a server on Postgres, with workers in your environment.
+Kitaru, from ZenML, also re-runs an agent's real code against a recorded session, but it holds the other side of the conversation constant. The agent's model calls run live, so a replay measures how a different model, prompt or version of the code behaves in the same world. Tool calls are answered by a policy set per tool: `history` serves the recorded result, matched by tool name and arguments; `static` returns a result you define; `llm` has a model answer the call; `passthrough` runs the real tool. `passthrough` is the server's default when no policy is set, and Kitaru's docs warn that a replay can then repeat a side effect. Every replay starts from the top; a fork is a replay with one override, such as the model, the system prompt or the sampling parameters.
 
-That answers a question Shadowlap does not: across a few hundred production sessions, is the new model better? Every replay spends tokens by design, since the model's answer is what is being measured, and every replay starts from the top.
+Sessions are recorded through adapters for PydanticAI, LangGraph, the OpenAI Agents SDK, the Claude Agent SDK, Mastra and the Vercel AI SDK, with SDKs for Python and TypeScript, or imported from Langfuse, LangSmith, Braintrust, Logfire, Phoenix and MLflow. Fixed cohorts of sessions are replayed as experiments and scored by evaluators: built-in deterministic ones, LLM judges and human labels. It runs as a server on Postgres, with workers in your environment, and a hosted plan exists. In CI, `kitaru experiment run start --wait` exits nonzero when the run fails, which a failed replay causes; a drop in scores against the baseline fails nothing until a check you write compares them.
 
-Shadowlap replays the model's recorded answers as well, so a fix to the harness reproduces the same run at no cost, and a change forks at the first request it affects, with a diff of that request. Kitaru matches tool calls only, by name and arguments. A tool answers from the recording when you give it a `history` policy; with none set, it runs live, which Kitaru's docs point out would repeat a refund. Shadowlap fences `write` tools after every fork.
+That answers a question Shadowlap does not: across a few hundred production sessions, is the other model or prompt better? Every replay spends tokens by design, since the model's answer is what is being measured.
+
+Shadowlap replays the model's recorded answers as well, so a fix to the harness reproduces the same run at no cost, and a change forks at the first request it affects, with a diff of that request. Each wrapped tool declares its effect once, and write tools are blocked after every fork. A golden's test in CI runs offline.
 
 Use Kitaru to compare models and prompts across many sessions with scored evals. Use Shadowlap to reproduce one run exactly, find the call that lost it, and gate a pull request offline.
 
+## Agent debuggers with cached replay
+
+Laminar and OrcaReplay re-run an agent against the model's recorded answers, so the part of a run before a change costs nothing, and can continue live from a point you choose.
+
+**Laminar** is an open-source tracing platform, hosted or self-hosted, whose debugger is built for a coding agent to drive. A run started with `LMNR_DEBUG_REPLAY_TRACE_ID` gets its model responses from a recorded trace up to the call named in `LMNR_DEBUG_CACHE_UNTIL`, or up to the first cache miss, and runs live after it. The cache is served from Laminar's backend, keyed by the trace and a hash of the call's input messages without the system message. An edited system prompt therefore still replays the cached calls, which were answered under the old prompt. Caching works with the OpenAI, Anthropic, Google GenAI and LiteLLM integrations in Python and the AI SDK in TypeScript; with any other integration, every call runs live. Only model responses are cached, so tool calls run again.
+
+**OrcaReplay** is a local command-line tool aimed at coding agents such as Claude Code and Codex CLI, and it records agent frameworks too. A local proxy, set through base-URL variables (or TLS interception for a harness that can't be pointed elsewhere), records the run. `orca replay` reproduces it byte for byte with no model called and refuses any request it can't serve. `orca replay last --from 4 --model <model>` keeps the turns up to checkpoint 4 and lets another model take over, and `orca compare` does that for several models, graded by a command you name. It snapshots the workspace each turn. A replay still runs the recorded tool calls for real: its README says replay is not a sandbox.
+
+Shadowlap matches every request in full, the system prompt included, and forks at the first request your change affects; `--diverge-at` forces a call live, and `--prompt-from` applies a changed prompt from a later call when that is the question. Tools go through the SDK with a declared effect, so a replay serves their recorded results and a fork blocks writes. Blame, repair, verify and offline CI goldens sit on top.
+
+Use Laminar to iterate quickly on an agent it already traces, with a coding agent driving the loop. Use OrcaReplay to record a coding agent you can't change and to compare models from a checkpoint, inside a sandbox. Use Shadowlap when a replay must not repeat a side effect, and when the change itself should decide where the run forks.
+
 ## Framework checkpoints and time travel
 
-LangGraph and some agent frameworks checkpoint their state graph and let you resume from an earlier node, optionally with edited state. That is genuinely useful inside the framework, and it is where the framework's own state is the thing you want to rewind. It requires building on that framework, it rewinds *state* rather than replaying model behavior (resuming re-calls the model live), and it says nothing about calls made outside the graph.
+Several agent frameworks can take a run back to an earlier point:
+
+- **LangGraph** replays a graph from a checkpoint, or forks it with edited state (`update_state`). Nodes before the checkpoint don't run again; nodes after it do, model calls and API requests included.
+- **Microsoft Agent Framework** checkpoints a workflow at the end of each superstep, and resumes from any checkpoint, on the same run or another.
+- **Google ADK** rewinds a session to before a given request (`rewind_async`) and restores the session's state and artifacts. App and user state, and anything a tool changed outside, stay as they are.
+- **Claude Agent SDK** forks a session's conversation, from an earlier message if you name one (`forkSession` with `upToMessageId`). With file checkpointing, `rewindFiles()` restores the files its Write, Edit and NotebookEdit tools changed; a file only a Bash command changed is not restored.
+
+That is useful inside the framework, where its own state is what you want to rewind. It needs the agent built on that framework, and continuing from the earlier point asks the model again: nothing serves the recorded answers to your code, and nothing compares the requests sent with the recorded ones.
 
 Shadowlap sits under any framework, at the HTTP layer and the tool boundary, in TypeScript or Python. It replays the model's recorded answers, so a fix to the harness reproduces the same run every time, and it reports the exact request that changed.
 
-Use framework time travel to explore alternative paths interactively inside that framework. Use Shadowlap to reproduce a run of any agent, in a test, offline.
+Use framework time travel to explore alternative paths interactively inside that framework, or to resume a long workflow. Use Shadowlap to reproduce a run of any agent, in a test, offline.
 
 ## Durable execution
 
-Temporal, Restate and Inngest replay a workflow's history to recover its state; a model call is an activity whose result is persisted. The mechanism is close to Shadowlap's, but it exists to survive crashes, not to debug: replay happens inside the runtime, requires writing the agent as a workflow, does not diff or fork, and re-executes activities that are not in the history.
+Durable execution runtimes record each step's result so that a workflow survives a crash, and each of these can also run a workflow again from a step you choose, reusing the recorded results of the steps before it:
 
-Use durable execution to make long-running agents survive restarts. Use Shadowlap to understand and test what they did.
+- **Inngest** reruns a function from a step, in its dashboard, its CLI (`--from-step`) or its API, optionally with other input for that step.
+- **DBOS** forks a workflow from a step (`fork_workflow`), optionally on another application version.
+- **Restate** restarts an invocation as new from a journal entry (`restart-as-new` with `from`), optionally on another deployment.
+- **Cloudflare Workflows** restarts an instance from a named step (`restart()`).
+- **Temporal** resets a workflow to a point in its event history (`temporal workflow reset`).
+
+The mechanism is close to Shadowlap's, and a model call can be one of those steps. None of them knows it is one: you pick the step to restart from, nothing compares the request with the recorded one, and every step after the restart point runs live, writes included. The agent has to be written as a workflow for that runtime.
+
+Use durable execution to make long-running agents survive crashes, and to resume or patch a failed run in production. Use Shadowlap to find what changed in a run, and to test a change before it ships.
 
 ## Where Shadowlap does not help
 
-- **Prompt changes fork at call 1.** A different system prompt is a different first request; there is no recorded answer to a question the model never saw. You still get the diff and a fenced fork, and every later harness change replays for free. `--prompt-from <call>` applies the new prompt only from a later model call, which answers a narrower question ("what if the prompt had been this from step *k*") without re-running the steps before it.
+- **Prompt changes fork at call 1.** A different system prompt is a different first request; there is no recorded answer to a question the model never saw. You still get the diff and a fenced fork, and every later harness change replays for free. `--prompt-from <call>` applies the edited prompt only from a later model call, which answers a narrower question ("what if the prompt had been this from step *k*") without re-running the steps before it, and [`shadowlap decisions --from-code`](./decisions.md) asks each recorded model call again under the edited prompt, with no tool run.
 - **Tools you did not wrap** are not recorded. The network guard reports them so they do not surprise you.
-- **Quality of the model's output** is not something a replay can judge. Pair it with an eval tool.
-- **Agents spread across services** are recorded only where `shadowlap run` started them. Processes the agent starts itself inherit the environment and record into the same run — set [`SHADOWLAP_SCOPE`](./sdk.md#scopes) on each so their calls stay apart on replay — but a separate service, or another machine, does not. What a separate service answers the agent can be recorded, though: declare its host, and the agent's calls to it are recorded as tools, so its answers replay without it ([agents across services](./downstream-services.md)).
+- **Fixes in code.** `repair` rewrites the system prompt, a tool description or the model's name. A bug in the harness needs a code change, by you or a coding agent; `verify` checks it, for free when it changes no request.
+- **Evals at scale and production monitoring.** A judge check answers one yes-or-no question about a run. Scoring thousands of production examples, queues for human review and dashboards over time are what an eval platform is for. Shadowlap runs on your machine and in CI, and production runs reach it as imports.
+- **Agents spread across services** are recorded only where `shadowlap run` started them. Processes the agent starts itself inherit the environment and record into the same run (set [`SHADOWLAP_SCOPE`](./sdk.md#scopes) on each so their calls stay apart on replay), but a separate service, or another machine, does not. What a separate service answers the agent can be recorded, though: declare its host, and the agent's calls to it are recorded as tools, so its answers replay without it ([agents across services](./downstream-services.md)).
