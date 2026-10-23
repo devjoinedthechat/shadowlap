@@ -4,6 +4,7 @@ import { register as registerCheck } from './commands/check.js';
 import { register as registerChanges } from './commands/changes.js';
 import { register as registerCoverage } from './commands/coverage.js';
 import { register as registerData } from './commands/data.js';
+import { register as registerDemo } from './commands/demo.js';
 import { register as registerFix } from './commands/fix.js';
 import { register as registerImport } from './commands/import.js';
 import { register as registerInjection } from './commands/injection.js';
@@ -35,7 +36,8 @@ export async function main(argv: string[]): Promise<void> {
     .showHelpAfterError()
     .addHelpText('after', '\nNew to Shadowlap? Run shadowlap init in your project, then shadowlap run -- <your agent command>.');
 
-  // Help lists commands in the order of a first session: record, look, find and fix, test, set up, export.
+  // Help lists commands in the order of a first session: the demo, then record, look, find and fix, test, set up, export.
+  registerDemo(program);
   registerRecord(program);
   registerInspect(program);
   registerFix(program);

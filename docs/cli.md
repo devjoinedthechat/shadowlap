@@ -21,6 +21,25 @@ A store is created by the first command that records into it. Commands that only
 
 `run` and `replay` end with the agent's own status where none of these applies, as the agent would have ended without Shadowlap: `127` for a command that isn't on the PATH, and `128 + n` for an agent a signal stopped. Each command's section says which statuses it ends with. `SHADOWLAP_DEBUG=1` prints the stack of any error, for a bug report.
 
+## demo
+
+```sh
+shadowlap demo [--keep <dir>]
+```
+
+The whole loop on a refund agent, with no key and nothing to clone, as the
+[quickstart](./quickstart.md#see-the-whole-loop-first) shows it. In a temporary folder made a git
+repository, which it removes at the end, it writes the agent, the check its runs must pass and a
+`shadowlap.config.json` naming the repairer, and starts a scripted model on 127.0.0.1: it answers
+the agent in Anthropic's Messages API and the repairer in OpenAI's Chat Completions, and the demo
+says it is scripted. Then it runs `run`, `label`, `replay`, `blame`, `repair` and `fix apply` there,
+each printing as it does in a terminal, and ends with how long that took and how many requests the
+scripted model answered. Your own model keys and endpoints are left out of its environment, and
+[telemetry](./telemetry.md) is off for it. `--keep <dir>` runs it in that folder, a new or an empty
+one, and keeps it, to look around with `shadowlap dashboard`. It needs git. It ends with 0 when
+every step did what the demo expects; otherwise with the status of the step that didn't, which it
+names; 2 for a `--keep` folder that isn't empty, or without git.
+
 ## init
 
 ```sh
