@@ -5,6 +5,7 @@ import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
 import type { Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
+import { isLink } from './links.js';
 import type { JobFile, JobLink, JobListItem, JobView, ProjectView } from './views.js';
 import { jobCommands, treeClash, treeFolder, treeUse, type JobTree } from './worktree.js';
 
@@ -214,7 +215,6 @@ const ATTEMPT_ROLES = new Set(['attempt', 'probe', 'verify']);
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const RUN_LINE = /(?:recording|replaying) run ([0-9A-Z]{26})/;
 const RUN_ID = /^[0-9A-Z]{26}$/;
-const HREF = /^#\/[\w\-./~%?=&+:@,!*$]*$/;
 const KIND = /^[a-z][a-z0-9-]{0,39}$/;
 const MAX_LINES = 2000;
 const MAX_LINE = 16 * 1024;
@@ -703,7 +703,8 @@ export class JobManager {
         return;
       }
       case 'link': {
-        if (typeof ev.href !== 'string' || ev.href.length > 512 || !HREF.test(ev.href)) return;
+        // A route of the page, as the one link builder writes them (links.ts).
+        if (!isLink(ev.href)) return;
         const label = typeof ev.label === 'string' ? clean(ev.label, 120) : '';
         if (!label) return;
         // The drawer ends on one primary action; a secondary link shows beside it as a plain one.

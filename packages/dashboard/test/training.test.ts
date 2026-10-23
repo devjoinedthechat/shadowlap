@@ -287,7 +287,7 @@ describe('the Training read model', () => {
     const [first, second] = view.scores.rows;
     expect(first!.cells[1]).toMatchObject({ model: 'qwen2.5:7b', mean: 0.8 });
     expect(first!.cells[1]!.pips.map((x) => x.kind)).toEqual(['all', 'some', 'all', 'some', 'all']);
-    expect(first!.cells[1]!.pips[1]).toMatchObject({ attempt: 2, href: '#/run/qwen2.5:7b-goldens/refund-over-limit-2' });
+    expect(first!.cells[1]!.pips[1]).toMatchObject({ attempt: 2, href: '#/run/qwen2.5%3A7b-goldens%2Frefund-over-limit-2' });
     expect(second!.cells).toEqual([expect.objectContaining({ model: 'claude-sonnet-5', mean: 1 }), null]);
 
     // An example, never a result: no `from` (it only moves the takeover), a placeholder run, and a

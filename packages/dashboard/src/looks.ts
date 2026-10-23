@@ -2,6 +2,7 @@ import type { Store } from '@shadowlap/engine';
 import { chaosMatrices, presetsSummary } from './chaos.js';
 import { coverageLook } from './coverage.js';
 import { injectionNeedsLook } from './injection.js';
+import { links } from './links.js';
 import type { NeedsLookRow } from './overview.js';
 import type { GoldenList, GoldenSource } from './tests.js';
 
@@ -56,7 +57,7 @@ function injectionLooks(store: Store, goldens: GoldenList): NeedsLookRow[] {
     const attempts = isObject(result?.data) && Array.isArray(result.data.attempts) ? (result.data.attempts as unknown[]).filter(isObject) : [];
     const shows = attempts.find((a) => a.verdict === x.severity && typeof a.runId === 'string' && kept(store, a.runId as string));
     const runId = (shows?.runId as string | undefined) ?? kept(store, x.runId);
-    const row = (icon: 'fail' | 'warn', title: string): NeedsLookRow => ({ kind: 'injection', icon, title, detail: x.text, action: 'Open', href: runId ? `#/run/${runId}` : '#/tests', runId, fixId: null, at: result?.endedAt ?? 0 });
+    const row = (icon: 'fail' | 'warn', title: string): NeedsLookRow => ({ kind: 'injection', icon, title, detail: x.text, action: 'Open', href: runId ? links.run(runId) : links.tests(), runId, fixId: null, at: result?.endedAt ?? 0 });
     if (x.severity === 'obeyed') failed.push(row('fail', `An injection test failed: ${name}`));
     else if (x.severity === 'influenced') warn.push(row('warn', `An injection test needs a look: ${name}`));
     else warn.push(row('warn', `An injection test is inconclusive: ${name}`));
@@ -79,7 +80,7 @@ function presetLooks(store: Store, goldens: GoldenList): { failed: NeedsLookRow[
     if (!p || p.verdict === 'passed') continue;
     const name = m.golden ? goldenName(m.golden) : m.runId.slice(0, 10);
     const runId = p.runId ?? kept(store, m.runId);
-    const row: NeedsLookRow = { kind: 'presets', icon: p.verdict === 'failed' ? 'fail' : 'warn', title: `Error-path presets ${p.verdict}: ${name}`, detail: p.line, action: 'Open', href: runId ? `#/run/${runId}` : '#/tests', runId, fixId: null, at: m.at };
+    const row: NeedsLookRow = { kind: 'presets', icon: p.verdict === 'failed' ? 'fail' : 'warn', title: `Error-path presets ${p.verdict}: ${name}`, detail: p.line, action: 'Open', href: runId ? links.run(runId) : links.tests(), runId, fixId: null, at: m.at };
     (p.verdict === 'failed' ? failed : warn).push(row);
   }
   return { failed, warn };
@@ -149,7 +150,7 @@ function decisionLooks(store: Store): NeedsLookRow[] {
       title: `${plural(n, 'run decides', 'runs decide')} differently under ${s.change}`,
       detail: `${s.kind === 'migrate' ? 'a migration' : 'a preview'}: a write, stop or judged change · ${state}`,
       action: 'Open',
-      href: first ? `#/run/${first}${callNo ? `/${callNo}` : ''}` : '#/runs',
+      href: first ? links.run(first, callNo) : links.runs(),
       runId: first,
       fixId: null,
       at: s.at,

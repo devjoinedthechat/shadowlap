@@ -1,6 +1,7 @@
 import { describeEvent } from '../activity.js';
 import type { RouteContext } from '../context.js';
 import { coveragePackArgs, coverageView } from '../coverage.js';
+import { links } from '../links.js';
 import type { Router } from '../router.js';
 import { sessionBusy, testsBusy } from './tests.js';
 
@@ -30,7 +31,7 @@ describeEvent('coverage.scanned', (_e, d) => {
   const packed = n(d.packed);
   const notPacked = n(d.notPacked);
   const found = uncovered ? `${uncovered} behaviour${uncovered === 1 ? '' : 's'} without a golden` : 'every behaviour has a golden';
-  return { kind: 'test', text: `Coverage read · ${found}${packed ? ` · ${packed} golden${packed === 1 ? '' : 's'} packed` : ''}${notPacked ? ` · ${notPacked} not packed` : ''}`, href: '#/tests' };
+  return { kind: 'test', text: `Coverage read · ${found}${packed ? ` · ${packed} golden${packed === 1 ? '' : 's'} packed` : ''}${notPacked ? ` · ${notPacked} not packed` : ''}`, href: links.tests() };
 });
 
 const sameArgv = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);

@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import { asTheyStand, checkStatus, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoredEvent } from '@shadowlap/engine';
+import { links } from './links.js';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
 import { shortReason, verdictOfResult } from './tests.js';
@@ -34,9 +35,9 @@ const time = (v: unknown, fallback: number): number => num(v) ?? fallback;
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const short = (runId: string) => runId.slice(0, 10);
 const FIX_ID = /^fx-[\w-]+$/;
-const fixHref = (ref: string | null, step?: string) => (ref && FIX_ID.test(ref) ? `#/fixes/${ref}${step ? `/${step}` : ''}` : '#/fixes');
+const fixHref = (ref: string | null, step?: string) => (ref && FIX_ID.test(ref) ? links.fixes(ref, step ?? null) : links.fixes());
 /** Where the team store's entries open: Settings → Store, which shows the bucket, its last sync and what is only here. */
-const STORE_TAB = '#/settings/store';
+const STORE_TAB = links.settings('store');
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(str).filter((s): s is string => s !== null) : []);
 /** Words joined by the feed's separator, the empty ones left out. */
 const parts = (...words: Array<string | null | false | undefined>) => words.filter(Boolean).join(' · ');
@@ -73,17 +74,17 @@ function rejection(d: Record<string, unknown>): string | null {
  * `describeEvent`; an unknown kind reads as its name and its ref.
  */
 const EVENT_TEXT = new Map<string, Describe>([
-  ['normalizer.added', (e, d) => ({ kind: 'setting', text: `Normalizer added · ${str(d.path) ?? e.ref ?? 'every string'}`, href: '#/settings/matching' })],
-  ['normalizer.removed', (e, d) => ({ kind: 'setting', text: `Normalizer removed · ${str(d.path) ?? e.ref ?? 'every string'}`, href: '#/settings/matching' })],
+  ['normalizer.added', (e, d) => ({ kind: 'setting', text: `Normalizer added · ${str(d.path) ?? e.ref ?? 'every string'}`, href: links.settings('matching') })],
+  ['normalizer.removed', (e, d) => ({ kind: 'setting', text: `Normalizer removed · ${str(d.path) ?? e.ref ?? 'every string'}`, href: links.settings('matching') })],
   // A redaction rule reads by what it puts in place and where, never by its pattern: a pattern can
   // hold the very text the rule is there to hide, and the feed is shown to the whole team.
-  ['redaction.added', (_e, d) => ({ kind: 'setting', text: `Redaction rule added · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: '#/settings/redaction' })],
-  ['redaction.removed', (_e, d) => ({ kind: 'setting', text: `Redaction rule removed · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: '#/settings/redaction' })],
-  ['clock.set', (e, d) => ({ kind: 'setting', text: `Clock set to ${str(d.clock) ?? e.ref ?? 'auto'}`, href: '#/settings/matching' })],
-  ['runs.cleaned', (_e, d) => ({ kind: 'setting', text: `Cleaned up ${plural(num(d.runs) ?? 0, 'old run')}`, href: '#/settings/project' })],
-  ['golden.packed', (e) => ({ kind: 'test', text: `Golden packed · ${e.ref ?? 'a golden'}`, href: '#/tests' })],
+  ['redaction.added', (_e, d) => ({ kind: 'setting', text: `Redaction rule added · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: links.settings('redaction') })],
+  ['redaction.removed', (_e, d) => ({ kind: 'setting', text: `Redaction rule removed · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: links.settings('redaction') })],
+  ['clock.set', (e, d) => ({ kind: 'setting', text: `Clock set to ${str(d.clock) ?? e.ref ?? 'auto'}`, href: links.settings('matching') })],
+  ['runs.cleaned', (_e, d) => ({ kind: 'setting', text: `Cleaned up ${plural(num(d.runs) ?? 0, 'old run')}`, href: links.settings('project') })],
+  ['golden.packed', (e) => ({ kind: 'test', text: `Golden packed · ${e.ref ?? 'a golden'}`, href: links.tests() })],
   ['run.packed', (e, d) => ({ kind: 'project', text: `Packed · ${e.ref ?? plural(num(d.runs) ?? 1, 'run')}${num(d.calls) !== null ? ` · ${plural(num(d.calls)!, 'call')}` : ''}` })],
-  ['golden.updated', (e, d) => ({ kind: 'test', text: parts(`Golden updated · ${e.ref ?? str(d.golden) ?? 'a golden'} re-recorded`, num(d.calls) !== null && plural(num(d.calls)!, 'call')), href: '#/tests' })],
+  ['golden.updated', (e, d) => ({ kind: 'test', text: parts(`Golden updated · ${e.ref ?? str(d.golden) ?? 'a golden'} re-recorded`, num(d.calls) !== null && plural(num(d.calls)!, 'call')), href: links.tests() })],
   // One import can make several runs (a LiteLLM log, one per conversation), each with its event:
   // the feed groups them (importStubs below), and this is the wording of one.
   ['capture.imported', (e, d) => ({ kind: 'cap', text: importText(importName(e, d), new Set([...(e.runId ? [e.runId] : []), ...strings(d.runIds)]).size, num(d.modelCalls) ?? num(d.calls)) })],
@@ -95,12 +96,12 @@ const EVENT_TEXT = new Map<string, Describe>([
       // Inconclusive goldens are counted apart: neither passed nor failed.
       const inconclusive = num(d.inconclusive) ?? 0;
       const counts = `${num(d.passed) ?? 0} passed, ${failed} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
-      if (d.interrupted === true) return { kind: 'fail', text: `Tests stopped · ${counts}${notRun ? `, ${notRun} not run` : ''}`, href: '#/tests' };
-      return { kind: failed ? 'fail' : inconclusive ? 'warn' : 'test', text: `Tests ran · ${counts}`, href: '#/tests' };
+      if (d.interrupted === true) return { kind: 'fail', text: `Tests stopped · ${counts}${notRun ? `, ${notRun} not run` : ''}`, href: links.tests() };
+      return { kind: failed ? 'fail' : inconclusive ? 'warn' : 'test', text: `Tests ran · ${counts}`, href: links.tests() };
     },
   ],
   // A golden's answer opens Tests, where it shows above the golden's buttons; a run's, the run.
-  ['bisect.found', (e, d) => ({ kind: 'test', text: `First bad commit · ${str(d.commit) ?? e.ref ?? ''}${str(d.subject) ? ` ${str(d.subject)}` : ''}`, href: e.runId ? `#/run/${e.runId}` : '#/tests' })],
+  ['bisect.found', (e, d) => ({ kind: 'test', text: `First bad commit · ${str(d.commit) ?? e.ref ?? ''}${str(d.subject) ? ` ${str(d.subject)}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() })],
   [
     'blame.done',
     (e, d) => {
@@ -122,10 +123,10 @@ const EVENT_TEXT = new Map<string, Describe>([
   ['verify.rejected', (e, d) => ({ kind: 'fixbad', text: `Verify rejected · ${rejection(d) ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
   // A fix with no patch (verified on the working tree, or with a change of request fields) was only marked applied, as its page says.
   ['fix.applied', (e, d) => ({ kind: 'fixok', text: `${d.patch === 'none' ? 'Marked applied' : 'Patch applied'} · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
-  ['pairs.exported', (_e, d) => ({ kind: 'train', text: `Exported ${plural(num(d.pairs) ?? num(d.count) ?? 0, 'preference pair')}`, href: '#/training' })],
-  ['model.scored', (e, d) => ({ kind: 'train', text: parts(`Scored ${str(d.model) ?? e.ref ?? 'a model'} on ${plural(num(d.tasks) ?? 0, 'task')}`, num(d.mean) !== null && `mean ${num(d.mean)!.toFixed(2)}`), href: '#/training/tasks' })],
+  ['pairs.exported', (_e, d) => ({ kind: 'train', text: `Exported ${plural(num(d.pairs) ?? num(d.count) ?? 0, 'preference pair')}`, href: links.training() })],
+  ['model.scored', (e, d) => ({ kind: 'train', text: parts(`Scored ${str(d.model) ?? e.ref ?? 'a model'} on ${plural(num(d.tasks) ?? 0, 'task')}`, num(d.mean) !== null && `mean ${num(d.mean)!.toFixed(2)}`), href: links.training('tasks') })],
   // In the projects pages' own words, so the feed and the project list say the same.
-  ...(['project.added', 'project.setup', 'project.removed'] as const).map((kind): [string, Describe] => [kind, (e) => ({ kind: 'project', text: projectEventText(e) ?? kind, href: '#/' })]),
+  ...(['project.added', 'project.setup', 'project.removed'] as const).map((kind): [string, Describe] => [kind, (e) => ({ kind: 'project', text: projectEventText(e) ?? kind, href: links.overview() })]),
   // The team store's set-up, as the store commands record it; the bucket is the entry's ref.
   ['store.set', (_e, d) => ({ kind: 'setting', text: str(d.previous) ? 'Store changed' : 'Store set' })],
   [
@@ -142,7 +143,7 @@ const EVENT_TEXT = new Map<string, Describe>([
     (e, d) => {
       const verb = d.outcome === 'updated' ? 'updated' : 'added';
       const what = e.ref === 'cursor' ? `Cursor rule ${verb}` : `Claude Code skill ${verb === 'added' ? 'installed' : 'updated'}`;
-      return { kind: 'setting', text: parts(what, str(d.version)), href: '#/settings/agents' };
+      return { kind: 'setting', text: parts(what, str(d.version)), href: links.settings('agents') };
     },
   ],
   [
@@ -168,7 +169,7 @@ const EVENT_TEXT = new Map<string, Describe>([
 /** A verify's page: under its fix, at the verdict when the event names it. */
 function verifyHref(ref: string | null, d: Record<string, unknown>): string {
   const verifyId = str(d.verifyId);
-  return ref && FIX_ID.test(ref) && verifyId && /^[\w-]+$/.test(verifyId) ? `${fixHref(ref, 'verify')}/${verifyId}` : fixHref(ref, 'verify');
+  return ref && FIX_ID.test(ref) && verifyId && /^[\w-]+$/.test(verifyId) ? links.fixes(ref, 'verify', verifyId) : fixHref(ref, 'verify');
 }
 
 /** "Imported trace.json · 12 model calls", or for several runs "Imported litellm.jsonl · 3 runs · 40 model calls". */
@@ -190,7 +191,7 @@ function storedItem(e: StoredEvent): ActivityItem {
     t = fallback(e);
   }
   // The team store's entries open Settings → Store, whichever run one names.
-  const href = t.href ?? (e.kind.startsWith('store.') ? STORE_TAB : e.runId ? `#/run/${e.runId}` : undefined);
+  const href = t.href ?? (e.kind.startsWith('store.') ? STORE_TAB : e.runId ? links.run(e.runId) : undefined);
   const ref = e.ref ?? (e.runId ? short(e.runId) : undefined);
   return { id: `e:${e.eventId}`, at: e.at, kind: t.kind, text: t.text, ...(e.runId ? { runId: e.runId } : {}), ...(href ? { href } : {}), ...(e.actor ? { actor: e.actor } : {}), ...(ref ? { ref } : {}) };
 }
@@ -306,7 +307,7 @@ function checksPassed(checks: readonly StoredCheck[]): string {
 }
 
 function base(run: RunRecord, id: string, at: number): Omit<ActivityItem, 'kind' | 'text'> {
-  return { id, at, runId: run.runId, href: `#/run/${run.runId}`, ref: short(run.runId), ...(run.meta?.author ? { actor: run.meta.author } : {}) };
+  return { id, at, runId: run.runId, href: links.run(run.runId), ref: short(run.runId), ...(run.meta?.author ? { actor: run.meta.author } : {}) };
 }
 
 function recordingEnd(store: Store, run: RunRecord): ActivityItem {
@@ -501,14 +502,14 @@ function importedEvents(group: StoredEvent[]): ActivityItem {
     at: newest.at,
     kind: 'cap',
     text: importText(importName(first, first.data ?? {}), Math.max(runIds.size, group.length), calls),
-    ...(runId ? { runId, href: `#/run/${runId}`, ref: short(runId) } : first.ref ? { ref: first.ref } : {}),
+    ...(runId ? { runId, href: links.run(runId), ref: short(runId) } : first.ref ? { ref: first.ref } : {}),
     ...(first.actor ? { actor: first.actor } : {}),
   };
 }
 
 function blamed(run: RunRecord): ActivityItem {
   const b = run.meta!.blame!;
-  const item = { ...base(run, `r:${run.runId}:blame`, time(b.at, run.endedAt ?? run.startedAt)), href: '#/fixes' };
+  const item = { ...base(run, `r:${run.runId}:blame`, time(b.at, run.endedAt ?? run.startedAt)), href: links.fixes() };
   if (b.outcome === 'blamed' && b.callNo !== null) return { ...item, kind: 'blame', text: `Blamed model call #${b.callNo} · confidence ${b.confidence}` };
   if (b.outcome === 'stopped') return { ...item, kind: 'blame', text: `Blame stopped · ${plural(Array.isArray(b.probes) ? b.probes.length : 0, 'call')} probed` };
   // Its first probe couldn't tell: nothing is settled, which is no finding that no call rescues it.
@@ -557,7 +558,7 @@ function repeated(store: Store, attempts: RunRecord[], parent: RunRecord | undef
     kind: 'fork',
     text: `replay --repeat ${of}${forkAt !== null ? ` at #${forkAt}` : ''} · ${outcome}`,
     runId: parentId,
-    href: `#/run/${parentId}/${forkAt ?? 1}/forks`,
+    href: links.run(parentId, forkAt ?? 1, 'forks'),
     ref: short(parentId),
     ...(first.meta?.author ? { actor: first.meta.author } : {}),
     ...(attempts.some((a) => a.status === 'running') ? { live: true } : {}),

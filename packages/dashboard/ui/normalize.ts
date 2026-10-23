@@ -37,8 +37,9 @@ export function normalizeMeta(m: Meta): Meta {
 
 /**
  * The run list: where blame found a run lost (`lostAt` or `blame`), and which runs are attempts
- * bundled under another (`attemptOf`, or the `repeat`, `probe` and `verify` markers). An attempt
- * whose run is not in the list is listed like any run, rather than vanishing.
+ * bundled under another (`attemptKind`, the server's classification by the engine's one rule, and
+ * `attemptOf`, the run it is bundled under). An attempt whose run is not in the list is listed like
+ * any run, rather than vanishing.
  */
 export function normalizeRuns(list: readonly RunListItem[]): RunListItem[] {
   const ids = new Set(list.map((r) => r.runId));
@@ -47,7 +48,9 @@ export function normalizeRuns(list: readonly RunListItem[]): RunListItem[] {
     const lost = int(r.lostAt);
     if (!(isObject(r.blame) && int(r.blame.callNo) !== null) && lost !== null) out.blame = { callNo: lost };
     const of = str(r.attemptOf);
-    if (of && !r.attempt && !r.repeat && !r.probe && !r.verify) out.attempt = ids.has(of) ? of : null;
+    if (of && !r.attempt) out.attempt = ids.has(of) ? of : null;
+    // Bundled only under a run the list holds: `isAttempt` reads `attemptKind`.
+    if (r.attemptKind && !(of && ids.has(of))) out.attemptKind = null;
     return out;
   });
 }

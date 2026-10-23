@@ -41,7 +41,7 @@ describe('where the setup shows', () => {
     expect(setupShowsOn(at('#/new'), none)).toBe(false);
     expect(setupShowsOn(at('#/setup'), { ...none, runs: [run()], meta: project(false) })).toBe(true);
     // Attempts alone are no runs to show.
-    expect(setupShowsOn(at('#/runs'), { ...none, runs: [run({ attempt: { of: 'x' } })] })).toBe(true);
+    expect(setupShowsOn(at('#/runs'), { ...none, runs: [run({ attemptKind: 'repeat', attemptOf: 'x' } as Partial<RunLike>)] })).toBe(true);
   });
 
   it('takes the Overview of a project partway through its setup, and nothing else', () => {
@@ -78,7 +78,7 @@ describe('the setup on a dashboard that serves one store', () => {
     expect(setupPageShows({ meta: null, view: undefined, runs: null })).toBe('wait');
     expect(setupPageShows({ meta: oneStore, view: undefined, runs: [run()] })).toBe('nothing');
     expect(setupPageShows({ meta: oneStore, view: undefined, runs: [] })).toBe('steps');
-    expect(setupPageShows({ meta: oneStore, view: undefined, runs: [run({ attempt: { of: 'x' } })] })).toBe('steps');
+    expect(setupPageShows({ meta: oneStore, view: undefined, runs: [run({ attemptKind: 'repeat', attemptOf: 'x' } as Partial<RunLike>)] })).toBe('steps');
     // A project's dashboard waits for its setup, then shows it; one whose server answers none falls back the same way.
     expect(setupPageShows({ meta: project, view: undefined, runs: [] })).toBe('wait');
     expect(setupPageShows({ meta: project, view: { shows: 'setup' }, runs: [] })).toBe('project');

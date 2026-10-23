@@ -67,6 +67,8 @@ export { quoteArgv, safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
 export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, attemptBundles, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, failedChecks, filedTestAttempt, isFailedOutcome, kindLabel, lostAt, notableOrigin, originCells, outcomeLabel, pulledRun, runKind, runOutcome, withAttempts, type CheckCounts } from './classify.js';
 export { deletionPlan, type DeletionPlan } from './run-deletion.js';
+// Which runs are attempts: the one rule the dashboard's counts, lists and run page go by.
+export { attemptKindOf, countAttempts, isAttempt, rescuedForks, type RoleContext, type RoleFacts } from './run-roles.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';

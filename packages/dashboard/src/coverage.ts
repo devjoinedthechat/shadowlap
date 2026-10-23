@@ -1,5 +1,6 @@
 import { checkCommandTemplate, describeBehaviour, NO_COMMAND, OUTCOME_WORDS, quoteArgv, type Behaviour, type BehaviourOutcome, type CoverageScan, type Store, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
 import { splitCommandLine } from './settings.js';
+import { links } from './links.js';
 
 /**
  * Production coverage as the dashboard shows it: the last `shadowlap coverage` scan, kept in the
@@ -137,7 +138,7 @@ function lookOf(count: number, newest: { path: readonly string[]; sources: reado
     title: `${plural(count, 'behaviour')} seen in production ${count === 1 ? 'has' : 'have'} no golden`,
     detail: `the newest: ${newest.path.length ? newest.path.slice(0, 3).join(' → ') + (newest.path.length > 3 ? ' → …' : '') : 'no tool calls'}${newest.sources[0] ? `, in ${newest.sources[0]}` : ''}`,
     action: 'Open',
-    href: runId ? `#/run/${runId}` : '#/tests',
+    href: runId ? links.run(runId) : links.tests(),
     runId,
     fixId: null,
     at,

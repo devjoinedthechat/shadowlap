@@ -60,6 +60,7 @@ import {
   unsettledFirst,
   unsettledReason,
 } from '@shadowlap/engine';
+import { links } from './links.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
 import { splitCommandLine } from './settings.js';
 import { probeLine, runsRule, verifiedLine, type VerdictTone } from './verdict.js';
@@ -446,8 +447,9 @@ export interface FixDetail extends FixRow {
 
 // ---- Shared pieces ---------------------------------------------------------------------------
 
-export const fixHref = (fixId: string, step?: StepKey, sub?: string): string => `#/fixes/${fixId}${step ? `/${step}${sub ? `/${sub}` : ''}` : ''}`;
-const runHref = (runId: string, call?: number | null): string => `#/run/${runId}${call ? `/${call}` : ''}`;
+// Links come from the one builder (links.ts), which the page's route parser reads back.
+export const fixHref = (fixId: string, step?: StepKey, sub?: string): string => links.fixes(fixId, step ?? null, sub ?? null);
+const runHref = (runId: string, call?: number | null): string => links.run(runId, call ?? null);
 const short = (id: string) => id.slice(0, 10);
 const s = (n: number) => (n === 1 ? '' : 's');
 const approx = (usd: number) => `≈${formatUsd(usd)}`;

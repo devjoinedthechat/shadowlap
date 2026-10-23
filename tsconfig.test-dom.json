@@ -37,7 +37,10 @@
     "packages/dashboard/test/ui-about.test.ts",
     "packages/dashboard/test/ui-naming.test.ts",
     "packages/dashboard/test/ui-verdict.test.ts",
-    "packages/dashboard/test/ui-presets.test.ts"
+    "packages/dashboard/test/ui-presets.test.ts",
+    "packages/dashboard/test/ui-run-header.test.ts",
+    "packages/dashboard/test/run-roles.test.ts",
+    "packages/dashboard/test/ui-focus.test.ts"
   ],
   "exclude": []
 }

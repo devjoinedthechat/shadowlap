@@ -6,6 +6,7 @@ import { choicesInCheckout, commitsHere, commitSubjects, rangeHere, revisionsHer
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
+import { links } from '../links.js';
 import type { Router } from '../router.js';
 import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
@@ -121,7 +122,7 @@ function rangesInCheckout(view: TestsView, root: string | null | undefined): Tes
 
 // Find the commit that named no first bad commit, in the activity feed: why, so the next search
 // starts elsewhere. A golden's answer opens Tests, which shows it; a run's, the run.
-describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? 'Find the commit'}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? `#/run/${e.runId}` : '#/tests' }));
+describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? 'Find the commit'}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() }));
 
 export function register(router: Router, ctx: RouteContext): void {
   const goldens = (): GoldenSource[] => ctx.options.goldens?.() ?? [];

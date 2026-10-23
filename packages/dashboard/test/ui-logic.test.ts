@@ -480,7 +480,8 @@ describe('runs', () => {
     // A list that bundles them counts each run's attempts, or names the run an attempt belongs to.
     expect(bundlesAttempts([{ ...base, attempts: 3 } as RunLike])).toBe(true);
     expect(bundlesAttempts([{ ...fork, attemptOf: base.runId } as RunLike])).toBe(true);
-    expect(bundlesAttempts([{ ...fork, repeat: { group: 'g', attempt: 1, of: 3 } }])).toBe(true);
+    // Or classifies it, by the engine's one rule (run-roles.ts): what made it an attempt.
+    expect(bundlesAttempts([{ ...fork, attemptKind: 'repeat' }])).toBe(true);
   });
 
   it('filters by type chip and text, and sorts by calls, spent or when', () => {

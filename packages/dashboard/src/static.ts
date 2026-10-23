@@ -5,7 +5,7 @@ import { asTheyStand, redactRunWithDetails, Store, type Normalizer, type Price, 
 import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
 import { runCalls } from './run-calls.js';
 import { analyseRun } from './run-page.js';
-import { isAttempt } from './run-cache.js';
+import { countAttempts } from './run-cache.js';
 import type { MetaView } from './views.js';
 
 /**
@@ -89,7 +89,8 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   // Every run the file holds is listed, however old, an attempt someone chose to export included.
   const runs = listRuns(store, { ...read, ids: runIds }).map((r) => (keep ? r : anonymous(r)));
   const records = runIds.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
-  const attempts = records.filter(isAttempt).length;
+  // Counted as the dashboard counts them (run-roles.ts): an attempt is bundled only under a run the copy holds.
+  const attempts = countAttempts(records).attempts;
   const meta: MetaView = {
     version: opts.version ?? null,
     dbPath: null,

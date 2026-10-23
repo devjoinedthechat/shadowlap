@@ -68,3 +68,27 @@ describe('an exported copy’s Provenance', () => {
     expect(none.html).not.toContain('#/settings');
   });
 });
+
+describe('Provenance’s times', () => {
+  it('are local, as every other page says a time, with the instant in UTC on hover', () => {
+    const was = process.env.TZ;
+    process.env.TZ = 'Asia/Tokyo';
+    try {
+      const data = exported([]);
+      const meta = normalizeMeta(data.responses['meta'] as Meta);
+      const run = normalizeRunDetail(data.responses[`runs/${runId}`] as RunDetail);
+      const app = { client: createExportedClient(data), meta, exported: true, toast: () => undefined, runs: [] } as unknown as AppState;
+      const html = renderToStaticMarkup(createElement(AppContext.Provider, { value: app }, createElement(ProvenanceView, { run })));
+      const started = run.run.startedAt;
+      const at = new Date(started);
+      const local = `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][at.getMonth()]} ${at.getDate()}, ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}:${String(at.getSeconds()).padStart(2, '0')}`;
+      const utc = `${at.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '')} UTC`;
+      expect(html).toContain(`<dt>Started</dt><dd><time dateTime="${at.toISOString()}" title="${utc}">${local}</time></dd>`);
+      // Nine hours ahead of UTC, so the two never read the same.
+      expect(html).not.toContain(`<dd>${utc}</dd>`);
+    } finally {
+      if (was === undefined) delete process.env.TZ;
+      else process.env.TZ = was;
+    }
+  });
+});
