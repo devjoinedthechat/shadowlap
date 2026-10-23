@@ -80,7 +80,7 @@ beforeAll(async () => {
       }
       if (url.pathname.startsWith('/v1/projects/')) return send(404, 'Not Found');
       if (req.url === '/v2/query' && req.method === 'POST') {
-        if (req.headers.authorization !== `Bearer ${LOGFIRE_TOKEN}`) return send(401, { detail: 'Invalid read token' });
+        if (req.headers.authorization !== LOGFIRE_TOKEN) return send(401, { detail: 'Invalid read token' });
         const id = /trace_id = '([0-9a-f]{32})'/.exec((JSON.parse(body) as { sql: string }).sql)?.[1];
         return send(200, { schema: { fields: [] }, data: logfire.data.filter((r) => r.trace_id === id) });
       }

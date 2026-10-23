@@ -41,7 +41,8 @@ export async function fetchLogfireRecords(traceId: string, o: LogfireOptions): P
   const res = await fetchJson(
     o,
     '/v2/query',
-    { method: 'POST', headers: { authorization: `Bearer ${o.token}`, accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify({ sql, min_timestamp: o.since.toISOString(), limit: LIMIT }) },
+    // The read token goes as Logfire's own query client sends it: the whole header, with no scheme.
+    { method: 'POST', headers: { authorization: o.token, accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify({ sql, min_timestamp: o.since.toISOString(), limit: LIMIT }) },
     {
       401: `Logfire refused the read token (401): check LOGFIRE_READ_TOKEN, and that ${where} is the token's region`,
       403: "Logfire refused the read token (403): it can't read this project",

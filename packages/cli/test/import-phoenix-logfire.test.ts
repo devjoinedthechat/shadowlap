@@ -228,7 +228,8 @@ describe('reading Phoenix and Logfire', () => {
   it("queries a trace's spans from Logfire with the read token, from the start it is given", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const host = await listen((req, body) => {
-      expect(`${req.method} ${req.url} ${req.headers.authorization}`).toBe('POST /v2/query Bearer pylf_v1_us_test');
+      // As Logfire's own query client sends it: the token alone, with no scheme.
+      expect(`${req.method} ${req.url} ${req.headers.authorization}`).toBe('POST /v2/query pylf_v1_us_test');
       const q = JSON.parse(body) as Record<string, unknown>;
       bodies.push(q);
       return { status: 200, body: { schema: { fields: [] }, data: logfireRows(LOGFIRE_ANTHROPIC) } };
