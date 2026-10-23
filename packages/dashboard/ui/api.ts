@@ -14,6 +14,7 @@ import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { DecisionSessionDetail, DecisionsListView, RetirementsView, RunDecisionsView } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
+import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
 import { copyAmbiguous, copyRunId } from './runs.js';
 import { runsQueryString } from './runspage/query.js';
@@ -250,9 +251,11 @@ export interface Client {
   /** One run's presets matrix, its recording's for a preset's attempt (`/api/chaos/runs/:id`); null when none ran. */
   runChaos(id: string): Promise<ChaosMatrix | null>;
 
-  // ---- What a fork did differently
+  // ---- What a fork did differently, and a fix's attempts grouped by what each did
   /** What a fork did differently from its parent (`/api/runs/:id/differences`); null for a run that isn't a fork of a run in the store. */
   forkDifferences(id: string): Promise<ForkDifferences | null>;
+  /** A fix's blame probes and verified runs, their attempts grouped by what each did (`/api/fixes/:id/groups`). */
+  attemptGroups(fixId: string): Promise<FixAttemptGroups>;
 }
 
 
@@ -481,6 +484,7 @@ export function createClient(token: string): Client {
     chaos: () => request<ChaosView>('chaos').catch((err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, (err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     forkDifferences: (runId) => request<{ differences: ForkDifferences | null }>(`runs/${id(runId)}/differences`).then((r) => r.differences),
+    attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),
   };
 }
 
@@ -568,5 +572,6 @@ export function createExportedClient(data: StaticPayload): Client {
     runChaos: () => Promise.resolve(null),
     // Worked out from the store, which a copy doesn't carry: its run page leaves the panel out.
     forkDifferences: () => Promise.resolve(null),
+    attemptGroups: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
   };
 }

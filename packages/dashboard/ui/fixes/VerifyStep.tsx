@@ -6,6 +6,8 @@ import { approx, GLUED_SEPARATOR, glued, num, shortId, wholeCounts } from '../fo
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import type { FixDetail, VerifyStep } from '../types.js';
+import type { VerifiedRunGroups } from '../../src/attempt-groups.js';
+import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
 import { FixJobButton } from './FixJobButton.js';
 import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
 
@@ -18,6 +20,7 @@ import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from '.
  * Run more attempts, or Verify again, the line under it saying what that takes.
  */
 export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | null }) {
+  const groups = useAttemptGroups(fix.fixId);
   const v = verifyFor(fix, sub);
   if (!v)
     return (
@@ -85,18 +88,35 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
                   <span className="fxof">
                     {x.passes} of {x.attempts - x.inconclusive}
                     {x.inconclusive ? <span className="fxdim"> · {x.inconclusive} not judged</span> : null}
-                    {x.rate?.bound ? <span className="fxdim"> · {x.rate.bound}</span> : null}
+                    {x.rate?.bound ? (
+                      <span className="fxdim" title={x.evidence?.method ? `the bound: ${x.evidence.method}` : undefined}>
+                        {' '}
+                        · {x.rate.bound}
+                      </span>
+                    ) : null}
+                    {x.evidence?.unavailable ? <span className="fxdim"> · {x.evidence.unavailable} unavailable</span> : null}
                   </span>
                 </td>
                 <td>
                   <Badge tone={outcomeTone(x.outcome)}>{x.outcome}</Badge>
                 </td>
-                <td className="fxwhere">{x.note}</td>
+                <td className="fxwhere">
+                  {x.note}
+                  {/* Kept against the run's own baseline, within a margin, when verify's JSON says so. */}
+                  {x.evidence?.baseline ? (
+                    <span className="fxbase">
+                      baseline {x.evidence.baseline.passes} of {x.evidence.baseline.attempts}
+                      {x.evidence.baseline.source === 'paired' ? `, paired${x.evidence.baseline.revision ? ` at ${x.evidence.baseline.revision}` : ''}` : ', from history'}
+                      {x.evidence.margin !== null ? ` · margin ${x.evidence.margin}` : ''}
+                    </span>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </section>
+      <VerifyGroups runs={groups?.verify.find((g) => g.verifyId === v.verifyId)?.runs ?? null} />
       <Deltas v={v} />
       {/* An incomplete verdict found nothing out, so its receipt says what it spent and no more. */}
       <p className="fxreceipt">
@@ -171,5 +191,29 @@ function Deltas({ v }: { v: VerifyStep }) {
       {GLUED_SEPARATOR}
       <span className="nw">{v.cost ? `${approx(v.cost.before)} → ${approx(v.cost.after)} (${v.cost.change})` : 'no price for the model'}</span>
     </p>
+  );
+}
+
+/** Each run's attempts grouped by what each did, for a run that made more than one. */
+function VerifyGroups({ runs }: { runs: readonly VerifiedRunGroups[] | null }) {
+  const shown = (runs ?? []).filter((r) => r.groups.length > 1);
+  if (!shown.length) return null;
+  return (
+    <section className="panel fxgap" aria-label="What the attempts did">
+      <header>
+        <h2>What the attempts did</h2>
+        <span className="sub">grouped by the tool calls each made from where it left its run, and how it came out</span>
+      </header>
+      <div className="pbody">
+        {shown.map((r) => (
+          <div key={`${r.role}:${r.runId}`} className="fxbundle">
+            <span className="k">
+              {r.role} <code>{shortId(r.runId)}</code>
+            </span>
+            <AttemptGroups groups={r.groups} attempts={r.attempts} label={`${r.role} run ${shortId(r.runId)}`} />
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

@@ -60,6 +60,7 @@ import {
   unsettledFirst,
   unsettledReason,
 } from '@shadowlap/engine';
+import { blameEvidence, gateEvidence, verifyEvidence, type BlameEvidence, type GateEvidence, type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
 import { splitCommandLine } from './settings.js';
@@ -206,7 +207,7 @@ export interface BlameStep {
   rule: string;
   /** Each probe: its tally and verdict, and under a gate the Wilson bound on the attempts it decided on (`bound`, `rate >= 0.34 (95%)`; null for a fixed count). */
   /** Each probe: `inconclusive` counts its attempts that could not be judged, neither passed nor failed. */
-  probes: Array<{ callNo: number; step: number; passes: number; attempts: number; inconclusive: number; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; bound: string | null; blamed: boolean; href: string }>;
+  probes: Array<{ callNo: number; step: number; passes: number; attempts: number; inconclusive: number; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; bound: string | null; blamed: boolean; href: string; gate: GateEvidence }>;
   /** The attempts, bundled per probe. */
   bundles: Array<{ callNo: number; title: string; blamed: boolean; passes: number; attempts: Array<{ runId: string; passed: boolean; verdict: AttemptVerdict; note: string; spent: number; href: string }> }>;
   /** Every call of the run, for the row that shows where it was lost; `inScope` is false for a call outside the blame's scope. */
@@ -224,6 +225,8 @@ export interface BlameStep {
   warnings: string[];
   command: string;
   hrefs: { run: string; lostAt: string | null; rescued: string | null };
+  /** What the report says beyond its probes, when it says it: the calls it lost the run between, and its error bound. */
+  evidence: BlameEvidence;
 }
 
 export type CandidateVerdict = 'accepted' | 'rejected' | 'set aside' | 'not tried' | 'build failed' | 'unsettled';
@@ -306,6 +309,8 @@ export interface VerifyRow {
   /** Input tokens and cost per run, as recorded and under the change (the mean of its attempts). */
   tokens: { recorded: number; now: number } | null;
   cost: { recorded: number | null; now: number | null } | null;
+  /** What verify's JSON says of the run beyond its tally, when it says it: its gate's bound method and unavailable attempts, its baseline and margin. */
+  evidence: VerifyEvidence;
 }
 
 export interface VerifyStep {
@@ -771,7 +776,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     needed: r.needed,
     attemptsPerProbe: r.attemptsPerProbe,
     rule: rescueRule(r),
-    probes: r.probes.map((x) => ({ callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length, inconclusive: unsure(x), verdict: verdictOf(x), bound: probeBound(x, r.gate), blamed: x.callNo === blamedCall, href: runHref(b.runId, x.callNo) })),
+    probes: r.probes.map((x) => ({ callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length, inconclusive: unsure(x), verdict: verdictOf(x), bound: probeBound(x, r.gate), blamed: x.callNo === blamedCall, href: runHref(b.runId, x.callNo), gate: gateEvidence(x) })),
     bundles: r.probes.map((x) => ({
       callNo: x.callNo,
       title: `blame · probe #${x.callNo}`,
@@ -788,6 +793,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     warnings: r.warnings,
     command: b.command,
     hrefs: { run: runHref(b.runId), lostAt: blamedCall ? runHref(b.runId, blamedCall) : null, rescued: contrast ? runHref(contrast.rescuedRunId) : null },
+    evidence: blameEvidence(b.report),
   };
 }
 
@@ -1029,6 +1035,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
       note: failure ? shortFailure(failure) : x.undecided ? 'an attempt could not be judged' : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
       tokens: now === null ? null : { recorded: x.recorded.footprint.inputTokens, now },
       cost: n ? { recorded: x.recorded.footprint.cost, now: mean((a) => a.footprint.cost) } : null,
+      evidence: verifyEvidence(x),
     };
   });
   const d = footprintDelta(r.runs);
