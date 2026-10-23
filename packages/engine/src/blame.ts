@@ -120,12 +120,17 @@ export function probeRisk(rule: { gate: SprtGate } | { attempts: number; needed:
  * The gate each probe runs under when a search of up to `probes` probes spends `gate.risk` across
  * them: the same rates, at a risk whose Wald bound, risk / (1 - risk), is the search's risk divided
  * by `probes`. A gate's exact error at its two rates is never above its Wald bound, so the probes'
- * risks add up to the search's at most. A probe always gets the attempts a rescue needs at its share.
+ * risks add up to the search's at most. A smaller risk asks for more evidence, ln((1 - risk) / risk)
+ * where the gate asked ln((1 - its risk) / its risk), so its `max` grows by that ratio: the cap stays
+ * as far into the evidence as the gate's, and a call at either rate is left inconclusive about as
+ * rarely (20 attempts at 5% become 32 to 36 at the shares of 5 to 10 probes). A probe always gets
+ * the attempts a rescue needs.
  */
 export function probeGate(gate: SprtGate, probes: number): SprtGate {
   const share = gate.risk / Math.max(1, probes);
   const each: SprtGate = { ...gate, risk: share / (1 + share) };
-  return { ...each, max: Math.max(gate.max, attemptsToPass(each)) };
+  const deeper = Math.log((1 - each.risk) / each.risk) / Math.log((1 - gate.risk) / gate.risk);
+  return { ...each, max: Math.max(Math.ceil(gate.max * deeper - 1e-9), attemptsToPass(each)) };
 }
 
 /** A probe's verdict in a word: rescued, lost, or inconclusive. */
@@ -192,10 +197,15 @@ export function probeFinding(x: Pick<BlameProbe, 'rescued' | 'decision' | 'passe
   return [probeWord(x), `${on.passes} of ${on.attempts}${late}`, probeBound(x, gate)].filter(Boolean).join(' · ');
 }
 
-/** How a probe decides, in a line: `gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts`, or a fixed count's `a rescue needs 2 of 5 attempts to pass`. */
-export function rescueRule(r: Pick<BlameReport, 'needed' | 'attemptsPerProbe'> & { gate?: SprtGate | null | undefined }): string {
+/**
+ * How a probe decides, in a line: `gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts`,
+ * the risk the search's and the attempts a probe's (`probeGate`), or a fixed count's `a rescue needs 2
+ * of 5 attempts to pass`.
+ */
+export function rescueRule(r: Pick<BlameReport, 'needed' | 'attemptsPerProbe'> & { gate?: SprtGate | null | undefined; probeBudget?: number | null | undefined }): string {
   if (!r.gate) return `a rescue needs ${r.needed} of ${r.attemptsPerProbe} attempts to pass`;
-  return `gate: rescue at ${atLeast(r.gate.good)}, lost at ${atMost(r.gate.bad)}, <= ${percent(r.gate.risk)} risk, up to ${r.gate.max} attempts`;
+  const max = r.probeBudget ? probeGate(r.gate, r.probeBudget).max : r.gate.max;
+  return `gate: rescue at ${atLeast(r.gate.good)}, lost at ${atMost(r.gate.bad)}, <= ${percent(r.gate.risk)} risk, up to ${max} attempts`;
 }
 
 /**

@@ -125,7 +125,8 @@ describe('shadowlap blame', () => {
     expect(r.stdout).toMatch(new RegExp(`The re-asked call #${decision}: rescued · \\d+ of \\d+ · rate >= 0\\.\\d\\d \\(99%\\); #${last}, the next model call: lost · 0 of 6 · rate <= 0\\.53 \\(99%\\)\\.`));
     expect(r.stdout).toMatch(/Confidence: high \(<= \d\.\d% risk that the call is wrong: 3 probes decided, at <= 0\.\d% risk each\)/);
     // The rule, and under it what a probe changes: each line fits an 80-column terminal.
-    expect(r.stdout).toContain('  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts;\n          resample the probed call)');
+    // The rule names the search's risk and a probe's cap: 20 attempts at 5%, deepened to 32 at its 1% share.
+    expect(r.stdout).toContain('  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts;\n          resample the probed call)');
     expect(r.stdout).not.toMatch(/at least|at most|of the time/);
     expect(r.stdout).toContain('Confidence: high');
     expect(r.stdout).toContain('issue_refund({"order_id":"A-1042","amount":240})');
@@ -167,14 +168,14 @@ describe('shadowlap blame', () => {
     const plain = await shadowlap(['blame', runId, '--expect', ORACLE, '--json']);
     expect(plain.code, plain.out).toBe(0);
     const report = JSON.parse(plain.stdout) as Record<string, unknown> & { probes: Array<{ runs: unknown[] }> };
-    expect(report).toMatchObject({ outcome: 'unrescuable', blamed: null, confidence: 'high', range: null, modelCalls: 4, passesNeeded: 3, attemptsPerProbe: 20, gate: { kind: 'sprt', good: 0.6, bad: 0.1, risk: 0.05, max: 20 }, probeBudget: 5, rescue: { fields: {} } });
+    expect(report).toMatchObject({ outcome: 'unrescuable', blamed: null, confidence: 'high', range: null, modelCalls: 4, passesNeeded: 3, attemptsPerProbe: 32, gate: { kind: 'sprt', good: 0.6, bad: 0.1, risk: 0.05, max: 20 }, probeBudget: 5, rescue: { fields: {} } });
     // The first probe's claim alone: rescued less than 60% of the time from every call, within its share of the risk.
     expect(report.errorBound).toBeGreaterThan(0);
     expect(report.errorBound).toBeLessThanOrEqual(0.01);
     expect(report.probes).toHaveLength(1);
     // Six straight failures: lost, at the 1% each probe of five gets of the search's 5%.
     expect(report.probes[0]!.runs).toHaveLength(6);
-    expect(report.probes[0]).toMatchObject({ rescued: false, decision: 'fail', rate: { decision: 'fail', sentence: 'lost · 0 of 6 · rate <= 0.53 (99%) · gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' } });
+    expect(report.probes[0]).toMatchObject({ rescued: false, decision: 'fail', rate: { decision: 'fail', sentence: 'lost · 0 of 6 · rate <= 0.53 (99%) · gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts' } });
 
     const strong = await shadowlap(['blame', runId, '--expect', ORACLE, '--model', 'big-model', '--json']);
     expect(strong.code, strong.out).toBe(0);

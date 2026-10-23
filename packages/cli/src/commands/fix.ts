@@ -335,12 +335,12 @@ export function register(program: Command): void {
       const log = (line: string) => process.stderr.write(`${line}\n`);
       const most = maxProbes(steps, flags.scan);
       log(`${p.yellow('⑂')} Blaming ${shortId(parent.runId)} ${p.dim(`(${safe(quoteArgv(argv))})`)}: ${steps} model call${steps === 1 ? '' : 's'}${flags.scope ? ` in scope ${safe(flags.scope)}` : ''}`);
-      const each = rule.gate ? rescueRule({ gate: rule.gate, needed: 0, attemptsPerProbe: rule.gate.max }) : `${rule.attempts} attempts, a rescue at ${rule.needed} passing`;
+      const each = rule.gate ? rescueRule({ gate: rule.gate, needed: 0, attemptsPerProbe: rule.gate.max, probeBudget: most }) : `${rule.attempts} attempts, a rescue at ${rule.needed} passing`;
       // Under a gate its risk is the whole search's, spent across the most probes it makes.
       const spent = rule.gate ? `, the ${percent(rule.gate.risk)} risk spent across them` : '';
       log(
         p.dim(
-          `  each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}\n  at most ${most} probe${most === 1 ? '' : 's'}${spent} and ${most * rule.attempts} attempts; every call before a probe replays from the recording for free`,
+          `  each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}\n  at most ${most} probe${most === 1 ? '' : 's'}${spent} and ${most * (rule.gate ? probeGate(rule.gate, most).max : rule.attempts)} attempts; every call before a probe replays from the recording for free`,
         ),
       );
 
