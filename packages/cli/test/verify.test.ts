@@ -117,7 +117,7 @@ describe('shadowlap verify', () => {
     expect(report).toMatchObject({ verdict: 'accepted', reasons: [], warnings: [], summary: { targets: { passed: 1, total: 1 }, holdout: { passed: 1, total: 1 }, good: { passed: 1, total: 1 } } });
     // A changed prompt changes the first request, so every run forks there and runs live: the gate,
     // which tells 90% or more from 70% or less, passes a run that always passes after 12 attempts.
-    for (const run of report.runs) expect(run).toMatchObject({ outcome: run.role === 'good' ? 'kept' : 'fixed', passes: 12, attempts: 12, deterministic: false, decision: 'pass', rate: { decision: 'pass', sentence: 'passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts' } });
+    for (const run of report.runs) expect(run).toMatchObject({ outcome: run.role === 'good' ? 'kept' : 'fixed', passes: 12, attempts: 12, deterministic: false, decision: 'pass', rate: { decision: 'pass', sentence: 'passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts' } });
     expect(report).toMatchObject({ gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, attemptsPerRun: 80, passesNeeded: 12 });
     expect(report.runs.find((x) => x.runId === failed)!.recorded.passed).toBe(false);
     expect(report.runs.find((x) => x.runId === good)!.recorded.passed).toBe(true);
@@ -140,10 +140,10 @@ describe('shadowlap verify', () => {
     const r = await shadowlap(['verify', '--fixes', failed, '--holdout', heldOut, '--keeps', 'label:good', '--expect', ORACLE], { AGENT_SYSTEM: BAD_FIX });
     expect(r.code, r.out).toBe(1);
     expect(r.stdout).toContain('✗ Rejected: the change fixes 1 of 1 target run, 1 of 1 held-out run and keeps 0 of 1 good run');
-    // Three straight failures fail the gate. Each run's outcome, its tally and the Wilson bound; the rule once.
-    expect(r.stdout).toMatch(/· good run \w{10} broken: 0 of 3 passed · rate <= 0\.56 \(95%\) \(the agent exited with code 1\)/);
-    expect(r.stdout).toMatch(/good +\w{10} +broken +0 of 3 passed · rate <= 0\.56 \(95%\) +the agent exited with code 1/);
-    expect(r.stdout).toMatch(/target +\w{10} +fixed +12 of 12 passed · rate >= 0\.76 \(95%\) +forked at #1/);
+    // Three straight failures fail the gate. Each run's outcome, its tally and the bound; the rule once.
+    expect(r.stdout).toMatch(/· good run \w{10} broken: 0 of 3 passed · rate <= 0\.71 \(95%\) \(the agent exited with code 1\)/);
+    expect(r.stdout).toMatch(/good +\w{10} +broken +0 of 3 passed · rate <= 0\.71 \(95%\) +the agent exited with code 1/);
+    expect(r.stdout).toMatch(/target +\w{10} +fixed +12 of 12 passed · rate >= 0\.73 \(95%\) +forked at #1/);
     expect(r.stdout).toContain("Its gate decides after each attempt (gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts); a clean replay settles it in one.");
     expect(r.stdout).not.toMatch(/at least|at most|of the time|% confidence/);
     // The mock's token counts grow with every answer it gave in this file, so the figures can be any size.
@@ -248,7 +248,7 @@ describe('shadowlap verify', () => {
     expect(report.verdict).toBe('accepted');
     // Each run's gate read its attempts as they ended, one after another: the 12 of 12 it takes
     // without --concurrency, and no attempt past them.
-    for (const run of report.runs) expect(run).toMatchObject({ passes: 12, attempts: 12, decision: 'pass', rate: { sentence: 'passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts' } });
+    for (const run of report.runs) expect(run).toMatchObject({ passes: 12, attempts: 12, decision: 'pass', rate: { sentence: 'passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts' } });
     const store = Store.open(db);
     try {
       const all = store.allRuns().filter((x) => x.meta?.verify);

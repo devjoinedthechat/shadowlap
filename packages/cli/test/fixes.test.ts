@@ -234,8 +234,8 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.verify.map((v: { verdict: string }) => v.verdict)).toEqual(['accepted', 'rejected']);
     expect(shown.defaultVerify).toBe(shown.verify[0].verifyId);
     expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: "a run's attempts must meet the check: the agent exits 0; issue_refund with {\"amount\":240} called 0 times; its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts" });
-    // Each run shows its tally and the Wilson bound, at the confidence it was decided at.
-    expect(shown.verify[0].rows[0].rate).toMatchObject({ decision: 'pass', confidence: 0.95, sentence: 'passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', bound: 'rate >= 0.76 (95%)' });
+    // Each run shows its tally and the bound, at the confidence it was decided at.
+    expect(shown.verify[0].rows[0].rate).toMatchObject({ decision: 'pass', confidence: 0.95, sentence: 'passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', bound: 'rate >= 0.73 (95%)' });
     expect(shown.verify[0].rows.map((r: { role: string; outcome: string }) => [r.role, r.outcome])).toEqual([
       ['target', 'fixed'],
       ['target', 'fixed'],
@@ -263,7 +263,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     // Each probe and each verified run with its tally and Wilson bound, under its gate's rule.
     expect(human).toContain('probes: gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts');
     expect(human).toMatch(/0 of 4 passed · rate <= 0\.49 \(95%\) +lost/);
-    expect(human).toMatch(/kept +12 of 12 · rate >= 0\.76 \(95%\)/);
+    expect(human).toMatch(/kept +12 of 12 · rate >= 0\.73 \(95%\)/);
     expect(human).toContain('its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
     expect(human).not.toMatch(/at least|at most|of the time/);
     expect(human).toContain(`next: shadowlap fix apply ${fixId.slice(0, 13)}`);

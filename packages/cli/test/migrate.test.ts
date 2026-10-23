@@ -95,7 +95,7 @@ describe('shadowlap migrate', () => {
     expect(report).toMatchObject({ kind: 'migrate', from: [FROM], to: 'claude-haiku-4-5' });
     expect(report.changes).toMatchObject({ runs: 1, flagged: 1 });
     expect(report.changes.steps).toEqual([{ runId, golden: 'goldens/research', callNo: callOf('send_email'), rank: 1, detail: 'send_email is called with other arguments', recorded: expect.stringContaining('send_email('), now: expect.stringContaining('send_email('), arguments: ['send_email.body: "Replay works." → "Replay works; forks fence writes."'] }]);
-    // A fixed count (--attempts 2) decided it: its tally, and no Wilson bound, which a gate's verdict shows.
+    // A fixed count (--attempts 2) decided it: its tally, and no bound, which a gate's verdict shows.
     expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 2, attempts: 2, bound: null, rule: '2 of 2 attempts must pass', undecided: null } }] });
     expect(report.decisions.verify?.rule).toBe('2 of 2 attempts must pass');
     expect(report.costs.perRun.after!).toBeLessThan(report.costs.perRun.before!);
@@ -143,17 +143,17 @@ describe('shadowlap migrate', () => {
     expect(r.code, r.out).toBe(0);
     const report = json<MigrateReport>(r);
     // No count given: a run that always passes is kept after the 12 attempts the gate needs, not 4 of 5.
-    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', rule: gate, undecided: null } }] });
+    expect(report.passes).toEqual({ verdict: 'accepted', runs: [{ runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 12, attempts: 12, bound: 'rate >= 0.73 (95%)', rule: gate, undecided: null } }] });
     expect(report.decisions.verify).toMatchObject({ verdict: 'accepted', rule: gate });
     expect(report.decisions.verify!.commands[0]).not.toMatch(/--attempts|--passes|--gate/);
     expect(report.command).not.toMatch(/--attempts|--passes|--gate/);
-    expect(report.pullRequest.body).toContain('- goldens/research: passed (kept, verified · 12 of 12 · rate >= 0.76 (95%))');
+    expect(report.pullRequest.body).toContain('- goldens/research: passed (kept, verified · 12 of 12 · rate >= 0.73 (95%))');
     expect(report.pullRequest.body).toContain(`Verified by \`shadowlap verify\`, ${gate}.`);
     const text = formatMigrate(report).replace(/\x1b\[[0-9;]*m/g, '');
-    expect(text).toMatch(/goldens\/research +passed · kept, verified · 12 of 12 · rate >= 0\.76 \(95%\)\n  gate: tells 90%\+ from 70%- at <= 5% risk, up to 80 attempts\n/);
+    expect(text).toMatch(/goldens\/research +passed · kept, verified · 12 of 12 · rate >= 0\.73 \(95%\)\n  gate: tells 90%\+ from 70%- at <= 5% risk, up to 80 attempts\n/);
     // A session verified again under other figures holds runs different rules decided: each rule is stated once, with its runs.
     const shortGate = 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts';
-    const other = { ...report.passes.runs[0]!, runId: '01M5000000000000000000000X', golden: 'goldens/other', verdict: 'inconclusive' as const, outcome: 'inconclusive', tally: { passes: 5, attempts: 7, bound: 'rate 0.36 to 0.92 (95%)', rule: shortGate } };
+    const other = { ...report.passes.runs[0]!, runId: '01M5000000000000000000000X', golden: 'goldens/other', verdict: 'inconclusive' as const, outcome: 'inconclusive', tally: { passes: 5, attempts: 7, bound: 'rate 0.29 to 0.97 (95%)', rule: shortGate } };
     const two: MigrateReport = { ...report, decisions: { ...report.decisions, verify: { ...report.decisions.verify!, rule: null } }, passes: { verdict: 'incomplete', runs: [report.passes.runs[0]!, other] } };
     expect(formatMigrate(two).replace(/\x1b\[[0-9;]*m/g, '')).toContain(`  ${gate}: goldens/research\n  ${shortGate}: goldens/other\n`);
     expect(pullRequestBody(two).body).toContain(`Verified by \`shadowlap verify\`, each run under the rule that decided it:\n\n- goldens/research: ${gate}\n- goldens/other: ${shortGate}\n`);
@@ -165,19 +165,19 @@ describe('shadowlap migrate', () => {
     const short = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--json', ...flaky]);
     expect(short.code, short.out).toBe(3);
     const unsettled = json<MigrateReport>(short);
-    expect(unsettled.passes).toEqual({ verdict: 'incomplete', runs: [{ runId, golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 5, attempts: 7, bound: 'rate 0.36 to 0.92 (95%)', rule: 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts', undecided: null } }] });
+    expect(unsettled.passes).toEqual({ verdict: 'incomplete', runs: [{ runId, golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 5, attempts: 7, bound: 'rate 0.29 to 0.97 (95%)', rule: 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts', undecided: null } }] });
     expect(unsettled.decisions.verify?.rule).toBe('gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts');
     expect(unsettled.command).toContain(`--gate '{"bad":0.5,"max":7}'`);
     const warned = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--inconclusive', 'warn', ...flaky]);
     expect(warned.code, warned.out).toBe(0);
     expect(warned.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
-    expect(warned.stdout).toMatch(/goldens\/research +inconclusive · verified · 5 of 7 · rate 0\.36 to 0\.92 \(95%\)\n  gate: tells 90%\+ from 50%- at <= 5% risk, up to 7 attempts\n/);
+    expect(warned.stdout).toMatch(/goldens\/research +inconclusive · verified · 5 of 7 · rate 0\.29 to 0\.97 \(95%\)\n  gate: tells 90%\+ from 50%- at <= 5% risk, up to 7 attempts\n/);
 
     // The inconclusive migration verified again as the dashboard's Verify the changed runs verifies it: no count and
     // no gate of its own, the golden's own command. Verify's own gate keeps the run, and What still passes says so.
     const settled = await shadowlap(['decisions', '--verify', unsettled.migrateId!, '--json']);
     expect(settled.code, settled.out).toBe(0);
-    const kept = { runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', rule: gate, undecided: null } };
+    const kept = { runId, golden: 'goldens/research', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 12, attempts: 12, bound: 'rate >= 0.73 (95%)', rule: gate, undecided: null } };
     expect(json<{ kind: string; verify: MigrateReport['decisions']['verify']; passes: MigrateReport['passes']['runs'] }>(settled)).toMatchObject({ kind: 'migrate', verify: { verdict: 'accepted', rule: gate }, passes: [kept] });
     const store = Store.open(db);
     try {

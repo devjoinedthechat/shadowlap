@@ -20,8 +20,8 @@ const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
 /** Runs the agent, failing every third time (flaky-agent.mjs). */
 const FLAKY = fileURLToPath(new URL('./flaky-agent.mjs', import.meta.url));
-/** The Wilson bound of 5 passes in 7 attempts, at the gate's 95%. */
-const BOUND_5_OF_7 = 'rate 0.36 to 0.92 (95%)';
+/** The bound of 5 passes in 7 attempts, exact under the gate's stopping, at its 95%. */
+const BOUND_5_OF_7 = 'rate 0.29 to 0.97 (95%)';
 
 let mock: MockServer;
 let cwd: string;
@@ -277,8 +277,8 @@ describe('shadowlap decisions', () => {
     const r = await shadowlap(['decisions', runId, '--from-code', '--then-verify', '--json'], noEmail);
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
-    // Its verdict as the gate states one: the tally, the Wilson bound, and the rule, once.
-    expect(report.verify).toMatchObject({ verdict: 'accepted', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', runs: [{ runId, role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' }] });
+    // Its verdict as the gate states one: the tally, the bound, and the rule, once.
+    expect(report.verify).toMatchObject({ verdict: 'accepted', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', runs: [{ runId, role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.73 (95%)' }] });
     expect(report.verify!.commands).toEqual([`shadowlap verify --keeps ${runId.slice(0, 10)}`]);
     expect(report.command).toBe(`shadowlap decisions ${runId} --from-code --then-verify`);
     // Other figures, for the session kept: two straight passes settle it, and the command says how.
@@ -332,14 +332,14 @@ describe('shadowlap decisions', () => {
     const other = await shadowlap(['decisions', '--verify', session.decisionsId!, two, '--gate', '{"bad":0.1,"max":4}']);
     expect(other.code, other.out).toBe(0);
     const otherRule = 'gate: tells 90%+ from 10%- at <= 5% risk, up to 4 attempts';
-    expect(other.stdout).toContain(`  ${otherRule}\n  ${two.slice(0, 10)}  kept  2 of 2 passed · rate >= 0.34 (95%)\n`);
+    expect(other.stdout).toContain(`  ${otherRule}\n  ${two.slice(0, 10)}  kept  2 of 2 passed · rate >= 0.15 (95%)\n`);
     const store = Store.open(db);
     try {
       const kept = store.getDecisionSession(session.decisionsId!)!.data.verify as NonNullable<DecisionsReport['verify']>;
       expect(kept).toMatchObject({ verdict: 'incomplete', rule: null });
       expect(kept.runs.map((x) => [x.runId, x.outcome, x.bound, x.rule])).toEqual([
         [one, 'inconclusive', BOUND_5_OF_7, rule],
-        [two, 'kept', 'rate >= 0.34 (95%)', otherRule],
+        [two, 'kept', 'rate >= 0.15 (95%)', otherRule],
       ]);
     } finally {
       store.close();
@@ -363,15 +363,15 @@ describe('shadowlap decisions', () => {
     const settled = await shadowlap(['decisions', '--verify', session.decisionsId!, '--json']);
     expect(settled.code, settled.out).toBe(0);
     const verifyGate = 'gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts';
-    const byGate = { role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' };
+    const byGate = { role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.73 (95%)' };
     expect(json<{ verify: NonNullable<DecisionsReport['verify']> }>(settled).verify).toMatchObject({ verdict: 'accepted', rule: verifyGate, runs: [{ runId: one, ...byGate }, { runId: two, ...byGate }] });
     const after = Store.open(db);
     try {
       const kept = after.getDecisionSession(session.decisionsId!)!.data.verify as NonNullable<DecisionsReport['verify']>;
       expect(kept).toMatchObject({ verdict: 'accepted', rule: verifyGate });
       expect(kept.runs.map((x) => [x.runId, x.outcome, x.passes, x.attempts, x.bound, x.rule])).toEqual([
-        [one, 'kept', 12, 12, 'rate >= 0.76 (95%)', verifyGate],
-        [two, 'kept', 12, 12, 'rate >= 0.76 (95%)', verifyGate],
+        [one, 'kept', 12, 12, 'rate >= 0.73 (95%)', verifyGate],
+        [two, 'kept', 12, 12, 'rate >= 0.73 (95%)', verifyGate],
       ]);
     } finally {
       after.close();

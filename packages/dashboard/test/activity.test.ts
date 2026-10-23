@@ -385,10 +385,11 @@ describe('a test session', () => {
     const passes = replay('goldens/gated-pass', 150);
     store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/gated-pass', ok: true, runId: passes, at: 160, data: { mode: 'fork', attempts: { total: 12, passed: 12, required: null, runs: [passes] }, verdict: 'passed', gate: gateResult(SPRT, Array(12).fill(true)) } });
     const fails = replay('goldens/gated-fail', 170);
-    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/gated-fail', ok: false, failure: 'check', reason: 'failed · 0 of 3 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', runId: fails, at: 180, data: { mode: 'fork', attempts: { total: 3, passed: 0, required: null, runs: [fails] }, verdict: 'failed', gate: gateResult(SPRT, [false, false, false]) } });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/gated-fail', ok: false, failure: 'check', reason: 'failed · 0 of 3 · rate <= 0.71 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', runId: fails, at: 180, data: { mode: 'fork', attempts: { total: 3, passed: 0, required: null, runs: [fails] }, verdict: 'failed', gate: gateResult(SPRT, [false, false, false]) } });
     const unsure = replay('goldens/flaky', 190);
-    const outcomes = [...Array(16).fill(true), false, false, false, false];
-    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/flaky', ok: false, failure: 'inconclusive', reason: 'inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', runId: unsure, at: 200, data: { mode: 'fork', attempts: { total: 20, passed: 16, required: null, runs: [unsure] }, verdict: 'inconclusive', gate: gateResult(SPRT, outcomes) } });
+    // Four passes and a failure, four times: attempts the gate ends on at its limit, between its bounds.
+    const outcomes = Array.from({ length: 4 }, () => [true, true, true, true, false]).flat();
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/flaky', ok: false, failure: 'inconclusive', reason: 'inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', runId: unsure, at: 200, data: { mode: 'fork', attempts: { total: 20, passed: 16, required: null, runs: [unsure] }, verdict: 'inconclusive', gate: gateResult(SPRT, outcomes) } });
     // Gated, but a check its third attempt could not decide stopped it: its gate decided nothing.
     const stopped = replay('goldens/stopped', 202);
     store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/stopped', ok: false, failure: 'inconclusive', reason: 'check inconclusive: judge "calm" answers yes, but not judged', runId: stopped, at: 204, data: { mode: 'fork', attempts: { total: 3, passed: 2, required: null, runs: [stopped], inconclusive: 1 }, verdict: 'inconclusive', gate: gateResult(SPRT, [true, true], { decision: 'continue' }) } });
@@ -406,12 +407,12 @@ describe('a test session', () => {
     };
     expect(line(plain)).toEqual(['fail', 'Test failed · plain diverged at call 3']);
     expect(line(clean)).toEqual(['test', 'Test passed · clean · 0/0 replayed']);
-    // Decision 9: a gate's verdict word, its tally and the Wilson bound, never a claimed rate; the rule
+    // Decision 9: a gate's verdict word, its tally and the bound, never a claimed rate; the rule
     // it was decided by goes on the entry's hover, not into its line.
     const rule = 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts';
-    expect(line(passes)).toEqual(['test', 'Test passed · gated-pass: passed · 12 of 12 · rate >= 0.76 (95%)']);
-    expect(line(fails)).toEqual(['fail', 'Test failed · gated-fail: failed · 0 of 3 · rate <= 0.56 (95%)']);
-    expect(line(unsure)).toEqual(['warn', 'Test inconclusive · flaky: inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%)']);
+    expect(line(passes)).toEqual(['test', 'Test passed · gated-pass: passed · 12 of 12 · rate >= 0.73 (95%)']);
+    expect(line(fails)).toEqual(['fail', 'Test failed · gated-fail: failed · 0 of 3 · rate <= 0.71 (95%)']);
+    expect(line(unsure)).toEqual(['warn', 'Test inconclusive · flaky: inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%)']);
     expect([passes, fails, unsure].map((id) => byId(items, `r:${id}:end`)?.rule)).toEqual([rule, rule, rule]);
     expect(items.filter((i) => i.text.includes('gate:'))).toEqual([]);
     // Never a gate's evidence for a golden whose gate is not what is inconclusive.

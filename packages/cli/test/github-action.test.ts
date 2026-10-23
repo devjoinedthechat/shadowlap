@@ -255,8 +255,12 @@ describe('test reports', () => {
 
   // A golden with a gate: its sentence and evidence in the reports; inconclusive in amber, counted apart.
   const gated = (verdict: PackResult['verdict'], ok: boolean, passes: number, attempts: number): PackResult => {
-    const outcomes = Array.from({ length: attempts }, (_, i) => i < passes);
+    // The failures spread out, as attempts a gate can end on: 16 passes first would have passed it at 12.
+    const every = attempts / Math.max(1, attempts - passes);
+    const outcomes = Array.from({ length: attempts }, (_, i) => passes === attempts || (i + 1) % every !== 0);
     const gate = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, outcomes);
+    // So its bound is the gate's own, exact under its stopping.
+    expect(gate.bound?.method).toBe('stagewise');
     return { ...failed, name: `refund-${verdict}`, dir: `goldens/refund-${verdict}`, golden: `goldens/refund-${verdict}`, mode: 'fork', ok, verdict, gate, failure: verdict === 'passed' ? null : verdict === 'inconclusive' ? 'inconclusive' : 'check', message: verdict === 'passed' ? null : gate.sentence, details: null, output: null, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages' }, attempts: { total: attempts, passed: passes, required: null } };
   };
 
@@ -265,9 +269,9 @@ describe('test reports', () => {
     const unsure = gated('inconclusive', false, 16, 20);
     const md = markdownReport(testReport([passed, unsure, failed]));
     expect(md).toContain('### Shadowlap: 1 of 3 recordings failed, 1 inconclusive');
-    // The verdict word, the tally, the Wilson bound and the rule, stated once; never a claimed rate.
-    expect(md).toContain('| ✅ | `refund-passed` | passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00 · forked at call 3 | 2/5 | 1.2k |');
-    expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 0.28 | 2/5 | 1.2k |');
+    // The verdict word, the tally, the bound and the rule, stated once; never a claimed rate.
+    expect(md).toContain('| ✅ | `refund-passed` | passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00 · forked at call 3 | 2/5 | 1.2k |');
+    expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 0.28 | 2/5 | 1.2k |');
     expect(md).not.toMatch(/at least|at most|% confidence/);
     expect(md).toContain('It fails the run unless `--inconclusive warn` is given.');
     // Under --inconclusive warn it is let through, and says so; the heading still counts it.
@@ -276,7 +280,7 @@ describe('test reports', () => {
     expect(warned).toContain('This run lets inconclusive recordings through (`--inconclusive warn`).');
     expect(testReport([passed, { ...unsure, ok: true }])).toMatchObject({ passed: 2, failed: 0, inconclusive: 1 });
     expect(githubAnnotations(testReport([passed, { ...unsure, ok: true }]))).toBe(
-      '::warning file=goldens/refund-inconclusive/run.json,title=Shadowlap%3A refund-inconclusive::inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%25) · gate: tells 90%25+ from 70%25- at <= 5%25 risk, up to 20 attempts%0A%0Apass^5 0.28',
+      '::warning file=goldens/refund-inconclusive/run.json,title=Shadowlap%3A refund-inconclusive::inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%25) · gate: tells 90%25+ from 70%25- at <= 5%25 risk, up to 20 attempts%0A%0Apass^5 0.28',
     );
   });
 

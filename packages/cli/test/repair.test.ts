@@ -200,7 +200,7 @@ describe('shadowlap repair', { timeout: 120_000 }, () => {
     expect(md).toContain(`+ ${FIX}`);
     expect(md).toContain('The held-out runs were never shown to the repairer.');
     expect(md).toContain('Writes were stubbed in every replay.');
-    expect(md).toMatch(/\| good \| `\w{10}` \| kept \| 12 of 12 passed · rate >= 0\.76 \(95%\) · pass\^5 1\.00 \|/);
+    expect(md).toMatch(/\| good \| `\w{10}` \| kept \| 12 of 12 passed · rate >= 0\.73 \(95%\) · pass\^5 1\.00 \|/);
     expect(md).toContain('each by its gate, which tells 90%+ from 70%- at <= 5% risk');
     expect(md).not.toMatch(/at least|at most|of the time/);
     expect(md).toContain(good.slice(0, 10));
