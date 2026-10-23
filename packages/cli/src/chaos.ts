@@ -134,7 +134,7 @@ export function gateWords(g: PresetOutcome['gate']): string {
 
 /**
  * The rule a sequential gate (`chaos.gate`) decided a preset by, as a report states it beside the
- * tally and the Wilson bound: `gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts`. Null
+ * tally and the bound: `gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts`. Null
  * when no gate decided it: no attempt ran, the golden's own repeat and passes decided (its tally
  * says the count), or it is inconclusive for a reason of its own (the replay never reached the
  * call, a check no attempt could decide), which only a gate that ran out of attempts leaves unsaid.
@@ -475,7 +475,7 @@ const attemptLine = (run: PresetRun, i: number) => `attempt ${i + 1} (run ${run.
  * Each preset of each recording as a JUnit case: a failed one fails, and an inconclusive one fails
  * when CI counts it as failing, else is skipped: neither passed nor failed, as a golden's case is. A
  * CI shows each case on its own, so one a sequential gate decided states the gate's rule after its
- * tally and Wilson bound, in its message and its output. A failure's details list each attempt by
+ * tally and bound, in its message and its output. A failure's details list each attempt by
  * its own verdict: an attempt that never played the preset in, or that only a check no attempt can
  * decide kept from passing, is inconclusive there too, whatever CI makes of the preset.
  */

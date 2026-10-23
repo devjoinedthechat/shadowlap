@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { attemptsOf, gateHistory } from '../src/gate-history.js';
 import { BASELINE_DEFAULTS, decide, gateOdds, type BaselineGate, type GateDecision, type Tally } from '../src/stats.js';
@@ -135,5 +137,12 @@ describe('a regression from 95% to 60% on the default branch, re-run in CI', () 
 
   it('turns a healthy agent red no more often for keeping only passed sessions', () => {
     for (const x of healthy.red) expect(x).toBeLessThan(0.03);
+  });
+
+  it('as docs/gating.md states it, from these coin flips', () => {
+    const page = readFileSync(fileURLToPath(new URL('../../../docs/gating.md', import.meta.url)), 'utf8');
+    const whole = (x: number) => `${Math.round(100 * x)}%`;
+    const text = `In a seeded simulation of ${REPLICAS} histories (in the engine's tests), a drop from 95% to 60% was caught on each of the ${RERUNS} runs after it ${whole(Math.min(...now.red))} to ${whole(Math.max(...now.red))} of the time, against ${(100 * stated).toFixed(1)}% the exact odds give for the first; when every session joined the baseline, it was caught ${whole(then.red[0]!)} of the time on the first run, ${whole(then.red[3]!)} on the fourth and ${whole(then.red[RERUNS - 1]!)} on the tenth`;
+    expect(page.includes(text), `docs/gating.md says: ${text}`).toBe(true);
   });
 });

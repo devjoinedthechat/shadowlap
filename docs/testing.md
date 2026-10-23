@@ -181,7 +181,7 @@ All of that holds only while a recorded test runs, in both plugins: the base-URL
 
 ## Tests that fork
 
-A recorded test replays offline and comes out the same every time, so one run settles it. A golden that `shadowlap test` lets fork is different: everything after its fork runs live, so it is a sample, and its `gate` decides on attempts as they come in, with the error rates it states. The session splits one risk of going red for nothing across its gated goldens, says what it will cost before it runs, keeps a golden's baseline to sessions that passed on the default branch, and never counts an attempt its provider was unavailable for. [Gating](./gating.md) has the rules and the proof of each figure.
+A recorded test replays offline and comes out the same every time, so one run settles it. A golden that `shadowlap test` lets fork is different: everything after its fork runs live, so it is a sample, and its `gate` decides on attempts as they come in, with the error rates it states. The session splits one risk of going red for nothing across its gated goldens, says what it will cost before it runs, keeps a golden's baseline to sessions that passed on the default branch outside a pull request, and never counts an attempt its provider was unavailable for. [Gating](./gating.md) has the rules and the proof of each figure.
 
 ## Another test runner
 

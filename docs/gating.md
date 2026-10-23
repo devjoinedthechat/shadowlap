@@ -86,14 +86,14 @@ The exact odds of each verdict, and the attempts run on average, for an agent th
 | 70% | 52.8% | 4.5% · 94.9% · 0.7% · 20.0 | 2.2% · 63.2% · 34.6% · 14.4 |
 | 50% | 18.8% | 0.0% · 100.0% · 0.0% · 8.0 | 0.0% · 98.3% · 1.7% · 7.9 |
 
-The limit only decides how often the close calls run out of room. An agent that always passes needs 12 attempts and one that passes 95% of the time 16.6 on average, whatever the limit; the attempts a higher limit adds are spent where the evidence is close, on agents between `good` and `bad`, up to 34 on average for one at 80%.
+The limit only decides how often the close calls run out of room. An agent that always passes needs 12 attempts whatever the limit, and one that passes 95% of the time 16.6 on average at 80 (15.2 at 20, where a fifth of them run out); the attempts a higher limit adds are spent where the evidence is close, on agents between `good` and `bad`, up to 34 on average for one at 80%.
 
 **What a CI run sees.** Under `--inconclusive fail`, the default, an inconclusive golden fails the run like a failed one, so the share of CI runs that go red for nothing counts both. With 100 forked goldens of an agent that passes 95% of the time:
 
 | Gate | Goldens failed per run | Inconclusive per run | Runs red | Runs red under `--inconclusive warn` | Attempts a golden |
 |---|---|---|---|---|---|
 | 4 of 5 | 2.26 | 0 | 90% | 90% | 4.2 |
-| A gate per golden at its own 5%, `max` 80 | 0.17 | 0.003 | 16% | 15% | 16.6 |
+| A gate per golden at its own 5%, `max` 80 | 0.17 | 0.0025 | 16% | 15% | 16.6 |
 | A gate per golden at its own 5%, `max` 40 | 0.17 | 0.75 | 60% | 15% | 16.6 |
 | A gate per golden at its own 5%, `max` 20 | 0.16 | 20.7 | 100% | 14% | 15.2 |
 | The default: 5% for the suite, split 100 ways | 0.00002 | under 0.0001 | 0.0018% | 0.0018% | 16.75 |
@@ -107,20 +107,20 @@ A test session has one risk of going red for nothing, 5% by default: `--suite-ri
 A golden goes red for nothing in two ways, both at its gate's `good` rate: failing there, and, under `--inconclusive fail`, running out of attempts there. Its share pays for both:
 
 - **An SPRT gate keeps its `risk` for a pass**, the safety side, and takes a lower risk for a failure, `failRisk`: the largest, at two significant digits, whose exact chance of going red at `good`, every look counted, fits the share. With 100 goldens of `"gate": {}`, that is 0.045%: the gate fails only after about 7 straight failures, where it took 3.
-- **Its `max` grows to fit**, unless the config sets one: the fewest attempts, 80 or more, that leave at most 1% of attempts at `good` inconclusive, or half the share when that is less. With 100 goldens, 179.
-- **A better agent goes red less often still**: a gate passes no less often for an agent that passes more often. With every golden at 90%, the worst a healthy suite can be, the default suite goes red 4.8% of the time, exactly; at 95%, 0.0018%.
-- **A gate against history takes the share as its `risk`**, so it fails once a drop is that much likelier, and its chance of going red is worked out at the pass rate its baseline shows.
+- **Its `max` grows to fit**, unless the config sets one: the fewest attempts, 80 or more, that leave at most 1% of attempts at `good` inconclusive, or, under `--inconclusive fail`, half the share when that is less. With 100 goldens, 179.
+- **A better agent goes red less often still**: a gate passes no less often for an agent that passes more often. With every golden at 90%, the worst a healthy suite can be, the default suite goes red 4.8% of the time when its goldens are independent, and at most 4.95% whatever they share; at 95%, 0.0018%.
+- **A gate against history takes the share as its `risk`**, so it fails once a drop is that much likelier, and halves it until its chance of going red, worked out exactly at the pass rate its baseline shows, fits the share.
 - **A `max` the config sets is kept.** When it leaves more attempts at `good` inconclusive than the share allows, the session says so before it runs, and counts the gate's real chance of going red in the suite's.
 - **A single golden runs exactly as before**: the default gate, at 3.3% failed and 0.9% inconclusive at its `good` rate, already fits the whole 5%.
 
 The verdict line names the risks it ran with: `gate: tells 90%+ from 70%- at <= 5% risk to pass and <= 0.045% to fail, up to 179 attempts`, and `--json` gives each result's `failRisk` and the session's `suite`.
 
-What it costs: the bound a healthy agent passes at doesn't move, so one at 95% still passes after 16.75 attempts on average. A golden whose agent is at `bad`, 70%, still goes red 96% of the time, after 49.5 attempts on average instead of 20; one at 80% after 83.5. An agent that slips to 80% on every golden turns every run red.
+What it costs: the score a gate passes at barely moves, from ln 19 to ln 19.99 (ln((1 − β) / α)), so an agent that always passes still needs 12 attempts, and one at 95% takes 16.75 on average instead of 16.6. A golden whose agent is at `bad`, 70%, still goes red 96% of the time, after 49.5 attempts on average instead of 20; one at 80% after 83.5. An agent that slips to 80% on every golden turns every run red.
 
 **The forecast.** Before any golden runs, the session says what it will cost. For 100 gated goldens of an agent that passes 95% of the time, at $0.025 an attempt:
 
 ```
-forecast: about 1,675 attempts (16.8 a golden on average), up to 17,900 · about $41.88
+forecast: about 1,675 attempts (16.7 a golden on average), up to 17,900 · about $41.87
 suite risk 5%: 100 gated goldens, 0.05% each, so a healthy suite goes red for nothing in 5% of runs or fewer
 ```
 
@@ -188,11 +188,11 @@ That is what keeps a regression caught. Once a drop lands on the default branch,
 
 ## When the provider is unavailable
 
-A provider that is down, overloaded or rate limiting says nothing about the agent. An attempt the agent failed while one of its live model calls ended on HTTP 408, 409, 429 or any 5xx (529 "overloaded" included), on a connection that failed or on a stream cut short, is *unavailable*:
+A provider that is down, overloaded or rate limiting says nothing about the agent. An attempt the agent failed while one of its live model calls ended on HTTP 408, 409, 429 or any 5xx (529 "overloaded" included), on a connection that failed, on a stream cut short or on an answer that could not be passed on to the agent, is *unavailable*:
 
 - it is kept as a run, and its line says so: `the provider was unavailable (HTTP 529 from anthropic at call #3), so that attempt isn't counted`;
 - it is run again after a pause: what the provider's `retry-after-ms` or `retry-after` asked for, at most a minute, else 5 s, then 15 s, a fifth either way at random;
-- it is never counted: the gate's tally, a fixed count's and the test history leave it out, and `--json` counts it as `unavailable`;
+- it is never counted: the gate's tally, a fixed count's and the test history leave it out, the verdict line says so beside the tally (`passed · 12 of 12 (2 unavailable, not counted) · rate >= 0.73 (95%) · gate: …`), and `--json` counts it as `unavailable`;
 - three in a row make the golden inconclusive, with the provider named: `provider unavailable: 3 attempts in a row ended on HTTP 529 from anthropic at call #3, so none of them says anything about the agent; run it again once the provider answers`. Never failed.
 
 What is read is each call's final answer: a call its SDK retried until it succeeded is fine, and an attempt that passed after a call failed is a pass, its agent having coped. The agent's own clock is not the provider's: a call the agent hung up on (its client's timeout, or an abort) and an attempt the test's time limit stopped count as the agent's, as do failures Shadowlap plays in on purpose (`--fail-at`, `test --chaos`), the calls it refuses itself (offline, a placeholder key) and a judge check's calls, which the judge retries by itself. [`verify`](./verify.md) and [`blame`](./blame.md) handle their attempts the same way: retried, never counted, and three in a row leave the run or probe inconclusive.
@@ -204,11 +204,11 @@ Every report says a verdict in one line, wherever it appears (the terminal, `--j
 - **The tally and the bound** `12 of 12 · rate >= 0.73 (95%)`: the attempts, and one end of the pass rate's interval at 1 − risk. A pass shows the low end, a failure the high end (`rate <= 0.71`), an inconclusive verdict both (`rate 0.67 to 0.91`).
   - **What it guarantees.** Over every way the gate can end, the end it shows is wrong at most 1 − confidence of the time, whatever the agent's true pass rate. Each end alone is wrong at most half that, so the guarantee holds whichever end a verdict picks. The engine's tests prove it exactly, every stop the gate can make summed with its chance, at every rate from 1% to 99%. The worst the printed bound does is 95.9% under the default gate, 97.9% under blame's, 96.2% under a gate split 100 ways, and 97.8% under the gate against history against 47 of 50.
   - **How it is worked out.** Exactly, under the gate's own stopping rule. Every stop the gate can make is ranked, Siegmund's stagewise ordering: a pass ranks higher the sooner it came, a failure lower the sooner it came, and stops after the same attempt by their passes. The low end is the lowest rate at which stopping as high as the gate did, or higher, has more than a 2.5% chance; the high end is the highest rate at which stopping as low or lower has. 12 of 12 is the highest stop of all, reached only by 12 straight passes, so its low end is the rate whose twelfth power is 2.5%: 0.735. Ends print rounded away from the rate they bound, so a printed bound never says more than was worked out.
-  - **What it doesn't say:** how often a verdict of one kind is wrong. Among the runs that passed an agent at 70%, the few lucky ones, the low end is above 70% about half the time. Those passes happen 4.5% of the time, within the 5%.
+  - **What it doesn't say:** how often a verdict of one kind is wrong. Among the runs that passed an agent at 70%, the few lucky ones, the low end is above 70% about a third of the time (31%): every run of 12 straight passes. Those passes happen 4.5% of the time, so they put the bound wrong 1.4% of the time, within the 5%.
   - **Why not the Wilson interval** reports showed before. Computed from the tally as if its count had been fixed, it misses the true rate whenever the gate stopped early on a run of passes, as often as 16% of the time under the default gate. After a pass at 75%, its `rate >= 0.76` was wrong 22% of the time.
   - **Other bounds.** A replay that forked nowhere shows none: it is the same every time. A gate cut short (a signal, a budget), continued from another session, or with the provider unavailable too often shows a confidence sequence instead: the rates whose likelihood, mixed over a uniform prior, is above 1 − confidence, which covers the true rate at every attempt at once and so holds however the attempts stopped, and is wider (12 of 12 reads `rate >= 0.62`). A fixed count (`--attempts`, `repeat`) has the Clopper–Pearson interval, which holds for a count stopped as soon as it is settled too.
-  - **In `--json`,** each result's `bound` says which: `{ "lo": 0.7353, "confidence": 0.95, "method": "stagewise" }`, with `method` `stagewise`, `confidence-sequence` or `clopper-pearson`, and `interval` has both ends.
-- **pass^k**, the chance an agent passes all of *k* tries, which matters more than one success for an agent that runs unattended. With *c* passes in *n* attempts it is estimated as C(*c*, *k*) / C(*n*, *k*), the τ-bench estimator: 18 of 20 gives pass^5 = 8,568 / 15,504 ≈ 0.55, where 0.9⁵ would overstate it at 0.59. The line shows pass^5; the JSON has *k* from 1 to 8. It is the tally's own estimate, with no confidence of its own, and a gate that stopped on a run of passes flatters it: 12 of 12 reads pass^5 1.00 whatever the agent's rate. What the attempts guarantee is the bound to the *k*th power: `rate >= 0.73 (95%)` means pass^5 is at least 0.21, at the same confidence.
+  - **In `--json`,** each result's `bound` says which: `{ "lo": 0.73535, "confidence": 0.95, "method": "stagewise" }`, with `method` `stagewise`, `confidence-sequence` or `clopper-pearson`, and `interval` has both ends.
+- **pass^k**, the chance an agent passes all of *k* tries, which matters more than one success for an agent that runs unattended. With *c* passes in *n* attempts it is estimated as C(*c*, *k*) / C(*n*, *k*), the τ-bench estimator: 18 of 20 gives pass^5 = 8,568 / 15,504 ≈ 0.55, where 0.9⁵ would overstate it at 0.59. The line shows pass^5; the JSON has *k* from 1 to 8. It is the tally's own estimate, with no confidence of its own, and a gate that stopped on a run of passes flatters it: 12 of 12 reads pass^5 1.00 whatever the agent's rate. What the attempts guarantee is the bound to the *k*th power: `rate >= 0.73 (95%)` means pass^5 is at least 0.73⁵ = 0.207, at the same confidence.
 - **The evidence path**: each attempt's outcome in order, and for an SPRT gate the score after each attempt between its two bounds, so why it stopped at 12 attempts takes one glance; for a history gate, the baseline it pooled and the chance of a drop after each attempt from `min` on, between the 1/2 it passes at and the 1 − risk it fails above. The `--json` report keeps them under each result's `gate` ([fields](./cli.md#test)), and so does the store, for the dashboard's Tests screen.
 
 ## Verify and blame

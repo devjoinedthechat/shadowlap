@@ -138,7 +138,7 @@ const passKAfter = (g: PackResult['gate']): string => {
   return k ? ` · ${k}` : '';
 };
 
-/** The result cell for a passing recording; one with a gate leads with its verdict line (the tally, the Wilson bound and the rule) and pass^k. */
+/** The result cell for a passing recording; one with a gate leads with its verdict line (the tally, the bound and the rule) and pass^k. */
 function passedLabel(r: PackResult): string {
   const parts = [r.updated ? 'updated' : r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${r.divergence.callNo}` : 'clean'];
   if (r.checks?.length) parts.push(statusTally(r.checks));

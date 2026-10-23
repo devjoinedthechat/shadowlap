@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   BASELINE_DEFAULTS,
@@ -19,6 +21,7 @@ import {
   type SprtGate,
   type Tally,
 } from '../src/stats.js';
+import { planSuite } from '../src/suite.js';
 
 /**
  * The bound every verdict line shows (`rate >= 0.73 (95%)`) is proven here, exactly: for a pass
@@ -92,16 +95,7 @@ const GRID = Array.from({ length: 99 }, (_, i) => (i + 1) / 100);
  * which must hold at (1 + confidence)/2, half the risk each.
  */
 function coverage(gate: Gate, history: Tally | null = null): { worst: number; at: number; worstLow: number; worstHigh: number } {
-  const rule: Rule = (s, n) => decide(s, n, gate, history);
-  const stops = stopsOf(rule, gate.max).map((t) => {
-    // An order of its attempts the rule reaches it by: all passes first could stop sooner.
-    const path = pathTo(rule, t);
-    if (!path) throw new Error(`no path reaches ${JSON.stringify(t)}`);
-    const r = gateResult(gate, path, { history: history ? { ...history, sessions: 1 } : null });
-    expect(r.decision).toBe(t.decision);
-    expect(r.bound?.method).toBe('stagewise');
-    return { ...t, interval: r.interval, shown: printed(rateBound(r)!) };
-  });
+  const { rule, stops } = shownStops(gate, history);
   let worst = 1;
   let at = 0;
   let worstLow = 1;
@@ -125,6 +119,21 @@ function coverage(gate: Gate, history: Tally | null = null): { worst: number; at
     worstHigh = Math.min(worstHigh, high);
   }
   return { worst, at, worstLow, worstHigh };
+}
+
+/** Every stop a gate can make, each with its interval and what the reports print there. */
+function shownStops(gate: Gate, history: Tally | null = null): { rule: Rule; stops: Array<Stop & { interval: { lo: number; hi: number }; shown: { lo: number; hi: number } }> } {
+  const rule: Rule = (s, n) => decide(s, n, gate, history);
+  const stops = stopsOf(rule, gate.max).map((t) => {
+    // An order of its attempts the rule reaches it by: all passes first could stop sooner.
+    const path = pathTo(rule, t);
+    if (!path) throw new Error(`no path reaches ${JSON.stringify(t)}`);
+    const r = gateResult(gate, path, { history: history ? { ...history, sessions: 1 } : null });
+    expect(r.decision).toBe(t.decision);
+    expect(r.bound?.method).toBe('stagewise');
+    return { ...t, interval: r.interval, shown: printed(rateBound(r)!) };
+  });
+  return { rule, stops };
 }
 
 /** Attempts in an order that reaches `t` without the rule stopping first, or null when none does. */
@@ -152,9 +161,29 @@ function pathTo(rule: Rule, t: Stop): boolean[] | null {
 const sprt = (o: Partial<Omit<SprtGate, 'kind'>> = {}): SprtGate => ({ kind: 'sprt', ...SPRT_DEFAULTS, ...o });
 const history = (o: Partial<Omit<BaselineGate, 'kind'>> = {}): BaselineGate => ({ kind: 'baseline', ...BASELINE_DEFAULTS, ...o });
 
-describe('the bound beside a verdict covers the true rate as often as it says, every look counted', () => {
+/** Worked out once, on first use: each takes a second or more. */
+const once = <T>(f: () => T): (() => T) => {
+  let v: { value: T } | null = null;
+  return () => (v ??= { value: f() }).value;
+};
+/** The gate a session that splits its 5% 100 ways gives each golden of `"gate": {}` (suite.ts): its share for a failure, its max sized for it. */
+const SPLIT = once(() => planSuite(Array.from({ length: 100 }, (_, i) => ({ golden: `goldens/g${i}`, gate: sprt(), maxGiven: false })))!.planned[0]!.gate as SprtGate);
+const COVERED = {
+  default: once(() => coverage(sprt())),
+  blame: once(() => coverage({ kind: 'sprt', ...BLAME_DEFAULTS })),
+  split: once(() => coverage(SPLIT())),
+  history: once(() => coverage(history(), { passes: 47, attempts: 50 })),
+};
+
+/** docs/gating.md, which states these figures: each is held to it as worked out here. */
+const PAGE = readFileSync(fileURLToPath(new URL('../../../docs/gating.md', import.meta.url)), 'utf8');
+const says = (text: string) => expect(PAGE.includes(text), `docs/gating.md says: ${text}`).toBe(true);
+const pct = (x: number) => `${(100 * x).toFixed(1)}%`;
+
+// Each sums every stop a gate can make at 99 rates: seconds apiece, more on a loaded machine.
+describe('the bound beside a verdict covers the true rate as often as it says, every look counted', { timeout: 120_000 }, () => {
   it('under the default gate: at least 95% at every rate from 1% to 99%, each end alone at least 97.5%', () => {
-    const c = coverage(sprt());
+    const c = COVERED.default();
     expect(c.worst).toBeGreaterThanOrEqual(0.95);
     expect(c.worstLow).toBeGreaterThanOrEqual(0.975);
     expect(c.worstHigh).toBeGreaterThanOrEqual(0.975);
@@ -163,14 +192,16 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
   });
 
   it("under blame's gate, 0.6 / 0.1 / 0.05 / 20", () => {
-    const c = coverage({ kind: 'sprt', ...BLAME_DEFAULTS });
+    const c = COVERED.blame();
     expect(c.worst).toBeGreaterThanOrEqual(0.95);
     expect(c.worstLow).toBeGreaterThanOrEqual(0.975);
     expect(c.worstHigh).toBeGreaterThanOrEqual(0.975);
   });
 
   it('under a gate with its suite share of the risk for a failure, and the max sized for it', () => {
-    const c = coverage(sprt({ failRisk: 0.0005, max: 190 }));
+    // The gate a session gives each of 100 goldens: 0.045% to fail, up to 179 attempts.
+    expect(SPLIT()).toMatchObject({ failRisk: 0.00045, max: 179 });
+    const c = COVERED.split();
     expect(c.worst).toBeGreaterThanOrEqual(0.95);
     expect(c.worstLow).toBeGreaterThanOrEqual(0.975);
     expect(c.worstHigh).toBeGreaterThanOrEqual(0.975);
@@ -187,11 +218,29 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
 
   it('under the gate against history, given its baseline: 47 of 50, a short history, and none', () => {
     for (const h of [{ passes: 47, attempts: 50 }, { passes: 4, attempts: 5 }, null]) {
-      const c = coverage(history(), h);
+      const c = h?.passes === 47 ? COVERED.history() : coverage(history(), h);
       expect(c.worst, JSON.stringify(h)).toBeGreaterThanOrEqual(0.95);
       expect(c.worstLow).toBeGreaterThanOrEqual(0.975);
       expect(c.worstHigh).toBeGreaterThanOrEqual(0.975);
     }
+  });
+
+  it('as the page states it: the worst the printed bound does under each gate', () => {
+    says(`The worst the printed bound does is ${pct(COVERED.default().worst)} under the default gate, ${pct(COVERED.blame().worst)} under blame's, ${pct(COVERED.split().worst)} under a gate split 100 ways, and ${pct(COVERED.history().worst)} under the gate against history against 47 of 50.`);
+  });
+
+  it("doesn't say how often one kind of verdict is wrong: among an agent's passes at 70%, the bound is wrong a third of the time, within the 5% overall", () => {
+    const { rule, stops } = shownStops(sprt());
+    const chances = stopChances(rule, SPRT_DEFAULTS.max, 0.7);
+    const passes = stops.filter((t) => t.decision === 'pass');
+    const passed = passes.reduce((n, t) => n + (chances.get(`${t.attempts}/${t.passes}`) ?? 0), 0);
+    const wrong = passes.filter((t) => t.shown.lo > 0.7);
+    // Only 12 straight passes print a low end above 70%: 0.73.
+    expect(wrong.map((t) => [t.passes, t.attempts])).toEqual([[12, 12]]);
+    const wrongly = wrong.reduce((n, t) => n + (chances.get(`${t.attempts}/${t.passes}`) ?? 0), 0);
+    expect(wrongly).toBeCloseTo(0.7 ** 12, 12);
+    says(`the low end is above 70% about a third of the time (${Math.round((100 * wrongly) / passed)}%): every run of 12 straight passes. Those passes happen ${pct(passed)} of the time, so they put the bound wrong ${pct(wrongly)} of the time, within the 5%.`);
+    expect(Math.round((3 * wrongly) / passed)).toBe(1);
   });
 
   it('where the Wilson interval it replaces covered as little as 84% (the default gate) and 87% (blame)', () => {
@@ -212,6 +261,18 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
     };
     expect(wilsonCoverage(sprt())).toBeLessThan(0.84);
     expect(wilsonCoverage({ kind: 'sprt', ...BLAME_DEFAULTS })).toBeLessThan(0.88);
+    says(`it misses the true rate whenever the gate stopped early on a run of passes, as often as ${Math.round(100 * (1 - wilsonCoverage(sprt())))}% of the time under the default gate`);
+    // After a pass at 75%: how often the `rate >= …` it printed, to the nearest hundredth, was wrong.
+    const gate = sprt();
+    const rule: Rule = (s, n) => decide(s, n, gate);
+    const chances = stopChances(rule, gate.max, 0.75);
+    const passes = stopsOf(rule, gate.max).filter((t) => t.decision === 'pass');
+    const chance = (t: Stop) => chances.get(`${t.attempts}/${t.passes}`) ?? 0;
+    const shown = (t: Stop) => +wilson(t.passes, t.attempts, 0.95).lo.toFixed(2);
+    expect(shown({ passes: 12, attempts: 12, decision: 'pass' })).toBe(0.76);
+    const passed = passes.reduce((n, t) => n + chance(t), 0);
+    const wrong = passes.filter((t) => shown(t) > 0.75).reduce((n, t) => n + chance(t), 0);
+    says(`After a pass at 75%, its \`rate >= 0.76\` was wrong ${Math.round((100 * wrong) / passed)}% of the time.`);
   });
 
   it('is the equal-tailed interval: a one-sided 95% end shown after each verdict would cover only about 92%', () => {

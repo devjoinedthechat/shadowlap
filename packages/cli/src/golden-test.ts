@@ -678,7 +678,7 @@ export function formatChecks(checks: CheckResult[]): string {
 /**
  * The golden as a JUnit test case. An inconclusive one is a failure, or, when inconclusive verdicts
  * warn, skipped: neither passed nor failed. A gated golden's output starts with its gate's verdict
- * line (the verdict word, the tally, the Wilson bound and the rule) and pass^k, which CI dashboards
+ * line (the verdict word, the tally, the bound and the rule) and pass^k, which CI dashboards
  * show beside the case; one an attempt a check could not decide stopped has none, as its gate
  * decided nothing: its message and details say why it is inconclusive.
  */

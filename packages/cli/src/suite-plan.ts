@@ -73,8 +73,8 @@ const plural = (n: number, noun: string) => `${count(n)} ${noun}${Math.round(n) 
 
 /**
  * What the session says before it runs: the forecast, and with more than one gated golden, how the
- * risk is split. `forecast: about 1,675 attempts (16.8 a golden on average), up to 17,900 · about
- * $41.90` and `suite risk 5%: 100 gated goldens, 0.05% each, so a healthy suite goes red for nothing
+ * risk is split. `forecast: about 1,675 attempts (16.7 a golden on average), up to 17,900 · about
+ * $41.87` and `suite risk 5%: 100 gated goldens, 0.05% each, so a healthy suite goes red for nothing
  * in 5% of runs or fewer`. A golden whose share can't be met says why.
  */
 export function suiteLines(plan: SuitePlan): string[] {
