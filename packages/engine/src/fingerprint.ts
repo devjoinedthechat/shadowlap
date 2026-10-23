@@ -1,10 +1,10 @@
 import { canonicalize } from './canonical.js';
-import { maskClock, type ClockMode, type ClockReference } from './clock.js';
+import { maskClock, maskClockText, type ClockMode, type ClockReference } from './clock.js';
 import { matchable } from './json-exact.js';
 import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
 import { sha256 } from './ids.js';
-import { applyNormalizers, stripKeysDeep } from './normalize.js';
+import { applyNormalizers, compilePattern, normalizerApplies, stripKeysDeep } from './normalize.js';
 import type { CallKind, Normalizer } from './types.js';
 
 /**
@@ -15,8 +15,11 @@ import type { CallKind, Normalizer } from './types.js';
 /** The one built-in exclusion: documented by the provider as behavior-neutral and moved routinely. */
 export const BUILTIN_STRIPPED_KEYS: readonly string[] = ['cache_control'];
 
-/** Bump when fingerprints change meaning; stored fingerprints from another version are recomputed on replay. */
-export const FINGERPRINT_VERSION = 5;
+/**
+ * Bump when fingerprints change meaning; stored fingerprints from another version are recomputed on
+ * replay. 6: a model call's query string takes part (`ApiRequestShape.query`).
+ */
+export const FINGERPRINT_VERSION = 6;
 
 export interface ApiRequestShape {
   method: string;
@@ -29,6 +32,41 @@ export interface ApiRequestShape {
    * stores them. A multipart/form-data body is matched by its parts (multipart.ts).
    */
   body: unknown;
+  /**
+   * The query string's parameters that make the call what it is, URL-encoded, with or without `?`
+   * (`alt=sse&api-version=2024-10-21`): the caller leaves credentials out (the sidecar's
+   * `identityQuery`). Their order doesn't count (`queryPairs`).
+   */
+  query?: string | undefined;
+}
+
+/**
+ * A query string's parameters as `[name, value]` pairs, decoded, sorted by name as RFC 8785 sorts
+ * members (repeated names keep the order they were sent in, as a list's items do).
+ */
+export function queryPairs(query: string | undefined): Array<[string, string]> {
+  if (!query) return [];
+  const pairs = [...new URLSearchParams(query.startsWith('?') ? query.slice(1) : query)];
+  // Array.prototype.sort is stable: a repeated name's values stay in order.
+  return pairs.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * A query's pairs as a fingerprint reads them: dates near the run's start masked and the pathless
+ * pattern rules applied to each value, as to every string of the body. A rule with a path reaches
+ * only the body.
+ */
+function queryIdentity(query: string | undefined, normalizers: Normalizer[], name: string, clock?: ClockReference): Array<[string, string]> {
+  const rules = normalizers.filter((n) => n.path === undefined && n.pattern !== undefined && normalizerApplies(n, 'api', name));
+  return queryPairs(query).map(([key, raw]) => {
+    let value = clock === undefined ? raw : maskClockText(raw, clock);
+    for (const n of rules) {
+      const regex = compilePattern(n.pattern!);
+      regex.lastIndex = 0;
+      value = value.replace(regex, n.replace);
+    }
+    return [key, value];
+  });
 }
 
 export function apiCallName(method: string, path: string): string {
@@ -58,7 +96,9 @@ export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], 
   const view = multipartView(req.body);
   const stripped = stripKeysDeep(opts.withoutPrompt ? withoutPrompt(view) : view, BUILTIN_STRIPPED_KEYS);
   const body = applyNormalizers(clock === undefined ? stripped : maskClock(stripped, clock), normalizers, 'api', name);
-  const canonical = canonicalize({ kind: 'api', method: req.method.toUpperCase(), path: opts.matchPath ?? req.path, headers, body });
+  // Left out when there is none, so a call without a query keeps the fingerprint it always had.
+  const query = queryIdentity(req.query, normalizers, name, clock);
+  const canonical = canonicalize({ kind: 'api', method: req.method.toUpperCase(), path: opts.matchPath ?? req.path, headers, body, ...(query.length ? { query } : {}) });
   return { fingerprint: sha256(canonical), canonical };
 }
 

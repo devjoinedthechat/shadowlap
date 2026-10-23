@@ -7,3 +7,4 @@ export type { Provider } from './providers.js';
 export { SseTimer } from './sse.js';
 export { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY, placeholderRefusal } from './placeholders.js';
 export { httpRuleMatcher, matchHttpRule, validHttpHost, type HttpRule } from './http.js';
+export { identityQuery } from './query.js';

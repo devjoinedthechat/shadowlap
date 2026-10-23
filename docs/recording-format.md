@@ -104,6 +104,7 @@ An end, in `end` and in `attempts`:
 |---|---|---|
 | `provider` | start, `api` | The API the request was for: `anthropic`, `openai`, `gemini`, `bedrock`, `vertex` or `azure`. A reader needs it to compute the call's fingerprint again |
 | `fingerprintHeaders` | start, `api` | The request's [fingerprint headers](#identity) as it sent them, names in lower case |
+| `query` | start, `api` | The query string it was sent with, without `?` and without credentials (`alt=sse`, `api-version=2024-10-21`), `""` when it had none: part of its [identity](#identity). A call that has no `query` was made before calls kept one, or comes from a source that never knew it |
 | `scope` | start | The branch of the agent the call was made in ([scopes](./sdk.md#scopes)) |
 | `implHash` | start, `tool` | A hash of the tool's source, for the warning that it changed since the recording |
 | `extraRead` | start | `true` on a replay's clock read, random value or pure tool call that its recording held no counterpart for: answered live while the replay went on ([extra reads](./how-it-works.md#the-replay-state-machine)) |
@@ -159,12 +160,14 @@ The fingerprint is the SHA-256, in lowercase hex, of the [RFC 8785](https://www.
 
 | Kind | Object | Example |
 |---|---|---|
-| `api` | `kind`, `method`, `path`, `headers` and `body` | `{"body":{…},"headers":{"anthropic-version":"2023-06-01"},"kind":"api","method":"POST","path":"/v1/messages"}` |
+| `api` | `kind`, `method`, `path`, `headers`, `body` and, when it has one, `query` | `{"body":{…},"headers":{"anthropic-version":"2023-06-01"},"kind":"api","method":"POST","path":"/v1/messages"}` |
 | `tool` | `kind`, `name` and `args` | `{"args":{"id":"A-17"},"kind":"tool","name":"lookup_order"}` |
 | `clock`, `random` | `kind` and `label` | `{"kind":"clock","label":"start"}` |
 
 - `body` is the request body with every `cache_control` member removed, wherever it is: providers document it as changing nothing. A multipart body (a file upload) counts by its parts: each part's name, file name and content type, a field's text, and a file's SHA-256.
 - `path` is the path the request was sent to under its provider's root, without the query. A Vertex AI path leaves out its `/projects/<project>/locations/<location>`, which differ from one machine to the next.
+- `query` is the request's query parameters as `[name, value]` pairs, decoded, sorted by name (a name sent more than once keeps its values in the order sent), and left out when there are none. A parameter that carries a credential (an API key such as Gemini's `key`, a token, a signature, a password) is never part of it, nor is a value a copy masked as `<CREDENTIAL>`. Its values are masked as the body's strings are: dates near the run's start, and the normalizers that have no path. A reader computes it from the call's `meta.query`.
+- A recording none of whose calls to a provider kept a `query`, such as one built from a trace, is matched whatever query a replay's calls to it carry: the replay leaves the query out of their fingerprints and keeps none on them, so its own replays match the same way.
 - `headers` are the request's fingerprint headers, named in lower case: the few headers that change what the model does. An `anthropic` call's `anthropic-beta` counts without the betas that only say how the call signed in, those starting `oauth-` (a profile's sign-in sends `oauth-2025-04-20`, a key none), and is left out when nothing else is in it. `fingerprintHeaders` keeps it as it was sent.
 - A recording none of whose `anthropic` calls names an `anthropic-version`, such as one built from a trace (which keeps what was asked, not the headers it was sent with), is matched whatever version a replay's requests name: the replay leaves the version out of its own calls' fingerprints and `fingerprintHeaders`, so it names none either and holds the same calls.
 - The project's [normalizers](./normalizers-and-redaction.md) apply first, and under `"clock": "auto"` (the default) so does masking the dates and timestamps near the run's start.
@@ -178,7 +181,7 @@ The fingerprint is the SHA-256, in lowercase hex, of the [RFC 8785](https://www.
 
 The occurrence is *n* for the *n*-th call of the run with the same kind and fingerprint, counted within the call's scope when the run has scopes.
 
-A reader computes the fingerprint of every `api` and `tool` call and every occurrence again, from the stored request, unless the run's `normalizersHash` says they were computed under the normalizers in force and the clock is `exact`. A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it computed that with the engine's `normalizersHash`. Clock and random fingerprints are never computed again: a producer MUST compute those exactly. When Shadowlap changes how a fingerprint is computed, it says so with a version of its own (`FINGERPRINT_VERSION`, now 5), and fingerprints made under another are computed again, so older packs keep replaying.
+A reader computes the fingerprint of every `api` and `tool` call and every occurrence again, from the stored request, unless the run's `normalizersHash` says they were computed under the normalizers in force and the clock is `exact`. A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it computed that with the engine's `normalizersHash`. Clock and random fingerprints are never computed again: a producer MUST compute those exactly. When Shadowlap changes how a fingerprint is computed, it says so with a version of its own (`FINGERPRINT_VERSION`, now 6), and fingerprints made under another are computed again, so older packs keep replaying.
 
 ## Partial recordings
 

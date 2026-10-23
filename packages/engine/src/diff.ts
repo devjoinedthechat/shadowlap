@@ -54,8 +54,36 @@ export function headerDiff(before: Record<string, string> | undefined, after: Re
   return out;
 }
 
-/** Whether a diff entry is a header's (headerDiff) rather than a place in the body. */
-export const isHeaderEntry = (entry: DiffEntry): boolean => entry.path.startsWith('headers.');
+/**
+ * A model call's query parameters (as `queryPairs` reads them, from both sides as matching read
+ * them), as diff entries at `query.<name>`: a value, or the values of a name sent more than once.
+ */
+export function queryDiff(before: ReadonlyArray<readonly [string, string]>, after: ReadonlyArray<readonly [string, string]>): DiffEntry[] {
+  const group = (pairs: ReadonlyArray<readonly [string, string]>) => {
+    const out = new Map<string, string[]>();
+    for (const [name, value] of pairs) out.set(name, [...(out.get(name) ?? []), value]);
+    return out;
+  };
+  const [b, a] = [group(before), group(after)];
+  const shown = (values: string[]) => (values.length === 1 ? values[0] : values);
+  const out: DiffEntry[] = [];
+  for (const name of [...new Set([...b.keys(), ...a.keys()])].sort()) {
+    const [was, now] = [b.get(name), a.get(name)];
+    if (was && now && was.length === now.length && was.every((v, i) => v === now[i])) continue;
+    const path = `query.${name}`;
+    out.push(!was ? { path, op: 'added', after: shown(now!) } : !now ? { path, op: 'removed', before: shown(was) } : { path, op: 'changed', before: shown(was), after: shown(now) });
+  }
+  return out;
+}
+
+/**
+ * Whether a diff entry is a header's (headerDiff, `headers.<name>`) or a query parameter's
+ * (queryDiff, `query.<name>`) rather than a place in the body, which a normalizer's path reaches.
+ */
+export const isHeaderEntry = (entry: DiffEntry): boolean => entry.path.startsWith('headers.') || isQueryEntry(entry);
+
+/** Whether a diff entry is a query parameter's (queryDiff). */
+export const isQueryEntry = (entry: DiffEntry): boolean => entry.path.startsWith('query.');
 
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;

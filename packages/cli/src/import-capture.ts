@@ -1,5 +1,5 @@
-import { apiCallName, fingerprintApi, fingerprintTool, NO_COMMAND, normalizersHash, safeLine, storeApiRequest, type CallMeta, type Effect, type RunMeta, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
-import { providers, type Provider } from '@shadowlap/sidecar';
+import { apiCallName, credentialFreeQuery, fingerprintApi, fingerprintTool, NO_COMMAND, normalizersHash, safeLine, storeApiRequest, type CallMeta, type Effect, type RunMeta, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
+import { identityQuery, providers, type Provider } from '@shadowlap/sidecar';
 
 /**
  * Building a recording out of traffic something else captured.
@@ -230,8 +230,8 @@ export class ImportWriter {
     const path = url.pathname;
     const headers = strip(c.requestHeaders);
     const name = apiCallName(method, path);
-    // As the sidecar fingerprints the call (Provider.matchPath, Provider.matchHeaders), so a replay matches the stored fingerprint.
-    const { fingerprint } = fingerprintApi({ method, path, headers: provider.matchHeaders?.(headers) ?? headers, body: c.requestBody }, [], provider.fingerprintHeaders, undefined, { matchPath: provider.matchPath?.(path) });
+    // As the sidecar fingerprints the call (Provider.matchPath, Provider.matchHeaders, its query without credentials), so a replay matches the stored fingerprint.
+    const { fingerprint } = fingerprintApi({ method, path, headers: provider.matchHeaders?.(headers) ?? headers, body: c.requestBody, query: identityQuery(url.search) }, [], provider.fingerprintHeaders, undefined, { matchPath: provider.matchPath?.(path) });
     const occurrence = this.occurrence('api', fingerprint);
 
     const fingerprintHeaders: Record<string, string> = {};
@@ -248,7 +248,8 @@ export class ImportWriter {
       origin: 'live',
       effect: null,
       requestRef: storeApiRequest(this.store, c.requestBody),
-      meta: { provider: provider.id, fingerprintHeaders, retryCount: 0 },
+      // Its query as the sidecar keeps one, credentials left out: empty when it had none.
+      meta: { provider: provider.id, fingerprintHeaders, retryCount: 0, query: credentialFreeQuery(url.search.replace(/^\?/, '')) ?? '' },
       at,
     });
 

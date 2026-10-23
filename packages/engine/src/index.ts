@@ -13,7 +13,7 @@ export { calibrationTarget, covered, generalize, proposeNormalizers, type Calibr
 export { isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';
 export { multipartView, parseMultipart, type MultipartPart, type MultipartView } from './multipart.js';
 export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, nearClock, type ClockMode, type ClockReference, type ClockSeen } from './clock.js';
-export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash } from './fingerprint.js';
+export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash, queryPairs } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
 export { noFullTextSearch, SCHEMA_VERSION, Store } from './store.js';
 export type { CreateRunInput, NewStoredEvent, SearchState, StoredEvent } from './store.js';
@@ -54,7 +54,7 @@ export { requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
 export type { CallDifference, ComparedIntervention, RunComparison } from './compare.js';
 export type { RequestManifest } from './manifest.js';
-export { deepEqual, firstDifference, headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
+export { deepEqual, firstDifference, headerDiff, hintsFor, isHeaderEntry, isQueryEntry, queryDiff, structuralDiff } from './diff.js';
 export { DEFAULT_REPLAY_OPTIONS, isPlainRead, Session } from './session.js';
 export type { Decision, ReplayOptions, ResolveInput, SessionOptions } from './session.js';
 export { divergenceLine, endedEarlyCount, extraReadsLine, formatDivergence, formatSummary, formatTokens, plain, replayedBeforeWords, storedModelResolver, summarizeRun } from './report.js';

@@ -1,7 +1,8 @@
-import { CLOCK_PLACEHOLDERS, maskClock } from './clock.js';
+import { CLOCK_PLACEHOLDERS, maskClock, maskClockText } from './clock.js';
+import { queryPairs } from './fingerprint.js';
 import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
-import { headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
+import { headerDiff, hintsFor, isHeaderEntry, isQueryEntry, queryDiff, structuralDiff } from './diff.js';
 import { formatToolFailure, type ToolFailure } from './interventions.js';
 import { isJudgeCall, JUDGE_SCOPE } from './judge-scope.js';
 import type { CallKind, CallRecord, Coverage, DivergenceReport, Effect, NotReached, ReadPolicy, RunMode, WritePolicy } from './types.js';
@@ -105,6 +106,11 @@ export interface ResolveInput {
    * so the report shows it too.
    */
   headers?: Record<string, string>;
+  /**
+   * A model call's query parameters that its fingerprint includes, URL-encoded (the sidecar's
+   * `identityQuery`): a change to one is a divergence like any other, so the report shows it too.
+   */
+  query?: string;
   /** Reuse an occurrence instead of allocating one: this attempt retries an earlier call. */
   occurrence?: number;
   /**
@@ -172,6 +178,11 @@ export interface SessionOptions {
    * changed request is compared with. Defaults to its name.
    */
   matchName?: (record: CallRecord) => string;
+  /**
+   * A recorded model call's query as its fingerprint reads it (`ResolveInput.query`), for the
+   * divergence report. Defaults to none.
+   */
+  matchQuery?: (record: CallRecord) => string | undefined;
   /** Start times of the parent run and this one, when dates near either are masked for matching, on both sides (clock.ts). */
   clock?: { parent: number; run: number };
   /**
@@ -216,6 +227,7 @@ export class Session {
   private forcing: { by: string; counterpart?: number } | null = null;
   private readonly loadRequest: (record: CallRecord) => unknown;
   private readonly matchName: (record: CallRecord) => string;
+  private readonly matchQuery: (record: CallRecord) => string | undefined;
   private readonly clock: SessionOptions['clock'];
   /** Whether the recording used scopes. If it didn't, scopes are ignored, so adding them later still replays. */
   private readonly scoped: boolean;
@@ -232,6 +244,7 @@ export class Session {
     this.parentCalls = opts.parentCalls ?? [];
     this.loadRequest = opts.loadRequest ?? (() => undefined);
     this.matchName = opts.matchName ?? ((record) => record.name);
+    this.matchQuery = opts.matchQuery ?? (() => undefined);
     this.clock = opts.clock;
     this.state = this.mode === 'replay' ? 'replaying' : 'diverged';
     // The judge's scope is Shadowlap's, not the agent's: a recording whose only scope is the judge's has none of its own.
@@ -603,7 +616,13 @@ export class Session {
         const p = this.options.promptFrom !== undefined && input.kind === 'api' ? withoutPrompt(view) : view;
         return refs === undefined ? p : maskClock(p, refs);
       };
-      const diff = [...(input.kind === 'api' && input.headers ? headerDiff(record.meta.fingerprintHeaders as Record<string, string> | undefined, input.headers) : []), ...structuralDiff(mask(recorded), mask(input.request))];
+      // The query as it was matched too: dates near either run's start masked, as in the body.
+      const query = (q: string | undefined) => queryPairs(q).map(([k, v]): [string, string] => [k, refs === undefined ? v : maskClockText(v, refs)]);
+      const diff = [
+        ...(input.kind === 'api' && input.headers ? headerDiff(record.meta.fingerprintHeaders as Record<string, string> | undefined, input.headers) : []),
+        ...(input.kind === 'api' ? queryDiff(query(this.matchQuery(record)), query(input.query)) : []),
+        ...structuralDiff(mask(recorded), mask(input.request)),
+      ];
       if (!best || diff.length < best.diff.length) best = { record, diff };
     }
     if (!best) {
@@ -613,9 +632,13 @@ export class Session {
     // A change a flag made is the point of the fork, not a value to mask: no normalizer hints for it.
     if (changedBy) return { ...base, type: 'request_changed', reason: changedBy, counterpart: { runId: this.parentRunId ?? best.record.runId, callNo: best.record.callNo }, diff: best.diff };
     const hints = best.diff.flatMap((e) => (isHeaderEntry(e) ? [] : hintsFor(e, input.kind, input.name)));
-    const headers = best.diff.filter(isHeaderEntry).map((e) => e.path.slice('headers.'.length));
+    const headers = best.diff.filter((e) => isHeaderEntry(e) && !isQueryEntry(e)).map((e) => e.path.slice('headers.'.length));
     if (headers.length) {
       hints.push({ message: `the ${headers.join(' and ')} header${headers.length === 1 ? ' is' : 's are'} part of what makes a model call the same call, and no normalizer masks ${headers.length === 1 ? 'it' : 'them'}: send the recorded value, or record again with the new one` });
+    }
+    const params = best.diff.filter(isQueryEntry).map((e) => e.path.slice('query.'.length));
+    if (params.length) {
+      hints.push({ message: `the ${params.join(' and ')} query parameter${params.length === 1 ? ' is' : 's are'} part of what makes a model call the same call (a credential in the query never is): send the recorded value, mask a value made anew on every run with a normalizer that has no path, or record again with the new one` });
     }
     if (this.clock && best.diff.some((e) => [e.before, e.after].some((v) => typeof v === 'string' && CLOCK_PLACEHOLDERS.some((p) => v.includes(p))))) {
       hints.push({ message: 'dates and timestamps within a day of either run\'s start match as <date>, <datetime> or <epoch>, so "today" in the recording matches "today" now; one side here is further from both. If it is a fixed date, set "clock": "exact" in shadowlap.config.json' });
