@@ -357,6 +357,6 @@ The same tool during a clean replay:
 
 ## Versioning
 
-This protocol is pre-1.0 and may change. The sidecar reports its version in `shadowlap --version`;
-there is no protocol version negotiation yet. When one is added it will be an additive header, and
-a client that does not send it will keep working.
+This protocol is pre-1.0 and may change. It is the protocol of the release that runs the sidecar,
+which `shadowlap --version` reports: a client sends no protocol version, and the sidecar asks for
+none.
