@@ -1111,8 +1111,13 @@ table.runst tr.picked td { background: color-mix(in srgb, var(--lime) 7%, transp
 .bulkbar b { font-weight: 500; font-size: 13px; white-space: nowrap; }
 .bulkbar .sep { width: 1px; height: 18px; background: var(--line2); margin: 0 4px; }
 @media (max-width: 1000px) { .bulkbar { left: 50%; transform: translateX(-50%); bottom: 40px; max-width: calc(100vw - 24px); overflow-x: auto; } }
-/* While runs are picked, a job's drawer opens above the bulk bar (46px tall, 44px up) instead of over its buttons. */
+/* below 720px (a phone, or a narrow tablet where a store adds Push: 668px) the bar wraps onto lines rather than cut a
+   button: every action stays in view, none scrolls away */
+@media (max-width: 720px) { .bulkbar { flex-wrap: wrap; justify-content: center; row-gap: 6px; width: calc(100vw - 24px); overflow: visible; padding: 8px 10px; } .bulkbar .sep { display: none; } .bulkbar b { flex-basis: 100%; text-align: center; } .bulkspace { height: 120px; } }
+/* While runs are picked, a job's drawer opens above the bulk bar (46px tall, 44px up) instead of over its buttons;
+   below 720px, above its lines (106px tall on a phone, 40px up) */
 body:has(.bulkbar) .drawer { bottom: 100px; }
+@media (max-width: 720px) { body:has(.bulkbar) .drawer { bottom: 156px; } }
 
 /* scopes */
 .scopebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 24px; border-bottom: 1px solid var(--line); }

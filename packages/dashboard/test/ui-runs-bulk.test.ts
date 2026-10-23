@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
@@ -11,7 +12,8 @@ import { render, type Rendered } from './ui-render.js';
  * picked, which go with them, shows the `shadowlap rm` that deletes the same, and counts them once
  * done. Pack asks for a folder first, as the run page's Pack does, then packs every run in one job,
  * into a folder each inside the one its dialog names. Dataset says how many redaction rules its copy
- * applies and shows the command its job runs.
+ * applies and shows the command its job runs. On a phone the bar wraps onto lines, so no action
+ * scrolls out of view, and a job's drawer opens above it.
  */
 
 const A = '01M5H2DJ1WDXDJVF85FRE4DWH5';
@@ -102,5 +104,45 @@ describe('the bulk bar’s Dataset', () => {
     // The file the command names is the file the job writes.
     const file = cmd.split('.shadowlap/exports/')[1];
     expect(s.client.startJob).toHaveBeenCalledWith('export-dataset', { runIds: [A, B], format: 'jsonl', calls: 'final', out: file });
+  });
+});
+
+const css = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+
+/** The value a window `width` px wide gives `property` of `selector`: its rules at the top level and in each `@media (max-width: …)` that takes the width in, the last one winning. */
+function valueAt(width: number, selector: string, property: string): string | undefined {
+  let value: string | undefined;
+  const walk = (text: string, on: boolean) => {
+    for (let i = 0; i < text.length; ) {
+      const open = text.indexOf('{', i);
+      if (open < 0) return;
+      const head = text.slice(i, open).trim();
+      let end = open + 1;
+      for (let depth = 1; depth && end < text.length; end++) depth += text[end] === '{' ? 1 : text[end] === '}' ? -1 : 0;
+      const body = text.slice(open + 1, end - 1);
+      const max = /^@media \(max-width: (\d+)px\)$/.exec(head);
+      if (max) walk(body, on && width <= Number(max[1]));
+      else if (on && head.split(',').map((s) => s.trim()).includes(selector)) {
+        for (const d of body.split(';')) if (d.split(':')[0]?.trim() === property) value = d.slice(d.indexOf(':') + 1).trim();
+      }
+      i = end;
+    }
+  };
+  walk(css, true);
+  return value;
+}
+
+describe('the bulk bar on a phone', () => {
+  it('wraps onto lines rather than scroll an action out of view, and a job’s drawer opens above them', () => {
+    for (const width of [390, 668, 720]) {
+      expect(valueAt(width, '.bulkbar', 'flex-wrap'), `${width}`).toBe('wrap');
+      expect(valueAt(width, '.bulkbar', 'overflow'), `${width}`).toBe('visible');
+      expect(valueAt(width, '.bulkbar .sep', 'display'), `${width}`).toBe('none');
+      expect(valueAt(width, '.bulkbar b', 'flex-basis'), `${width}`).toBe('100%');
+      expect(valueAt(width, 'body:has(.bulkbar) .drawer', 'bottom'), `${width}`).toBe('156px');
+    }
+    // Wider, the bar keeps to one line, with the drawer just above it.
+    expect(valueAt(721, '.bulkbar', 'flex-wrap')).toBeUndefined();
+    expect(valueAt(721, 'body:has(.bulkbar) .drawer', 'bottom')).toBe('100px');
   });
 });
