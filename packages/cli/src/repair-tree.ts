@@ -84,9 +84,10 @@ function copy(from: string, to: string): void {
 
 /**
  * A worktree for one candidate, as the working tree is now: see the module's comment. `root` is the
- * repository's root and `cwd` the folder repair runs in. Throws when git can't make it.
+ * repository's root and `cwd` the folder repair runs in; `copyLimit` is what is copied of the files
+ * git ignores, at most (COPY_LIMIT). Throws when git can't make it.
  */
-export function candidateTree(root: string, cwd: string): CandidateTree {
+export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMIT }: { copyLimit?: number } = {}): CandidateTree {
   const realRoot = physicalPath(root);
   const realCwd = physicalPath(cwd);
   const inRepo = relative(realRoot, realCwd);
@@ -156,14 +157,19 @@ export function candidateTree(root: string, cwd: string): CandidateTree {
         link(from, to, true);
         continue;
       }
-      const size = st.isDirectory() ? sizeOf(from, COPY_LIMIT) : st.size;
-      if (copied + size <= COPY_LIMIT) {
+      const size = st.isDirectory() ? sizeOf(from, copyLimit) : st.size;
+      if (copied + size <= copyLimit) {
         copy(from, to);
         copied += size;
       } else {
         mkdirSync(dirname(to), { recursive: true });
-        link(from, to, st.isDirectory());
-        linked.push(p);
+        try {
+          link(from, to, st.isDirectory());
+          linked.push(p);
+        } catch {
+          // A file Windows won't link without privileges a runner may not have: copied after all.
+          copy(from, to);
+        }
       }
     }
     linkModulesAbove(realRoot, tree);
