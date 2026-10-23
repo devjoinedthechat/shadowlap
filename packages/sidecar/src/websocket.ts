@@ -26,9 +26,9 @@ function head(res: IncomingMessage, drop: ReadonlySet<string> = new Set()): stri
  * Sends the handshake the agent made to `target` (http: or https:, with its path and query) and,
  * once the upstream switches protocols, passes every byte both ways until either side closes. An
  * upstream that refuses gets its answer passed back as it came; one that can't be reached gets the
- * agent a 502. `opened` is told when the tunnel is up.
+ * agent a 502.
  */
-export function tunnelWebSocket(client: Duplex, early: Buffer, target: URL, headers: Record<string, string>, opened?: () => void): void {
+export function tunnelWebSocket(client: Duplex, early: Buffer, target: URL, headers: Record<string, string>): void {
   const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
   const req = send(target, { method: 'GET', headers: { ...headers, host: target.host } });
   let settled = false;
@@ -51,7 +51,6 @@ export function tunnelWebSocket(client: Duplex, early: Buffer, target: URL, head
     for (const side of [client, upstream]) side.on('end', () => side.end());
     upstream.on('close', () => client.destroy());
     client.on('close', () => upstream.destroy());
-    opened?.();
   });
   req.on('response', (res) => {
     // Refused: its answer goes back whole, with its length, and the connection closes.

@@ -122,20 +122,22 @@ describe('the store writer', () => {
   it('flushes what waits, waiting for the lock as a write may, and takes nothing once stopped', async () => {
     const { path, store, other, written } = opened('flush');
     const writer = new StoreWriter(store, { waitMs: 5, deadlineMs: 5_000 }, () => {});
-    // Another thread holds the store for 300 ms, as another process would.
+    // Another thread holds the store for 300 ms, as another process would, and says when it let go.
     const holder = new Worker(
       `const { DatabaseSync } = require('node:sqlite'); const { parentPort, workerData } = require('node:worker_threads');
        const db = new DatabaseSync(workerData); db.exec('BEGIN IMMEDIATE'); parentPort.postMessage('held');
-       setTimeout(() => { db.exec('COMMIT'); db.close(); parentPort.postMessage('free'); }, 300);`,
+       setTimeout(() => { const at = Date.now(); db.exec('COMMIT'); db.close(); parentPort.postMessage(at); }, 300);`,
       { eval: true, workerData: path },
     );
     await new Promise<void>((resolve) => holder.once('message', () => resolve()));
     writer.write({ what: 'waits', run: () => store.putBlob(Buffer.from('waits')) });
     expect(writer.pending).toBe(1);
-    const started = Date.now();
     writer.flush();
-    expect(Date.now() - started).toBeGreaterThan(100);
+    const flushed = Date.now();
     expect(writer.pending).toBe(0);
+    // The flush waited for the other thread to let go of the store, then wrote.
+    const letGo = await new Promise<number>((resolve) => holder.once('message', (at: number) => resolve(at)));
+    expect(flushed).toBeGreaterThanOrEqual(letGo);
     writer.stop();
     writer.write({ what: 'too late', run: () => store.putBlob(Buffer.from('too late')) });
     expect(written()).toEqual(['waits']);
