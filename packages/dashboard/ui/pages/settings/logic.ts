@@ -1,5 +1,5 @@
 import type { AgentOffer } from '../../../src/agent-skill.js';
-import { repeatsARepeat } from '../../../src/regex-shape.js';
+import { regexProblem } from '../../../../engine/src/safe-regex.js';
 import type { CiWorkflowOptions, CiWorkflowsView } from '../../types.js';
 
 /**
@@ -207,12 +207,15 @@ export function ruleProblem(f: RuleFormState): string | null {
 }
 
 /**
- * What the dialog warns about but still adds, as the CLI does: a regex that repeats a group that
- * repeats itself, as (a+)+, which can take minutes on some text, in every replay or copy it reads.
+ * What the dialog warns about before it asks the server: a regex the engine's pattern check refuses
+ * (safe-regex.ts), as one that could take minutes on some text in every replay or copy it reads, in
+ * the engine's words. The CLI refuses it too, so adding it is refused with the same reason.
  */
 export function ruleWarning(f: RuleFormState): string | null {
-  if (f.mode !== 'regex' || !f.regex.trim() || !repeatsARepeat(regexLiteral(f.regex))) return null;
-  return 'It repeats a group that repeats itself, as (a+)+ does, which can take minutes on some text: write it without the outer repeat.';
+  if (f.mode !== 'regex' || !f.regex.trim()) return null;
+  const m = /^\/(.*)\/([a-z]*)$/s.exec(regexLiteral(f.regex));
+  const why = m ? regexProblem(m[1]!, m[2]!) : null;
+  return why ? `The CLI refuses it: ${why}.` : null;
 }
 
 /** An argument as a shell takes it, quoted only when it has to be. */
