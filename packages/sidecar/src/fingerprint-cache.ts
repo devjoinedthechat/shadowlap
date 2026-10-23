@@ -1,0 +1,101 @@
+import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type ClockReference, type Normalizer } from '@shadowlap/engine';
+
+/**
+ * Replay start without reading every recorded request again. A replay matches its recording's calls
+ * by fingerprints made under its own rules (the project's normalizers, the rules that redacted a
+ * copy, the clock), so it used to load and hash every stored request: 6.5 s for a run of 1,000 calls
+ * whose requests add up to 1 GB. A fingerprint depends on three things: the request, the rules, and
+ * the times dates are masked against (each run's start). The cache keys an entry by the first two
+ * (`fingerprintKey`), and keeps beside the fingerprint every date, time and epoch value the request
+ * holds with whether it was masked (`ClockMark`). An entry serves a replay that masks every one of
+ * those values the same (`servesClock`); any other replay works the fingerprint out again. The
+ * recording fills the cache as it goes, so the first replay already starts from it.
+ */
+
+/** Bump when what a key covers, or what a mark means, changes. */
+const CACHE_VERSION = 1;
+
+/** How a stored call is fingerprinted, besides its request: everything its cache key names. */
+export type FingerprintRules =
+  | {
+      kind: 'api';
+      method: string;
+      path: string;
+      matchPath: string | null;
+      /** The fingerprint headers as matching reads them (Provider.matchHeaders), and the list they come from. */
+      headers: Record<string, string>;
+      allow: readonly string[];
+      normalizers: string;
+      clock: boolean;
+      withoutPrompt: boolean;
+      /** The call's query string as it keeps it: part of the key, so a version that matches on it never reuses an entry made without. */
+      query: string | null;
+    }
+  | { kind: 'judge'; method: string; path: string; matchPath: string | null; headers: Record<string, string>; allow: readonly string[]; rules: string }
+  | { kind: 'tool'; name: string; normalizers: string; clock: boolean; captured: boolean };
+
+/** A list of rules as a key names it. */
+export function rulesId(rules: readonly Normalizer[]): string {
+  return sha256(canonicalize(rules));
+}
+
+/** The cache key of a stored request's fingerprint under `rules`. */
+export function fingerprintKey(rules: FingerprintRules, requestRef: string): string {
+  return sha256(canonicalize({ v: FINGERPRINT_VERSION, cache: CACHE_VERSION, rules, request: requestRef }));
+}
+
+/** A date, time or epoch value a request holds: its time (ms), how near a reference masks it, and whether it was masked when the entry was made. */
+export type ClockMark = [time: number, window: number, masked: 0 | 1];
+
+/**
+ * Every clock value masking against `reference` sees in `values`, with whether it masked it. Read
+ * from the whole request (its prompt, its `cache_control`, its query and headers too), a superset of
+ * what the fingerprint masked: a value too many only makes an entry serve fewer replays, never a
+ * wrong one.
+ */
+export function clockMarks(values: readonly unknown[], reference: ClockReference | undefined): ClockMark[] {
+  if (reference === undefined) return [];
+  const seen = new Map<string, ClockMark>();
+  for (const value of values) {
+    maskClock(value, reference, (time, window) => {
+      if (!Number.isFinite(time)) return;
+      const k = `${time}/${window}`;
+      if (!seen.has(k)) seen.set(k, [time, window, nearClock(time, reference, window) ? 1 : 0]);
+    });
+  }
+  return [...seen.values()];
+}
+
+/**
+ * Whether an entry's fingerprint holds under `reference`: each value it marks is masked against it
+ * exactly when it was masked then. Masking reads a string rule by rule, and a value it masks hides
+ * what lies inside it from the rules after (a datetime's date); with every value it saw read the
+ * same way, it sees the same values again and masks the request to the same text.
+ */
+export function servesClock(marks: readonly ClockMark[], reference: ClockReference | undefined): boolean {
+  return marks.every(([time, window, masked]) => (reference !== undefined && nearClock(time, reference, window)) === (masked === 1));
+}
+
+export function encodeMarks(marks: readonly ClockMark[]): string | null {
+  return marks.length ? JSON.stringify(marks) : null;
+}
+
+/** The marks an entry keeps, or null when they don't read as marks (the entry is then not used). */
+export function decodeMarks(text: string | null): ClockMark[] | null {
+  if (text === null) return [];
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const ok = parsed.every((m) => Array.isArray(m) && m.length === 3 && typeof m[0] === 'number' && typeof m[1] === 'number' && (m[2] === 0 || m[2] === 1));
+    return ok ? (parsed as ClockMark[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The headers of `headers` a provider fingerprints (`allow`), as a key names them. */
+export function allowedHeaders(headers: Readonly<Record<string, string>>, allow: readonly string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const h of allow) if (headers[h] !== undefined) out[h] = headers[h]!;
+  return out;
+}

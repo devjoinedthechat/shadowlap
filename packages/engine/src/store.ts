@@ -51,6 +51,8 @@ interface SqliteDatabase {
   exec(sql: string): void;
   prepare(sql: string): SqliteStatement;
   close(): void;
+  /** Whether a transaction is open on this connection. */
+  readonly isTransaction?: boolean;
 }
 
 /** A value a read model's query binds. */
@@ -536,6 +538,20 @@ CREATE TABLE IF NOT EXISTS chaos_session_owners (
   pid         INTEGER NOT NULL,
   host        TEXT    NOT NULL
 );
+
+-- Replay start: the fingerprint a stored request came to under one set of matching rules, so a
+-- replay of a long run doesn't read and hash every request again (the sidecar's
+-- fingerprint-cache.ts). The key names the request by its content and every rule that went into its
+-- fingerprint; \`clock\` lists the dates and times the request holds and whether each was masked, so
+-- an entry serves only a replay whose start masks them the same. Additive and rebuilt on demand:
+-- gcBlobs drops the entries whose request is gone.
+CREATE TABLE IF NOT EXISTS fingerprint_cache (
+  key          TEXT PRIMARY KEY,
+  request_ref  TEXT NOT NULL,
+  fingerprint  TEXT NOT NULL,
+  clock        TEXT
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS fingerprint_cache_request ON fingerprint_cache (request_ref);
 `;
 
 // ---- Decisions: the shapes of the decision tables ----
@@ -2381,6 +2397,8 @@ export class Store {
           bytes += b.size;
           stored += b.stored;
         }
+        // The fingerprints worked out for requests that are gone now.
+        if (removed) this.db.exec(`DELETE FROM fingerprint_cache WHERE request_ref NOT IN (SELECT hash FROM blobs)`);
       }
       this.db.exec('COMMIT');
       return { removed, bytes, stored, recording };
@@ -2856,6 +2874,41 @@ export class Store {
       JSON.stringify(row.meta),
       row.at,
     );
+  }
+
+  /**
+   * Runs `fn` as one write, waiting at most `waitMs` for another connection's write lock instead of
+   * the busy timeout every other write waits: the sidecar writes its calls on the thread that streams
+   * answers, so a store another process holds (the dashboard, gc, another recording) must never hold
+   * the agent up. When the lock isn't free in time this throws SQLITE_BUSY and nothing was written;
+   * the sidecar tries again later (its StoreWriter). Inside a transaction already open, `fn` joins it.
+   */
+  tryWrite<T>(fn: () => T, waitMs: number): T {
+    if (this.db.isTransaction) return fn();
+    const wait = Number((this.db.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined)?.timeout ?? 10_000);
+    this.db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.floor(waitMs))}`);
+    try {
+      return this.transaction(fn, 'immediate');
+    } finally {
+      this.db.exec(`PRAGMA busy_timeout = ${wait}`);
+    }
+  }
+
+  // ---- fingerprint cache: what replay start reads instead of every stored request ----
+
+  /** The fingerprints the cache holds under these keys, each with the dates and times its request holds (`clock`, as cached). */
+  cachedFingerprints(keys: readonly string[]): Map<string, { fingerprint: string; clock: string | null }> {
+    const found = new Map<string, { fingerprint: string; clock: string | null }>();
+    if (!keys.length) return found;
+    const rows = this.db.prepare(`SELECT key, fingerprint, clock FROM fingerprint_cache WHERE key IN (SELECT value FROM json_each(?))`).all(JSON.stringify(keys));
+    for (const r of rows) found.set(String(r.key), { fingerprint: String(r.fingerprint), clock: typeof r.clock === 'string' ? r.clock : null });
+    return found;
+  }
+
+  /** Keeps fingerprints worked out for stored requests, for the next replay to start from. */
+  cacheFingerprints(rows: ReadonlyArray<{ key: string; requestRef: string; fingerprint: string; clock: string | null }>): void {
+    const put = this.db.prepare(`INSERT OR REPLACE INTO fingerprint_cache (key, request_ref, fingerprint, clock) VALUES (?, ?, ?, ?)`);
+    for (const r of rows) put.run(r.key, r.requestRef, r.fingerprint, r.clock);
   }
 
   /**
