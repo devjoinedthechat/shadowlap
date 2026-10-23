@@ -6,8 +6,8 @@ import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
 import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
-import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
-import { runCalls } from './run-calls.js';
+import { analysisFor, conversationSource, NO_FACTS, ownFacts, partAnalysis, QUICK_FROM, READ_PAST, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
+import { keptCalls, runCalls } from './run-calls.js';
 // How a run stands, as the run list works it out: a run's page and its family read the same state.
 import { bundleOf, runState, runStates, type RunState } from './runs-list.js';
 
@@ -106,6 +106,23 @@ export interface CallRow extends CallFacts {
 export interface RunDetail extends RunPageFacts {
   run: RunRecord;
   label: string;
+  /** How many calls the run has: `calls` holds the first page of them (`CALLS_PAGE`), the rest come a page at a time (`runCallsPage`). */
+  callsTotal: number;
+  /** The call the next page starts at (`GET /api/runs/:id/calls?from=`), or null when `calls` reaches the run's end. */
+  callsNext: number | null;
+  /**
+   * One character per call of the whole run, in call order, as the run list encodes them (r replayed,
+   * l live, o overridden, i injected, f failed, b blocked, s stubbed): the origin strip draws every call
+   * from it before their pages have come. Absent when `calls` holds every call.
+   */
+  origins?: string;
+  /**
+   * Set while the run is too long to analyse whole for a first answer and the whole of it is being
+   * analysed beside the server: what the page reads of its conversations, the prompt cache and the
+   * time not waited covers its first `done` calls of `total`, and a call near their end may read
+   * differently once it is done. Asked again, the answer has the whole run.
+   */
+  warming?: { done: number; total: number };
   /** What the run was about, as the lists say it (run-about.ts); null for a run the index doesn't have yet. */
   about: RunAbout | null;
   /** Set for a run built from a capture, which has no command: where it came from. */
@@ -285,37 +302,129 @@ function childRows(store: Store, runId: string): RunDetail['children'] {
   });
 }
 
-export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions = {}, part: { after?: number } = {}): RunDetail | null {
+/** The most calls one answer holds: a run's first page, and each page after (contract 8). */
+export const CALLS_PAGE = 500;
+
+/** The calls of a page: those after `after` (or from `from` on), at most `limit`, and where the next page starts. */
+function pageOf(calls: readonly CallRecord[], at: { after?: number; from?: number }, limit: number): { page: readonly CallRecord[]; next: number | null } {
+  let start = 0;
+  while (start < calls.length && (at.after !== undefined ? calls[start]!.callNo <= at.after : at.from !== undefined && calls[start]!.callNo < at.from)) start++;
+  const page = calls.slice(start, start + limit);
+  return { page, next: calls[start + limit]?.callNo ?? null };
+}
+
+/** One character per call, as the run list encodes them (run-stats.ts `codes`). */
+function originCodes(calls: readonly CallRecord[]): string {
+  return calls.map((c) => ORIGIN_CODE[displayOrigin(c.origin, c.end ? { outcome: c.end.outcome, injected: c.end.meta.injected } : null)]).join('');
+}
+
+/**
+ * What a page of a run's calls (or one call's details) is drawn from: the calls it shows (from `at`,
+ * at most `limit`), where the next page starts, and the analysis of the run that gives their facts,
+ * whole or of its first calls (`whole`, `done`). A page of a long run that has ended, and that this
+ * thread has not read lately, reads the calls up to it and a few past it rather than the whole run,
+ * which is read and analysed beside the server meanwhile; a page far into the run reads it whole.
+ */
+interface PageRead {
+  page: readonly CallRecord[];
+  next: number | null;
+  analysis: RunAnalysis;
+  whole: boolean;
+  done: number;
+  /** Every call of the run, as read: null when only those up to the page were. */
+  calls: readonly CallRecord[] | null;
+}
+
+function readPage(store: Store, run: RunRecord, at: { after?: number; from?: number }, limit: number, o: { whole?: boolean } = {}): PageRead {
+  const held = keptCalls(store, run.runId);
+  const first = at.from ?? (at.after ?? 0) + 1;
+  if (!held && !o.whole && run.status !== 'running') {
+    const total = store.countCalls(run.runId);
+    const upTo = first - 1 + limit + READ_PAST;
+    if (total >= QUICK_FROM && upTo * 2 < total) {
+      // The run's calls from its first up to the page and a few past it: what the page's facts come from.
+      const part = store.getCalls(run.runId, { after: 0, limit: upTo });
+      const { page, next } = pageOf(part, at, limit);
+      return { page, next, analysis: partAnalysis(store, run, part), whole: false, done: part.length, calls: null };
+    }
+  }
+  const calls = held ?? runCalls(store, run.runId);
+  const { page, next } = pageOf(calls, at, limit);
+  const { analysis, whole, done } = analysisFor(store, run, calls, page.at(-1)?.callNo ?? 0);
+  return { page, next, analysis, whole, done, calls };
+}
+
+/**
+ * A run's page: the run, the first page of its calls (`CALLS_PAGE`, or `limit`: an exported copy
+ * holds every call), `callsTotal` and `callsNext`, and what the page shows about it. `after` answers
+ * with the page of calls after the n the page has, for a recording it follows. Every call is read,
+ * once, for what the page says of the whole run (its summary, the origin strip, its models); the
+ * facts of the calls shown come, for a long run that ended, from the analysis of its first calls
+ * while the whole run is analysed beside the server, and the answer says so (`warming`).
+ */
+export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions = {}, part: { after?: number; limit?: number } = {}): RunDetail | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
   const after = part.after;
   const runId = run.runId;
-  const calls = runCalls(store, runId);
   const state = runState(store, runId);
   // Interrupted as the lists have it: a run its recorder left running is not recording any more,
   // and ended at its last call, as gc would end it.
   const shown = state && state.status !== run.status ? { ...run, status: state.status, endedAt: run.endedAt ?? state.endedAt } : run;
-  // Read only: the calls are kept for the run's next look (run-calls.ts).
+  const read = readPage(store, run, after === undefined ? {} : { after }, Math.max(1, part.limit ?? CALLS_PAGE), { whole: true });
+  const { page, next, analysis, whole, done } = read;
+  const calls = read.calls!;
   const summary = summarizeRun(shown, calls as CallRecord[], [], [], { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) });
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
-  const analysis = analyseRun(store, run, calls);
   return {
     run: shown,
     label: runLabel(run, kindFacts(store, run, calls.length)),
-    about: aboutOfRun(store, loadRunIndex(store), runId),
+    about: aboutOfRun(store, loadRunIndex(store), runId, { calls }),
     source: captureSource(run),
     summary,
-    // A recording's page asks only for the calls after those it has: rows are read for those alone.
-    calls: (after === undefined ? calls : calls.filter((c) => c.callNo > after)).map((c) => row(store, c, options, analysis.facts(c.callNo), shown.status === 'running')),
+    calls: page.map((c) => row(store, c, options, analysis.facts(c.callNo), shown.status === 'running')),
+    callsTotal: calls.length,
+    callsNext: next,
+    ...(next !== null ? { origins: originCodes(calls) } : {}),
     parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
     children: childRows(store, runId),
     attempts: bundleOf(loadRunIndex(store), runId).length,
     actions: actionsFor(run, undefined),
-    ...runPageFacts(store, run, calls),
+    ...runPageFacts(store, run, calls, analysis),
     fix: fixForRun(store, run.runId),
     state,
     attemptPlace: attemptPlace(store, run),
     ...(after === undefined ? {} : { after }),
+    ...(whole ? {} : { warming: { done, total: calls.length } }),
+  };
+}
+
+/** A page of a run's calls (`GET /api/runs/:id/calls?from=&limit=`, contract 8). */
+export interface CallsPage {
+  runId: string;
+  /** The calls from `from` on, at most `limit` (`CALLS_PAGE`). */
+  calls: CallRow[];
+  callsTotal: number;
+  /** Where the page after starts, or null at the run's end. */
+  callsNext: number | null;
+  /** As on the run's page (`RunDetail.warming`): the facts of these calls come from the run's first `done` calls, and may change once the whole run is analysed. */
+  warming?: { done: number; total: number };
+}
+
+/** The calls of a run from call `from` on, at most `limit`, as the run's page shows them; null for a run that isn't there. */
+export function runCallsPage(store: Store, idOrPrefix: string, at: { from: number; limit?: number }, options: ReadOptions = {}): CallsPage | null {
+  const run = lookupRun(store, idOrPrefix);
+  if (!run) return null;
+  const state = runState(store, run.runId);
+  const read = readPage(store, run, { from: at.from }, Math.max(1, Math.min(CALLS_PAGE, at.limit ?? CALLS_PAGE)));
+  const recording = (state?.status ?? run.status) === 'running';
+  const total = read.calls?.length ?? store.countCalls(run.runId);
+  return {
+    runId: run.runId,
+    calls: read.page.map((c) => row(store, c, options, read.analysis.facts(c.callNo), recording)),
+    callsTotal: total,
+    callsNext: read.next,
+    ...(read.whole ? {} : { warming: { done: read.done, total } }),
   };
 }
 
@@ -358,9 +467,10 @@ function modelInPath(name: string): string | null {
 export function callDetail(store: Store, idOrPrefix: string, callNo: number, options: ReadOptions = {}): CallDetail | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
-  // Read once while the run stays the same: the inspector asks for its calls one by one.
-  const calls = runCalls(store, run.runId);
-  return callDetailFrom(store, run, calls, analyseRun(store, run, calls), callNo, options);
+  // Read once while the run stays the same: the inspector asks for its calls one by one. Of a long
+  // run not read here lately, the calls up to this one (and a few past it) are.
+  const read = readPage(store, run, { from: callNo }, 1);
+  return callDetailFrom(store, run, read.calls ?? [], read.analysis, callNo, options);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { aboutOf, type RunAbout, type RunAsk, type Store } from '@shadowlap/engine';
+import { aboutOf, runAsk, type CallRecord, type RunAbout, type RunAsk, type Store } from '@shadowlap/engine';
 import type { IndexedRun, RunIndex } from './run-index.js';
 import { asksFor, asksOf } from './run-stats.js';
 
@@ -102,8 +102,34 @@ export function aboutsOf(store: Store, index: RunIndex, runs: readonly IndexedRu
   return out;
 }
 
-/** One run's about line, by id, or null for a run the index doesn't have. */
-export function aboutOfRun(store: Store, index: RunIndex, runId: string): RunAbout | null {
+/**
+ * The about lines of these runs as far as they are known, reading no request: what a recording's
+ * user asked comes with the run index (`run_asks`) or from memory. The run list's filter matches
+ * them on every request, so it never works out what thousands of recordings' users asked while a
+ * browser waits; `pending` names the recordings whose ask the warm-up has yet to work out (their
+ * about lines are left out, and the filter says matches among them may be missing).
+ */
+export function knownAbouts(store: Store, index: RunIndex, runs: readonly IndexedRun[]): { abouts: Map<string, RunAbout>; pending: Set<string> } {
+  const wanted = runs.filter(asksFor);
+  const asks = asksOf(store, index, wanted, { known: true });
+  const pending = new Set(wanted.filter((r) => !asks.has(r.runId)).map((r) => r.runId));
+  const abouts = new Map<string, RunAbout>();
+  for (const r of runs) if (!abouts.has(r.runId) && !pending.has(r.runId)) abouts.set(r.runId, about(store, index, r, asks.get(r.runId) ?? null));
+  return { abouts, pending };
+}
+
+/** A recording this long or longer is quoted from its first words alone on its page's first answer (`aboutOfRun`). */
+const LONG = 1000;
+
+/**
+ * One run's about line, by id, or null for a run the index doesn't have. Given the run's calls, a
+ * long recording whose user's first words aren't worked out yet is quoted from them alone, as a
+ * recording in progress is (its first request), rather than read every request it sent to tell a
+ * batch while its page waits: the whole of it is worked out beside the server (read-jobs.ts).
+ */
+export function aboutOfRun(store: Store, index: RunIndex, runId: string, o: { calls?: readonly CallRecord[] } = {}): RunAbout | null {
   const r = index.byId.get(runId);
-  return r ? (aboutsOf(store, index, [r]).get(r.runId) ?? null) : null;
+  if (!r) return null;
+  if (o.calls && asksFor(r) && r.status !== 'running' && r.calls >= LONG && !asksOf(store, index, [r], { known: true }).has(r.runId)) return about(store, index, r, runAsk(store, o.calls));
+  return aboutsOf(store, index, [r]).get(r.runId) ?? null;
 }

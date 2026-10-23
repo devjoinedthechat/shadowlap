@@ -1,19 +1,18 @@
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
-import { overviewOptions, overviewSummary } from '../overview.js';
-import { patchesToCheck } from '../fixes.js';
-import { patchesInTree } from '../patch-in-tree.js';
+import { overviewOptions } from '../overview.js';
+import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
-import { warmRunStats } from '../run-stats.js';
-import { setupUnderWay } from '../store-setup.js';
 import { readTeamStoreInput } from '../team-store.js';
 import type { GoldenSource } from '../tests.js';
-import { teamStoreFor } from './store.js';
 
 /**
- * `GET /api/summary?tz=`: the Overview, worked out on the server in the viewer's days (their IANA
- * time zone, UTC without one): this week against last, the last seven days, Today, this week's runs
- * as rows of calls, the outcomes, the prompt cache, the fixes funnel and Needs a look.
+ * `GET /api/summary?tz=`: the Overview, worked out in the viewer's days (their IANA time zone, UTC
+ * without one): this week against last, the last seven days, Today, this week's runs as rows of
+ * calls, the outcomes, the prompt cache, the fixes funnel and Needs a look. It is worked out beside
+ * the server (read-pool.ts). Each finished run's totals are worked out once in the store's life and
+ * kept, ahead of time, newest first; until those of the two weeks it adds up are, it answers at once
+ * with how far that has got, `{ warming: { done, total } }`, and the page asks again.
  */
 
 /** The goldens on disk the dashboard was given, or none; a folder being edited reads as none for a moment. */
@@ -26,28 +25,15 @@ export function goldensOf(ctx: RouteContext): GoldenSource[] {
 }
 
 export function register(router: Router, ctx: RouteContext): void {
-  // Each finished run's totals are worked out once in the store's life and kept: here, a slice of
-  // about 50 ms at a time while the dashboard is otherwise idle, newest runs first, so the first
-  // look at the Overview or the Runs page reads one row per run instead of every call.
-  const warm = () => {
-    try {
-      if (!warmRunStats(ctx.store)) setTimeout(warm, 20).unref();
-    } catch {
-      // the store was closed: the dashboard stopped
-    }
-  };
-  setTimeout(warm, 0).unref();
-
   router.get('/summary', async (r) => {
     const o = overviewOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
-    const store = teamStoreFor(ctx);
-    // It names the time it was worked out at, so it is never the same twice: no ETag. Runs only
-    // here are the store status's count, the one Settings → Store and the CLI give; a setup of the
-    // store left unfinished leads back to its page.
-    const setup = store && ctx.project ? setupUnderWay(ctx.store, readTeamStoreInput({ cwd: ctx.project.path })) : null;
-    const project = ctx.project?.path;
-    const patchInTree = project ? await patchesInTree(project, patchesToCheck(ctx.store)) : null;
-    r.json(overviewSummary(ctx.store, { ...o, ...ctx.read, goldens: goldensOf(ctx), teamStore: store ? { name: store.name, onlyLocal: store.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}) }));
+    const project = ctx.project?.path ?? null;
+    // The team store as the project's config names it: runs only here are the store status's count,
+    // the one Settings → Store and the CLI give, and a setup left unfinished leads back to its page.
+    const team = project ? readTeamStoreInput({ cwd: project }) : null;
+    const a = await ctx.reads.run({ kind: 'summary', work: { ...o, ...ctx.read, goldens: goldensOf(ctx), team: team?.store ? team : null, project, warmed: ctx.reads.warmed } });
+    if (a.warming) ctx.reads.warm();
+    sendAnswer(r, a);
   });
 }

@@ -165,13 +165,15 @@ interface Slice {
 
 /** A save of the warm-up: each run's totals as it kept them. */
 type Saved = Array<{ runId: string; stats: string }>;
+/** What some recordings' users asked, as the warm-up kept it (`run_asks`). */
+type Asked = { asked: string[] };
 
 /**
  * A slice's batches from what it did, in order: a reading of its clock as it starts, then for each
- * batch the totals it kept (its runs), what it added to them (the prompt cache of some, what some
- * recordings' user asked), and a reading of its clock while runs are left.
+ * batch the totals it kept (its runs), what it added to them (the prompt cache of some), what some
+ * recordings' user asked, and a reading of its clock while runs are left.
  */
-function batchesOf(events: Array<number | Saved>): Batch[] {
+function batchesOf(events: Array<number | Saved | Asked>): Batch[] {
   const [started, ...rest] = events;
   if (typeof started !== 'number') throw new Error('the slice did not read its clock first');
   const out: Batch[] = [];
@@ -187,13 +189,16 @@ function batchesOf(events: Array<number | Saved>): Batch[] {
       kept = new Map();
       continue;
     }
+    if (!Array.isArray(e)) {
+      batch.asks.push(...e.asked);
+      continue;
+    }
     const first = !batch.runs.length;
     if (first) batch.runs = e.map((r) => r.runId);
     for (const r of e) {
       const now = JSON.parse(r.stats) as Record<string, unknown>;
       const was = kept.get(r.runId);
       if (!first && was && !('cache' in was) && 'cache' in now) batch.caches.push(r.runId);
-      if (!first && was && !('ask' in was) && 'ask' in now) batch.asks.push(r.runId);
       kept.set(r.runId, now);
     }
   }
@@ -262,16 +267,17 @@ describe('read models at scale', () => {
   it('works the totals out ahead in short slices, so the first look reads no calls either', () => {
     // The measure of this machine the warm-up's time is held against, as the reads' is above.
     const plain = plainRead();
-    // As a store no dashboard has opened: no run's totals kept yet.
+    // As a store no dashboard has opened: no run's totals kept yet, nor what any user asked.
     const raw = new DatabaseSync(path);
-    raw.exec('DELETE FROM run_stats');
+    raw.exec('DELETE FROM run_stats; DELETE FROM run_asks');
     raw.close();
     const store = Store.open(path);
     // What each slice does, in order: the warm-up's own clock (performance.now), read as the slice
     // starts and after each batch while runs are left, and what each batch keeps.
-    let events: Array<number | Saved> = [];
+    let events: Array<number | Saved | Asked> = [];
     const clock = performance.now.bind(performance);
     const save = store.saveRunStats.bind(store);
+    const saveAsks = store.saveRunAsks.bind(store);
     vi.spyOn(performance, 'now').mockImplementation(() => {
       const t = clock();
       events.push(t);
@@ -280,6 +286,10 @@ describe('read models at scale', () => {
     vi.spyOn(store, 'saveRunStats').mockImplementation((rows) => {
       events.push(rows.map((r) => ({ runId: r.runId, stats: r.stats })));
       return save(rows);
+    });
+    vi.spyOn(store, 'saveRunAsks').mockImplementation((rows) => {
+      events.push({ asked: rows.map((r) => r.runId) });
+      return saveAsks(rows);
     });
     const slices: Slice[] = [];
     try {

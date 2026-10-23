@@ -1,11 +1,15 @@
 import { basename } from 'node:path';
-import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, kindLabel, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunKind, type RunMode, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
+import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, kindLabel, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunAsk, type RunKind, type RunMode, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
 
 /**
  * Every run in the store, classified, from one light query: the run columns, the few fields of
  * `meta` that classification and the run list read, and each run's call count. No call is loaded.
  * The Runs table, its calendar and chips, the Overview, the sidebar and the status bar's counts
- * start here. The index is kept per store until something writes to the store.
+ * start here. The index is kept per store until a run, a call or a fix changes, as the store's change
+ * counters say: keeping what was worked out about runs (their totals, what their user asked) changes
+ * none of those, so it never makes the next request read and classify every run again. What each
+ * finished recording's user asked first (`run_asks`), which its about line quotes, comes with the
+ * index, and what was kept since is read into it a few rows at a time.
  */
 
 export interface IndexedRun {
@@ -48,6 +52,11 @@ export interface IndexedRun {
   label: string;
   /** For a run with no command (built from a capture): the file it came from. */
   source: string | null;
+  /**
+   * For a finished recording: what its user asked first, as `run_asks` keeps it, which its about line
+   * quotes; null when it asked nothing; undefined while it is not worked out (run-stats.ts `asksOf`).
+   */
+  ask: RunAsk | null | undefined;
 }
 
 export interface IndexedMeta {
@@ -118,8 +127,16 @@ SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS st
 FROM runs r
 ORDER BY r.started_at DESC, r.run_id DESC`;
 
-/** Changes with every commit to the store, by this connection (total_changes) or by any other (data_version). */
-const VERSION_SQL = `SELECT (SELECT data_version FROM pragma_data_version()) AS dv, total_changes() AS tc`;
+/** The store's change counters for what the index reads (`Store.changeCounts`), in one statement. */
+const VERSION_SQL = `SELECT (SELECT n FROM change_counts WHERE name = 'runs') AS runs, (SELECT n FROM change_counts WHERE name = 'fixes') AS fixes,
+       (SELECT COALESCE(MAX(rowid), 0) FROM call_events) AS calls`;
+
+/** What each finished recording's user asked first, kept since the row given (`run_asks`, in the order kept). */
+const ASKS_SQL = `SELECT rowid AS at, run_id AS id, key, ask FROM run_asks WHERE rowid > ? ORDER BY rowid`;
+
+/** What the asks kept for a run were worked out from: a finished run's never change. */
+const ASK_FORMAT = 'a1';
+export const askKeyOf = (r: Pick<IndexedRun, 'status' | 'endedAt' | 'calls'>): string => `${ASK_FORMAT}|${r.status}|${r.endedAt}|${r.calls}`;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
@@ -207,38 +224,68 @@ export function classifiable(r: Pick<IndexedRun, 'runId' | 'parentRunId' | 'mode
   };
 }
 
-const kept = new WeakMap<Store, { version: string; index: RunIndex }>();
-
-/** Where the store's writes stand: by other connections (data_version) and by this one (total_changes). */
-function versionOf(store: Store): { others: string; key: string } {
-  const v = store.query(VERSION_SQL)[0];
-  return { others: String(v?.dv), key: `${String(v?.dv)}|${String(v?.tc)}` };
+interface KeptIndex {
+  version: string;
+  index: RunIndex;
+  /** The newest `run_asks` row read into the index. */
+  asksAt: number;
 }
 
-/** Reads and classifies every run in the store, or returns the index read before when nothing was written since. */
+const kept = new WeakMap<Store, KeptIndex>();
+
+/**
+ * Where what the index reads stands: the runs (any run added, changed or deleted), the fixes and
+ * their links, and the newest call event. Each moves with every write to what it counts, by this
+ * connection or any other; a write the index doesn't read (run totals, the search index) moves none.
+ */
+function versionOf(store: Store): string {
+  const v = store.query(VERSION_SQL)[0];
+  return `${String(v?.runs)}|${String(v?.fixes)}|${String(v?.calls)}`;
+}
+
+/** Reads into the index what recordings' users asked that was kept since it last looked. */
+function readAsks(store: Store, entry: KeptIndex): void {
+  let rows: Array<Record<string, unknown>>;
+  try {
+    rows = store.query(ASKS_SQL, entry.asksAt);
+  } catch {
+    // a store without the table: no asks kept yet
+    return;
+  }
+  for (const row of rows) {
+    entry.asksAt = Math.max(entry.asksAt, Number(row.at));
+    const run = entry.index.byId.get(String(row.id));
+    if (!run || run.status === 'running' || row.key !== askKeyOf(run)) continue;
+    run.ask = parseAsk(row.ask);
+  }
+}
+
+/** A kept ask as `runAsk` gives it, or null (it asked nothing, or what was kept can't be read). */
+export function parseAsk(v: unknown): RunAsk | null {
+  if (typeof v !== 'string') return null;
+  const a = json(v);
+  return isObject(a) && typeof a.text === 'string' ? { text: a.text, agent: a.agent === true, batch: a.batch === true } : null;
+}
+
+/** Reads and classifies every run in the store, or returns the index read before when no run, call or fix changed since. */
 export function loadRunIndex(store: Store): RunIndex {
-  const { key } = versionOf(store);
-  const hit = kept.get(store);
-  if (hit && hit.version === key) return hit.index;
-  const index = readRunIndex(store);
-  kept.set(store, { version: key, index });
-  return index;
+  const version = versionOf(store);
+  let entry = kept.get(store);
+  if (!entry || entry.version !== version) {
+    entry = { version, index: readRunIndex(store), asksAt: 0 };
+    kept.set(store, entry);
+  }
+  readAsks(store, entry);
+  return entry.index;
 }
 
 /**
- * Runs `write`, which changes nothing the index reads (the run totals kept in `run_stats`), and keeps
- * the index read before as current when no other connection wrote meanwhile: keeping a run's
- * totals must not make the next request read and classify every run again.
+ * Runs `write`, which changes nothing the index reads (the run totals kept in `run_stats`, what users
+ * asked, the search index), so the index read before stays current. Another connection's write
+ * meanwhile moves the counters as any write does.
  */
-export function keepingIndex<T>(store: Store, write: () => T): T {
-  const before = versionOf(store);
-  const out = write();
-  const hit = kept.get(store);
-  if (hit && hit.version === before.key) {
-    const after = versionOf(store);
-    if (after.others === before.others) kept.set(store, { version: after.key, index: hit.index });
-  }
-  return out;
+export function keepingIndex<T>(_store: Store, write: () => T): T {
+  return write();
 }
 
 function readRunIndex(store: Store): RunIndex {
@@ -289,6 +336,7 @@ function readRunIndex(store: Store): RunIndex {
       failed: isFailedOutcome(outcome),
       label: kindLabel(cls.kind, r.divergence),
       source: captureSource({ command: { argv: r.argv }, meta: { imported: r.meta.imported } }),
+      ask: undefined,
     };
   });
   const byId = new Map(runs.map((r) => [r.runId, r]));

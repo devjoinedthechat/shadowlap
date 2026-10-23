@@ -1,7 +1,8 @@
-import { addNote, callDetail, changeLabels, lineage, listRuns, lookupRun, noSuchRun, provenance, runDetail } from '../api.js';
+import { addNote, CALLS_PAGE, changeLabels, lookupRun, noSuchRun, provenance } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { ExportError, exportHtmlApart } from '../export-apart.js';
 import { HttpError } from '../http.js';
+import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { recordingNow, stillRecording } from '../run-exports.js';
 import { maskCount } from '../run-mask.js';
@@ -9,15 +10,30 @@ import { runVersionTag } from '../run-version.js';
 import { deleteRuns } from '../runs-list.js';
 import { exportHtml, withAncestors, type ExportHtmlResult } from '../static.js';
 
-/** Runs: the list, one run, its calls, family and provenance, labels and notes, the HTML download, delete. */
+/** A whole number, 0 or more, from the query string; undefined when absent. */
+function count(r: { query: URLSearchParams }, name: string, what: string): number | undefined {
+  const raw = r.query.get(name);
+  if (raw === null) return undefined;
+  const n = Number(raw);
+  if (!(Number.isInteger(n) && n >= 0)) throw new HttpError(400, `${name} is ${what}: a whole number, 0 or more`);
+  return n;
+}
+
+/**
+ * Runs: the list, one run, its calls, family and provenance, labels and notes, the HTML download,
+ * delete. What reads a run's calls, or every run's, is worked out beside the server (read-pool.ts),
+ * by the thread that read that run last.
+ */
 export function register(router: Router, ctx: RouteContext): void {
   // `ctx.store` is read in each handler: on a dashboard with several projects it is the current one's.
-  router.get('/runs', (r) => r.tagged({ runs: listRuns(ctx.store, ctx.read) }));
+  router.get('/runs', async (r) => sendAnswer(r, await ctx.reads.run({ kind: 'recent', read: ctx.read })));
 
-  // A run's page. `?after=<n>` answers with the calls after the n the page has, for a recording it
-  // follows. Revalidated from where the run stands (run-version.ts) before anything is built: the page
-  // asks again whenever runs move, and a long run's answer is megabytes worked out from every call.
-  router.get('/runs/:id', (r) => {
+  // A run's page: the run with the first page of its calls (500 at most), `callsTotal` and
+  // `callsNext` (contract 8). `?after=<n>` answers with the calls after the n the page has, for a
+  // recording it follows. Revalidated from where the run stands (run-version.ts) before anything is
+  // worked out: the page asks again whenever runs move. A long run answered from its first calls
+  // says so (`warming`), without an ETag, and is analysed whole beside the server meanwhile.
+  router.get('/runs/:id', async (r) => {
     const store = ctx.store;
     const run = lookupRun(store, r.params.id!);
     // A prefix of several runs' ids names none of them: the page says so, rather than that there is no such run.
@@ -25,20 +41,26 @@ export function register(router: Router, ctx: RouteContext): void {
       const no = noSuchRun(store, r.params.id!);
       throw new HttpError(no.status, no.message);
     }
-    const raw = r.query.get('after');
-    const after = raw === null ? undefined : Number(raw);
-    if (after !== undefined && !(Number.isInteger(after) && after >= 0)) throw new HttpError(400, 'after is a call number: a whole number, 0 or more');
+    const after = count(r, 'after', 'a call number');
     const etag = runVersionTag(store, run, JSON.stringify([ctx.read, after ?? null]));
     if (r.req.headers['if-none-match'] === etag) {
       r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
       r.res.end();
       return;
     }
-    const d = runDetail(store, run.runId, ctx.read, after === undefined ? {} : { after });
-    if (!d) throw new HttpError(404, `no run ${r.params.id}`);
-    const text = JSON.stringify(d);
-    r.res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-length': String(Buffer.byteLength(text)), etag, 'cache-control': 'no-cache' });
-    r.res.end(text);
+    sendAnswer(r, await ctx.reads.run({ kind: 'run', runId: run.runId, read: ctx.read, ...(after === undefined ? {} : { after }) }, { affinity: run.runId }), { etag });
+  });
+
+  // The next page of a run's calls (contract 8): those from call `from` on, `limit` of them (500 at most).
+  router.get('/runs/:id/calls', async (r) => {
+    const run = lookupRun(ctx.store, r.params.id!);
+    if (!run) {
+      const no = noSuchRun(ctx.store, r.params.id!);
+      throw new HttpError(no.status, no.message);
+    }
+    const from = count(r, 'from', 'a call number') ?? 1;
+    const limit = Math.min(CALLS_PAGE, Math.max(1, count(r, 'limit', 'how many calls') ?? CALLS_PAGE));
+    sendAnswer(r, await ctx.reads.run({ kind: 'calls', runId: run.runId, read: ctx.read, from, limit }, { affinity: run.runId }));
   });
 
   // As the Runs page deletes: the attempts bundled under the run go with it, and a run still
@@ -53,12 +75,11 @@ export function register(router: Router, ctx: RouteContext): void {
     r.json({ deleted: out.done[0], attempts: out.attempts, blobs: out.blobs, bytes: out.bytes });
   });
 
-  router.get('/runs/:id/calls/:n', (r) => {
-    const store = ctx.store;
+  router.get('/runs/:id/calls/:n', async (r) => {
     const n = Number(r.params.n);
-    const d = Number.isInteger(n) ? callDetail(store, r.params.id!, n, ctx.read) : null;
-    if (!d) throw new HttpError(404, `no call #${r.params.n} in run ${r.params.id}`);
-    r.tagged(d);
+    const run = Number.isInteger(n) ? lookupRun(ctx.store, r.params.id!) : null;
+    if (!run) throw new HttpError(404, `no call #${r.params.n} in run ${r.params.id}`);
+    sendAnswer(r, await ctx.reads.run({ kind: 'call', runId: run.runId, read: ctx.read, callNo: n }, { affinity: run.runId }));
   });
 
   // The run's record for the Provenance tab, with what a copy made now would mask under the
@@ -76,11 +97,10 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged(p);
   });
 
-  router.get('/runs/:id/lineage', (r) => {
-    const store = ctx.store;
-    const nodes = lineage(store, r.params.id!, ctx.read);
-    if (!nodes) throw new HttpError(404, `no run ${r.params.id}`);
-    r.tagged({ nodes });
+  router.get('/runs/:id/lineage', async (r) => {
+    const run = lookupRun(ctx.store, r.params.id!);
+    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
+    sendAnswer(r, await ctx.reads.run({ kind: 'lineage', runId: run.runId, read: ctx.read }, { affinity: run.runId }));
   });
 
   router.post('/runs/:id/labels', async (r) => {

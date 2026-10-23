@@ -1,6 +1,7 @@
 import type { Normalizer, Price, Store } from '@shadowlap/engine';
 import type { ReadOptions } from './api.js';
 import type { JobManager, ProjectInfo } from './jobs.js';
+import type { ReadModels } from './read-pool.js';
 import type { DashboardOptions } from './server.js';
 import type { UploadStore } from './uploads.js';
 
@@ -42,6 +43,12 @@ export interface RouteContext {
   uploads: UploadStore;
   /** What read models take: the price table for costs. */
   read: ReadOptions;
+  /**
+   * The read models that read every call of a run, or of every run (read-jobs.ts: the Overview, a
+   * run's page and its calls, Compare, the run list): worked out on threads beside the server for a
+   * store with a file (read-pool.ts), so a first look at a big store holds up no other request.
+   */
+  reads: ReadModels;
   /** The project folder jobs run in, or null; its `id` with several projects. */
   project: ProjectInfo | null;
   /**

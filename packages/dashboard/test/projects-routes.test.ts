@@ -61,6 +61,8 @@ if (rest[0] === 'pack') {
 if (rest[0] === 'test') {
   const { DatabaseSync } = await import('node:sqlite');
   const store = new DatabaseSync(db);
+  // As the CLI's store waits for the lock (Store.open): the dashboard writes what its threads work out meanwhile.
+  store.exec('PRAGMA busy_timeout = 10000');
   const ok = process.env.FAKE_TEST !== 'fail';
   const golden = JSON.parse(readFileSync(join(rest[1], 'run.json'), 'utf8')).runs[0].runId;
   const session = 'S' + Date.now() + Math.random().toString(36).slice(2);
