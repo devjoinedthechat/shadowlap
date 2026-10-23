@@ -1,0 +1,319 @@
+"""The Claude Agent SDK fence in Python, against a stand-in for Claude Code's tool pipeline
+(fake_claude_code.py) and an in-memory stand-in for the sidecar's call API. The vitest suite also
+runs the same fence against a real sidecar (packages/adapters/test/claude-agent-sdk-python.test.ts)."""
+
+import asyncio
+import dataclasses
+import json
+import os
+import re
+import sys
+import tempfile
+import unittest
+from typing import Any, Callable, Dict, List, Optional
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import shadowlap  # noqa: E402
+from fake_claude_code import FakeClaudeCode, matches  # noqa: E402
+from shadowlap.adapters.claude_agent_sdk import BUILT_IN_EFFECTS, fence_hooks, with_effects, with_fence  # noqa: E402
+
+try:
+    import trio
+except ImportError:
+    trio = None
+
+ROOT = "/proj"
+
+
+class Sidecar:
+    """The sidecar's call API as the fence uses it: a recording, then a replay of it that serves
+    calls matched by name and arguments, and after the first that doesn't match, refuses (or stubs)
+    writes and runs reads live."""
+
+    def __init__(self, recording: Optional[List[Dict[str, Any]]] = None, writes: str = "block", gone: bool = False):
+        self.recording = recording
+        self.writes = writes
+        self.gone = gone
+        self.calls: List[Dict[str, Any]] = []
+        self.consumed: set = set()
+        self.diverged = False
+
+    def __call__(self, cfg: Any, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        if self.gone:
+            raise RuntimeError("shadowlap sidecar /v1/calls/resolve failed: connection refused")
+        json.dumps(body, allow_nan=False)
+        if path.endswith("/resolve"):
+            call_no = len(self.calls) + 1
+            entry: Dict[str, Any] = {"name": body["name"], "effect": body["effect"], "args": body["args"], "end": None}
+            self.calls.append(entry)
+            if self.recording is not None and not self.diverged:
+                for i, rec in enumerate(self.recording):
+                    if i not in self.consumed and rec["name"] == body["name"] and rec["args"] == body["args"]:
+                        self.consumed.add(i)
+                        entry.update(origin="replayed", end=rec["end"])
+                        end = rec["end"]
+                        return {"origin": "replayed", "callNo": call_no, **({"outcome": "ok", "result": end["result"]} if end["outcome"] == "ok" else {"outcome": "error", "error": end["error"]})}
+                self.diverged = True
+            if self.recording is not None and body["effect"] == "write" and self.writes != "allow":
+                if self.writes == "stub":
+                    entry["origin"] = "stubbed"
+                    return {"origin": "stubbed", "callNo": call_no}
+                entry["origin"] = "blocked"
+                return {"origin": "blocked", "callNo": call_no, "outcome": "error", "error": {"name": "ShadowlapWriteBlocked", "message": f"write tool {body['name']} blocked after divergence"}}
+            entry["origin"] = "live"
+            return {"origin": "live", "callNo": call_no}
+        m = re.match(r".*/v1/calls/(\d+)/complete$", path)
+        self.calls[int(m.group(1)) - 1]["end"] = body
+        return {"ok": True}
+
+
+SCRIPT = [
+    ("Read", {"file_path": f"{ROOT}/notes.md"}),
+    ("Bash", {"command": "echo hi > out.txt", "description": "write a file"}),
+    ("Write", {"file_path": f"{ROOT}/report.md", "content": "draft"}),
+    ("Bash", {"command": "cd sub"}),
+    ("Bash", {"command": "fail 3 tests failed"}),
+    ("WebFetch", {"url": "https://example.com/docs", "prompt": "summarize"}),
+    ("Edit", {"file_path": f"{ROOT}/notes.md", "old_string": "old line", "new_string": "new line"}),
+]
+
+
+def session(hooks: Dict[str, List[Any]]) -> FakeClaudeCode:
+    cc = FakeClaudeCode(hooks, ROOT)
+    cc.files[f"{ROOT}/notes.md"] = "old line\nmore\n"
+    cc.web["https://example.com/docs"] = "the docs page"
+    return cc
+
+
+def fenced(**options: Any) -> Dict[str, List[Any]]:
+    return fence_hooks(scratch=tempfile.mkdtemp(prefix="shadowlap-fence-test-"), log=lambda line: None, **options)
+
+
+async def agent(cc: FakeClaudeCode, script: List[Any] = SCRIPT) -> Dict[str, Any]:
+    results = [await cc.call(tool, dict(inp), f"toolu_{i}") for i, (tool, inp) in enumerate(script)]
+    await cc.stop()
+    return {"results": results, "notes": list(cc.notes)}
+
+
+class Fence(unittest.TestCase):
+    def setUp(self) -> None:
+        self._post = shadowlap._post
+        os.environ["SHADOWLAP_URL"] = "http://sidecar.test"
+
+    def tearDown(self) -> None:
+        shadowlap._post = self._post
+        os.environ.pop("SHADOWLAP_URL", None)
+
+    def record(self) -> tuple:
+        sidecar = Sidecar()
+        shadowlap._post = sidecar
+        cc = session(fenced())
+        out = asyncio.run(agent(cc))
+        return sidecar, cc, out
+
+    def test_records_each_built_in_tool_with_its_effect_and_a_failure_as_a_failure(self) -> None:
+        sidecar, cc, out = self.record()
+        self.assertEqual(cc.ran, ["echo hi > out.txt", "cd sub", "fail 3 tests failed"])
+        self.assertEqual([(c["name"], c["effect"], c["end"]["outcome"]) for c in sidecar.calls], [("Read", "read", "ok"), ("Bash", "write", "ok"), ("Write", "write", "ok"), ("Bash", "write", "ok"), ("Bash", "write", "error"), ("WebFetch", "read", "ok"), ("Edit", "write", "ok")])
+        self.assertEqual(sidecar.calls[1]["args"], {"command": "echo hi > out.txt", "description": "write a file"})
+        self.assertEqual(sidecar.calls[3]["end"]["result"]["shadowlapCwd"], f"{ROOT}/sub")
+        self.assertEqual(sidecar.calls[4]["end"]["error"], {"name": "ToolError", "message": "Exit code 3\ntests failed", "code": "3"})
+        self.assertEqual(out["results"][4], {"content": "Exit code 3\ntests failed", "is_error": True})
+
+    def test_replays_without_running_a_write_again(self) -> None:
+        recorded, _, first = self.record()
+        sidecar = Sidecar(recording=recorded.calls)
+        shadowlap._post = sidecar
+        cc = session(fenced())
+        cc.files[f"{ROOT}/notes.md"] = "old line\nmore\nand a line added since\n"
+        again = asyncio.run(agent(cc))
+        self.assertEqual(again, first)
+        self.assertFalse(sidecar.diverged)
+        self.assertEqual(len(cc.ran), 3)
+        self.assertTrue(all(c == "true" or c.startswith("cd -- ") or c.startswith("printf '%s'") for c in cc.ran), cc.ran)
+        self.assertNotIn(f"{ROOT}/out.txt", cc.files)
+        self.assertNotIn(f"{ROOT}/report.md", cc.files)
+        self.assertEqual(cc.files[f"{ROOT}/notes.md"], "old line\nmore\nand a line added since\n")
+        self.assertEqual(cc.asked_model, 1)  # reads run as they are
+
+    def fork(self, writes: str) -> tuple:
+        recorded, _, first = self.record()
+        sidecar = Sidecar(recording=recorded.calls, writes=writes)
+        shadowlap._post = sidecar
+        cc = session(fenced())
+        script = [(t, {**i, "command": "echo bye > out.txt"}) if i.get("command") == "echo hi > out.txt" else (t, i) for t, i in SCRIPT]
+        return sidecar, cc, asyncio.run(agent(cc, script)), first
+
+    def test_refuses_writes_after_a_fork_and_runs_reads_live(self) -> None:
+        sidecar, cc, out, first = self.fork("block")
+        self.assertTrue(sidecar.diverged)
+        self.assertEqual(cc.ran, [])
+        self.assertRegex(out["results"][1]["content"], r"^PreToolUse:Bash hook error: write tool Bash blocked")
+        self.assertEqual(out["results"][5], first["results"][5])
+        self.assertEqual([c["origin"] for c in sidecar.calls], ["replayed", "blocked", "blocked", "blocked", "blocked", "live", "blocked"])
+        self.assertEqual(sidecar.calls[5]["end"]["outcome"], "ok")
+
+    def test_stubs_writes_after_a_fork(self) -> None:
+        sidecar, cc, out, _ = self.fork("stub")
+        self.assertEqual(out["results"][1], {"content": "(Bash completed with no output)", "is_error": False})
+        self.assertEqual(out["results"][2], {"content": f"File created successfully at: {ROOT}/report.md", "is_error": False})
+        self.assertNotIn(f"{ROOT}/out.txt", cc.files)
+        self.assertNotIn(f"{ROOT}/report.md", cc.files)
+        stubbed = [c for c in sidecar.calls if c["origin"] == "stubbed"]
+        self.assertTrue(all(c["end"]["outcome"] == "ok" for c in stubbed))
+        self.assertEqual(next(c for c in stubbed if c["name"] == "Write")["end"]["result"]["filePath"], f"{ROOT}/report.md")
+
+    def test_refuses_a_write_it_cannot_record(self) -> None:
+        shadowlap._post = Sidecar(gone=True)
+        cc = session(fenced())
+        write = asyncio.run(cc.call("Bash", {"command": "echo hi > out.txt"}, "toolu_a"))
+        read = asyncio.run(cc.call("Read", {"file_path": f"{ROOT}/notes.md"}, "toolu_b"))
+        self.assertRegex(write["content"], r"^PreToolUse:Bash hook error: shadowlap: Bash was not run: it is a write, and it could not be recorded")
+        self.assertEqual(cc.ran, [])
+        self.assertEqual(read, {"content": "old line\nmore\n", "is_error": False})
+
+    def test_changes_nothing_outside_shadowlap(self) -> None:
+        os.environ.pop("SHADOWLAP_URL", None)
+        cc = session(fenced())
+        asyncio.run(agent(cc))
+        self.assertEqual(cc.ran, ["echo hi > out.txt", "cd sub", "fail 3 tests failed"])
+
+    def test_ends_a_call_a_permission_refused(self) -> None:
+        sidecar = Sidecar()
+        shadowlap._post = sidecar
+        cc = session(fenced())
+        refused = asyncio.run(cc.call("Write", {"file_path": "/etc/hosts", "content": "x"}, "toolu_r"))
+        asyncio.run(cc.stop())
+        self.assertTrue(refused["is_error"])
+        self.assertEqual(sidecar.calls[0]["end"]["error"]["name"], "NotRun")
+
+    def test_forks_safely_where_claude_code_checks_a_file_a_fenced_write_never_made(self) -> None:
+        script = [("Write", {"file_path": f"{ROOT}/new.md", "content": "alpha"}), ("Edit", {"file_path": f"{ROOT}/new.md", "old_string": "alpha", "new_string": "beta"})]
+        recorded = Sidecar()
+        shadowlap._post = recorded
+        asyncio.run(agent(session(fenced()), script))
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        cc = session(fenced())
+        out = asyncio.run(agent(cc, script))
+        self.assertEqual(out["results"][1], {"content": "<tool_use_error>File does not exist.</tool_use_error>", "is_error": True})
+        self.assertNotIn(f"{ROOT}/new.md", cc.files)
+
+    def test_a_long_bash_failure_is_reproduced_from_a_file(self) -> None:
+        long = "x" * 20000
+        recorded = Sidecar()
+        shadowlap._post = recorded
+        asyncio.run(agent(session(fenced()), [("Bash", {"command": "fail 2 " + long})]))
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        cc = session(fenced())
+        out = asyncio.run(agent(cc, [("Bash", {"command": "fail 2 " + long})]))
+        self.assertEqual(out["results"][0], {"content": "Exit code 2\n" + long, "is_error": True})
+        self.assertTrue(cc.ran[0].startswith("cat -- "))
+
+    def test_matches_only_the_tools_it_records(self) -> None:
+        matcher = fence_hooks()["PreToolUse"][0].matcher
+        self.assertTrue(all(matches(matcher, t) for t in BUILT_IN_EFFECTS))
+        self.assertFalse(any(matches(matcher, t) for t in ("BashOutput", "TodoWrite", "Agent", "mcp__orders__lookup_order")))
+
+    def test_with_fence_keeps_the_options_and_their_hooks(self) -> None:
+        @dataclasses.dataclass
+        class Options:
+            cwd: str = ROOT
+            hooks: Optional[Dict[str, List[Any]]] = None
+
+        mine = object()
+        out = with_fence(Options(hooks={"PreToolUse": [mine]}))
+        self.assertEqual(out.cwd, ROOT)
+        self.assertIs(out.hooks["PreToolUse"][0], mine)
+        self.assertEqual(len(out.hooks["PreToolUse"]), 2)
+        self.assertEqual(sorted(out.hooks), ["PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "SubagentStop"])
+
+
+@dataclasses.dataclass
+class SdkMcpTool:
+    """As the SDK's @tool makes one."""
+
+    name: str
+    description: str
+    input_schema: Dict[str, Any]
+    handler: Callable[[Dict[str, Any]], Any]
+
+
+class McpTools(unittest.TestCase):
+    def setUp(self) -> None:
+        self._post = shadowlap._post
+        os.environ["SHADOWLAP_URL"] = "http://sidecar.test"
+        self.ran: List[str] = []
+
+        async def lookup(args: Dict[str, Any]) -> Dict[str, Any]:
+            self.ran.append("lookup " + args["id"])
+            return {"content": [{"type": "text", "text": "order %s: shipped" % args["id"]}]}
+
+        async def refund(args: Dict[str, Any]) -> Dict[str, Any]:
+            self.ran.append("refund " + args["id"])
+            return {"content": [{"type": "text", "text": "refunded " + args["id"]}]}
+
+        self.tools = with_effects("orders", [SdkMcpTool("lookup_order", "look up", {"id": str}, lookup), SdkMcpTool("issue_refund", "refund", {"id": str}, refund)], {"lookup_order": "read", "issue_refund": "write"})
+
+    def tearDown(self) -> None:
+        shadowlap._post = self._post
+        os.environ.pop("SHADOWLAP_URL", None)
+
+    def test_records_under_the_model_s_names_replays_and_refuses_a_write_after_a_fork(self) -> None:
+        recorded = Sidecar()
+        shadowlap._post = recorded
+        asyncio.run(self.tools[0].handler({"id": "A-1"}))
+        asyncio.run(self.tools[1].handler({"id": "A-1"}))
+        self.assertEqual([(c["name"], c["effect"], c["args"]) for c in recorded.calls], [("mcp__orders__lookup_order", "read", {"id": "A-1"}), ("mcp__orders__issue_refund", "write", {"id": "A-1"})])
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        self.assertEqual(asyncio.run(self.tools[1].handler({"id": "A-1"})), {"content": [{"type": "text", "text": "refunded A-1"}]})
+        self.assertEqual(self.ran, ["lookup A-1", "refund A-1"])
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        asyncio.run(self.tools[0].handler({"id": "B-2"}))
+        refused = asyncio.run(self.tools[1].handler({"id": "B-2"}))
+        self.assertTrue(refused["is_error"])
+        self.assertIn("blocked", refused["content"][0]["text"])
+        self.assertEqual(self.ran, ["lookup A-1", "refund A-1", "lookup B-2"])
+
+    def test_needs_an_effect_for_every_tool(self) -> None:
+        with self.assertRaisesRegex(TypeError, "missing for issue_refund"):
+            with_effects("orders", self.tools, {"lookup_order": "read"})
+
+
+@unittest.skipUnless(trio, "trio is not installed")
+class UnderTrio(unittest.TestCase):
+    """The SDK runs its hooks on anyio, which can run on trio: the fence asks the sidecar from trio's worker threads."""
+
+    def setUp(self) -> None:
+        self._post = shadowlap._post
+        os.environ["SHADOWLAP_URL"] = "http://sidecar.test"
+
+    def tearDown(self) -> None:
+        shadowlap._post = self._post
+        os.environ.pop("SHADOWLAP_URL", None)
+
+    def test_the_hooks_record_and_replay_under_trio(self) -> None:
+        hooks = fenced()
+        pre, post = hooks["PreToolUse"][0].hooks[0], hooks["PostToolUse"][0].hooks[0]
+        base = {"session_id": "s", "cwd": ROOT, "tool_name": "Bash", "tool_input": {"command": "echo hi > out.txt"}}
+        recorded = Sidecar()
+        shadowlap._post = recorded
+
+        async def record() -> None:
+            self.assertEqual(await pre({**base, "hook_event_name": "PreToolUse"}, "t1", {}), {})
+            await post({**base, "hook_event_name": "PostToolUse", "tool_response": {"stdout": "", "stderr": "", "interrupted": False}}, "t1", {})
+
+        trio.run(record)
+        self.assertEqual(recorded.calls[0]["end"]["outcome"], "ok")
+        shadowlap._post = Sidecar(recording=recorded.calls)
+
+        async def replay() -> Any:
+            return await pre({**base, "hook_event_name": "PreToolUse"}, "t2", {})
+
+        out = trio.run(replay)
+        self.assertEqual(out["hookSpecificOutput"]["updatedInput"]["command"], "true")
+
+
+if __name__ == "__main__":
+    unittest.main()

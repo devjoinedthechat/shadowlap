@@ -1,39 +1,94 @@
 {
   "name": "@shadowlap/adapters",
   "version": "0.1.0",
-  "description": "Framework adapters for Shadowlap: declare tool effects once for the Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain/LangGraph and the Anthropic tool runner.",
+  "description": "Framework adapters for Shadowlap: declare tool effects once for the Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain/LangGraph and the Anthropic tool runner, and fence the Claude Agent SDK's built-in tools.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "require": {
+        "types": "./dist/cjs/index.d.cts",
+        "default": "./dist/cjs/index.cjs"
+      },
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
     "./ai-sdk": {
+      "require": {
+        "types": "./dist/cjs/ai-sdk.d.cts",
+        "default": "./dist/cjs/ai-sdk.cjs"
+      },
       "types": "./dist/ai-sdk.d.ts",
       "default": "./dist/ai-sdk.js"
     },
     "./openai-agents": {
+      "require": {
+        "types": "./dist/cjs/openai-agents.d.cts",
+        "default": "./dist/cjs/openai-agents.cjs"
+      },
       "types": "./dist/openai-agents.d.ts",
       "default": "./dist/openai-agents.js"
     },
     "./mastra": {
+      "require": {
+        "types": "./dist/cjs/mastra.d.cts",
+        "default": "./dist/cjs/mastra.cjs"
+      },
       "types": "./dist/mastra.d.ts",
       "default": "./dist/mastra.js"
     },
     "./anthropic": {
+      "require": {
+        "types": "./dist/cjs/anthropic.d.cts",
+        "default": "./dist/cjs/anthropic.cjs"
+      },
       "types": "./dist/anthropic.d.ts",
       "default": "./dist/anthropic.js"
     },
     "./langchain": {
+      "require": {
+        "types": "./dist/cjs/langchain.d.cts",
+        "default": "./dist/cjs/langchain.cjs"
+      },
       "types": "./dist/langchain.d.ts",
       "default": "./dist/langchain.js"
+    },
+    "./claude-agent-sdk": {
+      "require": {
+        "types": "./dist/cjs/claude-agent-sdk.d.cts",
+        "default": "./dist/cjs/claude-agent-sdk.cjs"
+      },
+      "types": "./dist/claude-agent-sdk.d.ts",
+      "default": "./dist/claude-agent-sdk.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "ai-sdk": [
+        "./dist/ai-sdk.d.ts"
+      ],
+      "openai-agents": [
+        "./dist/openai-agents.d.ts"
+      ],
+      "mastra": [
+        "./dist/mastra.d.ts"
+      ],
+      "anthropic": [
+        "./dist/anthropic.d.ts"
+      ],
+      "langchain": [
+        "./dist/langchain.d.ts"
+      ],
+      "claude-agent-sdk": [
+        "./dist/claude-agent-sdk.d.ts"
+      ]
     }
   },
   "files": [
     "dist",
+    "src",
     "README.md",
     "LICENSE"
   ],
@@ -41,11 +96,11 @@
     "node": ">=18.18"
   },
   "dependencies": {
-    "@shadowlap/sdk": "^0.1.0"
+    "@shadowlap/sdk": "0.1.0"
   },
   "devDependencies": {
-    "@shadowlap/engine": "^0.1.0",
-    "@shadowlap/sidecar": "^0.1.0"
+    "@shadowlap/engine": "0.1.0",
+    "@shadowlap/sidecar": "0.1.0"
   },
   "repository": {
     "type": "git",
@@ -69,6 +124,7 @@
     "mastra",
     "langchain",
     "langgraph",
-    "anthropic"
+    "anthropic",
+    "claude-agent-sdk"
   ]
 }

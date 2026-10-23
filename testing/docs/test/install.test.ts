@@ -8,7 +8,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -126,9 +126,12 @@ describe('installing the packages', () => {
       const seen = JSON.parse(r.stdout) as { tool: string; withEffects: string; own: string; theirs: string; cli: string };
       expect(seen.tool).toBe('function');
       expect(seen.withEffects).toBe('function');
-      // One module: a scope the agent enters is the scope the adapters' tools see.
-      expect(seen.theirs).toBe(seen.own);
-      expect(seen.own).toBe(realpathSync(join(ROOT, 'packages', 'sdk', 'dist', 'index.js')));
+      // One package: a scope the agent enters is the scope the adapters' tools see. (A require()
+      // takes the package's CommonJS copy, which keeps scopes in the same process-wide store.)
+      const sdk = realpathSync(join(ROOT, 'packages', 'sdk'));
+      expect(seen.theirs.startsWith(sdk + sep)).toBe(true);
+      // Node takes the SDK's `node` entry, which is its index with Node's AsyncLocalStorage registered.
+      expect(seen.own).toBe(join(sdk, 'dist', 'node.js'));
       // @shadowlap/test runs the CLI it depends on: here, the repository's own.
       expect(seen.cli).toBe(realpathSync(join(ROOT, 'packages', 'cli', 'bin', 'shadowlap.js')));
       expect(existsSync(join(project, 'node_modules', '@shadowlap', 'test'))).toBe(true);

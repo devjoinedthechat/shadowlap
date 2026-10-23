@@ -3,6 +3,8 @@
 - `shadowlap.adapters.openai_agents.function_tool`: the OpenAI Agents SDK's `function_tool`, with an effect.
 - `shadowlap.adapters.langchain.with_effect`: a LangChain or LangGraph tool instance.
 - `shadowlap.adapters.crewai.with_effect`: a CrewAI tool instance.
+- `shadowlap.adapters.google_adk.report_to_model`: Google ADK's tool-error callback, for a blocked write.
+- `shadowlap.adapters.claude_agent_sdk.with_fence`: the Claude Agent SDK's built-in tools, through hooks.
 
 Pydantic AI needs no adapter: put `@tool(effect=...)` under `@agent.tool`. The adapters import
 nothing from the frameworks at module level except where the framework is the point of the module,

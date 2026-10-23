@@ -448,14 +448,15 @@ export function register(program: Command): void {
 
   program
     .command('mcp')
-    .description('Run an MCP server behind Shadowlap: shadowlap mcp -- <server command>, or shadowlap mcp --url <server> for one over Streamable HTTP. tools/call is recorded and replayed; everything else passes through')
+    .description('Run an MCP server behind Shadowlap: shadowlap mcp -- <server command>, or shadowlap mcp --url <server> for one over Streamable HTTP, served over stdio or, with --listen, over HTTP. tools/call is recorded and replayed; everything else passes through')
     .argument('[command...]', 'the MCP server command, as the client would start it')
     .option('--url <server>', "a remote MCP server's endpoint, reached over Streamable HTTP")
     .option('--header <header>', 'a header for every request to the --url server, such as "Authorization: Bearer ${TOKEN}" (repeatable; ${VAR} is read from the environment)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--effect <tool=effect>', 'pure | read | write for a tool, overriding the server\'s annotations (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--allow-http', 'send --header values to a --url server over plain http on a network you trust (http is always accepted for this machine)')
+    .option('--listen <address>', 'serve the --url server over Streamable HTTP at http://<address>/mcp, for an agent whose MCP client speaks HTTP: 127.0.0.1:8931, or a port alone (this machine only)')
     .passThroughOptions()
-    .action(async (argv: string[], flags: { url?: string; header: string[]; effect: string[]; allowHttp?: boolean }) => {
+    .action(async (argv: string[], flags: { url?: string; header: string[]; effect: string[]; allowHttp?: boolean; listen?: string }) => {
       let code: number;
       try {
         code = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects);

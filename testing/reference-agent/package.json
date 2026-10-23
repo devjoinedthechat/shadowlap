@@ -14,9 +14,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",
-    "@shadowlap/sdk": "^0.1.0",
-    "@shadowlap-testing/mock-anthropic": "^0.1.0",
-    "@shadowlap/engine": "^0.1.0",
-    "@shadowlap/sidecar": "^0.1.0"
+    "@shadowlap/sdk": "0.1.0",
+    "@shadowlap-testing/mock-anthropic": "0.1.0",
+    "@shadowlap/engine": "0.1.0",
+    "@shadowlap/sidecar": "0.1.0"
   }
 }

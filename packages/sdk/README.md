@@ -26,4 +26,6 @@ Record and replay with the [`shadowlap` CLI](https://www.npmjs.com/package/shado
 
 Node 18.18 or later, no dependencies. Under Shadowlap an agent's Node loads the guard through `--import` in `NODE_OPTIONS`, which a Node before 18.18 refuses. Model calls need no SDK: `shadowlap run` points the provider SDKs at its sidecar through their base URLs.
 
+The package loads in an Edge runtime or a browser bundle as it is: it loads none of Node's modules until a call goes to Shadowlap's sidecar, so outside Shadowlap a wrapped tool calls straight through wherever it is deployed. Beside its ES module it ships a CommonJS copy, which `require()` loads, for a test runner such as Jest.
+
 [SDKs](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/sdk.md) · [Frameworks](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/frameworks.md) · [How it works](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/how-it-works.md)

@@ -4,16 +4,23 @@
   "description": "Shadowlap SDK: effect-typed tool wrapper and clock/random helpers for replayable agents.",
   "license": "Apache-2.0",
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/node.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "require": {
+        "types": "./dist/cjs/index.d.cts",
+        "node": "./dist/cjs/node.cjs",
+        "default": "./dist/cjs/index.cjs"
+      },
       "types": "./dist/index.d.ts",
+      "node": "./dist/node.js",
       "default": "./dist/index.js"
     }
   },
   "files": [
     "dist",
+    "src",
     "README.md",
     "LICENSE"
   ],

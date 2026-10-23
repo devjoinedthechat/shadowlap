@@ -23,7 +23,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid as _uuid
-from typing import Any, Callable, Iterator, Optional, TypeVar
+from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Generator, Iterator, List, Optional, Tuple, Type, TypeVar, cast
 
 __all__ = [
     "tool",
@@ -47,21 +47,27 @@ __all__ = [
 __version__ = "0.1.0"
 
 F = TypeVar("F", bound=Callable[..., Any])
+_T = TypeVar("_T")
 _EFFECTS = ("pure", "read", "write")
 _TRUST = ("trusted", "untrusted")
+
+#: What the sidecar answers ``/v1/calls/resolve`` with, as JSON.
+Resolution = Dict[str, Any]
+#: The sidecar's address and the run this process records into.
+Config = Tuple[str, Optional[str]]
 
 
 class ShadowlapWriteBlocked(RuntimeError):
     """Raised when a `write` tool is reached after divergence under the default `--writes block`.
     `tool` is the tool's name and `tool_args` the arguments it was called with."""
 
-    def __init__(self, tool: str, args: dict, message: Optional[str] = None):
+    def __init__(self, tool: str, args: Dict[str, Any], message: Optional[str] = None):
         super().__init__(message or f"write tool {tool} blocked after divergence")
         self.tool = tool
         # Not `self.args`: that is the exception's own message tuple, which str() and copy() use.
         self.tool_args = args
 
-    def __reduce__(self):
+    def __reduce__(self) -> Tuple[Any, ...]:
         # copy, pickle and multiprocessing rebuild an exception from its constructor arguments.
         return (type(self), (self.tool, self.tool_args, str(self)))
 
@@ -75,42 +81,42 @@ class ReplayedError(Exception):
     the call was recorded. An agent that hands a tool's error to the model hands it the same text on
     replay, and ``except ReplayedError`` still catches it."""
 
-    def __new__(cls, error: Optional[dict] = None, *args: Any, **kwargs: Any):
+    def __new__(cls, error: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> "ReplayedError":
         if cls is ReplayedError and isinstance(error, dict):
             module = error.get("module")
             cls = _replayed_class(str(error.get("name") or "Error"), module if isinstance(module, str) else None)
         return super().__new__(cls)
 
-    def __init__(self, error: dict):
+    def __init__(self, error: Dict[str, Any]):
         message = error.get("message", "recorded error")
         args = error.get("args")
         # A recording made before arguments were kept, or of an error whose arguments aren't JSON,
         # has the message alone, which is what an error made from one string holds.
         super().__init__(*(args if isinstance(args, list) else [message]))
         self._message = message if isinstance(message, str) else str(message)
-        self.name = error.get("name", "Error")
-        self.code = error.get("code")
-        self.data = error.get("data")
+        self.name: str = error.get("name", "Error")
+        self.code: Optional[str] = error.get("code")
+        self.data: Any = error.get("data")
 
     def __str__(self) -> str:
         # The recorded str(), which the arguments alone don't give back: str(KeyError("A-17")) is
         # "'A-17'", and an OSError's names its errno and file.
         return self._message
 
-    def __reduce__(self):
+    def __reduce__(self) -> Tuple[Any, ...]:
         # Rebuilt through ReplayedError, which picks the class for the name again: the class itself is
         # made at run time, and pickle would look it up by its name (ValueError) and find another.
-        error = {"name": self.name, "message": self._message, "code": self.code, "data": self.data, "args": list(self.args)}
+        error: Dict[str, Any] = {"name": self.name, "message": self._message, "code": self.code, "data": self.data, "args": list(self.args)}
         module = type(self).__module__
         if module != __name__:
             error["module"] = module
         return (ReplayedError, (error,))
 
 
-_REPLAYED_CLASSES: dict = {}
+_REPLAYED_CLASSES: Dict[Tuple[str, str], Type[ReplayedError]] = {}
 
 
-def _replayed_class(name: str, module: Optional[str] = None) -> type:
+def _replayed_class(name: str, module: Optional[str] = None) -> Type[ReplayedError]:
     """The ReplayedError subclass for a recorded error's name and module, one per pair. Its module is
     the recorded one, so a traceback names it as it named the original (``myapp.errors.OrderMissing``,
     and ``OrderMissing`` alone for ``__main__`` and builtins). A recording without a module shows a
@@ -120,7 +126,7 @@ def _replayed_class(name: str, module: Optional[str] = None) -> type:
         module = "builtins" if isinstance(builtin, type) and issubclass(builtin, BaseException) else __name__
     cls = _REPLAYED_CLASSES.get((name, module))
     if cls is None:
-        cls = type(name, (ReplayedError,), {"__module__": module, "__qualname__": name, "__doc__": ReplayedError.__doc__})
+        cls = cast(Type[ReplayedError], type(name, (ReplayedError,), {"__module__": module, "__qualname__": name, "__doc__": ReplayedError.__doc__}))
         _REPLAYED_CLASSES[(name, module)] = cls
     return cls
 
@@ -134,26 +140,26 @@ class ShadowlapInjectedFailure(Exception):
 
     injected = True
 
-    def __init__(self, tool: str, args: dict, failure: dict, error: dict):
+    def __init__(self, tool: str, args: Dict[str, Any], failure: Dict[str, Any], error: Dict[str, Any]):
         super().__init__(error.get("message", "injected failure"))
         self.tool = tool
         self.tool_args = args
         self.failure = failure
-        self.kind = failure.get("kind", "error")
-        self.name = error.get("name", "Error")
-        self.code = error.get("code")
+        self.kind: str = failure.get("kind", "error")
+        self.name: str = error.get("name", "Error")
+        self.code: Optional[str] = error.get("code")
 
-    def __reduce__(self):
+    def __reduce__(self) -> Tuple[Any, ...]:
         return (type(self), (self.tool, self.tool_args, self.failure, {"name": self.name, "message": str(self), "code": self.code}))
 
 
-def _timeout_classes() -> tuple:
+def _timeout_classes() -> Tuple[type, ...]:
     """The classes an agent may catch a timeout as. From Python 3.11 ``asyncio.TimeoutError`` and
     ``socket.timeout`` are ``TimeoutError`` itself; before that they are classes of their own, and an
     agent's ``except asyncio.TimeoutError`` around ``asyncio.wait_for`` must catch the injected one too."""
     import socket
 
-    classes = [ShadowlapInjectedFailure, TimeoutError]
+    classes: List[type] = [ShadowlapInjectedFailure, TimeoutError]
     for cls in (asyncio.TimeoutError, socket.timeout):
         if not any(issubclass(c, cls) for c in classes):
             classes.append(cls)
@@ -171,11 +177,11 @@ class _InjectedResponse:
     def __init__(self, status: int, text: str):
         self.status_code = status
         self.status = status
-        self.headers: dict = {}
+        self.headers: Dict[str, str] = {}
         self.text = text
         self.reason_phrase = text.split(" ", 2)[-1] if text.startswith("HTTP ") else ""
 
-    def json(self) -> dict:
+    def json(self) -> Dict[str, Any]:
         return {"error": {"message": self.text}}
 
 
@@ -183,16 +189,16 @@ class ShadowlapInjectedHTTPError(ShadowlapInjectedFailure):
     """An HTTP failure ``--fail-at <call>=<status>`` asked for, shaped like the errors HTTP clients
     raise: ``status_code`` and ``status`` on the error and on its ``response``."""
 
-    def __init__(self, tool: str, args: dict, failure: dict, error: dict):
+    def __init__(self, tool: str, args: Dict[str, Any], failure: Dict[str, Any], error: Dict[str, Any]):
         super().__init__(tool, args, failure, error)
         self.status_code = int(failure.get("status", 500))
         self.status = self.status_code
         self.response = _InjectedResponse(self.status_code, str(self))
 
 
-def _injected(tool: str, args: dict, failure: dict, error: dict) -> ShadowlapInjectedFailure:
+def _injected(tool: str, args: Dict[str, Any], failure: Dict[str, Any], error: Dict[str, Any]) -> ShadowlapInjectedFailure:
     kind = failure.get("kind")
-    cls = ShadowlapInjectedTimeout if kind == "timeout" else ShadowlapInjectedHTTPError if kind == "status" else ShadowlapInjectedFailure
+    cls: Type[ShadowlapInjectedFailure] = ShadowlapInjectedTimeout if kind == "timeout" else ShadowlapInjectedHTTPError if kind == "status" else ShadowlapInjectedFailure
     return cls(tool, args, failure, error)
 
 
@@ -201,7 +207,7 @@ def _unknown_origin(tool: str, origin: Any) -> RuntimeError:
     return RuntimeError(f"shadowlap sidecar answered {tool} with an unknown origin {origin!r}; update the shadowlap package")
 
 
-def _config() -> Optional[tuple]:
+def _config() -> Optional[Config]:
     url = os.environ.get("SHADOWLAP_URL")
     if not url:
         return None
@@ -213,10 +219,8 @@ def is_active() -> bool:
 
 
 # One variable per process, shared with Shadowlap's capture module, which may be imported first.
-_SCOPE = getattr(sys, "_shadowlap_scope_var", None)
-if _SCOPE is None:
-    _SCOPE = contextvars.ContextVar("shadowlap_scope", default=None)
-    sys._shadowlap_scope_var = _SCOPE
+_SCOPE: "contextvars.ContextVar[Optional[str]]" = getattr(sys, "_shadowlap_scope_var", None) or contextvars.ContextVar("shadowlap_scope", default=None)
+setattr(sys, "_shadowlap_scope_var", _SCOPE)
 
 
 def _base_scope() -> Optional[str]:
@@ -241,7 +245,7 @@ def scope(name: str) -> Iterator[str]:
     Every call made inside it carries the scope: model calls, tools and captured HTTP calls. Repeats
     are counted per scope, so branches that send the same request at the same time each get their own
     recorded answer on replay, whatever order they arrive in. Scopes nest (``researcher/search``) and
-    follow asyncio tasks created inside the block; a thread started inside needs
+    follow asyncio and trio tasks created inside the block; a thread started inside needs
     ``contextvars.copy_context()``. Outside Shadowlap it only sets the variable.
     """
     parent = current_scope()
@@ -270,13 +274,16 @@ def _scope_header(scope: str) -> str:
 # see the call in clear text, its session token in the URL, and can't reach the loopback anyway.
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
+#: Sent on every call to the sidecar: which SDK made the call, and its release.
+SDK_HEADER = "python/" + __version__
 
-def _post(cfg: tuple, path: str, body: dict) -> dict:
+
+def _post(cfg: Config, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
     url, run_id = cfg
     # JSON has no NaN or Infinity, and the sidecar refuses a body with them: what reaches here has been
     # made JSON already (see _json_form), and anything else fails here rather than at the sidecar.
     data = json.dumps(body, allow_nan=False).encode("utf-8")
-    headers = {"content-type": "application/json"}
+    headers = {"content-type": "application/json", "x-shadowlap-sdk": SDK_HEADER}
     if run_id:
         headers["x-shadowlap-run"] = run_id
     scope_now = current_scope()
@@ -285,7 +292,7 @@ def _post(cfg: tuple, path: str, body: dict) -> dict:
     req = urllib.request.Request(url + path, data=data, headers=headers, method="POST")
     try:
         with _DIRECT.open(req, timeout=30) as res:
-            return json.loads(res.read().decode("utf-8"))
+            return cast(Dict[str, Any], json.loads(res.read().decode("utf-8")))
     except urllib.error.HTTPError as e:
         text = e.read().decode("utf-8", "replace")
         try:
@@ -295,12 +302,78 @@ def _post(cfg: tuple, path: str, body: dict) -> dict:
         raise RuntimeError(f"shadowlap sidecar {path} failed ({e.code}): {message}") from None
 
 
-def serialize_error(err: BaseException) -> dict:
+# ---------------------------------------------------------------------------------------------------
+# Async libraries. asyncio, trio, and anyio on either: the library running the caller is asked of
+# sniffio, which trio and anyio depend on, so the SDK itself needs nothing installed. Calls to the
+# sidecar are blocking HTTP, made on a worker thread of the caller's library.
+
+
+def _async_library() -> str:
+    """The async library running the current task: ``asyncio``, ``trio`` (anyio reports the one it
+    runs on), another name sniffio knows, or ``asyncio`` when sniffio isn't installed."""
+    try:
+        import sniffio
+    except ImportError:
+        return "asyncio"
+    try:
+        return str(sniffio.current_async_library())
+    except sniffio.AsyncLibraryNotFoundError:
+        return "asyncio"
+
+
+async def _to_thread(fn: Callable[..., _T], *args: Any) -> _T:
+    """``fn(*args)`` on a worker thread of the running async library, in a copy of the caller's
+    context (its scope included). Under a library the SDK doesn't know, it runs here, holding up the
+    loop for the round trip to the sidecar, which is on this machine."""
+    context = contextvars.copy_context()
+    library = _async_library()
+    if library == "trio":
+        import trio
+
+        return cast(_T, await trio.to_thread.run_sync(context.run, fn, *args))
+    if library == "asyncio":
+        return await asyncio.get_running_loop().run_in_executor(None, functools.partial(context.run, fn, *args))
+    return context.run(fn, *args)
+
+
+async def _finish(fn: Callable[..., _T], *args: Any) -> _T:
+    """``_to_thread`` for what must reach the sidecar even while the caller is being cancelled: the
+    end of a call. Under trio a cancelled task can't wait on anything outside a shielded scope;
+    under asyncio the thread goes on even if the caller is cancelled again meanwhile."""
+    if _async_library() == "trio":
+        import trio
+
+        with trio.CancelScope(shield=True):
+            return await _to_thread(fn, *args)
+    return await _to_thread(fn, *args)
+
+
+def _is_cancellation(err: BaseException) -> bool:
+    """Whether ``err`` is the async library cancelling the caller: asyncio's ``CancelledError`` or
+    trio's ``Cancelled`` (anyio raises the one of the library it runs on)."""
+    if isinstance(err, asyncio.CancelledError):
+        return True
+    trio = sys.modules.get("trio")
+    cancelled = getattr(trio, "Cancelled", None)
+    return isinstance(cancelled, type) and isinstance(err, cancelled)
+
+
+async def _wait_forever() -> None:
+    """Waits until the caller cancels the task, under whichever library runs it."""
+    if _async_library() == "trio":
+        import trio
+
+        await trio.sleep_forever()
+    else:
+        await asyncio.get_running_loop().create_future()  # never resolves; the caller's cancel ends it
+
+
+def serialize_error(err: BaseException) -> Dict[str, Any]:
     """An error as it is recorded: its class's name, ``str()`` as the message, a string ``code``, and,
     so a replay prints as it did (``repr()``, a traceback), the class's module unless it is a builtin,
     and its arguments when they aren't the message alone and survive JSON as they are."""
     message = str(err)
-    out: dict = {"name": type(err).__name__, "message": message}
+    out: Dict[str, Any] = {"name": type(err).__name__, "message": message}
     code = getattr(err, "code", None)
     if isinstance(code, str):
         out["code"] = code
@@ -335,18 +408,25 @@ def _same_types(a: Any, b: Any) -> bool:
 _STOPPING = (KeyboardInterrupt, SystemExit)
 
 
-def _cancelled_error(err: BaseException) -> dict:
+def _cancelled_error(err: BaseException) -> Dict[str, Any]:
     """A cancelled call as it is recorded: ``data.cancelled`` is true when the caller cancelled it (a
-    deadline in ``asyncio.wait_for``, a task cancelled), false when the tool raised CancelledError
-    from an awaitable of its own. Before Python 3.11 a task can't tell, and the caller is assumed."""
+    deadline in ``asyncio.wait_for`` or a trio cancel scope, a task cancelled), false when the tool
+    raised CancelledError from an awaitable of its own. Before Python 3.11 an asyncio task can't
+    tell, and the caller is assumed; under trio a cancellation always comes from a cancel scope."""
     out = serialize_error(err)
-    task = asyncio.current_task()
+    if not isinstance(err, asyncio.CancelledError):
+        out["data"] = {"cancelled": True}
+        return out
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:  # not under asyncio
+        task = None
     cancelling = getattr(task, "cancelling", None)
     out["data"] = {"cancelled": bool(cancelling()) if callable(cancelling) else True}
     return out
 
 
-def _cancellation(error: dict) -> Optional[bool]:
+def _cancellation(error: Dict[str, Any]) -> Optional[bool]:
     """Whether a recorded error is a cancellation: True when the caller cancelled the call, False when
     the tool raised CancelledError itself, None when it is an ordinary error. A CancelledError
     recorded before cancellations were marked is taken as the caller's."""
@@ -357,26 +437,63 @@ def _cancellation(error: dict) -> Optional[bool]:
     return True if error.get("name") == "CancelledError" else None
 
 
-async def _replay_cancellation(error: dict) -> None:
+async def _replay_cancellation(error: Dict[str, Any]) -> None:
     """A replayed cancellation. The caller cancelled the call while it was recorded, so the replay
     waits until the caller cancels it again, as its deadline or cancel did then: the agent takes the
-    path it took. A CancelledError the tool raised itself is raised again as one."""
+    path it took. A CancelledError the tool raised itself is raised again as one under asyncio."""
     cancelled = _cancellation(error)
     if cancelled:
-        await asyncio.get_running_loop().create_future()  # never resolves; the caller's cancel ends it
-    if cancelled is False:
+        await _wait_forever()
+    if cancelled is False and _async_library() == "asyncio":
         message = error.get("message")
         raise asyncio.CancelledError(*([message] if message else []))
 
 
+def _callable_name(fn: Callable[..., Any]) -> str:
+    """A tool's default name: the function's, or a callable object's class name."""
+    inner = fn.func if isinstance(fn, functools.partial) else fn
+    name = getattr(inner, "__name__", None)
+    return name if isinstance(name, str) else type(inner).__name__
+
+
+def _implementation(fn: Callable[..., Any]) -> Any:
+    """What a tool's source is read from: the function, the function a partial calls, or the
+    ``__call__`` of a callable object's class."""
+    while isinstance(fn, functools.partial):
+        fn = fn.func
+    if inspect.isfunction(fn) or inspect.ismethod(fn) or inspect.isbuiltin(fn) or isinstance(fn, type):
+        return fn
+    call = getattr(type(fn), "__call__", None)
+    return call if call is not None else fn
+
+
 def _impl_hash(fn: Callable[..., Any]) -> str:
+    target = _implementation(fn)
     try:
-        source = inspect.getsource(fn)
+        source = inspect.getsource(target)
     except (OSError, TypeError):
-        source = getattr(getattr(fn, "__code__", None), "co_code", b"")
-        if isinstance(source, bytes):
-            return hashlib.sha256(source).hexdigest()
+        code = getattr(getattr(target, "__code__", None), "co_code", b"")
+        return hashlib.sha256(code if isinstance(code, bytes) else b"").hexdigest()
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def _call_of(fn: Callable[..., Any]) -> Any:
+    """The function that runs when ``fn`` is called: ``fn``, or a callable object's ``__call__``."""
+    if inspect.isfunction(fn) or inspect.ismethod(fn) or isinstance(fn, functools.partial):
+        return fn
+    return getattr(fn, "__call__", fn)
+
+
+def _is_async_stream(fn: Callable[..., Any]) -> bool:
+    return inspect.isasyncgenfunction(fn) or inspect.isasyncgenfunction(_call_of(fn))
+
+
+def _is_stream(fn: Callable[..., Any]) -> bool:
+    return inspect.isgeneratorfunction(fn) or inspect.isgeneratorfunction(_call_of(fn))
+
+
+def _is_async(fn: Callable[..., Any]) -> bool:
+    return inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(_call_of(fn))
 
 
 # Parameters frameworks fill in themselves: run contexts, configs, injected graph state, callback
@@ -424,6 +541,39 @@ def _type_names(annotation: Any, depth: int = 0) -> Iterator[str]:
         yield from _type_names(arg, depth + 1)
 
 
+#: Framework context classes recognised by their module, for frameworks whose class name says
+#: nothing on its own: Google ADK's ToolContext is ``google.adk.agents.context.Context``, and a
+#: LlamaIndex workflow's ``Context`` lives in ``workflows.context``.
+_CONTEXT_MODULES = ("google.adk.", "workflows.context", "llama_index.core.workflow")
+
+
+def _types_in(annotation: Any, depth: int = 0) -> Iterator[type]:
+    """The classes an annotation is made of, as ``_type_names`` reads it: the class, a generic's
+    origin and arguments, Annotated's first argument, never a Literal's values or a string."""
+    import typing
+
+    if depth > 10 or isinstance(annotation, (str, typing.ForwardRef)):
+        return
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin is typing.Annotated:
+        yield from _types_in(args[0], depth + 1)
+        return
+    if _is_literal(origin):
+        return
+    if isinstance(annotation, type):
+        yield annotation
+    elif origin is not None:
+        yield from _types_in(origin, depth + 1)
+    for arg in args:
+        yield from _types_in(arg, depth + 1)
+
+
+def _framework_context(cls: type) -> bool:
+    module = getattr(cls, "__module__", "") or ""
+    return cls.__name__.endswith("Context") and module.startswith(_CONTEXT_MODULES)
+
+
 def _is_literal(origin: Any) -> bool:
     """typing.Literal, or typing_extensions' own where it is another object."""
     import typing
@@ -431,10 +581,11 @@ def _is_literal(origin: Any) -> bool:
     return origin is not None and (origin is typing.Literal or getattr(origin, "_name", None) == "Literal" or repr(origin).endswith(".Literal"))
 
 
-def context_params(fn: Callable[..., Any]) -> tuple:
+def context_params(fn: Callable[..., Any]) -> Tuple[str, ...]:
     """The parameters of `fn` that a framework injects: annotated with a Pydantic AI `RunContext`,
     an OpenAI Agents `RunContextWrapper` or `ToolContext`, a LangChain `RunnableConfig`, callback
-    manager or `Injected…` marker, or a LangChain `ToolRuntime`."""
+    manager or `Injected…` marker, a LangChain `ToolRuntime`, Google ADK's `ToolContext`, or a
+    LlamaIndex workflow's `Context`."""
     try:
         params = inspect.signature(fn).parameters.values()
     except (TypeError, ValueError):
@@ -444,14 +595,14 @@ def context_params(fn: Callable[..., Any]) -> tuple:
         if p.annotation is inspect.Parameter.empty:
             continue
         try:
-            if any(_CONTEXT_TYPE.match(name) for name in _type_names(p.annotation)):
+            if any(_CONTEXT_TYPE.match(name) for name in _type_names(p.annotation)) or any(_framework_context(t) for t in _types_in(p.annotation)):
                 out.append(p.name)
         except Exception:  # an annotation no typing helper understands is no framework's context
             continue
     return tuple(out)
 
 
-def _bind_args(fn: Callable[..., Any], args: tuple, kwargs: dict, exclude: tuple = ()) -> dict:
+def _bind_args(fn: Callable[..., Any], args: Tuple[Any, ...], kwargs: Dict[str, Any], exclude: Tuple[str, ...] = ()) -> Dict[str, Any]:
     """Tool arguments are recorded by name, however the tool was called. `exclude` drops
     framework context parameters that are neither JSON nor part of the call's identity."""
     try:
@@ -470,7 +621,7 @@ def _is_json(value: Any) -> bool:
         return False
 
 
-def _jsonable(value: Any, path: set) -> Any:
+def _jsonable(value: Any, path: "set[int]") -> Any:
     """``value`` converted, recursively, by the rules in ``_json_form``; whatever has no rule is
     left as it is, for the caller's check to refuse."""
     import dataclasses
@@ -535,7 +686,7 @@ def _json_form(value: Any) -> Any:
     return converted
 
 
-def _check_args(tool_name: str, args: dict) -> dict:
+def _check_args(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     """The arguments as they are recorded, by the rules results follow (``_json_form``). Fails before
     the tool runs, naming the argument, when something can't be recorded."""
     if _is_json(args):
@@ -582,7 +733,10 @@ def _recordable(tool_name: str, value: Any) -> Any:
     return converted
 
 
-def _complete_ok(complete: Callable[..., None], cfg: tuple, call_no: int, tool_name: str, result: Any, latency: int) -> None:
+Complete = Callable[[Config, int, Dict[str, Any]], None]
+
+
+def _complete_ok(complete: Complete, cfg: Config, call_no: int, tool_name: str, result: Any, latency: int) -> None:
     """Completes a call that returned. When its result can't be recorded, or the sidecar refuses it, the
     call is completed as an error before that is raised: a call left pending is a hole in the
     recording, a tool that ran with no answer for the replay."""
@@ -594,12 +748,299 @@ def _complete_ok(complete: Callable[..., None], cfg: tuple, call_no: int, tool_n
         raise
 
 
+def _since(started: float) -> int:
+    return int((time.time() - started) * 1000)
+
+
+class _Nothing:
+    """No value yet: a stream that yielded nothing records None."""
+
+
+_NOTHING = _Nothing()
+
+
+class _Tool:
+    """One wrapped tool: what the sidecar is told about it, and the wrappers for each kind of function
+    (a function, a coroutine function, a generator function, an async generator function, or an
+    object whose ``__call__`` is one of them)."""
+
+    def __init__(self, fn: Callable[..., Any], name: str, effect: str, on_fork: Optional[Callable[..., Any]], exclude: Tuple[str, ...], trust: Optional[str]):
+        self.fn = fn
+        self.name = name
+        self.effect = effect
+        self.on_fork = on_fork
+        self.exclude = exclude
+        # Sent only for a tool that brings outside text in.
+        self.marked: Dict[str, str] = {"trust": "untrusted"} if trust == "untrusted" else {}
+        self.impl_hash = _impl_hash(fn)
+
+    def resolve(self, cfg: Config, args: Dict[str, Any]) -> Resolution:
+        return _post(cfg, "/v1/calls/resolve", {"kind": "tool", "name": self.name, "effect": self.effect, "args": args, "implHash": self.impl_hash, **self.marked})
+
+    def complete(self, cfg: Config, call_no: int, body: Dict[str, Any]) -> None:
+        _post(cfg, f"/v1/calls/{call_no}/complete", body)
+
+    def replayed(self, r: Resolution, bound: Dict[str, Any]) -> Any:
+        """A recorded call's answer: its result, or its error raised again."""
+        if r["outcome"] == "ok":
+            return r.get("result")
+        if r.get("injected"):
+            raise _injected(self.name, bound, r["injected"], r["error"])
+        raise ReplayedError(r["error"])
+
+    async def replayed_async(self, r: Resolution, bound: Dict[str, Any]) -> Any:
+        if r["outcome"] != "ok" and not r.get("injected"):
+            await _replay_cancellation(r["error"])
+        return self.replayed(r, bound)
+
+    def refuse(self, r: Resolution, bound: Dict[str, Any]) -> None:
+        """Raises for an answer that runs nothing: a write blocked after the fork, or an origin this SDK doesn't know."""
+        origin = r["origin"]
+        if origin == "blocked":
+            raise ShadowlapWriteBlocked(self.name, bound, r["error"]["message"])
+        if origin not in ("stubbed", "live"):
+            raise _unknown_origin(self.name, origin)
+
+    def failed(self, err: BaseException, started: float) -> Dict[str, Any]:
+        """The end of a call that raised: a cancellation is the caller's doing, not the tool's error."""
+        return {"outcome": "error", "error": _cancelled_error(err) if _is_cancellation(err) else serialize_error(err), "latencyMs": _since(started)}
+
+    # --- a function
+
+    def plain(self) -> Callable[..., Any]:
+        fn = self.fn
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            cfg = _config()
+            if cfg is None:
+                return fn(*args, **kwargs)
+            bound = _bind_args(fn, args, kwargs, self.exclude)
+            r = self.resolve(cfg, _check_args(self.name, bound))
+            if r["origin"] == "replayed":
+                return self.replayed(r, bound)
+            self.refuse(r, bound)
+            if r["origin"] == "stubbed":
+                stub = self.on_fork(**bound) if self.on_fork else None
+                _complete_ok(self.complete, cfg, r["callNo"], self.name, stub, 0)
+                return stub
+            started = time.time()
+            try:
+                result = fn(*args, **kwargs)
+            except _STOPPING:
+                raise
+            except BaseException as err:
+                self.complete(cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": _since(started)})
+                raise
+            _complete_ok(self.complete, cfg, r["callNo"], self.name, result, _since(started))
+            return result
+
+        return wrapper
+
+    # --- a coroutine function, or an object with an async __call__
+
+    def coroutine(self) -> Callable[..., Any]:
+        fn = self.fn
+
+        @functools.wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            cfg = _config()
+            if cfg is None:
+                return await fn(*args, **kwargs)
+            bound = _bind_args(fn, args, kwargs, self.exclude)
+            r = await _to_thread(self.resolve, cfg, _check_args(self.name, bound))
+            if r["origin"] == "replayed":
+                return await self.replayed_async(r, bound)
+            self.refuse(r, bound)
+            if r["origin"] == "stubbed":
+                stub = await self.stub_async(bound)
+                await _to_thread(_complete_ok, self.complete, cfg, r["callNo"], self.name, stub, 0)
+                return stub
+            started = time.time()
+            try:
+                result = await fn(*args, **kwargs)
+            except _STOPPING:
+                raise
+            except BaseException as err:
+                # A cancellation is not the tool's failure: the caller cut the call off. Either way
+                # the end of the call reaches the sidecar, even if the caller cancels again meanwhile.
+                await _finish(self.complete, cfg, r["callNo"], self.failed(err, started))
+                raise
+            await _to_thread(_complete_ok, self.complete, cfg, r["callNo"], self.name, result, _since(started))
+            return result
+
+        return wrapper
+
+    async def stub_async(self, bound: Dict[str, Any]) -> Any:
+        stub = self.on_fork(**bound) if self.on_fork else None
+        return await stub if inspect.isawaitable(stub) else stub
+
+    # --- an async generator function: what it yields reaches the caller as the caller reads it
+
+    def async_stream(self) -> Callable[..., Any]:
+        fn = self.fn
+        tool_ = self
+
+        @functools.wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> AsyncGenerator[Any, Any]:
+            cfg = _config()
+            live: Optional[_LiveStream] = None
+            if cfg is not None:
+                bound = _bind_args(fn, args, kwargs, tool_.exclude)
+                r = await _to_thread(tool_.resolve, cfg, _check_args(tool_.name, bound))
+                if r["origin"] == "replayed":
+                    # The implementation doesn't run: the recorded value is the stream.
+                    yield await tool_.replayed_async(r, bound)
+                    return
+                tool_.refuse(r, bound)
+                if r["origin"] == "stubbed":
+                    stub = await tool_.stub_async(bound)
+                    await _to_thread(_complete_ok, tool_.complete, cfg, r["callNo"], tool_.name, stub, 0)
+                    yield stub
+                    return
+                live = _LiveStream(tool_, cfg, r["callNo"])
+            stream = cast(AsyncGenerator[Any, Any], fn(*args, **kwargs))
+            # What follows is `yield from` for an async generator, which Python doesn't have: values
+            # sent and errors thrown in reach the tool, and a caller that stops early stops it.
+            try:
+                value = await stream.__anext__()
+            except StopAsyncIteration:
+                if live:
+                    await _to_thread(live.ended)
+                return
+            except BaseException as err:
+                if live:
+                    await live.failed_async(err)
+                raise
+            while True:
+                if live:
+                    live.last = value
+                try:
+                    sent = yield value
+                except GeneratorExit:
+                    # The caller stopped reading: stop the tool as well, and record what the caller saw.
+                    try:
+                        await stream.aclose()
+                    finally:
+                        if live:
+                            await _finish(live.ended)
+                    raise
+                except BaseException as thrown:
+                    step: Awaitable[Any] = stream.athrow(thrown)
+                else:
+                    step = stream.__anext__() if sent is None else stream.asend(sent)
+                try:
+                    value = await step
+                except StopAsyncIteration:
+                    if live:
+                        await _to_thread(live.ended)
+                    return
+                except BaseException as err:
+                    if live:
+                        await live.failed_async(err)
+                    raise
+
+        return wrapper
+
+    # --- a generator function: the same, without async
+
+    def stream(self) -> Callable[..., Any]:
+        fn = self.fn
+        tool_ = self
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Generator[Any, Any, Any]:
+            cfg = _config()
+            live: Optional[_LiveStream] = None
+            if cfg is not None:
+                bound = _bind_args(fn, args, kwargs, tool_.exclude)
+                r = tool_.resolve(cfg, _check_args(tool_.name, bound))
+                if r["origin"] == "replayed":
+                    yield tool_.replayed(r, bound)
+                    return None
+                tool_.refuse(r, bound)
+                if r["origin"] == "stubbed":
+                    stub = tool_.on_fork(**bound) if tool_.on_fork else None
+                    _complete_ok(tool_.complete, cfg, r["callNo"], tool_.name, stub, 0)
+                    yield stub
+                    return None
+                live = _LiveStream(tool_, cfg, r["callNo"])
+            stream = cast(Generator[Any, Any, Any], fn(*args, **kwargs))
+            try:
+                value = next(stream)
+            except StopIteration as stop:
+                if live:
+                    live.ended()
+                return stop.value
+            except BaseException as err:
+                if live:
+                    live.failed(err)
+                raise
+            while True:
+                if live:
+                    live.last = value
+                try:
+                    sent = yield value
+                except GeneratorExit:
+                    try:
+                        stream.close()
+                    finally:
+                        if live:
+                            live.ended()
+                    raise
+                except BaseException as thrown:
+                    advance: Callable[[], Any] = functools.partial(stream.throw, thrown)
+                else:
+                    advance = functools.partial(stream.send, sent)
+                try:
+                    value = advance()
+                except StopIteration as stop:
+                    if live:
+                        live.ended()
+                    return stop.value
+                except BaseException as err:
+                    if live:
+                        live.failed(err)
+                    raise
+
+        return wrapper
+
+
+class _LiveStream:
+    """A streaming tool's live call: the last value it handed the caller is recorded as its result
+    once the stream ends, or once the caller stops reading. A failure of the tool is its error."""
+
+    def __init__(self, tool_: _Tool, cfg: Config, call_no: int):
+        self.tool = tool_
+        self.cfg = cfg
+        self.call_no = call_no
+        self.started = time.time()
+        self.last: Any = _NOTHING
+        self.done = False
+
+    def ended(self) -> None:
+        if self.done:
+            return
+        self.done = True
+        result = None if self.last is _NOTHING else self.last
+        _complete_ok(self.tool.complete, self.cfg, self.call_no, self.tool.name, result, _since(self.started))
+
+    def failed(self, err: BaseException) -> None:
+        if self.done or isinstance(err, _STOPPING):
+            return
+        self.done = True
+        self.tool.complete(self.cfg, self.call_no, self.tool.failed(err, self.started))
+
+    async def failed_async(self, err: BaseException) -> None:
+        await _finish(self.failed, err)
+
+
 def tool(
     name: Optional[str] = None,
     *,
     effect: str,
     on_fork: Optional[Callable[..., Any]] = None,
-    exclude: tuple = (),
+    exclude: Tuple[str, ...] = (),
     trust: Optional[str] = None,
 ) -> Callable[[F], F]:
     """Wraps a tool implementation. `effect` is required: "pure", "read" or "write".
@@ -611,6 +1052,11 @@ def tool(
     Arguments and results are recorded as JSON; a Pydantic model or dataclass result is recorded,
     and replayed, as its JSON form. Under `--writes stub`, `on_fork(**args)` is returned instead of
     executing a write tool after divergence.
+
+    A function, a coroutine function, a generator or async generator function, and an object whose
+    ``__call__`` is one of those all keep their kind: an async one stays awaitable, and a streaming
+    one keeps streaming, its last value recorded as the result and yielded alone on replay. Async
+    tools run under asyncio, trio, and anyio on either.
 
     Parameters a framework injects are left out of the recording automatically: Pydantic AI's
     `RunContext`, the OpenAI Agents SDK's `RunContextWrapper` and `ToolContext`, LangChain's
@@ -625,101 +1071,44 @@ def tool(
     if trust is not None and trust not in _TRUST:
         raise TypeError(f'trust must be "trusted" or "untrusted", not {trust!r}')
     explicit = tuple(exclude)
-    # Sent only for a tool that brings outside text in.
-    marked = {"trust": "untrusted"} if trust == "untrusted" else {}
 
     def decorate(fn: F) -> F:
-        tool_name = name or fn.__name__
-        impl_hash = _impl_hash(fn)
-        exclude = explicit + tuple(p for p in context_params(fn) if p not in explicit)
-
-        def resolve(cfg: tuple, args: dict) -> dict:
-            return _post(cfg, "/v1/calls/resolve", {"kind": "tool", "name": tool_name, "effect": effect, "args": args, "implHash": impl_hash, **marked})
-
-        def complete(cfg: tuple, call_no: int, body: dict) -> None:
-            _post(cfg, f"/v1/calls/{call_no}/complete", body)
-
-        if inspect.iscoroutinefunction(fn):
-
-            @functools.wraps(fn)
-            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-                cfg = _config()
-                if cfg is None:
-                    return await fn(*args, **kwargs)
-                bound = _bind_args(fn, args, kwargs, exclude)
-                r = await asyncio.to_thread(resolve, cfg, _check_args(tool_name, bound))
-                origin = r["origin"]
-                if origin == "replayed":
-                    if r["outcome"] == "ok":
-                        return r.get("result")
-                    if r.get("injected"):
-                        raise _injected(tool_name, bound, r["injected"], r["error"])
-                    await _replay_cancellation(r["error"])
-                    raise ReplayedError(r["error"])
-                if origin == "blocked":
-                    raise ShadowlapWriteBlocked(tool_name, bound, r["error"]["message"])
-                if origin not in ("stubbed", "live"):
-                    raise _unknown_origin(tool_name, origin)
-                if origin == "stubbed":
-                    stub = on_fork(**bound) if on_fork else None
-                    if inspect.isawaitable(stub):
-                        stub = await stub
-                    await asyncio.to_thread(_complete_ok, complete, cfg, r["callNo"], tool_name, stub, 0)
-                    return stub
-                started = time.time()
-                try:
-                    result = await fn(*args, **kwargs)
-                except _STOPPING:
-                    raise
-                except asyncio.CancelledError as err:
-                    # Not the tool's failure: the caller cut the call off. A thread can't be cancelled,
-                    # so this completion is sent even if the caller cancels again while it is.
-                    await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "error", "error": _cancelled_error(err), "latencyMs": int((time.time() - started) * 1000)})
-                    raise
-                except BaseException as err:
-                    await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
-                    raise
-                await asyncio.to_thread(_complete_ok, complete, cfg, r["callNo"], tool_name, result, int((time.time() - started) * 1000))
-                return result
-
-            return async_wrapper  # type: ignore[return-value]
-
-        @functools.wraps(fn)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            cfg = _config()
-            if cfg is None:
-                return fn(*args, **kwargs)
-            bound = _bind_args(fn, args, kwargs, exclude)
-            r = resolve(cfg, _check_args(tool_name, bound))
-            origin = r["origin"]
-            if origin == "replayed":
-                if r["outcome"] == "ok":
-                    return r.get("result")
-                if r.get("injected"):
-                    raise _injected(tool_name, bound, r["injected"], r["error"])
-                raise ReplayedError(r["error"])
-            if origin == "blocked":
-                raise ShadowlapWriteBlocked(tool_name, bound, r["error"]["message"])
-            if origin not in ("stubbed", "live"):
-                raise _unknown_origin(tool_name, origin)
-            if origin == "stubbed":
-                stub = on_fork(**bound) if on_fork else None
-                _complete_ok(complete, cfg, r["callNo"], tool_name, stub, 0)
-                return stub
-            started = time.time()
-            try:
-                result = fn(*args, **kwargs)
-            except _STOPPING:
-                raise
-            except BaseException as err:
-                complete(cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
-                raise
-            _complete_ok(complete, cfg, r["callNo"], tool_name, result, int((time.time() - started) * 1000))
-            return result
-
-        return wrapper  # type: ignore[return-value]
+        if not callable(fn):
+            raise TypeError(f"tool: {fn!r} is not callable")
+        excluded = explicit + tuple(p for p in context_params(fn) if p not in explicit)
+        wrapped = _Tool(fn, name or _callable_name(fn), effect, on_fork, excluded, trust)
+        if _is_async_stream(fn):
+            return cast(F, wrapped.async_stream())
+        if _is_stream(fn):
+            return cast(F, wrapped.stream())
+        if _is_async(fn):
+            return cast(F, wrapped.coroutine())
+        return cast(F, wrapped.plain())
 
     return decorate
+
+
+def _resolve_tool(name: str, effect: str, args: Any, trust: Optional[str] = None) -> Optional[Resolution]:
+    """For an integration whose tools run where ``tool()`` can't wrap them (an agent runtime's built-in
+    tools, run between two hooks): what the sidecar says to do about one call, before it runs. None
+    outside Shadowlap. A ``live`` or ``stubbed`` answer is ended with ``_complete_call``."""
+    cfg = _config()
+    if cfg is None:
+        return None
+    if effect not in _EFFECTS:
+        raise TypeError(f'effect must be "pure", "read" or "write", not {effect!r}')
+    body: Dict[str, Any] = {"kind": "tool", "name": name, "effect": effect, "args": args}
+    if trust == "untrusted":
+        body["trust"] = "untrusted"
+    return _post(cfg, "/v1/calls/resolve", body)
+
+
+def _complete_call(call_no: int, body: Dict[str, Any]) -> None:
+    """Records how a call ``_resolve_tool`` answered ``live`` or ``stubbed`` ended: ``{"outcome": "ok",
+    "result": ...}`` or ``{"outcome": "error", "error": {...}}``, with ``latencyMs``."""
+    cfg = _config()
+    if cfg is not None:
+        _post(cfg, f"/v1/calls/{call_no}/complete", {"latencyMs": 0, **body})
 
 
 def _misc(kind: str, name: str, label: Optional[str], fallback: Callable[[], Any]) -> Any:
@@ -747,7 +1136,7 @@ def uuid(label: Optional[str] = None) -> str:
     return str(_misc("random", "uuid", label, lambda: str(_uuid.uuid4())))
 
 
-def _input_preload():
+def _input_preload() -> Any:
     """Shadowlap's recorded-input preload, when `shadowlap run` loaded it into this process."""
     module = sys.modules.get("_shadowlap_input")
     return module if getattr(module, "active", False) else None
@@ -758,15 +1147,15 @@ def _answer_text(result: Any) -> str:
     if isinstance(result, str):
         return result
     if isinstance(result, dict) and isinstance(result.get("text"), str):
-        return result["text"]
+        return cast(str, result["text"])
     return "" if result is None else json.dumps(result)
 
 
-def _resolve_input(cfg: tuple, prompt: str) -> dict:
+def _resolve_input(cfg: Config, prompt: str) -> Resolution:
     return _post(cfg, "/v1/calls/resolve", {"kind": "tool", "name": "user_input", "effect": "read", "args": {"prompt": prompt}, "input": True})
 
 
-def _replayed_answer(r: dict) -> str:
+def _replayed_answer(r: Resolution) -> str:
     if r["outcome"] == "ok":
         return _answer_text(r.get("result"))
     if (r.get("error") or {}).get("name") == "EOFError":
@@ -787,7 +1176,7 @@ def user_input(prompt: str = "", read: Optional[Callable[[str], str]] = None) ->
     adds; use it for input that arrives any other way.
     """
     preload = _input_preload()
-    reader = read or (preload.original_input if preload else builtins.input)
+    reader: Callable[[str], str] = read or (preload.original_input if preload else builtins.input)
     cfg = _config()
     if cfg is None:
         return reader(prompt)
@@ -804,21 +1193,21 @@ def user_input(prompt: str = "", read: Optional[Callable[[str], str]] = None) ->
     except _STOPPING:
         raise
     except BaseException as err:
-        _post(cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
+        _post(cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": serialize_error(err), "latencyMs": _since(started)})
         raise
-    _post(cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "ok", "result": {"text": text}, "latencyMs": int((time.time() - started) * 1000)})
+    _post(cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "ok", "result": {"text": text}, "latencyMs": _since(started)})
     return text
 
 
 async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
-    """``user_input`` for an asyncio agent: ``read(prompt)`` may be a coroutine function, such as
-    ``websocket.recv`` behind a lambda, or ``asyncio.to_thread(input, prompt)``. The sidecar is asked
-    off the event loop."""
+    """``user_input`` for an async agent (asyncio, trio, or anyio on either): ``read(prompt)`` may be a
+    coroutine function, such as ``websocket.recv`` behind a lambda, or ``asyncio.to_thread(input, prompt)``.
+    The sidecar is asked off the event loop."""
     cfg = _config()
     if cfg is None:
         answer = read(prompt)
-        return await answer if inspect.isawaitable(answer) else answer
-    r = await asyncio.to_thread(_resolve_input, cfg, prompt)
+        return cast(str, await answer if inspect.isawaitable(answer) else answer)
+    r = await _to_thread(_resolve_input, cfg, prompt)
     if r["origin"] == "replayed":
         if r["outcome"] != "ok":
             await _replay_cancellation(r.get("error") or {})
@@ -828,18 +1217,16 @@ async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
     started = time.time()
     preload = _input_preload()
     try:
-        # The preload's passthrough is a context variable, which asyncio.to_thread() carries into
-        # its worker, so input() read there isn't recorded a second time.
+        # The preload's passthrough is a context variable, which a worker thread started with the
+        # caller's context carries, so input() read there isn't recorded a second time.
         with preload.passthrough() if preload else contextlib.nullcontext():
             answer = read(prompt)
             text = await answer if inspect.isawaitable(answer) else answer
     except _STOPPING:
         raise
-    except asyncio.CancelledError as err:
-        await asyncio.to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": _cancelled_error(err), "latencyMs": int((time.time() - started) * 1000)})
-        raise
     except BaseException as err:
-        await asyncio.to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
+        error = _cancelled_error(err) if _is_cancellation(err) else serialize_error(err)
+        await _finish(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": error, "latencyMs": _since(started)})
         raise
-    await asyncio.to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "ok", "result": {"text": text}, "latencyMs": int((time.time() - started) * 1000)})
-    return text
+    await _to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "ok", "result": {"text": text}, "latencyMs": _since(started)})
+    return cast(str, text)

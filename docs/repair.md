@@ -114,7 +114,7 @@ Any model from any vendor, configured rather than built in:
 
 | Value | |
 |---|---|
-| `anthropic` | Claude Opus 5.5, through the Anthropic SDK, with `ANTHROPIC_API_KEY` or an `ant auth login` profile. The SDK is an optional peer of Shadowlap, so it isn't installed for everyone: `npm install @anthropic-ai/sdk` next to `shadowlap`, or `npm install -g @anthropic-ai/sdk` beside a global one |
+| `anthropic` | Claude Opus 5.5, through the Anthropic SDK, with `ANTHROPIC_API_KEY` or an `ant auth login` profile. Shadowlap doesn't install the SDK for everyone, and asks npm for no peer: `npm install @anthropic-ai/sdk` next to `shadowlap`, or `npm install -g @anthropic-ai/sdk` beside a global one |
 | `anthropic:<model>` | Another Claude model, such as `claude-fable-5-1` |
 | `openai:<model>` | Any Chat Completions API: OpenAI, OpenRouter, a local server such as Ollama or vLLM (`OPENAI_BASE_URL`, `OPENAI_API_KEY`) |
 | `claude-code`, `claude-code:<model>` | Your own [Claude Code](https://code.claude.com), run in print mode (`claude -p`), with no tools, the answer held to a JSON schema. It runs as whatever Claude Code is signed in with; Shadowlap never sees its credentials. Without a model, Claude Code's own default is used. `SHADOWLAP_CLAUDE` names the binary when `claude` isn't on the PATH |

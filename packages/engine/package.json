@@ -16,8 +16,16 @@
       "default": "./dist/classify.js"
     }
   },
+  "typesVersions": {
+    "*": {
+      "classify": [
+        "./dist/classify.d.ts"
+      ]
+    }
+  },
   "files": [
     "dist",
+    "!dist/**/*.d.ts.map",
     "data",
     "README.md",
     "LICENSE"

@@ -9,6 +9,11 @@ import type { AddressInfo } from 'node:net';
  * reference SDK servers, it refuses an `initialize` that names a session it doesn't know. A batch
  * (2025-03-26) is answered with an array. Results carry a call counter, so a replayed result is told
  * apart from a live one, and `calls` lists what ran. The tool `flaky` fails at the HTTP level.
+ *
+ * With `{ streams: true }` it also offers the transport's standalone stream: a GET in a session
+ * opens an event stream that stays open and carries the server's own messages (`notify()` sends
+ * one, with an event id), and `tools/call` answers over an event stream, a progress notification
+ * before the result.
  */
 export interface FakeMcpHttpServer {
   url: string;
@@ -22,6 +27,10 @@ export interface FakeMcpHttpServer {
   forgetSessions(): void;
   /** Leaves the event stream of a tools/list open after its answer, as a careless server might. */
   keepStreamsOpen(): void;
+  /** With `streams`: sends a message on every open GET stream, and resolves once one was open to take it. */
+  notify(message: unknown): Promise<void>;
+  /** GET streams that are open now. */
+  openStreams(): number;
   close(): Promise<void>;
 }
 
@@ -41,7 +50,9 @@ function body(req: IncomingMessage): Promise<string> {
 
 type Message = { id?: number | string; method?: string; params?: { name?: string; arguments?: unknown } };
 
-export async function startFakeMcpHttpServer(): Promise<FakeMcpHttpServer> {
+export async function startFakeMcpHttpServer(options: { streams?: boolean } = {}): Promise<FakeMcpHttpServer> {
+  const streams = new Set<import('node:http').ServerResponse>();
+  let eventId = 0;
   const seen: FakeMcpHttpServer['seen'] = [];
   const calls: FakeMcpHttpServer['calls'] = [];
   const initParams: unknown[] = [];
@@ -69,7 +80,15 @@ export async function startFakeMcpHttpServer(): Promise<FakeMcpHttpServer> {
       const message = Array.isArray(parsed) ? null : parsed;
       seen.push({ http: req.method ?? '', method: Array.isArray(parsed) ? 'batch' : (message?.method ?? null), session: header('mcp-session-id'), protocol: header('mcp-protocol-version'), authorization: header('authorization'), team: header('x-team') });
 
-      if (req.method === 'GET') return void res.writeHead(405).end();
+      if (req.method === 'GET') {
+        if (!options.streams) return void res.writeHead(405).end();
+        if (!sessions.has(header('mcp-session-id') ?? '')) return void res.writeHead(404).end();
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+        res.write(': open\n\n');
+        streams.add(res);
+        res.on('close', () => streams.delete(res));
+        return;
+      }
       if (req.method === 'DELETE') {
         sessions.delete(header('mcp-session-id') ?? '');
         return void res.writeHead(200).end();
@@ -104,6 +123,12 @@ export async function startFakeMcpHttpServer(): Promise<FakeMcpHttpServer> {
       }
       if (message.method === 'tools/call') {
         if (message.params?.name === 'flaky') return void res.writeHead(500, { 'content-type': 'text/plain' }).end('upstream exploded');
+        if (options.streams) {
+          res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+          res.write(`id: ${++eventId}\ndata: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: message.id, progress: 1, total: 2 } })}\n\n`);
+          res.write(`id: ${++eventId}\ndata: ${JSON.stringify(call(message))}\n\n`);
+          return void res.end();
+        }
         return json(200, call(message));
       }
       return json(200, { jsonrpc: '2.0', id: message.id, error: { code: -32601, message: `unknown method ${message.method}` } });
@@ -119,6 +144,11 @@ export async function startFakeMcpHttpServer(): Promise<FakeMcpHttpServer> {
     keepStreamsOpen: () => {
       keepOpen = true;
     },
+    notify: async (message: unknown) => {
+      for (let i = 0; i < 100 && streams.size === 0; i++) await new Promise((r) => setTimeout(r, 20));
+      for (const res of streams) res.write(`id: ${++eventId}\ndata: ${JSON.stringify(message)}\n\n`);
+    },
+    openStreams: () => streams.size,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());

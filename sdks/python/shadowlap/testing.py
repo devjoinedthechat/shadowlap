@@ -35,7 +35,8 @@ import threading
 import urllib.error
 import urllib.request
 import warnings
-from typing import Any, Dict, List, Optional, Tuple
+from types import TracebackType
+from typing import Any, Dict, List, Literal, Optional, Tuple, Type, cast
 
 __all__ = ["ShadowlapReplayDiverged", "Recording", "recording", "record_mode", "under_shadowlap_run"]
 
@@ -97,7 +98,7 @@ class _Host:
     def _capture(self, on: bool) -> None:
         capture = sys.modules.get("_shadowlap_capture")
         if capture is not None:
-            capture.active = on
+            setattr(capture, "active", on)
 
     def enter(self) -> None:
         """Points this process at the slot: base URLs, the SDK and in-process capture."""
@@ -126,12 +127,12 @@ class _Host:
                 os.environ[key] = value
         self._saved = {}
 
-    def post(self, path: str, body: dict) -> dict:
+    def post(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
         req = urllib.request.Request(self.url + path, data=json.dumps(body).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
         try:
             # Never through a proxy: the host is on this machine's loopback.
             with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=120) as res:
-                return json.loads(res.read().decode("utf-8"))
+                return cast(Dict[str, Any], json.loads(res.read().decode("utf-8")))
         except urllib.error.HTTPError as e:
             text = e.read().decode("utf-8", "replace")
             try:
@@ -143,7 +144,8 @@ class _Host:
     def close(self) -> None:
         if self.process.poll() is None:
             try:
-                self.process.stdin.close()
+                if self.process.stdin is not None:
+                    self.process.stdin.close()
                 self.process.wait(timeout=10)
             except Exception:
                 self.process.kill()
@@ -167,9 +169,12 @@ def _cli_command() -> List[str]:
     raise ShadowlapTestError("the shadowlap CLI was not found. Install it (npm install -g shadowlap) or set SHADOWLAP_CLI")
 
 
-def _read_line(process: subprocess.Popen, timeout: float) -> str:
+def _read_line(process: "subprocess.Popen[bytes]", timeout: float) -> str:
     out: List[bytes] = []
-    reader = threading.Thread(target=lambda: out.append(process.stdout.readline()), daemon=True)
+    stdout = process.stdout
+    if stdout is None:
+        return ""
+    reader = threading.Thread(target=lambda: out.append(stdout.readline()), daemon=True)
     reader.start()
     reader.join(timeout)
     if reader.is_alive():
@@ -187,13 +192,20 @@ def under_shadowlap_run() -> bool:
     global _outer
     if _outer is None:
         _outer = _host is None and bool(os.environ.get("SHADOWLAP_URL"))
-    return _outer
+    return bool(_outer)
 
 
 def _get_host(root: Optional[str]) -> _Host:
     global _host
     if _host is None:
         _host = _Host(root or os.getcwd())
+    return _host
+
+
+def _running_host() -> _Host:
+    """The host a started recording runs on."""
+    if _host is None:
+        raise ShadowlapTestError("the Shadowlap host has stopped")
     return _host
 
 
@@ -212,7 +224,7 @@ def _args_match(actual: Any, expected: Any) -> bool:
         return isinstance(actual, list) and len(actual) == len(expected) and all(_args_match(a, e) for a, e in zip(actual, expected))
     if isinstance(expected, bool) or isinstance(actual, bool):
         return actual is expected  # JSON true is not 1
-    return actual == expected
+    return bool(actual == expected)
 
 
 class Recording:
@@ -234,7 +246,7 @@ class Recording:
         self.run_id: Optional[str] = None
         #: ``record`` or ``replay``, once started.
         self.action: Optional[str] = None
-        self.result: Optional[dict] = None
+        self.result: Optional[Dict[str, Any]] = None
         # Whether this recording has pointed the process at its slot (see _Host.enter).
         self._entered = False
         # The placeholder keys a replay set, each with the value its variable had before (see _place).
@@ -244,7 +256,7 @@ class Recording:
         if under_shadowlap_run():
             return self
         host = _get_host(self.root)
-        body = {"recording": os.path.abspath(self.path), "slot": host.slot, "mode": self.mode, "name": self.name}
+        body: Dict[str, Any] = {"recording": os.path.abspath(self.path), "slot": host.slot, "mode": self.mode, "name": self.name}
         if self.command:
             body["command"] = self.command
         started = host.post("/v1/recordings/start", body)
@@ -287,7 +299,7 @@ class Recording:
             raise ShadowlapTestError("the recording has not started: read calls while the test runs")
         if self.result is not None:
             raise ShadowlapTestError("the recording has finished: read calls while the test runs")
-        return _host.post("/v1/recordings/calls", {"runId": self.run_id})
+        return _running_host().post("/v1/recordings/calls", {"runId": self.run_id})
 
     def calls(self) -> List[Dict[str, Any]]:
         """Every call so far, in order: model calls, tool calls, clock and random reads. Each is a dict with
@@ -306,7 +318,8 @@ class Recording:
 
     def answer(self) -> Optional[str]:
         """The text of the last model response; None before one."""
-        return self._read()["answer"]
+        answer = self._read()["answer"]
+        return answer if isinstance(answer, str) else None
 
     def finish(self, passed: bool, error: Optional[BaseException] = None) -> None:
         """Ends the recording. Raises :class:`ShadowlapReplayDiverged` when the replay diverged."""
@@ -317,22 +330,22 @@ class Recording:
             self._entered = False
             if _host is not None:
                 _host.leave()
-        self.result = _host.post("/v1/recordings/end", {"runId": self.run_id, "passed": passed})
-        if not self.result["ok"]:
-            message = self.result["message"]
+        self.result = result = _running_host().post("/v1/recordings/end", {"runId": self.run_id, "passed": passed})
+        if not result["ok"]:
+            message = str(result["message"])
             if error is not None:
                 detail = str(error).splitlines()[0] if str(error) else ""
                 if len(detail) > 160:
                     detail = detail[:160] + "…"
                 message += "; the test then failed with %s: %s" % (type(error).__name__, detail)
-            raise ShadowlapReplayDiverged(message, self.result.get("report") or "", self.run_id)
-        if self.result.get("message"):
-            warnings.warn("shadowlap: %s (%s)" % (self.result["message"], self.result["recording"]), stacklevel=2)
+            raise ShadowlapReplayDiverged(message, result.get("report") or "", self.run_id)
+        if result.get("message"):
+            warnings.warn("shadowlap: %s (%s)" % (result["message"], result["recording"]), stacklevel=2)
 
     def __enter__(self) -> "Recording":
         return self.start()
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type: Optional[Type[BaseException]], exc: Optional[BaseException], tb: Optional[TracebackType]) -> Literal[False]:
         if exc_type is None:
             self.finish(True)
         else:
