@@ -23,7 +23,7 @@ const fresh = (): string => {
 const home = fresh();
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })));
 
-const ENV = { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: home, SHADOWLAP_DEBUG: '' };
+const ENV: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: home, SHADOWLAP_DEBUG: '' };
 for (const k of ['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGFUSE_HOST'] as const) delete ENV[k];
 
 function shadowlap(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}): { code: number | null; signal: NodeJS.Signals | null; out: string; stderr: string } {
