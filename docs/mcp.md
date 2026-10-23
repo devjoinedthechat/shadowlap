@@ -1,6 +1,6 @@
 # MCP servers
 
-Agents increasingly call tools through the Model Context Protocol rather than through code you wrap. `shadowlap mcp` records those calls without touching the server or the client: it is a proxy that the client starts instead of the server, and talks to over stdio as it would to the server.
+Agents increasingly call tools through the Model Context Protocol rather than through code you wrap. `shadowlap mcp` records those calls without touching the server or the client: it is a proxy that the client starts instead of the server, and talks to over stdio as it would to the server, or, for a client that speaks HTTP, one it connects to at a local address ([`--listen`](#served-over-http---listen)).
 
 Put it in front of a local server, started as a command, or a remote one, reached by its URL:
 
@@ -48,6 +48,21 @@ A tool call the recording answers, and a write after a fork, never reach the ser
 - If the server can't be reached, or answers a request with an HTTP error, the client gets an error naming it. A tool call that fails this way is recorded with that error, so a replay serves the same failure without asking the server.
 - A server that signs in with OAuth needs a token: pass one as a header, or put the proxy in front of a stdio bridge that does the sign-in, such as `shadowlap mcp -- npx -y mcp-remote https://mcp.example.com/sse`.
 - When the client passes its environment on, the [network guard](./how-it-works.md#the-network-guard) is loaded into the proxy as into any Node process. The proxy tells it its server's address, since it records that traffic itself; only the `shadowlap mcp` process gets that hook, so an agent's own code can't use it to lift the guard.
+
+## Served over HTTP: `--listen`
+
+An agent whose MCP client speaks HTTP rather than stdio (the OpenAI Agents SDK's `MCPServerStreamableHttp`, the AI SDK's MCP client, a Claude Agent SDK server of `type: 'http'`) connects to the proxy at a local address instead of the server's:
+
+```sh
+shadowlap mcp --url https://mcp.example.com/mcp --listen 127.0.0.1:8931 --header 'Authorization: Bearer $TOKEN'
+```
+
+The agent's client connects to `http://127.0.0.1:8931/mcp`. Each message goes on to the server as the client sent it, in the client's own session (the server's `Mcp-Session-Id`, which the client keeps), and each answer comes back as the server gave it, JSON or an event stream, event ids included. The client's GET stream for the server's own messages, and its DELETE when it leaves, pass through the same way. `tools/call` is recorded, replayed and fenced as in the other modes: a call the recording answers, and a write after a fork, never reach the server.
+
+- **This machine only.** `--listen` takes a loopback address: `127.0.0.1:8931`, `localhost:8931`, `[::1]:8931`, or a port alone. A request must name that address in `Host`, and a browser's `Origin` must be that address too, so a web page can't reach the server through the proxy. Any process on this machine that can reach the port can, with the `--header` values the proxy holds.
+- **Which run.** Started by a Shadowlap command, or under one (with `SHADOWLAP_URL` set), every session records into that command's run. Started on its own, in a terminal beside the agent, the proxy serves one run after another: each session the client starts records into the run active in the proxy's working folder at that moment (the `.shadowlap/active.json` that `run` and `replay` keep there), and a session that starts with no run passes through. The proxy says which on stderr.
+- **Headers.** `--header`, `--effect` and `--allow-http` work as with `--url` alone. The client's own `Authorization` goes on to the server unless a `--header` sets one. Signing in with OAuth through the proxy isn't supported: pass a token.
+- It runs until it is stopped; Ctrl-C exits 130.
 
 ## Effects
 
