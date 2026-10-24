@@ -12,6 +12,8 @@ import { kindWord, runOrigins, runSource, runSpent, runStatus, sideStatus, type 
 import type { RunListItem } from '../types.js';
 import { localTitle } from './bulk.js';
 import { ByAvatar } from './people.js';
+import { RunKey } from '../components/RunKey.js';
+import { markKey, MARKS, type RunMark } from '../runkey.js';
 
 /**
  * The Runs table, one row a run: its id (decision 10: the id is its name), then what it was about in
@@ -96,6 +98,8 @@ export function RunsTable({
   onPick,
   onPickAll,
   now,
+  onMark = null,
+  markOff = null,
 }: {
   rows: readonly TableRun[];
   /** The runs picked, by id. */
@@ -110,6 +114,13 @@ export function RunsTable({
   onPick: (run: TableRun, on: boolean) => void;
   onPickAll: (on: boolean) => void;
   now: number;
+  /**
+   * The good/bad key on each row (runkey.ts), heard on + and - from a row with the focus too; null for
+   * a table that changes nothing (an exported copy). Good and bad are then the key's, never chips.
+   */
+  onMark?: ((run: TableRun, m: RunMark) => void) | null;
+  /** Why the key can't change anything here (a read-only dashboard): its buttons are off, with this on hover. */
+  markOff?: string | null;
 }) {
   const allOn = rows.length > 0 && rows.every((r) => picked.has(r.runId));
   const table = useRef<HTMLTableElement>(null);
@@ -117,7 +128,7 @@ export function RunsTable({
   const whole = rows.length <= WHOLE_UP_TO;
   const win = useWindow(whole ? NO_ROWS : rows, RUN_ROWS);
   const [start, end] = whole ? [0, rows.length] : [win.start, win.end];
-  const cols = 7 + (selectable ? 1 : 0) + (byColumn ? 1 : 0);
+  const cols = 7 + (selectable ? 1 : 0) + (byColumn ? 1 : 0) + (onMark ? 1 : 0);
   return (
     <table className="t runst" ref={table} aria-label="Runs" aria-rowcount={rows.length + 1}>
       <thead>
@@ -141,12 +152,17 @@ export function RunsTable({
           <SortTh by="when" sort={sort} onSort={onSort} className="num">
             When
           </SortTh>
+          {onMark ? (
+            <th className="keycell hide-sm">
+              <span className="sr">Good or bad</span>
+            </th>
+          ) : null}
         </tr>
       </thead>
       <tbody ref={win.listRef}>
         {!whole && win.before ? <Spacer height={win.before} cols={cols} /> : null}
         {rows.slice(start, end).map((r, j) => (
-          <Row key={r.runId} at={start + j} run={r} on={picked.has(r.runId)} selectable={selectable} byColumn={byColumn} you={!!you && r.author === you} onPick={onPick} now={now} />
+          <Row key={r.runId} at={start + j} run={r} on={picked.has(r.runId)} selectable={selectable} byColumn={byColumn} you={!!you && r.author === you} onPick={onPick} now={now} onMark={onMark} markOff={markOff} />
         ))}
         {!whole && win.after ? <Spacer height={win.after} cols={cols} /> : null}
       </tbody>
@@ -163,7 +179,15 @@ function Spacer({ height, cols }: { height: number; cols: number }) {
   );
 }
 
-const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPick, now }: { at: number; run: TableRun; on: boolean; selectable: boolean; byColumn: boolean; you: boolean; onPick: (run: TableRun, on: boolean) => void; now: number }) {
+/** A key a row hears from a control in it: not one typed into a field (a checkbox is no field). */
+const typedIn = (t: EventTarget | null) => {
+  const el = t as { tagName?: string; type?: string; isContentEditable?: boolean; getAttribute?: (name: string) => string | null } | null;
+  if (!el) return false;
+  const type = el.type ?? el.getAttribute?.('type') ?? null;
+  return (el.tagName === 'INPUT' && type !== 'checkbox') || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || !!el.isContentEditable;
+};
+
+const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPick, now, onMark = null, markOff = null }: { at: number; run: TableRun; on: boolean; selectable: boolean; byColumn: boolean; you: boolean; onPick: (run: TableRun, on: boolean) => void; now: number; onMark?: ((run: TableRun, m: RunMark) => void) | null; markOff?: string | null }) {
   const out = runStatus(r);
   const spent = runSpent(r);
   const origins = runOrigins(r);
@@ -171,8 +195,26 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
   const about = r.about ?? { text: runSource(r), from: 'command' as const };
   // What needs a look, after the about line where it goes under the id (a phone, where Status gives way).
   const st = sideStatus(r);
+  // Good and bad are the key's where it shows: no chip says them again.
+  const chips = onMark ? r.labels.filter((l) => !(MARKS as readonly string[]).includes(l)) : r.labels;
   return (
-    <tr className={on ? 'picked' : undefined} data-wi={at} aria-rowindex={at + 2} onClick={rowOpen(() => navigate(href.run(r.runId)))}>
+    <tr
+      className={on ? 'picked' : undefined}
+      data-wi={at}
+      aria-rowindex={at + 2}
+      onClick={rowOpen(() => navigate(href.run(r.runId)))}
+      onKeyDown={
+        onMark
+          ? (e) => {
+              const m = markKey(e.key);
+              if (!m || markOff || typedIn(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+              e.preventDefault();
+              e.stopPropagation();
+              onMark(r, m);
+            }
+          : undefined
+      }
+    >
       {selectable ? (
         <td className="selcell">
           <input type="checkbox" aria-label={`Select ${shortId(r.runId)}`} checked={on} onChange={(e) => onPick(r, e.target.checked)} />
@@ -204,9 +246,9 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
       <td className="abcell">
         <span className="abw">
           <AboutLine about={about} />
-          {r.labels.length ? (
+          {chips.length ? (
             <span className="labs">
-              {r.labels.map((l) => (
+              {chips.map((l) => (
                 <span className="chip" key={l}>
                   {l}
                 </span>
@@ -247,6 +289,11 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
         )}
       </td>
       <td className="num">{whenShort(r.startedAt, now)}</td>
+      {onMark ? (
+        <td className="keycell hide-sm">
+          <RunKey runId={r.runId} labels={r.labels} onMark={(m) => onMark(r, m)} off={markOff} compact />
+        </td>
+      ) : null}
     </tr>
   );
 });

@@ -17,6 +17,8 @@ import { ImportDialog } from '../runspage/ImportDialog.js';
 import { ALL_RUNS, dayTimes, runsHref } from '../runspage/query.js';
 import { navigate } from '../router.js';
 import { isAllRuns, type RunsFilterRead } from '../../src/links.js';
+import { useMarkRun } from '../components/RunKey.js';
+import type { RunMark } from '../runkey.js';
 import { RunsTable, type TableRun } from '../runspage/RunsTable.js';
 import { warmingLine, withFirstPage } from '../runspage/rows.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
@@ -315,7 +317,22 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
 
   // Its first page read again when runs change, and when a push or a pull changes what is only here (the local tags).
   const table = useRunsTable(client, { types, q, sort, from: times?.from ?? null, to: times?.to ?? null }, rowsKey(f, q, times), `${tick}:${feeds.team ?? 0}`, limit);
-  const rows: TableRun[] = table.rows;
+  // The good/bad key: a row shows the labels a press gave it until the table's own say otherwise.
+  const [marks, setMarks] = useState<ReadonlyMap<string, { base: string; labels: string[] }>>(() => new Map());
+  const byId = useLatest(new Map(table.rows.map((r) => [r.runId, r])));
+  const markRun = useMarkRun(useCallback((runId: string, labels: string[]) => setMarks((m) => new Map(m).set(runId, { base: JSON.stringify(byId.current.get(runId)?.labels ?? []), labels })), [byId]));
+  const rows: TableRun[] = useMemo(
+    () =>
+      marks.size
+        ? table.rows.map((r) => {
+            const o = marks.get(r.runId);
+            return o && o.base === JSON.stringify(r.labels) ? { ...r, labels: o.labels } : r;
+          })
+        : table.rows,
+    [table.rows, marks],
+  );
+  const rowsNow = useLatest(new Map(rows.map((r) => [r.runId, r])));
+  const onMark = useCallback((r: TableRun, m: RunMark) => markRun(r.runId, rowsNow.current.get(r.runId)?.labels ?? r.labels, m), [markRun, rowsNow]);
   const counts: ChipCounts | null = table.loaded ? table.chipCounts : null;
   const warming = warmingLine(table.warming, { filtered: !!q.trim(), bySpent: sort === 'spent' });
 
@@ -427,7 +444,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         </p>
       ) : null}
       <section className="panel tscroll">
-        <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} />
+        <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} />
         {table.error && !rows.length ? (
           <div className="empty">The runs could not be read: {table.error.message}</div>
         ) : !table.loaded ? (

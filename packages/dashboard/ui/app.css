@@ -326,6 +326,16 @@ table.runst .st.named .stc { display: block; width: 0; min-width: 100%; margin-t
 .labelbar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .labelbar .chip button { border: 0; background: none; padding: 0; cursor: pointer; color: var(--faint); line-height: 1; }
 .labelbar .chip button:hover { color: var(--err); }
+/* the good/bad key: two quiet toggles; pressed, good in lime and bad in red, each with its own border */
+.runkey { display: inline-flex; gap: 3px; }
+.runkey .rk { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border: 1px solid var(--line2); border-radius: 6px; background: none; color: var(--dim); font: 11px var(--mono); cursor: pointer; }
+.runkey .rk svg { width: 11px; height: 11px; flex: none; }
+.runkey .rk:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
+.runkey .rk.good[aria-pressed="true"] { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.runkey .rk.bad[aria-pressed="true"] { color: var(--err); border-color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
+.runkey .rk:disabled { cursor: default; }
+.runkey.sm .rk { width: 22px; padding: 0; justify-content: center; }
+table.runst td.keycell { width: 56px; padding-left: 4px; padding-right: 10px; text-align: right; }
 .labelbar input { height: 22px; width: 140px; border-radius: 6px; border: 1px solid var(--accent-line); background: var(--panel); color: var(--ink); font: 11.5px var(--mono); padding: 0 8px; outline: none; }
 .rhead .actions { margin-left: auto; justify-content: flex-end; }
 .metrics { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; padding: 10px 24px 12px; border-top: 1px solid var(--line); }
@@ -733,6 +743,10 @@ table.probes tr.hot td { background: var(--sel); }
 .toast.err i { flex: none; margin-top: 5px; background: var(--err); }
 .toast .tx { flex: none; width: 24px; height: 24px; margin: -3px -6px -3px 2px; border: 0; border-radius: 7px; background: none; color: inherit; opacity: .55; font-size: 16px; line-height: 1; cursor: pointer; }
 .toast .tx:hover, .toast .tx:focus-visible { opacity: 1; background: color-mix(in srgb, var(--bg) 12%, transparent); outline: none; }
+/* A notice's one action, as Undo: dark text on the light toast, underlined, its ring in the toast's own dark */
+.toast .tact { flex: none; margin: -3px -6px -3px 4px; padding: 3px 8px; border: 0; border-radius: 7px; background: none; color: inherit; font: 600 13px var(--body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.toast .tact:hover { background: color-mix(in srgb, var(--bg) 12%, transparent); }
+.toast .tact:focus-visible { outline: 2px solid var(--bg); outline-offset: -2px; }
 .help { width: min(760px, 100%); max-height: calc(100vh - 48px); overflow: auto; background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); padding: 16px 20px 20px; }
 .help:focus { outline: none; }
 .help header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }

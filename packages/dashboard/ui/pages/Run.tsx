@@ -27,6 +27,8 @@ import { bisectLabel } from '../run/offers.js';
 import { presetAttempt } from '../run/preset.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
 import { firstFailedCall, openingCall } from '../run/open-at.js';
+import { useMarkRun, useRunLabels } from '../components/RunKey.js';
+import { markKey, MARKS, type RunMark } from '../runkey.js';
 import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
@@ -235,6 +237,11 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // None of it applies while the run records, so it is asked for once it has ended, and again as runs change.
   const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const actions = useActionRunner(runId, !!run.source, offers);
+  // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
+  const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
+  const markRun = useMarkRun(useCallback((_id: string, next: string[]) => setLabels(next), [setLabels]));
+  const canMark = !exported && !actionsOff;
+  const mark = useCallback((m: RunMark) => markRun(runId, labels, m), [markRun, runId, labels]);
   // An error-path preset's attempt: the preset it played in and its verdict, from the presets of the session that decided it.
   const presets = useLoad(() => (run.run.meta?.chaos && !live ? client.runChaos(runId) : null), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
   const preset = useMemo(() => presetAttempt(presets, run.run.runId), [presets, run.run.runId]);
@@ -275,7 +282,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   );
 
   // The run's keys, while this page is open.
-  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canFork, setView, setFilterWanted });
+  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canFork, setView, setFilterWanted, canMark, mark });
   useEffect(() => {
     runKeys.current = (e) => {
       const k = keyState.current;
@@ -287,6 +294,9 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
       if (e.key === 'n' && at !== null) return select(at), true;
       if (e.key === 'p' && k.parentId) return navigate(href.run(k.parentId)), true;
       if (e.key === 'v') return k.setView(nextView(k.v)), true;
+      // The good/bad key: + good, - bad, again to take it off.
+      const m = markKey(e.key);
+      if (m && k.canMark) return k.mark(m), true;
       if (e.key === 'f' && k.canFork) {
         const btn = document.getElementById('forkBtn');
         if (btn) forkMenu.openAt(btn);
@@ -333,10 +343,16 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
         },
       });
     if (!exported && !actionsOff && !live && !run.source && app.hasKind(JOB_KINDS.bisect)) items.push({ group: 'This run', label: `${bisectLabel(offers?.bisect).label}…`, hint: 'shadowlap bisect', job: true, run: () => findCommit.current() });
+    // The good/bad key: what repair keeps working, and what it fixes.
+    if (canMark)
+      for (const m of MARKS) {
+        const on = labels.includes(m);
+        items.push({ group: 'This run', label: on ? `Take off ${m}` : `Label it ${m}`, hint: m === 'good' ? '+ · repair --keeps label:good' : '- · repair --fixes label:bad', run: () => mark(m) });
+      }
     items.push({ group: 'This run', label: 'Provenance', hint: 'the run’s record, call by call', run: () => setView('provenance') });
     if (run.parent) items.push({ group: 'This run', label: 'Compare with parent', hint: shortId(run.parent.runId), run: () => navigate(href.compare(run.parent!.runId, runId)) });
     setRunCommands(items);
-  }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed]);
+  }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n')]);
   useEffect(() => () => setRunCommands([]), [setRunCommands]);
 
   const stripCalls = useMemo<StripCall[]>(() => {
@@ -369,7 +385,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} />
+      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} />
       <Metrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} />
       <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} />
       {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}

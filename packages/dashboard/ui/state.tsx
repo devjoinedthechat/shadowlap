@@ -7,7 +7,7 @@ import { afterPollError, endToast, jobStatus, jobTitle } from './jobs.js';
 import { endedRecordings, recordingToast } from './live.js';
 import type { PaletteGroup } from './palette.js';
 import { previewState } from './router.js';
-import { errorText, type ToastKind } from './toast.js';
+import { errorText, type ToastAction, type ToastKind } from './toast.js';
 
 /**
  * The state every screen shares: the client, the server's meta and run list, the connection, the
@@ -84,8 +84,8 @@ export interface AppState {
   /** Runs `fn`, or says why it cannot while the server is unreachable. */
   guard: (fn: () => void) => void;
   /** A notice at the bottom of the window; `error` for a refusal or a failure, which stays until dismissed (`toast.ts`). */
-  toast: (text: string, kind?: ToastKind) => void;
-  toastText: { id: number; text: string; kind: ToastKind } | null;
+  toast: (text: string, kind?: ToastKind, action?: ToastAction) => void;
+  toastText: { id: number; text: string; kind: ToastKind; action?: ToastAction } | null;
   /** Shows a started job in the drawer and follows it to the end. */
   watchJob: (p: Promise<JobView>) => void;
   jobs: WatchedJob[];
@@ -243,7 +243,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const [runsTick, setRunsTick] = useState(0);
   const [feeds, setFeeds] = useState<Readonly<Record<string, number>>>({});
   const [live, setLive] = useState<LiveRun[]>([]);
-  const [toastText, setToastText] = useState<{ id: number; text: string; kind: ToastKind } | null>(null);
+  const [toastText, setToastText] = useState<{ id: number; text: string; kind: ToastKind; action?: ToastAction } | null>(null);
   const [jobs, setJobs] = useState<WatchedJob[]>([]);
   const [sideOpen, setSideOpen] = useState(false);
   const [palette, setPalette] = useState(false);
@@ -253,7 +253,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const connRef = useLatest(conn);
   const previewOffline = useRef(preview === 'offline');
 
-  const toast = useCallback((text: string, kind: ToastKind = 'notice') => setToastText({ id: Date.now() + Math.random(), text, kind }), []);
+  const toast = useCallback((text: string, kind: ToastKind = 'notice', action?: ToastAction) => setToastText({ id: Date.now() + Math.random(), text, kind, ...(action ? { action } : {}) }), []);
 
   const goOffline = useCallback(() => dispatch({ type: 'unreachable', now: Date.now() }), []);
 

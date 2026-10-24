@@ -3,6 +3,8 @@ import { JOB_KINDS, type CallDetail, type RunDetail, type RunOffers } from '../a
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { Eyebrow, Tag } from '../components/bits.js';
 import { ConfirmDialog } from '../components/Dialog.js';
+import { RunKey } from '../components/RunKey.js';
+import { MARKS, type RunMark } from '../runkey.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { useMenu } from '../components/Popover.js';
@@ -32,10 +34,42 @@ import { ShareMenu } from './ShareMenu.js';
  * one lime button is the run's next step (`nextStepOf`): Open the fix, Run blame, Compare with
  * parent, or Replay where nothing needs doing; every other action stays, plain.
  */
-export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit, preset = null }: { run: RunDetail; call: CallDetail | null; selected: number | null; rescued: boolean; offers: RunOffers | null; forkMenu: ReturnType<typeof useMenu>; onAction: (p: PendingAction) => void; onFindCommit: () => void; preset?: PresetAttempt | null }) {
+export function RunHeader({
+  run,
+  call,
+  selected,
+  rescued,
+  offers,
+  forkMenu,
+  onAction,
+  onFindCommit,
+  preset = null,
+  labels: given,
+  setLabels: setGiven,
+  onMark = null,
+}: {
+  run: RunDetail;
+  call: CallDetail | null;
+  selected: number | null;
+  rescued: boolean;
+  offers: RunOffers | null;
+  forkMenu: ReturnType<typeof useMenu>;
+  onAction: (p: PendingAction) => void;
+  onFindCommit: () => void;
+  preset?: PresetAttempt | null;
+  /** The run's labels as the page shows them (useRunLabels), and how a change of them is shown; the run's own without. */
+  labels?: readonly string[];
+  setLabels?: (labels: string[]) => void;
+  /** A press of the good/bad key; without it, the header has no key. */
+  onMark?: ((m: RunMark) => void) | null;
+}) {
   const app = useApp();
   const { exported, actionsOff, toast, client, guard, refresh, hasKind } = app;
   const r = run.run;
+  // The page's labels when it keeps them (the good/bad key changes them too), else the run's, kept here.
+  const [own, setOwn] = useState<string[] | null>(null);
+  const labels = given ?? own ?? r.meta?.labels ?? [];
+  const setLabels = setGiven ?? setOwn;
   const like = runLikeOf(run);
   const type = runType(like);
   const live = r.status === 'running';
@@ -103,12 +137,12 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
             <Icon name="copy" />
             Copy ID
           </button>
-          {ownAbout ? null : <Labels run={run} />}
+          {ownAbout ? null : <Labels run={run} labels={labels} setLabels={setLabels} onMark={onMark} />}
         </div>
         {ownAbout ? (
           <div className="rabout">
             <AboutLine about={about} />
-            <Labels run={run} />
+            <Labels run={run} labels={labels} setLabels={setLabels} onMark={onMark} />
           </div>
         ) : null}
         <div className="meta">
@@ -243,11 +277,12 @@ function CompareLead({ from, to }: { from: string; to: string }) {
   );
 }
 
-/** Labels: chips with ×, and + Label for a new one (Enter adds, Esc cancels). */
-function Labels({ run }: { run: RunDetail }) {
+/**
+ * Labels: the good/bad key first (good and bad are its, so no chip says them again), then the other
+ * labels as chips with ×, and + Label for a new one (Enter adds, Esc cancels).
+ */
+function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; labels: readonly string[]; setLabels: (labels: string[]) => void; onMark: ((m: RunMark) => void) | null }) {
   const { client, actionsOff, exported, toast, refresh, guard } = useApp();
-  const [labels, setLabels] = useState<string[] | null>(null);
-  const shown = labels ?? run.run.meta?.labels ?? [];
   const [adding, setAdding] = useState(false);
   const [value, setValue] = useState('');
   const enabled = !exported && !actionsOff;
@@ -261,10 +296,12 @@ function Labels({ run }: { run: RunDetail }) {
         (err: unknown) => toast(errorText(err), 'error'),
       ),
     );
+  const keyed = !!onMark && (enabled || MARKS.some((m) => shown.includes(m)));
   if (!shown.length && !enabled) return null;
   return (
     <span className="labelbar">
-      {shown.map((l) => (
+      {keyed ? <RunKey runId={run.run.runId} labels={shown} onMark={onMark} off={exported ? 'An exported copy changes nothing' : (actionsOff ?? null)} /> : null}
+      {(keyed ? shown.filter((l) => !(MARKS as readonly string[]).includes(l)) : shown).map((l) => (
         <span className="chip" key={l}>
           {l}
           {enabled ? (
