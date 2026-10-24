@@ -34,9 +34,11 @@ the demo says so. It takes about half a minute, and needs git.
   + You are a support agent. Follow the refund policy: escalate every refund above the limit.
 
   Verified: fixes 2 of 2 target runs, 1 of 1 held-out, keeps 1 of 1 good,
-            each by its gate, which tells 90%+ from 70%- at <= 5% risk
+            each failing run by its gate, which tells 90%+ from 70%- at <= 5%
+            risk, and each good one against its baseline, which tells no drop
+            from one of 10+ points at <= 5% risk
 …
-✓ Done in 30 s, 553 requests to the scripted model, none to a real one.
+✓ Done in 31 s, 929 requests to the scripted model, none to a real one.
 ```
 
 ## 1. Record and replay the reference agent

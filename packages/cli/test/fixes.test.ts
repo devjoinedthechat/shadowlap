@@ -319,7 +319,8 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
       change: { file: 'agent.mjs', anchor: 'system prompt', before: ORIGINAL, after: FIX, added: { text: ': escalate every refund above the limit it sets' }, removed: '' },
       needed: 12,
       attemptsPerRun: 80,
-      rule: 'each by its gate, which tells 90%+ from 70%- at <= 5% risk',
+      // The failing runs by their gate, the good one against its own baseline.
+      rule: 'each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one against its baseline, which tells no drop from one of 10+ points at <= 5% risk',
       verify: { verifyId: report.verifyId },
     });
     expect(shown.repair.roles).toEqual([

@@ -178,6 +178,26 @@ describe('repairMarkdown', () => {
     expect(formatRepair(report)).not.toContain('not rescued');
   });
 
+  it('states how a good run was kept against its own baseline: both tallies and the bound on the drop, and both rules', () => {
+    const report = repairReport({ targets: ['01M540RX39NC308SMAJ73MN8RB'], good: ['01M540RG00D000000000000000'] });
+    const candidate = report.candidates.find((c) => c.id === 3)!;
+    const v = candidate.verify!;
+    const pairs = Array.from({ length: 38 }, () => ({ ...v.runs[1]!.attempts[0]! }));
+    const good = { ...v.runs[1]!, attempts: pairs, passes: 38, decision: 'kept' as const, baseline: { passes: 38, attempts: 38, source: 'paired' as const, revision: null }, margin: 0.1, drop: { lo: null, hi: 0.1, confidence: 0.95, method: 'betting' as const }, baselineRuns: pairs };
+    const verify = { ...v, runs: [v.runs[0]!, good], gate: { good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, kept: { margin: 0.1, risk: 0.05, max: 200, source: 'paired' as const, revision: null, label: null } };
+    const kept = { ...report, candidates: report.candidates.map((c) => (c.id === 3 ? { ...c, verify } : c)) };
+    const md = repairMarkdown(kept);
+    expect(md).toContain('| good | `01M540RG00` | kept | 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%) |');
+    expect(md).toContain('it fixes 1 of 1 target run, keeps 1 of 1 good, each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one against its baseline, which tells no drop from one of 10+ points at <= 5% risk.');
+    // In the terminal, the rules wrap under the counts, each line within 80 columns.
+    const text = formatRepair(kept);
+    const block = ['  Verified: fixes 1 of 1 target run, keeps 1 of 1 good,', '            each failing run by its gate, which tells 90%+ from 70%- at <= 5%', '            risk, and each good one against its baseline, which tells no drop', '            from one of 10+ points at <= 5% risk'];
+    expect(text).toContain(`\n${block.join('\n')}\n`);
+    for (const l of block) expect(l.length).toBeLessThanOrEqual(80);
+    // A verify before baselines reads as it did.
+    expect(formatRepair(report)).toContain('  Verified: fixes 1 of 1 target run, keeps 1 of 1 good,\n            each at 4 of 5 attempts\n');
+  });
+
   it('names the write policy the replays ran under, and none when the report did not keep one', () => {
     const report = repairReport({ targets: ['01M540RX39NC308SMAJ73MN8RB'], accepted: false });
     const last = (r: typeof report) => repairMarkdown(r).trimEnd().split('\n').at(-1)!;

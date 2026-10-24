@@ -12,7 +12,10 @@ import { physicalPath } from './real-path.js';
  * (`--model`, `--set`) on a working tree with no change, the base is the working tree itself, without
  * them. A commit is checked out in a temporary git worktree, as `shadowlap bisect` checks one out: the
  * working tree's installed packages are linked in, this repository's own as they were at that commit,
- * unless `--build` installs them.
+ * unless `--build` installs them. A caller that verifies a change somewhere else than the working
+ * tree brings its own checkout of the code without the change (`BaseCheckout.of`): `shadowlap repair`
+ * verifies each candidate in a worktree of its own, and its baseline runs in another, made the same
+ * way without the candidate.
  */
 
 export interface BaseSpec {
@@ -137,6 +140,14 @@ export class BaseCheckout {
       if (inRepo) linkDependencies(root, here, worktreeCwd, worktree);
     }
     return new BaseCheckout(worktreeCwd, (argv) => mapArgv(argv, { root, worktree, cwd: here, worktreeCwd }), remove);
+  }
+
+  /**
+   * A base the caller checked out: where the agent runs (`cwd`), how a run's command, as verify was
+   * given it, is pointed there (`map`), and what removes it once verify is done (`cleanup`).
+   */
+  static of(cwd: string, map: (argv: readonly string[]) => string[], cleanup: () => void): BaseCheckout {
+    return new BaseCheckout(cwd, map, cleanup);
   }
 
   /** The recorded command, pointed into the checkout. */

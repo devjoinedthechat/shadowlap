@@ -200,8 +200,11 @@ describe('shadowlap repair', { timeout: 120_000 }, () => {
     expect(md).toContain(`+ ${FIX}`);
     expect(md).toContain('The held-out runs were never shown to the repairer.');
     expect(md).toContain('Writes were stubbed in every replay.');
-    expect(md).toMatch(/\| good \| `\w{10}` \| kept \| 12 of 12 passed · rate >= 0\.73 \(95%\) · pass\^5 1\.00 \|/);
-    expect(md).toContain('each by its gate, which tells 90%+ from 70%- at <= 5% risk');
+    // The failing runs are decided by their gate, the good one against its own baseline: the same run
+    // under the code without the candidate, attempt for attempt.
+    expect(md).toMatch(/\| target \| `\w{10}` \| fixed \| 12 of 12 passed · rate >= 0\.73 \(95%\) · pass\^5 1\.00 \|/);
+    expect(md).toMatch(/\| good \| `\w{10}` \| kept \| 38 of 38 passed, baseline 38 of 38 · drop <= 0\.10 \(95%\) \|/);
+    expect(md).toContain('each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one against its baseline, which tells no drop from one of 10+ points at <= 5% risk.');
     expect(md).not.toMatch(/at least|at most|of the time/);
     expect(md).toContain(good.slice(0, 10));
   });
@@ -568,6 +571,55 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
     expect(sh(project, 'git', ['worktree', 'list', '--porcelain']).split('\n').filter((l) => l.startsWith('worktree '))).toHaveLength(1);
     expect(existsSync(hookLog)).toBe(false);
     expect(sh(project, 'git', ['status', '--porcelain'])).toBe(' M agent.mjs\n?? notes.txt\n');
+  });
+
+  it('keeps a good run against the code without the candidate: its baseline runs the working tree as it is, in a worktree of its own', async () => {
+    // The agent writes down, each time it runs, which run it is, where it runs and the file it runs from.
+    const probe = [
+      "import { appendFileSync as logLine, readFileSync as read } from 'node:fs';",
+      "if (process.env.LIVE_LOG) logLine(process.env.LIVE_LOG, JSON.stringify({ run: process.env.SHADOWLAP_RUN_ID, cwd: process.cwd(), self: read(new URL(import.meta.url), 'utf8') }) + '\\n');",
+    ].join('\n');
+    writeFileSync(join(project, 'agent.mjs'), `${probe}\n${readFileSync(AGENT, 'utf8')}`);
+    sh(project, 'git', ['commit', '-qam', 'agent that says where it runs']);
+    const { failed, good } = await runs();
+    // A change not committed: the code without the candidate has it, and HEAD does not.
+    writeFileSync(join(project, 'agent.mjs'), `${readFileSync(join(project, 'agent.mjs'), 'utf8')}// changed, not committed\n`);
+    const unchanged = readFileSync(join(project, 'agent.mjs'), 'utf8');
+    const candidate = unchanged.replace('You are a support agent. Follow the refund policy.', FIX);
+    expect(candidate).not.toBe(unchanged);
+    mode = 'alternate';
+    const log = join(project, '.shadowlap', 'live.log');
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json'], { LIVE_LOG: log });
+    expect(r.code, r.out).toBe(0);
+    type Attempted = { runId: string };
+    type Verified = { runId: string; role: string; outcome: string; passes: number; attempts: number; baseline?: unknown; margin?: number; runs: Attempted[]; baselineRuns?: Attempted[] };
+    const report = JSON.parse(r.stdout) as Omit<Report, 'candidates'> & { candidates: Array<{ id: number; verify: { runs: Verified[]; kept: unknown } | null }> };
+    expect(report.accepted).toBe(3);
+    const v = report.candidates.find((c) => c.id === 3)!.verify!;
+    // Kept against its own baseline, pair by pair: the same run under the code as it was before the candidate.
+    const kept = v.runs.find((x) => x.role === 'good')!;
+    expect(kept).toMatchObject({ runId: good, outcome: 'kept', passes: 38, attempts: 38, baseline: { passes: 38, attempts: 38, source: 'paired', revision: null }, margin: 0.1 });
+    expect(v.kept).toMatchObject({ source: 'paired', revision: null, margin: 0.1, risk: 0.05, max: 200 });
+    expect(r.out).toContain('baseline: the same runs on the code without the candidate, checked out on its own');
+
+    const seen = new Map(readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { run: string; cwd: string; self: string }).map((l) => [l.run, l]));
+    const changed = kept.runs.map((a) => seen.get(a.runId)!);
+    const base = kept.baselineRuns!.map((a) => seen.get(a.runId)!);
+    expect(base).toHaveLength(38);
+    expect([...changed, ...base].every(Boolean)).toBe(true);
+    // The change's attempts ran the candidate, and the baseline's the working tree as it is, with its
+    // change not committed and without the candidate: each in a worktree of its own, never the working tree.
+    for (const l of changed) expect(l.self).toBe(candidate);
+    for (const l of base) expect(l.self).toBe(unchanged);
+    const home = [project, realpathSync(project)];
+    for (const l of [...changed, ...base]) expect(home.some((h) => l.cwd.startsWith(h))).toBe(false);
+    const where = (ls: Array<{ cwd: string }>) => [...new Set(ls.map((l) => l.cwd))];
+    expect(where(changed)).toHaveLength(1);
+    expect(where(base)).toHaveLength(1);
+    expect(where(base)[0]).not.toBe(where(changed)[0]);
+    // Both worktrees are gone, and the working tree is as it was.
+    expect(sh(project, 'git', ['worktree', 'list', '--porcelain']).split('\n').filter((l) => l.startsWith('worktree '))).toHaveLength(1);
+    expect(readFileSync(join(project, 'agent.mjs'), 'utf8')).toBe(unchanged);
   });
 
   it('anchors a policy sentence the agent fills a value into, repairs it keeping the placeholder, and sets aside a rewrite that would read the environment', async () => {

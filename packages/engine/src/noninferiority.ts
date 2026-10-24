@@ -479,6 +479,15 @@ export function describeBaselineRule(r: BaselineRule & { source: BaselineSource;
   return `kept unless it drops ${points(r.margin)}+ points below ${against}, <= ${percent(r.risk)} risk, up to ${r.max} ${r.source === 'paired' ? 'pairs' : 'attempts'}`;
 }
 
+/**
+ * The baseline test in a few words, as `gateShort` puts a gate's: `tells no drop from one of 10+
+ * points at <= 5% risk`. Kept at a drop of the margin or more, or broken at no drop, each at most
+ * `risk` of the time.
+ */
+export function baselineShort(r: Pick<BaselineRule, 'margin' | 'risk'>): string {
+  return `tells no drop from one of ${points(r.margin)}+ points at <= ${percent(r.risk)} risk`;
+}
+
 /** A drop to two places, signed: `0.07`, `-0.03`. */
 const signed = (x: number) => (Math.abs(x) < 0.005 ? '0.00' : x.toFixed(2));
 

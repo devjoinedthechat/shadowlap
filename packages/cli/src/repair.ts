@@ -11,6 +11,7 @@ import { physicalPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
 import { runVerify } from './verify.js';
+import { BaseCheckout } from './verify-base.js';
 
 /**
  * `shadowlap repair`: blame each failing run, propose fixes, and keep the smallest one the verify gate
@@ -670,8 +671,11 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
    * Verifies a candidate, never in the working tree. Its rewrite alone is first held to --max-growth,
    * before anything is spent: a rewrite that already grows the recorded requests past it is rejected
    * without a replay. Then a worktree of the working tree as it is gets the edit and, with --build,
-   * is built; verify replays every run there; and the worktree is removed, whatever came of it.
-   * Returns the file's two versions when the gate accepts it.
+   * is built; verify replays every run there; and the worktree is removed, whatever came of it. A
+   * good run's baseline runs the code without the candidate: that worktree as it was before the edit,
+   * copied into one of its own when a good run first forks, and built the same way, so the two arms
+   * differ by the candidate alone, whatever the working tree holds by then. Returns the file's two
+   * versions when the gate accepts it.
    */
   async function tryCandidate(c: RepairCandidate, edit: { file: string; offset: number; text: string; sent: string }): Promise<{ original: string; patched: string } | null> {
     const original = readFileSync(join(root, edit.file), 'utf8');
@@ -716,10 +720,26 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
           return null;
         }
       }
+      const candidate = tree;
+      const withoutCandidate = (): BaseCheckout => {
+        const plain = candidateTree(candidate.root, candidate.cwd);
+        try {
+          writeFileSync(join(plain.root, edit.file), original);
+          if (s.build) {
+            const b = runBuild(s.build, plain.cwd);
+            if (!b.ok) throw new Error(`${s.build} failed on the code without the candidate: ${b.tail.split('\n').at(-1) ?? ''}`);
+          }
+        } catch (err) {
+          plain.remove();
+          throw err;
+        }
+        // A run's command as verify is given it, pointed into the candidate's worktree, is pointed into this one.
+        return BaseCheckout.of(plain.cwd, (argv) => plain.argv(argv), plain.remove);
+      };
       const v = await runVerify({
         opts: input.opts,
         runs: runs.map((t) => ({ ...t, argv: tree.argv(t.argv) })),
-        settings: { attempts: s.attempts, needed: s.needed, gate: s.gate, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard, cwd: tree.cwd },
+        settings: { attempts: s.attempts, needed: s.needed, gate: s.gate, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard, cwd: tree.cwd, baseCheckout: { label: 'the code without the candidate', open: withoutCandidate } },
         log: (line) => log(`  ${line}`),
       });
       cost.verify += v.spent;

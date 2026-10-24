@@ -1,6 +1,6 @@
 import { probeVerdict } from './blame.js';
 import { agentCallsOf } from './judge-scope.js';
-import { describeBaselineRule, dropBound, type BaselineDecision, type BaselineRule, type BaselineSource, type DropBound } from './noninferiority.js';
+import { baselineShort, describeBaselineRule, dropBound, type BaselineDecision, type BaselineRule, type BaselineSource, type DropBound } from './noninferiority.js';
 import { formatUsd } from './prices.js';
 import { atLeast, atMost, decide, describeGate, percent, wilsonBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
@@ -170,6 +170,15 @@ export function outcomeOf(r: Pick<VerifiedRun, 'role' | 'verdict'> & { decision?
 }
 
 /**
+ * A good run against its baseline: both tallies, and the bound on the drop that bears on its
+ * verdict: `38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)`.
+ */
+export function keptTally(r: Pick<VerifiedRun, 'passes' | 'attempts' | 'drop' | 'decision'>, b: NonNullable<VerifiedRun['baseline']>): string {
+  const bound = r.drop ? dropBound(r.drop, r.decision) : null;
+  return `${r.passes} of ${r.attempts.length} passed, baseline ${b.passes} of ${b.attempts}${bound ? ` · ${bound}` : ''}`;
+}
+
+/**
  * A run's tally, and under a gate the Wilson bound at the confidence it decided at: `12 of 12 passed
  * · rate >= 0.76 (95%)`. An attempt that could not be judged is counted apart, never as one that
  * failed, and a gate it stopped before deciding gives no bound: `2 of 2 passed, attempt 3 not judged`.
@@ -180,12 +189,7 @@ function tally(r: VerifiedRun): string {
     return `${judged ? `${r.passes} of ${judged} passed, ` : ''}attempt ${r.attempts.length} not judged`;
   }
   if (r.deterministic) return 'clean replay';
-  // A good run against its baseline: both tallies, and the bound on the drop that bears on its verdict.
-  if (r.baseline) {
-    const b = r.baseline;
-    const bound = r.drop ? dropBound(r.drop, r.decision) : null;
-    return `${r.passes} of ${r.attempts.length} passed, baseline ${b.passes} of ${b.attempts}${bound ? ` · ${bound}` : ''}`;
-  }
+  if (r.baseline) return keptTally(r, r.baseline);
   const g = r.gate;
   const bound = g && r.attempts.length ? wilsonBound(g) : null;
   return `${r.passes} of ${r.attempts.length} passed${bound ? ` · ${bound}` : ''}`;
@@ -306,9 +310,17 @@ export function gateShort(g: Pick<SprtGate, 'good' | 'bad' | 'risk'>): string {
   return `tells ${atLeast(g.good)} from ${atMost(g.bad)} at <= ${percent(g.risk)} risk`;
 }
 
-/** How each run was decided, after a tally of runs: `each at 4 of 5 attempts`, or `each by its gate, which tells 90%+ from 70%- at <= 5% risk`. */
-export function eachRun(v: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | 'gate'>): string {
-  return v.gate ? `each by its gate, which ${gateShort(v.gate)}` : `each at ${v.needed} of ${v.attemptsPerRun} attempts`;
+/**
+ * How each run was decided, after a tally of runs: `each at 4 of 5 attempts`, or `each by its gate,
+ * which tells 90%+ from 70%- at <= 5% risk`. When good runs were kept against their baseline, both
+ * rules: `each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one
+ * against its baseline, which tells no drop from one of 10+ points at <= 5% risk`.
+ */
+export function eachRun(v: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | 'gate'> & { kept?: VerifyReport['kept'] }): string {
+  if (!v.gate) return `each at ${v.needed} of ${v.attemptsPerRun} attempts`;
+  const gate = `by its gate, which ${gateShort(v.gate)}`;
+  if (!v.kept) return `each ${gate}`;
+  return `each failing run ${gate}, and each good one against ${v.kept.source === 'history' ? "its golden's history" : 'its baseline'}, which ${baselineShort(v.kept)}`;
 }
 
 export function formatVerify(r: VerifyReport, p: Palette = plain): string {

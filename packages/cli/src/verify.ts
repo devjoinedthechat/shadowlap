@@ -23,9 +23,10 @@ import { BaseCheckout, resolveBase, type BaseSpec } from './verify-base.js';
 
 /**
  * What good runs are kept against: a paired baseline at a base, the golden's history, or nothing
- * (each good run then judged by the gate on its own), with why.
+ * (each good run then judged by the gate on its own), with why. A paired base with `open` is checked
+ * out by the caller (`baseCheckout`), not by verify.
  */
-export type VerifyBaseline = { source: 'paired'; base: BaseSpec } | { source: 'history' } | { source: 'none'; why: string };
+export type VerifyBaseline = { source: 'paired'; base: BaseSpec; open?: () => BaseCheckout } | { source: 'history' } | { source: 'none'; why: string };
 
 export interface VerifySettings extends AttemptSettings {
   /** A fixed count: attempts per run, and how many must pass. Used when `gate` is null. */
@@ -42,14 +43,24 @@ export interface VerifySettings extends AttemptSettings {
   /** Start nothing new once any run has failed. */
   failFast: boolean;
   /**
-   * What good runs are kept against. Absent: the config's `verify.baseline`, else paired, at the base
-   * `resolveBase` finds for the working tree (HEAD when it has a change).
+   * What good runs are kept against. Absent: the config's `verify.baseline`, else paired, on
+   * `baseCheckout` when given, else at the base `resolveBase` finds for the working tree (HEAD when it
+   * has a change).
    */
   baseline?: VerifyBaseline;
   /** The drop from its baseline that breaks a good run: absent, the config's `verify.margin`, else 0.1. */
   margin?: number;
   /** The most pairs (or attempts, against history) a good run takes: absent, the config's `verify.max`, else 200. */
   keptMax?: number;
+  /**
+   * The code without the change, for a caller that verifies the change somewhere else than the
+   * working tree: `shadowlap repair` verifies each candidate in a worktree of its own (`cwd`), and a
+   * good run's paired baseline runs the code without the candidate, in another one. `open` checks it
+   * out the first time a good run forks, and its `argv` points a run's command, as verify was given
+   * it, there; verify removes it when done. Absent, the base is a commit of `cwd`'s repository, or
+   * `cwd` itself for a change that is only request fields (`resolveBase`).
+   */
+  baseCheckout?: { label: string; open: () => BaseCheckout };
 }
 
 export interface VerifyInput {
@@ -109,10 +120,12 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         ? { source: 'none', why: '' }
         : (config.baseline ?? 'paired') === 'history'
           ? { source: 'history' }
-          : (() => {
-              const found = resolveBase(cwd, { fields: Object.keys(s.fields).length > 0 });
-              return 'base' in found ? { source: 'paired' as const, base: found.base } : { source: 'none' as const, why: found.none };
-            })()));
+          : s.baseCheckout
+            ? { source: 'paired', base: { revision: null, label: s.baseCheckout.label, build: null }, open: s.baseCheckout.open }
+            : (() => {
+                const found = resolveBase(cwd, { fields: Object.keys(s.fields).length > 0 });
+                return 'base' in found ? { source: 'paired' as const, base: found.base } : { source: 'none' as const, why: found.none };
+              })()));
 
   // The baseline's arm, opened for the first good run that forks: the base checked out, its own runner.
   // Assigned in openArm, which the runs call: declared so its type isn't narrowed to its first value.
@@ -122,7 +135,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
     if (baseline.source !== 'paired') return (arm = { why: 'no paired baseline' });
     let checkout: BaseCheckout;
     try {
-      checkout = BaseCheckout.open(baseline.base, cwd, process.cwd());
+      checkout = baseline.open ? baseline.open() : BaseCheckout.open(baseline.base, cwd, process.cwd());
     } catch (err) {
       return (arm = { why: (err as Error).message });
     }
@@ -130,6 +143,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       // The same settings, in the base's checkout; the budget is counted over both arms, here.
       const baseRunner = await AttemptRunner.start(input.opts, { ...s, budget: null, cwd: checkout.cwd }, { store });
       if (baseline.base.revision) log(p.dim(`  baseline: the same runs at ${baseline.base.label}, checked out on its own`));
+      else if (baseline.open) log(p.dim(`  baseline: the same runs on ${baseline.base.label}, checked out on its own`));
       return (arm = { runner: baseRunner, checkout });
     } catch (err) {
       checkout.close();
@@ -225,6 +239,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           return false;
         }
         const base = baseline.source === 'paired' ? baseline.base : null;
+        // The commit the baseline runs at, as reports name it: null for code that is no commit.
+        const at = base?.revision ? base.label : null;
         // Where the change forked, as the recording numbers it: the baseline is forced live there, so
         // both arms sample the run from the same call on.
         const d = first.summary.divergence!;
@@ -233,11 +249,11 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         const baseRuns: VerifyAttempt[] = [];
         result.baselineRuns = baseRuns;
         const baseAttempt = async (n: number): Promise<Attempt | null> => {
-          const marks = { repeat: { group: `${group}-${parent.runId}-baseline`, attempt: n, of: rule.max }, verify: { role, passed: false, arm: 'baseline' as const, revision: base?.label ?? null } };
+          const marks = { repeat: { group: `${group}-${parent.runId}-baseline`, attempt: n, of: rule.max }, verify: { role, passed: false, arm: 'baseline' as const, revision: at } };
           const b = await opened.runner.attempt(baseTarget, { divergeAt: forkAt, meta: marks });
           if (interrupted()) return null;
           baseRuns.push(kept(b, opened.runner.costOf));
-          store.updateRunMeta(b.run.runId, { verify: { role, passed: b.passed, verdict: b.verdict, arm: 'baseline', revision: base?.label ?? null }, ...(b.checks.length ? { checks: b.checks } : {}) });
+          store.updateRunMeta(b.run.runId, { verify: { role, passed: b.passed, verdict: b.verdict, arm: 'baseline', revision: at }, ...(b.checks.length ? { checks: b.checks } : {}) });
           return b;
         };
         let pairs: PairCounts = NO_PAIRS;
@@ -261,7 +277,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           // An attempt of the baseline that never reached its model through Shadowlap ran nothing the
           // recording holds: the base can't run the agent, and no verdict may rest on it.
           if (b.bypassed) {
-            result.undecided = `the baseline at ${base?.label ?? 'the working tree'} could not run the agent: ${b.failures[0] ?? 'it made no model calls through Shadowlap'}`;
+            result.undecided = `the baseline${at ? ` at ${at}` : base ? ` on ${base.label}` : ''} could not run the agent: ${b.failures[0] ?? 'it made no model calls through Shadowlap'}`;
             break;
           }
           const whyBase = unjudged(b);
@@ -272,7 +288,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           pairs = addPair(pairs, changedNow.passed, b.passed);
           const decision = decidePaired(pairs, rule);
           Object.assign(result, keptVerdict(decision));
-          result.baseline = { passes: pairs.basePasses, attempts: n, source: 'paired', revision: base?.revision ? base.label : null };
+          result.baseline = { passes: pairs.basePasses, attempts: n, source: 'paired', revision: at };
           result.margin = rule.margin;
           result.drop = pairedDrop(pairs, rule.risk);
           if (decision !== 'continue') break;
@@ -284,7 +300,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
 
       /** A good run that forked, against its golden's test history: only the change's arm runs. */
       const againstHistory = async (): Promise<boolean> => {
-        const golden = goldenOf(store, parent, cwd);
+        // Named from the project's folder, as `shadowlap test` names it, wherever verify runs the change.
+        const golden = goldenOf(store, parent, process.cwd());
         const history: GateHistory | null = golden ? gateHistory(store, golden, { window: BASELINE_DEFAULTS.window, checks: runner.oracle().slice(1), mode: 'fork' }) : null;
         if (!golden || !history?.attempts) {
           result.noBaseline = golden ? `${golden} has no test history under these checks yet` : `${shortId(parent.runId)} is no golden's run, so it has no test history`;
