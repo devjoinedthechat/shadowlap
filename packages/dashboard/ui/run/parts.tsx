@@ -6,7 +6,7 @@ import { CmdLine } from '../components/bits.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { callName, clip, glued, GLUED_SEPARATOR, jsonText, num, shortId } from '../format.js';
-import { countOrigins } from '../origins.js';
+import { countOrigins, parseOrigins } from '../origins.js';
 import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { href } from '../route.js';
 import { runType } from '../runs.js';
@@ -40,7 +40,8 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
     upstreamRequests: s.upstreamRequests,
     cost: s.cost,
     tokensNotRespent: wholeInput(s.tokensNotRespent),
-    counts: countOrigins(run.calls.map(originOf)),
+    // Every call's, while a long run's pages come (`origins`, paging.ts).
+    counts: countOrigins((run.origins ? parseOrigins(run.origins) : null) ?? run.calls.map(originOf)),
     capture: runType(runLikeOf(run)) === 'capture',
     toolsCaptured: toolsCaptured(run),
     ...spentBy(run),

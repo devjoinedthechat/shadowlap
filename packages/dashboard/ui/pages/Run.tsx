@@ -16,7 +16,7 @@ import { navigate } from '../router.js';
 import { inScope, scopeChips, scopesOf } from '../scopes.js';
 import { useApp, type PaletteCommand } from '../state.js';
 import { useActionRunner } from '../run/actions.js';
-import { CallsTable, CallsToolbar, matchesFilter, type OriginFilter } from '../run/CallsView.js';
+import { CallsTable, CallsToolbar, matchesFilter, pendingMatches, type OriginFilter } from '../run/CallsView.js';
 import { ContextView } from '../run/ContextView.js';
 import { ForksView } from '../run/ForksView.js';
 import { ForkDifferences } from '../run/ForkDifferences.js';
@@ -27,6 +27,8 @@ import { bisectLabel } from '../run/offers.js';
 import { presetAttempt } from '../run/preset.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
 import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.js';
+import { usePagedRun } from '../run/paged-run.js';
+import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
 import { ProvenanceView } from '../run/ProvenanceView.js';
 import { RunHeader } from '../run/RunHeader.js';
 import { TimelineView } from '../run/TimelineView.js';
@@ -57,11 +59,13 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
       const key = opened.current.key;
       const asked = opened.current.runId ?? key;
       const prev = had.current?.key === key ? had.current : null;
-      if (!prev || !recording || prev.run.run.status !== 'running' || prev.run.run.runId !== recording.runId) return client.run(asked);
-      return client.run(asked, settledThrough(prev.run.calls)).then((part) => {
+      // A recording's page follows its newest call: the pages after the one it came with are read at once.
+      if (!prev || !recording || prev.run.run.status !== 'running' || prev.run.run.runId !== recording.runId) return client.run(asked).then((d) => (d.run.status === 'running' && d.callsNext !== null ? followPages(client, d) : d));
+      return client.run(asked, settledThrough(prev.run.calls)).then(async (part) => {
         // The same answer again (a 304): the page as it was, so nothing redraws.
         if (part === prev.part) return prev.run;
-        const run = mergeRun(prev.run, part);
+        const merged = mergeRun(prev.run, part);
+        const run = merged.callsNext !== null ? await followPages(client, merged) : merged;
         had.current = { key, run, part };
         return run;
       });
@@ -141,8 +145,10 @@ function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | n
   }, [want, detail, theirs.data, forkAt, run.run.meta?.test]);
 }
 
-function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
+function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
   const app = useApp();
+  // A long run's calls come a page at a time (paging.ts): `run` holds those read so far.
+  const { run, paging } = usePagedRun(app.client, answered);
   // The tab's title reads the run's about line from the run as this page read it: the run list has no attempts.
   useEffect(() => {
     setOpenRunAbout(run.run.runId, run.about ?? null);
@@ -161,8 +167,15 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   const last = calls.length ? calls[calls.length - 1]!.callNo : null;
   const first = calls[0]?.callNo ?? null;
   const fallback = forkAt ?? lostAt ?? (live ? last : first);
-  const selected = call !== null && calls.some((c) => c.callNo === call) ? call : call !== null && live ? call : fallback;
+  // While its pages come, a call of the run is one numbered up to its count, read yet or not.
+  const isCall = (n: number) => (paging ? n >= 1 && n <= paging.total : calls.some((c) => c.callNo === n));
+  const selected = call !== null && isCall(call) ? call : call !== null && live ? call : fallback;
   const v: View = view ?? 'calls';
+  // The page that holds the selected call, read before the others.
+  const need = paging?.need ?? null;
+  useEffect(() => {
+    if (need && selected !== null) need(selected);
+  }, [need, selected]);
 
   // A short id settles on the full one; a run opened without a call lands on its fork, its lost call, or its first call.
   useEffect(() => {
@@ -189,11 +202,15 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   const [text, setText] = useState('');
   // The tools each model call asked for, when the server says which call asked for each tool call.
   const asked = useMemo(() => (calls.some((c) => c.kind === 'tool' && c.requestedBy !== undefined) ? askedTools(calls) : null), [calls]);
-  const visible = useMemo(() => scopedCalls.filter((c) => matchesFilter(c, filter, text.trim(), c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined)), [scopedCalls, filter, text, asked]);
+  // Every call while the pages come, a placeholder for each not read yet; within a scope, those read.
+  const listed = useMemo<readonly ListedCall[]>(() => (paging && scope === 'all' ? listedCalls(calls, paging.total, paging.origins) : scopedCalls), [paging, scope, calls, scopedCalls]);
+  const visible = useMemo(() => listed.filter((c) => (isPending(c) ? pendingMatches(c, filter, text.trim()) : matchesFilter(c, filter, text.trim(), c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined))), [listed, filter, text, asked]);
   const filterCounts = useMemo(() => {
-    const n = countOrigins(scopedCalls.map(originOf));
-    return { all: scopedCalls.length, live: n.live, rep: n.rep, over: n.over, inject: n.inject, fail: n.fail, block: n.block + n.stub } satisfies Record<OriginFilter, number>;
-  }, [scopedCalls]);
+    // Every call's origin from the run's page while the pages come.
+    const all = paging?.origins && scope === 'all' ? paging.origins : null;
+    const n = countOrigins(all ?? scopedCalls.map(originOf));
+    return { all: all ? all.length : scopedCalls.length, live: n.live, rep: n.rep, over: n.over, inject: n.inject, fail: n.fail, block: n.block + n.stub } satisfies Record<OriginFilter, number>;
+  }, [scopedCalls, paging?.origins, scope]);
   const [tab, setTabState] = useState<InspectorTab>(lastTab);
   const setTab = (t: InspectorTab) => {
     lastTab = t;
@@ -315,7 +332,17 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed]);
   useEffect(() => () => setRunCommands([]), [setRunCommands]);
 
-  const stripCalls = useMemo<StripCall[]>(() => calls.map((c) => ({ n: c.callNo, origin: originOf(c), name: callName(c.kind, c.name), detail: stripDetail(c) })), [calls]);
+  const stripCalls = useMemo<StripCall[]>(() => {
+    const strip = (c: (typeof calls)[number]): StripCall => ({ n: c.callNo, origin: originOf(c), name: callName(c.kind, c.name), detail: stripDetail(c) });
+    const origins = paging?.origins;
+    if (!origins) return calls.map(strip);
+    // Every call from its origin while the pages come; its name once its page is read.
+    const byNo = new Map(calls.map((c) => [c.callNo, c]));
+    return origins.map((origin, i) => {
+      const c = byNo.get(i + 1);
+      return c ? strip(c) : { n: i + 1, origin, name: `#${i + 1}`, detail: 'not read yet' };
+    });
+  }, [calls, paging?.origins]);
   const inScopeFn = useMemo(() => {
     if (scope === 'all') return null;
     const ids = new Set(scopedCalls.map((c) => c.callNo));
@@ -323,9 +350,10 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   }, [scope, scopedCalls]);
   const present = useMemo(() => presentOrigins(countOrigins(stripCalls.map((c) => c.origin))), [stripCalls]);
 
+  // While the pages come, Calls counts the run's calls and Turns says nothing until they are all read.
   const tabs: Array<[View, string, number | undefined]> = [
-    ['calls', 'Calls', scopedCalls.length],
-    ['turns', 'Turns', scopedCalls.filter((c) => c.kind === 'api').length],
+    ['calls', 'Calls', paging && scope === 'all' ? paging.total : scopedCalls.length],
+    ['turns', 'Turns', paging ? undefined : scopedCalls.filter((c) => c.kind === 'api').length],
     ['context', 'Context', undefined],
     ['timeline', 'Timeline', undefined],
     ['forks', 'Forks', undefined],
@@ -341,7 +369,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
       {/* What a fork did differently from its parent, ranked as decisions ranks a change. */}
       {run.run.divergence && run.run.parentRunId && !live ? <ForkDifferences runId={runId} /> : null}
       <section className="strip">
-        {calls.length ? <Strip calls={stripCalls} selected={selected} forkAt={forkMark} lostAt={lostAt} inScope={inScopeFn} live={live} onSelect={select} /> : <div className="cells empty-strip">{live ? 'Waiting for the first call…' : 'No calls.'}</div>}
+        {stripCalls.length ? <Strip calls={stripCalls} selected={selected} forkAt={forkMark} lostAt={lostAt} inScope={inScopeFn} live={live} onSelect={select} /> : <div className="cells empty-strip">{live ? 'Waiting for the first call…' : 'No calls.'}</div>}
         <Legend origins={present} />
       </section>
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
@@ -356,9 +384,16 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
             ))}
           </div>
           {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} /> : null}
+          {paging ? (
+            <div className="toolbar muted" role="status">
+              {paging.error
+                ? `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read; the next page could not be read (${paging.error}). Pick a call to try again.`
+                : `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read so far; the rest are on their way.${text.trim() || scope !== 'all' || v !== 'calls' ? ' What shows is from those read.' : ''}`}
+            </div>
+          ) : null}
           {/* Each view starts at its top; Calls centres the selected call. */}
           <div className="vbody" tabIndex={-1} key={v}>
-            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} /> : null}
+            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}
             {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}

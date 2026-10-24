@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type Client } from '../api.js';
 import { Chips, PageHeader } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { ShowMore } from '../components/Table.js';
 import { compactPath } from '../format.js';
-import { useLoad } from '../hooks.js';
+import { useLatest, useLoad } from '../hooks.js';
 import { sentence } from '../normalize.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { href } from '../route.js';
@@ -16,6 +16,7 @@ import { FindCommitDialog } from '../runspage/FindCommit.js';
 import { ImportDialog } from '../runspage/ImportDialog.js';
 import { runsLinkQuery } from '../runspage/query.js';
 import { RunsTable, type TableRun } from '../runspage/RunsTable.js';
+import { warmingLine, withFirstPage } from '../runspage/rows.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
@@ -123,6 +124,95 @@ async function loadRows(client: Client, q: RunsQuery, limit: number): Promise<Ru
   return { ...first, runs, next };
 }
 
+interface TableState {
+  /** What the rows were read for: the chip, the filter, the sort and the days. Until the rows for another are read, those held stay. */
+  key: string;
+  rows: TableRun[];
+  next: string | null;
+  total: number;
+  chipCounts: ChipCounts | null;
+  warming: { done: number; total: number } | null;
+  error: Error | null;
+  loaded: boolean;
+}
+
+const emptyTable = (key: string): TableState => ({ key, rows: [], next: null, total: 0, chipCounts: null, warming: null, error: null, loaded: false });
+const asError = (err: unknown) => (err instanceof Error ? err : new Error(String(err)));
+
+/**
+ * The table's rows, a page at a time. When what it shows changes (`key`: its chip, filter, sort or
+ * days), the rows asked for are read from the first page, those held kept in view until they come;
+ * when the runs change (`refresh`), its first page alone is read again, the rows after it kept as
+ * they were read (rows.ts `withFirstPage`); Show more reads the page after the last. While the server
+ * says it is still working out what the filter or the sort reads (`warming`), the first page is read
+ * again every second and a half.
+ */
+function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: string, limit: number): TableState {
+  const [state, setState] = useState<TableState>(() => emptyTable(key));
+  const queryNow = useLatest(query);
+  const limitNow = useLatest(limit);
+  useEffect(() => {
+    let alive = true;
+    loadRows(client, queryNow.current, limitNow.current).then(
+      (p) => alive && setState({ key, rows: p.runs, next: p.next, total: p.total, chipCounts: p.chipCounts, warming: p.warming ?? null, error: null, loaded: true }),
+      (err: unknown) => alive && setState((s) => ({ ...s, error: asError(err), loaded: true })),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [client, key, queryNow, limitNow]);
+
+  const [nudge, setNudge] = useState(0);
+  const refreshed = useRef(`${refresh}|${nudge}`);
+  useEffect(() => {
+    const now = `${refresh}|${nudge}`;
+    if (refreshed.current === now) return;
+    refreshed.current = now;
+    let alive = true;
+    client.runsPage({ ...queryNow.current, limit: PAGE }).then(
+      (first) =>
+        alive &&
+        setState((s) => {
+          const fresh = { total: first.total, chipCounts: first.chipCounts, warming: first.warming ?? null, error: null, loaded: true };
+          // The rows held are another's (their own read failed, or is still on its way): the first page stands for them.
+          if (s.key !== key) return { ...s, ...fresh, key, rows: first.runs, next: first.next };
+          const merged = withFirstPage(s.rows, first.runs);
+          return { ...s, ...fresh, rows: merged.rows, next: merged.kept ? s.next : first.next };
+        }),
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, [client, key, refresh, nudge, queryNow]);
+
+  useEffect(() => {
+    if (!state.loaded || state.key !== key || state.rows.length >= limit || !state.next) return;
+    let alive = true;
+    const cursor = state.next;
+    client.runsPage({ ...queryNow.current, cursor, limit: Math.min(limit - state.rows.length, 500) }).then(
+      (more) =>
+        alive &&
+        setState((s) => {
+          if (s.key !== key || s.next !== cursor) return s;
+          const have = new Set(s.rows.map((r) => r.runId));
+          return { ...s, rows: [...s.rows, ...more.runs.filter((r) => !have.has(r.runId))], next: more.next, total: more.total, chipCounts: more.chipCounts };
+        }),
+      (err: unknown) => alive && setState((s) => (s.key === key ? { ...s, error: asError(err) } : s)),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [client, key, limit, state.loaded, state.key, state.next, state.rows.length, queryNow]);
+
+  useEffect(() => {
+    if (!state.warming) return;
+    const t = setTimeout(() => setNudge((n) => n + 1), 1500);
+    return () => clearTimeout(t);
+  }, [state.warming]);
+  return state;
+}
+
 const CHIP_TYPES: Readonly<Record<RunChip, readonly string[]>> = { all: [], recording: ['recording'], fork: ['fork'], clean: ['clean'], test: ['test'], capture: ['capture'], failed: ['failed'], local: ['local'] };
 
 function pickedRun(r: TableRun): PickedRun {
@@ -210,18 +300,19 @@ function ServerRuns() {
     [calDays],
   );
 
-  // Read again when runs change, and when a push or a pull changes what is only here (the local tags).
-  const page = useLoad(() => loadRows(client, { types, q, sort, from: times?.from ?? null, to: times?.to ?? null }, limit), 'runs-page', `${tick}:${feeds.team ?? 0}|${chip}|${q}|${sort}|${times?.from ?? ''}|${times?.to ?? ''}|${limit}`);
-  const rows: TableRun[] = page.data?.runs ?? [];
-  const counts: ChipCounts | null = page.data?.chipCounts ?? null;
+  // Its first page read again when runs change, and when a push or a pull changes what is only here (the local tags).
+  const table = useRunsTable(client, { types, q, sort, from: times?.from ?? null, to: times?.to ?? null }, `${chip}|${q}|${sort}|${times?.from ?? ''}|${times?.to ?? ''}`, `${tick}:${feeds.team ?? 0}`, limit);
+  const rows: TableRun[] = table.rows;
+  const counts: ChipCounts | null = table.loaded ? table.chipCounts : null;
+  const warming = warmingLine(table.warming, { filtered: !!q.trim(), bySpent: sort === 'spent' });
 
   // What the bar knows of a run picked follows the table: a recording that ends can then be deleted,
   // and a delete names the attempts a blame added meanwhile.
   useEffect(() => {
-    if (!picked.size || !page.data) return;
+    if (!picked.size || !table.loaded) return;
     let changed = false;
     const next = new Map(picked);
-    for (const r of page.data.runs) {
+    for (const r of table.rows) {
       const was = next.get(r.runId);
       if (!was) continue;
       const now = pickedRun(r);
@@ -231,7 +322,7 @@ function ServerRuns() {
       }
     }
     if (changed) setPicked(next);
-  }, [page.data, picked, setPicked]);
+  }, [table.loaded, table.rows, picked, setPicked]);
 
   // A run picked, then deleted elsewhere (its own page, shadowlap rm), leaves the selection when
   // the runs change: the bar counts and acts on runs that are there.
@@ -317,16 +408,21 @@ function ServerRuns() {
           <input type="search" placeholder="Filter by id, about or label" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
       </div>
+      {warming ? (
+        <p className="muted" role="status">
+          {warming}
+        </p>
+      ) : null}
       <section className="panel tscroll">
         <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} />
-        {page.error && !page.data ? (
-          <div className="empty">The runs could not be read: {page.error.message}</div>
-        ) : !page.data ? (
+        {table.error && !rows.length ? (
+          <div className="empty">The runs could not be read: {table.error.message}</div>
+        ) : !table.loaded ? (
           <div className="empty">Loading runs…</div>
         ) : rows.length === 0 ? (
           <div className="empty">{counts?.all ? 'No runs match.' : days ? 'No runs on the days picked.' : 'No runs yet. Record one with shadowlap run -- <command>.'}</div>
         ) : null}
-        <ShowMore shown={rows.length} total={page.data?.total ?? 0} onMore={() => setLimit(limit + PAGE)} />
+        <ShowMore shown={rows.length} total={table.total} onMore={() => setLimit(limit + PAGE)} />
       </section>
       {runs.length ? (
         <>

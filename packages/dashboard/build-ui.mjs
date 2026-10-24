@@ -1,6 +1,8 @@
 // Builds the dashboard's browser app into dist/ui: type-checks ui/, bundles ui/main.tsx with esbuild
-// (React included, so the page needs nothing from the network), and copies the HTML shell, favicon
-// and the vendored fonts. Usage: node packages/dashboard/build-ui.mjs [--watch]
+// (React included, so the page needs nothing from the network) twice, as ui-bundles.mjs says: split
+// into a first script and a chunk per page for the dashboard to serve, and whole in one script for
+// an exported copy to inline. It copies the HTML shell, favicon and the vendored fonts.
+// Usage: node packages/dashboard/build-ui.mjs [--watch]
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -9,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 // The docs pages Settings reads at runtime ship in dist/docs.
 import './copy-docs.mjs';
+import { uiBundles } from './ui-bundles.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ui = join(here, 'ui');
@@ -24,28 +27,28 @@ cpSync(join(ui, 'index.html'), join(out, 'index.html'));
 cpSync(join(ui, 'favicon.svg'), join(out, 'assets', 'favicon.svg'));
 cpSync(join(ui, 'fonts'), join(out, 'assets', 'fonts'), { recursive: true });
 
-const options = {
-  entryPoints: [join(ui, 'main.tsx')],
-  bundle: true,
-  format: 'esm',
-  target: 'es2022',
-  platform: 'browser',
-  outfile: join(out, 'assets', 'app.js'),
-  minify: !watch,
-  sourcemap: watch ? 'inline' : false,
-  jsx: 'automatic',
-  legalComments: 'linked',
-  define: { 'process.env.NODE_ENV': watch ? '"development"' : '"production"' },
-  loader: { '.woff2': 'file' },
-  assetNames: 'fonts/[name]',
-  logLevel: 'warning',
-};
+const { served, standalone } = uiBundles({ ui, out, watch });
 if (watch) {
-  const ctx = await esbuild.context(options);
+  const ctx = await esbuild.context(served);
   await ctx.watch();
   console.log('watching ui/');
 } else {
-  const result = await esbuild.build({ ...options, metafile: true });
-  const bytes = Object.values(result.metafile.outputs).reduce((n, o) => n + o.bytes, 0);
-  console.log(`dashboard ui built into ${out} (${(bytes / 1024).toFixed(0)} KB)`);
+  const first = await esbuild.build({ ...served, metafile: true });
+  // The exported copy's script: its styles and fonts are the served build's (app.css), so its own go.
+  const whole = await esbuild.build({ ...standalone, metafile: true });
+  rmSync(join(out, 'assets', 'standalone.css'), { force: true });
+  const kb = (bytes) => `${(bytes / 1024).toFixed(0)} KB`;
+  const outs = first.metafile.outputs;
+  const scripts = Object.keys(outs).filter((file) => file.endsWith('.js'));
+  // The first look: app.js and the chunks it imports up front; the rest load as their pages open.
+  const upFront = new Set();
+  const load = (file) => {
+    if (upFront.has(file)) return;
+    upFront.add(file);
+    for (const i of outs[file].imports) if (i.kind === 'import-statement') load(i.path);
+  };
+  load(scripts.find((file) => file.endsWith('/app.js')));
+  const bytes = (files) => files.reduce((n, file) => n + outs[file].bytes, 0);
+  const one = Object.entries(whole.metafile.outputs).find(([file]) => file.endsWith('standalone.js'))?.[1].bytes ?? 0;
+  console.log(`dashboard ui built into ${out}: the first look ${kb(bytes([...upFront]))} in ${upFront.size} scripts, the pages' own ${kb(bytes(scripts.filter((f) => !upFront.has(f))))} in ${scripts.length - upFront.size} more; an exported copy's script ${kb(one)}`);
 }

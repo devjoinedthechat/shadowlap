@@ -10,8 +10,8 @@ import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
 import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
-import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
-import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
+import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
+import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { DecisionSessionDetail, DecisionsListView, RetirementsView, RunDecisionsView } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
@@ -140,6 +140,8 @@ export interface Client {
   runs(): Promise<RunListItem[]>;
   /** A run's page; `after`, for a recording the page follows: only the calls numbered after it (`RunDetail.after`). */
   run(id: string, after?: number): Promise<RunDetail>;
+  /** A page of the run's calls after the one its page came with: from call `from` on, `limit` at most (500). */
+  calls(id: string, from: number, limit?: number): Promise<CallsPage>;
   call(id: string, n: number): Promise<CallDetail>;
   lineage(id: string): Promise<LineageNode[]>;
   /** The run's record for Provenance, or null when the server does not work it out. */
@@ -175,8 +177,8 @@ export interface Client {
   changes(since: string | null): Promise<Changes | null>;
 
   // ---- overview-runs: the Overview, the Runs page, imports and the team store
-  /** The Overview, worked out on the server in the viewer's time zone (IANA). */
-  summary(tz: string): Promise<OverviewSummary>;
+  /** The Overview, worked out on the server in the viewer's time zone (IANA); or, while the runs' totals are still being added up, how far that has got. */
+  summary(tz: string): Promise<OverviewSummary | OverviewWarming>;
   /** A page of the Runs table: chips, filter, days and sort applied on the server, attempts bundled. */
   runsPage(q: RunsQuery): Promise<RunsPage & { runs: RunsPageRow[] }>;
   /** Runs per day for the calendar, in the viewer's days. */
@@ -370,6 +372,7 @@ export function createClient(token: string): Client {
         noteParent([runId, out.run.runId], out.run.parentRunId ?? null);
         return out;
       }),
+    calls: (runId, from, limit) => request<CallsPage>(`runs/${id(runId)}/calls?from=${from}${limit === undefined ? '' : `&limit=${limit}`}`),
     call: (runId, n) => request<CallDetail>(`runs/${id(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
     lineage: (runId) => request<{ nodes: LineageNode[] }>(`runs/${id(runId)}/lineage`).then((r) => r.nodes),
     provenance: async (runId) => {
@@ -424,7 +427,7 @@ export function createClient(token: string): Client {
       const { filename, res } = await fetchFile(`files/${id(file.fileId)}`, file.name);
       saveBlob(await res.blob(), filename);
     },
-    summary: (tz) => request<OverviewSummary>(`summary?tz=${id(tz)}`),
+    summary: (tz) => request<OverviewSummary | OverviewWarming>(`summary?tz=${id(tz)}`),
     runsPage: (q) => request<RunsPage & { runs: RunsPageRow[] }>(`runs/page${runsQueryString(q)}`),
     runsByDay: (q) => request<RunsByDay>(`runs/days${runsQueryString(q)}`),
     daysBisect: (q) => request<DaysBisect>(`runs/bisect${runsQueryString(q)}`),
@@ -519,6 +522,12 @@ export function createExportedClient(data: StaticPayload): Client {
     runs: () => get<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
     // A prefix of several of its runs' ids names none of them, as the server says (409).
     run: (runId) => (copyAmbiguous(data.runIds ?? [], runId) ? Promise.reject(new ApiError(409, `run id prefix ${runId} matches several runs: use more of the id`)) : get<RunDetail>(`runs/${full(runId)}`).then((d) => shape(d, normalizeRunDetail))),
+    // A copy holds every call on its run's page: a page after it comes from there.
+    calls: (runId, from, limit = 500) =>
+      get<RunDetail>(`runs/${full(runId)}`).then((d) => {
+        const rest = d.calls.filter((c) => c.callNo >= from);
+        return { runId: d.run.runId, calls: rest.slice(0, limit), callsTotal: d.calls.length, callsNext: rest[limit]?.callNo ?? null };
+      }),
     call: (runId, n) => get<CallDetail>(`runs/${full(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
     lineage: (runId) => get<{ nodes: LineageNode[] }>(`runs/${full(runId)}/lineage`).then((r) => r.nodes),
     provenance: (runId) => Promise.resolve((data.responses[`runs/${full(runId)}/provenance`] as ProvenanceView | undefined) ?? null),
@@ -570,8 +579,8 @@ export function createExportedClient(data: StaticPayload): Client {
     coverage: () => Promise.resolve(null),
     chaos: () => Promise.resolve(null),
     runChaos: () => Promise.resolve(null),
-    // Worked out from the store, which a copy doesn't carry: its run page leaves the panel out.
-    forkDifferences: () => Promise.resolve(null),
+    // Held for a fork whose parent the file holds too; otherwise its run page leaves the panel out.
+    forkDifferences: (runId) => Promise.resolve((data.responses[`runs/${full(runId)}/differences`] as { differences: ForkDifferences | null } | undefined)?.differences ?? null),
     attemptGroups: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
   };
 }

@@ -1,8 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import { previewRedaction, type Normalizer, type RedactionPreview, type Store } from '@shadowlap/engine';
-import { repeatsARepeat } from './regex-shape.js';
-
-export { repeatsARepeat };
+import { previewRedaction, regexProblem, type Normalizer, type RedactionPreview, type Store } from '@shadowlap/engine';
 
 /**
  * The Redaction tab's preview, read where it can't hold up the dashboard server: every rule runs
@@ -131,10 +128,24 @@ export function previewHere(store: Store, runId: string, rules: Normalizer[], li
   return previewRedaction(store, runId, rules, { maxCalls: limits.maxCalls, maxBytes: limits.maxBytes, deadline: Date.now() + limits.softMs });
 }
 
-/** What the page says when one call took longer than the preview may: the rule most likely at fault, when one has the shape. */
+/**
+ * The first rule whose regex the engine's pattern check refuses (safe-regex.ts), with its reason;
+ * null when it takes them all. A pattern it takes is never blamed for taking too long: what it
+ * refuses is what can take time that grows exponentially with the text.
+ */
+export function refusedRule(rules: readonly Normalizer[]): { n: number; pattern: string; why: string } | null {
+  for (const [i, r] of rules.entries()) {
+    const m = r.pattern === undefined ? null : /^\/(.*)\/([a-z]*)$/s.exec(r.pattern);
+    const why = m ? regexProblem(m[1]!, m[2]!) : null;
+    if (why) return { n: i + 1, pattern: r.pattern!, why };
+  }
+  return null;
+}
+
+/** What the page says when one call took longer than the preview may: a rule the engine refuses, when one is among them. */
 export function tookTooLong(rules: readonly Normalizer[], ms: number): string {
   const seconds = `${Math.round(ms / 1000)} s`;
-  const suspect = rules.findIndex((r) => r.pattern !== undefined && repeatsARepeat(r.pattern));
-  if (suspect < 0) return `The preview stopped after ${seconds} on one call: a rule takes that long on this run’s text, and would in a pack too.`;
-  return `The preview stopped after ${seconds} on one call. Rule #${suspect + 1}, ${rules[suspect]!.pattern}, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.`;
+  const refused = refusedRule(rules);
+  if (!refused) return `The preview stopped after ${seconds} on one call: a rule takes that long on this run’s text, and would in a pack too.`;
+  return `The preview stopped after ${seconds} on one call. Rule #${refused.n}, ${refused.pattern}: ${refused.why}.`;
 }

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, unpackRun } from '@shadowlap/engine';
+import { forkDifferences } from '../src/fork-differences.js';
 import { exportHtml, withAncestors, type StaticPayload } from '../src/index.js';
 import { parseRoute } from '../ui/route.js';
 import { defaultComparePair, type RunLike } from '../ui/runs.js';
@@ -149,6 +150,22 @@ describe('export html', () => {
     expect(data.responses[`runs/${forkId}`]).toMatchObject({ parent: null });
     expect((data.responses[`runs/${forkId}/lineage`] as { nodes: unknown[] }).nodes).toHaveLength(1);
     expect(data.responses[`runs/${runId}`]).toBeUndefined();
+    // What the fork did differently quotes its parent's calls: left out with the parent.
+    expect(data.responses[`runs/${forkId}/differences`]).toBeUndefined();
+  });
+
+  it('holds what a fork did differently when it holds its parent too, redacted as the runs are', () => {
+    const both = embedded(exportHtml({ store, runIds: [forkId, runId], uiDir }).html);
+    expect(both.responses[`runs/${forkId}/differences`]).toEqual(JSON.parse(JSON.stringify({ differences: forkDifferences(store, forkId) })));
+    expect(both.responses[`runs/${forkId}/differences`]).toMatchObject({ differences: { runId: forkId, parentRunId: runId, from: 3 } });
+    // A recording did nothing differently: nothing held for it.
+    expect(both.responses[`runs/${runId}/differences`]).toBeUndefined();
+    // The parent's send_email the fork no longer makes, quoted with its address, unless a rule masks it.
+    expect(JSON.stringify(both.responses[`runs/${forkId}/differences`])).toContain('team@example.com');
+    const rules = [{ pattern: 'email', replace: '<EMAIL>' }];
+    const redacted = JSON.stringify(embedded(exportHtml({ store, runIds: [forkId, runId], uiDir, redact: rules }).html).responses[`runs/${forkId}/differences`]);
+    expect(redacted).not.toContain('team@example.com');
+    expect(redacted).toContain('<EMAIL>');
   });
 
   it('applies redaction rules, as pack does', () => {

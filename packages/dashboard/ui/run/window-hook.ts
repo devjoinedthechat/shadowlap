@@ -17,6 +17,11 @@ export interface WindowOptions<R> {
   estimate: (shape: string) => number;
   /** Pixels drawn beyond the view, above and below. */
   over?: number;
+  /**
+   * The box that scrolls the list up and down, when it is neither a run's views pane nor the nearest
+   * box that scrolls: a page whose table scrolls sideways in a box of its own (Runs) names its page.
+   */
+  box?: (list: HTMLElement) => HTMLElement | null;
 }
 
 export interface Windowed {
@@ -90,7 +95,7 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
       detach.current?.();
       detach.current = null;
       list.current = el;
-      box.current = el ? scrollBox(el) : null;
+      box.current = el ? (opts.current.box ? opts.current.box(el) : scrollBox(el)) : null;
       const b = box.current;
       if (!b) return;
       let frame = 0;
@@ -112,7 +117,7 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
       };
       read();
     },
-    [read],
+    [read, opts],
   );
 
   // After each draw: the rows drawn are measured, and a height that differs from the one assumed moves the rows after it.
@@ -121,8 +126,11 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
     if (!l) return;
     const { keyOf, shapeOf } = opts.current;
     let changed = false;
-    for (const el of l.querySelectorAll<HTMLElement>(':scope > [data-wi]')) {
-      const r = rows[Number(el.dataset.wi)];
+    // The rows drawn: the list's own children that carry their index.
+    for (const el of Array.from(l.children) as HTMLElement[]) {
+      const wi = el.getAttribute('data-wi');
+      if (wi === null) continue;
+      const r = rows[Number(wi)];
       if (r === undefined) continue;
       const h = el.getBoundingClientRect().height;
       if (!h) continue;

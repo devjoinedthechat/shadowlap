@@ -7,6 +7,7 @@ import { rowOpen, SortTh } from '../components/Table.js';
 import { num, shortId, whenShort } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
+import { useWindow } from '../run/window-hook.js';
 import { kindWord, runOrigins, runSource, runSpent, runStatus, sideStatus, type RunSort } from '../runs.js';
 import type { RunListItem } from '../types.js';
 import { localTitle } from './bulk.js';
@@ -24,7 +25,8 @@ import { ByAvatar } from './people.js';
  * first the strip of calls by origin, then the labels, then By. Only when About would get less even
  * then, or on a tablet or a phone, does the about line go under the id. On a phone a row is the run
  * and when it started: its calls, what it spent and its Status give way, and what needs a look
- * follows the about line instead. A row opens its run unless a control in it was used.
+ * follows the about line instead. A row opens its run unless a control in it was used. Past
+ * `WHOLE_UP_TO` rows, only those in view and a screenful either side are drawn (window-hook.ts).
  */
 
 /**
@@ -67,6 +69,15 @@ export function fitRunsTable(scope: HTMLElement): void {
 
 export type TableRun = RunListItem & { local?: boolean; localAttempts?: { run: boolean; attempts: number }; ci?: string | null };
 
+/** A row is a run, its about line under its id or beside it: one shape, measured once drawn. The page scrolls them; the table only sideways. */
+const RUN_ROWS = { keyOf: (r: TableRun) => r.runId, shapeOf: () => 'run', estimate: () => 52, box: (list: HTMLElement) => list.closest<HTMLElement>('.page') };
+/**
+ * Up to this many rows the table draws them all: its columns are as wide as the rows drawn need, and
+ * fitRunsTable fits it to their labels, so a window would move them as it scrolls. Past it, the window.
+ */
+export const WHOLE_UP_TO = 200;
+const NO_ROWS: readonly TableRun[] = [];
+
 /** A status kept whole between its dots, so it wraps after a dot only: `forked ·` / `2 writes blocked`. */
 const afterDots = (text: string) =>
   text
@@ -103,8 +114,12 @@ export function RunsTable({
   const allOn = rows.length > 0 && rows.every((r) => picked.has(r.runId));
   const table = useRef<HTMLTableElement>(null);
   useFitAbouts(table, fitRunsTable);
+  const whole = rows.length <= WHOLE_UP_TO;
+  const win = useWindow(whole ? NO_ROWS : rows, RUN_ROWS);
+  const [start, end] = whole ? [0, rows.length] : [win.start, win.end];
+  const cols = 7 + (selectable ? 1 : 0) + (byColumn ? 1 : 0);
   return (
-    <table className="t runst" ref={table} aria-label="Runs">
+    <table className="t runst" ref={table} aria-label="Runs" aria-rowcount={rows.length + 1}>
       <thead>
         <tr>
           {selectable ? (
@@ -128,16 +143,27 @@ export function RunsTable({
           </SortTh>
         </tr>
       </thead>
-      <tbody>
-        {rows.map((r) => (
-          <Row key={r.runId} run={r} on={picked.has(r.runId)} selectable={selectable} byColumn={byColumn} you={!!you && r.author === you} onPick={onPick} now={now} />
+      <tbody ref={win.listRef}>
+        {!whole && win.before ? <Spacer height={win.before} cols={cols} /> : null}
+        {rows.slice(start, end).map((r, j) => (
+          <Row key={r.runId} at={start + j} run={r} on={picked.has(r.runId)} selectable={selectable} byColumn={byColumn} you={!!you && r.author === you} onPick={onPick} now={now} />
         ))}
+        {!whole && win.after ? <Spacer height={win.after} cols={cols} /> : null}
       </tbody>
     </table>
   );
 }
 
-const Row = memo(function Row({ run: r, on, selectable, byColumn, you, onPick, now }: { run: TableRun; on: boolean; selectable: boolean; byColumn: boolean; you: boolean; onPick: (run: TableRun, on: boolean) => void; now: number }) {
+/** The height of the rows not drawn, above or below those that are. */
+function Spacer({ height, cols }: { height: number; cols: number }) {
+  return (
+    <tr className="wspace" aria-hidden="true" style={{ height }}>
+      <td colSpan={cols} />
+    </tr>
+  );
+}
+
+const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPick, now }: { at: number; run: TableRun; on: boolean; selectable: boolean; byColumn: boolean; you: boolean; onPick: (run: TableRun, on: boolean) => void; now: number }) {
   const out = runStatus(r);
   const spent = runSpent(r);
   const origins = runOrigins(r);
@@ -146,7 +172,7 @@ const Row = memo(function Row({ run: r, on, selectable, byColumn, you, onPick, n
   // What needs a look, after the about line where it goes under the id (a phone, where Status gives way).
   const st = sideStatus(r);
   return (
-    <tr className={on ? 'picked' : undefined} onClick={rowOpen(() => navigate(href.run(r.runId)))}>
+    <tr className={on ? 'picked' : undefined} data-wi={at} aria-rowindex={at + 2} onClick={rowOpen(() => navigate(href.run(r.runId)))}>
       {selectable ? (
         <td className="selcell">
           <input type="checkbox" aria-label={`Select ${shortId(r.runId)}`} checked={on} onChange={(e) => onPick(r, e.target.checked)} />

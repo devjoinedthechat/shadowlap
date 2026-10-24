@@ -133,14 +133,82 @@ function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecor
   return { conversations, asks };
 }
 
+/** Its status too: a recording is placed as its calls arrive, the finished run whole. */
+const analysisKey = (run: RunRecord, calls: readonly CallRecord[]) => `${run.runId}\n${run.status}\n${runStamp(calls)}`;
+
+/** Whether the whole run's analysis (`analyseRun`) is worked out already for its calls as they are. */
+export function analysisKnown(store: Store, run: RunRecord, calls: readonly CallRecord[]): boolean {
+  return analyses.get(store)?.has(analysisKey(run, calls)) ?? false;
+}
+
 /** A run's conversations, cache misses and recorded durations, computed once per state of the run. */
 export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunAnalysis {
   let byRun = analyses.get(store);
   if (!byRun) analyses.set(store, (byRun = new Map()));
-  // Its status too: a recording is placed as its calls arrive, the finished run whole.
-  const key = `${run.runId}\n${run.status}\n${runStamp(calls)}`;
+  const key = analysisKey(run, calls);
   const known = byRun.get(key);
   if (known) return known;
+  const analysis = buildAnalysis(store, run, calls);
+  // A handful of runs at most: the one open, and the ones it links to.
+  for (const k of byRun.keys()) if (k.startsWith(`${run.runId}\n`) || byRun.size >= 16) byRun.delete(k);
+  byRun.set(key, analysis);
+  return analysis;
+}
+
+/** A run this long or longer answers for a page of its calls from the calls up to it while the whole run is analysed beside it (`analysisFor`). */
+export const QUICK_FROM = 1000;
+/** Calls past a page read with it: a call no model asked for belongs to the conversation the calls after it decide. */
+const LOOKAHEAD = 100;
+/** Analyses of the first calls of long runs, per store, apart from the whole runs' so that neither pushes the other out. */
+const prefixes = new WeakMap<Store, Map<string, RunAnalysis>>();
+
+/**
+ * The analysis a page of a run's calls (or one call's details) is drawn from, for the calls up to
+ * `through`: the whole run's when it is worked out already, or the run is short or still recording;
+ * else that of the calls up to `through` and a hundred after, worked out in a moment where the whole
+ * of a long run takes seconds. `whole` says which, and `done` how many calls it read: the run-level
+ * facts drawn from a part (its conversations, where the prompt cache stopped hitting, the time not
+ * waited) cover that part alone, and a call's near its end may read differently once the whole run
+ * is analysed.
+ */
+export function analysisFor(store: Store, run: RunRecord, calls: readonly CallRecord[], through: number): { analysis: RunAnalysis; whole: boolean; done: number } {
+  if (run.status === 'running' || calls.length < QUICK_FROM || analysisKnown(store, run, calls)) return { analysis: analyseRun(store, run, calls), whole: true, done: calls.length };
+  const upTo = Math.min(calls.length, callsThrough(calls, through) + LOOKAHEAD);
+  // Most of the run anyway: the whole of it, kept for every page after.
+  if (upTo * 2 >= calls.length) return { analysis: analyseRun(store, run, calls), whole: true, done: calls.length };
+  return { analysis: partAnalysis(store, run, calls.slice(0, upTo)), whole: false, done: upTo };
+}
+
+/** How many of `calls` (in call order) come up to call `through`, it included. */
+function callsThrough(calls: readonly CallRecord[], through: number): number {
+  let end = 0;
+  while (end < calls.length && calls[end]!.callNo <= through) end++;
+  return end;
+}
+
+/** How many calls past a page are read with it, for the analysis of the calls up to it (`LOOKAHEAD`). */
+export const READ_PAST = LOOKAHEAD;
+
+/**
+ * The analysis of a finished run's first calls alone, `part` (the run's calls from its first on, as
+ * read), kept for the few runs read lately: what a page of a long run is drawn from while the whole
+ * run is analysed beside the server (`analysisFor`).
+ */
+export function partAnalysis(store: Store, run: RunRecord, part: readonly CallRecord[]): RunAnalysis {
+  let byRun = prefixes.get(store);
+  if (!byRun) prefixes.set(store, (byRun = new Map()));
+  const key = analysisKey(run, part);
+  let analysis = byRun.get(key);
+  if (!analysis) {
+    analysis = buildAnalysis(store, run, part);
+    for (const k of byRun.keys()) if (byRun.size >= 4) byRun.delete(k);
+    byRun.set(key, analysis);
+  }
+  return analysis;
+}
+
+/** The analysis itself, of `calls` as given (the whole run, or its first calls). */
+function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunAnalysis {
   // Read already, while tool calls were matched to the model calls that asked for them: cached by blob.
   const { conversations, asks } = conversationsOf(store, run, calls);
   const cache = cacheMisses(calls, conversations);
@@ -192,9 +260,6 @@ export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRec
       };
     },
   };
-  // A handful of runs at most: the one open, and the ones it links to.
-  for (const k of byRun.keys()) if (k.startsWith(`${run.runId}\n`) || byRun.size >= 16) byRun.delete(k);
-  byRun.set(key, analysis);
   return analysis;
 }
 
@@ -364,20 +429,30 @@ const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const int = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null);
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback);
 
-function blameOf(run: RunRecord, calls: readonly CallRecord[]): RunBlame | null {
+/** Where a run's blame placed the failure, as kept: its call and scope. */
+export function blameAt(run: RunRecord): { callNo: number | null; scope: string | null } | null {
+  const b: unknown = run.meta?.blame;
+  return isObject(b) ? { callNo: int(b.callNo), scope: str(b.scope) } : null;
+}
+
+function blameOf(run: RunRecord, calls: readonly CallRecord[], step?: { k: number; m: number } | null): RunBlame | null {
   const b: unknown = run.meta?.blame;
   if (!isObject(b)) return null;
   const callNo = int(b.callNo);
   const scope = str(b.scope);
-  // The model calls blame probed: those with an answer, in its scope (the agent's, not a simulated user's).
-  // The agent's model calls: a judge check's are none of blame's steps.
-  const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope) && !isJudgeCall(c)).map((c) => c.callNo);
-  const k = callNo === null ? 0 : steps.indexOf(callNo) + 1;
+  let modelCall = step;
+  if (modelCall === undefined) {
+    // The model calls blame probed: those with an answer, in its scope (the agent's, not a simulated user's).
+    // The agent's model calls: a judge check's are none of blame's steps.
+    const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope) && !isJudgeCall(c)).map((c) => c.callNo);
+    const k = callNo === null ? 0 : steps.indexOf(callNo) + 1;
+    modelCall = k > 0 ? { k, m: steps.length } : null;
+  }
   return {
     outcome: oneOf(b.outcome, ['blamed', 'unrescuable', 'stopped'] as const, 'stopped'),
     ...(b.unsettled === true ? { unsettled: true as const } : {}),
     callNo,
-    modelCall: k > 0 ? { k, m: steps.length } : null,
+    modelCall,
     confidence: oneOf(b.confidence, ['high', 'medium', 'low'] as const, 'low'),
     rescuedRunId: str(b.rescuedRunId),
     scope,
@@ -488,8 +563,12 @@ function modelsOf(store: Store, calls: readonly CallRecord[]): Record<string, st
   return out;
 }
 
-export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunPageFacts {
-  const a = analyseRun(store, run, calls);
+/**
+ * The run page's facts beyond its rows. `o` gives what was worked out without reading every call
+ * (run-summary.ts): the models' names and blame's step; `calls` then needs to hold only the calls a
+ * replay's flags are read from (its overridden, injected and stubbed calls).
+ */
+export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallRecord[], a: RunAnalysis = analyseRun(store, run, calls), o: { models?: Record<string, string>; blameStep?: { k: number; m: number } | null } = {}): RunPageFacts {
   const interventions = run.mode === 'replay' ? runInterventions(store, run, calls) : [];
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
   const rescued = parent && isObject(parent.meta?.blame) && parent.meta.blame.rescuedRunId === run.runId ? parent.meta.blame : null;
@@ -505,9 +584,9 @@ export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallR
     intervention: interventions[0] ?? null,
     interventions,
     rescuedBy: rescued && parent ? { runId: parent.runId, callNo: int(rescued.callNo) } : null,
-    blame: blameOf(run, calls),
+    blame: blameOf(run, calls, o.blameStep),
     checks: checksOf(store, run),
-    models: modelsOf(store, calls),
+    models: o.models ?? modelsOf(store, calls),
   };
 }
 

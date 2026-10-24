@@ -80,3 +80,16 @@ export function runCalls(store: Store, runId: string): readonly CallRecord[] {
   }
   return entry.calls;
 }
+
+/**
+ * A run's calls as read before (`runCalls`), when they still stand; null when this thread hasn't read
+ * them, or they changed since. Reads no call: a page answers from them when it can, and otherwise
+ * reads only what it shows.
+ */
+export function keptCalls(store: Store, runId: string): readonly CallRecord[] | null {
+  const hit = kept.get(store)?.get(runId);
+  if (!hit) return null;
+  const counts = store.changeCounts();
+  if (hit.store === `${counts.runs ?? 0}|${counts.calls ?? 0}`) return hit.calls;
+  return sameStamp(hit.own, ownStamp(store, runId)) ? hit.calls : null;
+}

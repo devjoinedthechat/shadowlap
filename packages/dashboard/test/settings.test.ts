@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
-import { PREVIEW_LIMITS, repeatsARepeat, tookTooLong } from '../src/redaction-preview.js';
+import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, regexProblem, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
+import { PREVIEW_LIMITS, tookTooLong } from '../src/redaction-preview.js';
 import { mcpServerUrl, parseHeaderFlags } from '../../cli/src/mcp.js';
 import { agentsSection, clientConfigs, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpEntryAsTyped, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolReads, toolsSettings } from '../src/settings.js';
 
@@ -189,11 +189,13 @@ describe('redactionSettings', () => {
     await expect(redactionPreview({ store, cwd }, 'NOPE')).rejects.toMatchObject({ status: 404 });
   });
 
-  it('names the rule that likely took too long: one that repeats a repeated group', () => {
-    for (const p of ['/(a+)+$/', '/(\\w*\\s?)*/', '/(x+y?){2,}/', '/^((ab)*c)+$/i', '/(?:\\d+-)+/']) expect(repeatsARepeat(p), p).toBe(true);
-    for (const p of ['email', 'uuid', '/req_[a-z0-9]+/i', '/\\b(?:\\d[ -]?){13,16}\\b/', '/(a+)/', '/[(a+)]+/', '/\\(a+\\)+/']) expect(repeatsARepeat(p), p).toBe(false);
-    expect(tookTooLong([{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/(a+)+$/', replace: '<A>' }], 15_000)).toBe('The preview stopped after 15 s on one call. Rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.');
-    expect(tookTooLong([{ pattern: 'email', replace: '<EMAIL>' }], 15_000)).toBe('The preview stopped after 15 s on one call: a rule takes that long on this run’s text, and would in a pack too.');
+  it('names a rule the engine’s pattern check refuses, in its words, and blames none it takes', () => {
+    expect(tookTooLong([{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/(a+)+$/', replace: '<A>' }], 15_000)).toBe(`The preview stopped after 15 s on one call. Rule #2, /(a+)+$/: ${regexProblem('(a+)+$', '')}.`);
+    const generic = 'The preview stopped after 15 s on one call: a rule takes that long on this run’s text, and would in a pack too.';
+    expect(tookTooLong([{ pattern: 'email', replace: '<EMAIL>' }], 15_000)).toBe(generic);
+    // A repeated group that ends at a character it can't take is safe, and a pattern slow only in
+    // proportion to a power of the text is taken: neither is named.
+    expect(tookTooLong([{ pattern: '/(?:[\\w-]+\\.)+/', replace: '<HOST>' }, { pattern: '/\\w*x\\w*y/', replace: '<A>' }], 15_000)).toBe(generic);
   });
 
   it('explains why there is no preview to run', () => {

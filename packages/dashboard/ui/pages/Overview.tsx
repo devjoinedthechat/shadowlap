@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { OverviewSummary } from '../api.js';
 import { PageHeader, StepList } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { useLoad } from '../hooks.js';
@@ -15,8 +16,13 @@ import { setupSteps } from './Setup.js';
  * week as a row of calls beside what needs a look and what ran today; where the calls came from,
  * where the prompt cache stopped hitting and how far each failure got towards a fix; and what was
  * spent and not re-spent per day beside the latest activity. Three columns, two below 1180px, one
- * below 760px. It follows the runs as they change, a recording included.
+ * below 760px. It follows the runs as they change, a recording included. While the server is still
+ * adding up the runs' totals (a store no dashboard has opened yet), it says how far that has got and
+ * asks again every second; once it has shown the Overview, it keeps it until a whole one replaces it.
  */
+
+/** How often the Overview asks again while the runs' totals are being added up. */
+export const WARMING_ASK_MS = 1000;
 
 /** The viewer's own time zone: weeks and days are theirs. */
 export function viewerTimeZone(): string {
@@ -30,11 +36,22 @@ export function viewerTimeZone(): string {
 export function OverviewPage() {
   const { client, meta, runs, live, tick, exported } = useApp();
   const tz = useMemo(viewerTimeZone, []);
-  const summary = useLoad(() => (exported ? null : client.summary(tz)), `summary:${tz}`, tick);
+  const [nudge, setNudge] = useState(0);
+  const summary = useLoad(() => (exported ? null : client.summary(tz)), `summary:${tz}`, `${tick}:${nudge}`);
   const activity = useLoad(() => (exported ? null : client.activity(5)), 'activity:5', tick);
   const store = useTeamStore();
   const name = projectOf(meta)?.name ?? 'this project';
-  const s = summary.data;
+  const answer = summary.data;
+  const warming = answer && 'warming' in answer ? answer.warming : null;
+  // The last whole Overview: a later answer that is still warming leaves it in place.
+  const whole = useRef<OverviewSummary | null>(null);
+  if (answer && !warming) whole.current = answer as OverviewSummary;
+  useEffect(() => {
+    if (!warming) return;
+    const t = setTimeout(() => setNudge((n) => n + 1), WARMING_ASK_MS);
+    return () => clearTimeout(t);
+  }, [warming]);
+  const s = whole.current;
 
   if (!s) {
     // Nothing recorded yet: the steps that make a project replayable, as before the summary loads.
@@ -49,7 +66,15 @@ export function OverviewPage() {
     return (
       <Page>
         <PageHeader eyebrow={`${name} · this week`} title="Overview" text="What failed, what got fixed and proven, and what it cost." />
-        {summary.error ? <div className="empty tall">The Overview could not be worked out: {summary.error.message}</div> : <div className="empty tall">Working out this week…</div>}
+        {summary.error ? (
+          <div className="empty tall">The Overview could not be worked out: {summary.error.message}</div>
+        ) : warming ? (
+          <div className="empty tall" role="status">
+            Adding up what each run did: {warming.done.toLocaleString('en-US')} of {warming.total.toLocaleString('en-US')} runs so far. The Overview shows once they all are; every other page works meanwhile.
+          </div>
+        ) : (
+          <div className="empty tall">Working out this week…</div>
+        )}
       </Page>
     );
   }

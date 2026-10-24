@@ -167,7 +167,7 @@ describe('Find the commit in this checkout', () => {
 });
 
 describe('what git said about the commits, kept', () => {
-  it('says a commit with no parent here has nothing before it: the first, or the oldest a shallow clone has', () => {
+  it('says a commit with no parent here has nothing before it: the first, or the oldest a shallow clone has', async () => {
     const here = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-commits-first-')));
     const shallow = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-commits-shallow-')));
     const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=dana@northwind.example', '-c', 'user.name=Dana', '-c', 'commit.gpgsign=false', '-c', 'protocol.file.allow=always', ...args], { cwd }).toString().trim();
@@ -181,19 +181,19 @@ describe('what git said about the commits, kept', () => {
       git(here, 'commit', '-qam', 'Escalate refunds above the limit');
       const next = git(here, 'rev-parse', 'HEAD');
       forgetCommits();
-      expect(parentlessHere(here, start, 0)).toEqual({ shallow: false });
-      expect(parentlessHere(here, start.slice(0, 7), 0)).toEqual({ shallow: false });
-      expect(parentlessHere(here, next, 0)).toBe(false);
+      expect(await parentlessHere(here, start, 0)).toEqual({ shallow: false });
+      expect(await parentlessHere(here, start.slice(0, 7), 0)).toEqual({ shallow: false });
+      expect(await parentlessHere(here, next, 0)).toBe(false);
       // Only a commit's hex name is handed to git; one git doesn't have, it can't say of.
-      expect(parentlessHere(here, 'HEAD~1', 0)).toBeNull();
-      expect(parentlessHere(here, 'f'.repeat(40), 0)).toBeNull();
+      expect(await parentlessHere(here, 'HEAD~1', 0)).toBeNull();
+      expect(await parentlessHere(here, 'f'.repeat(40), 0)).toBeNull();
       // A clone of the newest commit alone: it has no parent there, though it has one here.
       git(shallow, 'clone', '-q', '--depth', '1', `file://${here}`, '.');
-      expect(parentlessHere(shallow, next, 0)).toEqual({ shallow: true });
+      expect(await parentlessHere(shallow, next, 0)).toEqual({ shallow: true });
       // Its parent found, the answer stands; none found is asked again after a minute, as a fetch may deepen the clone.
       git(shallow, 'fetch', '-q', '--unshallow');
-      expect(parentlessHere(shallow, next, 30_000)).toEqual({ shallow: true });
-      expect(parentlessHere(shallow, next, 61_000)).toBe(false);
+      expect(await parentlessHere(shallow, next, 30_000)).toEqual({ shallow: true });
+      expect(await parentlessHere(shallow, next, 61_000)).toBe(false);
     } finally {
       forgetCommits();
       rmSync(here, { recursive: true, force: true });
@@ -201,7 +201,7 @@ describe('what git said about the commits, kept', () => {
     }
   });
 
-  it('keeps a commit found, asks again about a missing one after a minute, and forgets when told', () => {
+  it('keeps a commit found, asks again about a missing one after a minute, and forgets when told', async () => {
     const here = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-commits-kept-')));
     const there = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-commits-there-')));
     const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=dana@northwind.example', '-c', 'user.name=Dana', '-c', 'commit.gpgsign=false', ...args], { cwd }).toString().trim();
@@ -217,21 +217,21 @@ describe('what git said about the commits, kept', () => {
       git(there, 'commit', '-qam', 'Escalate refunds above the limit');
       const theirs = git(there, 'rev-parse', 'HEAD');
       forgetCommits();
-      expect(commitsHere(here, [start, theirs, null], 0)).toEqual(new Set([start]));
-      expect(commitSubjects(here, [start, theirs], 0)).toEqual(new Map([[start, 'Start the agent']]));
+      expect(await commitsHere(here, [start, theirs, null], 0)).toEqual(new Set([start]));
+      expect(await commitSubjects(here, [start, theirs], 0)).toEqual(new Map([[start, 'Start the agent']]));
       git(here, 'fetch', '-q', there, 'HEAD');
       // Git said it lacks the commit a moment ago: that stands for a minute, then git is asked again.
-      expect(commitsHere(here, [theirs], 30_000)).toEqual(new Set());
-      expect(commitsHere(here, [theirs], 61_000)).toEqual(new Set([theirs]));
-      expect(commitSubjects(here, [theirs], 61_000).get(theirs)).toBe('Escalate refunds above the limit');
+      expect(await commitsHere(here, [theirs], 30_000)).toEqual(new Set());
+      expect(await commitsHere(here, [theirs], 61_000)).toEqual(new Set([theirs]));
+      expect((await commitSubjects(here, [theirs], 61_000)).get(theirs)).toBe('Escalate refunds above the limit');
       // A commit found stays found, with its subject, without asking git again.
       renameSync(join(here, '.git'), join(here, 'git-away'));
-      expect(commitsHere(here, [start, theirs], 120_000)).toEqual(new Set([start, theirs]));
+      expect(await commitsHere(here, [start, theirs], 120_000)).toEqual(new Set([start, theirs]));
       // Forgotten, git is asked, and can't say.
       forgetCommits();
-      expect(commitsHere(here, [start], 120_000)).toBeNull();
+      expect(await commitsHere(here, [start], 120_000)).toBeNull();
       // Only a commit's hex name is ever handed to git.
-      expect(commitsHere(here, ['--output=/tmp/x', 'HEAD~1'], 0)).toEqual(new Set());
+      expect(await commitsHere(here, ['--output=/tmp/x', 'HEAD~1'], 0)).toEqual(new Set());
     } finally {
       forgetCommits();
       rmSync(here, { recursive: true, force: true });

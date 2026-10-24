@@ -1,6 +1,6 @@
 import { Worker } from 'node:worker_threads';
 import type { Normalizer, Price } from '@shadowlap/engine';
-import { repeatsARepeat } from './redaction-preview.js';
+import { refusedRule } from './redaction-preview.js';
 import type { ExportHtmlResult } from './static.js';
 
 /**
@@ -55,11 +55,11 @@ function workerScript(): URL {
 
 const minutes = (ms: number) => (ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`);
 
-/** What the page says when making the file took too long: the rule most likely at fault, when one has the shape, else the terminal's way. */
+/** What the page says when making the file took too long: a rule the engine refuses, when one is among them, else the terminal's way. */
 export function exportTookTooLong(rules: readonly Normalizer[], ms: number, runId: string): string {
-  const suspect = rules.findIndex((r) => r.pattern !== undefined && repeatsARepeat(r.pattern));
+  const refused = refusedRule(rules);
   const head = `Making the HTML file took longer than ${minutes(ms)}, so it was stopped.`;
-  if (suspect >= 0) return `${head} Redaction rule #${suspect + 1}, ${rules[suspect]!.pattern}, repeats a group that repeats itself, which can take minutes on some text: write it without the outer repeat.`;
+  if (refused) return `${head} Redaction rule #${refused.n}, ${refused.pattern}: ${refused.why}.`;
   return `${head} A redaction rule may take that long on this run’s text, or the run is too long for a download: shadowlap export html ${runId.slice(0, 10)} --lineage makes the file from a terminal.`;
 }
 

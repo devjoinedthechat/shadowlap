@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { validateRule } from '@shadowlap/engine';
+import { regexProblem, validateRule } from '@shadowlap/engine';
 import { CI_DEFAULTS, ciWorkflows } from '../src/ci-workflows.js';
 import { splitCommandLine } from '../src/settings.js';
 import { ONLY_PROJECT, provideProjectRemoval, useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
@@ -129,11 +129,13 @@ describe('the Add dialog', () => {
     expect(ruleProblem(form({ path: 'metadata.user_id' }))).toMatch(/starts with \$/);
   });
 
-  it('warns about a regex that can take minutes on some text, and still adds it, as the CLI does', () => {
-    expect(ruleWarning(form({ mode: 'regex', regex: '(a+)+$' }))).toBe('It repeats a group that repeats itself, as (a+)+ does, which can take minutes on some text: write it without the outer repeat.');
-    expect(ruleWarning(form({ mode: 'regex', regex: '/(\\w*\\s?)*/i' }))).not.toBeNull();
+  it('warns, in the engine’s words, about a regex its pattern check refuses, and only about one', () => {
+    expect(ruleWarning(form({ mode: 'regex', regex: '(a+)+$' }))).toBe(`The CLI refuses it: ${regexProblem('(a+)+$', '')}.`);
+    expect(ruleWarning(form({ mode: 'regex', regex: '/(\\w*\\s?)*/i' }))).toMatch(/^The CLI refuses it: matching it could take too long: /);
+    expect(ruleWarning(form({ mode: 'regex', regex: '(a' }))).toMatch(/^The CLI refuses it: it isn't a regular expression: /);
     expect(ruleProblem(form({ mode: 'regex', regex: '(a+)+$' }))).toBeNull();
-    for (const regex of ['req_[a-z0-9]+', '(?<=key=)\\w+', '\\b(?:\\d[ -]?){13,16}\\b', '']) expect(ruleWarning(form({ mode: 'regex', regex })), regex).toBeNull();
+    // A repeated group that ends at a character it can't take is safe: (?:[\w-]+\.)+ reads a host name once.
+    for (const regex of ['req_[a-z0-9]+', '(?<=key=)\\w+', '\\b(?:\\d[ -]?){13,16}\\b', '(?:[\\w-]+\\.)+', '']) expect(ruleWarning(form({ mode: 'regex', regex })), regex).toBeNull();
     expect(ruleWarning(form({}))).toBeNull();
   });
 

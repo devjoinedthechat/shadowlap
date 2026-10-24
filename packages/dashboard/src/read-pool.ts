@@ -1,0 +1,382 @@
+import { Worker } from 'node:worker_threads';
+import type { Store } from '@shadowlap/engine';
+import { HttpError } from './http.js';
+import { runJob, type ReadAnswer, type ReadJob } from './read-jobs.js';
+import type { FromReadWorker, ToReadWorker } from './read-worker.js';
+import type { RouteRequest } from './router.js';
+import type { Keeper } from './run-stats.js';
+
+/**
+ * Where the read models that read every call of a run, or of every run (read-jobs.ts), are worked
+ * out: on worker threads beside the server, each reading the store through a connection of its own
+ * that only reads, so the server's own thread answers every other request meanwhile (/api/meta, the
+ * change feed, jobs) however long a first look at a big store takes. A store with no file (in
+ * memory) can't be opened from another thread: its read models are worked out on the server's.
+ *
+ * Requests come first, in the order they came. A job about a run goes to the thread that read that
+ * run last, which keeps its calls and its analysis. When a thread has nothing asked of it, it does
+ * what can wait: the whole analysis of a long run whose first page was answered from its first calls,
+ * and the warm-up, which works each finished run's totals out ahead, newest first, a slice at a time
+ * (run-stats.ts `warmRunStats`), so a request waits for at most one slice. What a thread works out
+ * that is worth keeping comes back here, and the server's connection writes it to the store.
+ */
+
+export interface ReadModels {
+  /** Works out a job. `affinity` names the run it reads: the thread that read that run last does, as it keeps it. */
+  run(job: ReadJob, o?: { affinity?: string }): Promise<ReadAnswer>;
+  /** The warm-up has been through every run: a read model works out what is still unknown when it is asked for. */
+  readonly warmed: boolean;
+  /** Has the warm-up go through the runs again, from the newest (an answer said it was warming); a no-op while it runs. */
+  warm(): void;
+  /** Ends the threads, each having closed its connection to the store. */
+  close(): Promise<void>;
+}
+
+/** What the threads take: tests lower these. */
+export const READ_LIMITS = {
+  /**
+   * Threads: two, whatever the machine, so one is free for requests while the other works through
+   * the warm-up, a batch of which (a long run's prompt cache) can take seconds.
+   */
+  size: 2,
+  /** A slice of the warm-up, in milliseconds: the longest a request waits behind one. */
+  warmSliceMs: 250,
+  /** How long a thread has to close its connection when the dashboard stops, before it is ended. */
+  closeMs: 2000,
+};
+
+/** The worker's script, beside this module once built; run from the TypeScript source (the tests), the built one. */
+function workerScript(): URL {
+  const here = new URL(import.meta.url);
+  return here.pathname.endsWith('.ts') ? new URL('../dist/read-worker.js', here) : new URL('./read-worker.js', here);
+}
+
+interface Pending {
+  id: number;
+  job: ReadJob;
+  affinity: string | null;
+  /** What can wait: done only when nothing is asked of the thread. */
+  background: boolean;
+  resolve(a: ReadAnswer): void;
+  reject(err: Error): void;
+}
+
+interface Slot {
+  index: number;
+  worker: Worker | null;
+  ready: boolean;
+  busy: Pending | null;
+  /** Requests about a run this thread read last. */
+  pinned: Pending[];
+  /** What can wait for this thread: the whole analysis of the runs it answered from their first calls. */
+  later: Pending[];
+}
+
+/** A run's thread is remembered for this many runs. */
+const OWNERS = 64;
+
+export class ReadPool implements ReadModels {
+  private readonly slots: Slot[];
+  /** Requests any thread may answer, oldest first. */
+  private readonly shared: Pending[] = [];
+  private readonly owners = new Map<string, number>();
+  private nextId = 1;
+  private warming: 'running' | 'done' = 'running';
+  private closing: Promise<void> | null = null;
+
+  constructor(
+    private readonly o: {
+      dbPath: string;
+      /** Keeps what a thread worked out, through the server's own connection. */
+      keep: Keeper;
+      size?: number;
+      log?: (line: string) => void;
+      /** The threads' script: read-worker.ts built, unless a test gives one of its own. */
+      script?: URL;
+    },
+  ) {
+    const size = Math.max(1, o.size ?? READ_LIMITS.size);
+    this.slots = Array.from({ length: size }, (_, index) => ({ index, worker: null, ready: false, busy: null, pinned: [], later: [] }));
+    // The threads start with the dashboard, so the page's first request finds one ready; and the
+    // warm-up with them, so the first look at the Overview finds totals kept.
+    for (const slot of this.slots) this.spawn(slot);
+    this.dispatch();
+  }
+
+  get warmed(): boolean {
+    return this.warming === 'done';
+  }
+
+  warm(): void {
+    if (this.closing || this.warming === 'running') return;
+    this.warming = 'running';
+    this.dispatch();
+  }
+
+  run(job: ReadJob, o: { affinity?: string } = {}): Promise<ReadAnswer> {
+    if (this.closing) return Promise.reject(new HttpError(503, 'the dashboard is stopping'));
+    return new Promise<ReadAnswer>((resolve, reject) => {
+      const p: Pending = { id: this.nextId++, job, affinity: o.affinity ?? null, background: false, resolve, reject };
+      const owner = p.affinity === null ? undefined : this.owners.get(p.affinity);
+      if (owner !== undefined) this.slots[owner]!.pinned.push(p);
+      else this.shared.push(p);
+      this.dispatch();
+    });
+  }
+
+  /**
+   * Gives each thread with nothing to do the next thing to do: what was asked of it, then of any.
+   * What can wait runs on one thread at a time, so another is free for the next request: a long
+   * run's whole analysis first (on the thread that read the run), then a slice of the warm-up.
+   */
+  private dispatch(): void {
+    if (this.closing) return;
+    for (const slot of this.slots) {
+      if (slot.busy) continue;
+      const next = slot.pinned.shift() ?? this.shared.shift() ?? this.unpin();
+      if (next) this.start(slot, next);
+    }
+    if (this.slots.some((s) => s.busy?.background)) return;
+    const idle = this.slots.filter((s) => !s.busy);
+    const analysing = idle.find((s) => s.later.length);
+    if (analysing) return this.start(analysing, analysing.later.shift()!);
+    const warm = idle.length ? this.warmSlice() : undefined;
+    if (warm) this.start(idle[0]!, warm);
+  }
+
+  /**
+   * A request waiting for the thread that read its run, while that thread does what can wait: a free
+   * thread takes it, reading the run's page again rather than waiting seconds for a long analysis.
+   */
+  private unpin(): Pending | undefined {
+    for (const s of this.slots) {
+      const busy = s.busy;
+      if (!busy?.background) continue;
+      // The run it is analysing: the request is answered right after, from that analysis.
+      const analysing = busy.job.kind === 'analyse' ? busy.job.runId : null;
+      const i = s.pinned.findIndex((p) => p.affinity !== analysing);
+      if (i >= 0) return s.pinned.splice(i, 1)[0];
+    }
+    return undefined;
+  }
+
+  /** A slice of the warm-up, while it has runs left to go through. */
+  private warmSlice(): Pending | undefined {
+    if (this.warming !== 'running') return undefined;
+    return {
+      id: this.nextId++,
+      job: { kind: 'warm', budgetMs: READ_LIMITS.warmSliceMs },
+      affinity: null,
+      background: true,
+      resolve: (a) => {
+        if (a.warm?.done) this.warming = 'done';
+      },
+      // A thread that can't warm the store (its file gone) stops trying; a request starts it again.
+      reject: () => {
+        this.warming = 'done';
+      },
+    };
+  }
+
+  private start(slot: Slot, p: Pending): void {
+    slot.busy = p;
+    if (p.affinity !== null) this.own(p.affinity, slot.index);
+    if (!slot.worker) this.spawn(slot);
+    else if (slot.ready) this.post(slot, { type: 'job', id: p.id, job: p.job });
+  }
+
+  private own(runId: string, index: number): void {
+    this.owners.delete(runId);
+    this.owners.set(runId, index);
+    if (this.owners.size > OWNERS) this.owners.delete(this.owners.keys().next().value!);
+  }
+
+  private post(slot: Slot, m: ToReadWorker): void {
+    slot.worker?.postMessage(m);
+  }
+
+  private spawn(slot: Slot): void {
+    const worker = new Worker(this.o.script ?? workerScript(), { workerData: { dbPath: this.o.dbPath } });
+    slot.worker = worker;
+    slot.ready = false;
+    worker.on('message', (m: FromReadWorker) => this.heard(slot, worker, m));
+    worker.once('error', (err) => this.lost(slot, worker, err.message));
+    worker.once('exit', (code) => this.lost(slot, worker, `it ended with code ${code}`));
+  }
+
+  private heard(slot: Slot, worker: Worker, m: FromReadWorker): void {
+    if (slot.worker !== worker) return;
+    switch (m.type) {
+      case 'ready':
+        slot.ready = true;
+        if (slot.busy) this.post(slot, { type: 'job', id: slot.busy.id, job: slot.busy.job });
+        else this.dispatch();
+        return;
+      case 'failed':
+        return this.lost(slot, worker, m.error);
+      case 'keep':
+        // Before the answer that worked it out: what a later job reads finds it kept.
+        try {
+          if (m.stats) this.o.keep.stats(m.stats);
+          if (m.asks) this.o.keep.asks(m.asks);
+        } catch (err) {
+          this.o.log?.(`could not keep what a read-model thread worked out: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return;
+      case 'answer':
+      case 'error': {
+        const p = slot.busy;
+        if (!p || p.id !== m.id) return;
+        slot.busy = null;
+        // A thread built before a kind of job it is given answers nothing for it: that fails, rather than waits for good.
+        if (m.type === 'answer' && !m.answer) {
+          this.o.log?.(`a read-model thread answered nothing for a ${p.job.kind} job: is the dashboard built?`);
+          p.reject(new Error(`no answer for a ${p.job.kind} job`));
+        } else if (m.type === 'answer') {
+          // A long run answered from its first calls is analysed whole when the thread is free.
+          const then = m.answer.then;
+          if (then && !slot.later.some((x) => x.job.kind === then.kind && 'runId' in x.job && 'runId' in then && x.job.runId === then.runId)) {
+            slot.later.push({ id: this.nextId++, job: then, affinity: null, background: true, resolve: () => undefined, reject: () => undefined });
+          }
+          p.resolve(m.answer);
+        } else {
+          this.o.log?.(`a read model failed: ${m.error}`);
+          p.reject(new Error(m.error.split('\n')[0] ?? m.error));
+        }
+        return this.dispatch();
+      }
+      case 'closed':
+        return;
+    }
+  }
+
+  /** A thread that stopped: what it was doing fails, what was asked of it goes to the others, and a new one starts when needed. */
+  private lost(slot: Slot, worker: Worker, why: string): void {
+    if (slot.worker !== worker) return;
+    slot.worker = null;
+    slot.ready = false;
+    void worker.terminate().catch(() => undefined);
+    const busy = slot.busy;
+    slot.busy = null;
+    this.shared.unshift(...slot.pinned.splice(0));
+    slot.later.length = 0;
+    for (const [runId, index] of this.owners) if (index === slot.index) this.owners.delete(runId);
+    if (this.closing) return;
+    this.o.log?.(`a read-model thread stopped: ${why}`);
+    // A thread that can't open the store fails each job given to it, one at a time, and the warm-up
+    // stops at its first: what waits drains, and nothing starts threads for good.
+    busy?.reject(new Error(`the read model's thread stopped: ${why}`));
+    this.dispatch();
+  }
+
+  close(): Promise<void> {
+    return (this.closing ??= (async () => {
+      const stopping = new HttpError(503, 'the dashboard is stopping');
+      for (const p of this.shared.splice(0)) p.reject(stopping);
+      await Promise.all(
+        this.slots.map(async (slot) => {
+          for (const p of [...slot.pinned.splice(0), ...slot.later.splice(0)]) p.reject(stopping);
+          const worker = slot.worker;
+          if (!worker) return;
+          // Its connection closed first, once the job it is on is done; ended regardless after a while.
+          const closed = new Promise<void>((resolve) => {
+            worker.on('message', (m: FromReadWorker) => m.type === 'closed' && resolve());
+            worker.once('exit', () => resolve());
+            setTimeout(resolve, READ_LIMITS.closeMs).unref();
+          });
+          worker.postMessage({ type: 'close' } satisfies ToReadWorker);
+          await closed;
+          slot.busy?.reject(stopping);
+          slot.busy = null;
+          slot.worker = null;
+          await worker.terminate().catch(() => undefined);
+        }),
+      );
+    })());
+  }
+}
+
+/**
+ * The read models of a store with no file (in memory), worked out on the server's own thread, as no
+ * other can open it: each answer whole, what is not known yet worked out as it is asked for (a store
+ * in memory is a small one); what can wait right after the answer, and the warm-up in slices of
+ * 50 ms while the server is otherwise idle.
+ */
+export class LocalReads implements ReadModels {
+  private warming: 'running' | 'done' = 'running';
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private stopped = false;
+
+  constructor(private readonly store: () => Store) {
+    this.schedule(0);
+  }
+
+  get warmed(): boolean {
+    return this.warming === 'done';
+  }
+
+  warm(): void {
+    if (this.stopped || this.warming === 'running') return;
+    this.warming = 'running';
+    this.schedule(0);
+  }
+
+  private schedule(ms: number): void {
+    if (this.timer || this.stopped) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void runJob(this.store(), { kind: 'warm', budgetMs: 50 }).then(
+        (a) => {
+          if (a.warm?.done) this.warming = 'done';
+          else this.schedule(20);
+        },
+        // The store was closed: the dashboard stopped.
+        () => {
+          this.warming = 'done';
+        },
+      );
+    }, ms);
+    this.timer.unref();
+  }
+
+  async run(job: ReadJob): Promise<ReadAnswer> {
+    const store = this.store();
+    const a = await runJob(store, job, { whole: true });
+    const then = a.then;
+    if (then) setImmediate(() => void runJob(store, then).catch(() => undefined));
+    return a;
+  }
+
+  close(): Promise<void> {
+    this.stopped = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    return Promise.resolve();
+  }
+}
+
+/**
+ * Answers a request with a read model's answer: its JSON as worked out, with its ETag (`etag` when
+ * the route gives one of its own), so a browser that has it gets a 304; an answer that is still
+ * warming without one, since asked again it has more. A missing run or a bad request is an HttpError,
+ * which the server answers as it answers any.
+ */
+export function sendAnswer(r: RouteRequest, a: ReadAnswer, o: { etag?: string | null } = {}): void {
+  if (a.status !== 200) {
+    let error = `HTTP ${a.status}`;
+    try {
+      error = (JSON.parse(a.body) as { error?: string }).error ?? error;
+    } catch {
+      // the status says it
+    }
+    throw new HttpError(a.status, error);
+  }
+  const etag = a.warming ? null : o.etag !== undefined ? o.etag : a.etag;
+  if (etag && r.req.headers['if-none-match'] === etag) {
+    r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+    r.res.end();
+    return;
+  }
+  r.res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-length': String(Buffer.byteLength(a.body)), 'cache-control': etag ? 'no-cache' : 'no-store', ...(etag ? { etag } : {}) });
+  r.res.end(a.body);
+}

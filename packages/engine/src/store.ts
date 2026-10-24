@@ -40,7 +40,7 @@ process.emitWarning = function patchedEmitWarning(warning: unknown, ...rest: unk
   return (originalEmitWarning as (this: NodeJS.Process, ...a: unknown[]) => void).call(process, warning, ...rest);
 } as typeof process.emitWarning;
 const require = createRequire(import.meta.url);
-const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string) => SqliteDatabase };
+const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase };
 
 interface SqliteStatement {
   run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint };
@@ -151,6 +151,17 @@ CREATE TABLE IF NOT EXISTS run_stats (
   run_id  TEXT PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE,
   key     TEXT NOT NULL,
   stats   TEXT NOT NULL
+);
+
+-- Run about lines (dashboard): what a finished recording's user asked first, which its about line
+-- quotes (the engine's runAsk, as JSON, or null when it asked nothing), kept apart from run_stats so
+-- the run index reads it with each run and the run list's filter matches about lines without
+-- reading any request. \`key\` names what it was worked out from. Additive: no version bump; a store
+-- without it works the asks out again and keeps them here.
+CREATE TABLE IF NOT EXISTS run_asks (
+  run_id  TEXT PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE,
+  key     TEXT NOT NULL,
+  ask     TEXT
 );
 
 -- v4: Fixes. A fix is one failure, from the blame that reproduced it to a change that held: its
@@ -1345,6 +1356,30 @@ export class Store {
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');
+      throw err;
+    }
+    return new Store(db);
+  }
+
+  // ---- read-only connections (the dashboard's read-model threads) ----
+
+  /**
+   * Opens an existing store for reading only, as the dashboard's worker threads read it beside the
+   * connection that writes: nothing is created or migrated (the writing connection did that when it
+   * opened the store), and SQLite refuses any write made through it. In WAL mode a reader never
+   * waits for a writer, nor holds one up. A store from a newer Shadowlap is refused, as `open`
+   * refuses it.
+   */
+  static openReadOnly(path: string): Store {
+    const db = new DatabaseSync(path, { readOnly: true });
+    try {
+      db.exec('PRAGMA busy_timeout = 10000');
+      const found = storedSchemaVersion(db);
+      if (found !== null && found > SCHEMA_VERSION) {
+        throw new Error(`${path} was written by a newer Shadowlap (store schema v${found}; this build understands v${SCHEMA_VERSION}). Upgrade Shadowlap, or point --db at another store.`);
+      }
+    } catch (err) {
+      db.close();
       throw err;
     }
     return new Store(db);
@@ -2657,6 +2692,28 @@ export class Store {
       this.transaction(() => {
         const put = this.db.prepare(`INSERT OR REPLACE INTO run_stats (run_id, key, stats) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM runs WHERE run_id = ?)`);
         for (const r of rows) put.run(r.runId, r.key, r.stats, r.runId);
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this.db.exec(`PRAGMA busy_timeout = ${wait}`);
+    }
+  }
+
+  /**
+   * Keeps what each finished recording's user asked first (`run_asks`), so the run index reads it
+   * with the run, as `saveRunStats` keeps the rest: best effort, a short wait for the write lock,
+   * false when the store can't be written just now. A run deleted meanwhile is skipped.
+   */
+  saveRunAsks(rows: ReadonlyArray<{ runId: string; key: string; ask: string | null }>): boolean {
+    if (!rows.length) return true;
+    const wait = Number((this.db.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined)?.timeout ?? 10_000);
+    this.db.exec(`PRAGMA busy_timeout = ${Math.min(wait, CACHE_WAIT_MS)}`);
+    try {
+      this.transaction(() => {
+        const put = this.db.prepare(`INSERT OR REPLACE INTO run_asks (run_id, key, ask) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM runs WHERE run_id = ?)`);
+        for (const r of rows) put.run(r.runId, r.key, r.ask, r.runId);
       });
       return true;
     } catch {

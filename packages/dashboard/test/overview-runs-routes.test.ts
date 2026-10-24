@@ -217,7 +217,7 @@ describe('the calendar', () => {
     expect(res.status).toBe(400);
   });
 
-  it('offers only commits this checkout has: a teammate’s pulled runs name commits of theirs', () => {
+  it('offers only commits this checkout has: a teammate’s pulled runs name commits of theirs', async () => {
     const repo = realpathSync(mkdtempSync(join(tmpdir(), 'sl-ovr-git-')));
     const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=dana@northwind.example', '-c', 'user.name=Dana', '-c', 'commit.gpgsign=false', ...args], { cwd: repo }).toString().trim();
     try {
@@ -232,10 +232,10 @@ describe('the calendar', () => {
       const theirs = '1fb4209c0ffee00000000000000000000000beef';
       // A full name and a short one are commits here; another checkout's, a branch name and
       // anything that reads like an option are not asked about.
-      expect(commitsHere(repo, [first, second.slice(0, 7), theirs, null, 'HEAD', '--all'])).toEqual(new Set([first, second.slice(0, 7)]));
-      expect(commitsHere(repo, [])).toEqual(new Set());
+      expect(await commitsHere(repo, [first, second.slice(0, 7), theirs, null, 'HEAD', '--all'])).toEqual(new Set([first, second.slice(0, 7)]));
+      expect(await commitsHere(repo, [])).toEqual(new Set());
       // Not a repository: git can't say, so nothing is taken away.
-      expect(commitsHere(tmpdir(), [first])).toBeNull();
+      expect(await commitsHere(tmpdir(), [first])).toBeNull();
 
       const choices = {
         target: { kind: 'run' as const, runId: ids.failed! },
@@ -252,7 +252,7 @@ describe('the calendar', () => {
         unavailable: null,
         args: ['bisect', ids.failed!, '--good', theirs, '--bad', 'feedface', '--fork'],
       };
-      const here = commitsHere(repo, [choices.good, choices.bad, ...choices.revisions.map((r) => r.rev)])!;
+      const here = (await commitsHere(repo, [choices.good, choices.bad, ...choices.revisions.map((r) => r.rev)]))!;
       // The good commit falls to the newest one here where the runs didn't all fail; the bad one to HEAD.
       expect(choicesHere(choices, here)).toEqual({ ...choices, good: first, bad: null, revisions: choices.revisions.slice(1), args: ['bisect', ids.failed, '--good', first, '--fork'] });
       expect(choicesHere({ ...choices, unavailable: 'this run is still recording' }, here).args).toBeNull();

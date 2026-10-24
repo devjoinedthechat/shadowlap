@@ -2,12 +2,11 @@ import { choicesInCheckout } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
-import { deleteRuns, knownRuns, labelRuns, listRunsPage, matchingRuns, runsByDay, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
-import { loadRunIndex } from '../run-index.js';
+import { sendAnswer } from '../read-pool.js';
+import { deleteRuns, knownRuns, labelRuns, matchingRuns, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
 import { bisectChoices, type BisectChoices } from '../tests.js';
+import { readTeamStoreInput, type TeamStoreInput } from '../team-store.js';
 import { goldensOf } from './overview.js';
-import { localRunSet } from '../team-store.js';
-import { localRunIds, teamStoreFor } from './store.js';
 
 /**
  * The Runs page: the table a page at a time, the 12-week calendar above it, Find the commit for the
@@ -45,48 +44,33 @@ export type DaysBisect = { runId: string; label: string; command: string; starte
 /** Failures on the days picked that Find the commit looks through for one that started after the first commit. */
 const LATER_FAILURES = 50;
 
-const asRangeError = (err: unknown): never => {
-  if (err instanceof RangeError) throw new HttpError(400, err.message);
-  throw err;
-};
+/** The team store as the project's config names it, for the Local chip and the `local` tag; null without one. */
+function teamOf(ctx: RouteContext): TeamStoreInput | null {
+  if (!ctx.project) return null;
+  const team = readTeamStoreInput({ cwd: ctx.project.path });
+  return team.store ? team : null;
+}
 
 export function register(router: Router, ctx: RouteContext): void {
   const { store } = ctx;
 
-  router.get('/runs/page', (r) => {
+  // Worked out beside the server (read-pool.ts). Its filter field matches the about lines known,
+  // and the sort by spent the totals known: while the warm-up works out the rest, the page says so
+  // (`warming`), and asks again.
+  router.get('/runs/page', async (r) => {
     const o = runsPageOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
-    const team = teamStoreFor(ctx);
-    let page: ReturnType<typeof listRunsPage>;
-    try {
-      page = listRunsPage(store, { ...o, ...ctx.read, localRuns: team ? localRunSet(store, team.key) : null });
-    } catch (err) {
-      return asRangeError(err);
-    }
-    // With a team store, each row says whether it, or an attempt bundled under it, is only here:
-    // the `local` tag, and what Push in the bulk bar sends.
-    let runs: RunsPageRow[] = page.runs;
-    if (team) {
-      const index = loadRunIndex(store);
-      const attemptsOf = (runId: string) => (index.attempts.get(runId) ?? []).map((a) => a.runId);
-      const local = localRunIds(store, team.key, page.runs.flatMap((x) => [x.runId, ...attemptsOf(x.runId)]));
-      runs = page.runs.map((x) => {
-        const n = attemptsOf(x.runId).filter((id) => local.has(id)).length;
-        return { ...x, local: local.has(x.runId) || n > 0, ...(n ? { localAttempts: { run: local.has(x.runId), attempts: n } } : {}) };
-      });
-    }
-    r.tagged({ ...page, runs });
+    const a = await ctx.reads.run({ kind: 'runs-page', options: { ...o, ...ctx.read }, team: teamOf(ctx) });
+    if (a.warming) ctx.reads.warm();
+    sendAnswer(r, a);
   });
 
-  router.get('/runs/days', (r) => {
+  router.get('/runs/days', async (r) => {
     const o = runsByDayOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
-    const team = o.types?.includes('local') ? teamStoreFor(ctx) : null;
-    try {
-      r.tagged(runsByDay(store, { ...o, localRuns: team ? localRunSet(store, team.key) : null }));
-    } catch (err) {
-      asRangeError(err);
-    }
+    const a = await ctx.reads.run({ kind: 'runs-days', options: o, team: o.types?.includes('local') ? teamOf(ctx) : null });
+    if (a.warming) ctx.reads.warm();
+    sendAnswer(r, a);
   });
 
   // Find the commit, from the calendar: with Failed picked and days chosen, the first failure in
@@ -94,12 +78,13 @@ export function register(router: Router, ctx: RouteContext): void {
   // before the first day picked and that failure's own commit. A failure at the first commit has
   // nothing before it to search: the first failure that started later is offered instead, and the
   // dialog says why; with none, the first failure says so.
-  router.get('/runs/bisect', (r) => {
+  router.get('/runs/bisect', async (r) => {
     const o = runsPageOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
     if (o.from == null || o.to == null) throw new HttpError(400, 'from and to: the days picked');
     // Newest first: the first failure is the last.
-    const failures = matchingRuns(store, { from: o.from, to: o.to, types: [...new Set([...(o.types ?? []), 'failed' as const])], ...(o.q ? { q: o.q } : {}) }).reverse();
+    // The about lines known (on this thread nothing is worked out from any request).
+    const failures = matchingRuns(store, { from: o.from, to: o.to, types: [...new Set([...(o.types ?? []), 'failed' as const])], ...(o.q ? { q: o.q } : {}), known: true }).reverse();
     if (!failures.length) return r.json({ runId: null, reason: 'nothing failed on the days picked' } satisfies DaysBisect);
     const offer = (run: (typeof failures)[number], choices: BisectChoices) => ({ runId: run.runId, label: run.label, command: run.source ?? run.argv.join(' '), startedAt: run.startedAt, choices });
     let earlier: { run: (typeof failures)[number]; choices: BisectChoices } | null = null;
@@ -107,7 +92,7 @@ export function register(router: Router, ctx: RouteContext): void {
       const all = bisectChoices(store, run.runId, { goldens: goldensOf(ctx), before: o.from });
       if (!all) continue;
       // Only commits this checkout has (a teammate's pulled runs name commits of theirs), and none before its first.
-      const choices = choicesInCheckout(ctx.project?.path, all);
+      const choices = await choicesInCheckout(ctx.project?.path, all);
       if (!choices.first) return r.json({ ...offer(run, choices), ...(earlier ? { earlier: { runId: earlier.run.runId, why: earlier.choices.unavailable! } } : {}) } satisfies DaysBisect);
       earlier ??= { run, choices };
     }

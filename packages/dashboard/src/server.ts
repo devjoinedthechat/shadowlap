@@ -9,11 +9,13 @@ import type { ProjectConfig, RouteContext } from './context.js';
 import { exportsEnded } from './export-apart.js';
 import { HttpError, json, sameToken } from './http.js';
 import { JobManager, type JobKind, type JobNotice, type JobPlace, type SpawnCli } from './jobs.js';
+import { LocalReads, ReadPool, type ReadModels } from './read-pool.js';
 import { previewsEnded } from './redaction-preview.js';
 import { Router, routeRequest } from './router.js';
 import { ROUTE_MODULES, type RouteModule } from './routes/index.js';
 import type { GoldenSource } from './tests.js';
 import type { TrainingOptions } from './training.js';
+import { countRuns } from './runs-list.js';
 import { UploadStore } from './uploads.js';
 import type { ProjectView } from './views.js';
 
@@ -97,6 +99,8 @@ export interface DashboardOptions {
 export interface Dashboard {
   /** Origin, e.g. http://127.0.0.1:4777 */
   url: string;
+  /** The port it listens on: the one asked for, or the one the system gave for port 0 (or for a taken default). */
+  port: number;
   /** The URL to open: origin plus the token in the fragment. */
   openUrl: string;
   /** The link that opens a run directly. */
@@ -201,6 +205,34 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   const projectView = (pc: ProjectContext<ProjectConfig>): ProjectView => {
     const entry = projects!.list().find((p) => p.id === pc.id);
     return { id: pc.id, name: pc.name, path: pc.path, display: tildePath(pc.path, projects!.registry.realHome), settingUp: entry ? entry.setup.stage !== 'done' : false };
+  };
+
+  /**
+   * The read models of each store served, worked out beside the server's thread (read-pool.ts): one
+   * set of threads per store file, shared by a project's route instances; a store in memory works
+   * them out here. What the threads work out to keep (run totals, what users asked), this thread's
+   * connection writes; while another command holds the store's write lock (gc's VACUUM, a pull) it
+   * stops trying for a moment, and the threads keep what they worked out in memory meanwhile.
+   */
+  const pools = new Map<string, ReadPool>();
+  const locals = new Set<LocalReads>();
+  const readsFor = (dbPath: string | null | undefined, store: () => Store): ReadModels => {
+    if (!dbPath || dbPath === ':memory:') {
+      const local = new LocalReads(store);
+      locals.add(local);
+      return local;
+    }
+    let pool = pools.get(dbPath);
+    if (!pool) {
+      let pausedUntil = 0;
+      const save = (write: (s: Store) => boolean) => {
+        if (Date.now() < pausedUntil) return;
+        if (!write(store())) pausedUntil = Date.now() + 2000;
+      };
+      pool = new ReadPool({ dbPath, keep: { stats: (rows) => save((s) => s.saveRunStats(rows)), asks: (rows) => save((s) => s.saveRunAsks(rows)) }, log });
+      pools.set(dbPath, pool);
+    }
+    return pool;
   };
 
   /** What a project whose store can't be opened is served from: empty, in memory, shared by every such project. */
@@ -309,6 +341,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
         const prices = pricesFrom(config);
         return prices ? { prices } : {};
       },
+      reads: problem ? readsFor(null, standInStore) : readsFor(pc.dbPath, () => storeOf(pc)),
       get project() {
         const notice = s.failed.length ? `Part of the dashboard couldn’t start for ${pc.name}: ${s.failed.join('; ')}. Its pages there say they aren’t found.` : null;
         return { ...projectView(pc), ...(problem ? { problem, ...(existsSync(pc.path) ? {} : { missing: true }) } : {}), ...(notice ? { notice } : {}) };
@@ -396,6 +429,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       jobs,
       uploads,
       read: opts.prices ? { prices: opts.prices } : {},
+      reads: readsFor(opts.dbPath, () => opts.store!),
       project,
       config: singleConfig,
       readOnly,
@@ -407,6 +441,14 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   } else {
     // The project it opens on is served at once: a route module's mistake shows when it starts.
     serve(currentContext());
+  }
+  // The status bar's counts (/api/meta, on every page) come from the run index: read now, before the
+  // page asks, so its first look doesn't wait for every run to be read and classified. The run
+  // totals the read models keep later change nothing it reads, so it stays read while they warm.
+  try {
+    countRuns(projects ? storeOf(currentContext()) : opts.store!);
+  } catch {
+    // a store that can't be read now says so on its pages
   }
   /** What the dashboard serves now: its store's routes, or the current project's instance with its id and name. */
   const servingNow = (): { router: Router; current: { id: string; name: string } | null } => {
@@ -509,6 +551,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   let closing: Promise<void> | null = null;
   return {
     url,
+    port,
     openUrl: `${url}/#token=${token}`,
     runUrl: (runId, callNo) => `${url}/#token=${token}&open=/run/${runId}${callNo ? `/call/${callNo}` : ''}`,
     token,
@@ -522,6 +565,8 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
         // dashboard and none leaves a run recording; their uploads go with them, then the rest.
         await jobs.close();
         uploads.close();
+        // The read models' threads close their connections to the store before they end.
+        await Promise.all([...pools.values(), ...locals].map((r) => r.close()));
         standIn?.close();
         await closed;
         // A redaction preview's thread, or one making an HTML download, holds the store's file until it has ended.

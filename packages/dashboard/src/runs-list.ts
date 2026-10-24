@@ -1,9 +1,9 @@
 import { checksOf, cleanLabel, isFailedOutcome, lostAt, runOutcome, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
 import type { RunListItem } from './api.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
-import { aboutsOf } from './run-about.js';
+import { aboutsOf, knownAbouts } from './run-about.js';
 import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import { callTotals, priced, spentOf, type StatsOptions } from './run-stats.js';
+import { callTotals, knownSpent, priced, spentOf, totalsKnown, type StatsOptions } from './run-stats.js';
 
 /**
  * The Runs page: a page of the table at a time, the 12-week calendar above it, and the bulk
@@ -46,6 +46,12 @@ export interface RunFilter {
    * what the Local chip shows, and counts. Without one, Local matches nothing.
    */
   localRuns?: ReadonlySet<string> | null;
+  /**
+   * Match and order by what is known, and say what isn't yet (`warming`), rather than work it out
+   * now: the about lines of recordings whose user's first words the warm-up has yet to read, and,
+   * sorted by spent, the totals of runs it has yet to add up. What the dashboard asks for.
+   */
+  known?: boolean;
 }
 
 export interface RunsPageOptions extends RunFilter, StatsOptions {
@@ -103,6 +109,13 @@ export interface RunsPage {
   next: string | null;
   /** Per chip, within the date range (the filter field and the chip picked don't change them). */
   chipCounts: ChipCounts;
+  /**
+   * Set while what the page is ordered or filtered by isn't all known yet, and is being worked out
+   * beside the server: the about lines the filter field matches (`done` of `total` recordings), or
+   * what runs spent for the sort by spent. Matches among the rest may be missing, or out of place;
+   * asked again, the page has more of them.
+   */
+  warming?: { done: number; total: number };
 }
 
 interface Matcher {
@@ -117,13 +130,19 @@ interface Matcher {
 const filterWords = (filter: RunFilter): string[] => (filter.q ?? '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 20);
 
 /**
- * The about line of each run the filter field may match, worked out only when the field has words:
- * a recording's reads its first request, kept once read.
+ * The about line of each run the filter field may match, as far as it is known, worked out only
+ * when the field has words: a recording's quotes what its user asked, which the run index brings
+ * once the warm-up has worked it out. No request is read here: `pending` counts the recordings
+ * whose about line isn't known yet, out of `of`.
  */
-function aboutTexts(store: Store, index: RunIndex, runs: readonly IndexedRun[], filter: RunFilter): (r: IndexedRun) => string {
-  if (!filterWords(filter).length) return () => '';
-  const abouts = aboutsOf(store, index, runs);
-  return (r) => abouts.get(r.runId)?.text ?? '';
+function aboutTexts(store: Store, index: RunIndex, runs: readonly IndexedRun[], filter: RunFilter): { text: (r: IndexedRun) => string; pending: number; of: number } {
+  if (!filterWords(filter).length) return { text: () => '', pending: 0, of: 0 };
+  if (!filter.known) {
+    const abouts = aboutsOf(store, index, runs);
+    return { text: (r) => abouts.get(r.runId)?.text ?? '', pending: 0, of: abouts.size };
+  }
+  const { abouts, pending } = knownAbouts(store, index, runs);
+  return { text: (r) => abouts.get(r.runId)?.text ?? '', pending: pending.size, of: abouts.size + pending.size };
 }
 
 function matcher(filter: RunFilter, aboutText: (r: IndexedRun) => string = () => ''): Matcher {
@@ -151,7 +170,7 @@ export function matchingRuns(store: Store, filter: RunFilter): IndexedRun[] {
   const index = loadRunIndex(store);
   const all = withLiveness(store, index);
   const scoped = all.filter(matcher(filter).scope);
-  return all.filter(matcher(filter, aboutTexts(store, index, scoped, filter)).matches);
+  return all.filter(matcher(filter, aboutTexts(store, index, scoped, filter).text).matches);
 }
 
 /**
@@ -273,9 +292,14 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   const all = withLiveness(store, index);
   const sort = options.sort ?? 'when';
   const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50) || 50));
-  const m = matcher(options, aboutTexts(store, index, all.filter(matcher(options).scope), options));
+  const texts = aboutTexts(store, index, all.filter(matcher(options).scope), options);
+  const m = matcher(options, texts.text);
   const matching = all.filter(m.matches);
-  const spent = sort === 'spent' ? spentOf(store, index, matching.filter((r) => r.status !== 'running'), options) : null;
+  // By spent, from what is known: the runs whose totals aren't, the warm-up works out meanwhile.
+  const finished = sort === 'spent' ? matching.filter((r) => r.status !== 'running') : [];
+  const totals = options.known && sort === 'spent' ? totalsKnown(store, index, finished) : null;
+  const unknownSpent = totals ? totals.total - totals.done : 0;
+  const spent = sort === 'spent' ? (unknownSpent ? knownSpent(store, index, finished, options) : spentOf(store, index, finished, options)) : null;
   const keyOf = (r: IndexedRun): SortKey => {
     // A run in progress is still adding calls and cost: it sorts by when it started, on top.
     if (sort === 'when' || r.status === 'running') return { s: sort, g: sort === 'when' ? 0 : 1, v: 0, t: r.startedAt, id: r.runId };
@@ -292,11 +316,13 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   }
   const page = keyed.slice(start, start + limit);
   const last = page[page.length - 1];
+  const warming = texts.pending ? { done: texts.of - texts.pending, total: texts.of } : totals && unknownSpent ? totals : null;
   return {
     runs: rows(store, index, page.map((x) => x.r), options),
     total: matching.length,
     next: last && start + limit < keyed.length ? encodeCursor(last.k) : null,
     chipCounts: chipCounts(all, m.scope, options.localRuns ?? null),
+    ...(warming ? { warming } : {}),
   };
 }
 
@@ -445,6 +471,8 @@ export interface RunsByDay {
   /** Where the shades split: runs per busy day at the 25th, 50th and 75th percentile, or null with no runs. */
   thresholds: [number, number, number] | null;
   totals: { runs: number; failed: number; all: number; busiest: { day: string; runs: number } | null };
+  /** Set while the about lines the filter field matches aren't all known yet (`RunsPage.warming`). */
+  warming?: { done: number; total: number };
 }
 
 /** Runs per day for the calendar above the table, in the viewer's days. Throws a RangeError for an unknown time zone. */
@@ -457,7 +485,8 @@ export function runsByDay(store: Store, options: RunsByDayOptions = {}): RunsByD
   const out: DayCount[] = days.map((d) => ({ day: d.key, start: d.start, end: d.end, weekday: d.weekday, runs: 0, failed: 0, all: 0, level: 0, byKind: {}, byAuthor: {} }));
   const index = loadRunIndex(store);
   const all = withLiveness(store, index);
-  const m = matcher(options, aboutTexts(store, index, all.filter(matcher(options).scope), options));
+  const texts = aboutTexts(store, index, all.filter(matcher(options).scope), options);
+  const m = matcher(options, texts.text);
   for (const r of all) {
     const i = dayIndex(days, r.startedAt);
     if (i < 0 || !m.base(r)) continue;
@@ -482,7 +511,7 @@ export function runsByDay(store: Store, options: RunsByDayOptions = {}): RunsByD
     totals.all += d.all;
     if (d.runs && (!busiest || d.runs > busiest.runs)) busiest = { day: d.day, runs: d.runs };
   }
-  return { tz, weeks, today: today.key, from: days[0]!.start, to: today.end, days: out, thresholds, totals: { ...totals, busiest } };
+  return { tz, weeks, today: today.key, from: days[0]!.start, to: today.end, days: out, thresholds, totals: { ...totals, busiest }, ...(texts.pending ? { warming: { done: texts.of - texts.pending, total: texts.of } } : {}) };
 }
 
 // ---- counts and bulk actions ----

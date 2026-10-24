@@ -6,7 +6,7 @@ import { aboutsOf } from './run-about.js';
 import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import { cacheTotalsOf, cacheUseOf, callTotals, runStats, sumStats, type RunStats, type StatsOptions } from './run-stats.js';
+import { cacheTotalsOf, cacheUseOf, callTotals, runStats, sumStats, totalsKnown, type RunStats, type StatsOptions } from './run-stats.js';
 import { failingTests, overviewTests, verdictOfResult, type GoldenList } from './tests.js';
 
 /**
@@ -315,15 +315,33 @@ function addTo(w: WeekSums, r: IndexedRun, s: RunStats | undefined): void {
   for (const k of Object.keys(w.origins) as Array<keyof OriginCounts>) w.origins[k] += s.origins[k];
 }
 
-/** The Overview's numbers. Throws a RangeError for an unknown time zone. */
-export function overviewSummary(store: Store, options: OverviewOptions = {}): OverviewSummary {
-  const tz = options.tz ?? 'UTC';
+/** This week and last in the viewer's days, today included. Throws a RangeError for an unknown time zone. */
+function windowsOf(tz: string, now: number): { today: LocalDay; weekDays: LocalDay[]; week: TimeWindow; lastWeek: TimeWindow } {
   if (!isTimeZone(tz)) throw new RangeError(`unknown time zone: ${String(tz)}`);
-  const now = options.now ?? Date.now();
   const today = localDay(now, tz);
   const weekDays = daysFrom(addDays(today, -6, tz), today, tz);
   const week: TimeWindow = { from: weekDays[0]!.start, to: today.end };
-  const lastWeek: TimeWindow = { from: addDays(today, -13, tz).start, to: week.from };
+  return { today, weekDays, week, lastWeek: { from: addDays(today, -13, tz).start, to: week.from } };
+}
+
+/**
+ * How far what the Overview adds up is known (run-stats.ts `totalsKnown`): the totals of every
+ * finished run of these two weeks, and this week's prompt cache. A store no dashboard has opened has
+ * none of it kept: its first look answers with this while the warm-up works out the rest beside the
+ * server, rather than read every call of every run while the browser waits.
+ */
+export function overviewKnown(store: Store, options: Pick<OverviewOptions, 'tz' | 'now'> = {}): { done: number; total: number } {
+  const { week, lastWeek } = windowsOf(options.tz ?? 'UTC', options.now ?? Date.now());
+  const index = loadRunIndex(store);
+  const inWindow = index.runs.filter((r) => r.startedAt >= lastWeek.from && r.startedAt < week.to);
+  return totalsKnown(store, index, inWindow, { cache: (r) => r.startedAt >= week.from && !importedRecording(r) });
+}
+
+/** The Overview's numbers. Throws a RangeError for an unknown time zone. */
+export function overviewSummary(store: Store, options: OverviewOptions = {}): OverviewSummary {
+  const tz = options.tz ?? 'UTC';
+  const now = options.now ?? Date.now();
+  const { today, weekDays, week, lastWeek } = windowsOf(tz, now);
   const index = loadRunIndex(store);
   const inWindow = index.runs.filter((r) => r.startedAt >= lastWeek.from && r.startedAt < week.to);
   const stats = runStats(store, index, inWindow, options);

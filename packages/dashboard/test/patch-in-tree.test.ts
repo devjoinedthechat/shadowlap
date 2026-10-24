@@ -29,33 +29,33 @@ afterEach(() => {
 });
 
 describe('a patch in the working tree', () => {
-  it('is not there until its change is, and is once it is, merged or applied by hand', () => {
+  it('is not there until its change is, and is once it is, merged or applied by hand', async () => {
     const t = 1_000_000;
-    expect(patchInTree(repo, PATCH, t)).toBe(false);
+    expect(await patchInTree(repo, PATCH, t)).toBe(false);
     // Applied by hand, not committed: the file changed, so git is asked again at once.
     writeFileSync(join(repo, 'agent.mjs'), `${AFTER}\n`);
-    expect(patchInTree(repo, PATCH, t + 1)).toBe(true);
+    expect(await patchInTree(repo, PATCH, t + 1)).toBe(true);
     // From the project's folder inside the repository, as the patch names files from its root.
     mkdirSync(join(repo, 'agents'));
-    expect(patchInTree(join(repo, 'agents'), PATCH, t + 2)).toBe(true);
+    expect(await patchInTree(join(repo, 'agents'), PATCH, t + 2)).toBe(true);
     // Taken out again: not there.
     writeFileSync(join(repo, 'agent.mjs'), `${BEFORE}\n// changed since\n`);
-    expect(patchInTree(repo, PATCH, t + 3)).toBe(false);
+    expect(await patchInTree(repo, PATCH, t + 3)).toBe(false);
   });
 
-  it('keeps its answer while the files the patch changes stay as they were, for a minute', () => {
+  it('keeps its answer while the files the patch changes stay as they were, for a minute', async () => {
     const t = 1_000_000;
-    expect(patchInTree(repo, PATCH, t)).toBe(false);
+    expect(await patchInTree(repo, PATCH, t)).toBe(false);
     // Moved out of git's reach: an answer kept is given again, not asked of git.
     rmSync(join(repo, '.git'), { recursive: true, force: true });
-    expect(patchInTree(repo, PATCH, t + 30_000)).toBe(false);
+    expect(await patchInTree(repo, PATCH, t + 30_000)).toBe(false);
   });
 
-  it('says nothing outside a repository', () => {
+  it('says nothing outside a repository', async () => {
     const plain = realpathSync(mkdtempSync(join(tmpdir(), 'sl-patch-in-tree-plain-')));
     try {
       writeFileSync(join(plain, 'agent.mjs'), `${AFTER}\n`);
-      expect(patchInTree(plain, PATCH)).toBeNull();
+      expect(await patchInTree(plain, PATCH)).toBeNull();
     } finally {
       rmSync(plain, { recursive: true, force: true });
     }

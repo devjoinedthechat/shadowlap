@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
 import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
+import { forkDifferences } from './fork-differences.js';
 import { runCalls } from './run-calls.js';
 import { analyseRun } from './run-page.js';
 import { countAttempts } from './run-cache.js';
@@ -117,12 +118,15 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   responses['runs'] = { runs };
   let calls = 0;
   for (const runId of runIds) {
-    const detail = runDetail(store, runId, read);
+    // A copy has no server to ask for the next page: it holds every call.
+    const detail = runDetail(store, runId, read, { limit: Infinity });
     const record = store.getRun(runId);
     if (!detail || !record) continue;
     // Only runs in the file are linked from it: a Compare or parent link to a run left out would dead-end.
     responses[`runs/${runId}`] = { ...detail, run: withoutFolder(keep ? detail.run : withoutAuthor(detail.run)), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
     responses[`runs/${runId}/lineage`] = { nodes: (lineage(store, runId, read) ?? []).filter((n) => runIds.includes(n.runId)).map((n) => (keep ? n : anonymous(n))) };
+    // What a fork did differently, when the file holds its parent too: it quotes the parent's calls.
+    if (record.parentRunId && runIds.includes(record.parentRunId)) responses[`runs/${runId}/differences`] = { differences: forkDifferences(store, runId) };
     // Every call's details from one read of the run and one analysis of it: asking for each call on
     // its own read the whole run again, so a run's export took time with the square of its length.
     const all = runCalls(store, runId);
@@ -189,7 +193,10 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
   try {
     const { data, calls } = payload(store, asked, { ...(opts.prices ? { prices: opts.prices } : {}), version: opts.version ?? null, rules: rules.length, now: opts.now ?? Date.now(), keepAuthor: opts.keepAuthor === true });
     const css = readFileSync(join(uiDir, 'assets', 'app.css'), 'utf8').replace(/url\(["']?\.\/fonts\/([\w.-]+)["']?\)/g, (_m, name: string) => `url(${dataUri(join(uiDir, 'assets', 'fonts', name), 'font/woff2')})`);
-    const js = readFileSync(join(uiDir, 'assets', 'app.js'), 'utf8');
+    // The script with every page in it (build-ui.mjs): the one the dashboard serves loads a page's
+    // code from the server when it opens, and a copy has none. A UI without one (a test's stand-in) has app.js.
+    const whole = join(uiDir, 'assets', 'standalone.js');
+    const js = readFileSync(existsSync(whole) ? whole : join(uiDir, 'assets', 'app.js'), 'utf8');
     const favicon = dataUri(join(uiDir, 'assets', 'favicon.svg'), 'image/svg+xml');
     // The run it opens on, by its id, as the page's own title names it (ui/title.ts) once it has drawn.
     const title = `${asked[0]!.slice(0, 10)} — shadowlap`;

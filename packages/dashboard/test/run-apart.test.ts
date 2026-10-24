@@ -237,5 +237,8 @@ describe('the HTML download', () => {
 
   it('says what to do when no rule has the shape of a slow one', () => {
     expect(exportTookTooLong([EMAIL], 120_000, '01M51X8H8JWJNE1WC28GK204GY')).toBe('Making the HTML file took longer than 2 min, so it was stopped. A redaction rule may take that long on this run’s text, or the run is too long for a download: shadowlap export html 01M51X8H8J --lineage makes the file from a terminal.');
+    // Only a rule the engine's pattern check refuses is named: (?:[\w-]+\.)+ is safe, and SLOW is taken.
+    expect(exportTookTooLong([{ pattern: '/(?:[\\w-]+\\.)+/', replace: '<HOST>' }, SLOW], 120_000, '01M51X8H8JWJNE1WC28GK204GY')).toMatch(/^Making the HTML file took longer than 2 min, so it was stopped\. A redaction rule may take that long/);
+    expect(exportTookTooLong([EMAIL, { pattern: '/(a+)+$/', replace: '<A>' }], 120_000, '01M51X8H8JWJNE1WC28GK204GY')).toMatch(/^Making the HTML file took longer than 2 min, so it was stopped\. Redaction rule #2, \/\(a\+\)\+\$\/: matching it could take too long: /);
   });
 });
